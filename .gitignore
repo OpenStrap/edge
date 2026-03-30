@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.db
+*.sqlite
+
+# Flutter / Dart
+app/build/
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/pubspec.lock
+app/.packages
+app/android/.gradle/
+app/android/local.properties
+app/android/key.properties
+app/*.apk
+
+# Secrets & identifiers — never commit these
+app/lib/core/services/api_client_local.dart
+*.env
+.env*
+config.local.*
+
+# Research — decompiled APK content
+research/whoop_decompiled/
+whoop_jb/whoop_decompiled/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Claude Code session files
+.claude/
