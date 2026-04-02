@@ -1,41 +1,65 @@
-# Python
-__pycache__/
+# Miscellaneous
+*.class
+*.log
 *.pyc
-venv/
-.venv/
-*.db
-*.sqlite
+*.swp
+.DS_Store
+**/.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
 
-# Flutter / Dart
-app/build/
-app/.dart_tool/
-app/.flutter-plugins
-app/.flutter-plugins-dependencies
-app/pubspec.lock
-app/.packages
-app/android/.gradle/
-app/android/local.properties
-app/android/key.properties
-app/*.apk
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
 
-# Secrets & identifiers — never commit these
-app/lib/core/services/api_client_local.dart
+# VS Code
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Generated files
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Flutter/ephemeral/
+ios/Runner/GeneratedPluginRegistrant.h
+ios/Runner/GeneratedPluginRegistrant.m
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio build artifacts
+/android/app/debug
+/android/app/profile
+/android/app/release
+/android/.gradle/
+android/local.properties
+android/key.properties
+
+# Secrets
 *.env
 .env*
 config.local.*
+lib/core/services/api_client_local.dart
 
-# Research — decompiled APK content
-research/whoop_decompiled/
-whoop_jb/whoop_decompiled/
-
-# macOS
-.DS_Store
-**/.DS_Store
-
-# IDE
-.idea/
-.vscode/
-*.iml
-
-# Claude Code session files
+# Claude Code
 .claude/

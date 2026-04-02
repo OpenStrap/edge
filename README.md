@@ -14,7 +14,7 @@ This repository is the result of one person's curiosity about a device strapped 
 
 ## What is this?
 
-A collection of reverse-engineering research, a minimal backend, and a bare-bones Flutter companion app — built entirely by studying the Bluetooth Low Energy protocol that **my own WHOOP 4.0** speaks.
+A reverse-engineering research project, a minimal backend, and a bare-bones Flutter companion app — built entirely by studying the Bluetooth Low Energy protocol that **my own WHOOP 4.0** speaks.
 
 No servers were hacked. No networks were breached. No terms of service of any third-party were violated in a way that affected anyone but myself. A device I own communicated wirelessly — I listened.
 
@@ -36,15 +36,13 @@ Modern wearables operate under an uncomfortable paradox: you pay for the hardwar
 
 ---
 
-## Repository Structure
+## This project lives across three repositories
 
-```
-/research    ← Start here. The BLE protocol documentation and analysis scripts.
-/backend     ← A minimal FastAPI server for ingesting and surfacing WHOOP metrics.
-/app         ← A Flutter companion app that speaks the native WHOOP BLE protocol.
-```
+- [whoopsie-protocol](https://github.com/project-whoopsie/whoopsie-protocol) ← Start here. The BLE protocol documentation and analysis scripts.
+- [whoopsie-backend](https://github.com/project-whoopsie/whoopsie-backend) ← A minimal FastAPI server for ingesting and surfacing WHOOP metrics.
+- [whoopsie](https://github.com/project-whoopsie/whoopsie) ← This repo. A Flutter companion app that speaks the native WHOOP BLE protocol.
 
-**Read `/research` first.** The app and backend are almost meaningless without understanding the protocol they implement.
+**Read whoopsie-protocol first.** The app and backend are almost meaningless without understanding the protocol they implement.
 
 ---
 
@@ -100,6 +98,3 @@ This project is under-resourced and over-ambitious. If you:
 ## Disclaimer
 
 This software is provided as-is, with no warranty of any kind. Use it on your own device at your own risk. Do not use it to access data from anyone else's device. The author is not responsible for any damage to your device, your WHOOP subscription, or your relationship with WHOOP, Inc.
-
-
-
