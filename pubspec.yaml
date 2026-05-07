@@ -1,10 +1,10 @@
-name: whoop_connect
-description: WHOOP 4.0 BLE companion — real-time HR, IMU, PPG streaming.
+name: whoopsie
+description: WHOOP 4.0 companion — open-source live monitor + sleep tracking.
 publish_to: 'none'
-version: 1.0.0+1
+version: 0.1.0+1
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
+  sdk: ^3.4.0
 
 dependencies:
   flutter:
@@ -12,12 +12,19 @@ dependencies:
   flutter_blue_plus: ^1.32.12
   flutter_riverpod: ^2.5.1
   go_router: ^14.2.0
-  lottie: ^3.1.2
   fl_chart: ^0.69.0
   permission_handler: ^11.3.1
-  intl: ^0.19.0
+  flutter_secure_storage: ^9.2.2
   shared_preferences: ^2.3.0
+  flutter_background_service: ^5.0.10
+  flutter_local_notifications: ^17.2.4
+  intl: ^0.19.0
   http: ^1.2.0
+  whoopsie_protocol:
+    git:
+      url: https://github.com/project-whoopsie/whoopsie-protocol.git
+      ref: add-dart-package
+      path: dart
 
 dev_dependencies:
   flutter_test:
@@ -26,6 +33,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/animations/
-    - assets/icons/

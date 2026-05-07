@@ -14,7 +14,13 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Whoop Connect</string>
+	<string>Whoopsie</string>
+	<!-- Background BLE: keeps the WHOOP link alive when the app is backgrounded.
+	     iOS may still suspend under memory pressure; state restoration covers reconnects. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
