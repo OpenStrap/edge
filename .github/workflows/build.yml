@@ -1,0 +1,24 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      # Inject the backend URL from a repo secret into .env before building.
+      - name: Write .env
+        run: echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" > .env
+      - run: flutter pub get
+      - run: flutter build apk --release --dart-define-from-file=.env
+      - uses: actions/upload-artifact@v4
+        with:
+          name: edge-apk
+          path: build/app/outputs/flutter-apk/app-release.apk

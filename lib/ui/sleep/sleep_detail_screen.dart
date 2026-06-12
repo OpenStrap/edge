@@ -1,0 +1,825 @@
+// Sleep detail for one night — hypnogram, stage breakdown, efficiency, debt,
+// consistency, and nocturnal heart. Backed by /day/sleep.
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../net/api_client.dart';
+import '../../state/app_state.dart';
+import '../../theme/theme.dart';
+import '../../theme/tokens.dart';
+import '../kit/kit.dart';
+import '../kit/charts.dart';
+
+class SleepDetailScreen extends StatefulWidget {
+  final String date; // 'YYYY-MM-DD'
+  const SleepDetailScreen({super.key, required this.date});
+
+  /// Convenience: a detail screen for today (local).
+  factory SleepDetailScreen.today({Key? key}) {
+    final d = DateTime.now();
+    final s =
+        '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    return SleepDetailScreen(key: key, date: s);
+  }
+
+  @override
+  State<SleepDetailScreen> createState() => _SleepDetailScreenState();
+}
+
+enum _Phase { loading, ready, empty, error }
+
+/// One compressed run of a stage in the hypnogram.
+class _Seg {
+  final String stage; // 'awake' | 'light' | 'deep' | 'rem'
+  final int seconds;
+  const _Seg(this.stage, this.seconds);
+}
+
+class _SleepDetailScreenState extends State<SleepDetailScreen> {
+  _Phase _phase = _Phase.loading;
+  String? _error;
+  Map<String, dynamic> _data = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final api = context.read<AppState>().api;
+    if (api == null) {
+      setState(() {
+        _phase = _Phase.error;
+        _error = 'Not signed in.';
+      });
+      return;
+    }
+    setState(() {
+      _phase = _Phase.loading;
+      _error = null;
+    });
+    try {
+      final res = await api.getDaySleep(widget.date);
+      if (!mounted) return;
+      final hasSleep = _bool(res['has_sleep']) ?? false;
+      setState(() {
+        _data = res;
+        _phase = hasSleep ? _Phase.ready : _Phase.empty;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _phase = _Phase.error;
+        _error = e is ApiException ? e.body : e.toString();
+      });
+    }
+  }
+
+  // ── defensive parsing ──────────────────────────────────────────────────────
+
+  Map<String, dynamic> _map(Object? v) =>
+      v is Map ? v.cast<String, dynamic>() : const {};
+
+  num? _num(Object? v) {
+    if (v is num) return v;
+    if (v is String) return num.tryParse(v);
+    return null;
+  }
+
+  bool? _bool(Object? v) {
+    if (v is bool) return v;
+    if (v is num) return v != 0;
+    if (v is String) return v == 'true' || v == '1';
+    return null;
+  }
+
+  num? get _durationMin => _num(_data['duration_min']);
+  num? get _needMin => _num(_data['need_min']);
+  num? get _inBedMin => _num(_data['in_bed_min']);
+  num? get _awakeMin => _num(_data['awake_min']);
+  num? get _debtMin => _num(_data['debt_min']);
+  num? get _efficiency => _num(_data['efficiency']); // 0..1
+  num? get _regularity => _num(_data['regularity']); // 0..100
+  bool get _stagesBeta => _bool(_data['stages_beta']) ?? false;
+
+  Map<String, dynamic> get _stages => _map(_data['stages']);
+  num? get _deepMin => _num(_stages['deep_min']);
+  num? get _remMin => _num(_stages['rem_min']);
+  num? get _lightMin => _num(_stages['light_min']);
+
+  Map<String, dynamic> get _nocturnal => _map(_data['nocturnal']);
+  Map<String, dynamic> get _resp => _map(_data['resp']);
+  bool get _hasNocturnal => _num(_nocturnal['sleeping_hr_avg']) != null;
+
+  /// Compressed hypnogram: consecutive same-stage points merged into segments.
+  List<_Seg> _segments() {
+    final raw = _data['hypnogram'];
+    if (raw is! List || raw.length < 2) return const [];
+    final pts = <MapEntry<int, String>>[];
+    for (final p in raw) {
+      final m = _map(p);
+      final t = _num(m['t'])?.toInt();
+      final stage = m['stage'];
+      if (t == null || stage is! String) continue;
+      pts.add(MapEntry(t, stage));
+    }
+    if (pts.length < 2) return const [];
+    pts.sort((a, b) => a.key.compareTo(b.key));
+
+    final out = <_Seg>[];
+    for (int i = 0; i < pts.length - 1; i++) {
+      final dur = pts[i + 1].key - pts[i].key;
+      if (dur <= 0) continue;
+      final stage = pts[i].value;
+      if (out.isNotEmpty && out.last.stage == stage) {
+        out[out.length - 1] = _Seg(stage, out.last.seconds + dur);
+      } else {
+        out.add(_Seg(stage, dur));
+      }
+    }
+    return out;
+  }
+
+  // ── formatting (no intl) ────────────────────────────────────────────────────
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+  static const _weekdays = [
+    'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
+  ];
+
+  /// 'Wed, Jun 11' from the 'YYYY-MM-DD' param (no intl).
+  String _prettyDate() {
+    final parts = widget.date.split('-');
+    if (parts.length != 3) return widget.date;
+    final y = int.tryParse(parts[0]);
+    final mo = int.tryParse(parts[1]);
+    final d = int.tryParse(parts[2]);
+    if (y == null || mo == null || d == null) return widget.date;
+    final dt = DateTime(y, mo, d);
+    final wd = _weekdays[(dt.weekday - 1) % 7];
+    final mname = (mo >= 1 && mo <= 12) ? _months[mo - 1] : '';
+    return '$wd, $mname $d';
+  }
+
+  /// HH:MM (local) from an epoch-seconds value.
+  String _clock(num? epochSec) {
+    if (epochSec == null) return '—';
+    final dt =
+        DateTime.fromMillisecondsSinceEpoch(epochSec.toInt() * 1000).toLocal();
+    return '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
+  /// 'Hh Mm' from minutes.
+  String _hm(num? minutes) {
+    if (minutes == null) return '—';
+    final m = minutes.round();
+    if (m <= 0) return '0m';
+    final h = m ~/ 60;
+    final r = m % 60;
+    if (h == 0) return '${r}m';
+    if (r == 0) return '${h}h';
+    return '${h}h ${r}m';
+  }
+
+  /// Whole hours (for the "of Nh need" line).
+  String _hours(num? minutes) {
+    if (minutes == null) return '—';
+    return (minutes / 60).toStringAsFixed(1);
+  }
+
+  // ── stage colors / labels ─────────────────────────────────────────────────
+
+  Color _stageColor(String stage) {
+    switch (stage) {
+      case 'awake':
+        return AppColors.inkMuted;
+      case 'light':
+        return AppColors.coral.withValues(alpha: 0.35);
+      case 'rem':
+        return AppColors.coral;
+      case 'deep':
+        return AppColors.coralDeep;
+      default:
+        return AppColors.inkMuted;
+    }
+  }
+
+  String _stageLabel(String stage) {
+    switch (stage) {
+      case 'awake':
+        return 'Awake';
+      case 'light':
+        return 'Light';
+      case 'rem':
+        return 'REM';
+      case 'deep':
+        return 'Deep';
+      default:
+        return stage;
+    }
+  }
+
+  // ── build ──────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      body: SafeArea(
+        bottom: false,
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
+          children: [
+            const SizedBox(height: Sp.x4),
+            _topBar(),
+            const SizedBox(height: Sp.x6),
+            if (_phase == _Phase.loading)
+              _loading()
+            else if (_phase == _Phase.empty)
+              _stateCard(
+                Ic.moon,
+                'No sleep recorded for this night',
+                'Wear your strap overnight and sync. Your sleep breakdown will '
+                    'appear here once a night has been recorded.',
+              )
+            else if (_phase == _Phase.error)
+              _stateCard(
+                Ic.cloud,
+                "Couldn't load this night",
+                _error ?? 'Please try again.',
+              )
+            else ...[
+              _hero(),
+              const SizedBox(height: Sp.x6),
+              _hypnogramCard(),
+              const SizedBox(height: Sp.x6),
+              SectionHeader('Stages'),
+              _stageBreakdown(),
+              const SizedBox(height: Sp.x6),
+              SectionHeader('Efficiency'),
+              _efficiencyCard(),
+              const SizedBox(height: Sp.x6),
+              SectionHeader('Sleep debt'),
+              _debtCard(),
+              const SizedBox(height: Sp.x6),
+              SectionHeader('Consistency'),
+              _consistencyCard(),
+              if (_hasNocturnal) ...[
+                const SizedBox(height: Sp.x6),
+                SectionHeader('Nocturnal heart'),
+                _nocturnalCard(),
+              ],
+            ],
+            const SizedBox(height: 40),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _topBar() {
+    return Row(
+      children: [
+        RoundIconButton(Ic.arrowLeft,
+            onTap: () => Navigator.of(context).maybePop()),
+        const SizedBox(width: Sp.x3),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Sleep', style: AppText.h1),
+              const SizedBox(height: 2),
+              Text(_prettyDate(), style: AppText.caption),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── 2. HERO ────────────────────────────────────────────────────────────────
+
+  Widget _hero() {
+    final dur = _durationMin;
+    final need = _needMin;
+    final t = (dur != null && need != null && need > 0)
+        ? (dur / need).toDouble()
+        : double.nan;
+
+    return GlowCard(
+      padding: const EdgeInsets.all(Sp.x6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const AppIcon(Ic.moon, size: 16, color: AppColors.coralDeep),
+                    const SizedBox(width: Sp.x2),
+                    Text('TIME ASLEEP', style: AppText.overline),
+                    if (_stagesBeta) ...[
+                      const SizedBox(width: Sp.x2),
+                      const Tag('beta', color: AppColors.coral),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: Sp.x3),
+                if (dur == null)
+                  metricDash(44)
+                else
+                  Text(_hm(dur), style: AppText.display),
+                const SizedBox(height: Sp.x2),
+                Text(
+                  need == null
+                      ? 'No sleep need set'
+                      : 'of ${_hours(need)}h need',
+                  style: AppText.bodySoft,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: Sp.x4),
+          RingStat(
+            t: t,
+            color: AppColors.coral,
+            size: 104,
+            stroke: 11,
+            center: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  t.isNaN ? '—' : '${(t.clamp(0, 1) * 100).round()}%',
+                  style: AppText.metricSm,
+                ),
+                Text('of need', style: AppText.captionMuted),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── hypnogram ──────────────────────────────────────────────
+
+  Widget _hypnogramCard() {
+    final segs = _segments();
+    return ProCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('Sleep stages', style: AppText.h2),
+              const Spacer(),
+              const AppIcon(Ic.clock, size: 16, color: AppColors.inkMuted),
+            ],
+          ),
+          const SizedBox(height: Sp.x4),
+          if (segs.isEmpty)
+            SizedBox(
+              height: 64,
+              child: Center(
+                child: Text('No hypnogram for this night',
+                    style: AppText.captionMuted),
+              ),
+            )
+          else ...[
+            SizedBox(
+              height: 56,
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: _HypnogramPainter(
+                  segs: segs,
+                  colorOf: _stageColor,
+                ),
+              ),
+            ),
+            const SizedBox(height: Sp.x2),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(_clock(_num(_data['onset_ts'])),
+                    style: AppText.captionMuted),
+                Text(_clock(_num(_data['wake_ts'])),
+                    style: AppText.captionMuted),
+              ],
+            ),
+          ],
+          const SizedBox(height: Sp.x4),
+          _legend(),
+        ],
+      ),
+    );
+  }
+
+  Widget _legend() {
+    Widget swatch(String stage) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                color: _stageColor(stage),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(_stageLabel(stage), style: AppText.caption),
+          ],
+        );
+    return Wrap(
+      spacing: Sp.x4,
+      runSpacing: Sp.x2,
+      children: [
+        swatch('deep'),
+        swatch('rem'),
+        swatch('light'),
+        swatch('awake'),
+      ],
+    );
+  }
+
+  // ── 4. STAGE BREAKDOWN ──────────────────────────────────────────────────────
+
+  Widget _stageBreakdown() {
+    final inBed = _inBedMin;
+    return ProCard(
+      child: Column(
+        children: [
+          _stageRow('deep', _deepMin, inBed),
+          const SizedBox(height: Sp.x4),
+          _stageRow('rem', _remMin, inBed),
+          const SizedBox(height: Sp.x4),
+          _stageRow('light', _lightMin, inBed),
+          const SizedBox(height: Sp.x4),
+          _stageRow('awake', _awakeMin, inBed),
+        ],
+      ),
+    );
+  }
+
+  Widget _stageRow(String stage, num? minutes, num? inBed) {
+    final color = _stageColor(stage);
+    final pct = (minutes != null && inBed != null && inBed > 0)
+        ? (minutes / inBed).clamp(0.0, 1.0).toDouble()
+        : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            const SizedBox(width: Sp.x3),
+            Expanded(child: Text(_stageLabel(stage), style: AppText.title)),
+            Text(_hm(minutes),
+                style: AppText.metricSm.copyWith(fontSize: 18)),
+            const SizedBox(width: Sp.x3),
+            SizedBox(
+              width: 44,
+              child: Text(
+                pct == null ? '—' : '${(pct * 100).round()}%',
+                textAlign: TextAlign.right,
+                style: AppText.caption,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Sp.x2),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(R.pill),
+          child: SizedBox(
+            height: 6,
+            child: Row(
+              children: [
+                Expanded(
+                  flex: ((pct ?? 0) * 1000).round().clamp(0, 1000),
+                  child: Container(color: color),
+                ),
+                Expanded(
+                  flex: (1000 - ((pct ?? 0) * 1000).round()).clamp(1, 1000),
+                  child: Container(color: AppColors.surfaceAlt),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── 5. EFFICIENCY ───────────────────────────────────────────────────────────
+
+  Widget _efficiencyCard() {
+    final eff = _efficiency;
+    final inBed = _inBedMin;
+    final asleep = _durationMin;
+    final awake = _awakeMin;
+    return ProCard(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('SLEEP EFFICIENCY', style: AppText.overline),
+              const SizedBox(height: Sp.x2),
+              if (eff == null)
+                metricDash(30)
+              else
+                Text('${(eff.clamp(0, 1) * 100).round()}%',
+                    style: AppText.metric),
+            ],
+          ),
+          const Spacer(),
+          Flexible(
+            child: Text(
+              '${_hm(inBed)} in bed · ${_hm(asleep)} asleep · ${_hm(awake)} awake',
+              textAlign: TextAlign.right,
+              style: AppText.bodySoft,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── 6. SLEEP DEBT ───────────────────────────────────────────────────────────
+
+  Widget _debtCard() {
+    final debt = _debtMin;
+    final none = debt == null || debt.round() <= 0;
+    return ProCard(
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(Sp.x3),
+            decoration: BoxDecoration(
+              color: none ? AppColors.goodSoft : AppColors.coralSoft,
+              borderRadius: BorderRadius.circular(R.chip),
+            ),
+            child: AppIcon(
+              none ? Ic.check : Ic.bed,
+              size: 20,
+              color: none ? AppColors.good : AppColors.coralDeep,
+            ),
+          ),
+          const SizedBox(width: Sp.x4),
+          Expanded(
+            child: none
+                ? Text('No sleep debt — nice.', style: AppText.title)
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('${_hm(debt)} sleep debt',
+                          style: AppText.title),
+                      const SizedBox(height: 2),
+                      Text('Carried over from prior nights',
+                          style: AppText.captionMuted),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── 7. CONSISTENCY ──────────────────────────────────────────────────────────
+
+  Widget _consistencyCard() {
+    final reg = _regularity;
+    final t = reg == null ? double.nan : (reg / 100).clamp(0.0, 1.0).toDouble();
+    return ProCard(
+      child: Row(
+        children: [
+          RingStat(
+            t: t,
+            color: AppColors.coral,
+            size: 76,
+            stroke: 9,
+            center: Text(
+              reg == null ? '—' : '${reg.round()}',
+              style: AppText.metricSm.copyWith(fontSize: 18),
+            ),
+          ),
+          const SizedBox(width: Sp.x5),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Regularity ${reg == null ? '—' : '${reg.round()}/100'}',
+                    style: AppText.title),
+                const SizedBox(height: 4),
+                Text('Higher = steadier bedtime and wake time',
+                    style: AppText.bodySoft),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── 8. NOCTURNAL HEART ──────────────────────────────────────────────────────
+
+  Widget _nocturnalCard() {
+    final avg = _num(_nocturnal['sleeping_hr_avg'])?.round();
+    final nadir = _num(_nocturnal['sleeping_hr_min'])?.round();
+    final nadirTs = _num(_nocturnal['nadir_ts'])?.toInt();
+    final dayHr = _num(_nocturnal['day_hr_avg'])?.round();
+    final dip = _num(_nocturnal['dip_pct'])?.toDouble();
+    final vsBase = _num(_nocturnal['vs_baseline_bpm'])?.toDouble();
+    final elevated = _nocturnal['elevated'] == true;
+    final respVal = _num(_resp['value'])?.toDouble();
+
+    return ProCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+            padding: const EdgeInsets.all(Sp.x3),
+            decoration: BoxDecoration(
+              color: elevated ? AppColors.warnSoft : AppColors.coralSoft,
+              borderRadius: BorderRadius.circular(R.chip),
+            ),
+            child: AppIcon(Ic.heart, size: 20,
+                color: elevated ? AppColors.warn : AppColors.coralDeep),
+          ),
+          const SizedBox(width: Sp.x4),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(avg == null ? '—' : '$avg bpm asleep', style: AppText.title),
+              const SizedBox(height: 2),
+              Text(
+                dip != null
+                    ? 'Dipped ${(dip * 100).round()}% below your waking heart rate'
+                    : 'Sleeping heart rate',
+                style: AppText.captionMuted,
+              ),
+            ],
+          )),
+        ]),
+        const SizedBox(height: Sp.x4),
+        Row(children: [
+          _nStat('NADIR', nadir == null ? '—' : '$nadir',
+              nadir == null ? '' : 'bpm @ ${_clock(nadirTs)}'),
+          _nStat('WAKING', dayHr == null ? '—' : '$dayHr', dayHr == null ? '' : 'bpm avg'),
+          _nStat('VS BASE', vsBase == null ? '—' : '${vsBase > 0 ? '+' : ''}${vsBase.toStringAsFixed(1)}',
+              vsBase == null ? 'building' : 'bpm'),
+        ]),
+        if (respVal != null) ...[
+          const SizedBox(height: Sp.x4),
+          Row(children: [
+            const AppIcon(Ic.activity, size: 16, color: AppColors.coralDeep),
+            const SizedBox(width: Sp.x2),
+            Text('${respVal.toStringAsFixed(1)} breaths/min',
+                style: AppText.title),
+            const SizedBox(width: Sp.x2),
+            const Tag('beta', color: AppColors.coral),
+          ]),
+        ],
+        if (elevated) ...[
+          const SizedBox(height: Sp.x4),
+          Container(
+            padding: const EdgeInsets.all(Sp.x3),
+            decoration: BoxDecoration(
+                color: AppColors.warnSoft, borderRadius: BorderRadius.circular(R.cardSm)),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const AppIcon(Ic.info, size: 16, color: AppColors.warn),
+              const SizedBox(width: Sp.x2),
+              Expanded(child: Text(
+                'Overnight heart rate ran above your baseline — often an early cue of '
+                'fighting something off or under-recovery. A signal, not a diagnosis.',
+                style: AppText.captionMuted,
+              )),
+            ]),
+          ),
+        ],
+        const SizedBox(height: Sp.x3),
+        Text(
+          respVal == null
+              ? 'A bigger overnight dip generally means better autonomic recovery. '
+                'Breaths/min appears here when optical PPG was captured.'
+              : 'A bigger overnight dip generally means better autonomic recovery.',
+          style: AppText.captionMuted,
+        ),
+      ]),
+    );
+  }
+
+  Widget _nStat(String label, String value, String sub) => Expanded(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(label, style: AppText.overline),
+          const SizedBox(height: 2),
+          Text(value, style: AppText.metricSm.copyWith(fontSize: 19)),
+          if (sub.isNotEmpty) Text(sub, style: AppText.captionMuted),
+        ]),
+      );
+
+  // ── states ───────────────────────────────────────────────────────────────────
+
+  Widget _loading() => const ProCard(
+        padding: EdgeInsets.all(Sp.x6),
+        child: SizedBox(
+          height: 360,
+          child: Center(child: CircularProgressIndicator(color: AppColors.coral)),
+        ),
+      );
+
+  Widget _stateCard(IconData icon, String title, String message) {
+    return ProCard(
+      padding: const EdgeInsets.all(Sp.x6),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(Sp.x4),
+            decoration: const BoxDecoration(
+              color: AppColors.coralSoft,
+              shape: BoxShape.circle,
+            ),
+            child: AppIcon(icon, size: 30, color: AppColors.coralDeep),
+          ),
+          const SizedBox(height: Sp.x4),
+          Text(title, style: AppText.h2, textAlign: TextAlign.center),
+          const SizedBox(height: Sp.x2),
+          Text(message, style: AppText.bodySoft, textAlign: TextAlign.center),
+          const SizedBox(height: Sp.x5),
+          OutlinedButton(onPressed: _load, child: const Text('Try again')),
+        ],
+      ),
+    );
+  }
+}
+
+/// Draws the night as a horizontal banded timeline, left→right, segments
+/// weighted by duration. Each band is vertically centered around its stage
+/// "depth" (awake = top, deep = bottom) so the shape reads like a hypnogram,
+/// with a soft rounded fill per segment.
+class _HypnogramPainter extends CustomPainter {
+  final List<_Seg> segs;
+  final Color Function(String) colorOf;
+  _HypnogramPainter({required this.segs, required this.colorOf});
+
+  // Vertical lane (0 = top .. 1 = bottom) per stage.
+  static const _depth = {
+    'awake': 0.0,
+    'rem': 0.30,
+    'light': 0.60,
+    'deep': 0.92,
+  };
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final total = segs.fold<int>(0, (s, e) => s + e.seconds);
+    if (total <= 0) return;
+
+    const bandH = 14.0;
+    final usableTop = bandH / 2;
+    final usableH = size.height - bandH;
+
+    double x = 0;
+    const gap = 1.0;
+    for (final seg in segs) {
+      final w = (seg.seconds / total) * size.width;
+      if (w <= 0) continue;
+      final lane = _depth[seg.stage] ?? 0.5;
+      final cy = usableTop + lane * usableH;
+      final rect = Rect.fromLTWH(
+        x + gap / 2,
+        cy - bandH / 2,
+        (w - gap).clamp(0.5, size.width),
+        bandH,
+      );
+      final paint = Paint()..color = colorOf(seg.stage);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(4)),
+        paint,
+      );
+      x += w;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HypnogramPainter old) => old.segs != segs;
+}
