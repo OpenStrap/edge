@@ -80,7 +80,7 @@ void callbackDispatcher() {
 class BackgroundSync {
   /// Call once at app start (registers the isolate entry point).
   static Future<void> init() async {
-    await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
+    await Workmanager().initialize(callbackDispatcher);
   }
 
   /// Schedule the periodic background sync. 15 min is the OS floor; the OS may run
@@ -92,7 +92,7 @@ class BackgroundSync {
       _kPeriodicTask,
       frequency: const Duration(minutes: 15),
       constraints: Constraints(networkType: NetworkType.connected),
-      existingWorkPolicy: ExistingWorkPolicy.keep,
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
       backoffPolicy: BackoffPolicy.linear,
       backoffPolicyDelay: const Duration(minutes: 5),
     );

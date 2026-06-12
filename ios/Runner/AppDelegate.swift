@@ -12,7 +12,11 @@ import workmanager
     WorkmanagerPlugin.setPluginRegistrantCallback { registry in
       GeneratedPluginRegistrant.register(with: registry)
     }
-    WorkmanagerPlugin.registerTask(withIdentifier: "openstrap.periodicSync")
+    // workmanager 0.9 API. Identifier must match BGTaskSchedulerPermittedIdentifiers.
+    WorkmanagerPlugin.registerPeriodicTask(
+      withIdentifier: "openstrap.periodicSync",
+      frequency: NSNumber(value: 15 * 60)
+    )
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
