@@ -36,10 +36,6 @@ dependencies:
   # Share recap cards (rendered card → image → share sheet).
   share_plus: ^10.1.4
 
-  # Background sync — OS-scheduled periodic task (Android WorkManager / iOS BGTask).
-  # No foreground service, no persistent notification.
-  workmanager: ^0.9.0
-
   # Home/lock-screen widget bridge (writes a snapshot to the App Group → WidgetKit).
   home_widget: ^0.6.0
 

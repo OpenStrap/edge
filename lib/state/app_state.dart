@@ -20,7 +20,6 @@ import '../data/db.dart';
 import '../data/models.dart';
 import '../net/api_client.dart';
 import '../live/live_activity.dart';
-import '../sync/background_sync.dart';
 import '../sync/config.dart';
 import '../sync/edge_tracking.dart';
 import '../widget/widget_service.dart';
@@ -45,6 +44,20 @@ class AppState extends ChangeNotifier {
   bool _reconnecting = false;
   String _prevConn = 'disconnected';
   bool initialized = false;
+
+  /// True while the app is backgrounded. On iOS we KEEP the BLE connection alive in
+  /// this state (see [pauseForBackground]) so the OS keeps resuming us per BLE
+  /// notification and the live drain + flush continue.
+  bool _background = false;
+
+  /// One session-long flusher. It uploads pending raw records on a steady cadence and,
+  /// because the uploader RETAINS rows on any non-200 (a transient rate-limit 429
+  /// included), each tick also retries whatever the last tick couldn't send. No
+  /// per-record flushing and no backoff/cooldown — a plain ~15s cadence sits well under
+  /// the backend rate limit (burst 30, refill 0.5/s) on its own. On iOS the timer simply
+  /// fires on the next BLE-notification resume when the app was suspended.
+  Timer? _flushTimer;
+  static const Duration _kFlushInterval = Duration(seconds: 15);
 
   bool get backendChosen => config?.chosen ?? false;
   bool get isAuthenticated => session?.isValid ?? false;
@@ -82,6 +95,11 @@ class AppState extends ChangeNotifier {
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
     initialized = true;
     notifyListeners();
+    // The flusher is connection-INDEPENDENT: it just uploads whatever's queued in
+    // SQLite (and retries anything a prior tick failed to send). Start it as soon as
+    // we're authenticated so a backlog drains even if the live connection comes up via
+    // _reconnect rather than openSession.
+    if (isAuthenticated) _startFlusher();
     if (isAuthenticated && isPaired) openSession();
   }
 
@@ -94,6 +112,7 @@ class AppState extends ChangeNotifier {
     // Refresh failed — session already cleared by ApiClient. Drop to login.
     // The local upload queue persists and retries after re-login.
     _keepAlive = false;
+    _stopFlusher();
     engine.disconnect();
     _log('Session expired — please sign in again.');
     notifyListeners();
@@ -139,6 +158,7 @@ class AppState extends ChangeNotifier {
   /// Verify OTP → session persisted by ApiClient. Returns true on success.
   Future<void> verifyOtp(String email, String code) async {
     await api!.verifyOtp(email, code);
+    _startFlusher();
     notifyListeners();
   }
 
@@ -150,8 +170,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> signOut() async {
     _keepAlive = false;
+    _stopFlusher();
     IosBleRestore.foregroundActive = false;
-    await BackgroundSync.disable();
     await EdgeTracking.stop();
     await IosBleRestore.disarm();
     await engine.disconnect();
@@ -159,31 +179,77 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Called when the app goes to the background. On iOS this hands the band to the
-  /// CoreBluetooth restoration path: clear the foreground flag (the wake-drain is gated
-  /// on it) and release our live connection so the native restore central's no-timeout
-  /// pending connect can hold it and relaunch us when the band is reachable. Without
-  /// this, `foregroundActive` stays true for the whole session and the background wake
-  /// never drains — sync only ever happened on app open.
+  /// Called when the app goes to the background.
   ///
-  /// On Android we do NOT disconnect: the Edge Tracking foreground service keeps the
-  /// process + connection alive, so the live drain just continues.
+  /// iOS keeps an app alive in the background ONLY while it holds an active BLE
+  /// connection with a subscribed characteristic (UIBackgroundModes: bluetooth-central).
+  /// So we DELIBERATELY keep the live connection + streams up here instead of
+  /// disconnecting — the band keeps pushing notifications, iOS resumes us per
+  /// notification, and the drain+upload continue continuously. (The old code called
+  /// `engine.disconnect()` here, which made iOS drop the Bluetooth assertion and suspend
+  /// us within ~34s, so sync only ever ran when the app was reopened.)
+  ///
+  /// We still own the band, so the restore central must NOT arm a competing connect.
+  /// `BleRestoreManager` is armed only as a RECOVERY path if the connection actually
+  /// drops (band out of range / app jettisoned) — see [_onEngineState] / [_armRecovery].
+  ///
+  /// On Android the Edge Tracking foreground service keeps the process + connection
+  /// alive, so the live drain just continues there too.
   Future<void> pauseForBackground() async {
+    _background = true;
+    if (Platform.isAndroid) {
+      // Android: ensure the Edge Tracking foreground service is up (idempotent) so the
+      // process + live connection survive backgrounding; the shared flusher keeps
+      // uploading. No periodic task, no restore central — the service IS the keep-alive.
+      EdgeTracking.start();
+      return;
+    }
     if (!Platform.isIOS) return;
+    if (engine.isConnected) {
+      IosBleRestore.foregroundActive = true; // "app owns the band" — don't let restore compete
+      await IosBleRestore.setOwnsBand(true);
+      _log('Backgrounded — holding live connection for continuous background sync');
+    } else {
+      // No live connection to hold — fall back to the restore path so iOS relaunches us
+      // when the band reappears.
+      await _armRecovery();
+      _log('Backgrounded — no live connection; armed iOS restore recovery');
+    }
+  }
+
+  /// iOS recovery: release the band to the native restore central's no-timeout pending
+  /// connect so the OS relaunches us when the band is reachable again.
+  Future<void> _armRecovery() async {
+    if (!Platform.isIOS || paired == null) return;
     IosBleRestore.foregroundActive = false;
-    _keepAlive = false; // stop the drop handler from auto-reconnecting and fighting the handoff
-    await engine.disconnect();
-    _log('Backgrounded — released band to iOS restore for background sync');
+    await IosBleRestore.setOwnsBand(false);
+    await IosBleRestore.arm(paired!.remoteId);
   }
 
   Future<void> _onRecord(Sample? sample, RawRecord raw) async {
     await LocalDb.insertRecord(raw, sample);
   }
 
+  /// Start the session-long flusher (idempotent). Cancelled on disconnect / sign-out.
+  void _startFlusher() {
+    _flushTimer ??= Timer.periodic(_kFlushInterval, (_) {
+      if (!uploading) unawaited(upload());
+    });
+  }
+
+  void _stopFlusher() {
+    _flushTimer?.cancel();
+    _flushTimer = null;
+  }
+
   void _onEngineState(DeviceState s) {
     if (_prevConn != 'disconnected' && s.connection == 'disconnected') {
       if (_keepAlive && isPaired && !_reconnecting) {
         _log('Connection dropped — reconnecting…');
+        // If we're backgrounded, also arm the iOS restore path: if the in-process
+        // reconnect can't reach the band (out of range / about to be jettisoned), the
+        // OS will relaunch us when it returns.
+        if (_background) unawaited(_armRecovery());
         _reconnect();
       }
     }
@@ -210,8 +276,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> unpair() async {
     _keepAlive = false;
+    _stopFlusher();
     IosBleRestore.foregroundActive = false;
-    await BackgroundSync.disable();
     await EdgeTracking.stop();
     await IosBleRestore.disarm();
     await engine.disconnect();
@@ -261,11 +327,21 @@ class AppState extends ChangeNotifier {
   // ── session: drain history, go live, stay connected ──────────────────────────
   Future<void> openSession() async {
     if (busy || paired == null || !isAuthenticated) return;
+    // Returning to the foreground with the connection still alive (kept during
+    // background): don't tear it down and reconnect — just reclaim ownership and flush.
+    final wasBackground = _background;
+    _background = false;
+    if (wasBackground && engine.isConnected) {
+      IosBleRestore.foregroundActive = true;
+      await IosBleRestore.setOwnsBand(true);
+      EdgeTracking.start(); // Android: keep the foreground service up (idempotent)
+      _startFlusher();
+      unawaited(upload());
+      return;
+    }
     _setBusy(true);
     lastError = null;
     _keepAlive = true;
-    // Keep syncing in the background. Idempotent — safe to call on every session start.
-    BackgroundSync.enable();
     // Android: start the Edge Tracking foreground service so the live connection keeps
     // draining while backgrounded (Android kills background processes otherwise).
     EdgeTracking.start();
@@ -286,13 +362,11 @@ class AppState extends ChangeNotifier {
       await engine.getAlarm();
       _log('Live session active.');
 
-      final flush = Timer.periodic(const Duration(seconds: 15), (_) => upload());
-      late final SyncReport report;
-      try {
-        report = await engine.runSync();
-      } finally {
-        flush.cancel();
-      }
+      // Start the session-long flusher (it keeps running after the drain, flushing live
+      // records + retrying anything a tick failed to send). Replaces the old
+      // drain-scoped timer that stopped once history finished.
+      _startFlusher();
+      final report = await engine.runSync();
       _log('Drained ${report.records} records in ${report.batches} batches '
           '(${report.complete ? "complete" : "idle-stopped"}).');
       dbCounts = await LocalDb.counts();
@@ -312,6 +386,13 @@ class AppState extends ChangeNotifier {
         await Future.delayed(Duration(seconds: 2 * attempt));
         if (!_keepAlive) break;
         if (await engine.connectToRemoteId(paired!.remoteId)) {
+          // Reclaim the band from the iOS restore central so it stops competing.
+          if (Platform.isIOS) {
+            IosBleRestore.foregroundActive = true;
+            await IosBleRestore.setOwnsBand(true);
+          }
+          _startFlusher();     // ensure live uploads run even on a reconnect-only path
+          EdgeTracking.start(); // ensure the Android foreground service is up too
           await engine.runSync(timeout: const Duration(seconds: 30));
           await upload();
           await engine.enableLiveStreams();
@@ -330,6 +411,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> endSession() async {
     _keepAlive = false;
+    _stopFlusher();
     await engine.disconnect();
   }
 
@@ -364,7 +446,10 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     });
     if (result.ok) {
-      _log('Uploaded ${result.accepted}/${result.attempted} records.');
+      // Suppress the every-tick "0/0" noise — the flusher polls on a steady cadence.
+      if (result.attempted > 0) {
+        _log('Uploaded ${result.accepted}/${result.attempted} records.');
+      }
     } else {
       lastError = 'Upload failed: ${result.error}';
       _log(lastError!);
