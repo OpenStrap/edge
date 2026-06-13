@@ -13,18 +13,19 @@ import Flutter
 /// relaunches us when the band shows up, then it cancels its own connection and tells
 /// Flutter to run the normal headless sync.
 ///
-/// Pacing: a no-timeout pending connect to an in-range band fires immediately, so left
-/// alone it would reconnect-drain in a loop. After each sync we enter a cooldown
-/// (~50 min) before re-arming, which lands the cadence near "once an hour" while the
-/// band is around, and still syncs promptly when the band returns after being away.
-/// Arming only happens while backgrounded; in the foreground flutter_blue_plus owns the
-/// band.
+/// This is RECOVERY-ONLY: normal sync is the kept-alive live connection + the AppState
+/// flusher. The restore central arms a no-timeout pending connect ONLY when Dart tells
+/// it the connection dropped (`setOwnsBand(false)` / `arm`). No timers, no cooldown.
+///
+/// Loop prevention is event-driven, not time-based: after a wake hands off to Dart and
+/// Dart reports the drain done (`syncDone`), we go IDLE and do NOT re-arm. We re-arm only
+/// on the next explicit request from Dart (a fresh disconnect). Arming only happens while
+/// backgrounded; in the foreground flutter_blue_plus owns the band.
 class BleRestoreManager: NSObject {
   static let shared = BleRestoreManager()
 
   private static let restoreId = "openstrap.ble.restore"
   private static let bandUUIDKey = "openstrap.ble.band_uuid"
-  private let cooldownSeconds: TimeInterval = 50 * 60
 
   private var central: CBCentralManager?
   private var bandUUID: UUID?
@@ -33,9 +34,15 @@ class BleRestoreManager: NSObject {
   private var flutterReady = false
   private var wakeQueuedBeforeReady = false
   private var handedOff = false             // true between wake → Dart's syncDone
-  private var coolingDown = false
-  private var cooldownWork: DispatchWorkItem?
+  /// Set after a wake's sync completes; suppresses re-arming until Dart explicitly
+  /// re-arms on the next disconnect. Replaces the old time-based cooldown — no loop,
+  /// no timer.
+  private var idleAfterSync = false
   private var bgTask: UIBackgroundTaskIdentifier = .invalid
+  /// True while the app holds the live flutter_blue_plus connection (foreground OR
+  /// backgrounded-but-connected). The restore central must not arm a competing connect
+  /// to the same peripheral while this is true.
+  private var appOwnsBand = false
 
   // MARK: - Lifecycle
 
@@ -69,6 +76,21 @@ class BleRestoreManager: NSObject {
           self.saveBandUUID(uuid)
           self.bandUUID = uuid
           self.handedOff = false
+          self.idleAfterSync = false   // explicit (re-)arm request from Dart
+          self.armIfAppropriate()
+        }
+        result(nil)
+      case "setOwnsBand":
+        let owns = (call.arguments as? Bool) ?? false
+        self.appOwnsBand = owns
+        if owns {
+          // App reclaimed the band — drop our pending connect so the two centrals don't fight.
+          self.cancelPending()
+          NSLog("[ble-restore] app owns band — pending connect cancelled")
+        } else {
+          // App released the band (connection dropped in background) — arm recovery.
+          self.idleAfterSync = false   // explicit re-arm request from Dart
+          NSLog("[ble-restore] app released band — arming recovery")
           self.armIfAppropriate()
         }
         result(nil)
@@ -83,10 +105,12 @@ class BleRestoreManager: NSObject {
         }
         result(nil)
       case "syncDone":
-        // Dart finished the headless drain — pace the next one via cooldown.
+        // Dart finished the headless drain. Go idle (no re-arm) until the next explicit
+        // arm from Dart — prevents a reconnect-drain loop with no timer/cooldown.
         self.handedOff = false
+        self.idleAfterSync = true
+        self.cancelPending()
         self.endBackground()
-        self.beginCooldown()
         result(nil)
       default:
         result(FlutterMethodNotImplemented)
@@ -104,11 +128,21 @@ class BleRestoreManager: NSObject {
   // MARK: - Pending connect
 
   private func armIfAppropriate() {
-    guard !handedOff, !coolingDown,
-          let central = central, central.state == .poweredOn,
-          let uuid = bandUUID else { return }
+    // The app holds the live connection — don't arm a competing connect.
+    if appOwnsBand { NSLog("[ble-restore] skip arm — app owns band"); return }
+    // Log every guard-fail reason: an unexplained no-arm is why background relaunch
+    // silently never happened (the band reappeared but nothing was pending to wake us).
+    guard !handedOff else { NSLog("[ble-restore] skip arm — handedOff"); return }
+    guard !idleAfterSync else { NSLog("[ble-restore] skip arm — idle after sync (awaiting re-arm)"); return }
+    guard let central = central else { NSLog("[ble-restore] skip arm — no central"); return }
+    guard central.state == .poweredOn else {
+      NSLog("[ble-restore] skip arm — central not poweredOn (state=\(central.state.rawValue))"); return
+    }
+    guard let uuid = bandUUID else { NSLog("[ble-restore] skip arm — no bandUUID"); return }
     // In the foreground, flutter_blue_plus owns the band — don't compete.
-    if UIApplication.shared.applicationState == .active { return }
+    if UIApplication.shared.applicationState == .active {
+      NSLog("[ble-restore] skip arm — app active"); return
+    }
     guard let p = central.retrievePeripherals(withIdentifiers: [uuid]).first else {
       NSLog("[ble-restore] band not retrievable yet")
       return
@@ -123,23 +157,8 @@ class BleRestoreManager: NSObject {
     pending = nil
   }
 
-  private func beginCooldown() {
-    coolingDown = true
-    cancelPending()
-    cooldownWork?.cancel()
-    let work = DispatchWorkItem { [weak self] in
-      guard let self = self else { return }
-      self.coolingDown = false
-      self.armIfAppropriate()
-    }
-    cooldownWork = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + cooldownSeconds, execute: work)
-    NSLog("[ble-restore] cooldown \(Int(cooldownSeconds))s before next arm")
-  }
-
   private func disarm() {
-    cooldownWork?.cancel()
-    coolingDown = false
+    idleAfterSync = false
     handedOff = false
     cancelPending()
     clearBandUUID()
@@ -158,14 +177,16 @@ class BleRestoreManager: NSObject {
       wakeQueuedBeforeReady = true
       NSLog("[ble-restore] wake queued (Flutter not ready)")
     }
-    // Safety net: if Dart never calls syncDone (crash/timeout), cooldown anyway so we
-    // neither loop nor get stuck.
+    // Watchdog: if Dart never calls syncDone (crash), clear the handoff so we don't get
+    // stuck, and go idle (await an explicit re-arm) so we don't loop. Not a sync cadence —
+    // just a failsafe to release the in-flight state.
     DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
       guard let self = self, self.handedOff else { return }
-      NSLog("[ble-restore] syncDone timeout — cooling down")
+      NSLog("[ble-restore] syncDone watchdog fired — releasing handoff, going idle")
       self.handedOff = false
+      self.idleAfterSync = true
+      self.cancelPending()
       self.endBackground()
-      self.beginCooldown()
     }
   }
 
@@ -219,11 +240,13 @@ extension BleRestoreManager: CBCentralManagerDelegate {
 
   func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
     NSLog("[ble-restore] didDisconnect (handedOff=\(handedOff))")
-    if !handedOff && !coolingDown { armIfAppropriate() }
+    // Re-arm only if our own pending connect dropped while still in recovery mode (band
+    // went away again). armIfAppropriate's idleAfterSync/appOwnsBand guards prevent loops.
+    if !handedOff { armIfAppropriate() }
   }
 
   func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
     NSLog("[ble-restore] didFailToConnect: \(error?.localizedDescription ?? "—")")
-    if !handedOff && !coolingDown { armIfAppropriate() }
+    if !handedOff { armIfAppropriate() }
   }
 }

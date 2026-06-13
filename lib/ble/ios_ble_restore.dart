@@ -5,7 +5,8 @@
 // even from terminated. When that fires, native invokes `wake` here and we run the same
 // headless drain the periodic task uses, then tell native we're done so it re-arms.
 //
-// No-op on Android (WorkManager handles background there).
+// No-op on Android (the Edge Tracking foreground service keeps the process + live
+// connection alive there — no restore central needed).
 
 import 'dart:io';
 
@@ -46,6 +47,17 @@ class IosBleRestore {
     });
     try {
       await _ch.invokeMethod('ready');
+    } catch (_) {}
+  }
+
+  /// Tell native whether the app currently owns the live connection (via
+  /// flutter_blue_plus). While true, the restore central must NOT arm a competing
+  /// pending connect to the same peripheral. Set false (then [arm]) to hand the band
+  /// to the restore path for background relaunch.
+  static Future<void> setOwnsBand(bool owns) async {
+    if (!Platform.isIOS) return;
+    try {
+      await _ch.invokeMethod('setOwnsBand', owns);
     } catch (_) {}
   }
 
