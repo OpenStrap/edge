@@ -87,7 +87,9 @@ class TodayData {
   /// Respiratory rate (PPG) — only present once validated server-side; else null.
   RespData? get resp => _resp == null ? null : RespData(_resp);
 
-  Metric get readiness => metricOf(_daily, 'readiness');
+  // Recovery is HRV-based now (replaces the old heuristic readiness). Kept the
+  // getter name `readiness` is dropped in favour of `recovery`.
+  Metric get recovery => metricOf(_daily, 'recovery');
   Metric get strain => metricOf(_daily, 'strain');
   Metric get restingHr => metricOf(_daily, 'resting_hr');
   Metric get rhrDelta => metricOf(_daily, 'resting_hr_delta');

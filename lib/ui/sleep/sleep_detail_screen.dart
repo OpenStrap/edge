@@ -13,7 +13,11 @@ import '../kit/charts.dart';
 
 class SleepDetailScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
-  const SleepDetailScreen({super.key, required this.date});
+  // When true, render just the section content (no Scaffold/back bar) so it can be
+  // embedded inside the Sleep ConcernScreen (Today/Week/Month/3M). This is the EXACT
+  // same loved layout — only the chrome differs.
+  final bool embedded;
+  const SleepDetailScreen({super.key, required this.date, this.embedded = false});
 
   /// Convenience: a detail screen for today (local).
   factory SleepDetailScreen.today({Key? key}) {
@@ -226,8 +230,50 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
 
   // ── build ──────────────────────────────────────────────────────────────────
 
+  /// The night's sections (phase-aware). Shared by the standalone screen and the
+  /// embedded (ConcernScreen) mode so the layout is identical.
+  List<Widget> _sections() {
+    if (_phase == _Phase.loading) return [_loading()];
+    if (_phase == _Phase.empty) {
+      return [
+        _stateCard(Ic.moon, 'No sleep recorded for this night',
+            'Wear your strap overnight and sync. Your sleep breakdown will '
+                'appear here once a night has been recorded.'),
+      ];
+    }
+    if (_phase == _Phase.error) {
+      return [_stateCard(Ic.cloud, "Couldn't load this night", _error ?? 'Please try again.')];
+    }
+    return [
+      _hero(),
+      const SizedBox(height: Sp.x6),
+      _hypnogramCard(),
+      const SizedBox(height: Sp.x6),
+      SectionHeader('Stages'),
+      _stageBreakdown(),
+      const SizedBox(height: Sp.x6),
+      SectionHeader('Efficiency'),
+      _efficiencyCard(),
+      const SizedBox(height: Sp.x6),
+      SectionHeader('Sleep debt'),
+      _debtCard(),
+      const SizedBox(height: Sp.x6),
+      SectionHeader('Consistency'),
+      _consistencyCard(),
+      if (_hasNocturnal) ...[
+        const SizedBox(height: Sp.x6),
+        SectionHeader('Nocturnal heart'),
+        _nocturnalCard(),
+      ],
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Embedded in the Sleep ConcernScreen: just the sections (its ListView scrolls).
+    if (widget.embedded) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: _sections());
+    }
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
@@ -238,43 +284,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
             const SizedBox(height: Sp.x4),
             _topBar(),
             const SizedBox(height: Sp.x6),
-            if (_phase == _Phase.loading)
-              _loading()
-            else if (_phase == _Phase.empty)
-              _stateCard(
-                Ic.moon,
-                'No sleep recorded for this night',
-                'Wear your strap overnight and sync. Your sleep breakdown will '
-                    'appear here once a night has been recorded.',
-              )
-            else if (_phase == _Phase.error)
-              _stateCard(
-                Ic.cloud,
-                "Couldn't load this night",
-                _error ?? 'Please try again.',
-              )
-            else ...[
-              _hero(),
-              const SizedBox(height: Sp.x6),
-              _hypnogramCard(),
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Stages'),
-              _stageBreakdown(),
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Efficiency'),
-              _efficiencyCard(),
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Sleep debt'),
-              _debtCard(),
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Consistency'),
-              _consistencyCard(),
-              if (_hasNocturnal) ...[
-                const SizedBox(height: Sp.x6),
-                SectionHeader('Nocturnal heart'),
-                _nocturnalCard(),
-              ],
-            ],
+            ..._sections(),
             const SizedBox(height: 40),
           ],
         ),

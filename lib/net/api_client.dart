@@ -222,9 +222,53 @@ class ApiClient {
   Future<Map<String, dynamic>> getDayTimeline(String date) =>
       _getObj('/day/timeline', {'date': date});
 
-  /// GET /day/stress?date= → per-minute arousal band + buckets + peak (NOT HRV).
+  /// GET /day/stress?date= → HRV stress + sleep-arousal + factual HR timeline.
   Future<Map<String, dynamic>> getDayStress(String date) =>
       _getObj('/day/stress', {'date': date});
+
+  /// GET /day/heart?date= → 24h HR + RHR + HRV + zones + nocturnal + recovery +
+  /// stress + illness + drivers (everything heart/autonomic for a day).
+  Future<Map<String, dynamic>> getDayHeart(String date) =>
+      _getObj('/day/heart', {'date': date});
+
+  /// GET /day/lungs?date= → respiratory rate (RSA, gated) + relative SpO₂.
+  Future<Map<String, dynamic>> getDayLungs(String date) =>
+      _getObj('/day/lungs', {'date': date});
+
+  // ── workouts (manual/live/auto) ──────────────────────────────────────────
+  /// GET /workouts?range=week|month|quarter → list + training-volume summary.
+  Future<Map<String, dynamic>> getWorkouts({String range = 'month'}) =>
+      _getObj('/workouts', {'range': range});
+
+  /// GET /workout/:id → one workout's breakdown + HR timeline.
+  Future<Map<String, dynamic>> getWorkout(String id) => _getObj('/workout/$id');
+
+  /// POST /workout/start {type} → {workout_id, start_ts, type, status}.
+  Future<Map<String, dynamic>> startWorkout(String type, {String? title}) async {
+    final resp = await _authed((h) => _client.post(_u('/workout/start'),
+        headers: h, body: jsonEncode({'type': type, if (title != null) 'title': title})));
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
+    return _decode(resp.body);
+  }
+
+  /// POST /workout/end {workout_id} → computed breakdown.
+  Future<Map<String, dynamic>> endWorkout(String workoutId) async {
+    final resp = await _authed((h) => _client.post(_u('/workout/end'),
+        headers: h, body: jsonEncode({'workout_id': workoutId})));
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
+    return _decode(resp.body);
+  }
+
+  /// GET /trend/:metric?scale=week|month|quarter&anchor=YYYY-MM-DD
+  /// → server-aggregated buckets (7 daily / weekly-mean / monthly-mean bars) with
+  /// coverage + target + achieved, for the Metric Explorer. Drill = re-call with a
+  /// narrower scale+anchor; the leaf is /day/*.
+  Future<Map<String, dynamic>> getTrend(String metric,
+          {String scale = 'week', String? anchor}) =>
+      _getObj('/trend/$metric', {
+        'scale': scale,
+        if (anchor != null) 'anchor': anchor,
+      });
 
   /// GET /records → personal records + streaks + baseline drift (your body over time).
   Future<Map<String, dynamic>> getRecords() => _getObj('/records');

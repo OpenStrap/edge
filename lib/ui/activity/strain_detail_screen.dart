@@ -13,7 +13,9 @@ import '../kit/charts.dart';
 
 class StrainDetailScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
-  const StrainDetailScreen({super.key, required this.date});
+  // Embedded (no Scaffold/back bar) for use inside the Body ConcernScreen.
+  final bool embedded;
+  const StrainDetailScreen({super.key, required this.date, this.embedded = false});
   @override
   State<StrainDetailScreen> createState() => _StrainDetailScreenState();
 }
@@ -131,8 +133,24 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
 
   // ── build ────────────────────────────────────────────────────────────────────
 
+  List<Widget> _sections() {
+    if (_phase == _Phase.loading) return [_loading()];
+    if (_phase == _Phase.empty) {
+      return [_stateCard(Ic.strain, 'No strain for this day',
+          'Wear your strap and sync to capture all-day heart rate. Strain '
+              'appears once there is data to score.')];
+    }
+    if (_phase == _Phase.error) {
+      return [_stateCard(Ic.cloud, "Couldn't load strain", _error ?? 'Please try again.')];
+    }
+    return _content();
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: _sections());
+    }
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
@@ -143,23 +161,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
             const SizedBox(height: Sp.x4),
             _topBar(),
             const SizedBox(height: Sp.x6),
-            if (_phase == _Phase.loading)
-              _loading()
-            else if (_phase == _Phase.empty)
-              _stateCard(
-                Ic.strain,
-                'No strain for this day',
-                'Wear your strap and sync to capture all-day heart rate. Strain '
-                    'appears once there is data to score.',
-              )
-            else if (_phase == _Phase.error)
-              _stateCard(
-                Ic.cloud,
-                "Couldn't load strain",
-                _error ?? 'Please try again.',
-              )
-            else
-              ..._content(),
+            ..._sections(),
             const SizedBox(height: 40),
           ],
         ),
@@ -189,9 +191,21 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
   }
 
   List<Widget> _content() {
+    final load = _map(_data['load']);
+    final fitness = _data['fitness_trend']?.toString();
+    final cals = _num(_data['calories']);
+    final steps = _num(_data['steps']);
+    final hasLoad = load.isNotEmpty || fitness != null || cals != null || steps != null;
+    final drivers = [for (final dr in _list(_map(_data['drivers'])['strain'])) _map(dr)]
+        .where((dr) => (dr['label']?.toString() ?? '').isNotEmpty).toList();
     return [
       _hero(),
       const SizedBox(height: Sp.x4),
+      if (hasLoad) ...[
+        const SectionHeader('Training load'),
+        _loadCard(load, fitness, cals, steps),
+        const SizedBox(height: Sp.x4),
+      ],
       _curveCard(),
       const SizedBox(height: Sp.x4),
       _zonesCard(),
@@ -199,7 +213,49 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
       _hrStatsRow(),
       const SizedBox(height: Sp.x4),
       ..._workouts(),
+      if (drivers.isNotEmpty) ...[
+        const SizedBox(height: Sp.x4),
+        const SectionHeader('What affected this'),
+        // Display-only (no navigation): default card padding gives proper inset.
+        ProCard(child: Column(children: [
+          for (final dr in drivers)
+            DetailRow(label: dr['label']?.toString() ?? '', value: dr['detail']?.toString() ?? ''),
+        ])),
+      ],
     ];
+  }
+
+  Widget _loadCard(Map<String, dynamic> load, String? fitness, num? cals, num? steps) {
+    final acwr = _num(load['acwr']);
+    final band = load['band']?.toString();
+    Color bandColor() {
+      switch (band) {
+        case 'optimal': return AppColors.good;
+        case 'caution': return AppColors.warn;
+        case 'high-risk': return AppColors.bad;
+        default: return AppColors.loadDetraining;
+      }
+    }
+    return ProCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (acwr != null) ...[
+          Row(children: [
+            const AppIcon(Ic.strain, size: 18, color: AppColors.coralDeep),
+            const SizedBox(width: Sp.x2),
+            Text('Acute:chronic load', style: AppText.label),
+            const Spacer(),
+            Text(acwr.toStringAsFixed(2), style: AppText.metricSm.copyWith(fontSize: 18)),
+            const SizedBox(width: Sp.x2),
+            if (band != null) Tag(band, color: bandColor()),
+          ]),
+          if (fitness != null || cals != null || steps != null)
+            const SizedBox(height: Sp.x3),
+        ],
+        if (fitness != null) DetailRow(label: 'Fitness trend', value: fitness),
+        if (cals != null) DetailRow(label: 'Active calories', value: '${cals.round()} kcal'),
+        if (steps != null) DetailRow(label: 'Steps', value: '${steps.round()}'),
+      ]),
+    );
   }
 
   // ── 2. HERO ───────────────────────────────────────────────────────────────────

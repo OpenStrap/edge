@@ -32,7 +32,7 @@ class WidgetService {
   static Future<void> push(TodayData t) async {
     try {
       await init();
-      final r = t.readiness;
+      final r = t.recovery;
       final s = t.strain;
       final sleep = t.sleepDuration;
       final need = t.sleepNeed;

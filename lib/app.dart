@@ -6,13 +6,11 @@ import 'state/app_state.dart';
 import 'theme/theme.dart';
 import 'theme/tokens.dart';
 import 'ui/kit/kit.dart';
-import 'ui/activity/activity_screen.dart';
 import 'ui/onboarding_screens.dart';
 import 'ui/pairing_screen.dart';
-import 'ui/profile/profile_screen.dart';
-import 'ui/sleep/sleep_screen.dart';
 import 'ui/today/today_screen.dart';
-import 'ui/trends/trends_screen.dart';
+import 'ui/concern/concern_screens.dart';
+import 'ui/workouts/workouts_screen.dart';
 
 class OpenStrapApp extends StatefulWidget {
   const OpenStrapApp({super.key});
@@ -88,18 +86,18 @@ class _ShellState extends State<_Shell> {
 
   static const _pages = [
     TodayScreen(),
-    SleepScreen(),
-    ActivityScreen(),
-    TrendsScreen(),
-    ProfileScreen(),
+    SleepConcernScreen(),
+    HeartConcernScreen(),
+    BodyConcernScreen(),
+    WorkoutsScreen(),
   ];
 
   static const _nav = [
     (Ic.home, 'Today'),
     (Ic.sleep, 'Sleep'),
-    (Ic.activity, 'Activity'),
-    (Ic.stats, 'Stats'),
-    (Ic.profile, 'You'),
+    (Ic.heart, 'Heart'),
+    (Ic.strain, 'Body'),
+    (Ic.run, 'Workouts'),
   ];
 
   @override

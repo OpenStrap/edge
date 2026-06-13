@@ -15,9 +15,8 @@ import '../widgets/screen_loader.dart';
 import '../journal/journal_screen.dart';
 import '../recap/recap_screen.dart';
 import '../coach/coach_screen.dart';
-import '../recovery/recovery_screen.dart';
-import '../activity/strain_detail_screen.dart';
-import '../sleep/sleep_detail_screen.dart';
+import '../profile/profile_screen.dart';
+import '../concern/concern_screens.dart';
 import '../journey/journey_screen.dart';
 import '../stress/stress_screen.dart';
 import '../records/records_screen.dart';
@@ -174,6 +173,12 @@ class _TodayScreenState extends State<TodayScreen>
         const SizedBox(width: Sp.x2),
         RoundIconButton(Ic.edit, onTap: () => _push(const JournalScreen())),
         const SizedBox(width: Sp.x2),
+        // Profile / settings (the old "You" tab moved here). ProfileScreen is tab
+        // content (no Scaffold of its own), so wrap it when pushing standalone —
+        // otherwise it renders with no Material (black bg + yellow-underlined text).
+        RoundIconButton(Ic.profile, onTap: () => _push(
+            const Scaffold(backgroundColor: AppColors.bg, body: ProfileScreen()))),
+        const SizedBox(width: Sp.x2),
         RoundIconButton(Ic.chart,
             bg: AppColors.coral,
             fg: Colors.white,
@@ -237,17 +242,6 @@ class _TodayScreenState extends State<TodayScreen>
   // ── content ──────────────────────────────────────────────────────────────────
 
   List<Widget> _content(TodayData t) {
-    // Hero: readiness, falling back to strain.
-    final readiness = t.readiness;
-    final strain = t.strain;
-    final useReadiness = !readiness.isEmpty;
-    final hero = useReadiness ? readiness : strain;
-    final heroMax = useReadiness ? 100.0 : 21.0;
-    final heroLabel = useReadiness ? 'Readiness' : 'Day strain';
-    final heroT = hero.normalized(heroMax);
-    final heroColor =
-        heroT.isNaN ? AppColors.inkMuted : AppColors.scoreColor(heroT);
-
     final alert = t.bodyAlert;
     final coach = t.coach;
     final date = _todayStr();
@@ -257,17 +251,7 @@ class _TodayScreenState extends State<TodayScreen>
         _bodyAlert(alert),
         const SizedBox(height: Sp.x4),
       ],
-      _hero(hero, heroLabel, heroMax, heroColor,
-          onTap: useReadiness && coach != null
-              ? () => _push(RecoveryScreen(
-                    readiness: readiness.value,
-                    confidence: readiness.confidence,
-                    contributors: coach.contributors,
-                  ))
-              : null),
-      const SizedBox(height: Sp.x4),
-
-      // At-a-glance gauges: Strain / Sleep / HRV alongside the readiness hero.
+      // At-a-glance gauges: Strain / Sleep / HRV.
       _dashboard(t),
       const SizedBox(height: Sp.x4),
 
@@ -277,19 +261,9 @@ class _TodayScreenState extends State<TodayScreen>
         const SizedBox(height: Sp.x4),
       ],
 
-      // Stat grid.
+      // Stat grid. Strain lives on the Body tab now (tap the Strain gauge above) —
+      // no duplicate Day-strain tile here.
       _statRow(
-        StatTile(
-          icon: Ic.strain,
-          label: 'Day strain',
-          value: t.strain.isEmpty
-              ? null
-              : t.strain.value!.toStringAsFixed(1),
-          accent: AppColors.coral,
-          confidence: t.strain.isEmpty ? null : t.strain.confidence,
-          tag: Tag.forMetric(t.strain),
-          onTap: () => _push(StrainDetailScreen(date: date)),
-        ),
         StatTile(
           icon: Ic.heart,
           label: 'Resting HR',
@@ -300,9 +274,6 @@ class _TodayScreenState extends State<TodayScreen>
           accent: AppColors.coralDeep,
           confidence: t.restingHr.isEmpty ? null : t.restingHr.confidence,
         ),
-      ),
-      const SizedBox(height: Sp.x3),
-      _statRow(
         StatTile(
           icon: Ic.fire,
           label: 'Active calories',
@@ -311,16 +282,6 @@ class _TodayScreenState extends State<TodayScreen>
           accent: AppColors.warn,
           confidence: t.calories.isEmpty ? null : t.calories.confidence,
           tag: Tag.forMetric(t.calories),
-        ),
-        StatTile(
-          icon: Ic.moon,
-          label: 'Sleep',
-          value: _hm(t.sleepDuration),
-          accent: AppColors.loadDetraining,
-          confidence:
-              t.sleepDuration.isEmpty ? null : t.sleepDuration.confidence,
-          tag: Tag.forMetric(t.sleepDuration),
-          onTap: () => _push(SleepDetailScreen(date: date)),
         ),
       ),
       const SizedBox(height: Sp.x3),
@@ -352,13 +313,7 @@ class _TodayScreenState extends State<TodayScreen>
           tag: const Tag('est.', color: AppColors.coral),
           onTap: () => _push(StressScreen(date: date)),
         ),
-        _bodyOverTimeTile(),
-      ),
-      const SizedBox(height: Sp.x3),
-
-      // HRV (measured, beat-to-beat) + relative blood-oxygen. New: HRV is the real
-      // one now that we decode R-R intervals; SpO₂ is a relative index (raw, beta).
-      _statRow(
+        // HRV (measured, beat-to-beat). The real one now that we decode R-R intervals.
         StatTile(
           icon: Ic.pulse,
           label: 'HRV (RMSSD)',
@@ -368,6 +323,9 @@ class _TodayScreenState extends State<TodayScreen>
           confidence: t.hrv?.confidence,
           tag: const Tag('beta', color: AppColors.coral),
         ),
+      ),
+      const SizedBox(height: Sp.x3),
+      _statRow(
         StatTile(
           icon: Ic.heart,
           label: 'Blood O₂ (rel.)',
@@ -378,6 +336,7 @@ class _TodayScreenState extends State<TodayScreen>
           accent: AppColors.coralDeep,
           tag: const Tag('beta', color: AppColors.coral),
         ),
+        _bodyOverTimeTile(),
       ),
       const SizedBox(height: Sp.x4),
 
@@ -482,19 +441,26 @@ class _TodayScreenState extends State<TodayScreen>
       child: Row(
         children: [
           _gauge('STRAIN', t.strain.isEmpty ? null : t.strain.value!.toStringAsFixed(1),
-              null, strainT, AppColors.coral),
+              null, strainT, AppColors.coral,
+              onTap: () => _push(const BodyConcernScreen())),
           _gauge('SLEEP', t.sleepDuration.isEmpty ? null : (t.sleepDuration.value! / 60).toStringAsFixed(1),
-              'h', sleepT, AppColors.loadDetraining),
+              'h', sleepT, AppColors.loadDetraining,
+              onTap: () => _push(const SleepConcernScreen())),
           _gauge('HRV', hrv == null ? null : hrv.rmssd.toStringAsFixed(0),
-              'ms', hrvT, AppColors.good),
+              'ms', hrvT, AppColors.good,
+              onTap: () => _push(const HeartConcernScreen())),
         ],
       ),
     );
   }
 
-  Widget _gauge(String label, String? value, String? unit, double t, Color color) {
+  Widget _gauge(String label, String? value, String? unit, double t, Color color,
+      {VoidCallback? onTap}) {
     return Expanded(
-      child: Column(
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           RingStat(
@@ -516,52 +482,6 @@ class _TodayScreenState extends State<TodayScreen>
           const SizedBox(height: Sp.x2),
           Text(label, style: AppText.overline),
         ],
-      ),
-    );
-  }
-
-  Widget _hero(Metric hero, String label, double max, Color color,
-      {VoidCallback? onTap}) {
-    final dash = hero.isEmpty;
-    return GlowCard(
-      onTap: onTap,
-      padding: const EdgeInsets.symmetric(vertical: Sp.x7, horizontal: Sp.x5),
-      child: Center(
-        child: RingStat(
-          t: hero.normalized(max),
-          color: color,
-          size: 208,
-          stroke: 16,
-          center: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (dash)
-                metricDash(48)
-              else
-                Text(
-                  label == 'Readiness'
-                      ? hero.value!.round().toString()
-                      : hero.value!.toStringAsFixed(1),
-                  style: AppText.display.copyWith(color: color),
-                ),
-              const SizedBox(height: Sp.x2),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (!dash) ...[
-                    ConfDot(hero.confidence),
-                    const SizedBox(width: 6),
-                  ],
-                  Text(label.toUpperCase(),
-                      style: AppText.overline),
-                ],
-              ),
-              if (Tag.forMetric(hero) != null) ...[
-                const SizedBox(height: Sp.x2),
-                Tag.forMetric(hero)!,
-              ],
-            ],
-          ),
         ),
       ),
     );
@@ -680,18 +600,7 @@ class _TodayScreenState extends State<TodayScreen>
   }
 
   List<Widget> _skeleton() => [
-        ProCard(
-          padding: const EdgeInsets.symmetric(vertical: Sp.x7),
-          child: Center(
-            child: RingStat(
-              t: double.nan,
-              color: AppColors.inkMuted,
-              size: 208,
-              stroke: 16,
-              center: metricDash(48),
-            ),
-          ),
-        ),
+        const ProCard(child: SizedBox(height: 96)),
         const SizedBox(height: Sp.x4),
         _statRow(_skelTile(), _skelTile()),
         const SizedBox(height: Sp.x3),

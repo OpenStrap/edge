@@ -124,12 +124,17 @@ class MiniBars extends StatelessWidget {
 }
 
 /// Labeled bar chart (e.g. weekly goal, Mon..Sun) — big rounded coral bars.
+/// Shows the numeric value above each bar (set [showValues] false to hide).
+/// [onTapBar] makes a bar tappable (drill-down in the Metric Explorer).
 class LabeledBars extends StatelessWidget {
   final List<double> values;
   final List<String> labels;
   final Color color;
   final double height;
   final int? highlight;
+  final bool showValues;
+  final String Function(double v)? valueFmt; // how to render the number
+  final void Function(int i)? onTapBar;
   const LabeledBars({
     super.key,
     required this.values,
@@ -137,7 +142,18 @@ class LabeledBars extends StatelessWidget {
     this.color = AppColors.coral,
     this.height = 200,
     this.highlight,
+    this.showValues = true,
+    this.valueFmt,
+    this.onTapBar,
   });
+
+  String _fmt(double v) {
+    if (valueFmt != null) return valueFmt!(v);
+    // tidy default: integers when whole, else one decimal; blank for exact 0.
+    if (v == 0) return '';
+    return v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+  }
+
   @override
   Widget build(BuildContext context) {
     final maxV = values.isEmpty ? 1.0 : math.max(1.0, values.reduce(math.max));
@@ -148,34 +164,49 @@ class LabeledBars extends StatelessWidget {
         children: [
           for (int i = 0; i < values.length; i++)
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: TweenAnimationBuilder<double>(
-                        duration: Motion.med,
-                        curve: Motion.emphatic,
-                        tween: Tween(begin: 0, end: values[i] / maxV),
-                        builder: (_, v, _) => FractionallySizedBox(
-                          heightFactor: v.clamp(0.02, 1.0),
-                          alignment: Alignment.bottomCenter,
-                          child: Container(
-                            decoration: BoxDecoration(
+              child: GestureDetector(
+                onTap: onTapBar == null ? null : () => onTapBar!(i),
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      if (showValues)
+                        Text(_fmt(values[i]),
+                            style: AppText.caption.copyWith(
+                              fontWeight: FontWeight.w600,
                               color: (highlight == null || highlight == i)
-                                  ? color
-                                  : color.withValues(alpha: 0.28),
-                              borderRadius: BorderRadius.circular(R.pill),
+                                  ? AppColors.ink
+                                  : AppColors.inkMuted,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.visible),
+                      if (showValues) const SizedBox(height: 2),
+                      Expanded(
+                        child: TweenAnimationBuilder<double>(
+                          duration: Motion.med,
+                          curve: Motion.emphatic,
+                          tween: Tween(begin: 0, end: values[i] / maxV),
+                          builder: (_, v, _) => FractionallySizedBox(
+                            heightFactor: v.clamp(0.02, 1.0),
+                            alignment: Alignment.bottomCenter,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: (highlight == null || highlight == i)
+                                    ? color
+                                    : color.withValues(alpha: 0.28),
+                                borderRadius: BorderRadius.circular(R.pill),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: Sp.x2),
-                    Text(labels.length > i ? labels[i] : '',
-                        style: AppText.caption),
-                  ],
+                      const SizedBox(height: Sp.x2),
+                      Text(labels.length > i ? labels[i] : '',
+                          style: AppText.caption),
+                    ],
+                  ),
                 ),
               ),
             ),
