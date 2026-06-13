@@ -35,10 +35,14 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final app = context.read<AppState>();
     if (state == AppLifecycleState.resumed) {
-      final app = context.read<AppState>();
       app.maybeFinishFromLiveActivity();
       if (app.isAuthenticated && app.isPaired) app.openSession();
+    } else if (state == AppLifecycleState.paused) {
+      // Backgrounded: hand the band to the iOS restore path so it can wake-and-drain
+      // in the background (no-op on Android, where the foreground service holds it).
+      app.pauseForBackground();
     }
   }
 
