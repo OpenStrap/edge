@@ -27,6 +27,8 @@ typedef SampleSink = Future<void> Function(Sample? sample, RawRecord raw);
 typedef StateSink = void Function(DeviceState state);
 typedef LogSink = void Function(String line);
 typedef EventSink = void Function(int eventId, int tsEpoch, String hex);
+typedef BatchSink = Future<void> Function(
+    List<RawRecord> raws, List<Sample?> samples);
 
 class SyncReport {
   final int records;
@@ -41,7 +43,21 @@ class BleEngine {
   final LogSink? log;
   final EventSink? onEvent;
 
-  BleEngine({required this.onRecord, required this.onState, this.log, this.onEvent});
+  /// If provided, historical-drain records are buffered and flushed in batches
+  /// (one DB transaction per ACK boundary) instead of one-by-one via [onRecord].
+  /// Much faster on large drains. Live records still go through [onRecord].
+  final BatchSink? onRecordsBatch;
+
+  BleEngine(
+      {required this.onRecord,
+      required this.onState,
+      this.log,
+      this.onEvent,
+      this.onRecordsBatch});
+
+  // Drain buffer (historical 0x2F records), flushed before each sync ACK.
+  final List<RawRecord> _drainRaws = [];
+  final List<Sample?> _drainSamples = [];
 
   final DeviceState state = DeviceState();
 
@@ -152,6 +168,16 @@ class BleEngine {
       await device.requestMtu(247);
     } catch (_) {}
 
+    // Ask Android for a fast connection interval during the drain — this is the
+    // biggest BLE throughput lever (2–4× on bulk transfer). Android-only; iOS picks
+    // a fast interval on its own when there's pending data.
+    if (Platform.isAndroid) {
+      try {
+        await device.requestConnectionPriority(
+            connectionPriorityRequest: ConnectionPriority.high);
+      } catch (_) {}
+    }
+
     final services = await device.discoverServices();
     BluetoothService? svc;
     for (final s in services) {
@@ -254,7 +280,7 @@ class BleEngine {
   void _onFrame(String role, Frame frame) {
     final pt = frame.packetType;
     if (pt == PacketType.metadata) {
-      _handleSyncMarker(frame);
+      unawaited(_handleSyncMarker(frame));
       return;
     }
     // LIVE streams: realtime HR/RR (0x28), realtime R10 (0x2B), IMU (0x33).
@@ -328,7 +354,14 @@ class BleEngine {
       }
       // Background sync: store ONLY. Never touch the live display — the screen
       // shows genuine live-stream data (0x2B/0x28), not historical drain values.
-      onRecord(sample, raw);
+      // Buffer for a batched DB flush (flushed before each ACK) when available;
+      // otherwise fall back to per-record insert.
+      if (onRecordsBatch != null) {
+        _drainRaws.add(raw);
+        _drainSamples.add(sample);
+      } else {
+        onRecord(sample, raw);
+      }
       return;
     }
     if (pt == PacketType.commandResponse) {
@@ -386,7 +419,22 @@ class BleEngine {
     }
   }
 
-  void _handleSyncMarker(Frame frame) {
+  /// Persist buffered drain records in one transaction. Snapshots the buffer so
+  /// records arriving during the await land in the next batch, not this one.
+  Future<void> _flushDrain() async {
+    if (onRecordsBatch == null || _drainRaws.isEmpty) return;
+    final raws = List<RawRecord>.from(_drainRaws);
+    final samples = List<Sample?>.from(_drainSamples);
+    _drainRaws.clear();
+    _drainSamples.clear();
+    try {
+      await onRecordsBatch!(raws, samples);
+    } catch (e) {
+      _log('drain flush error: $e');
+    }
+  }
+
+  Future<void> _handleSyncMarker(Frame frame) async {
     final m = parseMetadata(frame.inner);
     if (m == null) return;
     // Dump the FULL raw metadata frame so we can read the real token layout off
@@ -400,12 +448,16 @@ class BleEngine {
           m.token!.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
       _log('[SYNC] HistoryEnd batch=${m.batchId} records=$_syncRecords '
           '→ ACK seq=$_syncSeq token=$tokenHex');
+      // Raw-first: persist this batch's records BEFORE we ACK (the band's cursor
+      // advances on ACK, so anything unflushed at ACK time could be lost).
+      await _flushDrain();
       // ACK and KEEP listening. THIS is the fragile path ().
       final ack = buildBatchAck(_syncSeq, m.token!);
       _log('[SYNC] ACK frame=${ack.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}');
       _syncSeq = (_syncSeq + 1) & 0xFF;
       _write(ack);
     } else if (m.sub == SyncMeta.historyComplete) {
+      await _flushDrain();
       _log('[SYNC] HistoryComplete — drained $_syncRecords records. Done.');
       _syncComplete = true;
     }
@@ -458,6 +510,9 @@ class BleEngine {
         break;
       }
     }
+    // Persist anything still buffered when we exit via live-edge/idle/timeout
+    // (those paths don't get a HistoryComplete marker).
+    await _flushDrain();
     _setConn('connected');
     _log('[SYNC] DRAIN SUMMARY: records=$_syncRecords batches=$_syncBatches '
         'complete=$_syncComplete firstTs=$_firstTs lastTs=$_lastTs '

@@ -22,8 +22,15 @@ class ApiClient {
   final void Function()? onLoggedOut;
   final Duration timeout;
 
+  // One reused client so the upload loop keeps the TLS connection alive instead of
+  // re-handshaking per batch (a real win when many batches go out back-to-back).
+  final http.Client _client = http.Client();
+
   ApiClient(this.config, this.session, {this.onLoggedOut})
       : timeout = const Duration(seconds: 60);
+
+  /// Release the connection pool. Call when the client is done (e.g. headless run).
+  void close() => _client.close();
 
   Uri _u(String path, [Map<String, String>? q]) =>
       Uri.parse('${config.url}$path').replace(queryParameters: q);
@@ -114,7 +121,7 @@ class ApiClient {
 
   // ── ingest (per-user; device_id is a local sub-key) ──────────────────────────
   Future<Map<String, dynamic>> ingestBatch(List<String> records) async {
-    final resp = await _authed((h) => http.post(_u('/ingest/batch'),
+    final resp = await _authed((h) => _client.post(_u('/ingest/batch'),
         headers: h,
         body: jsonEncode({'device_id': config.deviceId, 'records': records})));
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
@@ -122,7 +129,7 @@ class ApiClient {
   }
 
   Future<void> ingestEvents(List<String> events) async {
-    final resp = await _authed((h) => http.post(_u('/ingest/events'),
+    final resp = await _authed((h) => _client.post(_u('/ingest/events'),
         headers: h,
         body: jsonEncode({'device_id': config.deviceId, 'events': events})));
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
@@ -130,7 +137,7 @@ class ApiClient {
 
   // ── profile ────────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getProfile() async {
-    final resp = await _authed((h) => http.get(_u('/profile'), headers: h));
+    final resp = await _authed((h) => _client.get(_u('/profile'), headers: h));
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
     final u = _decode(resp.body);
     session.user = u;
@@ -154,7 +161,7 @@ class ApiClient {
   Future<List<Map<String, dynamic>>> fetchSleep() => _getList('/sleep');
   Future<List<Map<String, dynamic>>> fetchDaily() => _getList('/strain'); // daily table
   Future<Map<String, dynamic>> fetchTrends() async {
-    final resp = await _authed((h) => http.get(_u('/trends'), headers: h));
+    final resp = await _authed((h) => _client.get(_u('/trends'), headers: h));
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
     return _decode(resp.body);
   }
@@ -193,7 +200,7 @@ class ApiClient {
 
   /// POST /journal — upsert a day's tags + note (empty both = delete).
   Future<void> postJournal(String date, List<String> tags, String note) async {
-    final resp = await _authed((h) => http.post(_u('/journal'),
+    final resp = await _authed((h) => _client.post(_u('/journal'),
         headers: h, body: jsonEncode({'date': date, 'tags': tags, 'note': note})));
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
   }
@@ -227,7 +234,7 @@ class ApiClient {
 
   /// POST /notifications/read — mark some (or all, when ids null) as read.
   Future<void> markNotificationsRead({List<String>? ids}) async {
-    final resp = await _authed((h) => http.post(_u('/notifications/read'),
+    final resp = await _authed((h) => _client.post(_u('/notifications/read'),
         headers: h, body: jsonEncode({if (ids != null) 'ids': ids})));
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
   }
@@ -244,13 +251,13 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> _getObj(String path, [Map<String, String>? q]) async {
-    final resp = await _authed((h) => http.get(_u(path, q), headers: h));
+    final resp = await _authed((h) => _client.get(_u(path, q), headers: h));
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
     return _decode(resp.body);
   }
 
   Future<List<Map<String, dynamic>>> _getList(String path, [Map<String, String>? q]) async {
-    final resp = await _authed((h) => http.get(_u(path, q), headers: h));
+    final resp = await _authed((h) => _client.get(_u(path, q), headers: h));
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
     return (jsonDecode(resp.body) as List).cast<Map<String, dynamic>>();
   }

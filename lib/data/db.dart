@@ -140,6 +140,42 @@ class LocalDb {
     return rawRows != 0;
   }
 
+  /// Insert many records in ONE transaction. During a historical drain this is far
+  /// faster than a transaction-per-record (one fsync instead of thousands). `raws`
+  /// and `samples` are parallel lists; a null sample means raw-only (live/no decode).
+  /// Raw-first is preserved — callers flush this before ACKing a sync batch.
+  static Future<void> insertRecordsBatch(
+      List<RawRecord> raws, List<Sample?> samples) async {
+    if (raws.isEmpty) return;
+    final db = await instance;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (var i = 0; i < raws.length; i++) {
+        final raw = raws[i];
+        batch.insert(
+          'raw_records',
+          {
+            'hex': raw.hex,
+            'packet_type': raw.packetType,
+            'counter': raw.counter,
+            'captured_at': raw.capturedAt,
+            'uploaded': raw.uploaded ? 1 : 0,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        final sample = samples[i];
+        if (sample != null) {
+          batch.insert(
+            'samples',
+            {'counter': raw.counter, ...sample.toDbMap()},
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+        }
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
   static Future<List<RawRecord>> unuploadedRaw({int limit = 500}) async {
     final db = await instance;
     final rows = await db.query('raw_records',

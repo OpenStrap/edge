@@ -21,7 +21,7 @@ class Uploader {
   /// Upload all pending raw records in batches. `onChunk` fires after each chunk
   /// is uploaded + deleted so the UI can show the pending count dropping live.
   Future<UploadResult> uploadPending(
-      {int batchSize = 100, Future<void> Function()? onChunk}) async {
+      {int batchSize = 300, Future<void> Function()? onChunk}) async {
     int attempted = 0;
     int accepted = 0;
     while (true) {

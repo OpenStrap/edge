@@ -14,6 +14,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ble/ble_engine.dart';
+import '../ble/ios_ble_restore.dart';
 import '../data/db.dart';
 import '../data/models.dart';
 import '../net/api_client.dart';
@@ -64,6 +65,7 @@ class AppState extends ChangeNotifier {
       onState: _onEngineState,
       log: _log,
       onEvent: (id, ts, hex) => LocalDb.insertEvent(id, ts, hex),
+      onRecordsBatch: LocalDb.insertRecordsBatch,
     );
     _init();
   }
@@ -146,7 +148,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> signOut() async {
     _keepAlive = false;
+    IosBleRestore.foregroundActive = false;
     await BackgroundSync.disable();
+    await IosBleRestore.disarm();
     await engine.disconnect();
     await session!.clear();
     notifyListeners();
@@ -186,7 +190,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> unpair() async {
     _keepAlive = false;
+    IosBleRestore.foregroundActive = false;
     await BackgroundSync.disable();
+    await IosBleRestore.disarm();
     await engine.disconnect();
     await PairedDevice.clear();
     paired = null;
@@ -240,6 +246,10 @@ class AppState extends ChangeNotifier {
     // Keep syncing in the background even when the app isn't open (no foreground
     // service / notification). Idempotent — safe to call on every session start.
     BackgroundSync.enable();
+    // iOS: arm CoreBluetooth restoration so the band can relaunch us when terminated.
+    // The foreground guard stops a wake from fighting this live session for the band.
+    IosBleRestore.foregroundActive = true;
+    IosBleRestore.arm(paired!.remoteId);
     _log('===== SESSION START ===== pending=${dbCounts['pending']} raw=${dbCounts['raw']}');
     try {
       if (!await engine.connectToRemoteId(paired!.remoteId)) {

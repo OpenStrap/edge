@@ -3,8 +3,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../state/app_state.dart';
+import '../../sync/background_sync.dart';
+import '../../sync/file_log.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
@@ -142,6 +145,42 @@ class ProfileScreen extends StatelessWidget {
 
           const SizedBox(height: Sp.x7),
 
+          // ── Background sync diagnostics ───────────────────────────────
+          const SectionHeader('Background sync'),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+                horizontal: Sp.x5, vertical: Sp.x1),
+            child: Column(children: [
+              DetailRow(
+                icon: Ic.bluetooth,
+                label: 'Run sync now (background path)',
+                value: '',
+                onTap: () => _runBgSyncNow(context),
+                trailing: const AppIcon(Ic.arrowRight,
+                    size: 16, color: AppColors.coral),
+              ),
+              const Divider(height: 1),
+              DetailRow(
+                icon: Ic.info,
+                label: 'Share sync log',
+                value: '',
+                onTap: () => _shareSyncLog(context),
+                trailing: const AppIcon(Ic.arrowRight,
+                    size: 16, color: AppColors.coral),
+              ),
+            ]),
+          ),
+          const SizedBox(height: Sp.x2),
+          Text(
+            'If background sync seems stuck, tap “Run sync now”, wait ~30s, then '
+            'share the log. On Xiaomi/Redmi you must also enable Autostart for '
+            'OpenStrap and set its battery saver to “No restrictions”, or the '
+            'system kills the scheduled task.',
+            style: AppText.captionMuted,
+          ),
+
+          const SizedBox(height: Sp.x7),
+
           // ── Account ──────────────────────────────────────────────────
           const SectionHeader('Account'),
           ProCard(
@@ -180,7 +219,7 @@ class ProfileScreen extends StatelessWidget {
                   style: AppText.bodySoft,
                 ),
                 const SizedBox(height: Sp.x3),
-                Text('OpenStrap • AGPL-3.0 • the analytics source is public.',
+                Text('OpenStrap • MIT • the analytics source is public.',
                     style: AppText.captionMuted),
               ],
             ),
@@ -222,6 +261,27 @@ class ProfileScreen extends StatelessWidget {
       destructive: true,
     );
     if (ok == true) await app.signOut();
+  }
+
+  // ── Background-sync diagnostics ────────────────────────────────────────
+  Future<void> _runBgSyncNow(BuildContext context) async {
+    await BackgroundSync.runOnceNow();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Queued a background sync. Wait ~30s, then share the log.'),
+    ));
+  }
+
+  Future<void> _shareSyncLog(BuildContext context) async {
+    final path = await FileLog.path();
+    if (path == null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('No log yet — run a sync first.'),
+      ));
+      return;
+    }
+    await Share.shareXFiles([XFile(path)], subject: 'OpenStrap sync log');
   }
 }
 
