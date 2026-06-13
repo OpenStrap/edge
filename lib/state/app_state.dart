@@ -8,6 +8,7 @@
 //   else               → main Shell (auto-connect saved band, drain, live, upload)
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -21,6 +22,7 @@ import '../net/api_client.dart';
 import '../live/live_activity.dart';
 import '../sync/background_sync.dart';
 import '../sync/config.dart';
+import '../sync/edge_tracking.dart';
 import '../widget/widget_service.dart';
 import '../sync/file_log.dart';
 import '../sync/uploader.dart';
@@ -150,10 +152,28 @@ class AppState extends ChangeNotifier {
     _keepAlive = false;
     IosBleRestore.foregroundActive = false;
     await BackgroundSync.disable();
+    await EdgeTracking.stop();
     await IosBleRestore.disarm();
     await engine.disconnect();
     await session!.clear();
     notifyListeners();
+  }
+
+  /// Called when the app goes to the background. On iOS this hands the band to the
+  /// CoreBluetooth restoration path: clear the foreground flag (the wake-drain is gated
+  /// on it) and release our live connection so the native restore central's no-timeout
+  /// pending connect can hold it and relaunch us when the band is reachable. Without
+  /// this, `foregroundActive` stays true for the whole session and the background wake
+  /// never drains — sync only ever happened on app open.
+  ///
+  /// On Android we do NOT disconnect: the Edge Tracking foreground service keeps the
+  /// process + connection alive, so the live drain just continues.
+  Future<void> pauseForBackground() async {
+    if (!Platform.isIOS) return;
+    IosBleRestore.foregroundActive = false;
+    _keepAlive = false; // stop the drop handler from auto-reconnecting and fighting the handoff
+    await engine.disconnect();
+    _log('Backgrounded — released band to iOS restore for background sync');
   }
 
   Future<void> _onRecord(Sample? sample, RawRecord raw) async {
@@ -192,6 +212,7 @@ class AppState extends ChangeNotifier {
     _keepAlive = false;
     IosBleRestore.foregroundActive = false;
     await BackgroundSync.disable();
+    await EdgeTracking.stop();
     await IosBleRestore.disarm();
     await engine.disconnect();
     await PairedDevice.clear();
@@ -243,9 +264,11 @@ class AppState extends ChangeNotifier {
     _setBusy(true);
     lastError = null;
     _keepAlive = true;
-    // Keep syncing in the background even when the app isn't open (no foreground
-    // service / notification). Idempotent — safe to call on every session start.
+    // Keep syncing in the background. Idempotent — safe to call on every session start.
     BackgroundSync.enable();
+    // Android: start the Edge Tracking foreground service so the live connection keeps
+    // draining while backgrounded (Android kills background processes otherwise).
+    EdgeTracking.start();
     // iOS: arm CoreBluetooth restoration so the band can relaunch us when terminated.
     // The foreground guard stops a wake from fighting this live session for the band.
     IosBleRestore.foregroundActive = true;
