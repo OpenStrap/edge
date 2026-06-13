@@ -1,7 +1,5 @@
 import Flutter
 import UIKit
-// workmanager 0.9 split the iOS plugin into the `workmanager_apple` module.
-import workmanager_apple
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -9,15 +7,9 @@ import workmanager_apple
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // Background sync (workmanager / BGTaskScheduler).
-    WorkmanagerPlugin.setPluginRegistrantCallback { registry in
-      GeneratedPluginRegistrant.register(with: registry)
-    }
-    // workmanager 0.9 API. Identifier must match BGTaskSchedulerPermittedIdentifiers.
-    WorkmanagerPlugin.registerPeriodicTask(
-      withIdentifier: "openstrap.periodicSync",
-      frequency: NSNumber(value: 15 * 60)
-    )
+    // No OS periodic background task (no WorkManager 15-min / BGTask): continuous sync is
+    // the kept-alive live BLE connection + the persistent flusher in AppState, with
+    // CoreBluetooth state restoration below as the relaunch-recovery fallback.
 
     // CoreBluetooth state restoration — must be created here (early) so iOS can relaunch
     // us with willRestoreState when the band reappears. Wakes the app → headless sync.

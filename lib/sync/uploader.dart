@@ -30,7 +30,12 @@ class Uploader {
       attempted += batch.length;
       try {
         final body = await api.ingestBatch(batch.map((r) => r.hex).toList());
-        accepted += (body['processed'] as int?) ?? 0;
+        // The backend persists every record raw (R2 = system of record) and returns
+        // a count. Older builds returned no count field; fall back to the batch size
+        // since a 2xx means the server received + stored them all.
+        accepted += (body['received'] as int?) ??
+            (body['processed'] as int?) ??
+            batch.length;
         await LocalDb.markUploaded(batch.map((r) => r.hex).toList());
         if (onChunk != null) await onChunk();
       } catch (e) {

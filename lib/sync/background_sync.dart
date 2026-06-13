@@ -1,15 +1,17 @@
-// Background sync — runs the connect → drain → upload flow with NO UI, NO
-// Provider, NO foreground service / sticky notification. "Comes, does its job,
-// goes." Reused by the OS periodic scheduler (WorkManager on Android, BGTask on
-// iOS via the workmanager plugin) and callable directly.
+// Headless sync — runs the connect → drain → upload flow with NO UI, NO Provider.
+// "Comes, does its job, goes." Invoked by the iOS CoreBluetooth-restoration RECOVERY
+// path (ios_ble_restore.dart) when the band reappears after the live connection dropped.
+//
+// There is NO OS periodic scheduler anymore (no WorkManager 15-min task, no BGTask):
+// continuous sync is the kept-alive live connection + the persistent flusher in
+// AppState. This is purely the relaunch-recovery fallback.
 //
 // Connectivity-agnostic by design: it does NOT assume the strap stays connected.
-// Each run just connects-by-id if reachable, drains whatever the band buffered to
-// flash (non-destructive cursor — catches up everything since last time), uploads,
-// and disconnects. A missed window is harmless; the next run catches up.
+// It connects-by-id if reachable, drains whatever the band buffered to flash
+// (non-destructive cursor — catches up everything since last time), uploads, and
+// disconnects. A missed run is harmless; the next reconnect catches up.
 
 import 'package:flutter/widgets.dart';
-import 'package:workmanager/workmanager.dart';
 
 import '../ble/ble_engine.dart';
 import '../data/db.dart';
@@ -17,11 +19,7 @@ import '../net/api_client.dart';
 import 'config.dart';
 import 'uploader.dart';
 
-/// Unique name + tag for the periodic OS task.
-const String _kPeriodicTask = 'openstrap.periodicSync';
-
-/// One headless sync pass. Safe to call from a background isolate. Never throws —
-/// returns true so the OS scheduler treats the run as handled (no thrash-retry).
+/// One headless sync pass. Safe to call from a background isolate. Never throws.
 Future<bool> runHeadlessSync() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
@@ -67,40 +65,5 @@ Future<bool> runHeadlessSync() async {
   } catch (e) {
     debugPrint('[bgsync] error (ignored): $e');
     return true;
-  }
-}
-
-/// WorkManager/BGTask entry point. MUST be a top-level function annotated for the
-/// AOT compiler so the background isolate can find it.
-@pragma('vm:entry-point')
-void callbackDispatcher() {
-  Workmanager().executeTask((task, inputData) => runHeadlessSync());
-}
-
-/// Thin facade over the OS scheduler.
-class BackgroundSync {
-  /// Call once at app start (registers the isolate entry point).
-  static Future<void> init() async {
-    await Workmanager().initialize(callbackDispatcher);
-  }
-
-  /// Schedule the periodic background sync. 15 min is the OS floor; the OS may run
-  /// it less often (Doze / iOS throttling) — fine, since the drain catches up.
-  /// Requires network; idempotent (keep existing if already scheduled).
-  static Future<void> enable() async {
-    await Workmanager().registerPeriodicTask(
-      _kPeriodicTask,
-      _kPeriodicTask,
-      frequency: const Duration(minutes: 15),
-      constraints: Constraints(networkType: NetworkType.connected),
-      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
-      backoffPolicy: BackoffPolicy.linear,
-      backoffPolicyDelay: const Duration(minutes: 5),
-    );
-  }
-
-  /// Stop background sync (on sign-out / unpair).
-  static Future<void> disable() async {
-    await Workmanager().cancelByUniqueName(_kPeriodicTask);
   }
 }

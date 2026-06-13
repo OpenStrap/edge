@@ -4,11 +4,6 @@
 <dict>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>openstrap.periodicSync</string>
-		<string>be.tramckrijte.workmanager.BackgroundTask</string>
-	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -63,9 +58,6 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
-		<string>processing</string>
-		<string>fetch</string>
-		<string>bluetooth-peripheral</string>
 		<string>remote-notification</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
