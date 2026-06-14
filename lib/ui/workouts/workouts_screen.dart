@@ -181,7 +181,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
                   )))
                 else ...[
                   SectionHeader(_range == 0 ? 'Today' : 'Sessions'),
-                  for (final w in list) _WorkoutTile(w as Map<String, dynamic>),
+                  for (final w in list) _row(w as Map<String, dynamic>),
                 ],
               ],
             ],
@@ -189,6 +189,51 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
         ),
       ),
     );
+  }
+
+  // Swipe-to-delete wrapper. Live sessions aren't deletable (finish them first).
+  Widget _row(Map<String, dynamic> w) {
+    final tile = _WorkoutTile(w);
+    if (w['status'] == 'live') return tile;
+    return Dismissible(
+      key: ValueKey(w['id']),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        margin: const EdgeInsets.only(bottom: Sp.x3),
+        padding: const EdgeInsets.only(right: Sp.x6),
+        alignment: Alignment.centerRight,
+        decoration: BoxDecoration(color: AppColors.badSoft, borderRadius: BorderRadius.circular(R.card)),
+        child: const Row(mainAxisAlignment: MainAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.delete_outline, size: 20, color: AppColors.bad),
+          SizedBox(width: Sp.x2),
+          Text('Delete', style: TextStyle(color: AppColors.bad, fontWeight: FontWeight.w700)),
+        ]),
+      ),
+      confirmDismiss: (_) => _confirmDelete(w['id'] as String),
+      child: tile,
+    );
+  }
+
+  Future<bool> _confirmDelete(String id) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text('Delete this workout?', style: AppText.title),
+        content: Text('It will be removed for good. Auto-detected efforts won’t come back.',
+            style: AppText.bodySoft),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Delete', style: TextStyle(color: AppColors.bad, fontWeight: FontWeight.w700))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return false;
+    final api = context.read<AppState>().api;
+    if (api == null) return false;
+    try { await api.deleteWorkout(id); _load(); return true; }
+    catch (_) { return false; }
   }
 }
 
@@ -333,11 +378,40 @@ class _WorkoutTile extends StatelessWidget {
 class WorkoutDetailScreen extends StatelessWidget {
   final String id;
   const WorkoutDetailScreen({super.key, required this.id});
+  Future<void> _delete(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text('Delete this workout?', style: AppText.title),
+        content: Text('It will be removed for good. Auto-detected efforts won’t come back.', style: AppText.bodySoft),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Delete', style: TextStyle(color: AppColors.bad, fontWeight: FontWeight.w700))),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    final api = context.read<AppState>().api;
+    if (api == null) return;
+    try { await api.deleteWorkout(id); if (context.mounted) Navigator.of(context).pop(); } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(backgroundColor: AppColors.bg, elevation: 0, title: Text('Workout', style: AppText.title)),
+      appBar: AppBar(
+        backgroundColor: AppColors.bg, elevation: 0, title: Text('Workout', style: AppText.title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: AppColors.inkMuted),
+            tooltip: 'Delete workout',
+            onPressed: () => _delete(context),
+          ),
+        ],
+      ),
       body: _WorkoutDetailBody(id: id),
     );
   }
