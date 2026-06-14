@@ -10,6 +10,8 @@ import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../kit/charts.dart';
+import '../screens/metric_row.dart';
+import '../screens/trend_screen.dart';
 
 class StrainDetailScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
@@ -206,6 +208,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
         _loadCard(load, fitness, cals, steps),
         const SizedBox(height: Sp.x4),
       ],
+      ..._fitnessSection(),
       _curveCard(),
       const SizedBox(height: Sp.x4),
       _zonesCard(),
@@ -222,6 +225,41 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
             DetailRow(label: dr['label']?.toString() ?? '', value: dr['detail']?.toString() ?? ''),
         ])),
       ],
+    ];
+  }
+
+  // Fitness modeling — VO₂max, Banister fitness/fatigue/form curves, monotony.
+  List<Widget> _fitnessSection() {
+    final vo2 = _num(_data['vo2max']);
+    final fm = _map(_data['fitness_model']);
+    final monotony = _num(_data['monotony']);
+    final acwr = _num(_map(_data['load'])['acwr']);
+    final rows = <Widget>[];
+    if (vo2 != null) {
+      rows.add(TrendMetricRow(icon: Ic.pulse, accent: AppColors.good, label: 'VO₂max',
+          info: infoFor('vo2max'), value: vo2.toStringAsFixed(1), unit: 'ml/kg/min',
+          metric: 'vo2max', trendTitle: 'VO₂max'));
+    }
+    if (acwr != null) {
+      rows.add(TrendMetricRow(icon: Ic.strain, accent: AppColors.coral, label: 'Training load (ACWR)',
+          info: infoFor('load'), value: acwr.toStringAsFixed(2),
+          metric: 'acwr', trendTitle: 'Training load (ACWR)'));
+    }
+    if (monotony != null) {
+      rows.add(TrendMetricRow(icon: Ic.chart, accent: AppColors.warn, label: 'Monotony',
+          info: infoFor('monotony'), value: monotony.toStringAsFixed(2),
+          metric: 'monotony', trendTitle: 'Training monotony'));
+    }
+    final hasModel = fm['fitness'] != null || fm['fatigue'] != null || fm['form'] != null;
+    if (rows.isEmpty && !hasModel) return const [];
+    return [
+      const SectionHeader('Fitness'),
+      if (hasModel) ...[
+        _FitnessModelCard(fitness: _num(fm['fitness']), fatigue: _num(fm['fatigue']), form: _num(fm['form'])),
+        const SizedBox(height: Sp.x3),
+      ],
+      if (rows.isNotEmpty) MetricGroup(rows),
+      const SizedBox(height: Sp.x4),
     ];
   }
 
@@ -554,4 +592,71 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
       ),
     );
   }
+}
+
+/// Banister Fitness/Fatigue/Form — today's values + a dual-line trend (fetched
+/// from /trend/fitness & /trend/fatigue). The Body tab's fitness centerpiece.
+class _FitnessModelCard extends StatefulWidget {
+  final num? fitness;
+  final num? fatigue;
+  final num? form;
+  const _FitnessModelCard({this.fitness, this.fatigue, this.form});
+  @override
+  State<_FitnessModelCard> createState() => _FitnessModelCardState();
+}
+
+class _FitnessModelCardState extends State<_FitnessModelCard> {
+  List<double?> _fit = const [];
+  List<double?> _fat = const [];
+  bool _loading = true;
+  @override
+  void initState() { super.initState(); _go(); }
+  Future<void> _go() async {
+    final api = context.read<AppState>().api;
+    if (api == null) { setState(() => _loading = false); return; }
+    try {
+      final f = await api.getTrend('fitness', scale: 'quarter');
+      final g = await api.getTrend('fatigue', scale: 'quarter');
+      List<double?> vals(Map<String, dynamic> d) => [
+            for (final b in ((d['buckets'] as List?) ?? const []))
+              ((b as Map)['value'] as num?)?.toDouble()
+          ];
+      if (mounted) setState(() { _fit = vals(f); _fat = vals(g); _loading = false; });
+    } catch (_) { if (mounted) setState(() => _loading = false); }
+  }
+
+  Widget _stat(String label, num? v, Color c) => Expanded(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(v == null ? '—' : v.toStringAsFixed(1), style: AppText.metricSm.copyWith(fontSize: 20, color: c)),
+          Text(label, style: AppText.captionMuted),
+        ]),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Fitness · Fatigue · Form', style: AppText.label),
+      const SizedBox(height: Sp.x1),
+      Text('Built-up fitness vs recent fatigue. Form = fitness − fatigue (freshness).',
+          style: AppText.captionMuted),
+      const SizedBox(height: Sp.x3),
+      Row(children: [
+        _stat('FITNESS', widget.fitness, AppColors.coral),
+        _stat('FATIGUE', widget.fatigue, AppColors.loadDetraining),
+        _stat('FORM', widget.form, widget.form != null && widget.form! >= 0 ? AppColors.good : AppColors.warn),
+      ]),
+      if (!_loading && (_fit.where((v) => v != null).length > 1 || _fat.where((v) => v != null).length > 1)) ...[
+        const SizedBox(height: Sp.x4),
+        FormChart(fitness: _fit, fatigue: _fat),
+        const SizedBox(height: Sp.x2),
+        Row(children: [
+          _legendDot(AppColors.coral), Text(' Fitness   ', style: AppText.caption),
+          _legendDot(AppColors.loadDetraining), Text(' Fatigue', style: AppText.caption),
+        ]),
+      ],
+    ]));
+  }
+
+  Widget _legendDot(Color c) => Container(width: 9, height: 9,
+      decoration: BoxDecoration(color: c, shape: BoxShape.circle));
 }
