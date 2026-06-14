@@ -54,6 +54,15 @@ class ApiClient {
   Future<Map<String, dynamic>> requestOtp(String email) =>
       _postJson('/auth/request-otp', {'email': email});
 
+  /// GET /app/status → { update, banner }. Public (no auth): the OTA prompt and a
+  /// service notice must work even with an expired session. Short timeout +
+  /// swallow failures at the call site (status is always best-effort).
+  Future<Map<String, dynamic>> getAppStatus() async {
+    final resp = await http.get(_u('/app/status')).timeout(const Duration(seconds: 12));
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
+    return _decode(resp.body);
+  }
+
   /// Verify OTP → persists the session (access + refresh + user) and returns it.
   Future<Map<String, dynamic>> verifyOtp(String email, String code) async {
     final r = await _postJson('/auth/verify-otp', {'email': email, 'code': code});

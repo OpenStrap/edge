@@ -1,7 +1,7 @@
 name: openstrap_edge
 description: "OpenStrap — open-source WHOOP 4.0 companion. BLE drain → raw-first local store → cloud sync."
 publish_to: 'none'
-version: 0.2.0+3
+version: 0.3.0+4
 
 environment:
   sdk: ^3.11.4
@@ -38,6 +38,12 @@ dependencies:
 
   # Home/lock-screen widget bridge (writes a snapshot to the App Group → WidgetKit).
   home_widget: ^0.6.0
+
+  # OTA self-update (Android sideload): read our own version, download + install the
+  # signed APK from the backend's update pointer, with a browser fallback.
+  package_info_plus: ^8.1.0
+  ota_update: ^6.0.0
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

@@ -12,6 +12,7 @@ import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../kit/charts.dart';
 import '../widgets/screen_loader.dart';
+import '../widgets/status_banner.dart';
 import '../journal/journal_screen.dart';
 import '../recap/recap_screen.dart';
 import '../coach/coach_screen.dart';
@@ -114,6 +115,8 @@ class _TodayScreenState extends State<TodayScreen>
           children: [
             const SizedBox(height: Sp.x4),
             _topBar(name),
+            // OTA update prompt + admin alert banner (admin-controlled, best-effort).
+            const StatusBanner(),
             if (freshnessLabel != null) ...[
               const SizedBox(height: Sp.x3),
               _freshness(freshnessLabel!),

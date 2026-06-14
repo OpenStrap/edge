@@ -12,8 +12,10 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/app_status.dart';
 import '../ble/ble_engine.dart';
 import '../ble/ios_ble_restore.dart';
 import '../data/db.dart';
@@ -74,6 +76,57 @@ class AppState extends ChangeNotifier {
         u['weight_kg'] != null;
   }
 
+  // ── app status: OTA update pointer + admin-pushed alert banner ──────────────
+  AppStatus? appStatus;
+  int _currentBuild = 0; // our build number (from package_info); 0 if unknown
+  final Set<String> _dismissedBanners = {};
+
+  UpdateInfo? get _update => appStatus?.update;
+
+  /// A newer build is published (we're behind latest_build).
+  bool get updateAvailable =>
+      _update != null && _currentBuild > 0 && _update!.latestBuild > _currentBuild;
+
+  /// We're below the mandatory floor — the prompt can't be dismissed.
+  bool get updateMandatory =>
+      _update != null && _currentBuild > 0 && _currentBuild < _update!.minBuild;
+
+  UpdateInfo? get update => _update;
+
+  /// The admin banner to show right now (null if none, or dismissed + dismissible).
+  BannerInfo? get activeBanner {
+    final b = appStatus?.banner;
+    if (b == null) return null;
+    if (b.dismissible && _dismissedBanners.contains(b.id)) return null;
+    return b;
+  }
+
+  Future<void> _loadAppStatus() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      _currentBuild = int.tryParse(info.buildNumber) ?? 0;
+    } catch (_) {/* keep 0 → update prompts simply won't fire */}
+    final prefs = await SharedPreferences.getInstance();
+    _dismissedBanners.addAll(prefs.getStringList('dismissed_banners') ?? const []);
+    await refreshAppStatus();
+  }
+
+  /// Re-poll /app/status (best-effort; called on launch and on app resume).
+  Future<void> refreshAppStatus() async {
+    if (api == null) return;
+    try {
+      appStatus = AppStatus.fromJson(await api!.getAppStatus());
+      notifyListeners();
+    } catch (_) {/* best-effort — never disrupt the UI */}
+  }
+
+  Future<void> dismissBanner(String id) async {
+    _dismissedBanners.add(id);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('dismissed_banners', _dismissedBanners.toList());
+    notifyListeners();
+  }
+
   AppState() {
     engine = BleEngine(
       onRecord: _onRecord,
@@ -95,6 +148,8 @@ class AppState extends ChangeNotifier {
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
     initialized = true;
     notifyListeners();
+    // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.
+    unawaited(_loadAppStatus());
     // The flusher is connection-INDEPENDENT: it just uploads whatever's queued in
     // SQLite (and retries anything a prior tick failed to send). Start it as soon as
     // we're authenticated so a backlog drains even if the live connection comes up via

@@ -37,6 +37,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     final app = context.read<AppState>();
     if (state == AppLifecycleState.resumed) {
       app.maybeFinishFromLiveActivity();
+      app.refreshAppStatus(); // re-check OTA + admin banner on every foreground
       if (app.isAuthenticated && app.isPaired) app.openSession();
     } else if (state == AppLifecycleState.paused) {
       // Backgrounded: hand the band to the iOS restore path so it can wake-and-drain
