@@ -248,6 +248,12 @@ class ApiClient {
   /// GET /workout/:id → one workout's breakdown + HR timeline.
   Future<Map<String, dynamic>> getWorkout(String id) => _getObj('/workout/$id');
 
+  /// DELETE /workout/:id → soft-delete (tombstone; auto-detect won't recreate it).
+  Future<void> deleteWorkout(String id) async {
+    final resp = await _authed((h) => _client.delete(_u('/workout/$id'), headers: h));
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
+  }
+
   /// POST /workout/start {type} → {workout_id, start_ts, type, status}.
   Future<Map<String, dynamic>> startWorkout(String type, {String? title}) async {
     final resp = await _authed((h) => _client.post(_u('/workout/start'),
