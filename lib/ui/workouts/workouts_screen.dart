@@ -135,12 +135,6 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
     final summary = (_data?['summary'] as Map?)?.cast<String, dynamic>();
     return Scaffold(
       backgroundColor: AppColors.bg,
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: AppColors.coral,
-        onPressed: () => startWorkoutFlow(context).then((_) => _load()),
-        icon: const AppIcon(Ic.run, size: 20, color: Colors.white),
-        label: Text('Start', style: AppText.label.copyWith(color: Colors.white)),
-      ),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: _load,
@@ -153,6 +147,8 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
                   const SizedBox(width: Sp.x3),
                 ],
                 Text('Workouts', style: AppText.h1),
+                const Spacer(),
+                _StartButton(onTap: () => startWorkoutFlow(context).then((_) => _load())),
               ]),
               const SizedBox(height: Sp.x4),
               Align(
@@ -185,6 +181,37 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Compact "blazing" Start pill — top-right of the Workouts header. Short, coral,
+/// with a warm glow so it reads as the primary action without taking a whole row.
+class _StartButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _StartButton({required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [AppColors.coral, AppColors.coralDeep],
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(R.pill),
+          boxShadow: [
+            BoxShadow(color: AppColors.coral.withValues(alpha: 0.45), blurRadius: 16, offset: const Offset(0, 4)),
+          ],
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const AppIcon(Ic.fire, size: 16, color: Colors.white),
+          const SizedBox(width: Sp.x2),
+          Text('Start', style: AppText.label.copyWith(color: Colors.white)),
+        ]),
       ),
     );
   }
