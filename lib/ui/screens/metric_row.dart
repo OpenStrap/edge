@@ -1,5 +1,5 @@
-// MetricRow + metric dictionary — the polished, breathing building block for every
-// concern detail. Icon chip + label + a one-line "what this is" + value, with real
+// MetricRow + metric dictionary — the polished, breathing building block for every metric
+// detail. Icon chip + label + a one-line "what this is" + value, with real
 // padding. Group several in a MetricGroup (one ProCard, hairline dividers). This is
 // what makes the new screens read like the hand-written ones instead of flat lists.
 

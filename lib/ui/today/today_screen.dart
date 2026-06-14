@@ -16,7 +16,7 @@ import '../journal/journal_screen.dart';
 import '../recap/recap_screen.dart';
 import '../coach/coach_screen.dart';
 import '../profile/profile_screen.dart';
-import '../concern/concern_screens.dart';
+import '../screens/screens.dart';
 import '../journey/journey_screen.dart';
 import '../stress/stress_screen.dart';
 import '../records/records_screen.dart';
@@ -442,13 +442,13 @@ class _TodayScreenState extends State<TodayScreen>
         children: [
           _gauge('STRAIN', t.strain.isEmpty ? null : t.strain.value!.toStringAsFixed(1),
               null, strainT, AppColors.coral,
-              onTap: () => _push(const BodyConcernScreen())),
+              onTap: () => _push(const BodyScreen())),
           _gauge('SLEEP', t.sleepDuration.isEmpty ? null : (t.sleepDuration.value! / 60).toStringAsFixed(1),
               'h', sleepT, AppColors.loadDetraining,
-              onTap: () => _push(const SleepConcernScreen())),
+              onTap: () => _push(const SleepScreen())),
           _gauge('HRV', hrv == null ? null : hrv.rmssd.toStringAsFixed(0),
               'ms', hrvT, AppColors.good,
-              onTap: () => _push(const HeartConcernScreen())),
+              onTap: () => _push(const HeartScreen())),
         ],
       ),
     );

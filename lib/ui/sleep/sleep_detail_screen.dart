@@ -14,7 +14,7 @@ import '../kit/charts.dart';
 class SleepDetailScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
   // When true, render just the section content (no Scaffold/back bar) so it can be
-  // embedded inside the Sleep ConcernScreen (Today/Week/Month/3M). This is the EXACT
+  // embedded inside the Sleep screen (Today/Week/Month/3M). This is the EXACT
   // same loved layout — only the chrome differs.
   final bool embedded;
   const SleepDetailScreen({super.key, required this.date, this.embedded = false});
@@ -231,7 +231,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   // ── build ──────────────────────────────────────────────────────────────────
 
   /// The night's sections (phase-aware). Shared by the standalone screen and the
-  /// embedded (ConcernScreen) mode so the layout is identical.
+  /// embedded mode so the layout is identical.
   List<Widget> _sections() {
     if (_phase == _Phase.loading) return [_loading()];
     if (_phase == _Phase.empty) {
@@ -270,7 +270,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Embedded in the Sleep ConcernScreen: just the sections (its ListView scrolls).
+    // Embedded in the Sleep screen: just the sections (its ListView scrolls).
     if (widget.embedded) {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: _sections());
     }

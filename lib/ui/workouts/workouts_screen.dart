@@ -11,7 +11,7 @@ import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../kit/charts.dart';
-import '../concern/detail_cards.dart' show hm;
+import '../screens/detail_cards.dart' show hm;
 
 const _exercises = [
   ('run', 'Run', Ic.run), ('cycle', 'Cycle', Ic.activity), ('strength', 'Strength', Ic.fire),

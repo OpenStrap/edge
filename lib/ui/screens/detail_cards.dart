@@ -1,7 +1,7 @@
-// Per-concern day-detail cards. Each fetches its /day/* endpoint and renders with
+// Per-metric day-detail cards. Each fetches its /day/* endpoint and renders with
 // the EXISTING kit (RingStat, SegmentBar, DetailRow, ProCard, StatTile) — no new
 // widget types. Used both for the "Today" tab (date = today) and as the inline
-// drill leaf (date = the tapped day). One card per concern keeps it DRY.
+// drill leaf (date = the tapped day). One card per metric keeps it DRY.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -57,82 +57,8 @@ class _FetchState extends State<_Fetch> {
   }
 }
 
-// Zone palette reused across concerns.
+// Zone palette reused across metrics.
 const _zoneColors = [AppColors.cool, AppColors.loadDetraining, AppColors.good, AppColors.warn, AppColors.coral];
-
-// ── SLEEP ────────────────────────────────────────────────────────────────────
-class SleepDayCard extends StatelessWidget {
-  final String date;
-  const SleepDayCard({super.key, required this.date});
-  @override
-  Widget build(BuildContext context) {
-    return _Fetch(
-      load: (api) => api.getDaySleep(date),
-      build: (d) {
-        if (d['has_sleep'] != true) {
-          return ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x5),
-              child: Center(child: Text('No sleep recorded for this night', style: AppText.captionMuted))));
-        }
-        final dur = (d['duration_min'] as num?)?.toDouble() ?? 0;
-        final need = (d['need_min'] as num?)?.toDouble() ?? 480;
-        final eff = (d['efficiency'] as num?)?.toDouble();
-        final st = (d['stages'] as Map?) ?? const {};
-        final light = (st['light_min'] as num?)?.toDouble() ?? 0;
-        final deep = (st['deep_min'] as num?)?.toDouble() ?? 0;
-        final rem = (st['rem_min'] as num?)?.toDouble() ?? 0;
-        final reg = d['regularity'];
-        final debt = d['debt_min'];
-        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Hero: ring + "Xh Ym of N.Nh need" — the layout you liked.
-          ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x4), child: Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('TIME ASLEEP', style: AppText.overline),
-              const SizedBox(height: Sp.x2),
-              Text(hm(dur), style: AppText.metric),
-              const SizedBox(height: 2),
-              Text('of ${(need / 60).toStringAsFixed(1)}h need', style: AppText.captionMuted),
-            ])),
-            RingStat(
-              t: need > 0 ? (dur / need).clamp(0.0, 1.0) : 0,
-              color: AppColors.loadDetraining, size: 96, stroke: 10,
-              center: Text('${need > 0 ? ((dur / need) * 100).round() : 0}%',
-                  style: AppText.metricSm.copyWith(color: AppColors.loadDetraining)),
-            ),
-          ]))),
-          const SizedBox(height: Sp.x3),
-          // Stages.
-          ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x4), child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [Text('Stages', style: AppText.label), const Spacer(), const Tag('BETA', color: AppColors.warn)]),
-            const SizedBox(height: Sp.x3),
-            SegmentBar([deep, rem, light], const [AppColors.coral, AppColors.coralSoft, AppColors.cool], height: 14),
-            const SizedBox(height: Sp.x3),
-            _stageRow('Deep', deep, AppColors.coral),
-            _stageRow('REM', rem, AppColors.coralSoft),
-            _stageRow('Light', light, AppColors.cool),
-          ]))),
-          const SizedBox(height: Sp.x3),
-          ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x2), child: Column(children: [
-            if (eff != null) DetailRow(label: 'Efficiency', value: '${(eff * 100).round()}%'),
-            if (reg != null) DetailRow(label: 'Regularity (SRI)', value: '${(reg as num).round()}/100'),
-            if (debt != null) DetailRow(label: 'Sleep debt', value: hm(debt as num)),
-          ]))),
-        ]);
-      },
-    );
-  }
-
-  Widget _stageRow(String label, double min, Color c) => Padding(
-    padding: const EdgeInsets.only(bottom: Sp.x2),
-    child: Row(children: [
-      Container(width: 10, height: 10, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(3))),
-      const SizedBox(width: Sp.x2),
-      Text(label, style: AppText.body),
-      const Spacer(),
-      Text(hm(min), style: AppText.label),
-    ]),
-  );
-}
 
 // ── HEART ────────────────────────────────────────────────────────────────────
 class HeartDayCard extends StatelessWidget {
@@ -299,32 +225,12 @@ class HeartDayCard extends StatelessWidget {
             ]),
           ],
 
-          // Illness — the 3 signals (Mahalanobis).
-          if (illness != null && illness['signal'] == true) ...[
+          // Illness watch — ALWAYS shown (Mahalanobis of resting HR / HRV / temp).
+          // Three honest states: active signal, all-clear, or still building baseline.
+          ...[
             const SizedBox(height: Sp.x6),
-            SectionHeader('Body signal'),
-            ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Container(
-                  padding: const EdgeInsets.all(9),
-                  decoration: BoxDecoration(color: AppColors.warnSoft, borderRadius: BorderRadius.circular(R.chip)),
-                  child: const AppIcon(Ic.info, size: 17, color: AppColors.warn),
-                ),
-                const SizedBox(width: Sp.x3),
-                Expanded(child: Text(illness['note']?.toString() ?? 'Elevated body signal',
-                    style: AppText.bodySoft)),
-              ]),
-              if ((illness['drivers'] as List?)?.isNotEmpty ?? false) ...[
-                const SizedBox(height: Sp.x4),
-                for (final dr in (illness['drivers'] as List).whereType<Map>())
-                  Padding(padding: const EdgeInsets.only(top: Sp.x2), child: Row(children: [
-                    const AppIcon(Ic.up, size: 15, color: AppColors.warn),
-                    const SizedBox(width: Sp.x2),
-                    Expanded(child: Text(dr['label']?.toString() ?? '', style: AppText.body)),
-                    Text(dr['detail']?.toString() ?? '', style: AppText.captionMuted),
-                  ])),
-              ],
-            ])),
+            SectionHeader('Illness watch'),
+            _IllnessCard(illness),
           ],
 
           // What affected this — display-only (no navigation loop), properly padded.
@@ -342,9 +248,82 @@ class HeartDayCard extends StatelessWidget {
   }
 }
 
-// ── CONCERN EXTRAS: personal records + journal patterns ─────────────────────
+// Illness watch — always visible. Renders one of three honest states from the
+// Mahalanobis illness object: a fired signal (amber), all-clear (green), or
+// "still building baseline" (muted) when there aren't yet ~7 nights to compare.
+class _IllnessCard extends StatelessWidget {
+  final Map? illness;
+  const _IllnessCard(this.illness);
+
+  num? _num(Object? v) => v is num ? v : null;
+
+  @override
+  Widget build(BuildContext context) {
+    final dist = _num(illness?['distance']);
+    final signal = illness?['signal'] == true;
+    final drivers = (illness?['drivers'] as List?)?.whereType<Map>().toList() ?? const [];
+
+    // No baseline yet → honest "building" state.
+    if (illness == null || dist == null) {
+      return ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x4), child: Row(children: [
+        Container(
+          padding: const EdgeInsets.all(9),
+          decoration: BoxDecoration(color: AppColors.surfaceSunk, borderRadius: BorderRadius.circular(R.chip)),
+          child: const AppIcon(Ic.info, size: 17, color: AppColors.inkMuted),
+        ),
+        const SizedBox(width: Sp.x3),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Building your baseline', style: AppText.label),
+          const SizedBox(height: 2),
+          Text('Illness watch compares today’s resting HR, HRV and skin temperature '
+              'against your normal range. It needs about 7 nights of wear to start.',
+              style: AppText.captionMuted),
+        ])),
+      ])));
+    }
+
+    final accent = signal ? AppColors.warn : AppColors.good;
+    final softBg = signal ? AppColors.warnSoft : AppColors.goodSoft;
+    final title = signal ? 'Elevated body signal' : 'All clear';
+    final blurb = signal
+        ? 'Your resting HR, HRV and temperature are deviating together — a pattern that can precede illness. A signal, not a diagnosis.'
+        : 'Your resting HR, HRV and temperature are within your normal range.';
+
+    return ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(padding: const EdgeInsets.all(Sp.x4), child: Row(children: [
+        Container(
+          padding: const EdgeInsets.all(9),
+          decoration: BoxDecoration(color: softBg, borderRadius: BorderRadius.circular(R.chip)),
+          child: AppIcon(signal ? Ic.info : Ic.check, size: 17, color: accent),
+        ),
+        const SizedBox(width: Sp.x3),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Text(title, style: AppText.label.copyWith(color: accent)),
+            const Spacer(),
+            Text('index ${dist.toStringAsFixed(1)}', style: AppText.captionMuted),
+          ]),
+          const SizedBox(height: 2),
+          Text(blurb, style: AppText.captionMuted),
+        ])),
+      ])),
+      // Per-feature deviations (what's moving), when present.
+      if (drivers.isNotEmpty) ...[
+        const Divider(height: 1, color: AppColors.divider),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2), child: Column(
+          children: [
+            for (final dr in drivers)
+              DetailRow(label: dr['label']?.toString() ?? '', value: dr['detail']?.toString() ?? ''),
+          ],
+        )),
+      ],
+    ]));
+  }
+}
+
+// ── SECTION EXTRAS: personal records + journal patterns ─────────────────────
 // Resurfaces the Records (personal bests) and the journal correlation engine,
-// scoped to a concern, shown on its Today tab. Honest descriptive stats only.
+// scoped to a section, shown on its Today tab. Honest descriptive stats only.
 const _recordCfg = {
   'sleep': [
     ('longest_sleep', 'Longest sleep', 'dur'),
@@ -361,18 +340,18 @@ const _recordCfg = {
 };
 const _journalCols = {
   'sleep': ['efficiency', 'duration_min'],
-  'heart': ['resting_hr', 'readiness'],
+  'heart': ['resting_hr', 'recovery'],
   'body': ['strain'],
 };
 
-class ConcernExtras extends StatefulWidget {
-  final String concern; // 'sleep' | 'heart' | 'body'
-  const ConcernExtras({super.key, required this.concern});
+class SectionExtras extends StatefulWidget {
+  final String section; // 'sleep' | 'heart' | 'body'
+  const SectionExtras({super.key, required this.section});
   @override
-  State<ConcernExtras> createState() => _ConcernExtrasState();
+  State<SectionExtras> createState() => _SectionExtrasState();
 }
 
-class _ConcernExtrasState extends State<ConcernExtras> {
+class _SectionExtrasState extends State<SectionExtras> {
   Map<String, dynamic>? _records;
   Map<String, dynamic>? _insights;
   bool _loading = true;
@@ -409,7 +388,7 @@ class _ConcernExtrasState extends State<ConcernExtras> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const SizedBox.shrink();
-    final cfg = _recordCfg[widget.concern] ?? const [];
+    final cfg = _recordCfg[widget.section] ?? const [];
     final recs = (_records?['records'] as Map?) ?? const {};
     final tiles = <Widget>[];
     for (final c in cfg) {
@@ -426,8 +405,8 @@ class _ConcernExtrasState extends State<ConcernExtras> {
       )));
     }
 
-    // Journal patterns relevant to this concern.
-    final cols = _journalCols[widget.concern] ?? const [];
+    // Journal patterns relevant to this section.
+    final cols = _journalCols[widget.section] ?? const [];
     final patternRows = <Widget>[];
     for (final ins in ((_insights?['insights'] as List?) ?? const [])) {
       final tag = (ins as Map)['tag']?.toString() ?? '';
@@ -472,46 +451,3 @@ class _ConcernExtrasState extends State<ConcernExtras> {
   }
 }
 
-// ── LUNGS ────────────────────────────────────────────────────────────────────
-class LungsDayCard extends StatelessWidget {
-  final String date;
-  const LungsDayCard({super.key, required this.date});
-  @override
-  Widget build(BuildContext context) {
-    return _Fetch(
-      load: (api) => api.getDayLungs(date),
-      build: (d) {
-        final resp = (d['resp'] as Map?) ?? (d['resp_rate'] as Map?);
-        final spo2 = (d['spo2'] as Map?);
-        if (resp == null && spo2 == null) {
-          return ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x5),
-              child: Center(child: Text('No respiratory data yet\n(needs a clean night of resting RR)',
-                  textAlign: TextAlign.center, style: AppText.captionMuted))));
-        }
-        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          if (resp != null)
-            ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x4), child: Row(children: [
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('RESPIRATORY RATE', style: AppText.overline),
-                const SizedBox(height: Sp.x2),
-                Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-                  Text('${resp['value']}', style: AppText.metric),
-                  const SizedBox(width: 4),
-                  Text('brpm', style: AppText.caption),
-                ]),
-                const SizedBox(height: 2),
-                const Text('from RR (RSA)', style: TextStyle(fontSize: 11, color: AppColors.inkMuted)),
-              ])),
-              const Tag('EST.', color: AppColors.inkMuted),
-            ]))),
-          if (spo2 != null) ...[
-            const SizedBox(height: Sp.x3),
-            ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x2), child: Column(children: [
-              DetailRow(label: 'Blood-oxygen vs baseline', value: '${spo2['value']} Δ'),
-            ]))),
-          ],
-        ]);
-      },
-    );
-  }
-}

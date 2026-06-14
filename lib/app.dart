@@ -9,7 +9,7 @@ import 'ui/kit/kit.dart';
 import 'ui/onboarding_screens.dart';
 import 'ui/pairing_screen.dart';
 import 'ui/today/today_screen.dart';
-import 'ui/concern/concern_screens.dart';
+import 'ui/screens/screens.dart';
 import 'ui/workouts/workouts_screen.dart';
 
 class OpenStrapApp extends StatefulWidget {
@@ -86,9 +86,9 @@ class _ShellState extends State<_Shell> {
 
   static const _pages = [
     TodayScreen(),
-    SleepConcernScreen(),
-    HeartConcernScreen(),
-    BodyConcernScreen(),
+    SleepScreen(),
+    HeartScreen(),
+    BodyScreen(),
     WorkoutsScreen(),
   ];
 

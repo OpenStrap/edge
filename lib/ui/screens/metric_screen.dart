@@ -1,9 +1,9 @@
-// ConcernScreen — the ONE reusable screen every concern (Sleep/Heart/Body/…) plugs
+// MetricScreen — the ONE reusable screen every metric (Sleep/Heart/Body/…) plugs
 // into. Title + right-aligned scale toggle (Today·Week·Month·3M), exactly like the
 // hand-written Stats screen. The over-time view is a GlowCard HERO (overline → big
 // display number + delta → subtitle → tappable bars inside it), then inline drill:
 // tap a month bar → its weeks expand below → tap a week → its 7 days → tap a day →
-// the concern's rich detail. All from the existing kit; numbers on every bar.
+// the metric's rich detail. All from the existing kit; numbers on every bar.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -20,7 +20,7 @@ const _tabs = ['Today', 'Week', 'Month', '3M'];
 const _wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-class ConcernScreen extends StatefulWidget {
+class MetricScreen extends StatefulWidget {
   final String title;
   final String metric; // /trend key for the bars
   final IconData icon;
@@ -28,7 +28,7 @@ class ConcernScreen extends StatefulWidget {
   final String Function(double v)? valueFmt;
   final DetailBuilder todayDetail;
   final DayDetailBuilder dayDetail;
-  const ConcernScreen({
+  const MetricScreen({
     super.key,
     required this.title,
     required this.metric,
@@ -40,17 +40,17 @@ class ConcernScreen extends StatefulWidget {
   });
 
   @override
-  State<ConcernScreen> createState() => _ConcernScreenState();
+  State<MetricScreen> createState() => _MetricScreenState();
 }
 
-class _ConcernScreenState extends State<ConcernScreen> {
+class _MetricScreenState extends State<MetricScreen> {
   int _tab = 0;
 
   @override
   Widget build(BuildContext context) {
     final scale = _tab == 1 ? 'week' : _tab == 2 ? 'month' : 'quarter';
     return Scaffold(
-      // Opaque bg so a PUSHED concern screen (from a gauge / driver) isn't a black
+      // Opaque bg so a PUSHED metric screen (from a gauge / driver) isn't a black
       // backdrop; as a tab it matches the shell background anyway.
       backgroundColor: AppColors.bg,
       body: SafeArea(

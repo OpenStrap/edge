@@ -13,7 +13,7 @@ import '../kit/charts.dart';
 
 class StrainDetailScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
-  // Embedded (no Scaffold/back bar) for use inside the Body ConcernScreen.
+  // Embedded (no Scaffold/back bar) for use inside the Body screen.
   final bool embedded;
   const StrainDetailScreen({super.key, required this.date, this.embedded = false});
   @override
