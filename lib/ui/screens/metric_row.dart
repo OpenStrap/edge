@@ -40,7 +40,6 @@ const Map<String, String> kMetricInfo = {
   'readiness': 'A blend of HRV recovery and sleep — your day-ahead capacity.',
   'vo2max': 'Estimated aerobic fitness from your max vs resting heart rate.',
   'form': 'Freshness: fitness minus fatigue. Positive means well-rested.',
-  'fitness': 'Chronic training load — your built-up fitness (Banister).',
   'fatigue': 'Acute training load — recent fatigue (Banister).',
   'monotony': 'Sameness of daily strain — very high can raise injury risk.',
   'dip': 'How far your heart rate falls in sleep — a bigger dip is better.',
