@@ -60,6 +60,8 @@ class _MetricScreenState extends State<MetricScreen> {
           padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
           children: [
             const SizedBox(height: Sp.x4),
+            // Title stands on its own full-width row; the time-scale filter sits on
+            // the line below so a longer title (e.g. "Wear time") never shrinks.
             Row(children: [
               // Back button only when this screen was pushed (not when it's a tab).
               if (Navigator.of(context).canPop()) ...[
@@ -67,8 +69,12 @@ class _MetricScreenState extends State<MetricScreen> {
                 const SizedBox(width: Sp.x3),
               ],
               Expanded(child: Text(widget.title, style: AppText.h1)),
-              SegToggle(options: _tabs, index: _tab, onChanged: (i) => setState(() => _tab = i)),
             ]),
+            const SizedBox(height: Sp.x4),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SegToggle(options: _tabs, index: _tab, onChanged: (i) => setState(() => _tab = i)),
+            ),
             const SizedBox(height: Sp.x5),
             if (_tab == 0)
               widget.todayDetail(context)
@@ -230,7 +236,7 @@ class _DrillLevelState extends State<_DrillLevel> {
               const SizedBox(height: Sp.x4),
               Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                 Text(_fmtAvg(avg, unit), style: AppText.display),
-                if (unit.isNotEmpty && avg != null && widget.metric != 'sleep') ...[
+                if (unit.isNotEmpty && avg != null && widget.metric != 'sleep' && widget.metric != 'wear') ...[
                   const SizedBox(width: Sp.x2),
                   Padding(padding: const EdgeInsets.only(bottom: 8),
                       child: Text(unit, style: AppText.bodySoft)),
@@ -272,8 +278,8 @@ class _DrillLevelState extends State<_DrillLevel> {
   String _fmtAvg(Object? avg, String unit) {
     if (avg == null) return '—';
     final v = (avg as num).toDouble();
-    // Sleep avg comes in minutes → show as Hh Mm in the hero.
-    if (widget.metric == 'sleep') {
+    // Sleep + wear avgs come in minutes → show as Hh Mm in the hero.
+    if (widget.metric == 'sleep' || widget.metric == 'wear') {
       final m = v.round();
       return '${m ~/ 60}h ${m % 60}m';
     }

@@ -48,6 +48,23 @@ class HeartScreen extends StatelessWidget {
       );
 }
 
+/// Wear time — how long the strap was actually on the wrist. Bars track daily
+/// worn hours over time; the detail is the per-day wear card (hourly coverage,
+/// when it went on/off, longest gap). Reached from the home "Wear time" tile.
+class WearScreen extends StatelessWidget {
+  const WearScreen({super.key});
+  @override
+  Widget build(BuildContext context) => MetricScreen(
+        title: 'Wear time',
+        metric: 'wear',
+        icon: Ic.watch,
+        accent: AppColors.coralDeep,
+        valueFmt: (v) => v == 0 ? '' : (v / 60).toStringAsFixed(1), // minutes → hours on bars
+        todayDetail: (ctx) => WearDayCard(date: todayUtc()),
+        dayDetail: (ctx, date) => WearDayCard(date: date),
+      );
+}
+
 /// Body — strain / training load / calories / steps / activity. Bars track daily
 /// strain; the detail is the rich Strain screen (embedded), reused over time.
 /// (Respiratory rate + SpO₂ moved to Sleep + Heart; Lungs no longer a tab.)

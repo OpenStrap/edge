@@ -321,6 +321,103 @@ class _IllnessCard extends StatelessWidget {
   }
 }
 
+// ── WEAR TIME ────────────────────────────────────────────────────────────────
+// How long the strap was on the wrist for a day: a coverage ring + worn time hero,
+// a 24-hour coverage strip (minutes worn each hour), and when it went on/off.
+// All from /day/wear (device wrist sensor, tier AUTH). Existing kit only.
+class WearDayCard extends StatelessWidget {
+  final String date;
+  const WearDayCard({super.key, required this.date});
+
+  num? _n(Object? v) => v is num ? v : null;
+
+  // unix seconds → local "h:mm a"
+  String _clock(num? ts) {
+    if (ts == null) return '—';
+    final d = DateTime.fromMillisecondsSinceEpoch(ts.toInt() * 1000).toLocal();
+    final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    final ap = d.hour < 12 ? 'AM' : 'PM';
+    return '$h:${d.minute.toString().padLeft(2, '0')} $ap';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Fetch(
+      load: (api) => api.getDayWear(date),
+      build: (d) {
+        final worn = (_n(d['worn_min']) ?? 0).toInt();
+        final cov = (_n(d['coverage_pct']) ?? 0).toInt();
+        final hourly = ((d['hourly'] as List?) ?? const [])
+            .map((e) => (e as num).toDouble()).toList();
+        final firstOn = _n(d['first_on']);
+        final lastOn = _n(d['last_on']);
+        final segments = (_n(d['segments']) ?? 0).toInt();
+        final longestOff = (_n(d['longest_off_min']) ?? 0).toInt();
+
+        if (worn == 0) {
+          return ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x5),
+              child: Center(child: Text('The strap wasn’t worn on this day',
+                  style: AppText.captionMuted))));
+        }
+
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Hero — worn time + coverage ring.
+          GlowCard(
+            padding: const EdgeInsets.all(Sp.x6),
+            glow: AppColors.coralDeep,
+            child: Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                Row(children: [
+                  const AppIcon(Ic.watch, size: 16, color: AppColors.coralDeep),
+                  const SizedBox(width: Sp.x2),
+                  Text('TIME WORN', style: AppText.overline),
+                  const SizedBox(width: Sp.x2),
+                  const Tag('AUTH', color: AppColors.good),
+                ]),
+                const SizedBox(height: Sp.x3),
+                Text(hm(worn), style: AppText.display),
+                const SizedBox(height: Sp.x2),
+                Text('$cov% of the day', style: AppText.bodySoft),
+              ])),
+              RingStat(
+                t: (cov / 100).clamp(0.0, 1.0), color: AppColors.coralDeep, size: 96, stroke: 11,
+                center: Text('$cov%', style: AppText.metricSm),
+              ),
+            ]),
+          ),
+
+          // 24-hour coverage strip.
+          if (hourly.length == 24) ...[
+            const SizedBox(height: Sp.x6),
+            SectionHeader('Hourly coverage'),
+            ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Minutes worn in each hour of the day.', style: AppText.captionMuted),
+              const SizedBox(height: Sp.x3),
+              MiniBars(hourly, color: AppColors.coralDeep, height: 64),
+              const SizedBox(height: Sp.x2),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                Text('12a', style: AppText.captionMuted), Text('6a', style: AppText.captionMuted),
+                Text('12p', style: AppText.captionMuted), Text('6p', style: AppText.captionMuted),
+                Text('12a', style: AppText.captionMuted),
+              ]),
+            ])),
+          ],
+
+          // When + how continuous.
+          const SizedBox(height: Sp.x6),
+          SectionHeader('Details'),
+          ProCard(child: Column(children: [
+            DetailRow(label: 'First put on', value: _clock(firstOn)),
+            DetailRow(label: 'Last worn', value: _clock(lastOn)),
+            DetailRow(label: 'Wear stretches', value: '$segments'),
+            DetailRow(label: 'Longest off-wrist', value: longestOff > 0 ? hm(longestOff) : 'none'),
+          ])),
+        ]);
+      },
+    );
+  }
+}
+
 // ── SECTION EXTRAS: personal records + journal patterns ─────────────────────
 // Resurfaces the Records (personal bests) and the journal correlation engine,
 // scoped to a section, shown on its Today tab. Honest descriptive stats only.

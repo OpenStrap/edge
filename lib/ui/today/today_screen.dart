@@ -300,6 +300,7 @@ class _TodayScreenState extends State<TodayScreen>
           value: _hm(t.wearTime),
           accent: AppColors.coralDeep,
           confidence: t.wearTime.isEmpty ? null : t.wearTime.confidence,
+          onTap: () => _push(const WearScreen()),
         ),
       ),
       const SizedBox(height: Sp.x3),
