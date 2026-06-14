@@ -479,3 +479,91 @@ class StatTile extends StatelessWidget {
     );
   }
 }
+
+/// FormChart — Banister Fitness vs Fatigue dual line (with a soft band between),
+/// for the Body tab. Pass aligned series (oldest→newest); nulls are skipped.
+class FormChart extends StatelessWidget {
+  final List<double?> fitness;
+  final List<double?> fatigue;
+  final double height;
+  const FormChart({super.key, required this.fitness, required this.fatigue, this.height = 130});
+  @override
+  Widget build(BuildContext context) {
+    final fit = <FlSpot>[];
+    final fat = <FlSpot>[];
+    for (int i = 0; i < fitness.length; i++) {
+      final v = fitness[i];
+      if (v != null) fit.add(FlSpot(i.toDouble(), v));
+    }
+    for (int i = 0; i < fatigue.length; i++) {
+      final v = fatigue[i];
+      if (v != null) fat.add(FlSpot(i.toDouble(), v));
+    }
+    if (fit.length < 2 && fat.length < 2) {
+      return SizedBox(height: height, child: Center(child: Text('Not enough data yet', style: AppText.captionMuted)));
+    }
+    final all = [...fit, ...fat].map((s) => s.y);
+    final minY = all.reduce(math.min), maxY = all.reduce(math.max);
+    LineChartBarData bar(List<FlSpot> s, Color c, {bool fill = false}) => LineChartBarData(
+          spots: s, isCurved: true, curveSmoothness: 0.3, color: c, barWidth: 2.5,
+          dotData: const FlDotData(show: false),
+          belowBarData: fill
+              ? BarAreaData(show: true, gradient: LinearGradient(
+                  begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                  colors: [c.withValues(alpha: 0.18), Colors.transparent]))
+              : BarAreaData(show: false),
+        );
+    return SizedBox(
+      height: height,
+      child: LineChart(LineChartData(
+        minY: minY - (maxY - minY) * 0.15 - 0.5,
+        maxY: maxY + (maxY - minY) * 0.15 + 0.5,
+        gridData: const FlGridData(show: false),
+        titlesData: const FlTitlesData(show: false),
+        borderData: FlBorderData(show: false),
+        lineTouchData: const LineTouchData(enabled: false),
+        lineBarsData: [bar(fit, AppColors.coral, fill: true), bar(fat, AppColors.loadDetraining)],
+      )),
+    );
+  }
+}
+
+/// CalendarHeatmap — a month grid (weeks × 7) of cells colored by a metric. Pass
+/// day entries with a 0..1 intensity `t` and a base color; null `t` = no data.
+class CalendarHeatmap extends StatelessWidget {
+  final List<({DateTime date, double? t})> days;
+  final Color color;
+  final double cell;
+  const CalendarHeatmap({super.key, required this.days, this.color = AppColors.good, this.cell = 16});
+  @override
+  Widget build(BuildContext context) {
+    if (days.isEmpty) return const SizedBox.shrink();
+    const wd = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    // Pad the front so the first day lands on its weekday column (Mon=0).
+    final first = days.first.date;
+    final lead = (first.weekday + 6) % 7; // Mon=0
+    final cells = <({DateTime? date, double? t})>[
+      for (int i = 0; i < lead; i++) (date: null, t: null),
+      for (final d in days) (date: d.date, t: d.t),
+    ];
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        for (final l in wd)
+          SizedBox(width: cell + 4, child: Text(l, textAlign: TextAlign.center, style: AppText.captionMuted)),
+      ]),
+      const SizedBox(height: 4),
+      Wrap(spacing: 4, runSpacing: 4, children: [
+        for (final c in cells)
+          Container(
+            width: cell, height: cell,
+            decoration: BoxDecoration(
+              color: c.date == null
+                  ? Colors.transparent
+                  : (c.t == null ? AppColors.surfaceSunk : color.withValues(alpha: (0.18 + 0.82 * c.t!.clamp(0, 1)))),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+      ]),
+    ]);
+  }
+}

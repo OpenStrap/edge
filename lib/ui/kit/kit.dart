@@ -275,6 +275,38 @@ class DeltaChip extends StatelessWidget {
   }
 }
 
+/// Baseline-delta chip — "+3 vs normal" / "−8" with an absolute value (not %),
+/// colored by whether the move is good. Used on tiles + trend cards to show how
+/// today compares to the user's own baseline.
+class BaselineDeltaChip extends StatelessWidget {
+  final num? delta;       // signed, in the metric's unit
+  final String unit;      // e.g. 'bpm', 'ms', ''
+  final bool goodIsUp;    // RHR: down is good → false
+  final bool showVsNormal;
+  const BaselineDeltaChip(this.delta, {super.key, this.unit = '', this.goodIsUp = true, this.showVsNormal = true});
+  @override
+  Widget build(BuildContext context) {
+    if (delta == null) return const SizedBox.shrink();
+    final v = delta!;
+    final up = v >= 0;
+    final positive = goodIsUp ? up : !up;
+    final c = v.abs() < 0.05
+        ? AppColors.inkMuted
+        : (positive ? AppColors.good : AppColors.bad);
+    final sign = up ? '+' : '−';
+    final mag = v.abs();
+    final num shownMag = mag == mag.roundToDouble() ? mag.round() : (mag * 10).round() / 10;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x2, vertical: 3),
+      decoration: BoxDecoration(color: c.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(R.pill)),
+      child: Text(
+        '$sign$shownMag${unit.isNotEmpty ? ' $unit' : ''}${showVsNormal ? ' vs normal' : ''}',
+        style: AppText.caption.copyWith(color: c, fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
 /// Tiny confidence dot (honesty system).
 class ConfDot extends StatelessWidget {
   final double confidence;
