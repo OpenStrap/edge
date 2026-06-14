@@ -251,6 +251,11 @@ class _TodayScreenState extends State<TodayScreen>
         _bodyAlert(alert),
         const SizedBox(height: Sp.x4),
       ],
+      // Composite Readiness headline (abstains until HRV exists).
+      if (!t.readiness.isEmpty) ...[
+        _readinessHero(t),
+        const SizedBox(height: Sp.x4),
+      ],
       // At-a-glance gauges: Strain / Sleep / HRV.
       _dashboard(t),
       const SizedBox(height: Sp.x4),
@@ -426,6 +431,37 @@ class _TodayScreenState extends State<TodayScreen>
           ],
         ],
       ),
+    );
+  }
+
+  /// Composite Readiness hero — the day's headline. Ring + score + what it blends.
+  Widget _readinessHero(TodayData t) {
+    final r = t.readiness;
+    final score = r.isEmpty ? null : r.value!.round();
+    final tcol = score == null
+        ? AppColors.inkMuted
+        : (score >= 66 ? AppColors.good : score >= 40 ? AppColors.coral : AppColors.coralDeep);
+    return GlowCard(
+      padding: const EdgeInsets.all(Sp.x6),
+      glow: tcol,
+      child: Row(children: [
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            const AppIcon(Ic.recovery, size: 16, color: AppColors.coralDeep),
+            const SizedBox(width: Sp.x2),
+            Text('READINESS', style: AppText.overline),
+          ]),
+          const SizedBox(height: Sp.x3),
+          Text(score == null ? '—' : '$score', style: AppText.display.copyWith(color: tcol)),
+          const SizedBox(height: Sp.x2),
+          Text(score == null
+              ? 'Building baseline — needs nocturnal HRV'
+              : 'HRV recovery + sleep, blended', style: AppText.bodySoft),
+        ])),
+        if (score != null)
+          RingStat(t: (score / 100).clamp(0.0, 1.0), color: tcol, size: 96, stroke: 11,
+              center: Text('$score', style: AppText.metricSm.copyWith(color: tcol))),
+      ]),
     );
   }
 

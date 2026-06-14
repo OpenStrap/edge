@@ -91,6 +91,11 @@ class TodayData {
   // Recovery is HRV-based now (replaces the old heuristic readiness). Kept the
   // getter name `readiness` is dropped in favour of `recovery`.
   Metric get recovery => metricOf(_daily, 'recovery');
+  // Composite Readiness (HRV ∩ sleep ∩ dip ∩ arousal) — the Today/widget headline.
+  Metric get readiness => metricOf(_daily, 'readiness');
+  Metric get vo2max => metricOf(_daily, 'vo2max');
+  Metric get fitness => metricOf(_daily, 'fitness');
+  Metric get form => metricOf(_daily, 'form');
   Metric get strain => metricOf(_daily, 'strain');
   Metric get restingHr => metricOf(_daily, 'resting_hr');
   Metric get rhrDelta => metricOf(_daily, 'resting_hr_delta');

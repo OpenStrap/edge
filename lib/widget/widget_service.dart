@@ -41,7 +41,8 @@ class WidgetService {
       Future<void> setI(String k, int v) => HomeWidget.saveWidgetData<int>(k, v);
 
       await HomeWidget.saveWidgetData<bool>('has_data', !t.isEmpty);
-      // Widget shows three rings now: Strain · Sleep · HRV (recovery retired).
+      // Headline composite Readiness + the three rings (Strain · Sleep · HRV).
+      await setI('readiness', t.readiness.isEmpty ? -1 : t.readiness.value!.round());
       await setI('hrv', hrv == null ? -1 : hrv.rmssd.round());
       await setI('hrv_baseline', hrv?.baseline == null ? -1 : hrv!.baseline!.round());
       await HomeWidget.saveWidgetData<double>(

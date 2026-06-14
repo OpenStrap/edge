@@ -34,6 +34,7 @@ private extension Color {
 struct OpenStrapEntry: TimelineEntry {
   let date: Date
   let hasData: Bool
+  let readiness: Int      // -1 = none (composite 0..100) — the headline
   let strain: Double      // -1 = none
   let sleepMin: Int       // -1 = none
   let needMin: Int
@@ -43,11 +44,18 @@ struct OpenStrapEntry: TimelineEntry {
   let coachLine: String
 
   static let placeholder = OpenStrapEntry(
-    date: Date(), hasData: true, strain: 12.4,
+    date: Date(), hasData: true, readiness: 72, strain: 12.4,
     sleepMin: 437, needMin: 480, hrv: 62, hrvBaseline: 58, rhr: 54,
     coachLine: "Room to push today")
 
   // Ring fractions (0…1).
+  var readinessT: Double { readiness >= 0 ? Double(readiness) / 100.0 : 0 }
+  var readinessColor: Color {
+    if readiness < 0 { return .inkMuted }
+    if readiness >= 66 { return .good }
+    if readiness >= 40 { return .coral }
+    return .coralDeep
+  }
   var strainT: Double { strain >= 0 ? min(strain / 21.0, 1) : 0 }
   var sleepT: Double { (sleepMin >= 0 && needMin > 0) ? min(Double(sleepMin) / Double(needMin), 1) : 0 }
   var hrvT: Double {
@@ -74,6 +82,7 @@ private enum Store {
     return OpenStrapEntry(
       date: Date(),
       hasData: d?.bool(forKey: "has_data") ?? false,
+      readiness: d?.object(forKey: "readiness") as? Int ?? -1,
       strain: d?.object(forKey: "strain") as? Double ?? -1,
       sleepMin: d?.object(forKey: "sleep_min") as? Int ?? -1,
       needMin: (d?.object(forKey: "sleep_need_min") as? Int) ?? 480,
@@ -86,6 +95,7 @@ private enum Store {
   static func write(_ e: OpenStrapEntry) {
     let d = defaults
     d?.set(true, forKey: "has_data")
+    d?.set(e.readiness, forKey: "readiness")
     d?.set(e.strain, forKey: "strain")
     d?.set(e.sleepMin, forKey: "sleep_min")
     d?.set(e.needMin, forKey: "sleep_need_min")
@@ -136,6 +146,7 @@ private enum TodayAPI {
     let daily = obj(j["daily"]); let sleep = obj(j["sleep"]); let coach = obj(j["coach"])
     let hrvObj = obj(j["hrv"])  // top-level { rmssd, baseline, ... }
 
+    let readiness = val(daily, "readiness").map { Int($0.rounded()) } ?? -1
     let strain = val(daily, "strain") ?? -1
     let rhr = val(daily, "resting_hr").map { Int($0.rounded()) } ?? -1
     let sleepMin = val(sleep, "duration_min").map { Int($0.rounded()) } ?? -1
@@ -150,7 +161,7 @@ private enum TodayAPI {
       coachLine = "Aim for strain \(Int(v.doubleValue.rounded()))"
     }
     let hasData = daily != nil || sleep != nil
-    return OpenStrapEntry(date: Date(), hasData: hasData, strain: strain,
+    return OpenStrapEntry(date: Date(), hasData: hasData, readiness: readiness, strain: strain,
                           sleepMin: sleepMin, needMin: needMin, hrv: hrv,
                           hrvBaseline: hrvBase, rhr: rhr, coachLine: coachLine)
   }
@@ -250,13 +261,41 @@ private struct TripleRings: View {
   }
 }
 
+/// Readiness headline row — big ring + score + what it blends.
+private struct ReadinessRow: View {
+  let e: OpenStrapEntry
+  var ring: CGFloat = 64
+  var body: some View {
+    HStack(spacing: 12) {
+      ZStack {
+        Ring(t: e.readinessT, color: e.readinessColor, lineWidth: 9)
+        Text(e.readiness >= 0 ? "\(e.readiness)" : "—").font(numFont(22)).foregroundColor(e.readinessColor)
+      }
+      .frame(width: ring, height: ring)
+      VStack(alignment: .leading, spacing: 2) {
+        Text("READINESS").font(.system(size: 10, weight: .semibold)).tracking(1.1).foregroundColor(.inkMuted)
+        Text(e.readiness >= 0 ? "HRV recovery + sleep" : "Building baseline")
+          .font(.system(size: 12)).foregroundColor(.ink)
+      }
+      Spacer(minLength: 0)
+    }
+  }
+}
+
 private struct SmallView: View {
   let e: OpenStrapEntry
   var body: some View {
+    // 2×2: Readiness · Strain / Sleep · HRV.
     VStack(spacing: 10) {
-      TripleRings(e: e, size: 46, line: 6, valueSize: 13)
-      if !e.hasData {
-        Text("Wear + sync").font(.system(size: 10)).foregroundColor(.inkMuted)
+      HStack(spacing: 0) {
+        MetricRing(label: "READY", value: e.readiness >= 0 ? "\(e.readiness)" : "—",
+                   t: e.readinessT, color: e.readinessColor, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
+        MetricRing(label: "STRAIN", value: e.strain >= 0 ? String(format: "%.1f", e.strain) : "—",
+                   t: e.strainT, color: .coral, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
+      }
+      HStack(spacing: 0) {
+        MetricRing(label: "SLEEP", value: hm(e.sleepMin), t: e.sleepT, color: .sleepBlue, size: 44, line: 6, valueSize: 12).frame(maxWidth: .infinity)
+        MetricRing(label: "HRV", value: e.hrv >= 0 ? "\(e.hrv)" : "—", t: e.hrvT, color: e.hrvColor, size: 44, line: 6, valueSize: 13).frame(maxWidth: .infinity)
       }
     }
     .padding(12)
@@ -267,12 +306,8 @@ private struct MediumView: View {
   let e: OpenStrapEntry
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      TripleRings(e: e, size: 64, line: 8, valueSize: 17)
-      if !e.coachLine.isEmpty {
-        Text(e.coachLine).font(.system(size: 12, weight: .medium)).foregroundColor(.ink).lineLimit(2)
-      } else if !e.hasData {
-        Text("Wear + sync to see today").font(.system(size: 12)).foregroundColor(.inkMuted).lineLimit(2)
-      }
+      ReadinessRow(e: e)
+      TripleRings(e: e, size: 56, line: 7, valueSize: 15)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(16)
@@ -283,10 +318,10 @@ private struct MediumView: View {
 private struct AccessoryCircularView: View {
   let e: OpenStrapEntry
   var body: some View {
-    Gauge(value: e.strainT) {
-      Text("STR")
+    Gauge(value: e.readinessT) {
+      Text("RDY")
     } currentValueLabel: {
-      Text(e.strain >= 0 ? String(format: "%.0f", e.strain) : "—")
+      Text(e.readiness >= 0 ? "\(e.readiness)" : "—")
     }
     .gaugeStyle(.accessoryCircular)
     .widgetAccentable()
@@ -298,7 +333,7 @@ private struct AccessoryRectangularView: View {
   let e: OpenStrapEntry
   var body: some View {
     VStack(alignment: .leading, spacing: 2) {
-      Text("OpenStrap").font(.system(size: 11, weight: .bold)).widgetAccentable()
+      Text("Readiness \(e.readiness >= 0 ? "\(e.readiness)" : "—")").font(.system(size: 13, weight: .bold)).widgetAccentable()
       Text("Strain \(e.strain >= 0 ? String(format: "%.1f", e.strain) : "—")   HRV \(e.hrv >= 0 ? "\(e.hrv)" : "—")")
         .font(.system(size: 13, weight: .semibold))
       Text("Sleep \(hm(e.sleepMin))" + (e.rhr >= 0 ? "   RHR \(e.rhr)" : ""))
@@ -337,7 +372,7 @@ struct OpenStrapWidgetEntryView: View {
         case .accessoryCircular:    AccessoryCircularView(e: entry)
         case .accessoryRectangular: AccessoryRectangularView(e: entry)
         case .accessoryInline:
-          Text("Strain \(entry.strain >= 0 ? String(format: "%.1f", entry.strain) : "—") · HRV \(entry.hrv >= 0 ? "\(entry.hrv)" : "—")")
+          Text("Ready \(entry.readiness >= 0 ? "\(entry.readiness)" : "—") · Strain \(entry.strain >= 0 ? String(format: "%.1f", entry.strain) : "—")")
         default: SmallView(e: entry)
         }
       } else {
@@ -355,7 +390,7 @@ struct OpenStrapWidget: Widget {
       OpenStrapWidgetEntryView(entry: entry)
     }
     .configurationDisplayName("OpenStrap")
-    .description("Your strain, sleep and HRV at a glance.")
+    .description("Readiness, strain, sleep and HRV at a glance.")
     .supportedFamilies(supportedFamilies)
   }
 
