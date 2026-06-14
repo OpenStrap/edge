@@ -235,6 +235,11 @@ class ApiClient {
   Future<Map<String, dynamic>> getDayLungs(String date) =>
       _getObj('/day/lungs', {'date': date});
 
+  /// GET /day/wear?date= → worn minutes, coverage %, hourly histogram, first-on /
+  /// last-off, wear-stretch count + longest off-wrist gap.
+  Future<Map<String, dynamic>> getDayWear(String date) =>
+      _getObj('/day/wear', {'date': date});
+
   // ── workouts (manual/live/auto) ──────────────────────────────────────────
   /// GET /workouts?range=week|month|quarter → list + training-volume summary.
   Future<Map<String, dynamic>> getWorkouts({String range = 'month'}) =>
