@@ -56,12 +56,13 @@ class TodayData {
 
   /// Nocturnal HRV (RMSSD, ms) — measured from beat-to-beat intervals. Null until
   /// a night's worth of RR has been captured.
-  ({double rmssd, double confidence})? get hrv {
+  ({double rmssd, double confidence, double? baseline})? get hrv {
     final h = _hrv;
     if (h == null || h['rmssd'] == null) return null;
     return (
       rmssd: (h['rmssd'] as num).toDouble(),
       confidence: (h['confidence'] as num?)?.toDouble() ?? 0,
+      baseline: (h['baseline'] as num?)?.toDouble(),
     );
   }
 

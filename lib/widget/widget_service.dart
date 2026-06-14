@@ -32,7 +32,7 @@ class WidgetService {
   static Future<void> push(TodayData t) async {
     try {
       await init();
-      final r = t.recovery;
+      final hrv = t.hrv;
       final s = t.strain;
       final sleep = t.sleepDuration;
       final need = t.sleepNeed;
@@ -41,7 +41,9 @@ class WidgetService {
       Future<void> setI(String k, int v) => HomeWidget.saveWidgetData<int>(k, v);
 
       await HomeWidget.saveWidgetData<bool>('has_data', !t.isEmpty);
-      await setI('readiness', r.isEmpty ? -1 : r.value!.round());
+      // Widget shows three rings now: Strain · Sleep · HRV (recovery retired).
+      await setI('hrv', hrv == null ? -1 : hrv.rmssd.round());
+      await setI('hrv_baseline', hrv?.baseline == null ? -1 : hrv!.baseline!.round());
       await HomeWidget.saveWidgetData<double>(
           'strain', s.isEmpty ? -1.0 : s.value!.toDouble());
       await setI('sleep_min', sleep.isEmpty ? -1 : sleep.value!.round());
