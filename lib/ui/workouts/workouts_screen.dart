@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../state/app_state.dart';
+import '../activity/live_session_screen.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
@@ -82,13 +83,18 @@ Future<void> startWorkoutFlow(BuildContext context) async {
     ),
   );
   if (type == null || !context.mounted) return;
-  final api = context.read<AppState>().api;
+  final app = context.read<AppState>();
+  final api = app.api;
   if (api == null) return;
   try {
     final w = await api.startWorkout(type);
+    final id = w['workout_id'] as String?;
     if (!context.mounted) return;
+    // Start the LOCAL live engine (live HR UI + iOS Live Activity + global state)
+    // alongside the backend session, then open the interactive live screen.
+    app.startWorkout(workoutId: id, type: type);
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => LiveWorkoutScreen(workoutId: w['workout_id'] as String, type: type),
+      builder: (_) => LiveSessionScreen(workoutId: id, type: type),
     ));
   } catch (_) {/* surfaced as no-op; user can retry */}
 }
@@ -322,84 +328,6 @@ class _WorkoutTile extends StatelessWidget {
   }
 }
 
-/// Live workout — elapsed timer + recording state + Stop. The actual data records
-/// via the existing background BLE keepalive (foreground service / iOS restoration),
-/// so it keeps recording even if the app is backgrounded; the breakdown is computed
-/// server-side on Stop regardless. If you forget to stop, the server auto-closes it
-/// once your heart rate returns to baseline.
-class LiveWorkoutScreen extends StatefulWidget {
-  final String workoutId;
-  final String type;
-  const LiveWorkoutScreen({super.key, required this.workoutId, required this.type});
-  @override
-  State<LiveWorkoutScreen> createState() => _LiveWorkoutScreenState();
-}
-
-class _LiveWorkoutScreenState extends State<LiveWorkoutScreen> {
-  late final DateTime _start = DateTime.now();
-  Timer? _t;
-  bool _ending = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _t = Timer.periodic(const Duration(seconds: 1), (_) { if (mounted) setState(() {}); });
-  }
-
-  @override
-  void dispose() { _t?.cancel(); super.dispose(); }
-
-  String get _elapsed {
-    final s = DateTime.now().difference(_start).inSeconds;
-    final h = s ~/ 3600, m = (s % 3600) ~/ 60, sec = s % 60;
-    return h > 0 ? '$h:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}'
-                 : '$m:${sec.toString().padLeft(2, '0')}';
-  }
-
-  Future<void> _stop() async {
-    final api = context.read<AppState>().api;
-    if (api == null) return;
-    setState(() => _ending = true);
-    try {
-      await api.endWorkout(widget.workoutId);
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(MaterialPageRoute(
-        builder: (_) => WorkoutDetailScreen(id: widget.workoutId)));
-    } catch (_) {
-      if (mounted) setState(() => _ending = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.night,
-      body: SafeArea(child: Padding(padding: const EdgeInsets.all(Sp.x5), child: Column(children: [
-        const Spacer(),
-        Text(widget.type.toUpperCase(), style: AppText.overline.copyWith(color: AppColors.onNightSoft)),
-        const SizedBox(height: Sp.x3),
-        Text(_elapsed, style: AppText.hero.copyWith(color: AppColors.onNight)),
-        const SizedBox(height: Sp.x3),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.coral, shape: BoxShape.circle)),
-          const SizedBox(width: Sp.x2),
-          Text('Recording', style: AppText.body.copyWith(color: AppColors.onNightSoft)),
-        ]),
-        const SizedBox(height: Sp.x4),
-        Text('Keeps recording in the background — your data is safe even if you leave the app. '
-            'Forget to stop? It auto-ends when your heart rate settles.',
-            textAlign: TextAlign.center, style: AppText.caption.copyWith(color: AppColors.onNightSoft)),
-        const Spacer(),
-        SizedBox(width: double.infinity, child: FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: AppColors.coral, padding: const EdgeInsets.symmetric(vertical: Sp.x4)),
-          onPressed: _ending ? null : _stop,
-          child: Text(_ending ? 'Finishing…' : 'Stop workout', style: AppText.label.copyWith(color: Colors.white)),
-        )),
-        const SizedBox(height: Sp.x4),
-      ]))),
-    );
-  }
-}
 
 /// Post-workout breakdown (also the tap target from the list).
 class WorkoutDetailScreen extends StatelessWidget {

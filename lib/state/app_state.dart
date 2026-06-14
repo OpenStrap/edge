@@ -500,12 +500,14 @@ class AppState extends ChangeNotifier {
     return 0;
   }
 
-  void startWorkout({double targetKcal = 300}) {
+  void startWorkout({double targetKcal = 300, String? workoutId, String type = 'other'}) {
     if (activeWorkout != null) return;
     final start = DateTime.now();
     activeWorkout = LiveWorkoutState(
       startTime: start,
       targetKcal: targetKcal,
+      workoutId: workoutId,
+      type: type,
     );
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) => _tickWorkout());
     notifyListeners();
@@ -545,6 +547,7 @@ class AppState extends ChangeNotifier {
 
     w.elapsed = DateTime.now().difference(w.startTime);
     w.currentHr = device.liveHr ?? 0;
+    if (w.currentHr > w.maxHrSeen) w.maxHrSeen = w.currentHr;
 
     if (w.currentHr > 0) {
       // Calorie burn formula (estimate per second):
@@ -593,10 +596,18 @@ class AppState extends ChangeNotifier {
 class LiveWorkoutState {
   final DateTime startTime;
   final double targetKcal;
+  final String? workoutId; // backend session id (for the breakdown on finish)
+  final String type;       // exercise type label
   Duration elapsed = Duration.zero;
   double calories = 0.0;
   double strain = 0.0;
   int currentHr = 0;
+  int maxHrSeen = 0;       // peak live HR this session (for the "new max!" moment)
 
-  LiveWorkoutState({required this.startTime, required this.targetKcal});
+  LiveWorkoutState({
+    required this.startTime,
+    required this.targetKcal,
+    this.workoutId,
+    this.type = 'other',
+  });
 }

@@ -11,6 +11,7 @@ import 'ui/pairing_screen.dart';
 import 'ui/today/today_screen.dart';
 import 'ui/screens/screens.dart';
 import 'ui/workouts/workouts_screen.dart';
+import 'ui/activity/live_session_screen.dart';
 
 class OpenStrapApp extends StatefulWidget {
   const OpenStrapApp({super.key});
@@ -121,11 +122,68 @@ class _ShellState extends State<_Shell> {
         onPageChanged: (i) => setState(() => _index = i),
         children: [for (final p in _pages) _KeepAlive(child: p)],
       ),
-      bottomNavigationBar: _ScrubNav(
-        items: _nav,
-        controller: _controller,
-        index: _index,
-        onSelect: _go,
+      bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
+        const _LiveBanner(),
+        _ScrubNav(items: _nav, controller: _controller, index: _index, onSelect: _go),
+      ]),
+    );
+  }
+}
+
+/// Persistent "workout in progress" mini-player — shows whenever a live workout is
+/// running and you've navigated away from the live screen. Tap to jump back in.
+class _LiveBanner extends StatefulWidget {
+  const _LiveBanner();
+  @override
+  State<_LiveBanner> createState() => _LiveBannerState();
+}
+
+class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+  @override
+  void dispose() { _pulse.dispose(); super.dispose(); }
+
+  String _fmt(Duration d) =>
+      '${d.inMinutes.toString().padLeft(2, '0')}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    final w = context.watch<AppState>().activeWorkout;
+    if (w == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(Sp.x6, 0, Sp.x6, Sp.x2),
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => LiveSessionScreen(workoutId: w.workoutId, type: w.type)));
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x3),
+          decoration: BoxDecoration(
+            color: AppColors.night,
+            borderRadius: BorderRadius.circular(R.pill),
+            boxShadow: Shadows.lift,
+          ),
+          child: Row(children: [
+            FadeTransition(opacity: _pulse, child: Container(
+              width: 10, height: 10,
+              decoration: const BoxDecoration(color: AppColors.coral, shape: BoxShape.circle))),
+            const SizedBox(width: Sp.x3),
+            Text('LIVE · ${w.type.toUpperCase()}', style: AppText.overline.copyWith(color: Colors.white70)),
+            const Spacer(),
+            const AppIcon(Ic.heart, size: 15, color: AppColors.coral),
+            const SizedBox(width: 4),
+            Text(w.currentHr > 0 ? '${w.currentHr}' : '—',
+                style: AppText.metricSm.copyWith(color: Colors.white, fontSize: 16)),
+            const SizedBox(width: Sp.x4),
+            Text(_fmt(w.elapsed), style: AppText.metricSm.copyWith(
+                color: Colors.white60, fontSize: 15, fontFeatures: [const FontFeature.tabularFigures()])),
+            const SizedBox(width: Sp.x2),
+            const AppIcon(Ic.arrowRight, size: 16, color: Colors.white38),
+          ]),
+        ),
       ),
     );
   }
