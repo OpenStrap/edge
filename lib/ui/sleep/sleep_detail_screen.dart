@@ -10,6 +10,8 @@ import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../kit/charts.dart';
+import '../screens/metric_row.dart';
+import '../screens/trend_screen.dart';
 
 class SleepDetailScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
@@ -265,6 +267,28 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         SectionHeader('Nocturnal heart'),
         _nocturnalCard(),
       ],
+      // Tap any of these into its Week/Month/3M trend.
+      const SizedBox(height: Sp.x6),
+      const SectionHeader('Trends'),
+      MetricGroup([
+        TrendMetricRow(icon: Ic.moon, accent: AppColors.loadDetraining, label: 'Time asleep',
+            info: infoFor('sleep'), value: _hm(_durationMin), metric: 'sleep', trendTitle: 'Sleep',
+            valueFmt: (v) => v == 0 ? '' : (v / 60).toStringAsFixed(1)),
+        if (_efficiency != null)
+          TrendMetricRow(icon: Ic.chart, accent: AppColors.good, label: 'Efficiency',
+              info: infoFor('efficiency'), value: '${(_efficiency! * 100).round()}', unit: '%',
+              metric: 'efficiency', trendTitle: 'Sleep efficiency'),
+        if (_deepMin != null)
+          TrendMetricRow(icon: Ic.pulse, accent: AppColors.coral, label: 'Deep sleep',
+              info: infoFor('deep'), value: _hm(_deepMin), metric: 'deep', trendTitle: 'Deep sleep'),
+        if (_remMin != null)
+          TrendMetricRow(icon: Ic.pulse, accent: AppColors.coralSoft, label: 'REM sleep',
+              info: infoFor('rem'), value: _hm(_remMin), metric: 'rem', trendTitle: 'REM sleep'),
+        if (_regularity != null)
+          TrendMetricRow(icon: Ic.calendar, accent: AppColors.good, label: 'Regularity (SRI)',
+              info: infoFor('regularity'), value: '${_regularity!.round()}', metric: 'regularity',
+              trendTitle: 'Sleep regularity (SRI)'),
+      ]),
     ];
   }
 
