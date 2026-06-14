@@ -226,22 +226,27 @@ private struct MetricRing: View {
   }
 }
 
-/// The three rings in a row — the heart of the widget.
+/// The three rings in a row, each taking an equal share of the width so they're
+/// evenly distributed regardless of value width.
 private struct TripleRings: View {
   let e: OpenStrapEntry
   var size: CGFloat = 58
   var line: CGFloat = 7
   var valueSize: CGFloat = 16
   var body: some View {
-    HStack(spacing: size > 56 ? 18 : 12) {
+    HStack(spacing: 0) {
       MetricRing(label: "STRAIN",
                  value: e.strain >= 0 ? String(format: "%.1f", e.strain) : "—",
                  t: e.strainT, color: .coral, size: size, line: line, valueSize: valueSize)
+        .frame(maxWidth: .infinity)
       MetricRing(label: "SLEEP", value: hm(e.sleepMin),
                  t: e.sleepT, color: .sleepBlue, size: size, line: line, valueSize: valueSize - 1)
+        .frame(maxWidth: .infinity)
       MetricRing(label: "HRV", value: e.hrv >= 0 ? "\(e.hrv)" : "—",
                  t: e.hrvT, color: e.hrvColor, size: size, line: line, valueSize: valueSize)
+        .frame(maxWidth: .infinity)
     }
+    .frame(maxWidth: .infinity)
   }
 }
 
