@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
+import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import 'metric_screen.dart';
@@ -18,11 +19,10 @@ void openTrend(
   required String title,
   required String metric,
   required IconData icon,
-  Color accent = AppColors.coral,
+  Color? accent,
   String Function(double v)? valueFmt,
 }) {
-  Navigator.of(context).push(MaterialPageRoute(
-    builder: (_) => GenericTrendScreen(
+  Navigator.of(context).push(themedRoute((_) => GenericTrendScreen(
       title: title, metric: metric, icon: icon, accent: accent, valueFmt: valueFmt),
   ));
 }
@@ -34,27 +34,30 @@ class GenericTrendScreen extends StatelessWidget {
   final String title;
   final String metric;
   final IconData icon;
-  final Color accent;
+  final Color? accent;
   final String Function(double v)? valueFmt;
   const GenericTrendScreen({
     super.key,
     required this.title,
     required this.metric,
     required this.icon,
-    this.accent = AppColors.coral,
+    this.accent,
     this.valueFmt,
   });
 
   @override
-  Widget build(BuildContext context) => MetricScreen(
-        title: title,
-        metric: metric,
-        icon: icon,
-        accent: accent,
-        valueFmt: valueFmt,
-        todayDetail: (ctx) => _TrendTodayCard(metric: metric, icon: icon, accent: accent, valueFmt: valueFmt),
-        dayDetail: (ctx, date) => _TrendTodayCard(metric: metric, icon: icon, accent: accent, valueFmt: valueFmt),
-      );
+  Widget build(BuildContext context) {
+    final accent = this.accent ?? AppColors.coral;
+    return MetricScreen(
+      title: title,
+      metric: metric,
+      icon: icon,
+      accent: accent,
+      valueFmt: valueFmt,
+      todayDetail: (ctx) => _TrendTodayCard(metric: metric, icon: icon, accent: accent, valueFmt: valueFmt),
+      dayDetail: (ctx, date) => _TrendTodayCard(metric: metric, icon: icon, accent: accent, valueFmt: valueFmt),
+    );
+  }
 }
 
 /// Compact "current value + change + what-this-is" leaf for a generic metric.
@@ -137,7 +140,7 @@ class _TrendTodayCardState extends State<_TrendTodayCard> {
 /// look matches every other row; the chevron signals it's drillable.
 class TrendMetricRow extends StatelessWidget {
   final IconData icon;
-  final Color accent;
+  final Color? accent;
   final String label;
   final String? info;
   final String value;
@@ -155,7 +158,7 @@ class TrendMetricRow extends StatelessWidget {
     required this.trendTitle,
     this.info,
     this.unit,
-    this.accent = AppColors.coral,
+    this.accent,
     this.valueTag,
     this.valueFmt,
   });

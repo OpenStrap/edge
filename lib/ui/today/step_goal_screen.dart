@@ -107,7 +107,7 @@ class _StepGoalScreenState extends State<StepGoalScreen> {
             const SizedBox(height: Sp.x5),
             Center(
               child: reached
-                  ? const Tag('goal reached', color: AppColors.good)
+                  ? Tag('goal reached', color: AppColors.good)
                   : Text('$remaining to go',
                       style: AppText.label.copyWith(color: AppColors.inkSoft)),
             ),

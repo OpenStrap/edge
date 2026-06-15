@@ -212,11 +212,11 @@ class _StressScreenState extends State<StressScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(children: [
-                const AppIcon(Ic.pulse, size: 16, color: AppColors.coralDeep),
+                AppIcon(Ic.pulse, size: 16, color: AppColors.coralDeep),
                 const SizedBox(width: Sp.x2),
                 Text('DAY STRESS', style: AppText.overline),
                 const SizedBox(width: Sp.x2),
-                const Tag('est.', color: AppColors.coral),
+                Tag('est.', color: AppColors.coral),
               ]),
               const SizedBox(height: Sp.x3),
               Text('$v', style: AppText.display.copyWith(color: color)),
@@ -256,7 +256,7 @@ class _StressScreenState extends State<StressScreen> {
             ),
           ),
         const SizedBox(height: Sp.x2),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: const [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Text('12a', style: TextStyle(fontSize: 10, color: AppColors.inkMuted)),
           Text('6a', style: TextStyle(fontSize: 10, color: AppColors.inkMuted)),
           Text('12p', style: TextStyle(fontSize: 10, color: AppColors.inkMuted)),
@@ -331,7 +331,7 @@ class _StressScreenState extends State<StressScreen> {
           padding: const EdgeInsets.all(Sp.x3),
           decoration: BoxDecoration(
               color: AppColors.warnSoft, borderRadius: BorderRadius.circular(R.chip)),
-          child: const AppIcon(Ic.pulse, size: 20, color: AppColors.warn),
+          child: AppIcon(Ic.pulse, size: 20, color: AppColors.warn),
         ),
         const SizedBox(width: Sp.x4),
         Expanded(child: Column(
@@ -349,7 +349,7 @@ class _StressScreenState extends State<StressScreen> {
   }
 
   Widget _honesty() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const AppIcon(Ic.info, size: 14, color: AppColors.inkMuted),
+        AppIcon(Ic.info, size: 14, color: AppColors.inkMuted),
         const SizedBox(width: Sp.x2),
         Expanded(child: Text(
           'An arousal estimate — heart rate above your resting level while you\'re '
@@ -359,8 +359,8 @@ class _StressScreenState extends State<StressScreen> {
         )),
       ]);
 
-  Widget _loading() => const ProCard(
-        padding: EdgeInsets.all(Sp.x6),
+  Widget _loading() => ProCard(
+        padding: const EdgeInsets.all(Sp.x6),
         child: SizedBox(height: 320,
             child: Center(child: CircularProgressIndicator(color: AppColors.coral))),
       );
@@ -370,7 +370,7 @@ class _StressScreenState extends State<StressScreen> {
         child: Column(children: [
           Container(
             padding: const EdgeInsets.all(Sp.x4),
-            decoration: const BoxDecoration(color: AppColors.coralSoft, shape: BoxShape.circle),
+            decoration: BoxDecoration(color: AppColors.coralSoft, shape: BoxShape.circle),
             child: AppIcon(icon, size: 30, color: AppColors.coralDeep),
           ),
           const SizedBox(height: Sp.x4),

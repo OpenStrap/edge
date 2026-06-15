@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../state/app_state.dart';
 import '../activity/live_session_screen.dart';
 import '../../theme/theme.dart';
+import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../kit/charts.dart';
@@ -23,7 +24,7 @@ const _ranges = ['Today', 'Week', 'Month', '3M'];
 const _rangeKey = ['week', 'week', 'month', 'quarter']; // Today filters week to today
 
 // Zone palette (Z1→Z5), shared by the bar + legend.
-const _zoneColors = [AppColors.cool, AppColors.loadDetraining, AppColors.good, AppColors.warn, AppColors.coral];
+final _zoneColors = [AppColors.cool, AppColors.loadDetraining, AppColors.good, AppColors.warn, AppColors.coral];
 
 IconData _typeIcon(String? type) {
   for (final e in _exercises) { if (e.$1 == type) return e.$3; }
@@ -93,8 +94,7 @@ Future<void> startWorkoutFlow(BuildContext context) async {
     // Start the LOCAL live engine (live HR UI + iOS Live Activity + global state)
     // alongside the backend session, then open the interactive live screen.
     app.startWorkout(workoutId: id, type: type);
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => LiveSessionScreen(workoutId: id, type: type),
+    Navigator.of(context).push(themedRoute((_) => LiveSessionScreen(workoutId: id, type: type),
     ));
   } catch (_) {/* surfaced as no-op; user can retry */}
 }
@@ -172,7 +172,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
                 if (list.isEmpty)
                   ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x6), child: Center(
                     child: Column(children: [
-                      const AppIcon(Ic.run, size: 32, color: AppColors.inkMuted),
+                      AppIcon(Ic.run, size: 32, color: AppColors.inkMuted),
                       const SizedBox(height: Sp.x3),
                       Text('No workouts', style: AppText.label),
                       const SizedBox(height: Sp.x1),
@@ -203,9 +203,9 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
         padding: const EdgeInsets.only(right: Sp.x6),
         alignment: Alignment.centerRight,
         decoration: BoxDecoration(color: AppColors.badSoft, borderRadius: BorderRadius.circular(R.card)),
-        child: const Row(mainAxisAlignment: MainAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+        child: Row(mainAxisAlignment: MainAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
           Icon(Icons.delete_outline, size: 20, color: AppColors.bad),
-          SizedBox(width: Sp.x2),
+          const SizedBox(width: Sp.x2),
           Text('Delete', style: TextStyle(color: AppColors.bad, fontWeight: FontWeight.w700)),
         ]),
       ),
@@ -225,7 +225,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Delete', style: TextStyle(color: AppColors.bad, fontWeight: FontWeight.w700))),
+              child: Text('Delete', style: TextStyle(color: AppColors.bad, fontWeight: FontWeight.w700))),
         ],
       ),
     );
@@ -249,7 +249,7 @@ class _StartButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             colors: [AppColors.coral, AppColors.coralDeep],
             begin: Alignment.topLeft, end: Alignment.bottomRight,
           ),
@@ -341,8 +341,7 @@ class _WorkoutTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: Sp.x3),
       child: ProCard(
-        onTap: () => Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => WorkoutDetailScreen(id: w['id'] as String))),
+        onTap: () => Navigator.of(context).push(themedRoute((_) => WorkoutDetailScreen(id: w['id'] as String))),
         padding: const EdgeInsets.all(Sp.x4),
         child: Row(children: [
           Container(padding: const EdgeInsets.all(11),
@@ -352,8 +351,8 @@ class _WorkoutTile extends StatelessWidget {
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               Text(_typeLabel(w['type'] as String?), style: AppText.label),
-              if (w['source'] == 'auto') ...[const SizedBox(width: Sp.x2), const Tag('AUTO', color: AppColors.inkMuted)],
-              if (live) ...[const SizedBox(width: Sp.x2), const Tag('LIVE', color: AppColors.coral)],
+              if (w['source'] == 'auto') ...[const SizedBox(width: Sp.x2), Tag('AUTO', color: AppColors.inkMuted)],
+              if (live) ...[const SizedBox(width: Sp.x2), Tag('LIVE', color: AppColors.coral)],
             ]),
             const SizedBox(height: 2),
             Text('${_whenLabel(w['start_ts'] as int?)} · ${hm(w['duration_min'] as num?)} · ${w['avg_hr'] ?? '—'} bpm',
@@ -366,7 +365,7 @@ class _WorkoutTile extends StatelessWidget {
             ]),
             const SizedBox(width: Sp.x2),
           ],
-          const AppIcon(Icons.chevron_right, size: 18, color: AppColors.inkMuted),
+          AppIcon(Icons.chevron_right, size: 18, color: AppColors.inkMuted),
         ]),
       ),
     );
@@ -388,7 +387,7 @@ class WorkoutDetailScreen extends StatelessWidget {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           TextButton(onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Delete', style: TextStyle(color: AppColors.bad, fontWeight: FontWeight.w700))),
+              child: Text('Delete', style: TextStyle(color: AppColors.bad, fontWeight: FontWeight.w700))),
         ],
       ),
     );
@@ -406,7 +405,7 @@ class WorkoutDetailScreen extends StatelessWidget {
         backgroundColor: AppColors.bg, elevation: 0, title: Text('Workout', style: AppText.title),
         actions: [
           IconButton(
-            icon: const Icon(Icons.delete_outline, color: AppColors.inkMuted),
+            icon: Icon(Icons.delete_outline, color: AppColors.inkMuted),
             tooltip: 'Delete workout',
             onPressed: () => _delete(context),
           ),
@@ -472,8 +471,8 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
               Text(_typeLabel(d['type'] as String?).toUpperCase(), style: AppText.overline),
               Text(_whenLabel(d['start_ts'] as int?), style: AppText.captionMuted),
             ])),
-            if (d['source'] == 'auto') const Tag('AUTO', color: AppColors.inkMuted),
-            if (live) const Tag('LIVE', color: AppColors.coral),
+            if (d['source'] == 'auto') Tag('AUTO', color: AppColors.inkMuted),
+            if (live) Tag('LIVE', color: AppColors.coral),
           ]),
           const SizedBox(height: Sp.x5),
           Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
@@ -513,7 +512,7 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
           AreaSpark(hr, color: AppColors.coral, height: 110),
           if (drift != null || ttp != null) ...[
             const SizedBox(height: Sp.x4),
-            const Divider(height: 1, color: AppColors.divider),
+            Divider(height: 1, color: AppColors.divider),
             const SizedBox(height: Sp.x2),
             if (ttp != null)
               DetailRow(label: 'Time to peak HR', value: '${ttp.toInt()} min'),

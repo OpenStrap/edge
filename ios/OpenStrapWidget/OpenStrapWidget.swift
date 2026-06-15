@@ -16,17 +16,38 @@ import SwiftUI
 
 private let kAppGroup = "group.wtf.openstrap"
 
-// MARK: - Theme (Ember on Paper)
+// MARK: - Theme (Ember on Paper / Char)
+// The app writes "theme_dark" into the App Group to mirror its in-app appearance
+// (which already resolves "System" to the actual OS brightness). Surfaces + ink
+// flip between paper and char; the ember coral + ring accents stay constant.
 
 private extension Color {
-  static let paper      = Color(red: 244/255, green: 241/255, blue: 236/255)
-  static let ink        = Color(red: 26/255,  green: 23/255,  blue: 20/255)
-  static let inkMuted   = Color(red: 165/255, green: 156/255, blue: 144/255)
-  static let surfaceAlt = Color(red: 236/255, green: 231/255, blue: 223/255)
-  static let coral      = Color(red: 255/255, green: 90/255,  blue: 54/255)
-  static let coralDeep  = Color(red: 232/255, green: 67/255,  blue: 31/255)
-  static let good       = Color(red: 43/255,  green: 182/255, blue: 115/255)
-  static let sleepBlue  = Color(red: 124/255, green: 168/255, blue: 240/255)
+  init(_ r: Int, _ g: Int, _ b: Int) {
+    self.init(red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255)
+  }
+}
+
+private struct Pal {
+  let bg: Color, ink: Color, inkMuted: Color, track: Color
+  static let light = Pal(bg: Color(244, 241, 236), ink: Color(26, 23, 20),
+                         inkMuted: Color(165, 156, 144), track: Color(236, 231, 223))
+  static let dark  = Pal(bg: Color(30, 26, 21), ink: Color(241, 236, 227),
+                         inkMuted: Color(126, 116, 102), track: Color(42, 37, 31))
+  static var isDark: Bool {
+    UserDefaults(suiteName: kAppGroup)?.object(forKey: "theme_dark") as? Bool ?? false
+  }
+  static var current: Pal { isDark ? .dark : .light }
+}
+
+private extension Color {
+  static var paper: Color { Pal.current.bg }
+  static var ink: Color { Pal.current.ink }
+  static var inkMuted: Color { Pal.current.inkMuted }
+  static var surfaceAlt: Color { Pal.current.track }
+  static let coral      = Color(255, 90, 54)
+  static let coralDeep  = Color(232, 67, 31)
+  static let good       = Color(43, 182, 115)
+  static let sleepBlue  = Color(124, 168, 240)
 }
 
 // MARK: - Model

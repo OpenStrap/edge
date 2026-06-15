@@ -278,7 +278,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (acwr != null) ...[
           Row(children: [
-            const AppIcon(Ic.strain, size: 18, color: AppColors.coralDeep),
+            AppIcon(Ic.strain, size: 18, color: AppColors.coralDeep),
             const SizedBox(width: Sp.x2),
             Text('Acute:chronic load', style: AppText.label),
             const Spacer(),
@@ -315,7 +315,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
                       color: AppColors.coralSoft,
                       borderRadius: BorderRadius.circular(R.chip),
                     ),
-                    child: const AppIcon(Ic.strain,
+                    child: AppIcon(Ic.strain,
                         size: 16, color: AppColors.coralDeep),
                   ),
                   const SizedBox(width: Sp.x2),
@@ -373,7 +373,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
 
   Widget _zonesCard() {
     final zones = _zones();
-    const palette = [
+    final palette = [
       AppColors.loadDetraining,
       AppColors.good,
       AppColors.warn,
@@ -472,11 +472,11 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
           child: Row(children: [
             Container(
               padding: const EdgeInsets.all(Sp.x3),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: AppColors.coralSoft,
                 shape: BoxShape.circle,
               ),
-              child: const AppIcon(Ic.run, size: 20, color: AppColors.coralDeep),
+              child: AppIcon(Ic.run, size: 20, color: AppColors.coralDeep),
             ),
             const SizedBox(width: Sp.x4),
             Expanded(
@@ -515,11 +515,11 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
           Row(children: [
             Container(
               padding: const EdgeInsets.all(Sp.x3),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: AppColors.coralSoft,
                 shape: BoxShape.circle,
               ),
-              child: const AppIcon(Ic.run, size: 18, color: AppColors.coralDeep),
+              child: AppIcon(Ic.run, size: 18, color: AppColors.coralDeep),
             ),
             const SizedBox(width: Sp.x3),
             Expanded(
@@ -561,8 +561,8 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
 
   // ── states ─────────────────────────────────────────────────────────────────
 
-  Widget _loading() => const ProCard(
-        padding: EdgeInsets.all(Sp.x6),
+  Widget _loading() => ProCard(
+        padding: const EdgeInsets.all(Sp.x6),
         child: SizedBox(
           height: 320,
           child: Center(child: CircularProgressIndicator(color: AppColors.coral)),
@@ -576,7 +576,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(Sp.x4),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: AppColors.coralSoft,
               shape: BoxShape.circle,
             ),

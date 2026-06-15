@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
+import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../today/step_goal_screen.dart';
@@ -112,13 +113,20 @@ class ProfileScreen extends StatelessWidget {
                   ? '${user['step_goal']} steps'
                   : 'Set',
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => StepGoalScreen(
+                themedRoute((_) => StepGoalScreen(
                     goal: (user['step_goal'] as num?)?.toInt(),
                   ),
                 ),
               ),
             ),
+          ),
+
+          const SizedBox(height: Sp.x7),
+
+          // ── Appearance ───────────────────────────────────────────────
+          const SectionHeader('Appearance'),
+          ProCard(
+            child: const AppearanceSelector(labeled: true),
           ),
 
           const SizedBox(height: Sp.x7),
@@ -136,7 +144,7 @@ class ProfileScreen extends StatelessWidget {
                       color: AppColors.surfaceAlt,
                       borderRadius: BorderRadius.circular(R.chip),
                     ),
-                    child: const AppIcon(Ic.server,
+                    child: AppIcon(Ic.server,
                         size: 20, color: AppColors.inkSoft),
                   ),
                   const SizedBox(width: Sp.x3),
@@ -176,7 +184,7 @@ class ProfileScreen extends StatelessWidget {
               label: 'Sign out',
               value: '',
               onTap: () => _confirmSignOut(context, app),
-              trailing: const AppIcon(Ic.arrowRight,
+              trailing: AppIcon(Ic.arrowRight,
                   size: 16, color: AppColors.coral),
             ),
           ),
@@ -191,7 +199,7 @@ class ProfileScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
-                  const AppIcon(Ic.shield, size: 18, color: AppColors.inkSoft),
+                  AppIcon(Ic.shield, size: 18, color: AppColors.inkSoft),
                   const SizedBox(width: Sp.x2),
                   Text('How your metrics are made', style: AppText.label),
                 ]),
@@ -329,7 +337,7 @@ class _DeviceHero extends StatelessWidget {
     if (app.paired == null) {
       return ProCard(
         child: Row(children: [
-          const AppIcon(Ic.watch, size: 22, color: AppColors.inkMuted),
+          AppIcon(Ic.watch, size: 22, color: AppColors.inkMuted),
           const SizedBox(width: Sp.x3),
           Expanded(
               child: Text('No strap paired.', style: AppText.bodySoft)),
@@ -518,7 +526,7 @@ class _DeviceSheet extends StatelessWidget {
                   color: AppColors.bad.withValues(alpha: 0.5), width: 1.5),
             ),
             onPressed: () => _forget(context, live),
-            icon: const AppIcon(Ic.cancel, size: 18, color: AppColors.bad),
+            icon: AppIcon(Ic.cancel, size: 18, color: AppColors.bad),
             label: const Text('Forget device'),
           ),
         ),
@@ -789,7 +797,7 @@ class _Notice extends StatelessWidget {
           borderRadius: BorderRadius.circular(R.chip),
         ),
         child: Row(children: [
-          const AppIcon(Ic.info, size: 18, color: AppColors.warn),
+          AppIcon(Ic.info, size: 18, color: AppColors.warn),
           const SizedBox(width: Sp.x2),
           Expanded(child: Text(text, style: AppText.caption)),
         ]),
@@ -800,7 +808,7 @@ class _HairDivider extends StatelessWidget {
   const _HairDivider();
   @override
   Widget build(BuildContext context) =>
-      const Divider(height: 1, thickness: 1, color: AppColors.divider);
+      Divider(height: 1, thickness: 1, color: AppColors.divider);
 }
 
 void _snack(BuildContext context, String msg) {

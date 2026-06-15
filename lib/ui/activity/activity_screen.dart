@@ -8,6 +8,7 @@ import '../../models/payloads.dart';
 import '../../net/api_client.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
+import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../kit/charts.dart';
 import '../kit/kit.dart';
@@ -23,7 +24,7 @@ class ActivityScreen extends StatefulWidget {
 class _ActivityScreenState extends State<ActivityScreen>
     with ScreenLoaderMixin<ActivityScreen> {
   // HR zone palette: light → vivid coral, deep red top end.
-  static const zoneColors = <Color>[
+  static final zoneColors = <Color>[
     AppColors.loadDetraining,
     AppColors.good,
     AppColors.warn,
@@ -91,8 +92,7 @@ class _ActivityScreenState extends State<ActivityScreen>
                         app.startWorkout(targetKcal: 300);
                         Navigator.push(
                           context,
-                          MaterialPageRoute(
-                              builder: (_) => const LiveSessionScreen()),
+                          themedRoute((_) => const LiveSessionScreen()),
                         );
                       })
                     : null,
@@ -173,7 +173,7 @@ class _ActivityScreenState extends State<ActivityScreen>
         ProCard(
           child: Row(
             children: [
-              const AppIcon(Ic.run, size: 22, color: AppColors.inkMuted),
+              AppIcon(Ic.run, size: 22, color: AppColors.inkMuted),
               const SizedBox(width: Sp.x3),
               Expanded(
                 child: Text('No workouts auto-detected today.',
@@ -204,7 +204,7 @@ class _ActivityScreenState extends State<ActivityScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const AppIcon(Ic.strain, size: 18, color: AppColors.coral),
+              AppIcon(Ic.strain, size: 18, color: AppColors.coral),
               const SizedBox(width: Sp.x2),
               Text('DAY STRAIN', style: AppText.overline),
               if (!strain.isEmpty) ...[
@@ -239,7 +239,7 @@ class _ActivityScreenState extends State<ActivityScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const AppIcon(Ic.fire, size: 18, color: AppColors.coralDeep),
+              AppIcon(Ic.fire, size: 18, color: AppColors.coralDeep),
               const SizedBox(width: Sp.x2),
               if (cals.isEmpty)
                 metricDash(22)
@@ -249,7 +249,7 @@ class _ActivityScreenState extends State<ActivityScreen>
               Text('active cal',
                   style: AppText.caption.copyWith(color: AppColors.inkMuted)),
               const SizedBox(width: Sp.x2),
-              const Tag('est', color: AppColors.warn),
+              Tag('est', color: AppColors.warn),
             ],
           ),
         ],
@@ -399,7 +399,7 @@ class _SessionCard extends StatelessWidget {
                   color: AppColors.coralSoft,
                   borderRadius: BorderRadius.circular(R.chip),
                 ),
-                child: const AppIcon(Ic.run, size: 18, color: AppColors.coral),
+                child: AppIcon(Ic.run, size: 18, color: AppColors.coral),
               ),
               const SizedBox(width: Sp.x3),
               Expanded(
@@ -435,7 +435,7 @@ class _SessionCard extends StatelessWidget {
               _stat('Max HR', s.maxHr, 'bpm'),
               _stat('HRR60', s.hrr60, 'bpm'),
               _stat('Active cal', s.calories, '',
-                  tag: const Tag('est', color: AppColors.warn)),
+                  tag: Tag('est', color: AppColors.warn)),
             ],
           ),
           if (hasZones) ...[
@@ -516,7 +516,7 @@ class _TopTitle extends StatelessWidget {
               if (freshness != null) ...[
                 const SizedBox(height: 2),
                 Row(children: [
-                  const AppIcon(Ic.cloud, size: 14, color: AppColors.inkMuted),
+                  AppIcon(Ic.cloud, size: 14, color: AppColors.inkMuted),
                   const SizedBox(width: Sp.x1),
                   Text(freshness!, style: AppText.captionMuted),
                 ]),
@@ -551,7 +551,7 @@ class _StartButton extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const AppIcon(Ic.run, size: 16, color: AppColors.coralDeep),
+                AppIcon(Ic.run, size: 16, color: AppColors.coralDeep),
                 const SizedBox(width: Sp.x2),
                 Text('START',
                     style: AppText.label.copyWith(
@@ -606,7 +606,7 @@ class _ErrorCard extends StatelessWidget {
       padding: const EdgeInsets.all(Sp.x7),
       child: Column(
         children: [
-          const AppIcon(Ic.cloud, size: 28, color: AppColors.inkMuted),
+          AppIcon(Ic.cloud, size: 28, color: AppColors.inkMuted),
           const SizedBox(height: Sp.x3),
           Text('Couldn\'t load activity',
               style: AppText.h2, textAlign: TextAlign.center),

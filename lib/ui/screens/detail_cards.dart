@@ -59,7 +59,7 @@ class _FetchState extends State<_Fetch> {
 }
 
 // Zone palette reused across metrics.
-const _zoneColors = [AppColors.cool, AppColors.loadDetraining, AppColors.good, AppColors.warn, AppColors.coral];
+final _zoneColors = [AppColors.cool, AppColors.loadDetraining, AppColors.good, AppColors.warn, AppColors.coral];
 
 // ── HEART ────────────────────────────────────────────────────────────────────
 class HeartDayCard extends StatelessWidget {
@@ -106,7 +106,7 @@ class HeartDayCard extends StatelessWidget {
                   AppIcon(rec != null ? Ic.recovery : Ic.heart, size: 16, color: AppColors.coralDeep),
                   const SizedBox(width: Sp.x2),
                   Text(rec != null ? 'RECOVERY' : 'RESTING HR', style: AppText.overline),
-                  if (rec != null) ...[const SizedBox(width: Sp.x2), const Tag('HRV', color: AppColors.good)],
+                  if (rec != null) ...[const SizedBox(width: Sp.x2), Tag('HRV', color: AppColors.good)],
                 ]),
                 const SizedBox(height: Sp.x3),
                 if (rec != null)
@@ -286,7 +286,7 @@ class _IllnessCard extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(9),
           decoration: BoxDecoration(color: AppColors.surfaceSunk, borderRadius: BorderRadius.circular(R.chip)),
-          child: const AppIcon(Ic.info, size: 17, color: AppColors.inkMuted),
+          child: AppIcon(Ic.info, size: 17, color: AppColors.inkMuted),
         ),
         const SizedBox(width: Sp.x3),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -326,7 +326,7 @@ class _IllnessCard extends StatelessWidget {
       ])),
       // Per-feature deviations (what's moving), when present.
       if (drivers.isNotEmpty) ...[
-        const Divider(height: 1, color: AppColors.divider),
+        Divider(height: 1, color: AppColors.divider),
         Padding(padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2), child: Column(
           children: [
             for (final dr in drivers)
@@ -367,7 +367,7 @@ class _IrregularCard extends StatelessWidget {
         ])),
       ])),
       if (irr['sd1'] != null && irr['sd2'] != null) ...[
-        const Divider(height: 1, color: AppColors.divider),
+        Divider(height: 1, color: AppColors.divider),
         Padding(padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2), child: Column(children: [
           DetailRow(label: 'Poincaré SD1 / SD2', value: '${irr['sd1']} / ${irr['sd2']} ms'),
           if (irr['pnn50'] != null) DetailRow(label: 'pNN50', value: '${irr['pnn50']}%'),
@@ -424,11 +424,11 @@ class WearDayCard extends StatelessWidget {
             child: Row(children: [
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
                 Row(children: [
-                  const AppIcon(Ic.watch, size: 16, color: AppColors.coralDeep),
+                  AppIcon(Ic.watch, size: 16, color: AppColors.coralDeep),
                   const SizedBox(width: Sp.x2),
                   Text('TIME WORN', style: AppText.overline),
                   const SizedBox(width: Sp.x2),
-                  const Tag('AUTH', color: AppColors.good),
+                  Tag('AUTH', color: AppColors.good),
                 ]),
                 const SizedBox(height: Sp.x3),
                 Text(hm(worn), style: AppText.display),

@@ -8,6 +8,7 @@ import '../net/api_client.dart';
 import '../state/app_state.dart';
 import '../sync/config.dart';
 import '../theme/theme.dart';
+import '../theme/theme_switcher.dart';
 import '../theme/tokens.dart';
 import 'kit/kit.dart';
 
@@ -40,7 +41,7 @@ class _ErrorLine extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const AppIcon(Ic.info, size: 18, color: AppColors.bad),
+            AppIcon(Ic.info, size: 18, color: AppColors.bad),
             const SizedBox(width: Sp.x2),
             Expanded(
               child: Text(message,
@@ -113,7 +114,7 @@ class _BackendChoiceScreenState extends State<BackendChoiceScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
-                    const AppIcon(Ic.shield, size: 22, color: AppColors.coralDeep),
+                    AppIcon(Ic.shield, size: 22, color: AppColors.coralDeep),
                     const SizedBox(width: Sp.x2),
                     Text('Choose carefully', style: AppText.h2),
                   ]),
@@ -135,7 +136,7 @@ class _BackendChoiceScreenState extends State<BackendChoiceScreen> {
               padding: const EdgeInsets.symmetric(
                   horizontal: Sp.x4, vertical: Sp.x1),
               child: Row(children: [
-                const AppIcon(Ic.cloud, size: 20, color: AppColors.inkSoft),
+                AppIcon(Ic.cloud, size: 20, color: AppColors.inkSoft),
                 const SizedBox(width: Sp.x3),
                 Expanded(
                   child: TextField(
@@ -232,8 +233,7 @@ class _AuthScreenState extends State<AuthScreen> {
         resp = await app.api!.requestOtp(email);
       }
       if (!mounted) return;
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) =>
+      Navigator.of(context).push(themedRoute((_) =>
             OtpScreen(email: email, devCode: resp['dev_code'] as String?),
       ));
     } on ApiException catch (e) {
@@ -400,7 +400,7 @@ class _OtpScreenState extends State<OtpScreen> {
             if (widget.devCode != null) ...[
               const SizedBox(height: Sp.x3),
               Row(children: [
-                const Tag('dev', color: AppColors.coral),
+                Tag('dev', color: AppColors.coral),
                 const SizedBox(width: Sp.x2),
                 Expanded(
                   child: Text('Code prefilled — no email key configured.',
@@ -598,6 +598,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               max: 200,
               onChanged: (v) => setState(() => _weightKg = v.round()),
             ),
+            const SizedBox(height: Sp.x6),
+
+            // Appearance — defaults to your phone's mode; change it live here.
+            const _AppearanceSelector(),
 
             if (_error != null) _ErrorLine(_error!),
             const SizedBox(height: Sp.x7),
@@ -620,6 +624,13 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       ),
     );
   }
+}
+
+/// Inline appearance section for onboarding (matches the SEX/AGE section style).
+class _AppearanceSelector extends StatelessWidget {
+  const _AppearanceSelector();
+  @override
+  Widget build(BuildContext context) => const AppearanceSelector(labeled: true);
 }
 
 /// A selectable pill for the sex segmented control.

@@ -4,7 +4,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:hugeicons/hugeicons.dart';
+import 'package:provider/provider.dart';
 import '../../theme/theme.dart';
+import '../../theme/theme_controller.dart';
+import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../../models/metric.dart';
 
@@ -64,25 +67,33 @@ class ProCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final VoidCallback? onTap;
-  final Color color;
-  final List<BoxShadow> shadow;
+  final Color? color;
+  final List<BoxShadow>? shadow;
   const ProCard({
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(Sp.x5),
     this.onTap,
-    this.color = AppColors.surface,
-    this.shadow = Shadows.card,
+    this.color,
+    this.shadow,
   });
   @override
   Widget build(BuildContext context) {
+    final dark = AppColors.isDark;
+    final fill = color ?? AppColors.surface;
+    // Dark elevation comes from the lifted surface + a hairline border; drop
+    // shadows are invisible on char. Light keeps its soft warm shadow.
+    final resolvedShadow = shadow ?? Shadows.cardFor(dark);
     final card = AnimatedContainer(
       duration: Motion.fast,
       padding: padding,
       decoration: BoxDecoration(
-        color: color,
+        color: fill,
         borderRadius: BorderRadius.circular(R.card),
-        boxShadow: shadow,
+        boxShadow: resolvedShadow,
+        border: dark
+            ? Border.all(color: AppColors.divider, width: 1)
+            : null,
       ),
       child: child,
     );
@@ -104,18 +115,21 @@ class GlowCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final Alignment glowAlign;
-  final Color glow;
+  final Color? glow;
   final VoidCallback? onTap;
   const GlowCard({
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(Sp.x5),
     this.glowAlign = const Alignment(0.9, 1.1),
-    this.glow = AppColors.coral,
+    this.glow,
     this.onTap,
   });
   @override
   Widget build(BuildContext context) {
+    final glowColor = glow ?? AppColors.coral;
+    // On char the blob blooms — keep it a low, warm ember; on paper it can sing.
+    final glowAlpha = AppColors.isDark ? 0.28 : 0.55;
     final body = ClipRRect(
       borderRadius: BorderRadius.circular(R.card),
       child: Stack(
@@ -126,7 +140,10 @@ class GlowCard extends StatelessWidget {
                 gradient: RadialGradient(
                   center: glowAlign,
                   radius: 0.9,
-                  colors: [glow.withValues(alpha: 0.55), Colors.transparent],
+                  colors: [
+                    glowColor.withValues(alpha: glowAlpha),
+                    Colors.transparent
+                  ],
                 ),
               ),
             ),
@@ -184,7 +201,7 @@ class SectionHeader extends StatelessWidget {
                 Text(trailing!,
                     style: AppText.label.copyWith(color: AppColors.coralDeep)),
                 const SizedBox(width: 2),
-                const AppIcon(Ic.arrowRight,
+                AppIcon(Ic.arrowRight,
                     size: 16, color: AppColors.coralDeep),
               ]),
             ),
@@ -229,7 +246,10 @@ class SegToggle extends StatelessWidget {
               ),
               child: Text(options[i],
                   style: AppText.label.copyWith(
-                    color: sel ? AppColors.onNight : AppColors.inkSoft,
+                    // The selected pill is AppColors.ink (dark in light mode,
+                    // light in dark mode). The label must contrast with it:
+                    // AppColors.surface inverts correctly in both modes.
+                    color: sel ? AppColors.surface : AppColors.inkSoft,
                     fontWeight: FontWeight.w700,
                   )),
             ),
@@ -307,6 +327,58 @@ class BaselineDeltaChip extends StatelessWidget {
   }
 }
 
+/// Appearance picker — System / Light / Dark, wired live to [ThemeController].
+/// Used in onboarding (inline) and Profile (inside a ProCard). Switching updates
+/// the whole app immediately. "System" follows the phone; the others pin a mode.
+class AppearanceSelector extends StatelessWidget {
+  /// Show the "APPEARANCE" overline + a one-line description above the toggle.
+  final bool labeled;
+  const AppearanceSelector({super.key, this.labeled = true});
+
+  @override
+  Widget build(BuildContext context) {
+    final ctrl = context.watch<ThemeController>();
+    final idx = switch (ctrl.choice) {
+      AppThemeChoice.system => 0,
+      AppThemeChoice.light => 1,
+      AppThemeChoice.dark => 2,
+    };
+    final toggle = SegToggle(
+      options: const ['System', 'Light', 'Dark'],
+      index: idx,
+      onChanged: (i) {
+        final next = switch (i) {
+          1 => AppThemeChoice.light,
+          2 => AppThemeChoice.dark,
+          _ => AppThemeChoice.system,
+        };
+        if (next == ctrl.choice) return;
+        // Cross-fade the whole app from the old look to the new one.
+        final overlay = themeSwitchKey.currentState;
+        if (overlay != null) {
+          overlay.run(() => ctrl.setChoice(next));
+        } else {
+          ctrl.setChoice(next);
+        }
+      },
+    );
+    if (!labeled) return toggle;
+    final desc = ctrl.choice == AppThemeChoice.system
+        ? 'Following your phone — ${ctrl.isDark ? 'Ember on Char' : 'Ember on Paper'}'
+        : 'Ember on ${ctrl.isDark ? 'Char' : 'Paper'}';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('APPEARANCE', style: AppText.overline),
+        const SizedBox(height: Sp.x3),
+        Align(alignment: Alignment.centerLeft, child: toggle),
+        const SizedBox(height: Sp.x2),
+        Text(desc, style: AppText.captionMuted),
+      ],
+    );
+  }
+}
+
 /// Tiny confidence dot (honesty system).
 class ConfDot extends StatelessWidget {
   final double confidence;
@@ -326,41 +398,53 @@ class ConfDot extends StatelessWidget {
 /// Small honesty label pill (EST. / BETA / REL.).
 class Tag extends StatelessWidget {
   final String text;
-  final Color color;
-  const Tag(this.text, {super.key, this.color = AppColors.warn});
+  final Color? color;
+  const Tag(this.text, {super.key, this.color});
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(R.pill),
-        ),
-        child: Text(text.toUpperCase(),
-            style: AppText.overline
-                .copyWith(color: color, fontSize: 9.5, letterSpacing: 0.8)),
-      );
+  Widget build(BuildContext context) {
+    final c = color ?? AppColors.warn;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(R.pill),
+      ),
+      child: Text(text.toUpperCase(),
+          style: AppText.overline
+              .copyWith(color: c, fontSize: 9.5, letterSpacing: 0.8)),
+    );
+  }
+
   static Widget? forMetric(Metric m) {
-    if (m.isEstimate) return const Tag('est', color: AppColors.warn);
-    if (m.isRelative) return const Tag('rel', color: AppColors.loadDetraining);
-    if (m.beta) return const Tag('beta', color: AppColors.coral);
+    if (m.isEstimate) return const Tag('est');
+    if (m.isRelative) return _RelTag();
+    if (m.beta) return _BetaTag();
     return null;
   }
+}
+
+/// Honesty tags whose colour is mode-resolved (can't be a const Tag arg).
+class _RelTag extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) =>
+      Tag('rel', color: AppColors.loadDetraining);
+}
+
+class _BetaTag extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) => Tag('beta', color: AppColors.coral);
 }
 
 /// Compact round icon button (top-bar actions, like the ref's circular buttons).
 class RoundIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onTap;
-  final Color bg;
-  final Color fg;
-  const RoundIconButton(this.icon,
-      {super.key,
-      this.onTap,
-      this.bg = AppColors.surface,
-      this.fg = AppColors.ink});
+  final Color? bg;
+  final Color? fg;
+  const RoundIconButton(this.icon, {super.key, this.onTap, this.bg, this.fg});
   @override
   Widget build(BuildContext context) => Material(
-        color: bg,
+        color: bg ?? AppColors.surface,
         shape: const CircleBorder(),
         elevation: 0,
         child: InkWell(
@@ -368,7 +452,7 @@ class RoundIconButton extends StatelessWidget {
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(Sp.x3),
-            child: AppIcon(icon, size: 20, color: fg),
+            child: AppIcon(icon, size: 20, color: fg ?? AppColors.ink),
           ),
         ),
       );
@@ -406,7 +490,7 @@ class DetailRow extends StatelessWidget {
           if (trailing != null) ...[const SizedBox(width: Sp.x2), trailing!]
           else if (onTap != null) ...[
             const SizedBox(width: Sp.x2),
-            const AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
+            AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
           ],
         ]),
       ),
@@ -442,7 +526,7 @@ class DetailRetentionNote extends StatelessWidget {
   @override
   Widget build(BuildContext context) => ProCard(
         child: Row(children: [
-          const AppIcon(Ic.clock, size: 20, color: AppColors.inkMuted),
+          AppIcon(Ic.clock, size: 20, color: AppColors.inkMuted),
           const SizedBox(width: Sp.x3),
           Expanded(
             child: Text(

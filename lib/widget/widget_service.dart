@@ -59,6 +59,18 @@ class WidgetService {
     } catch (_) {/* widgets unavailable / not configured yet — ignore */}
   }
 
+  /// Tell the iOS widget + Live Activity which appearance the app is rendering
+  /// (Ember on Paper vs Char) so those native surfaces match — including when the
+  /// user overrides the OS in-app. Reloads the home widget immediately; the Live
+  /// Activity picks it up on its next (frequent) content-state update.
+  static Future<void> setThemeDark(bool dark) async {
+    try {
+      await init();
+      await HomeWidget.saveWidgetData<bool>('theme_dark', dark);
+      await HomeWidget.updateWidget(iOSName: _iOSName, androidName: _androidName);
+    } catch (_) {/* widgets unavailable — ignore */}
+  }
+
   /// Store the backend URL + access JWT so the widget can self-refresh /today
   /// (~hourly) even when the app is closed. Call alongside push() when signed in.
   static Future<void> saveAuth(String url, String? jwt) async {

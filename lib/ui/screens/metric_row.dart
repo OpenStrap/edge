@@ -50,7 +50,7 @@ String? infoFor(String key) => kMetricInfo[key];
 /// A single metric line: [icon chip] label + description ........ value unit [›]
 class MetricRow extends StatelessWidget {
   final IconData icon;
-  final Color accent;
+  final Color? accent;
   final String label;
   final String? info;
   final String value;
@@ -64,12 +64,13 @@ class MetricRow extends StatelessWidget {
     required this.value,
     this.info,
     this.unit,
-    this.accent = AppColors.coral,
+    this.accent,
     this.valueTag,
     this.onTap,
   });
   @override
   Widget build(BuildContext context) {
+    final accent = this.accent ?? AppColors.coral;
     final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: Sp.x3),
       child: Column(
@@ -105,7 +106,7 @@ class MetricRow extends StatelessWidget {
               if (valueTag != null) ...[const SizedBox(width: Sp.x2), valueTag!],
               if (onTap != null) ...[
                 const SizedBox(width: Sp.x2),
-                const AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
+                AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
               ],
             ],
           ),
@@ -136,7 +137,7 @@ class MetricGroup extends StatelessWidget {
     for (int i = 0; i < rows.length; i++) {
       children.add(rows[i]);
       if (i < rows.length - 1) {
-        children.add(const Divider(height: 1, thickness: 1, color: AppColors.divider));
+        children.add(Divider(height: 1, thickness: 1, color: AppColors.divider));
       }
     }
     return ProCard(child: Column(children: children));

@@ -57,10 +57,10 @@ class _UpdateCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(Sp.x3),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.6),
+              color: AppColors.surface.withValues(alpha: 0.6),
               borderRadius: BorderRadius.circular(R.chip),
             ),
-            child: const AppIcon(Ic.cloud, size: 20, color: AppColors.coralDeep),
+            child: AppIcon(Ic.cloud, size: 20, color: AppColors.coralDeep),
           ),
           const SizedBox(width: Sp.x4),
           Expanded(
@@ -238,7 +238,7 @@ class _AlertCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(Sp.x3),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.6),
+              color: AppColors.surface.withValues(alpha: 0.6),
               borderRadius: BorderRadius.circular(R.chip),
             ),
             child: AppIcon(s.icon, size: 20, color: s.fg),
@@ -269,8 +269,8 @@ class _AlertCard extends StatelessWidget {
             GestureDetector(
               onTap: onDismiss,
               behavior: HitTestBehavior.opaque,
-              child: const Padding(
-                padding: EdgeInsets.only(left: Sp.x2),
+              child: Padding(
+                padding: const EdgeInsets.only(left: Sp.x2),
                 child: AppIcon(Ic.cancel, size: 18, color: AppColors.inkMuted),
               ),
             ),

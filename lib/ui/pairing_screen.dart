@@ -88,7 +88,7 @@ class _InstructionStep extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const AppIcon(Ic.info, size: 20, color: AppColors.warn),
+              AppIcon(Ic.info, size: 20, color: AppColors.warn),
               const SizedBox(width: Sp.x3),
               Expanded(
                 child: Text(
@@ -302,7 +302,7 @@ class _ScanStepState extends State<_ScanStep> {
                 const Spacer(),
                 if (_error != null) ...[
                   Row(children: [
-                    const AppIcon(Ic.info, size: 18, color: AppColors.bad),
+                    AppIcon(Ic.info, size: 18, color: AppColors.bad),
                     const SizedBox(width: Sp.x2),
                     Expanded(
                       child: Text(_error!,
@@ -394,7 +394,7 @@ class _VisualState extends State<_Visual>
                 color: AppColors.coralSoft,
                 borderRadius: BorderRadius.circular(R.cardSm),
               ),
-              child: const AppIcon(Ic.watch, size: 34, color: AppColors.coralDeep),
+              child: AppIcon(Ic.watch, size: 34, color: AppColors.coralDeep),
             ),
             const SizedBox(height: Sp.x4),
             Text(widget.name(widget.device!),
@@ -409,9 +409,9 @@ class _VisualState extends State<_Visual>
         child: Container(
           width: 132,
           height: 132,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
               color: AppColors.surfaceAlt, shape: BoxShape.circle),
-          child: const AppIcon(Ic.watch, size: 56, color: AppColors.inkMuted),
+          child: AppIcon(Ic.watch, size: 56, color: AppColors.inkMuted),
         ),
       );
     }

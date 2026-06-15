@@ -484,7 +484,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
                 color: AppColors.coralSoft,
                 borderRadius: BorderRadius.circular(R.chip),
               ),
-              child: const AppIcon(Ic.run, size: 18, color: AppColors.coralDeep),
+              child: AppIcon(Ic.run, size: 18, color: AppColors.coralDeep),
             ),
             const SizedBox(width: Sp.x3),
             Expanded(
@@ -554,11 +554,11 @@ class _JourneyScreenState extends State<JourneyScreen> {
           children: [
             for (int i = 0; i < shown.length; i++) ...[
               if (i > 0)
-                const Divider(height: 1, color: AppColors.divider),
+                Divider(height: 1, color: AppColors.divider),
               _eventRow(shown[i]),
             ],
             if (extra > 0) ...[
-              const Divider(height: 1, color: AppColors.divider),
+              Divider(height: 1, color: AppColors.divider),
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: Sp.x3),
                 child: Text('+$extra more events',
@@ -577,7 +577,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: Sp.x3),
       child: Row(children: [
-        const AppIcon(Ic.info, size: 16, color: AppColors.inkMuted),
+        AppIcon(Ic.info, size: 16, color: AppColors.inkMuted),
         const SizedBox(width: Sp.x3),
         Expanded(child: Text(_eventLabel(id), style: AppText.body)),
         Text(_hm(ts),
@@ -588,8 +588,8 @@ class _JourneyScreenState extends State<JourneyScreen> {
 
   // ── states ─────────────────────────────────────────────────────────────────────
 
-  Widget _loading() => const ProCard(
-        padding: EdgeInsets.all(Sp.x6),
+  Widget _loading() => ProCard(
+        padding: const EdgeInsets.all(Sp.x6),
         child: SizedBox(
           height: 360,
           child:
@@ -604,7 +604,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(Sp.x4),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: AppColors.coralSoft,
               shape: BoxShape.circle,
             ),

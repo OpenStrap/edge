@@ -229,7 +229,7 @@ class _JournalScreenState extends State<JournalScreen> {
         children: [
           Row(
             children: [
-              const AppIcon(Ic.edit, size: 19, color: AppColors.coral),
+              AppIcon(Ic.edit, size: 19, color: AppColors.coral),
               const SizedBox(width: Sp.x2),
               Expanded(
                 child: Text(
@@ -240,7 +240,7 @@ class _JournalScreenState extends State<JournalScreen> {
               if (!_isToday)
                 GestureDetector(
                   onTap: () => _bindEditor(_fmtDate(DateTime.now())),
-                  child: const Tag('today', color: AppColors.coral),
+                  child: Tag('today', color: AppColors.coral),
                 ),
             ],
           ),
@@ -345,9 +345,9 @@ class _JournalScreenState extends State<JournalScreen> {
                     overflow: TextOverflow.ellipsis),
               ),
               if (active)
-                const Tag('editing', color: AppColors.coral)
+                Tag('editing', color: AppColors.coral)
               else
-                const AppIcon(Ic.edit, size: 16, color: AppColors.inkMuted),
+                AppIcon(Ic.edit, size: 16, color: AppColors.inkMuted),
             ],
           ),
           if (row.tags.isNotEmpty) ...[
@@ -474,7 +474,7 @@ class _JournalScreenState extends State<JournalScreen> {
   Widget _honestyFooter() {
     return Row(
       children: [
-        const AppIcon(Ic.info, size: 14, color: AppColors.inkMuted),
+        AppIcon(Ic.info, size: 14, color: AppColors.inkMuted),
         const SizedBox(width: Sp.x2),
         Expanded(
           child: Text(
@@ -499,7 +499,7 @@ class _JournalScreenState extends State<JournalScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(Sp.x4),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: AppColors.coralSoft,
               shape: BoxShape.circle,
             ),
