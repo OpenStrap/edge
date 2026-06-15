@@ -451,6 +451,11 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
     final strain = _n(d['strain']);
     final drift = _n(d['hr_drift_pct']);
     final ttp = _n(d['time_to_peak_min']);
+    // Minute-level HR curve only for recent workouts; the summary (avg/max/zones/
+    // strain) is permanent in the sessions table and always shows.
+    final startTs = d['start_ts'] as int?;
+    final workoutRecent = startTs == null ||
+        startTs > (DateTime.now().millisecondsSinceEpoch ~/ 1000) - kDetailWindowDays * 86400;
 
     return ListView(padding: const EdgeInsets.fromLTRB(Sp.x4, Sp.x4, Sp.x4, Sp.x10), children: [
       // ── HERO ──
@@ -496,8 +501,11 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
         ]),
       ),
 
-      // ── HEART RATE ──
-      if (hr.length > 1) ...[
+      // ── HEART RATE ── (minute curve, recent workouts only)
+      if (!workoutRecent) ...[
+        const SizedBox(height: Sp.x4),
+        const DetailRetentionNote(what: 'minute-by-minute heart rate'),
+      ] else if (hr.length > 1) ...[
         const SizedBox(height: Sp.x4),
         ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('Heart rate', style: AppText.label),

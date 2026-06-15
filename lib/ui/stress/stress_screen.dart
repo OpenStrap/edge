@@ -163,8 +163,13 @@ class _StressScreenState extends State<StressScreen> {
             else ...[
               _hero(),
               const SizedBox(height: Sp.x6),
-              const SectionHeader('Across the day'),
-              _bandCard(),
+              // Minute-level stress band only for recent days; the score + breakdown
+              // are daily summaries and always show.
+              if (detailedAvailable(widget.date)) ...[
+                const SectionHeader('Across the day'),
+                _bandCard(),
+              ] else
+                const DetailRetentionNote(what: 'across-the-day stress'),
               const SizedBox(height: Sp.x6),
               const SectionHeader('Time in each state'),
               _breakdownCard(),

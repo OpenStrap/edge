@@ -13,6 +13,7 @@ import '../kit/kit.dart';
 import '../kit/charts.dart';
 import '../widgets/screen_loader.dart';
 import '../widgets/status_banner.dart';
+import 'step_goal_screen.dart';
 import '../journal/journal_screen.dart';
 import '../recap/recap_screen.dart';
 import '../coach/coach_screen.dart';
@@ -301,6 +302,10 @@ class _TodayScreenState extends State<TodayScreen>
           accent: AppColors.good,
           confidence: t.steps.isEmpty ? null : t.steps.confidence,
           tag: Tag.forMetric(t.steps),
+          onTap: () => _push(StepGoalScreen(
+            steps: t.steps.isEmpty ? null : t.steps.value!.round(),
+            goal: t.stepGoal,
+          )),
         ),
         StatTile(
           icon: Ic.watch,
