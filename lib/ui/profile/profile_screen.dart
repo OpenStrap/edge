@@ -8,6 +8,7 @@ import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
+import '../today/step_goal_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -95,6 +96,29 @@ class ProfileScreen extends StatelessWidget {
             padding: const EdgeInsets.only(top: Sp.x2, left: Sp.x2),
             child: Text('Body metrics improve your calorie estimate.',
                 style: AppText.captionMuted),
+          ),
+
+          const SizedBox(height: Sp.x7),
+
+          // ── Goals ────────────────────────────────────────────────────
+          const SectionHeader('Goals'),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+                horizontal: Sp.x5, vertical: Sp.x2),
+            child: DetailRow(
+              icon: Ic.run,
+              label: 'Daily step goal',
+              value: user['step_goal'] != null
+                  ? '${user['step_goal']} steps'
+                  : 'Set',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => StepGoalScreen(
+                    goal: (user['step_goal'] as num?)?.toInt(),
+                  ),
+                ),
+              ),
+            ),
           ),
 
           const SizedBox(height: Sp.x7),

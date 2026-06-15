@@ -132,7 +132,9 @@ class HeartDayCard extends StatelessWidget {
             ]),
           ),
 
-          if (hr.length > 1) ...[
+          // Minute-level 24h HR only for recent days; recovery/HRV/zones below are
+          // permanent summaries and always show.
+          if (detailedAvailable(date) && hr.length > 1) ...[
             const SizedBox(height: Sp.x6),
             SectionHeader('Heart rate'),
             ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -140,6 +142,9 @@ class HeartDayCard extends StatelessWidget {
               const SizedBox(height: Sp.x3),
               Text('avg ${d['avg_hr'] ?? '—'} · max ${d['max_hr'] ?? '—'} bpm', style: AppText.captionMuted),
             ])),
+          ] else if (!detailedAvailable(date)) ...[
+            const SizedBox(height: Sp.x6),
+            const DetailRetentionNote(what: 'minute-by-minute heart rate'),
           ],
 
           // HRV — full Task-Force suite, each tappable into its trend.
@@ -437,8 +442,12 @@ class WearDayCard extends StatelessWidget {
             ]),
           ),
 
-          // 24-hour coverage strip.
-          if (hourly.length == 24) ...[
+          // 24-hour coverage strip — minute-level, recent days only. The worn-time
+          // total + first/last/segments summary above is permanent.
+          if (!detailedAvailable(date)) ...[
+            const SizedBox(height: Sp.x6),
+            const DetailRetentionNote(what: 'hourly wear breakdown'),
+          ] else if (hourly.length == 24) ...[
             const SizedBox(height: Sp.x6),
             SectionHeader('Hourly coverage'),
             ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

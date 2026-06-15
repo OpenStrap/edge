@@ -185,6 +185,24 @@ class ApiClient {
   Future<List<Map<String, dynamic>>> getSleep({int? from, int? to}) =>
       _getList('/sleep', _range(from, to));
 
+  /// GET /sleep/v2?from&to (date strings) → { days:[{date, periods[],
+  /// total_asleep_min, period_count}], need_min }. Multi-period (naps = shorter
+  /// sleeps). Additive companion to getSleep; old /sleep is untouched.
+  Future<Map<String, dynamic>> getSleepV2({String? from, String? to}) =>
+      _getObj('/sleep/v2', {
+        if (from != null) 'from': from,
+        if (to != null) 'to': to,
+      });
+
+  /// GET /day/v2/sleep?date= → { date, has_sleep, need_min, total_asleep_min,
+  /// periods:[{onset_ts, wake_ts, duration_min, efficiency, stages, is_main, …}] }.
+  Future<Map<String, dynamic>> getDaySleepV2(String date) =>
+      _getObj('/day/v2/sleep', {'date': date});
+
+  /// PATCH /profile { step_goal } → updated user. Convenience for the goal screen.
+  Future<Map<String, dynamic>> setStepGoal(int goal) =>
+      patchProfile({'step_goal': goal});
+
   /// GET /strain?from&to → list of daily rows (newest first).
   Future<List<Map<String, dynamic>>> getStrain({int? from, int? to}) =>
       _getList('/strain', _range(from, to));

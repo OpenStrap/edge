@@ -210,14 +210,20 @@ class _JourneyScreenState extends State<JourneyScreen> {
   }
 
   List<Widget> _story() {
+    final detailed = detailedAvailable(widget.date);
     return [
       _highsStrip(),
       const SizedBox(height: Sp.x6),
-      const SectionHeader('The timeline'),
-      _timelineCard(),
-      const SizedBox(height: Sp.x6),
-      const SectionHeader('Movement'),
-      _movementCard(),
+      // Minute-level 24h timeline + movement only for recent days; workouts and
+      // events below come from permanent tables and always show.
+      if (detailed) ...[
+        const SectionHeader('The timeline'),
+        _timelineCard(),
+        const SizedBox(height: Sp.x6),
+        const SectionHeader('Movement'),
+        _movementCard(),
+      ] else
+        const DetailRetentionNote(what: '24-hour timeline'),
       ..._workoutsSection(),
       ..._eventsSection(),
     ];

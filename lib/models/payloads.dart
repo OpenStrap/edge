@@ -41,8 +41,13 @@ class TodayData {
   final Map<String, dynamic>? _hrv;
   final Map<String, dynamic>? _skinTemp;
   final Map<String, dynamic>? _spo2;
+
+  /// User's daily step goal (null → use the client default). Top-level on /today.
+  final int? stepGoal;
+
   TodayData._(this._daily, this._sleep, this._coach, this._stress,
-      this._nocturnal, this._resp, this._hrv, this._skinTemp, this._spo2);
+      this._nocturnal, this._resp, this._hrv, this._skinTemp, this._spo2,
+      this.stepGoal);
 
   factory TodayData.fromJson(Object? json) {
     final row = json is Map ? json.cast<String, dynamic>() : const {};
@@ -50,8 +55,10 @@ class TodayData {
         (row[k] is Map) ? (row[k] as Map).cast<String, dynamic>() : null;
     final daily = sub('daily') ?? const <String, dynamic>{};
     final sleep = sub('sleep') ?? const <String, dynamic>{};
+    final goal = (row['step_goal'] as num?)?.toInt();
     return TodayData._(daily, sleep, sub('coach'), sub('stress'),
-        sub('nocturnal'), sub('resp'), sub('hrv'), sub('skin_temp'), sub('spo2'));
+        sub('nocturnal'), sub('resp'), sub('hrv'), sub('skin_temp'), sub('spo2'),
+        goal);
   }
 
   /// Nocturnal HRV (RMSSD, ms) — measured from beat-to-beat intervals. Null until

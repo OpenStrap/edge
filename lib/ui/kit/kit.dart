@@ -417,3 +417,40 @@ class DetailRow extends StatelessWidget {
 /// Empty/placeholder line shown when a metric has no confident value.
 Widget metricDash([double size = 30]) => Text('—',
     style: AppText.metric.copyWith(color: AppColors.inkMuted, fontSize: size));
+
+/// Minute-level detail (hypnogram, 24h timelines, wear histogram) is retained for
+/// this many days; older days show the daily summary only. Keep in sync with the
+/// backend's minute-table retention.
+const int kDetailWindowDays = 7;
+
+/// True when a 'YYYY-MM-DD' date is recent enough to still have minute-level detail.
+bool detailedAvailable(String ymd) {
+  final p = ymd.split('-');
+  if (p.length != 3) return true;
+  final y = int.tryParse(p[0]), m = int.tryParse(p[1]), d = int.tryParse(p[2]);
+  if (y == null || m == null || d == null) return true;
+  final date = DateTime.utc(y, m, d);
+  final now = DateTime.now().toUtc();
+  final today = DateTime.utc(now.year, now.month, now.day);
+  return today.difference(date).inDays <= kDetailWindowDays;
+}
+
+/// Shown in place of a minute-level chart for dates older than the detail window.
+class DetailRetentionNote extends StatelessWidget {
+  final String what; // e.g. 'hypnogram', 'minute-by-minute heart rate'
+  const DetailRetentionNote({super.key, this.what = 'minute-by-minute detail'});
+  @override
+  Widget build(BuildContext context) => ProCard(
+        child: Row(children: [
+          const AppIcon(Ic.clock, size: 20, color: AppColors.inkMuted),
+          const SizedBox(width: Sp.x3),
+          Expanded(
+            child: Text(
+              'Detailed $what is kept for the last $kDetailWindowDays days. '
+              'For older dates we show your daily summary.',
+              style: AppText.caption.copyWith(color: AppColors.inkSoft),
+            ),
+          ),
+        ]),
+      );
+}

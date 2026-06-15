@@ -5,6 +5,8 @@ PODS:
     - FlutterMacOS
   - home_widget (0.0.1):
     - Flutter
+  - package_info_plus (0.4.5):
+    - Flutter
   - share_plus (0.0.1):
     - Flutter
   - shared_preferences_foundation (0.0.1):
@@ -13,14 +15,18 @@ PODS:
   - sqflite_darwin (0.0.4):
     - Flutter
     - FlutterMacOS
+  - url_launcher_ios (0.0.1):
+    - Flutter
 
 DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_blue_plus_darwin (from `.symlinks/plugins/flutter_blue_plus_darwin/darwin`)
   - home_widget (from `.symlinks/plugins/home_widget/ios`)
+  - package_info_plus (from `.symlinks/plugins/package_info_plus/ios`)
   - share_plus (from `.symlinks/plugins/share_plus/ios`)
   - shared_preferences_foundation (from `.symlinks/plugins/shared_preferences_foundation/darwin`)
   - sqflite_darwin (from `.symlinks/plugins/sqflite_darwin/darwin`)
+  - url_launcher_ios (from `.symlinks/plugins/url_launcher_ios/ios`)
 
 EXTERNAL SOURCES:
   Flutter:
@@ -29,20 +35,26 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_blue_plus_darwin/darwin"
   home_widget:
     :path: ".symlinks/plugins/home_widget/ios"
+  package_info_plus:
+    :path: ".symlinks/plugins/package_info_plus/ios"
   share_plus:
     :path: ".symlinks/plugins/share_plus/ios"
   shared_preferences_foundation:
     :path: ".symlinks/plugins/shared_preferences_foundation/darwin"
   sqflite_darwin:
     :path: ".symlinks/plugins/sqflite_darwin/darwin"
+  url_launcher_ios:
+    :path: ".symlinks/plugins/url_launcher_ios/ios"
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_blue_plus_darwin: 20a08bfeaa0f7804d524858d3d8744bcc1b6dbc3
   home_widget: f169fc41fd807b4d46ab6615dc44d62adbf9f64f
+  package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
   share_plus: 50da8cb520a8f0f65671c6c6a99b3617ed10a58a
   shared_preferences_foundation: 7036424c3d8ec98dfe75ff1667cb0cd531ec82bb
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
+  url_launcher_ios: 7a95fa5b60cc718a708b8f2966718e93db0cef1b
 
 PODFILE CHECKSUM: d356a3c7ef9fe1586fd8829c4e39f9dee09401b4
 

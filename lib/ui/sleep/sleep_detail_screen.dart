@@ -12,6 +12,7 @@ import '../kit/kit.dart';
 import '../kit/charts.dart';
 import '../screens/metric_row.dart';
 import '../screens/trend_screen.dart';
+import 'sleep_periods_screen.dart';
 
 class SleepDetailScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
@@ -249,7 +250,11 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
     return [
       _hero(),
       const SizedBox(height: Sp.x6),
-      _hypnogramCard(),
+      // Minute-level hypnogram only for recent nights; older nights keep the
+      // stage/efficiency/debt summaries below (those are permanent).
+      detailedAvailable(widget.date)
+          ? _hypnogramCard()
+          : const DetailRetentionNote(what: 'sleep hypnogram'),
       const SizedBox(height: Sp.x6),
       SectionHeader('Stages'),
       _stageBreakdown(),
@@ -333,6 +338,12 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
             ],
           ),
         ),
+        // All sleeps of the day (naps included) — the v2 multi-period view.
+        RoundIconButton(Ic.bed, onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => SleepPeriodsScreen(date: widget.date),
+              ),
+            )),
       ],
     );
   }
