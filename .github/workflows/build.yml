@@ -62,3 +62,48 @@ jobs:
         with:
           files: ${{ steps.rename.outputs.apk }}
           generate_release_notes: true
+
+  # Unsigned iOS .ipa for sideloading (AltStore / Sideloadly / TrollStore). It is
+  # NOT App Store signed — users re-sign it with their own Apple ID on install.
+  # Note: free-account sideloads re-sign with a different team id, so App Group
+  # features (home widget + Live Activity) may not work; there is no iOS OTA
+  # auto-update either (that path installs an .apk). Attached to the same release.
+  ios:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Write .env
+        run: echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" > .env
+
+      - run: flutter pub get
+
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign --dart-define-from-file=.env
+
+      - name: Package unsigned IPA
+        id: ipa
+        run: |
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -R Runner.app Payload/Runner.app
+          IPA="$GITHUB_WORKSPACE/openstrap-edge-${GITHUB_REF_NAME}-unsigned.ipa"
+          zip -qr -y "$IPA" Payload
+          echo "ipa=openstrap-edge-${GITHUB_REF_NAME}-unsigned.ipa" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openstrap-edge-ipa
+          path: ${{ steps.ipa.outputs.ipa }}
+
+      # Attach to the same Release the android job created/updates (upsert by tag).
+      - name: Attach IPA to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.ipa.outputs.ipa }}
