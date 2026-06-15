@@ -312,8 +312,8 @@ class _RecordsScreenState extends State<RecordsScreen> {
       : s.split(RegExp(r'[ _/]')).where((w) => w.isNotEmpty)
           .map((w) => '${w[0].toUpperCase()}${w.substring(1)}').join(' ');
 
-  Widget _loading() => const ProCard(
-        padding: EdgeInsets.all(Sp.x6),
+  Widget _loading() => ProCard(
+        padding: const EdgeInsets.all(Sp.x6),
         child: SizedBox(height: 320,
             child: Center(child: CircularProgressIndicator(color: AppColors.coral))),
       );
@@ -323,7 +323,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
         child: Column(children: [
           Container(
             padding: const EdgeInsets.all(Sp.x4),
-            decoration: const BoxDecoration(color: AppColors.coralSoft, shape: BoxShape.circle),
+            decoration: BoxDecoration(color: AppColors.coralSoft, shape: BoxShape.circle),
             child: AppIcon(icon, size: 30, color: AppColors.coralDeep),
           ),
           const SizedBox(height: Sp.x4),

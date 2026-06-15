@@ -33,23 +33,47 @@ struct OpenStrapWidgetAttributes: ActivityAttributes {
   var targetKcal: Int
 }
 
-// MARK: - Palette (Ember on Paper, clay)
+// MARK: - Palette (Ember on Paper / Char, clay)
+// Mirrors the app's in-app appearance via the shared App Group flag "theme_dark"
+// (which already accounts for an OS-overriding choice). The clay surface + ink
+// flip; the ember coral + zone accents stay constant in both modes.
+
+private let kAppGroup = "group.wtf.openstrap"
 
 private extension Color {
-  static let clayPaper  = Color(red: 246/255, green: 242/255, blue: 236/255)
-  static let claySunk   = Color(red: 232/255, green: 226/255, blue: 217/255)
-  static let ink        = Color(red: 26/255,  green: 23/255,  blue: 20/255)
-  static let inkMuted   = Color(red: 150/255, green: 142/255, blue: 131/255)
-  static let coral      = Color(red: 255/255, green: 90/255,  blue: 54/255)
-  static let coralDeep  = Color(red: 232/255, green: 67/255,  blue: 31/255)
+  init(_ r: Int, _ g: Int, _ b: Int) {
+    self.init(red: Double(r) / 255, green: Double(g) / 255, blue: Double(b) / 255)
+  }
+}
+
+private struct Pal {
+  let clayPaper: Color, claySunk: Color, ink: Color, inkMuted: Color
+  let isDark: Bool
+  static let light = Pal(clayPaper: Color(246, 242, 236), claySunk: Color(232, 226, 217),
+                         ink: Color(26, 23, 20), inkMuted: Color(150, 142, 131), isDark: false)
+  static let dark  = Pal(clayPaper: Color(32, 28, 23), claySunk: Color(46, 40, 32),
+                         ink: Color(241, 236, 227), inkMuted: Color(126, 116, 102), isDark: true)
+  static var current: Pal {
+    (UserDefaults(suiteName: kAppGroup)?.object(forKey: "theme_dark") as? Bool ?? false)
+      ? .dark : .light
+  }
+}
+
+private extension Color {
+  static var clayPaper: Color { Pal.current.clayPaper }
+  static var claySunk: Color { Pal.current.claySunk }
+  static var ink: Color { Pal.current.ink }
+  static var inkMuted: Color { Pal.current.inkMuted }
+  static let coral      = Color(255, 90, 54)
+  static let coralDeep  = Color(232, 67, 31)
 }
 
 private let zonePalette: [Color] = [
-  Color(red: 124/255, green: 168/255, blue: 240/255), // Z1 blue
-  Color(red: 43/255,  green: 182/255, blue: 115/255), // Z2 green
-  Color(red: 255/255, green: 90/255,  blue: 54/255),  // Z3 coral
-  Color(red: 232/255, green: 67/255,  blue: 31/255),  // Z4 deep
-  Color(red: 229/255, green: 72/255,  blue: 77/255),  // Z5 red
+  Color(124, 168, 240), // Z1 blue
+  Color(43, 182, 115),  // Z2 green
+  Color(255, 90, 54),   // Z3 coral
+  Color(232, 67, 31),   // Z4 deep
+  Color(229, 72, 77),   // Z5 red
 ]
 private func zoneColor(_ z: Int) -> Color { (z >= 1 && z <= 5) ? zonePalette[z - 1] : .inkMuted }
 
@@ -59,13 +83,14 @@ private struct Clay: ViewModifier {
   var radius: CGFloat = 22
   var fill: Color = .clayPaper
   func body(content: Content) -> some View {
-    content.background(
+    let dark = Pal.current.isDark
+    return content.background(
       RoundedRectangle(cornerRadius: radius, style: .continuous)
         .fill(LinearGradient(colors: [fill, fill.opacity(0.92)],
                              startPoint: .topLeading, endPoint: .bottomTrailing))
         .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
-          .strokeBorder(.white.opacity(0.5), lineWidth: 1))
-        .shadow(color: .black.opacity(0.16), radius: 8, x: 0, y: 5))
+          .strokeBorder(.white.opacity(dark ? 0.08 : 0.5), lineWidth: 1))
+        .shadow(color: .black.opacity(dark ? 0.45 : 0.16), radius: 8, x: 0, y: 5))
   }
 }
 private extension View {

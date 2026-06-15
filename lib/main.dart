@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'app.dart';
 import 'ble/ios_ble_restore.dart';
 import 'state/app_state.dart';
+import 'theme/theme_controller.dart';
 import 'widget/widget_service.dart';
 
 Future<void> main() async {
@@ -12,9 +13,15 @@ Future<void> main() async {
   // relaunch this runs too, so a band-triggered wake reaches runHeadlessSync.
   await IosBleRestore.init();
   await WidgetService.init();
+  // Resolve appearance (persisted choice + OS brightness) BEFORE the first frame
+  // so login/signup already paint in the right mode (Ember on Paper / Char).
+  final theme = await ThemeController.bootstrap();
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => AppState(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AppState()),
+        ChangeNotifierProvider<ThemeController>.value(value: theme),
+      ],
       child: const OpenStrapApp(),
     ),
   );

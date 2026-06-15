@@ -1,12 +1,18 @@
-// OpenStrap v2 theme — Space Grotesk display + Inter body, ember-coral on paper.
-// `AppText` is the type scale (replaces the old AppType). Numbers use Space
-// Grotesk with tabular figures; body/labels use Inter.
+// OpenStrap theme — Space Grotesk display + Inter body, ember-coral on paper
+// (day) or char (night). `AppText` is the type scale; numbers use Space Grotesk
+// with tabular figures, body/labels use Inter. Text colours resolve through the
+// live `AppColors` getters, so the type scale follows the active mode for free.
+//
+// `buildOpenStrapTheme(palette)` builds a full ThemeData from an explicit
+// [Palette] (not the live getters) so the light + dark ThemeData objects are
+// each internally consistent regardless of which mode is currently active.
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'tokens.dart';
 
 /// Type scale. Display + numerics → Space Grotesk; body/labels → Inter.
+/// Colours come from the live [AppColors] getters → they track the active mode.
 class AppText {
   AppText._();
 
@@ -55,64 +61,72 @@ class AppText {
         color: AppColors.inkMuted);
 }
 
-ThemeData buildOpenStrapTheme() {
+/// Build the full theme from an explicit [Palette] so light/dark are each
+/// self-consistent. Call with [kLightPalette] / [kDarkPalette].
+ThemeData buildOpenStrapTheme(Palette p) {
   final scheme = ColorScheme.fromSeed(
-    seedColor: AppColors.coral,
-    brightness: Brightness.light,
+    seedColor: p.coral,
+    brightness: p.brightness,
   ).copyWith(
-    surface: AppColors.surface,
-    primary: AppColors.coral,
+    surface: p.surface,
+    onSurface: p.ink,
+    primary: p.coral,
     onPrimary: Colors.white,
-    secondary: AppColors.coralDeep,
+    secondary: p.coralDeep,
   );
 
   final base = ThemeData(
     useMaterial3: true,
+    brightness: p.brightness,
     colorScheme: scheme,
-    scaffoldBackgroundColor: AppColors.bg,
-    dividerColor: AppColors.divider,
-    splashColor: AppColors.coral.withValues(alpha: 0.08),
-    highlightColor: AppColors.coral.withValues(alpha: 0.05),
+    scaffoldBackgroundColor: p.bg,
+    dividerColor: p.divider,
+    splashColor: p.coral.withValues(alpha: 0.08),
+    highlightColor: p.coral.withValues(alpha: 0.05),
     textTheme: GoogleFonts.interTextTheme().apply(
-      bodyColor: AppColors.ink,
-      displayColor: AppColors.ink,
+      bodyColor: p.ink,
+      displayColor: p.ink,
     ),
   );
 
   return base.copyWith(
     appBarTheme: AppBarTheme(
-      backgroundColor: AppColors.bg,
+      backgroundColor: p.bg,
       surfaceTintColor: Colors.transparent,
-      foregroundColor: AppColors.ink,
+      foregroundColor: p.ink,
       elevation: 0,
       centerTitle: false,
-      titleTextStyle: AppText.h2,
+      titleTextStyle: GoogleFonts.spaceGrotesk(
+          fontSize: 20, fontWeight: FontWeight.w700, height: 1.1,
+          letterSpacing: -0.3, color: p.ink),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: AppColors.surface,
+      fillColor: p.surface,
       contentPadding:
           const EdgeInsets.symmetric(horizontal: Sp.x5, vertical: Sp.x4),
-      hintStyle: AppText.body.copyWith(color: AppColors.inkMuted),
-      labelStyle: AppText.bodySoft,
+      hintStyle: GoogleFonts.inter(
+          fontSize: 14.5, fontWeight: FontWeight.w400, color: p.inkMuted),
+      labelStyle: GoogleFonts.inter(
+          fontSize: 14.5, fontWeight: FontWeight.w400, color: p.inkSoft),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(R.cardSm),
-        borderSide: const BorderSide(color: AppColors.divider),
+        borderSide: BorderSide(color: p.divider),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(R.cardSm),
-        borderSide: const BorderSide(color: AppColors.divider),
+        borderSide: BorderSide(color: p.divider),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(R.cardSm),
-        borderSide: const BorderSide(color: AppColors.coral, width: 2),
+        borderSide: BorderSide(color: p.coral, width: 2),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: AppColors.coral,
+        backgroundColor: p.coral,
         foregroundColor: Colors.white,
-        disabledBackgroundColor: AppColors.inkMuted.withValues(alpha: 0.35),
+        disabledBackgroundColor: p.inkMuted.withValues(alpha: 0.35),
         minimumSize: const Size(0, 56),
         elevation: 0,
         shape:
@@ -122,9 +136,9 @@ ThemeData buildOpenStrapTheme() {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.ink,
+        foregroundColor: p.ink,
         minimumSize: const Size(0, 56),
-        side: const BorderSide(color: AppColors.divider, width: 1.5),
+        side: BorderSide(color: p.divider, width: 1.5),
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.pill)),
         textStyle: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600),
@@ -132,23 +146,22 @@ ThemeData buildOpenStrapTheme() {
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: AppColors.coralDeep,
+        foregroundColor: p.coralDeep,
         textStyle: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      backgroundColor: AppColors.ink,
+      backgroundColor: p.isDark ? p.surfaceAlt : AppColors.night,
       contentTextStyle: GoogleFonts.inter(color: AppColors.onNight),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.chip)),
     ),
-    bottomSheetTheme: const BottomSheetThemeData(
-      backgroundColor: AppColors.surface,
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: p.surface,
       surfaceTintColor: Colors.transparent,
       showDragHandle: true,
-      shape: RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.vertical(top: Radius.circular(R.card)),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.card)),
       ),
     ),
   );

@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
+import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../workouts/workouts_screen.dart' show WorkoutDetailScreen;
@@ -32,7 +33,7 @@ class _ZoneMeta {
   const _ZoneMeta(this.label, this.name, this.color);
 }
 
-const List<_ZoneMeta> _zones = [
+final List<_ZoneMeta> _zones = [
   _ZoneMeta('Z0', 'Resting', AppColors.cool),
   _ZoneMeta('Z1', 'Warm-up', AppColors.loadDetraining),
   _ZoneMeta('Z2', 'Fat burn', AppColors.good),
@@ -205,7 +206,7 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
     try { if (id != null) await app.api?.endWorkout(id); } catch (_) {}
     if (!mounted) return;
     if (id != null) {
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => WorkoutDetailScreen(id: id)));
+      Navigator.of(context).pushReplacement(themedRoute((_) => WorkoutDetailScreen(id: id)));
     } else {
       Navigator.of(context).pop();
     }
@@ -253,7 +254,7 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
               _pill(AppIcon(Ic.clock, size: 15, color: Colors.white60), _fmt(w.elapsed)),
               if (_redStreak.inSeconds >= 5) ...[
                 const SizedBox(height: Sp.x2),
-                _pill(const AppIcon(Ic.fire, size: 14, color: AppColors.coral),
+                _pill(AppIcon(Ic.fire, size: 14, color: AppColors.coral),
                     '${_fmt(_redStreak)} in the red', tint: AppColors.coral),
               ],
             ]),

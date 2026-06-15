@@ -8,6 +8,7 @@ import '../../models/payloads.dart';
 import '../../net/api_client.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
+import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../kit/charts.dart';
@@ -175,18 +176,18 @@ class _TodayScreenState extends State<TodayScreen>
         const SizedBox(width: Sp.x3),
         _bellButton(),
         const SizedBox(width: Sp.x2),
-        RoundIconButton(Ic.edit, onTap: () => _push(const JournalScreen())),
+        RoundIconButton(Ic.edit, onTap: () => _push(() => const JournalScreen())),
         const SizedBox(width: Sp.x2),
         // Profile / settings (the old "You" tab moved here). ProfileScreen is tab
         // content (no Scaffold of its own), so wrap it when pushing standalone —
         // otherwise it renders with no Material (black bg + yellow-underlined text).
-        RoundIconButton(Ic.profile, onTap: () => _push(
-            const Scaffold(backgroundColor: AppColors.bg, body: ProfileScreen()))),
+        RoundIconButton(Ic.profile, onTap: () => _push(() =>
+            Scaffold(backgroundColor: AppColors.bg, body: const ProfileScreen()))),
         const SizedBox(width: Sp.x2),
         RoundIconButton(Ic.chart,
             bg: AppColors.coral,
             fg: Colors.white,
-            onTap: () => _push(const RecapScreen())),
+            onTap: () => _push(() => const RecapScreen())),
       ],
     );
   }
@@ -198,7 +199,7 @@ class _TodayScreenState extends State<TodayScreen>
       children: [
         RoundIconButton(Ic.bell, onTap: () async {
           await Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+              themedRoute((_) => const NotificationsScreen()));
           if (!mounted) return;
           try {
             final n = await context.read<AppState>().api?.getNotifications();
@@ -229,13 +230,15 @@ class _TodayScreenState extends State<TodayScreen>
     );
   }
 
-  void _push(Widget screen) =>
-      Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  // Builder-based so themedRoute reconstructs the screen on a theme flip (a
+  // prebuilt instance would be returned unchanged and never re-colour).
+  void _push(Widget Function() build) =>
+      Navigator.of(context).push(themedRoute((_) => build()));
 
   Widget _freshness(String label) {
     return Row(
       children: [
-        const AppIcon(Ic.cloud, size: 14, color: AppColors.inkMuted),
+        AppIcon(Ic.cloud, size: 14, color: AppColors.inkMuted),
         const SizedBox(width: Sp.x2),
         Text('Showing cached • $label',
             style: AppText.captionMuted),
@@ -302,7 +305,7 @@ class _TodayScreenState extends State<TodayScreen>
           accent: AppColors.good,
           confidence: t.steps.isEmpty ? null : t.steps.confidence,
           tag: Tag.forMetric(t.steps),
-          onTap: () => _push(StepGoalScreen(
+          onTap: () => _push(() => StepGoalScreen(
             steps: t.steps.isEmpty ? null : t.steps.value!.round(),
             goal: t.stepGoal,
           )),
@@ -313,7 +316,7 @@ class _TodayScreenState extends State<TodayScreen>
           value: _hm(t.wearTime),
           accent: AppColors.coralDeep,
           confidence: t.wearTime.isEmpty ? null : t.wearTime.confidence,
-          onTap: () => _push(const WearScreen()),
+          onTap: () => _push(() => const WearScreen()),
         ),
       ),
       const SizedBox(height: Sp.x3),
@@ -324,8 +327,8 @@ class _TodayScreenState extends State<TodayScreen>
           value: t.stress?.score?.toString(),
           unit: '/100',
           accent: AppColors.warn,
-          tag: const Tag('est.', color: AppColors.coral),
-          onTap: () => _push(StressScreen(date: date)),
+          tag: Tag('est.', color: AppColors.coral),
+          onTap: () => _push(() => StressScreen(date: date)),
         ),
         // HRV (measured, beat-to-beat). The real one now that we decode R-R intervals.
         StatTile(
@@ -335,7 +338,7 @@ class _TodayScreenState extends State<TodayScreen>
           unit: 'ms',
           accent: AppColors.good,
           confidence: t.hrv?.confidence,
-          tag: const Tag('beta', color: AppColors.coral),
+          tag: Tag('beta', color: AppColors.coral),
         ),
       ),
       const SizedBox(height: Sp.x3),
@@ -348,7 +351,7 @@ class _TodayScreenState extends State<TodayScreen>
               : (t.spo2Idx! >= 0 ? '+' : '') + t.spo2Idx!.toStringAsFixed(0),
           unit: 'Δ',
           accent: AppColors.coralDeep,
-          tag: const Tag('beta', color: AppColors.coral),
+          tag: Tag('beta', color: AppColors.coral),
         ),
         _bodyOverTimeTile(),
       ),
@@ -377,7 +380,7 @@ class _TodayScreenState extends State<TodayScreen>
           Container(
             padding: const EdgeInsets.all(Sp.x3),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.6),
+              color: AppColors.surface.withValues(alpha: 0.6),
               borderRadius: BorderRadius.circular(R.chip),
             ),
             child: AppIcon(overtrain ? Ic.strain : Ic.heart,
@@ -404,7 +407,7 @@ class _TodayScreenState extends State<TodayScreen>
     final top = coach.plan.isNotEmpty ? coach.plan.first : null;
     final tgt = coach.strainTarget;
     return ProCard(
-      onTap: () => _push(CoachScreen(coach: coach)),
+      onTap: () => _push(() => CoachScreen(coach: coach)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -413,7 +416,7 @@ class _TodayScreenState extends State<TodayScreen>
               padding: const EdgeInsets.all(7),
               decoration: BoxDecoration(
                   color: AppColors.coralSoft, borderRadius: BorderRadius.circular(R.chip)),
-              child: const AppIcon(Ic.recovery, size: 17, color: AppColors.coralDeep),
+              child: AppIcon(Ic.recovery, size: 17, color: AppColors.coralDeep),
             ),
             const SizedBox(width: Sp.x2),
             Expanded(child: Text("Today's plan", style: AppText.h2)),
@@ -421,7 +424,7 @@ class _TodayScreenState extends State<TodayScreen>
               Text('strain ~${tgt.value.toStringAsFixed(0)}',
                   style: AppText.label.copyWith(color: AppColors.coralDeep)),
             const SizedBox(width: 4),
-            const AppIcon(Ic.arrowRight, size: 16, color: AppColors.coralDeep),
+            AppIcon(Ic.arrowRight, size: 16, color: AppColors.coralDeep),
           ]),
           const SizedBox(height: Sp.x3),
           if (top != null) ...[
@@ -455,7 +458,7 @@ class _TodayScreenState extends State<TodayScreen>
       child: Row(children: [
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
           Row(children: [
-            const AppIcon(Ic.recovery, size: 16, color: AppColors.coralDeep),
+            AppIcon(Ic.recovery, size: 16, color: AppColors.coralDeep),
             const SizedBox(width: Sp.x2),
             Text('READINESS', style: AppText.overline),
           ]),
@@ -487,13 +490,13 @@ class _TodayScreenState extends State<TodayScreen>
         children: [
           _gauge('STRAIN', t.strain.isEmpty ? null : t.strain.value!.toStringAsFixed(1),
               null, strainT, AppColors.coral,
-              onTap: () => _push(const BodyScreen())),
+              onTap: () => _push(() => const BodyScreen())),
           _gauge('SLEEP', t.sleepDuration.isEmpty ? null : (t.sleepDuration.value! / 60).toStringAsFixed(1),
               'h', sleepT, AppColors.loadDetraining,
-              onTap: () => _push(const SleepScreen())),
+              onTap: () => _push(() => const SleepScreen())),
           _gauge('HRV', hrv == null ? null : hrv.rmssd.toStringAsFixed(0),
               'ms', hrvT, AppColors.good,
-              onTap: () => _push(const HeartScreen())),
+              onTap: () => _push(() => const HeartScreen())),
         ],
       ),
     );
@@ -544,7 +547,7 @@ class _TodayScreenState extends State<TodayScreen>
   Widget _bodyOverTimeTile() => ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 110),
         child: ProCard(
-          onTap: () => _push(const RecordsScreen()),
+          onTap: () => _push(() => const RecordsScreen()),
           padding: const EdgeInsets.all(Sp.x3),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -555,11 +558,11 @@ class _TodayScreenState extends State<TodayScreen>
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                       color: AppColors.coralSoft, borderRadius: BorderRadius.circular(R.chip)),
-                  child: const AppIcon(Ic.recovery, size: 16, color: AppColors.coralDeep),
+                  child: AppIcon(Ic.recovery, size: 16, color: AppColors.coralDeep),
                 ),
                 const SizedBox(width: Sp.x2),
                 Expanded(child: Text('Your body', style: AppText.label)),
-                const AppIcon(Ic.arrowRight, size: 15, color: AppColors.coralDeep),
+                AppIcon(Ic.arrowRight, size: 15, color: AppColors.coralDeep),
               ]),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -580,20 +583,20 @@ class _TodayScreenState extends State<TodayScreen>
     final values = _hr.points.map((p) => p.v).toList();
     final hasData = values.length >= 2;
     return ProCard(
-      onTap: () => _push(JourneyScreen(date: _todayStr())),
+      onTap: () => _push(() => JourneyScreen(date: _todayStr())),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const AppIcon(Ic.pulse, size: 19, color: AppColors.coral),
+              AppIcon(Ic.pulse, size: 19, color: AppColors.coral),
               const SizedBox(width: Sp.x2),
               Expanded(
                 child: Text("Today's heart rate", style: AppText.h2),
               ),
               Text('Your day', style: AppText.label.copyWith(color: AppColors.coralDeep)),
               const SizedBox(width: 2),
-              const AppIcon(Ic.arrowRight, size: 15, color: AppColors.coralDeep),
+              AppIcon(Ic.arrowRight, size: 15, color: AppColors.coralDeep),
             ],
           ),
           const SizedBox(height: Sp.x4),
@@ -606,7 +609,7 @@ class _TodayScreenState extends State<TodayScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const AppIcon(Ic.heart, size: 26, color: AppColors.inkMuted),
+                    AppIcon(Ic.heart, size: 26, color: AppColors.inkMuted),
                     const SizedBox(height: Sp.x2),
                     Text('No heart-rate data yet today',
                         style: AppText.captionMuted),
@@ -628,11 +631,11 @@ class _TodayScreenState extends State<TodayScreen>
         children: [
           Container(
             padding: const EdgeInsets.all(Sp.x4),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: AppColors.coralSoft,
               shape: BoxShape.circle,
             ),
-            child: const AppIcon(Ic.watch, size: 30, color: AppColors.coralDeep),
+            child: AppIcon(Ic.watch, size: 30, color: AppColors.coralDeep),
           ),
           const SizedBox(height: Sp.x4),
           Text(title, style: AppText.h2, textAlign: TextAlign.center),

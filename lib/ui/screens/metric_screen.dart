@@ -198,8 +198,8 @@ class _DrillLevelState extends State<_DrillLevel> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const ProCard(
-        padding: EdgeInsets.all(Sp.x6),
+      return ProCard(
+        padding: const EdgeInsets.all(Sp.x6),
         child: SizedBox(height: 200, child: Center(
           child: SizedBox(width: 22, height: 22,
             child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.coral)))),

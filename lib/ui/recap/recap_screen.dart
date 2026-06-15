@@ -269,7 +269,7 @@ class _RecapScreenState extends State<RecapScreen> {
                           color: AppColors.coralSoft,
                           borderRadius: BorderRadius.circular(R.chip),
                         ),
-                        child: const AppIcon(Ic.strain,
+                        child: AppIcon(Ic.strain,
                             size: 16, color: AppColors.coralDeep),
                       ),
                       const SizedBox(width: Sp.x2),
@@ -333,7 +333,7 @@ class _RecapScreenState extends State<RecapScreen> {
                   // Footer.
                   Row(
                     children: [
-                      const AppIcon(Ic.shield,
+                      AppIcon(Ic.shield,
                           size: 13, color: AppColors.inkMuted),
                       const SizedBox(width: 6),
                       Text('your data · your server · openstrap',
@@ -448,8 +448,8 @@ class _RecapScreenState extends State<RecapScreen> {
 
   // ── states ─────────────────────────────────────────────────────────────────
 
-  Widget _loading() => const ProCard(
-        padding: EdgeInsets.all(Sp.x6),
+  Widget _loading() => ProCard(
+        padding: const EdgeInsets.all(Sp.x6),
         child: SizedBox(
           height: 360,
           child: Center(
@@ -465,7 +465,7 @@ class _RecapScreenState extends State<RecapScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(Sp.x4),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: AppColors.coralSoft,
               shape: BoxShape.circle,
             ),

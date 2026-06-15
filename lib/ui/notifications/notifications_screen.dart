@@ -155,7 +155,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   style: AppText.title.copyWith(
                       color: n.read ? AppColors.inkSoft : AppColors.ink))),
               if (!n.read)
-                Container(width: 8, height: 8, decoration: const BoxDecoration(
+                Container(width: 8, height: 8, decoration: BoxDecoration(
                     color: AppColors.coral, shape: BoxShape.circle)),
             ]),
             const SizedBox(height: 4),
@@ -167,7 +167,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Widget _honesty() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const AppIcon(Ic.shield, size: 14, color: AppColors.inkMuted),
+        AppIcon(Ic.shield, size: 14, color: AppColors.inkMuted),
         const SizedBox(width: Sp.x2),
         Expanded(child: Text(
           'Built from your own data with simple rules. '
@@ -176,8 +176,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         )),
       ]);
 
-  Widget _loading() => const ProCard(
-        padding: EdgeInsets.all(Sp.x6),
+  Widget _loading() => ProCard(
+        padding: const EdgeInsets.all(Sp.x6),
         child: SizedBox(height: 280,
             child: Center(child: CircularProgressIndicator(color: AppColors.coral))),
       );
@@ -187,7 +187,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         child: Column(children: [
           Container(
             padding: const EdgeInsets.all(Sp.x4),
-            decoration: const BoxDecoration(color: AppColors.coralSoft, shape: BoxShape.circle),
+            decoration: BoxDecoration(color: AppColors.coralSoft, shape: BoxShape.circle),
             child: AppIcon(icon, size: 30, color: AppColors.coralDeep),
           ),
           const SizedBox(height: Sp.x4),

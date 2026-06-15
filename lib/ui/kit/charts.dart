@@ -81,13 +81,14 @@ class _RingPainter extends CustomPainter {
 /// Tiny sparkline bars (for inside cards). Values normalized to their own max.
 class MiniBars extends StatelessWidget {
   final List<double> values;
-  final Color color;
+  final Color? color;
   final double height;
   final double gap;
   const MiniBars(this.values,
-      {super.key, this.color = AppColors.coral, this.height = 40, this.gap = 3});
+      {super.key, this.color, this.height = 40, this.gap = 3});
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? AppColors.coral;
     if (values.isEmpty) return SizedBox(height: height);
     final maxV = values.reduce(math.max);
     return SizedBox(
@@ -129,7 +130,7 @@ class MiniBars extends StatelessWidget {
 class LabeledBars extends StatelessWidget {
   final List<double> values;
   final List<String> labels;
-  final Color color;
+  final Color? color;
   final double height;
   final int? highlight;
   final bool showValues;
@@ -139,7 +140,7 @@ class LabeledBars extends StatelessWidget {
     super.key,
     required this.values,
     required this.labels,
-    this.color = AppColors.coral,
+    this.color,
     this.height = 200,
     this.highlight,
     this.showValues = true,
@@ -156,6 +157,7 @@ class LabeledBars extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? AppColors.coral;
     final maxV = values.isEmpty ? 1.0 : math.max(1.0, values.reduce(math.max));
     return SizedBox(
       height: height,
@@ -219,12 +221,12 @@ class LabeledBars extends StatelessWidget {
 /// Smooth area spark (HR / strain over a window) using fl_chart.
 class AreaSpark extends StatelessWidget {
   final List<double> values;
-  final Color color;
+  final Color? color;
   final double height;
-  const AreaSpark(this.values,
-      {super.key, this.color = AppColors.coral, this.height = 90});
+  const AreaSpark(this.values, {super.key, this.color, this.height = 90});
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? AppColors.coral;
     if (values.length < 2) {
       return SizedBox(
           height: height,
@@ -275,12 +277,13 @@ class AreaSpark extends StatelessWidget {
 class DotMatrix extends StatelessWidget {
   final List<double> values;
   final int rows;
-  final Color color;
+  final Color? color;
   final double cell;
   const DotMatrix(this.values,
-      {super.key, this.rows = 12, this.color = AppColors.coral, this.cell = 12});
+      {super.key, this.rows = 12, this.color, this.cell = 12});
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? AppColors.coral;
     if (values.isEmpty) return const SizedBox.shrink();
     final maxV = math.max(1.0, values.reduce(math.max));
     return LayoutBuilder(builder: (context, c) {
@@ -366,7 +369,7 @@ class StatTile extends StatelessWidget {
   final num? deltaPct;
   final bool deltaGoodIsUp;
   final List<double>? spark;
-  final Color accent;
+  final Color? accent;
   final double? confidence;
   final Widget? tag;
   final VoidCallback? onTap;
@@ -379,13 +382,14 @@ class StatTile extends StatelessWidget {
     this.deltaPct,
     this.deltaGoodIsUp = true,
     this.spark,
-    this.accent = AppColors.coral,
+    this.accent,
     this.confidence,
     this.tag,
     this.onTap,
   });
   @override
   Widget build(BuildContext context) {
+    final accent = this.accent ?? AppColors.coral;
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 110),
       child: ProCard(
@@ -532,11 +536,12 @@ class FormChart extends StatelessWidget {
 /// day entries with a 0..1 intensity `t` and a base color; null `t` = no data.
 class CalendarHeatmap extends StatelessWidget {
   final List<({DateTime date, double? t})> days;
-  final Color color;
+  final Color? color;
   final double cell;
-  const CalendarHeatmap({super.key, required this.days, this.color = AppColors.good, this.cell = 16});
+  const CalendarHeatmap({super.key, required this.days, this.color, this.cell = 16});
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? AppColors.good;
     if (days.isEmpty) return const SizedBox.shrink();
     const wd = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     // Pad the front so the first day lands on its weekday column (Mon=0).

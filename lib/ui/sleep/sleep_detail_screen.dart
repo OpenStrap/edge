@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../net/api_client.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
+import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../kit/charts.dart';
@@ -340,8 +341,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         ),
         // All sleeps of the day (naps included) — the v2 multi-period view.
         RoundIconButton(Ic.bed, onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => SleepPeriodsScreen(date: widget.date),
+              themedRoute((_) => SleepPeriodsScreen(date: widget.date),
               ),
             )),
       ],
@@ -368,12 +368,12 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
               children: [
                 Row(
                   children: [
-                    const AppIcon(Ic.moon, size: 16, color: AppColors.coralDeep),
+                    AppIcon(Ic.moon, size: 16, color: AppColors.coralDeep),
                     const SizedBox(width: Sp.x2),
                     Text('TIME ASLEEP', style: AppText.overline),
                     if (_stagesBeta) ...[
                       const SizedBox(width: Sp.x2),
-                      const Tag('beta', color: AppColors.coral),
+                      Tag('beta', color: AppColors.coral),
                     ],
                   ],
                 ),
@@ -426,7 +426,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
             children: [
               Text('Sleep stages', style: AppText.h2),
               const Spacer(),
-              const AppIcon(Ic.clock, size: 16, color: AppColors.inkMuted),
+              AppIcon(Ic.clock, size: 16, color: AppColors.inkMuted),
             ],
           ),
           const SizedBox(height: Sp.x4),
@@ -736,12 +736,12 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         if (respVal != null) ...[
           const SizedBox(height: Sp.x4),
           Row(children: [
-            const AppIcon(Ic.activity, size: 16, color: AppColors.coralDeep),
+            AppIcon(Ic.activity, size: 16, color: AppColors.coralDeep),
             const SizedBox(width: Sp.x2),
             Text('${respVal.toStringAsFixed(1)} breaths/min',
                 style: AppText.title),
             const SizedBox(width: Sp.x2),
-            const Tag('beta', color: AppColors.coral),
+            Tag('beta', color: AppColors.coral),
           ]),
         ],
         if (elevated) ...[
@@ -751,7 +751,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
             decoration: BoxDecoration(
                 color: AppColors.warnSoft, borderRadius: BorderRadius.circular(R.cardSm)),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const AppIcon(Ic.info, size: 16, color: AppColors.warn),
+              AppIcon(Ic.info, size: 16, color: AppColors.warn),
               const SizedBox(width: Sp.x2),
               Expanded(child: Text(
                 'Overnight heart rate ran above your baseline — often an early cue of '
@@ -784,8 +784,8 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
 
   // ── states ───────────────────────────────────────────────────────────────────
 
-  Widget _loading() => const ProCard(
-        padding: EdgeInsets.all(Sp.x6),
+  Widget _loading() => ProCard(
+        padding: const EdgeInsets.all(Sp.x6),
         child: SizedBox(
           height: 360,
           child: Center(child: CircularProgressIndicator(color: AppColors.coral)),
@@ -799,7 +799,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         children: [
           Container(
             padding: const EdgeInsets.all(Sp.x4),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               color: AppColors.coralSoft,
               shape: BoxShape.circle,
             ),

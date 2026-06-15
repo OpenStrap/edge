@@ -128,7 +128,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
               ],
             ),
           ),
-          const AppIcon(Ic.moon, size: 30, color: AppColors.coral),
+          AppIcon(Ic.moon, size: 30, color: AppColors.coral),
         ],
       ),
     );
@@ -154,7 +154,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
               const SizedBox(width: Sp.x2),
               Text(isMain ? 'Main sleep' : 'Nap', style: AppText.h2),
               const SizedBox(width: Sp.x2),
-              if (_beta) const Tag('beta', color: AppColors.coral),
+              if (_beta) Tag('beta', color: AppColors.coral),
               const Spacer(),
               ConfDot(conf),
             ],

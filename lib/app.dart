@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 
 import 'state/app_state.dart';
 import 'theme/theme.dart';
+import 'theme/theme_controller.dart';
+import 'theme/theme_switcher.dart';
 import 'theme/tokens.dart';
 import 'ui/kit/kit.dart';
 import 'ui/onboarding_screens.dart';
@@ -33,6 +35,13 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   }
 
   @override
+  void didChangePlatformBrightness() {
+    // Keep the app in sync with the OS when the user is on "System".
+    context.read<ThemeController>().updatePlatformBrightness(
+        WidgetsBinding.instance.platformDispatcher.platformBrightness);
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final app = context.read<AppState>();
     if (state == AppLifecycleState.resumed) {
@@ -48,10 +57,15 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
 
   @override
   Widget build(BuildContext context) {
+    final theme = context.watch<ThemeController>();
     return MaterialApp(
       title: 'OpenStrap',
       debugShowCheckedModeBanner: false,
-      theme: buildOpenStrapTheme(),
+      theme: theme.lightTheme,
+      darkTheme: theme.darkTheme,
+      themeMode: theme.materialThemeMode,
+      builder: (context, child) =>
+          ThemeSwitchOverlay(key: themeSwitchKey, child: child!),
       home: const _Gate(),
     );
   }
@@ -63,16 +77,21 @@ class _Gate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    // Depend on the theme too → the whole home stack (onboarding screens, the
+    // shell + its tabs) rebuilds with fresh colours the instant the mode flips.
+    context.watch<ThemeController>();
     if (!app.initialized) {
-      return const Scaffold(
+      return Scaffold(
         body: Center(child: CircularProgressIndicator(color: AppColors.coral)),
       );
     }
-    if (!app.backendChosen) return const BackendChoiceScreen();
-    if (!app.isAuthenticated) return const AuthScreen();
-    if (!app.profileComplete) return const ProfileSetupScreen();
-    if (!app.isPaired) return const PairingScreen();
-    return const _Shell();
+    // Not const: these must be fresh instances so a theme flip re-runs their
+    // build (State is preserved — same type at the same position).
+    if (!app.backendChosen) return BackendChoiceScreen();
+    if (!app.isAuthenticated) return AuthScreen();
+    if (!app.profileComplete) return ProfileSetupScreen();
+    if (!app.isPaired) return PairingScreen();
+    return _Shell();
   }
 }
 
@@ -86,13 +105,17 @@ class _ShellState extends State<_Shell> {
   final _controller = PageController();
   int _index = 0;
 
-  static const _pages = [
-    TodayScreen(),
-    SleepScreen(),
-    HeartScreen(),
-    BodyScreen(),
-    WorkoutsScreen(),
-  ];
+  // Built fresh on every build (not const) so a theme flip re-colours every tab,
+  // even the kept-alive ones the user isn't currently looking at.
+  // ignore: prefer_const_constructors — must be fresh instances so the
+  // kept-alive tabs re-colour on a theme flip (const would canonicalize them).
+  List<Widget> get _pages => [
+        TodayScreen(),
+        SleepScreen(),
+        HeartScreen(),
+        BodyScreen(),
+        WorkoutsScreen(),
+      ];
 
   static const _nav = [
     (Ic.home, 'Today'),
@@ -157,8 +180,8 @@ class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderState
       child: GestureDetector(
         onTap: () {
           HapticFeedback.selectionClick();
-          Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => LiveSessionScreen(workoutId: w.workoutId, type: w.type)));
+          Navigator.of(context).push(themedRoute(
+            (_) => LiveSessionScreen(workoutId: w.workoutId, type: w.type)));
         },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x3),
@@ -170,11 +193,11 @@ class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderState
           child: Row(children: [
             FadeTransition(opacity: _pulse, child: Container(
               width: 10, height: 10,
-              decoration: const BoxDecoration(color: AppColors.coral, shape: BoxShape.circle))),
+              decoration: BoxDecoration(color: AppColors.coral, shape: BoxShape.circle))),
             const SizedBox(width: Sp.x3),
             Text('LIVE · ${w.type.toUpperCase()}', style: AppText.overline.copyWith(color: Colors.white70)),
             const Spacer(),
-            const AppIcon(Ic.heart, size: 15, color: AppColors.coral),
+            AppIcon(Ic.heart, size: 15, color: AppColors.coral),
             const SizedBox(width: 4),
             Text(w.currentHr > 0 ? '${w.currentHr}' : '—',
                 style: AppText.metricSm.copyWith(color: Colors.white, fontSize: 16)),

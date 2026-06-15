@@ -49,7 +49,7 @@ class CoachScreen extends StatelessWidget {
             if (coach.summary.isNotEmpty)
               GlowCard(
                 child: Row(children: [
-                  const AppIcon(Ic.info, size: 20, color: AppColors.coralDeep),
+                  AppIcon(Ic.info, size: 20, color: AppColors.coralDeep),
                   const SizedBox(width: Sp.x3),
                   Expanded(child: Text(coach.summary, style: AppText.title)),
                 ]),
@@ -64,7 +64,7 @@ class CoachScreen extends StatelessWidget {
             if (plan.isEmpty)
               ProCard(
                 child: Row(children: [
-                  const AppIcon(Ic.check, size: 22, color: AppColors.good),
+                  AppIcon(Ic.check, size: 22, color: AppColors.good),
                   const SizedBox(width: Sp.x3),
                   Expanded(
                       child: Text('Nothing flagged — carry on with your day.',
@@ -79,7 +79,7 @@ class CoachScreen extends StatelessWidget {
 
             const SizedBox(height: Sp.x4),
             Row(children: [
-              const AppIcon(Ic.shield, size: 14, color: AppColors.inkMuted),
+              AppIcon(Ic.shield, size: 14, color: AppColors.inkMuted),
               const SizedBox(width: Sp.x2),
               Expanded(
                 child: Text(
@@ -100,7 +100,7 @@ class CoachScreen extends StatelessWidget {
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const AppIcon(Ic.strain, size: 19, color: AppColors.coral),
+          AppIcon(Ic.strain, size: 19, color: AppColors.coral),
           const SizedBox(width: Sp.x2),
           Text("Today's strain target", style: AppText.h2),
         ]),
@@ -159,7 +159,7 @@ class CoachScreen extends StatelessWidget {
         if (s.target != null) ...[
           const SizedBox(height: Sp.x3),
           Row(children: [
-            const AppIcon(Ic.strain, size: 15, color: AppColors.coralDeep),
+            AppIcon(Ic.strain, size: 15, color: AppColors.coralDeep),
             const SizedBox(width: 6),
             Text(s.target!, style: AppText.label.copyWith(color: AppColors.coralDeep)),
           ]),
