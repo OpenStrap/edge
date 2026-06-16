@@ -22,6 +22,8 @@ import '../data/db.dart';
 import '../data/models.dart';
 import '../net/api_client.dart';
 import '../live/live_activity.dart';
+import '../notify/device_alerts.dart';
+import '../notify/notification_service.dart';
 import '../sync/config.dart';
 import '../sync/edge_tracking.dart';
 import '../widget/widget_service.dart';
@@ -36,6 +38,7 @@ class AppState extends ChangeNotifier {
   PairedDevice? paired;
 
   DeviceState get device => engine.state;
+  final DeviceAlerts _deviceAlerts = DeviceAlerts();
   Sample? lastSynced;
   Map<String, int> dbCounts = {'raw': 0, 'pending': 0};
   final List<String> logLines = [];
@@ -298,6 +301,8 @@ class AppState extends ChangeNotifier {
   }
 
   void _onEngineState(DeviceState s) {
+    // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
+    _deviceAlerts.onDeviceState(batteryPct: s.batteryPct, charging: s.charging);
     if (_prevConn != 'disconnected' && s.connection == 'disconnected') {
       if (_keepAlive && isPaired && !_reconnecting) {
         _log('Connection dropped — reconnecting…');
@@ -318,6 +323,9 @@ class AppState extends ChangeNotifier {
   Future<void> pairWith(BluetoothDevice d, {String? serial}) async {
     await PairedDevice.save(d.remoteId.str, serial ?? device.serial);
     paired = await PairedDevice.load();
+    // Now that there's a band to alert about, ask for notification permission
+    // (a natural moment; battery/charging alerts depend on it). Best-effort.
+    unawaited(NotificationService.instance.ensurePermission());
     final s = serial ?? device.serial;
     if (config != null &&
         (config!.deviceId.isEmpty || config!.deviceId == 'whoop-unknown') &&
