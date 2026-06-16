@@ -39,6 +39,10 @@ dependencies:
   # Home/lock-screen widget bridge (writes a snapshot to the App Group → WidgetKit).
   home_widget: ^0.6.0
 
+  # OS-level notifications (band battery low / charging). The single display layer;
+  # a future FCM/server-push integration reuses NotificationService (see lib/notify/).
+  flutter_local_notifications: ^18.0.1
+
   # OTA self-update (Android sideload): read our own version, download + install the
   # signed APK from the backend's update pointer, with a browser fallback.
   package_info_plus: ^8.1.0
