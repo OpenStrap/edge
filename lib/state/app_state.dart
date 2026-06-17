@@ -469,8 +469,15 @@ class AppState extends ChangeNotifier {
     if (_reconnecting || paired == null) return;
     _reconnecting = true;
     try {
-      for (int attempt = 1; attempt <= 5 && _keepAlive; attempt++) {
-        await Future.delayed(Duration(seconds: 2 * attempt));
+      // Keep trying for as long as we still want the link (a session is active) —
+      // a runner who left their phone behind can be out of range for an hour. The
+      // old 5-try (~30s) limit gave up long before they got back, so the band's
+      // offline backlog was never pulled until the next manual app open. Capped
+      // exponential backoff so we don't hammer the radio.
+      int attempt = 0;
+      while (_keepAlive && !engine.isConnected) {
+        attempt++;
+        await Future.delayed(Duration(seconds: (2 * attempt).clamp(2, 30)));
         if (!_keepAlive) break;
         if (await engine.connectToRemoteId(paired!.remoteId)) {
           // Reclaim the band from the iOS restore central so it stops competing.
@@ -480,10 +487,14 @@ class AppState extends ChangeNotifier {
           }
           _startFlusher();     // ensure live uploads run even on a reconnect-only path
           EdgeTracking.start(); // ensure the Android foreground service is up too
-          await engine.runSync(timeout: const Duration(seconds: 30));
+          // FULL drain (no short timeout): pull the ENTIRE offline backlog the band
+          // buffered to flash while we were out of range. A 30s cap silently cut a
+          // long gap (e.g. a phone-free run) short and lost the rest.
+          await engine.runSync();
           await upload();
           await engine.enableLiveStreams();
-          _log('Reconnected.');
+          dbCounts = await LocalDb.counts();
+          _log('Reconnected — backlog drained.');
           break;
         }
       }
@@ -491,6 +502,22 @@ class AppState extends ChangeNotifier {
       _log('Reconnect failed: $e');
     } finally {
       _reconnecting = false;
+    }
+  }
+
+  /// Pull anything the band flashed that we don't have yet, over the CURRENT
+  /// connection (no reconnect, no teardown). Used when a workout ends so a session
+  /// that rode the live feed still gets its window backfilled from flash.
+  Future<void> forceResync() async {
+    if (!engine.isConnected) return;
+    try {
+      await engine.runSync();
+      await engine.enableLiveStreams();
+      await upload();
+      dbCounts = await LocalDb.counts();
+      notifyListeners();
+    } catch (e) {
+      _log('Resync failed: $e');
     }
   }
 
@@ -626,6 +653,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     _log('Live session ended. Burned $finalKcal kcal.');
     LiveActivity.end();
+    // A workout often rides the live feed; if the connection blipped during it, the
+    // band may hold that window in flash. Pull it now over the live connection so the
+    // just-finished session isn't left with a gap.
+    unawaited(forceResync());
   }
 
   // ── band-gesture actions (in-app) ─────────────────────────────────────────────

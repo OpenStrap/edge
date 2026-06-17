@@ -338,6 +338,10 @@ class _WorkoutTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final live = w['status'] == 'live';
     final strain = (w['strain'] as num?);
+    // No worn HR minutes in the window → avg_hr comes back 0 and strain 0. That's
+    // not a zero-effort workout, it's missing data (band wasn't syncing). Show it
+    // as such instead of a misleading "0.0 strain · 0 bpm".
+    final noData = !live && (((w['avg_hr'] as num?) ?? 0) == 0);
     return Padding(
       padding: const EdgeInsets.only(bottom: Sp.x3),
       child: ProCard(
@@ -355,14 +359,16 @@ class _WorkoutTile extends StatelessWidget {
               if (live) ...[const SizedBox(width: Sp.x2), Tag('LIVE', color: AppColors.coral)],
             ]),
             const SizedBox(height: 2),
-            Text('${_whenLabel(w['start_ts'] as int?)} · ${hm(w['duration_min'] as num?)} · ${w['avg_hr'] ?? '—'} bpm',
+            Text('${_whenLabel(w['start_ts'] as int?)} · ${hm(w['duration_min'] as num?)} · ${noData ? 'no HR' : '${w['avg_hr'] ?? '—'} bpm'}',
                 style: AppText.captionMuted),
           ])),
           if (!live) ...[
-            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text(strain == null ? '—' : strain.toStringAsFixed(1), style: AppText.metricSm.copyWith(fontSize: 18)),
-              Text('strain', style: AppText.captionMuted),
-            ]),
+            noData
+                ? Text('No data', style: AppText.captionMuted)
+                : Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Text(strain == null ? '—' : strain.toStringAsFixed(1), style: AppText.metricSm.copyWith(fontSize: 18)),
+                    Text('strain', style: AppText.captionMuted),
+                  ]),
             const SizedBox(width: Sp.x2),
           ],
           AppIcon(Icons.chevron_right, size: 18, color: AppColors.inkMuted),
@@ -448,6 +454,9 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
     final curve = (d['recovery_curve'] as List?)?.whereType<Map>().toList() ?? const [];
     final live = d['status'] == 'live';
     final strain = _n(d['strain']);
+    // Window had no worn HR minutes → avg_hr 0, strain 0. Missing data, not zero
+    // effort: show "no HR recorded" rather than a misleading 0.0 ring.
+    final noData = !live && (((d['avg_hr'] as num?) ?? 0) == 0);
     final drift = _n(d['hr_drift_pct']);
     final ttp = _n(d['time_to_peak_min']);
     // Minute-level HR curve only for recent workouts; the summary (avg/max/zones/
@@ -481,7 +490,7 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
               const SizedBox(height: Sp.x1),
               Text('duration', style: AppText.bodySoft),
             ])),
-            if (strain != null)
+            if (strain != null && !noData)
               RingStat(
                 t: (strain / 21).clamp(0.0, 1.0), color: AppColors.coral, size: 92, stroke: 11,
                 center: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -490,11 +499,16 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
                 ]),
               ),
           ]),
+          if (noData) ...[
+            const SizedBox(height: Sp.x4),
+            Text("No heart-rate data was recorded during this workout — the band wasn't syncing for this window, so strain and zones can't be computed.",
+                style: AppText.captionMuted),
+          ],
           const SizedBox(height: Sp.x5),
           Row(children: [
-            _heroStat('${d['avg_hr'] ?? '—'}', 'avg bpm'),
-            _heroStat('${d['max_hr'] ?? '—'}', 'max bpm'),
-            _heroStat('${d['min_hr'] ?? '—'}', 'min bpm'),
+            _heroStat(noData ? '—' : '${d['avg_hr'] ?? '—'}', 'avg bpm'),
+            _heroStat(noData ? '—' : '${d['max_hr'] ?? '—'}', 'max bpm'),
+            _heroStat(noData ? '—' : '${d['min_hr'] ?? '—'}', 'min bpm'),
             _heroStat('${d['calories'] ?? 0}', 'kcal'),
           ]),
         ]),
