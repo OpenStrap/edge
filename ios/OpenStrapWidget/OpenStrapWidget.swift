@@ -14,7 +14,7 @@
 import WidgetKit
 import SwiftUI
 
-private let kAppGroup = "group.wtf.openstrap"
+private let kAppGroup = AppGroup.identifier
 
 // MARK: - Theme (Ember on Paper / Char)
 // The app writes "theme_dark" into the App Group to mirror its in-app appearance

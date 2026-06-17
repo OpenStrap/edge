@@ -4,15 +4,22 @@
 // process reads these keys; it never runs Dart.
 //
 // The App Group id MUST match the one set in Xcode (Runner + widget targets) and
-// in the Swift suite name. See WIDGET_SETUP.md.
+// in the Swift suite name. See guides/IOS_INSTALLATION.md.
 
 import 'package:home_widget/home_widget.dart';
+import 'package:flutter/services.dart';
 
 import '../models/payloads.dart';
 
 class WidgetService {
-  /// App Group id — keep in sync with Xcode entitlements + the Swift suite name.
-  static const String appGroupId = 'group.wtf.openstrap';
+  static const _platform = MethodChannel('openstrap/ios_config');
+
+  /// Fallback App Group id. iOS builds read the configured value from Info.plist.
+  static const String fallbackAppGroupId = String.fromEnvironment(
+    'APP_GROUP_IDENTIFIER',
+    defaultValue: 'group.com.example.openstrap',
+  );
+  static String appGroupId = fallbackAppGroupId;
 
   /// WidgetKit "kind" (Swift) / Android provider class name.
   static const String _iOSName = 'OpenStrapWidget';
@@ -22,9 +29,17 @@ class WidgetService {
   static Future<void> init() async {
     if (_inited) return;
     try {
+      final configured = await _platform.invokeMethod<String>(
+        'appGroupIdentifier',
+      );
+      if (configured != null && configured.isNotEmpty) {
+        appGroupId = configured;
+      }
       await HomeWidget.setAppGroupId(appGroupId);
       _inited = true;
-    } catch (_) {/* platform without widgets — ignore */}
+    } catch (_) {
+      /* platform without widgets — ignore */
+    }
   }
 
   /// Push the latest snapshot and trigger a widget reload. Best-effort; never
@@ -38,25 +53,44 @@ class WidgetService {
       final need = t.sleepNeed;
       final rhr = t.restingHr;
 
-      Future<void> setI(String k, int v) => HomeWidget.saveWidgetData<int>(k, v);
+      Future<void> setI(String k, int v) =>
+          HomeWidget.saveWidgetData<int>(k, v);
 
       await HomeWidget.saveWidgetData<bool>('has_data', !t.isEmpty);
       // Headline composite Readiness + the three rings (Strain · Sleep · HRV).
-      await setI('readiness', t.readiness.isEmpty ? -1 : t.readiness.value!.round());
+      await setI(
+        'readiness',
+        t.readiness.isEmpty ? -1 : t.readiness.value!.round(),
+      );
       await setI('hrv', hrv == null ? -1 : hrv.rmssd.round());
-      await setI('hrv_baseline', hrv?.baseline == null ? -1 : hrv!.baseline!.round());
+      await setI(
+        'hrv_baseline',
+        hrv?.baseline == null ? -1 : hrv!.baseline!.round(),
+      );
       await HomeWidget.saveWidgetData<double>(
-          'strain', s.isEmpty ? -1.0 : s.value!.toDouble());
+        'strain',
+        s.isEmpty ? -1.0 : s.value!.toDouble(),
+      );
       await setI('sleep_min', sleep.isEmpty ? -1 : sleep.value!.round());
       await setI('sleep_need_min', need.isEmpty ? 480 : need.value!.round());
       await setI('rhr', rhr.isEmpty ? -1 : rhr.value!.round());
-      await HomeWidget.saveWidgetData<String>('coach_line', _coachLine(t.coach));
-      await HomeWidget.saveWidgetData<String>('stress_band',
-          t.stress?.band ?? '');
+      await HomeWidget.saveWidgetData<String>(
+        'coach_line',
+        _coachLine(t.coach),
+      );
+      await HomeWidget.saveWidgetData<String>(
+        'stress_band',
+        t.stress?.band ?? '',
+      );
       await setI('updated_at', DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
-      await HomeWidget.updateWidget(iOSName: _iOSName, androidName: _androidName);
-    } catch (_) {/* widgets unavailable / not configured yet — ignore */}
+      await HomeWidget.updateWidget(
+        iOSName: _iOSName,
+        androidName: _androidName,
+      );
+    } catch (_) {
+      /* widgets unavailable / not configured yet — ignore */
+    }
   }
 
   /// Tell the iOS widget + Live Activity which appearance the app is rendering
@@ -67,8 +101,13 @@ class WidgetService {
     try {
       await init();
       await HomeWidget.saveWidgetData<bool>('theme_dark', dark);
-      await HomeWidget.updateWidget(iOSName: _iOSName, androidName: _androidName);
-    } catch (_) {/* widgets unavailable — ignore */}
+      await HomeWidget.updateWidget(
+        iOSName: _iOSName,
+        androidName: _androidName,
+      );
+    } catch (_) {
+      /* widgets unavailable — ignore */
+    }
   }
 
   /// Store the backend URL + access JWT so the widget can self-refresh /today
@@ -86,7 +125,10 @@ class WidgetService {
   static Future<bool> consumeEndSessionFlag() async {
     try {
       await init();
-      final v = await HomeWidget.getWidgetData<bool>('end_session', defaultValue: false);
+      final v = await HomeWidget.getWidgetData<bool>(
+        'end_session',
+        defaultValue: false,
+      );
       if (v == true) {
         await HomeWidget.saveWidgetData<bool>('end_session', false);
         return true;

@@ -133,7 +133,7 @@ catches up. It's allowed to miss; it's built to not care.
 | `lib/state/` | `AppState`, the one source of truth |
 | `lib/ui/` | every screen: today, sleep, activity, the live workout, recovery, stress, trends, journal, coach, records, notifications, the shareable recap, profile, onboarding |
 | `lib/widget/`, `lib/live/` | the home-screen widget and the iOS Live Activity bridges |
-| `ios/OpenStrapWidget/` | the actual widget and Dynamic Island Live Activity (needs the `group.wtf.openstrap` App Group) |
+| `ios/OpenStrapWidget/` | the actual widget and Dynamic Island Live Activity (needs an App Group you configure for your Apple team) |
 
 ## Running it
 
@@ -152,8 +152,12 @@ at a time.
 The CI workflow builds a release APK and pulls the backend URL from a repo
 secret.
 
-On iOS, the widget and Live Activity need the App Group set up, `NSSupportsLiveActivities`
-turned on, and the background task id registered.
+On iOS, the widget and Live Activity need signing configured for your Apple team
+and a matching App Group. See `guides/IOS_INSTALLATION.md`; the repo ships with
+placeholder bundle IDs and App Group values plus a gitignored local signing
+override, so it is not tied to one developer account.
+Use Profile or Release builds for normal iPhone home-screen relaunch testing;
+Flutter Debug builds must be launched through Flutter tooling or Xcode.
 
 ## Your backend, or mine
 

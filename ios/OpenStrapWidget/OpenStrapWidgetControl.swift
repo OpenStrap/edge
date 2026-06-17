@@ -12,7 +12,7 @@ import WidgetKit
 struct OpenStrapWidgetControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(
-            kind: "wtf.openstrap.openstrapEdge.OpenStrapWidget",
+            kind: Bundle.main.bundleIdentifier ?? "OpenStrapWidget",
             provider: Provider()
         ) { value in
             ControlWidgetToggle(
