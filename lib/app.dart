@@ -76,22 +76,33 @@ class _Gate extends StatelessWidget {
   const _Gate();
   @override
   Widget build(BuildContext context) {
-    final app = context.watch<AppState>();
+    // SELECT, not watch: rebuild only when the ROUTE actually changes (rare) — not
+    // on every ~1 Hz AppState tick (live HR, log lines). Watching the whole AppState
+    // here used to repaint the entire home stack every second, which starved the
+    // background BLE connection on long idle stretches (lost overnight data).
+    final route = context.select<AppState, AppRoute>((a) => a.route);
     // Depend on the theme too → the whole home stack (onboarding screens, the
     // shell + its tabs) rebuilds with fresh colours the instant the mode flips.
     context.watch<ThemeController>();
-    if (!app.initialized) {
-      return Scaffold(
-        body: Center(child: CircularProgressIndicator(color: AppColors.coral)),
-      );
+    // Not const: these must be fresh instances so a theme flip re-runs their build
+    // (State is preserved — same type at the same position). Cheap now: only built
+    // on a route change or a theme flip, never on the per-second AppState ticks.
+    switch (route) {
+      case AppRoute.loading:
+        return Scaffold(
+          body: Center(child: CircularProgressIndicator(color: AppColors.coral)),
+        );
+      case AppRoute.backend:
+        return BackendChoiceScreen();
+      case AppRoute.auth:
+        return AuthScreen();
+      case AppRoute.profile:
+        return ProfileSetupScreen();
+      case AppRoute.pairing:
+        return PairingScreen();
+      case AppRoute.shell:
+        return _Shell();
     }
-    // Not const: these must be fresh instances so a theme flip re-runs their
-    // build (State is preserved — same type at the same position).
-    if (!app.backendChosen) return BackendChoiceScreen();
-    if (!app.isAuthenticated) return AuthScreen();
-    if (!app.profileComplete) return ProfileSetupScreen();
-    if (!app.isPaired) return PairingScreen();
-    return _Shell();
   }
 }
 

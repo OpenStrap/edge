@@ -33,6 +33,9 @@ import '../widget/widget_service.dart';
 import '../sync/file_log.dart';
 import '../sync/uploader.dart';
 
+/// The onboarding/app gate states, in order. See [AppState.route].
+enum AppRoute { loading, backend, auth, profile, pairing, shell }
+
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
   BackendConfig? config;
@@ -84,6 +87,19 @@ class AppState extends ChangeNotifier {
         u['age'] != null &&
         u['height_cm'] != null &&
         u['weight_kg'] != null;
+  }
+
+  /// The single onboarding/route the UI gate is in. `_Gate` selects on THIS so it
+  /// rebuilds only on a real route transition — NOT on every ~1 Hz notifyListeners
+  /// (live HR, log lines), which used to repaint the whole home stack each second
+  /// and starve the background BLE connection.
+  AppRoute get route {
+    if (!initialized) return AppRoute.loading;
+    if (!backendChosen) return AppRoute.backend;
+    if (!isAuthenticated) return AppRoute.auth;
+    if (!profileComplete) return AppRoute.profile;
+    if (!isPaired) return AppRoute.pairing;
+    return AppRoute.shell;
   }
 
   // ── app status: OTA update pointer + admin-pushed alert banner ──────────────
