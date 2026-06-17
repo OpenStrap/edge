@@ -54,7 +54,11 @@ Future<bool> runHeadlessSync() async {
       return true;
     }
     try {
-      await engine.runSync(timeout: const Duration(seconds: 120));
+      // Full drain (default timeout): a phone-free run/sleep can leave a large
+      // offline backlog on the band's flash. If iOS cuts the background window
+      // short, the drain persists what it got (flush-before-ACK) and the next wake
+      // resumes from the cursor — so a longer budget only helps, never hurts.
+      await engine.runSync();
       await uploader.uploadPending();
       await uploader.uploadEvents();
     } finally {
