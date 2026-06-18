@@ -52,8 +52,12 @@ class NotificationService {
   /// Set up the plugin + the device-alerts channel. Idempotent. Does NOT prompt.
   Future<void> init() async {
     if (_inited) return;
+    // Use the real launcher mipmap — the project renamed it to `launcher_icon`
+    // (see AndroidManifest android:icon), so the Flutter-default `ic_launcher`
+    // no longer resolves and made initialize() throw `invalid_icon` in release,
+    // which (being awaited before runApp) blanked the whole app on launch.
     const AndroidInitializationSettings android =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+        AndroidInitializationSettings('@mipmap/launcher_icon');
     // We prompt explicitly later (after pairing), not at plugin init.
     const DarwinInitializationSettings darwin = DarwinInitializationSettings(
       requestAlertPermission: false,
