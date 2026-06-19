@@ -26,6 +26,7 @@ import '../data/models.dart';
 import '../net/api_client.dart';
 import '../live/live_activity.dart';
 import '../notify/device_alerts.dart';
+import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
 import '../sync/config.dart';
 import '../sync/edge_tracking.dart';
@@ -49,6 +50,13 @@ class AppState extends ChangeNotifier {
   /// Band-gesture → action mapping (double-tap, etc.). Exposed for the settings UI.
   final GestureSettings gestureSettings = GestureSettings();
   late final GestureDispatcher _gestureDispatcher;
+
+  /// Relay selected phone-app notifications to the strap as a buzz (Android only).
+  /// Exposed for the settings UI; buzzes via the live BLE engine when connected.
+  late final NotificationRelay notificationRelay = NotificationRelay(
+    buzz: () => engine.buzz(),
+    isConnected: () => engine.isConnected,
+  );
   Sample? lastSynced;
   Map<String, int> dbCounts = {'raw': 0, 'pending': 0};
   final List<String> logLines = [];
@@ -195,6 +203,8 @@ class AppState extends ChangeNotifier {
     // Band-gesture mapping: load the saved action + query native capabilities so the
     // settings UI knows what this platform supports. Best-effort, non-blocking.
     unawaited(gestureSettings.bootstrap());
+    // Notification relay (Android only; inert + invisible elsewhere). Best-effort.
+    unawaited(notificationRelay.bootstrap());
     initialized = true;
     notifyListeners();
     // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.

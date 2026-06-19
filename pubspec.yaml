@@ -48,6 +48,8 @@ dependencies:
   package_info_plus: ^8.1.0
   ota_update: ^7.1.0
   url_launcher: ^6.3.0
+  notification_listener_service: ^1.0.0
+  installed_apps: ^2.1.1
 
 dev_dependencies:
   flutter_test:

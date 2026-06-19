@@ -7,6 +7,7 @@ import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../sleep/sleep_detail_screen.dart';
 import '../activity/strain_detail_screen.dart';
+import '../heart/live_hr_tile.dart';
 import 'metric_screen.dart';
 import 'detail_cards.dart';
 
@@ -41,6 +42,8 @@ class HeartScreen extends StatelessWidget {
         icon: Ic.heart,
         accent: AppColors.coral,
         todayDetail: (ctx) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const LiveHrTile(),
+          const SizedBox(height: Sp.x4),
           HeartDayCard(date: todayUtc()),
           const SectionExtras(section: 'heart'),
         ]),

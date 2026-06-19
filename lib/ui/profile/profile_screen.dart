@@ -11,6 +11,7 @@ import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../today/step_goal_screen.dart';
 import 'gesture_section.dart';
+import 'notification_relay_section.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -137,6 +138,13 @@ class ProfileScreen extends StatelessWidget {
           const GestureSettingsCard(),
 
           const SizedBox(height: Sp.x7),
+
+          // ── Notifications (Android only — section self-hides on iOS) ──
+          if (app.notificationRelay.supported) ...[
+            const SectionHeader('Notifications'),
+            const NotificationRelaySection(),
+            const SizedBox(height: Sp.x7),
+          ],
 
           // ── Backend ──────────────────────────────────────────────────
           const SectionHeader('Backend'),
