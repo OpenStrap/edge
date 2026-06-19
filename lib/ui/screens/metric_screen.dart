@@ -45,6 +45,14 @@ class MetricScreen extends StatefulWidget {
 
 class _MetricScreenState extends State<MetricScreen> {
   int _tab = 0;
+  int _refresh = 0; // bumped on pull-to-refresh → woven into child keys to force re-fetch
+
+  // Pull-to-refresh: remount the visible child (today detail or the drill bars) so it
+  // re-fetches its endpoint. The brief await keeps the spinner up while children load.
+  Future<void> _onRefresh() async {
+    setState(() => _refresh++);
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +63,10 @@ class _MetricScreenState extends State<MetricScreen> {
       backgroundColor: AppColors.bg,
       body: SafeArea(
         bottom: false,
-        child: ListView(
+        child: RefreshIndicator(
+          onRefresh: _onRefresh,
+          color: widget.accent,
+          child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
           children: [
@@ -77,10 +88,10 @@ class _MetricScreenState extends State<MetricScreen> {
             ),
             const SizedBox(height: Sp.x5),
             if (_tab == 0)
-              widget.todayDetail(context)
+              KeyedSubtree(key: ValueKey('today-$_refresh'), child: widget.todayDetail(context))
             else
               _DrillLevel(
-                key: ValueKey('$scale-root'),
+                key: ValueKey('$scale-$_refresh-root'),
                 title: widget.title,
                 icon: widget.icon,
                 metric: widget.metric,
@@ -92,6 +103,7 @@ class _MetricScreenState extends State<MetricScreen> {
               ),
             const SizedBox(height: 110),
           ],
+          ),
         ),
       ),
     );

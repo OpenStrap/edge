@@ -308,7 +308,11 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       backgroundColor: AppColors.bg,
       body: SafeArea(
         bottom: false,
-        child: ListView(
+        child: RefreshIndicator(
+          onRefresh: _load,
+          color: AppColors.coral,
+          child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
           children: [
             const SizedBox(height: Sp.x4),
@@ -317,6 +321,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
             ..._sections(),
             const SizedBox(height: 40),
           ],
+          ),
         ),
       ),
     );

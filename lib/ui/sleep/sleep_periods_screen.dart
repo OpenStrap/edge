@@ -74,7 +74,13 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
       backgroundColor: AppColors.bg,
       body: SafeArea(
         bottom: false,
-        child: ListView(
+        child: RefreshIndicator(
+          onRefresh: _load,
+          color: AppColors.coral,
+          child: ListView(
+          // AlwaysScrollable so pull-to-refresh fires even when content is short
+          // (loading / empty / error) — the common "refresh doesn't work" cause.
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
           children: [
             const SizedBox(height: Sp.x4),
@@ -104,6 +110,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
             ],
             const SizedBox(height: 40),
           ],
+          ),
         ),
       ),
     );
