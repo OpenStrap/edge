@@ -12,6 +12,7 @@ import SwiftUI
 struct OpenStrapWidgetBundle: WidgetBundle {
     var body: some Widget {
         OpenStrapWidget()
+        OpenStrapBatteryWidget()
         OpenStrapWidgetControl()
         OpenStrapWidgetLiveActivity()
     }

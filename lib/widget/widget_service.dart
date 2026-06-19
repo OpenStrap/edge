@@ -16,6 +16,9 @@ class WidgetService {
 
   /// WidgetKit "kind" (Swift) / Android provider class name.
   static const String _iOSName = 'OpenStrapWidget';
+
+  /// WidgetKit "kind" for the lock-screen Band Battery widget (Swift).
+  static const String _batteryIOSName = 'OpenStrapBatteryWidget';
   static const String _androidName = 'OpenStrapWidgetProvider';
 
   static bool _inited = false;
@@ -56,6 +59,26 @@ class WidgetService {
       await setI('updated_at', DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
       await HomeWidget.updateWidget(iOSName: _iOSName, androidName: _androidName);
+    } catch (_) {/* widgets unavailable / not configured yet — ignore */}
+  }
+
+  /// Push the band's battery snapshot for the lock-screen Band Battery widget.
+  /// Battery is a live BLE value (not in /today), so that widget never refreshes
+  /// over the network — it renders whatever we last wrote here. Call from the
+  /// device-state hook, but only when pct/charging actually changed (the hook
+  /// fires ~1 Hz on live HR; reloading the widget every tick is wasteful).
+  /// Sentinel: pct -1 = never seen the band. [name] is the strap's advertising
+  /// name (the widget falls back to "Strap" when empty/null).
+  static Future<void> pushBattery(int? pct, bool? charging, String? name) async {
+    try {
+      await init();
+      await HomeWidget.saveWidgetData<int>('batt_pct', pct ?? -1);
+      await HomeWidget.saveWidgetData<bool>('batt_charging', charging ?? false);
+      await HomeWidget.saveWidgetData<String>('batt_name', name ?? '');
+      await HomeWidget.saveWidgetData<int>(
+          'batt_at', DateTime.now().millisecondsSinceEpoch ~/ 1000);
+      await HomeWidget.updateWidget(
+          iOSName: _batteryIOSName, androidName: _androidName);
     } catch (_) {/* widgets unavailable / not configured yet — ignore */}
   }
 

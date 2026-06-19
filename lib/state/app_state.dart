@@ -58,6 +58,12 @@ class AppState extends ChangeNotifier {
   bool _keepAlive = false;
   bool _reconnecting = false;
   String _prevConn = 'disconnected';
+  // Last battery snapshot pushed to the Band Battery widget — so we only reload
+  // the widget when pct/charging actually change (the engine-state hook fires
+  // ~1 Hz on live HR). -2 = never pushed.
+  int _widgetBattPct = -2;
+  bool? _widgetBattCharging;
+  String? _widgetBattName;
   bool initialized = false;
 
   /// True while the app is backgrounded. On iOS we KEEP the BLE connection alive in
@@ -343,6 +349,17 @@ class AppState extends ChangeNotifier {
   void _onEngineState(DeviceState s) {
     // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
     _deviceAlerts.onDeviceState(batteryPct: s.batteryPct, charging: s.charging);
+    // Keep the lock-screen Band Battery widget current — only when it changed.
+    final battPct = s.batteryPct?.round() ?? -1;
+    if (battPct != _widgetBattPct ||
+        s.charging != _widgetBattCharging ||
+        s.strapName != _widgetBattName) {
+      _widgetBattPct = battPct;
+      _widgetBattCharging = s.charging;
+      _widgetBattName = s.strapName;
+      unawaited(WidgetService.pushBattery(
+          s.batteryPct == null ? null : battPct, s.charging, s.strapName));
+    }
     if (_prevConn != 'disconnected' && s.connection == 'disconnected') {
       if (_keepAlive && isPaired && !_reconnecting) {
         _log('Connection dropped — reconnecting…');
