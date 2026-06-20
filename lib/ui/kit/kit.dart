@@ -65,6 +65,10 @@ class Ic {
   static const plus = HugeIcons.strokeRoundedAdd01;
   static const history = HugeIcons.strokeRoundedClock04;
   static const trash = HugeIcons.strokeRoundedDelete02;
+  static const github = HugeIcons.strokeRoundedGithub;
+  static const discord = HugeIcons.strokeRoundedDiscord;
+  static const reddit = HugeIcons.strokeRoundedReddit;
+  static const twitter = HugeIcons.strokeRoundedNewTwitter;
 }
 
 /// White rounded card with soft warm shadow. The base surface for everything.
