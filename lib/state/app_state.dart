@@ -341,6 +341,11 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _onRecord(Sample? sample, RawRecord raw) async {
+    // Spot-check: tap the live RR-bearing frames (0x28 compact HR, 0x2B R10) into
+    // the in-memory scan buffer. Cheap-bounded; cleared at each scan start.
+    if (spotActive && (raw.packetType == 0x28 || raw.packetType == 0x2B)) {
+      if (_spotFrames.length < 8000) _spotFrames.add(raw.hex);
+    }
     await LocalDb.insertRecord(raw, sample);
   }
 
@@ -630,6 +635,83 @@ class AppState extends ChangeNotifier {
     if (!await FlutterBluePlus.isSupported) return false;
     final state = await FlutterBluePlus.adapterState.first;
     return state == BluetoothAdapterState.on;
+  }
+
+  // ── live HRV spot-check ──────────────────────────────────────────────────────
+  // User taps "spot check": we enable wrist-gated optical + realtime records,
+  // collect live frames for [spotDuration]s, then POST them to /spotcheck which
+  // decodes RR + computes HRV server-side. Ephemeral — nothing is stored.
+  static const int spotDuration = 60;
+  bool spotActive = false;
+  int spotRemaining = 0;             // seconds left in the current scan
+  Map<String, dynamic>? spotResult;  // last result {rmssd, sdnn, mean_hr, n_beats, ok}
+  String? spotError;
+  final List<String> _spotFrames = [];
+  Timer? _spotTimer;
+  bool _spotEnabledStreams = false;  // did WE turn streams on (so we turn them off)
+
+  /// Begin a 60s live HRV reading. Requires a connected band.
+  Future<void> startSpotCheck() async {
+    if (spotActive) return;
+    if (!isConnected) { spotError = 'Connect your band first.'; notifyListeners(); return; }
+    spotActive = true;
+    spotError = null;
+    spotResult = null;
+    spotRemaining = spotDuration;
+    _spotFrames.clear();
+    notifyListeners();
+    try {
+      // If a workout is already streaming, reuse it; else turn streams on ourselves.
+      if (activeWorkout == null) { await engine.enableLiveStreams(); _spotEnabledStreams = true; }
+    } catch (_) {/* best-effort; we still collect whatever arrives */}
+    _spotTimer?.cancel();
+    _spotTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      spotRemaining -= 1;
+      if (spotRemaining <= 0) { unawaited(_finishSpotCheck()); } else { notifyListeners(); }
+    });
+  }
+
+  /// Abort an in-progress scan without computing.
+  void cancelSpotCheck() {
+    if (!spotActive) return;
+    _spotTimer?.cancel();
+    _spotTimer = null;
+    spotActive = false;
+    spotRemaining = 0;
+    _stopSpotStreams();
+    notifyListeners();
+  }
+
+  Future<void> _finishSpotCheck() async {
+    _spotTimer?.cancel();
+    _spotTimer = null;
+    spotRemaining = 0;
+    _stopSpotStreams();
+    final frames = List<String>.from(_spotFrames);
+    notifyListeners();
+    try {
+      final res = api == null || frames.isEmpty
+          ? null
+          : await api!.spotCheck(frames);
+      spotResult = res;
+      if (res == null) {
+        spotError = 'No reading captured — keep the band snug and still.';
+      } else if (res['ok'] != true) {
+        spotError = 'Not enough clean beats — try again, sitting still.';
+      }
+    } catch (e) {
+      spotError = 'Spot check failed: ${e is ApiException ? e.body : e}';
+    } finally {
+      spotActive = false;
+      notifyListeners();
+    }
+  }
+
+  void _stopSpotStreams() {
+    if (_spotEnabledStreams && activeWorkout == null) {
+      unawaited(engine.disableLiveStreams());
+    }
+    _spotEnabledStreams = false;
   }
 
   // ── live session coach ───────────────────────────────────────────────────────

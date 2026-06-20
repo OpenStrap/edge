@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import 'app.dart';
 import 'ble/ios_ble_restore.dart';
 import 'notify/notification_service.dart';
+import 'coach/coach_config.dart';
 import 'state/app_state.dart';
+import 'state/units_controller.dart';
 import 'theme/theme_controller.dart';
 import 'widget/widget_service.dart';
 
@@ -34,11 +36,30 @@ Future<void> main() async {
     );
   }
 
+  // Local display-units preference (metric/imperial). Best-effort; defaults to metric.
+  UnitsController units;
+  try {
+    units = await UnitsController.bootstrap();
+  } catch (e, st) {
+    debugPrint('[main] UnitsController.bootstrap failed, using metric: $e\n$st');
+    units = UnitsController.seed(UnitSystem.metric);
+  }
+
+  // Local BYOK AI-coach config (key in keychain). Best-effort load.
+  final coachConfig = CoachConfig();
+  try {
+    await coachConfig.load();
+  } catch (e, st) {
+    debugPrint('[main] CoachConfig.load failed: $e\n$st');
+  }
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AppState()),
         ChangeNotifierProvider<ThemeController>.value(value: theme),
+        ChangeNotifierProvider<UnitsController>.value(value: units),
+        ChangeNotifierProvider<CoachConfig>.value(value: coachConfig),
       ],
       child: const OpenStrapApp(),
     ),

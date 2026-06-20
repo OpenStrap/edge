@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../state/app_state.dart';
+import '../../state/units_controller.dart';
 import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
@@ -19,6 +20,7 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    final units = context.watch<UnitsController>();
     final user = app.user ?? const {};
     final name = (user['name'] ?? '').toString().trim();
     final email = (user['email'] ?? '').toString().trim();
@@ -73,7 +75,7 @@ class ProfileScreen extends StatelessWidget {
                   icon: Ic.activity,
                   label: 'Height',
                   value: user['height_cm'] != null
-                      ? '${_num(user['height_cm'])} cm'
+                      ? units.height(user['height_cm'] as num?)
                       : 'Add',
                   onTap: () => _editProfileSheet(context, app),
                 ),
@@ -82,7 +84,7 @@ class ProfileScreen extends StatelessWidget {
                   icon: Ic.fire,
                   label: 'Weight',
                   value: user['weight_kg'] != null
-                      ? '${_num(user['weight_kg'])} kg'
+                      ? units.weight(user['weight_kg'] as num?)
                       : 'Add',
                   onTap: () => _editProfileSheet(context, app),
                 ),
@@ -120,6 +122,78 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 ),
               ),
+            ),
+          ),
+
+          const SizedBox(height: Sp.x7),
+
+          // ── Units (local display preference) ─────────────────────────
+          const SectionHeader('Units'),
+          ProCard(
+            padding: const EdgeInsets.all(Sp.x3),
+            child: Row(
+              children: [
+                for (final s in UnitSystem.values)
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => units.setSystem(s),
+                      child: Container(
+                        margin: EdgeInsets.only(right: s == UnitSystem.metric ? Sp.x2 : 0),
+                        padding: const EdgeInsets.symmetric(vertical: Sp.x3),
+                        decoration: BoxDecoration(
+                          color: units.system == s ? AppColors.coralSoft : AppColors.surfaceSunk,
+                          borderRadius: BorderRadius.circular(R.chip),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(s.label,
+                                textAlign: TextAlign.center,
+                                style: AppText.label.copyWith(
+                                    color: units.system == s ? AppColors.coralInk : AppColors.inkSoft)),
+                            const SizedBox(height: 2),
+                            Text(s == UnitSystem.metric ? 'kg · cm' : 'lb · ft/in',
+                                textAlign: TextAlign.center, style: AppText.captionMuted),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: Sp.x7),
+
+          // ── Cycle tracking (explicit opt-in) ─────────────────────────
+          const SectionHeader('Cycle tracking'),
+          ProCard(
+            padding: const EdgeInsets.symmetric(horizontal: Sp.x5, vertical: Sp.x3),
+            child: Row(
+              children: [
+                AppIcon(Ic.calendar, size: 18, color: AppColors.coral),
+                const SizedBox(width: Sp.x4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Track menstrual cycle', style: AppText.title),
+                      const SizedBox(height: 2),
+                      Text('Log periods and see phase, next period & fertile window. '
+                          'Off by default — nothing is computed until you turn this on.',
+                          style: AppText.captionMuted),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Sp.x3),
+                Switch(
+                  value: user['track_cycle'] == true || user['track_cycle'] == 1,
+                  onChanged: (v) async {
+                    try {
+                      await app.updateProfile({'track_cycle': v ? 1 : 0});
+                    } catch (_) {}
+                  },
+                ),
+              ],
             ),
           ),
 
@@ -242,12 +316,6 @@ class ProfileScreen extends StatelessWidget {
   static String _sexLabel(String? s) {
     if (s == null || s.isEmpty) return 'Add';
     return s[0].toUpperCase() + s.substring(1);
-  }
-
-  static String _num(Object? v) {
-    final n = (v is num) ? v : num.tryParse('$v');
-    if (n == null) return '$v';
-    return n == n.roundToDouble() ? '${n.round()}' : '$n';
   }
 
   // ── Profile edit sheet ────────────────────────────────────────────────
@@ -643,6 +711,7 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
   late final TextEditingController _age;
   late final TextEditingController _height;
   late final TextEditingController _weight;
+  late final UnitsController _units;
   String? _sex;
   bool _saving = false;
 
@@ -650,13 +719,13 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
   void initState() {
     super.initState();
     final u = widget.app.user ?? const {};
+    _units = context.read<UnitsController>();
     _name = TextEditingController(text: (u['name'] ?? '').toString());
     _age = TextEditingController(
         text: u['age'] != null ? '${u['age']}' : '');
-    _height = TextEditingController(
-        text: u['height_cm'] != null ? '${u['height_cm']}' : '');
-    _weight = TextEditingController(
-        text: u['weight_kg'] != null ? '${u['weight_kg']}' : '');
+    // Pre-fill height/weight in the user's chosen units (stored as cm/kg).
+    _height = TextEditingController(text: _units.heightField(u['height_cm'] as num?));
+    _weight = TextEditingController(text: _units.weightField(u['weight_kg'] as num?));
     _sex = u['sex']?.toString();
   }
 
@@ -675,8 +744,9 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
       await widget.app.updateProfile({
         'name': _name.text.trim().isEmpty ? null : _name.text.trim(),
         'age': int.tryParse(_age.text),
-        'height_cm': double.tryParse(_height.text),
-        'weight_kg': double.tryParse(_weight.text),
+        // Convert from the user's display units back to metric for storage.
+        'height_cm': _units.heightToCm(_height.text),
+        'weight_kg': _units.weightToKg(_weight.text),
         if (_sex != null) 'sex': _sex,
       });
       if (mounted) {
@@ -715,7 +785,7 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
             child: TextField(
               controller: _height,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Height (cm)'),
+              decoration: InputDecoration(labelText: _units.heightLabel),
             ),
           ),
           const SizedBox(width: Sp.x3),
@@ -723,7 +793,7 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
             child: TextField(
               controller: _weight,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Weight (kg)'),
+              decoration: InputDecoration(labelText: _units.weightLabel),
             ),
           ),
         ]),

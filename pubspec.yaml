@@ -50,6 +50,8 @@ dependencies:
   url_launcher: ^6.3.0
   notification_listener_service: ^1.0.0
   installed_apps: ^2.1.1
+  flutter_secure_storage: ^10.3.1
+  gpt_markdown: ^1.1.7
 
 dev_dependencies:
   flutter_test:

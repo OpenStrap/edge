@@ -28,6 +28,7 @@ class MetricScreen extends StatefulWidget {
   final String Function(double v)? valueFmt;
   final DetailBuilder todayDetail;
   final DayDetailBuilder dayDetail;
+  final Widget? action; // optional top-right action (e.g. AI coach button)
   const MetricScreen({
     super.key,
     required this.title,
@@ -37,6 +38,7 @@ class MetricScreen extends StatefulWidget {
     required this.todayDetail,
     required this.dayDetail,
     this.valueFmt,
+    this.action,
   });
 
   @override
@@ -80,6 +82,7 @@ class _MetricScreenState extends State<MetricScreen> {
                 const SizedBox(width: Sp.x3),
               ],
               Expanded(child: Text(widget.title, style: AppText.h1)),
+              if (widget.action != null) widget.action!,
             ]),
             const SizedBox(height: Sp.x4),
             Align(

@@ -60,6 +60,11 @@ class Ic {
   static const droplet = HugeIcons.strokeRoundedDroplet;
   static const run = HugeIcons.strokeRoundedRunningShoes;
   static const bell = HugeIcons.strokeRoundedNotification03;
+  static const thermometer = HugeIcons.strokeRoundedTemperature;
+  static const ai = HugeIcons.strokeRoundedAiMagic;
+  static const plus = HugeIcons.strokeRoundedAdd01;
+  static const history = HugeIcons.strokeRoundedClock04;
+  static const trash = HugeIcons.strokeRoundedDelete02;
 }
 
 /// White rounded card with soft warm shadow. The base surface for everything.
