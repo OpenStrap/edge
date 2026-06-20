@@ -38,7 +38,7 @@ struct OpenStrapWidgetAttributes: ActivityAttributes {
 // (which already accounts for an OS-overriding choice). The clay surface + ink
 // flip; the ember coral + zone accents stay constant in both modes.
 
-private let kAppGroup = "group.wtf.openstrap"
+private let kAppGroup = AppGroup.identifier
 
 private extension Color {
   init(_ r: Int, _ g: Int, _ b: Int) {
@@ -136,7 +136,7 @@ private func hrText(_ v: Int) -> String { v > 0 ? "\(v)" : "—" }
 struct EndSessionIntent: LiveActivityIntent {
   static var title: LocalizedStringResource = "Finish session"
   func perform() async throws -> some IntentResult {
-    UserDefaults(suiteName: "group.wtf.openstrap")?.set(true, forKey: "end_session")
+    UserDefaults(suiteName: kAppGroup)?.set(true, forKey: "end_session")
     for activity in Activity<OpenStrapWidgetAttributes>.activities {
       await activity.end(nil, dismissalPolicy: .immediate)
     }

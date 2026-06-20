@@ -35,6 +35,26 @@ import AVFoundation
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ActionBridge") {
       ActionBridge.register(messenger: registrar.messenger())
     }
+    // Build-time iOS configuration exposed to Dart without requiring --dart-define.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ConfigBridge") {
+      ConfigBridge.register(messenger: registrar.messenger())
+    }
+  }
+}
+
+enum ConfigBridge {
+  private static let channelName = "openstrap/ios_config"
+
+  static func register(messenger: FlutterBinaryMessenger) {
+    let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
+    channel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "appGroupIdentifier":
+        result(Bundle.main.object(forInfoDictionaryKey: "OpenStrapAppGroupIdentifier") as? String ?? "")
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
   }
 }
 
