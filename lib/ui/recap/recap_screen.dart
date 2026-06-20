@@ -418,6 +418,14 @@ class _RecapScreenState extends State<RecapScreen> {
   Future<void> _share() async {
     setState(() => _sharing = true);
     try {
+      // iOS/iPad: the share sheet is a popover and REQUIRES an anchor rect, or
+      // it throws PlatformException(sharePositionOrigin: argument must be set).
+      // Capture it now, before any async gap, while layout is stable.
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = (box != null && box.hasSize)
+          ? (box.localToGlobal(Offset.zero) & box.size)
+          : null;
+
       final boundary = _cardKey.currentContext?.findRenderObject()
           as RenderRepaintBoundary?;
       if (boundary == null) throw StateError('Card not ready');
@@ -435,6 +443,7 @@ class _RecapScreenState extends State<RecapScreen> {
       await Share.shareXFiles(
         [XFile(file.path)],
         text: 'My OpenStrap recap',
+        sharePositionOrigin: origin,
       );
     } catch (e) {
       if (!mounted) return;

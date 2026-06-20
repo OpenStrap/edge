@@ -19,6 +19,13 @@ String hm(num? minutes) {
   return '${m ~/ 60}h ${m % 60}m';
 }
 
+/// Signed deviation string for relative metrics ("+0.3", "-0.2", "0.0").
+String _signed(num? v) {
+  if (v == null) return '—';
+  final s = v.toStringAsFixed(1);
+  return v > 0 ? '+$s' : s;
+}
+
 /// Shared async wrapper: fetch a map, render via builder; spinner/empty states.
 class _Fetch extends StatefulWidget {
   final Future<Map<String, dynamic>> Function(dynamic api) load;
@@ -235,6 +242,23 @@ class HeartDayCard extends StatelessWidget {
             ]),
           ],
 
+          // Skin temperature — relative deviation vs your personal baseline (°),
+          // tappable into its trend. Honest: relative, not an absolute thermometer.
+          if (spo2 != null || d['skin_temp'] is Map) ...[
+            const SizedBox(height: Sp.x6),
+            SectionHeader('Skin temperature'),
+            MetricGroup([
+              if (d['skin_temp'] is Map)
+                TrendMetricRow(icon: Ic.thermometer, accent: AppColors.coralDeep, label: 'Skin temp vs baseline',
+                    info: infoFor('skin_temp'),
+                    value: _signed(_n((d['skin_temp'] as Map)['value'])), unit: 'Δ',
+                    metric: 'skin_temp', trendTitle: 'Skin temp vs baseline')
+              else
+                MetricRow(icon: Ic.thermometer, accent: AppColors.inkSoft, label: 'Skin temp vs baseline',
+                    info: infoFor('skin_temp'), value: '—'),
+            ]),
+          ],
+
           // Illness watch — ALWAYS shown (Mahalanobis of resting HR / HRV / temp).
           // Three honest states: active signal, all-clear, or still building baseline.
           ...[
@@ -243,11 +267,12 @@ class HeartDayCard extends StatelessWidget {
             _IllnessCard(illness),
           ],
 
-          // Irregular-rhythm screen (Poincaré from nocturnal RR) — shown once it has data.
-          if (d['irregular'] is Map && (d['irregular']['confidence'] as num? ?? 0) > 0) ...[
+          // Irregular-rhythm screen (Poincaré from nocturnal RR) — ALWAYS shown,
+          // with a "building" state until there's a night of RR to read.
+          ...[
             const SizedBox(height: Sp.x6),
             SectionHeader('Irregular-beat watch'),
-            _IrregularCard(d['irregular'] as Map),
+            _IrregularCard(d['irregular'] is Map ? d['irregular'] as Map : null),
           ],
 
           // What affected this — display-only (no navigation loop), properly padded.
@@ -338,14 +363,34 @@ class _IllnessCard extends StatelessWidget {
   }
 }
 
-// Irregular-rhythm screen card — green "looks regular" vs amber "irregular pattern".
+// Irregular-rhythm screen card — ALWAYS shown, three honest states:
+// "building baseline" (no data yet), green "looks regular", amber "irregular".
 // A SCREEN, not a diagnosis. Conservative; shows the Poincaré descriptors.
 class _IrregularCard extends StatelessWidget {
-  final Map irr;
+  final Map? irr;
   const _IrregularCard(this.irr);
   @override
   Widget build(BuildContext context) {
-    final flag = irr['flag'] == true;
+    final conf = (irr?['confidence'] as num?) ?? 0;
+    // No usable nocturnal RR yet → honest "building" state.
+    if (irr == null || conf <= 0) {
+      return ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x4), child: Row(children: [
+        Container(
+          padding: const EdgeInsets.all(9),
+          decoration: BoxDecoration(color: AppColors.surfaceSunk, borderRadius: BorderRadius.circular(R.chip)),
+          child: AppIcon(Ic.info, size: 17, color: AppColors.inkMuted),
+        ),
+        const SizedBox(width: Sp.x3),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Listening for your rhythm', style: AppText.label),
+          const SizedBox(height: 2),
+          Text('This screens your beat-to-beat (RR) timing overnight for irregularity. '
+              'It needs a night of good wear with heart-rate variability data to read.',
+              style: AppText.captionMuted),
+        ])),
+      ])));
+    }
+    final flag = irr!['flag'] == true;
     final accent = flag ? AppColors.warn : AppColors.good;
     final softBg = flag ? AppColors.warnSoft : AppColors.goodSoft;
     return ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -366,11 +411,11 @@ class _IrregularCard extends StatelessWidget {
               style: AppText.captionMuted),
         ])),
       ])),
-      if (irr['sd1'] != null && irr['sd2'] != null) ...[
+      if (irr!['sd1'] != null && irr!['sd2'] != null) ...[
         Divider(height: 1, color: AppColors.divider),
         Padding(padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2), child: Column(children: [
-          DetailRow(label: 'Poincaré SD1 / SD2', value: '${irr['sd1']} / ${irr['sd2']} ms'),
-          if (irr['pnn50'] != null) DetailRow(label: 'pNN50', value: '${irr['pnn50']}%'),
+          DetailRow(label: 'Poincaré SD1 / SD2', value: '${irr!['sd1']} / ${irr!['sd2']} ms'),
+          if (irr!['pnn50'] != null) DetailRow(label: 'pNN50', value: '${irr!['pnn50']}%'),
         ])),
       ],
     ]));

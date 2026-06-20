@@ -1,26 +1,17 @@
 // Data models shared across the app.
 
-/// A decoded 1 Hz telemetry sample (from a type-24 record). Mirrors the backend
-/// `samples` columns and parse_r24 output.
+/// The HEADER of a 1 Hz record (type-24 / R10): timestamp + counter + HR. The
+/// sensor block is NOT decoded on-device — the band is a raw pipe, the full frame
+/// is uploaded as hex and the cloud owns the sensor decode.
 class Sample {
   final int tsEpoch;
   final int counter;
   final int hr; // 0 = off-wrist (never display as a heart rate)
-  final int spo2;
-  final double skinTempC;
-  final int restingHr;
-  final double ax, ay, az;
 
   Sample({
     required this.tsEpoch,
     required this.counter,
     required this.hr,
-    required this.spo2,
-    required this.skinTempC,
-    required this.restingHr,
-    required this.ax,
-    required this.ay,
-    required this.az,
   });
 
   bool get wristOn => hr > 0;
@@ -29,36 +20,12 @@ class Sample {
         'ts': tsEpoch,
         'counter': counter,
         'hr': hr,
-        'spo2': spo2,
-        'skin_temp_c': skinTempC,
-        'resting_hr': restingHr,
-        'ax': ax,
-        'ay': ay,
-        'az': az,
       };
 
   factory Sample.fromDbMap(Map<String, dynamic> m) => Sample(
         tsEpoch: m['ts'] as int,
         counter: m['counter'] as int,
         hr: m['hr'] as int,
-        spo2: m['spo2'] as int,
-        skinTempC: (m['skin_temp_c'] as num).toDouble(),
-        restingHr: m['resting_hr'] as int,
-        ax: (m['ax'] as num).toDouble(),
-        ay: (m['ay'] as num).toDouble(),
-        az: (m['az'] as num).toDouble(),
-      );
-
-  factory Sample.fromBackendJson(Map<String, dynamic> m) => Sample(
-        tsEpoch: m['ts'] as int,
-        counter: m['counter'] as int,
-        hr: (m['hr'] ?? 0) as int,
-        spo2: (m['spo2'] ?? 0) as int,
-        skinTempC: ((m['skin_temp_c'] ?? 0) as num).toDouble(),
-        restingHr: (m['resting_hr'] ?? 0) as int,
-        ax: ((m['ax'] ?? 0) as num).toDouble(),
-        ay: ((m['ay'] ?? 0) as num).toDouble(),
-        az: ((m['az'] ?? 0) as num).toDouble(),
       );
 }
 

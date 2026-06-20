@@ -33,6 +33,7 @@ const Map<String, String> kMetricInfo = {
   'sleeping_hr': 'Average heart rate while you slept.',
   'resp': 'Breaths per minute, derived from heart-rate variability.',
   'spo2': 'Blood-oxygen relative to your own baseline.',
+  'skin_temp': 'Skin temperature vs your personal overnight baseline. Relative (Δ), not an absolute thermometer.',
   'hrr60': 'How fast your HR drops a minute after peak effort — fitness marker.',
   'illness': 'A combined resting-HR / HRV / temperature signal that can flag early illness.',
   'debt': 'Sleep you owe from falling short of your need on recent nights.',

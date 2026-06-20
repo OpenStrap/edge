@@ -102,14 +102,11 @@ void main() {
 
     test('record 0 matches whoop.py exactly', () {
       final r = parseR24(hexToBytes(records[0]['hex'] as String))!;
+      // Edge decodes the HEADER only (ts/counter/hr); the cloud owns the sensor
+      // block. Sensor-field decoding is covered by the cloud golden test
+      // (openstrap-protocol/ts/test_decoder.ts) + the Python reference.
       expect(r.tsEpoch, 1775395266);
       expect(r.hr, 98);
-      expect(r.spo2, 94);
-      expect(r.skinTempC, closeTo(33.5, 0.001));
-      expect(r.restingHr, 81);
-      expect(r.accelG[0], closeTo(-0.1502, 0.0005));
-      expect(r.accelG[1], closeTo(-0.3311, 0.0005));
-      expect(r.accelG[2], closeTo(1.0006, 0.0005));
     });
 
     test('all 550 records decode without throwing', () {

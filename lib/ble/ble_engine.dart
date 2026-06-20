@@ -327,12 +327,6 @@ class BleEngine {
             tsEpoch: r.tsEpoch,
             counter: r.counter,
             hr: r.hr,
-            spo2: r.spo2,
-            skinTempC: r.skinTempC,
-            restingHr: r.restingHr,
-            ax: r.accelG[0],
-            ay: r.accelG[1],
-            az: r.accelG[2],
           );
         }
       } else if (recType == Record.r10) {
@@ -343,12 +337,6 @@ class BleEngine {
             tsEpoch: r.tsEpoch,
             counter: r.counter,
             hr: r.hr,
-            spo2: 0,
-            skinTempC: 0,
-            restingHr: 0,
-            ax: 0,
-            ay: 0,
-            az: 0,
           );
         }
       }

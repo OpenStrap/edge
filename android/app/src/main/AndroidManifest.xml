@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- BLE: Android 12+ uses BLUETOOTH_SCAN/CONNECT; older needs location for scan. -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
@@ -17,11 +18,16 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- OTA self-update: download + launch the system installer for the new APK. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Notification relay: let the user pick from their installed apps. Android 11+
+         hides the package list without this; OpenStrap ships as a sideloaded APK (not
+         Play-distributed), so broad visibility is acceptable here. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
     <application
         android:label="Edge"
-        android:name="${applicationName}"
+        android:name=".EdgeApplication"
         android:icon="@mipmap/launcher_icon">
         <activity
             android:name=".MainActivity"
@@ -50,6 +56,19 @@
             android:name=".EdgeTrackingService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- Notification relay (notification_listener_service plugin). The system binds
+             this to deliver posted notifications; gated behind the user granting
+             "Notification access" in system settings. Class lives in the plugin. -->
+        <service
+            android:name="notification.listener.service.NotificationListener"
+            android:label="OpenStrap notification relay"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <!-- OTA self-update (ota_update 7.x). The plugin's LIBRARY manifest only
              declares permissions — the host app MUST declare this FileProvider +

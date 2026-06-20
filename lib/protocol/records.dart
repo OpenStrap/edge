@@ -47,32 +47,28 @@ Uint8List hexToBytes(String hex) {
 }
 
 // ── 5.5 The type-24 record (the historical substrate), 1 Hz ──────────────────
+// EDGE DECODES HEADER ONLY. The band is a raw sensor pipe: the full frame is
+// stored + uploaded as hex (raw_records) and the CLOUD owns the sensor decode
+// (openstrap-protocol/ts/records.ts → spo2/temp/ppg/ambient/HRV). We extract just
+// the header here for sync bookkeeping (timestamp span, idempotency counter, HR).
+// Do NOT re-add the sensor block on-device — it's never read and the cloud is the
+// system of record.
 class R24 {
   final int tsEpoch; // u32 @[7:11] seconds — AUTHORITATIVE
   final int tsSubsec; // u16 @[11:13] — AUTHORITATIVE
   final int counter; // u32 @[3:7] — AUTHORITATIVE (idempotency key)
   final int hr; // u8 @[17] bpm — AUTHORITATIVE; 0 = no reading (off-wrist)
-  final int spo2; // u8 @[72] % — EMPIRICAL
-  final double skinTempC; // [70]/4 °C — EMPIRICAL
-  final int restingHr; // u8 @[88] — EMPIRICAL (held baseline)
-  final List<double> accelG; // float32 ×3 @[36:48] g — EMPIRICAL
-  final String rawTail; // [13:] hex — app-opaque (relayed raw to cloud)
 
   R24({
     required this.tsEpoch,
     required this.tsSubsec,
     required this.counter,
     required this.hr,
-    required this.spo2,
-    required this.skinTempC,
-    required this.restingHr,
-    required this.accelG,
-    required this.rawTail,
   });
 }
 
-/// Decode a type-24 record. `inner` starts at the packet_type byte (offset 0).
-/// Returns null if too short (guard `< 89`).
+/// Decode the HEADER of a type-24 record (`inner` starts at the packet_type byte).
+/// Returns null if too short. Sensors live in the raw hex; the cloud decodes them.
 R24? parseR24(Uint8List inner) {
   if (inner.length < 89) return null;
   return R24(
@@ -80,15 +76,6 @@ R24? parseR24(Uint8List inner) {
     tsSubsec: u16(inner, 11),
     counter: u32(inner, 3),
     hr: inner[17],
-    spo2: inner[72],
-    skinTempC: _round(inner[70] / 4.0, 2),
-    restingHr: inner[88],
-    accelG: [
-      _round(f32(inner, 36), 4),
-      _round(f32(inner, 40), 4),
-      _round(f32(inner, 44), 4),
-    ],
-    rawTail: _hex(Uint8List.sublistView(inner, 13)),
   );
 }
 
@@ -370,7 +357,8 @@ Decoded _decodeDataRecord(Uint8List inner) {
       return Decoded('realtime_hr', {'rec_type': recType, 'hr': r.hr, 'wearing': true});
     }
   }
-  // Big record by type byte. We only field-decode R24 (the substrate).
+  // R24: header only on-device (ts/counter/hr). The full frame is uploaded as raw
+  // hex and the cloud decodes the sensor block.
   if (recType == Record.r24) {
     final r = parseR24(inner);
     if (r != null) {
@@ -379,11 +367,6 @@ Decoded _decodeDataRecord(Uint8List inner) {
         'ts_subsec': r.tsSubsec,
         'counter': r.counter,
         'hr': r.hr,
-        'spo2': r.spo2,
-        'skin_temp_c': r.skinTempC,
-        'resting_hr': r.restingHr,
-        'accel_g': r.accelG,
-        'raw_tail': r.rawTail,
       });
     }
   }

@@ -117,6 +117,29 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   num? get _remMin => _num(_stages['rem_min']);
   num? get _lightMin => _num(_stages['light_min']);
 
+  // Sleep cycles (ultradian NREM↔REM, fractal-cycle method on HRV). Beta.
+  List<Map<String, dynamic>> get _cycles {
+    final raw = _data['cycles'];
+    if (raw is! List) return const [];
+    return raw.map((e) => _map(e)).where((m) => m.isNotEmpty).toList();
+  }
+
+  num? get _cyclesMean => _num(_data['cycles_mean_min']);
+
+  List<MapEntry<int, double>> get _cycleSeries {
+    final raw = _data['cycle_series'];
+    if (raw is! List) return const [];
+    final out = <MapEntry<int, double>>[];
+    for (final p in raw) {
+      final m = _map(p);
+      final t = _num(m['t'])?.toInt();
+      final z = _num(m['z'])?.toDouble();
+      if (t != null && z != null) out.add(MapEntry(t, z));
+    }
+    out.sort((a, b) => a.key.compareTo(b.key));
+    return out;
+  }
+
   Map<String, dynamic> get _nocturnal => _map(_data['nocturnal']);
   Map<String, dynamic> get _resp => _map(_data['resp']);
   bool get _hasNocturnal => _num(_nocturnal['sleeping_hr_avg']) != null;
@@ -259,6 +282,11 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       const SizedBox(height: Sp.x6),
       SectionHeader('Stages'),
       _stageBreakdown(),
+      // Cycles sit directly under Stages (same block — not a separate section).
+      if (detailedAvailable(widget.date) && _cycles.isNotEmpty) ...[
+        const SizedBox(height: Sp.x3),
+        _cyclesCard(),
+      ],
       const SizedBox(height: Sp.x6),
       SectionHeader('Efficiency'),
       _efficiencyCard(),
@@ -308,7 +336,11 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       backgroundColor: AppColors.bg,
       body: SafeArea(
         bottom: false,
-        child: ListView(
+        child: RefreshIndicator(
+          onRefresh: _load,
+          color: AppColors.coral,
+          child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
           children: [
             const SizedBox(height: Sp.x4),
@@ -317,6 +349,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
             ..._sections(),
             const SizedBox(height: 40),
           ],
+          ),
         ),
       ),
     );
@@ -462,6 +495,78 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
           ],
           const SizedBox(height: Sp.x4),
           _legend(),
+        ],
+      ),
+    );
+  }
+
+  // ── sleep cycles (fractal-cycle method on HRV) ─────────────────────────────
+
+  Widget _cyclesCard() {
+    final series = _cycleSeries;
+    final cycles = _cycles;
+    final onset = _num(_data['onset_ts'])?.toInt();
+    final wake = _num(_data['wake_ts'])?.toInt();
+    return ProCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('Cycles', style: AppText.h2),
+              const SizedBox(width: Sp.x2),
+              Tag('beta', color: AppColors.coral),
+              const Spacer(),
+              Text('${cycles.length} cycle${cycles.length == 1 ? '' : 's'}',
+                  style: AppText.metricSm.copyWith(fontSize: 18)),
+            ],
+          ),
+          const SizedBox(height: Sp.x2),
+          Text(
+            _cyclesMean == null
+                ? 'Ultradian NREM–REM cycles'
+                : 'Average ${_hm(_cyclesMean)} per cycle',
+            style: AppText.captionMuted,
+          ),
+          const SizedBox(height: Sp.x4),
+          if (series.length >= 4 && onset != null && wake != null && wake > onset) ...[
+            SizedBox(
+              height: 76,
+              child: CustomPaint(
+                size: Size.infinite,
+                painter: _CyclePainter(
+                  series: series,
+                  cycles: cycles,
+                  onset: onset,
+                  wake: wake,
+                  line: AppColors.coral,
+                  marker: AppColors.coralDeep,
+                  grid: AppColors.surfaceAlt,
+                ),
+              ),
+            ),
+            const SizedBox(height: Sp.x2),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(_clock(onset), style: AppText.captionMuted),
+                Text(_clock(wake), style: AppText.captionMuted),
+              ],
+            ),
+          ] else
+            SizedBox(
+              height: 48,
+              child: Center(
+                child: Text('Not enough overnight HRV to resolve cycles',
+                    style: AppText.captionMuted),
+              ),
+            ),
+          const SizedBox(height: Sp.x3),
+          Text(
+            'Each rise-and-fall of your overnight heart-rate variability is one sleep '
+            'cycle (~90 min). Diamonds mark the boundaries between cycles.',
+            style: AppText.captionMuted,
+          ),
         ],
       ),
     );
@@ -867,4 +972,107 @@ class _HypnogramPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_HypnogramPainter old) => old.segs != segs;
+}
+
+/// Draws the overnight HRV (z-RMSSD) wave across [onset, wake] with vertical
+/// boundary lines + diamonds at each detected sleep-cycle edge — the cardiac
+/// analog of the paper's fractal-slope cycle figure.
+class _CyclePainter extends CustomPainter {
+  final List<MapEntry<int, double>> series;
+  final List<Map<String, dynamic>> cycles;
+  final int onset;
+  final int wake;
+  final Color line;
+  final Color marker;
+  final Color grid;
+  _CyclePainter({
+    required this.series,
+    required this.cycles,
+    required this.onset,
+    required this.wake,
+    required this.line,
+    required this.marker,
+    required this.grid,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final span = (wake - onset).toDouble();
+    if (span <= 0 || series.isEmpty) return;
+
+    double zmin = double.infinity, zmax = -double.infinity;
+    for (final e in series) {
+      if (e.value < zmin) zmin = e.value;
+      if (e.value > zmax) zmax = e.value;
+    }
+    if (!(zmax > zmin)) zmax = zmin + 1;
+
+    double xOf(int t) => (((t - onset) / span).clamp(0.0, 1.0)) * size.width;
+    double yOf(double z) {
+      final n = (z - zmin) / (zmax - zmin); // 0..1
+      return size.height - n * size.height * 0.80 - size.height * 0.10;
+    }
+
+    // cycle boundary verticals
+    final bounds = <int>{};
+    for (final c in cycles) {
+      final s = (c['start_ts'] as num?)?.toInt();
+      final e = (c['end_ts'] as num?)?.toInt();
+      if (s != null) bounds.add(s);
+      if (e != null) bounds.add(e);
+    }
+    final gp = Paint()..color = grid..strokeWidth = 1;
+    for (final t in bounds) {
+      final x = xOf(t);
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gp);
+    }
+
+    // the HRV curve
+    final path = Path();
+    bool started = false;
+    for (final e in series) {
+      final x = xOf(e.key);
+      final y = yOf(e.value);
+      if (!started) {
+        path.moveTo(x, y);
+        started = true;
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = line
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    // diamonds at each boundary, snapped to the curve's nearest z
+    final mp = Paint()..color = marker;
+    for (final t in bounds) {
+      double bestD = double.infinity, by = size.height / 2;
+      for (final e in series) {
+        final d = (e.key - t).abs().toDouble();
+        if (d < bestD) {
+          bestD = d;
+          by = yOf(e.value);
+        }
+      }
+      final x = xOf(t);
+      const r = 4.0;
+      final dia = Path()
+        ..moveTo(x, by - r)
+        ..lineTo(x + r, by)
+        ..lineTo(x, by + r)
+        ..lineTo(x - r, by)
+        ..close();
+      canvas.drawPath(dia, mp);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_CyclePainter old) =>
+      old.series != series || old.cycles != cycles;
 }

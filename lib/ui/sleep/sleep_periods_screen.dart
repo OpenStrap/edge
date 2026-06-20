@@ -74,7 +74,13 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
       backgroundColor: AppColors.bg,
       body: SafeArea(
         bottom: false,
-        child: ListView(
+        child: RefreshIndicator(
+          onRefresh: _load,
+          color: AppColors.coral,
+          child: ListView(
+          // AlwaysScrollable so pull-to-refresh fires even when content is short
+          // (loading / empty / error) — the common "refresh doesn't work" cause.
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
           children: [
             const SizedBox(height: Sp.x4),
@@ -104,6 +110,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
             ],
             const SizedBox(height: 40),
           ],
+          ),
         ),
       ),
     );
@@ -178,6 +185,12 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
             Text('${_clock(onset)} – ${_clock(wake)}',
                 style: AppText.label.copyWith(color: AppColors.inkSoft)),
           ],
+          if (_hypList(p).isNotEmpty) ...[
+            const SizedBox(height: Sp.x4),
+            // Per-nap hypnogram — the same banded timeline as the main sleep, so a
+            // nap shows its own stage progression (only rendered when present).
+            _HypnoStrip(segments: _hypList(p), colorOf: _stageColor),
+          ],
           if (stages != null) ...[
             const SizedBox(height: Sp.x4),
             _stageBar(stages),
@@ -187,6 +200,13 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
         ],
       ),
     );
+  }
+
+  // Per-period hypnogram points [{t, stage}] from /day/v2/sleep (empty if none).
+  List<Map<String, dynamic>> _hypList(Map<String, dynamic> p) {
+    final h = p['hypnogram'];
+    if (h is List) return h.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+    return const [];
   }
 
   Widget _stageBar(Map<String, dynamic> s) {
@@ -281,4 +301,44 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
           ),
         ),
       ]);
+}
+
+/// Compact per-nap hypnogram: each downsampled {t, stage} point drawn as a band at
+/// its sleep-depth row (awake top → deep bottom). Self-contained; colors injected.
+class _HypnoStrip extends StatelessWidget {
+  final List<Map<String, dynamic>> segments;
+  final Color Function(String) colorOf;
+  const _HypnoStrip({required this.segments, required this.colorOf});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: 40,
+        width: double.infinity,
+        child: CustomPaint(painter: _HypnoPainter(segments, colorOf)),
+      );
+}
+
+class _HypnoPainter extends CustomPainter {
+  final List<Map<String, dynamic>> pts;
+  final Color Function(String) colorOf;
+  _HypnoPainter(this.pts, this.colorOf);
+  static const _rank = {'awake': 0, 'rem': 1, 'light': 2, 'deep': 3};
+
+  @override
+  void paint(Canvas c, Size s) {
+    if (pts.length < 2) return;
+    final n = pts.length;
+    final bandH = s.height / 4;
+    final w = s.width / (n - 1);
+    final paint = Paint();
+    for (int i = 0; i < n - 1; i++) {
+      final st = (pts[i]['stage'] as String?) ?? 'light';
+      final r = (_rank[st] ?? 2).toDouble();
+      paint.color = colorOf(st);
+      c.drawRect(Rect.fromLTWH(i * w, r * bandH, w + 0.5, bandH - 1), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HypnoPainter old) => old.pts != pts;
 }

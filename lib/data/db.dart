@@ -26,17 +26,7 @@ class LocalDb {
       path,
       onCreate: (db, version) async {
         await _createRaw(db);
-        await db.execute('''
-          CREATE TABLE samples (
-            counter INTEGER PRIMARY KEY,
-            ts INTEGER NOT NULL,
-            hr INTEGER,
-            spo2 INTEGER,
-            skin_temp_c REAL,
-            resting_hr INTEGER,
-            ax REAL, ay REAL, az REAL
-          )
-        ''');
+        await _createSamples(db);
         await db.execute('CREATE INDEX idx_samples_ts ON samples(ts)');
         await _createEvents(db);
       },
@@ -50,9 +40,29 @@ class LocalDb {
           await db.execute('DROP TABLE IF EXISTS raw_records');
           await _createRaw(db);
         }
+        if (oldV < 4) {
+          // The old samples table cached decoded sensor fields (spo2/skin_temp) that
+          // (a) were read from MISIDENTIFIED offsets and (b) nothing ever read. The
+          // edge no longer decodes sensors — drop + recreate as a header-only index.
+          await db.execute('DROP TABLE IF EXISTS samples');
+          await _createSamples(db);
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts)');
+        }
       },
-      version: 3,
+      version: 4,
     );
+  }
+
+  // samples — header-only record index (counter, ts, hr). The band is a raw pipe;
+  // sensors are decoded in the cloud from the uploaded raw hex, never on-device.
+  static Future<void> _createSamples(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS samples (
+        counter INTEGER PRIMARY KEY,
+        ts INTEGER NOT NULL,
+        hr INTEGER
+      )
+    ''');
   }
 
   // raw_records — keyed by the full frame hex (unique; dedupes identical

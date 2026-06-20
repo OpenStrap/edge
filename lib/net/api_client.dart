@@ -236,6 +236,31 @@ class ApiClient {
   Future<Map<String, dynamic>> getJournalInsights({String range = '90d'}) =>
       _getObj('/journal/insights', {'range': range});
 
+  /// POST /spotcheck — decode collected live RR frames → HRV (RMSSD/SDNN/pNN50/HR).
+  Future<Map<String, dynamic>> spotCheck(List<String> records) async {
+    final resp = await _authed((h) => _client.post(_u('/spotcheck'),
+        headers: h, body: jsonEncode({'records': records})));
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
+    return _decode(resp.body);
+  }
+
+  // ── menstrual cycle ────────────────────────────────────────────────────────
+  /// GET /cycle → phase + prediction + logs + biometric overlay.
+  Future<Map<String, dynamic>> getCycle() => _getObj('/cycle');
+
+  /// POST /cycle/log — log a period event (kind: start|end|spotting).
+  Future<void> postCycleLog(String date, {String kind = 'start', String? note}) async {
+    final resp = await _authed((h) => _client.post(_u('/cycle/log'),
+        headers: h, body: jsonEncode({'date': date, 'kind': kind, if (note != null) 'note': note})));
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
+  }
+
+  /// DELETE /cycle/log?date= — remove a logged event.
+  Future<void> deleteCycleLog(String date) async {
+    final resp = await _authed((h) => _client.delete(_u('/cycle/log', {'date': date}), headers: h));
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
+  }
+
   // ── day drill-down detail (all computed server-side) ───────────────────────
   /// GET /day/strain?date= → cumulative strain curve + zones + HR stats + sessions.
   Future<Map<String, dynamic>> getDayStrain(String date) =>

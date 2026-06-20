@@ -26,6 +26,7 @@ import '../data/models.dart';
 import '../net/api_client.dart';
 import '../live/live_activity.dart';
 import '../notify/device_alerts.dart';
+import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
 import '../sync/config.dart';
 import '../sync/edge_tracking.dart';
@@ -49,6 +50,13 @@ class AppState extends ChangeNotifier {
   /// Band-gesture → action mapping (double-tap, etc.). Exposed for the settings UI.
   final GestureSettings gestureSettings = GestureSettings();
   late final GestureDispatcher _gestureDispatcher;
+
+  /// Relay selected phone-app notifications to the strap as a buzz (Android only).
+  /// Exposed for the settings UI; buzzes via the live BLE engine when connected.
+  late final NotificationRelay notificationRelay = NotificationRelay(
+    buzz: () => engine.buzz(),
+    isConnected: () => engine.isConnected,
+  );
   Sample? lastSynced;
   Map<String, int> dbCounts = {'raw': 0, 'pending': 0};
   final List<String> logLines = [];
@@ -58,6 +66,12 @@ class AppState extends ChangeNotifier {
   bool _keepAlive = false;
   bool _reconnecting = false;
   String _prevConn = 'disconnected';
+  // Last battery snapshot pushed to the Band Battery widget — so we only reload
+  // the widget when pct/charging actually change (the engine-state hook fires
+  // ~1 Hz on live HR). -2 = never pushed.
+  int _widgetBattPct = -2;
+  bool? _widgetBattCharging;
+  String? _widgetBattName;
   bool initialized = false;
 
   /// True while the app is backgrounded. On iOS we KEEP the BLE connection alive in
@@ -189,6 +203,8 @@ class AppState extends ChangeNotifier {
     // Band-gesture mapping: load the saved action + query native capabilities so the
     // settings UI knows what this platform supports. Best-effort, non-blocking.
     unawaited(gestureSettings.bootstrap());
+    // Notification relay (Android only; inert + invisible elsewhere). Best-effort.
+    unawaited(notificationRelay.bootstrap());
     initialized = true;
     notifyListeners();
     // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.
@@ -325,6 +341,11 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _onRecord(Sample? sample, RawRecord raw) async {
+    // Spot-check: tap the live RR-bearing frames (0x28 compact HR, 0x2B R10) into
+    // the in-memory scan buffer. Cheap-bounded; cleared at each scan start.
+    if (spotActive && (raw.packetType == 0x28 || raw.packetType == 0x2B)) {
+      if (_spotFrames.length < 8000) _spotFrames.add(raw.hex);
+    }
     await LocalDb.insertRecord(raw, sample);
   }
 
@@ -343,6 +364,17 @@ class AppState extends ChangeNotifier {
   void _onEngineState(DeviceState s) {
     // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
     _deviceAlerts.onDeviceState(batteryPct: s.batteryPct, charging: s.charging);
+    // Keep the lock-screen Band Battery widget current — only when it changed.
+    final battPct = s.batteryPct?.round() ?? -1;
+    if (battPct != _widgetBattPct ||
+        s.charging != _widgetBattCharging ||
+        s.strapName != _widgetBattName) {
+      _widgetBattPct = battPct;
+      _widgetBattCharging = s.charging;
+      _widgetBattName = s.strapName;
+      unawaited(WidgetService.pushBattery(
+          s.batteryPct == null ? null : battPct, s.charging, s.strapName));
+    }
     if (_prevConn != 'disconnected' && s.connection == 'disconnected') {
       if (_keepAlive && isPaired && !_reconnecting) {
         _log('Connection dropped — reconnecting…');
@@ -603,6 +635,83 @@ class AppState extends ChangeNotifier {
     if (!await FlutterBluePlus.isSupported) return false;
     final state = await FlutterBluePlus.adapterState.first;
     return state == BluetoothAdapterState.on;
+  }
+
+  // ── live HRV spot-check ──────────────────────────────────────────────────────
+  // User taps "spot check": we enable wrist-gated optical + realtime records,
+  // collect live frames for [spotDuration]s, then POST them to /spotcheck which
+  // decodes RR + computes HRV server-side. Ephemeral — nothing is stored.
+  static const int spotDuration = 60;
+  bool spotActive = false;
+  int spotRemaining = 0;             // seconds left in the current scan
+  Map<String, dynamic>? spotResult;  // last result {rmssd, sdnn, mean_hr, n_beats, ok}
+  String? spotError;
+  final List<String> _spotFrames = [];
+  Timer? _spotTimer;
+  bool _spotEnabledStreams = false;  // did WE turn streams on (so we turn them off)
+
+  /// Begin a 60s live HRV reading. Requires a connected band.
+  Future<void> startSpotCheck() async {
+    if (spotActive) return;
+    if (!isConnected) { spotError = 'Connect your band first.'; notifyListeners(); return; }
+    spotActive = true;
+    spotError = null;
+    spotResult = null;
+    spotRemaining = spotDuration;
+    _spotFrames.clear();
+    notifyListeners();
+    try {
+      // If a workout is already streaming, reuse it; else turn streams on ourselves.
+      if (activeWorkout == null) { await engine.enableLiveStreams(); _spotEnabledStreams = true; }
+    } catch (_) {/* best-effort; we still collect whatever arrives */}
+    _spotTimer?.cancel();
+    _spotTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      spotRemaining -= 1;
+      if (spotRemaining <= 0) { unawaited(_finishSpotCheck()); } else { notifyListeners(); }
+    });
+  }
+
+  /// Abort an in-progress scan without computing.
+  void cancelSpotCheck() {
+    if (!spotActive) return;
+    _spotTimer?.cancel();
+    _spotTimer = null;
+    spotActive = false;
+    spotRemaining = 0;
+    _stopSpotStreams();
+    notifyListeners();
+  }
+
+  Future<void> _finishSpotCheck() async {
+    _spotTimer?.cancel();
+    _spotTimer = null;
+    spotRemaining = 0;
+    _stopSpotStreams();
+    final frames = List<String>.from(_spotFrames);
+    notifyListeners();
+    try {
+      final res = api == null || frames.isEmpty
+          ? null
+          : await api!.spotCheck(frames);
+      spotResult = res;
+      if (res == null) {
+        spotError = 'No reading captured — keep the band snug and still.';
+      } else if (res['ok'] != true) {
+        spotError = 'Not enough clean beats — try again, sitting still.';
+      }
+    } catch (e) {
+      spotError = 'Spot check failed: ${e is ApiException ? e.body : e}';
+    } finally {
+      spotActive = false;
+      notifyListeners();
+    }
+  }
+
+  void _stopSpotStreams() {
+    if (_spotEnabledStreams && activeWorkout == null) {
+      unawaited(engine.disableLiveStreams());
+    }
+    _spotEnabledStreams = false;
   }
 
   // ── live session coach ───────────────────────────────────────────────────────
