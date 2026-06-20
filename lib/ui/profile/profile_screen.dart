@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
@@ -16,6 +17,22 @@ import 'notification_relay_section.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
+
+  // Community links. Editable here; swap any URL and rebuild — no backend needed.
+  static const List<({String label, IconData icon, String url})> _socials = [
+    (label: 'GitHub', icon: Ic.github, url: 'https://github.com/OpenStrap'),
+    (label: 'Discord', icon: Ic.discord, url: 'https://discord.gg/dUXds5MWkd'),
+    (label: 'Reddit', icon: Ic.reddit, url: 'https://reddit.com/r/openstrap'),
+    (label: 'X', icon: Ic.twitter, url: 'https://x.com/OpenStrap'),
+  ];
+
+  static Future<void> _openUrl(String url) async {
+    // Don't gate on canLaunchUrl — it false-negatives on Android 11+ without a
+    // <queries> manifest entry. Just launch and swallow failures.
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -259,6 +276,40 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+
+          const SizedBox(height: Sp.x7),
+
+          // ── Community ────────────────────────────────────────────────
+          const SectionHeader('Community'),
+          ProCard(
+            child: Row(children: [
+              for (final s in _socials)
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(R.card),
+                    onTap: () => _openUrl(s.url),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: Sp.x3),
+                      child: Column(children: [
+                        Container(
+                          padding: const EdgeInsets.all(11),
+                          decoration: BoxDecoration(
+                              color: AppColors.surfaceSunk, shape: BoxShape.circle),
+                          child: AppIcon(s.icon, size: 20, color: AppColors.ink),
+                        ),
+                        const SizedBox(height: Sp.x2),
+                        Text(s.label, style: AppText.caption),
+                      ]),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: Sp.x2, left: Sp.x2),
+            child: Text('Join the community, report bugs, or peek at the source.',
+                style: AppText.captionMuted),
           ),
 
           const SizedBox(height: Sp.x7),
