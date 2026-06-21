@@ -164,17 +164,6 @@ class ApiClient {
     return u;
   }
 
-  // ── query (insights/history) ─────────────────────────────────────────────────
-  Future<List<Map<String, dynamic>>> fetchMetrics(int fromTs, int toTs) =>
-      _getList('/metrics', {'from': '$fromTs', 'to': '$toTs'});
-  Future<List<Map<String, dynamic>>> fetchSleep() => _getList('/sleep');
-  Future<List<Map<String, dynamic>>> fetchDaily() => _getList('/strain'); // daily table
-  Future<Map<String, dynamic>> fetchTrends() async {
-    final resp = await _authed((h) => _client.get(_u('/trends'), headers: h));
-    if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
-    return _decode(resp.body);
-  }
-
   // ── production insights endpoints (UI screens) ───────────────────────────────
   // All JWT-authed via _authed. Responses parsed defensively by the model layer.
 
@@ -184,15 +173,6 @@ class ApiClient {
   /// GET /sleep?from&to → list of nightly rows (newest first).
   Future<List<Map<String, dynamic>>> getSleep({int? from, int? to}) =>
       _getList('/sleep', _range(from, to));
-
-  /// GET /sleep/v2?from&to (date strings) → { days:[{date, periods[],
-  /// total_asleep_min, period_count}], need_min }. Multi-period (naps = shorter
-  /// sleeps). Additive companion to getSleep; old /sleep is untouched.
-  Future<Map<String, dynamic>> getSleepV2({String? from, String? to}) =>
-      _getObj('/sleep/v2', {
-        if (from != null) 'from': from,
-        if (to != null) 'to': to,
-      });
 
   /// GET /day/v2/sleep?date= → { date, has_sleep, need_min, total_asleep_min,
   /// periods:[{onset_ts, wake_ts, duration_min, efficiency, stages, is_main, …}] }.
@@ -210,10 +190,6 @@ class ApiClient {
   /// GET /sessions?from&to → list of auto-detected workouts.
   Future<List<Map<String, dynamic>>> getSessions({int? from, int? to}) =>
       _getList('/sessions', _range(from, to));
-
-  /// GET /trends?days=90 → object of named series + baseline + anomaly.
-  Future<Map<String, dynamic>> getTrends({int days = 90}) =>
-      _getObj('/trends', {'days': '$days'});
 
   /// GET /history?range=7d|30d|90d|365d → per-metric series + summaries
   /// (avg/min/max/total/delta-vs-prior-period/trend) + calendar + zone totals.
