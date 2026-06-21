@@ -99,6 +99,39 @@ Future<void> startWorkoutFlow(BuildContext context) async {
   } catch (_) {/* surfaced as no-op; user can retry */}
 }
 
+/// Bottom-sheet type picker (no workout start) — used to confirm/correct an
+/// auto-detected workout's type. Returns the chosen type, or null if dismissed.
+Future<String?> pickWorkoutType(BuildContext context, {String title = 'Set workout type'}) {
+  return showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: AppColors.surface,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(R.card))),
+    builder: (_) => Padding(
+      padding: const EdgeInsets.all(Sp.x5),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: AppText.h2),
+        const SizedBox(height: Sp.x4),
+        Wrap(spacing: Sp.x3, runSpacing: Sp.x3, children: [
+          for (final e in _exercises)
+            GestureDetector(
+              onTap: () => Navigator.pop(context, e.$1),
+              child: Container(
+                width: 96, padding: const EdgeInsets.symmetric(vertical: Sp.x4),
+                decoration: BoxDecoration(color: AppColors.surfaceAlt, borderRadius: BorderRadius.circular(R.card)),
+                child: Column(children: [
+                  AppIcon(e.$3, size: 26, color: AppColors.coral),
+                  const SizedBox(height: Sp.x2),
+                  Text(e.$2, style: AppText.label),
+                ]),
+              ),
+            ),
+        ]),
+        const SizedBox(height: Sp.x4),
+      ]),
+    ),
+  );
+}
+
 class WorkoutsScreen extends StatefulWidget {
   const WorkoutsScreen({super.key});
   @override
@@ -192,8 +225,20 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
   }
 
   // Swipe-to-delete wrapper. Live sessions aren't deletable (finish them first).
+  // Confirm/correct an auto-detected workout's type → feeds the classifier calibration
+  // ledger, and pins the type so re-derivation won't overwrite it.
+  Future<void> _correctType(Map<String, dynamic> w) async {
+    final id = w['id'] as String?;
+    if (id == null) return;
+    final t = await pickWorkoutType(context, title: 'Correct workout type');
+    if (t == null || !mounted) return;
+    final api = context.read<AppState>().api;
+    if (api == null) return;
+    try { await api.setWorkoutType(id, t); _load(); } catch (_) {/* retryable */}
+  }
+
   Widget _row(Map<String, dynamic> w) {
-    final tile = _WorkoutTile(w);
+    final tile = _WorkoutTile(w, onCorrect: () => _correctType(w));
     if (w['status'] == 'live') return tile;
     return Dismissible(
       key: ValueKey(w['id']),
@@ -306,6 +351,23 @@ class _SummaryHero extends StatelessWidget {
           _miniStat('$kcal', 'kcal'),
           _miniStat(avgStrain == null ? '—' : avgStrain.toStringAsFixed(1), 'avg strain'),
         ]),
+        // Classifier calibration: how often the auto-detected type matched what you
+        // confirmed/corrected. Shown once you've reviewed at least one — tells us (and
+        // you) when the activity model needs retraining.
+        ...(() {
+          final cls = (summary['classifier'] as Map?)?.cast<String, dynamic>();
+          final acc = (cls?['accuracy'] as num?)?.toDouble();
+          final reviewed = (cls?['reviewed'] as num?)?.toInt() ?? 0;
+          if (acc == null || reviewed <= 0) return const <Widget>[];
+          return [
+            const SizedBox(height: Sp.x5),
+            Row(children: [
+              AppIcon(Icons.verified_outlined, size: 15, color: AppColors.inkMuted),
+              const SizedBox(width: Sp.x2),
+              Text('Type accuracy ${(acc * 100).round()}% · $reviewed reviewed', style: AppText.caption),
+            ]),
+          ];
+        })(),
         if (zoneMin.length == 5 && zoneMin.any((v) => v > 0)) ...[
           const SizedBox(height: Sp.x5),
           Text('TIME IN ZONES', style: AppText.overline),
@@ -333,10 +395,13 @@ class _SummaryHero extends StatelessWidget {
 
 class _WorkoutTile extends StatelessWidget {
   final Map<String, dynamic> w;
-  const _WorkoutTile(this.w);
+  final VoidCallback? onCorrect;
+  const _WorkoutTile(this.w, {this.onCorrect});
   @override
   Widget build(BuildContext context) {
     final live = w['status'] == 'live';
+    final detected = w['detected'] == true; // auto / auto_live
+    final phases = (w['segments'] as List?)?.length ?? 0;
     final strain = (w['strain'] as num?);
     // No worn HR minutes in the window → avg_hr comes back 0 and strain 0. That's
     // not a zero-effort workout, it's missing data (band wasn't syncing). Show it
@@ -355,13 +420,24 @@ class _WorkoutTile extends StatelessWidget {
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               Text(_typeLabel(w['type'] as String?), style: AppText.label),
-              if (w['source'] == 'auto') ...[const SizedBox(width: Sp.x2), Tag('AUTO', color: AppColors.inkMuted)],
-              if (live) ...[const SizedBox(width: Sp.x2), Tag('LIVE', color: AppColors.coral)],
+              if (live) ...[const SizedBox(width: Sp.x2), Tag('LIVE', color: AppColors.coral)]
+              else if (detected) ...[const SizedBox(width: Sp.x2), Tag('DETECTED', color: AppColors.inkMuted)]
+              else ...[const SizedBox(width: Sp.x2), Tag('LOGGED', color: AppColors.inkMuted)],
+              if (phases > 1) ...[const SizedBox(width: Sp.x2), Text('· $phases phases', style: AppText.captionMuted)],
             ]),
             const SizedBox(height: 2),
             Text('${_whenLabel(w['start_ts'] as int?)} · ${hm(w['duration_min'] as num?)} · ${noData ? 'no HR' : '${w['avg_hr'] ?? '—'} bpm'}',
                 style: AppText.captionMuted),
           ])),
+          // Correct an auto-detected type (calibration). Manual workouts keep their type.
+          if (!live && detected && onCorrect != null) ...[
+            GestureDetector(
+              onTap: onCorrect,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(padding: const EdgeInsets.all(6),
+                  child: AppIcon(Icons.edit_outlined, size: 16, color: AppColors.inkMuted)),
+            ),
+          ],
           if (!live) ...[
             noData
                 ? Text('No data', style: AppText.captionMuted)

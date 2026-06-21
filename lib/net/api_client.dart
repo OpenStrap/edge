@@ -298,6 +298,19 @@ class ApiClient {
     return _decode(resp.body);
   }
 
+  /// POST /workout/:id/type {type} → confirm/correct an auto-detected workout's type.
+  /// Feeds the classifier calibration ledger. Returns {type, type_source}.
+  Future<Map<String, dynamic>> setWorkoutType(String id, String type) async {
+    final resp = await _authed((h) => _client.post(_u('/workout/$id/type'),
+        headers: h, body: jsonEncode({'type': type})));
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
+    return _decode(resp.body);
+  }
+
+  /// GET /day/hrv?date= → daytime (waking) HRV ultradian timeline.
+  Future<Map<String, dynamic>> getDayHrv(String date) =>
+      _getObj('/day/hrv', {'date': date});
+
   /// GET /trend/:metric?scale=week|month|quarter&anchor=YYYY-MM-DD
   /// → server-aggregated buckets (7 daily / weekly-mean / monthly-mean bars) with
   /// coverage + target + achieved, for the Metric Explorer. Drill = re-call with a

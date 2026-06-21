@@ -229,7 +229,7 @@ class HeartDayCard extends StatelessWidget {
             ]),
           ],
 
-          if (resp != null || spo2 != null) ...[
+          if (resp != null || spo2 != null || dmap['desaturation'] is Map) ...[
             const SizedBox(height: Sp.x6),
             SectionHeader('Respiratory'),
             MetricGroup([
@@ -239,6 +239,13 @@ class HeartDayCard extends StatelessWidget {
               if (spo2 != null)
                 MetricRow(icon: Ic.droplet, accent: AppColors.coralDeep, label: 'Blood-oxygen',
                     info: infoFor('spo2'), value: '${spo2['value']}', unit: 'Δ'),
+              // Overnight desaturation screen (RELATIVE, not diagnostic) — clustered dips
+              // in the red/IR ratio vs your baseline. An apnea-style screening signal only.
+              if (dmap['desaturation'] is Map)
+                MetricRow(icon: Ic.droplet, accent: AppColors.warn, label: 'Desaturation dips',
+                    info: 'Number of relative blood-oxygen dips overnight (per hour). A screen, not a diagnosis — talk to a clinician if it stays high.',
+                    value: '${(dmap['desaturation'] as Map)['events'] ?? 0}',
+                    unit: '· ${(dmap['desaturation'] as Map)['odi'] ?? 0}/h'),
             ]),
           ],
 
