@@ -79,23 +79,19 @@ class AppState extends ChangeNotifier {
   /// notification and the live drain + flush continue.
   bool _background = false;
 
-  /// One session-long flusher. It uploads pending raw records on a steady cadence and,
-  /// because the uploader RETAINS rows on any non-200 (a transient rate-limit 429
-  /// included), each tick also retries whatever the last tick couldn't send. No
-  /// per-record flushing and no backoff/cooldown — a plain ~15s cadence sits well under
-  /// the backend rate limit (burst 30, refill 0.5/s) on its own. On iOS the timer simply
-  /// fires on the next BLE-notification resume when the app was suspended.
   // THE single upload path. Every record source (live 0x28/R10/IMU, historical drain)
   // only ever STORES locally (raw_records, hex PK, retain-until-200). This one timer is
   // the ONLY thing that POSTs: it kicks once on start, then uploads everything pending
-  // every _kFlushInterval, deleting each chunk only on its confirmed 200. Uniform
+  // every _kFlushInterval, deleting each chunk only on its confirmed 200 (so a non-200/
+  // 429 just leaves rows queued for the next tick — no backoff needed; the 60s cadence
+  // sits well under the backend rate limit of burst 30 / refill 0.5/s). Uniform
   // behaviour everywhere — no per-event upload() calls to drift out of sync.
   //
   // The 60s cadence collapses the steady-state 1 Hz trickle from ~1 POST/15s (~5,760/
   // day) to ~1 POST/min (~1,440/day) — ~4× fewer R2 puts + D1 writes + Workers requests,
   // with zero data loss (cloud metrics land at the wake-close, so ≤1 min upload latency
-  // is invisible). Connection-independent: keeps flushing through background; only
-  // endSession stops it. A non-200/429 leaves rows queued for the next tick.
+  // is invisible). Connection-independent: keeps flushing through background and across
+  // reconnects; stopped only on session teardown (logout / signOut / unpair / endSession).
   Timer? _flushTimer;
   static const Duration _kFlushInterval = Duration(seconds: 60);
 
@@ -360,13 +356,16 @@ class AppState extends ChangeNotifier {
     await LocalDb.insertRecord(raw, sample);
   }
 
-  /// Start the session-long flusher (idempotent). Kicks once immediately so a fresh
-  /// session start / reconnect uploads without waiting a full interval, then runs every
-  /// _kFlushInterval. uploadPending() no-ops cheaply when nothing is queued, so the tick
-  /// is unconditional. Stopped only by endSession (survives backgrounding).
+  /// Start the session-long flusher (idempotent). On a COLD start (no timer yet) it kicks
+  /// once immediately so the first session doesn't wait a full interval, then runs every
+  /// _kFlushInterval. If the timer is already running — foreground-reclaim or a
+  /// mid-session reconnect, since the flusher survives both — this is a no-op and the
+  /// already-running timer carries the upload on its next tick (≤_kFlushInterval).
+  /// uploadPending() no-ops cheaply when nothing is queued, so the tick is unconditional.
+  /// Stopped on session teardown only (logout / signOut / unpair / endSession).
   void _startFlusher() {
-    if (_flushTimer != null) return; // already running (e.g. foreground-reclaim mid-session)
-    if (!uploading) unawaited(upload()); // immediate kick on (re)start
+    if (_flushTimer != null) return; // already running — timer survives background + reconnect
+    if (!uploading) unawaited(upload()); // immediate kick on cold start
     _flushTimer = Timer.periodic(_kFlushInterval, (_) {
       if (!uploading) unawaited(upload());
     });
@@ -479,7 +478,9 @@ class AppState extends ChangeNotifier {
   Future<void> openSession() async {
     if (busy || paired == null || !isAuthenticated) return;
     // Returning to the foreground with the connection still alive (kept during
-    // background): don't tear it down and reconnect — just reclaim ownership and flush.
+    // background): don't tear it down and reconnect — just reclaim ownership. The
+    // flusher kept running through the background, so uploads are already current;
+    // _startFlusher() below is a no-op (timer alive) and no explicit flush is needed.
     final wasBackground = _background;
     _background = false;
     if (wasBackground && engine.isConnected) {
