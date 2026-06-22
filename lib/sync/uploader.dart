@@ -6,6 +6,22 @@
 import '../data/db.dart';
 import '../net/api_client.dart';
 
+// ── Backfill-aware batch sizing ────────────────────────────────────────────────
+// The steady 1 Hz trickle and the morning drain of a full night the band buffered
+// while disconnected are two very different workloads. The backend rate limit counts
+// per POST (30 req / 60 s / user), NOT per record, and the day-packed minute store does
+// the same D1 work whatever the batch size — so a large backlog uploads in BIGGER
+// batches to lift the effective record ceiling ~5× (30×300 ≈ 9k/min → 30×1500 ≈ 45k/min)
+// while the trickle stays on small batches to keep payloads tiny. ~1.5k caps payload at
+// a few hundred KB (well under the 100 MB Worker body limit) with CPU headroom to spare.
+const int kTrickleBatch = 300;
+const int kBackfillBatch = 1500;
+const int kBacklogThreshold = 1000; // pending records above which we switch to backfill
+
+/// Pick an upload batch size from the current pending-record backlog.
+int batchSizeForBacklog(int pending) =>
+    pending > kBacklogThreshold ? kBackfillBatch : kTrickleBatch;
+
 class UploadResult {
   final int attempted;
   final int accepted;
