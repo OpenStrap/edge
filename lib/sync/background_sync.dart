@@ -36,7 +36,8 @@ Future<bool> runHeadlessSync() async {
 
     // 1. Flush any backlog first — covers the case where a prior run captured
     //    records but the upload leg failed (offline, etc.).
-    await uploader.uploadPending();
+    await uploader.uploadPending(
+        batchSize: batchSizeForBacklog((await LocalDb.counts())['pending'] ?? 0));
     await uploader.uploadEvents();
 
     // 2. Connect → drain → upload. No live streams (battery): in and out.
@@ -59,7 +60,10 @@ Future<bool> runHeadlessSync() async {
       // short, the drain persists what it got (flush-before-ACK) and the next wake
       // resumes from the cursor — so a longer budget only helps, never hurts.
       await engine.runSync();
-      await uploader.uploadPending();
+      // Post-drain: the band's offline flash backlog is now in local DB — a full night
+      // is thousands of records, so size up the batch (backfill mode).
+      await uploader.uploadPending(
+          batchSize: batchSizeForBacklog((await LocalDb.counts())['pending'] ?? 0));
       await uploader.uploadEvents();
     } finally {
       await engine.disconnect();

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
 
 import 'app.dart';
@@ -12,6 +13,17 @@ import 'widget/widget_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // iOS CoreBluetooth State Preservation & Restoration: opt the flutter_blue_plus
+  // central (the one that actually subscribes to the band's HR/event characteristics)
+  // into a restore identifier. Apple preserves a connection AND its characteristic
+  // subscriptions ONLY for a central created with a restore id — without this, a
+  // suspended app resumes with the peripheral still flagged "connected" but its GATT
+  // notifications dead until a full reconnect+re-subscribe (the "connected, no events"
+  // bug). MUST be set before any other FBP call. No-op on Android.
+  try {
+    await FlutterBluePlus.setOptions(restoreState: true);
+  } catch (_) {/* older plugin / unsupported platform — ignore */}
 
   // Optional startup services. A failure in any one of these must NEVER block the
   // first frame — they are awaited before runApp, so an unguarded throw (e.g. the

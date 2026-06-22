@@ -82,6 +82,14 @@ class BleEngine {
   bool _liveEnabled = false;
   Timer? _heartbeat;
 
+  // Wall-clock of the last BLE notification received on ANY characteristic. iOS can
+  // resume the app with the peripheral still flagged "connected" while its GATT
+  // notifications silently died during suspension (they don't auto-resume) — the UI
+  // reads connected but no events ever arrive. The foreground-reclaim path consults this
+  // to tell a genuinely live link (recent data) from a stale one (force a reconnect).
+  DateTime _lastRx = DateTime.fromMillisecondsSinceEpoch(0);
+  Duration get sinceLastRx => DateTime.now().difference(_lastRx);
+
   void _setConn(String c) {
     state.connection = c;
     onState(state);
@@ -227,6 +235,7 @@ class BleEngine {
       _send(Cmd.linkValid, const [0x00]);
     });
 
+    _lastRx = DateTime.now(); // fresh link — never treat as stale on an immediate resume
     _setConn('connected');
     _log('Connected + subscribed.');
     return true;
@@ -235,6 +244,7 @@ class BleEngine {
   Future<void> _subscribe(BluetoothCharacteristic c, String role) async {
     await c.setNotifyValue(true);
     _subs.add(c.onValueReceived.listen((chunk) {
+      _lastRx = DateTime.now(); // any notification = the link is genuinely delivering
       for (final frame in _asm[role]!.feed(chunk)) {
         if (frame.valid) _onFrame(role, frame);
       }

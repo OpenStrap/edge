@@ -28,6 +28,7 @@ class _StressScreenState extends State<StressScreen> {
   _Phase _phase = _Phase.loading;
   String? _error;
   Map<String, dynamic> _data = const {};
+  Map<String, dynamic> _hrv = const {}; // /day/hrv (daytime ultradian HRV)
 
   @override
   void initState() {
@@ -44,9 +45,13 @@ class _StressScreenState extends State<StressScreen> {
     setState(() { _phase = _Phase.loading; _error = null; });
     try {
       final res = await api.getDayStress(widget.date);
+      // Daytime HRV is best-effort — don't fail the whole screen if it's absent.
+      Map<String, dynamic> hrv = const {};
+      try { hrv = await api.getDayHrv(widget.date); } catch (_) {/* optional */}
       if (!mounted) return;
       setState(() {
         _data = res;
+        _hrv = hrv;
         final hasStress = _stress.isNotEmpty && _score != null;
         final hasSleep = _sleepStress.isNotEmpty && _sleepScore != null;
         _phase = (hasStress || hasSleep) ? _Phase.ready : _Phase.empty;
@@ -131,6 +136,7 @@ class _StressScreenState extends State<StressScreen> {
             else ...[
               if (_score != null) _hero(),
               ..._hrvSection(),
+              ..._daytimeHrvSection(),
               ..._timelineSection(),
               ..._sleepStressSection(),
               ..._driversSection(),
@@ -242,6 +248,10 @@ class _StressScreenState extends State<StressScreen> {
     if (ss.isEmpty || _sleepScore == null) return const [];
     final arousals = _num(ss['arousal_events'])?.toInt() ?? 0;
     final restless = _num(ss['restless_min'])?.toInt() ?? 0;
+    // Richer movement-restlessness (calcRestlessness), distinct from HR-surge arousal.
+    final rest = _map(ss['restlessness']);
+    final bouts = _num(rest['movement_bouts'])?.toInt();
+    final stillMin = _num(rest['longest_still_min'])?.toInt();
     return [
       const SizedBox(height: Sp.x6),
       const SectionHeader('Overnight arousal'),
@@ -253,6 +263,31 @@ class _StressScreenState extends State<StressScreen> {
           MetricRow(icon: Ic.activity, accent: AppColors.inkSoft, label: 'Disturbance',
               info: 'Count of possible arousals and total restless time.',
               value: '$arousals events · ${_hm(restless)}'),
+        if (bouts != null)
+          MetricRow(icon: Ic.activity, accent: AppColors.inkSoft, label: 'Restlessness',
+              info: 'How fragmented the night was — number of times you shifted, and your longest unbroken still stretch.',
+              value: stillMin != null ? '$bouts shifts · ${_hm(stillMin)} still' : '$bouts shifts'),
+      ])),
+    ];
+  }
+
+  // Daytime (waking) HRV — the ultradian RMSSD rhythm from /day/hrv. Complements the
+  // nocturnal recovery score: a sense of autonomic state across the day.
+  List<Widget> _daytimeHrvSection() {
+    final h = _map(_hrv['daytime_hrv']);
+    final med = _num(h['rmssd_median'])?.toInt();
+    final n = _num(h['n_windows'])?.toInt() ?? 0;
+    if (med == null || n < 3) return const [];
+    return [
+      const SizedBox(height: Sp.x6),
+      const SectionHeader('Daytime HRV'),
+      ProCard(child: Column(children: [
+        MetricRow(icon: Ic.pulse, accent: AppColors.good, label: 'Median daytime RMSSD',
+            info: 'Heart-rate variability across your waking hours (ultradian rhythm), excluding your main sleep. Higher generally means more recovered/parasympathetic.',
+            value: '$med', unit: 'ms'),
+        MetricRow(icon: Ic.activity, accent: AppColors.inkSoft, label: 'Coverage',
+            info: 'Number of 5-minute windows with enough beat-to-beat data to measure.',
+            value: '$n', unit: 'windows'),
       ])),
     ];
   }

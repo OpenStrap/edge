@@ -94,6 +94,13 @@ class AppState extends ChangeNotifier {
   // reconnects; stopped only on session teardown (logout / signOut / unpair / endSession).
   Timer? _flushTimer;
   static const Duration _kFlushInterval = Duration(seconds: 60);
+  // Backfill fast-drain: while a large local backlog remains (e.g. the morning drain of a
+  // full night the band buffered while disconnected), re-upload after this short delay
+  // instead of waiting the full _kFlushInterval, so thousands of records clear in minutes
+  // rather than over many 60 s ticks. The delay lets a little more BLE backlog accumulate
+  // so each pass sends a full _kBackfillBatch. Self-limiting — it stops re-arming once
+  // pending drops below kBacklogThreshold, and the steady 60 s timer resumes as baseline.
+  static const Duration _kBackfillFlushDelay = Duration(seconds: 2);
 
   bool get backendChosen => config?.chosen ?? false;
   bool get isAuthenticated => session?.isValid ?? false;
@@ -488,7 +495,29 @@ class AppState extends ChangeNotifier {
       await IosBleRestore.setOwnsBand(true);
       EdgeTracking.start(); // Android: keep the foreground service up (idempotent)
       _startFlusher(); // timer was running through background; this is a no-op if so
-      return;
+      // iOS can resume with the peripheral still flagged "connected" while its GATT
+      // notifications died during suspension — UI shows connected but NO events arrive,
+      // and only a kill+reopen (full reconnect) recovers. Trust DATA, not the flag: if a
+      // notification arrived recently the link is genuinely live → keep the fast reclaim.
+      // Otherwise it's stale → tear it down and fall through to a clean reconnect, which
+      // re-subscribes (the only place setNotifyValue runs) and drains the gap.
+      if (engine.sinceLastRx < const Duration(seconds: 30)) {
+        // Healthy link → fast reclaim. But the fast path skips the band polls the full
+        // connect path runs, so the cached battery %/charging/strap-name/alarm go stale
+        // (charge only refreshed on a cold restart). Re-poll them in the background so the
+        // UI stays current without forcing a reconnect. Non-blocking; failures are benign.
+        unawaited(() async {
+          try {
+            await engine.getBattery();
+            await engine.getStrapName();
+            await engine.getAlarm();
+          } catch (_) {}
+        }());
+        return;
+      }
+      _log('Resume: no BLE data for ${engine.sinceLastRx.inSeconds}s — stale link, reconnecting.');
+      await engine.disconnect();
+      // fall through to the full connect → subscribe → drain path below
     }
     _setBusy(true);
     lastError = null;
@@ -610,17 +639,36 @@ class AppState extends ChangeNotifier {
     if (uploading) return;
     uploading = true;
     notifyListeners();
+    bool progressed = false;
     try {
-      await _uploadInner();
+      progressed = await _uploadInner();
     } finally {
       uploading = false;
       notifyListeners();
     }
+    // Backfill fast-drain: after a successful, progress-making pass that still leaves a
+    // large backlog (the band kept feeding flash records while we uploaded), re-drain
+    // promptly instead of waiting the full trickle interval. Gated on `progressed` so a
+    // 429 / network failure falls back to the steady 60 s timer's retry rather than
+    // spinning, and on `_flushTimer != null` so it only runs during an active session.
+    if (progressed &&
+        _flushTimer != null &&
+        (dbCounts['pending'] ?? 0) > kBacklogThreshold) {
+      Timer(_kBackfillFlushDelay, () {
+        if (_flushTimer != null && !uploading) unawaited(upload());
+      });
+    }
   }
 
-  Future<void> _uploadInner() async {
+  /// Returns true if a raw-record upload pass succeeded AND moved records (i.e. made
+  /// progress) — used to decide whether to keep fast-draining a backlog.
+  Future<bool> _uploadInner() async {
     final uploader = Uploader(api!);
-    final result = await uploader.uploadPending(onChunk: () async {
+    // Size the batch to the current backlog: big batches blast through a night's drain,
+    // small batches keep the steady trickle's payloads tiny (see uploader.dart).
+    final pending = (await LocalDb.counts())['pending'] ?? 0;
+    final result = await uploader.uploadPending(
+        batchSize: batchSizeForBacklog(pending), onChunk: () async {
       dbCounts = await LocalDb.counts();
       notifyListeners();
     });
@@ -641,6 +689,7 @@ class AppState extends ChangeNotifier {
     }
     dbCounts = await LocalDb.counts();
     notifyListeners();
+    return result.ok && result.attempted > 0;
   }
 
   void _setBusy(bool b) {
