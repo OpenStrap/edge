@@ -495,7 +495,16 @@ class AppState extends ChangeNotifier {
       await IosBleRestore.setOwnsBand(true);
       EdgeTracking.start(); // Android: keep the foreground service up (idempotent)
       _startFlusher(); // timer was running through background; this is a no-op if so
-      return;
+      // iOS can resume with the peripheral still flagged "connected" while its GATT
+      // notifications died during suspension — UI shows connected but NO events arrive,
+      // and only a kill+reopen (full reconnect) recovers. Trust DATA, not the flag: if a
+      // notification arrived recently the link is genuinely live → keep the fast reclaim.
+      // Otherwise it's stale → tear it down and fall through to a clean reconnect, which
+      // re-subscribes (the only place setNotifyValue runs) and drains the gap.
+      if (engine.sinceLastRx < const Duration(seconds: 30)) return;
+      _log('Resume: no BLE data for ${engine.sinceLastRx.inSeconds}s — stale link, reconnecting.');
+      await engine.disconnect();
+      // fall through to the full connect → subscribe → drain path below
     }
     _setBusy(true);
     lastError = null;
