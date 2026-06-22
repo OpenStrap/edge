@@ -501,7 +501,20 @@ class AppState extends ChangeNotifier {
       // notification arrived recently the link is genuinely live → keep the fast reclaim.
       // Otherwise it's stale → tear it down and fall through to a clean reconnect, which
       // re-subscribes (the only place setNotifyValue runs) and drains the gap.
-      if (engine.sinceLastRx < const Duration(seconds: 30)) return;
+      if (engine.sinceLastRx < const Duration(seconds: 30)) {
+        // Healthy link → fast reclaim. But the fast path skips the band polls the full
+        // connect path runs, so the cached battery %/charging/strap-name/alarm go stale
+        // (charge only refreshed on a cold restart). Re-poll them in the background so the
+        // UI stays current without forcing a reconnect. Non-blocking; failures are benign.
+        unawaited(() async {
+          try {
+            await engine.getBattery();
+            await engine.getStrapName();
+            await engine.getAlarm();
+          } catch (_) {}
+        }());
+        return;
+      }
       _log('Resume: no BLE data for ${engine.sinceLastRx.inSeconds}s — stale link, reconnecting.');
       await engine.disconnect();
       // fall through to the full connect → subscribe → drain path below
