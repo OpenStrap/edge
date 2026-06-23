@@ -170,7 +170,7 @@ with your health data except make the decoders and the analytics better over tim
 selling it and I'm not interested in it. But you don't have to trust me on that, that's
 what the self-host option is for.
 
-## Already Deployed Backend URL : https://openstrap-backend.abdulsaheel81.workers.dev 
+## Already Deployed Backend URL : https://openstrap-backend-v2.abdulsaheel81.workers.dev
 
 ## The stack, briefly
 
