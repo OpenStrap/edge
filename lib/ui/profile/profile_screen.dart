@@ -11,6 +11,7 @@ import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
+import '../onboarding/switch_to_cloud_screen.dart';
 import '../today/step_goal_screen.dart';
 import 'gesture_section.dart';
 import 'notification_relay_section.dart';
@@ -53,6 +54,49 @@ class ProfileScreen extends StatelessWidget {
             onEdit: () => _editProfileSheet(context, app),
           ),
           const SizedBox(height: Sp.x8),
+
+          // ── Data & sync (LOCAL mode only): everything is on-device; offer to
+          // move to the cloud (email + sync). ──────────────────────────────
+          if (app.isLocalMode) ...[
+            const SectionHeader('Data & sync'),
+            ProCard(
+              padding: const EdgeInsets.symmetric(horizontal: Sp.x5, vertical: Sp.x2),
+              child: Column(
+                children: [
+                  DetailRow(
+                    icon: Ic.shield,
+                    label: 'Storage',
+                    value: 'On device',
+                  ),
+                  const _HairDivider(),
+                  // Proof the Rust analytics actually ran on this phone. Tapping
+                  // recomputes from stored raw and updates the result live.
+                  DetailRow(
+                    icon: Ic.activity,
+                    label: 'On-device compute',
+                    value: app.computing
+                        ? 'Running…'
+                        : app.lastComputeError != null
+                            ? 'Error — tap to retry'
+                            : app.lastComputeAt != null
+                                ? '${app.lastComputeDays} day(s) · ${app.lastComputeMs}ms'
+                                : 'Tap to run',
+                    onTap: app.computing ? null : () => app.runLocalCompute(force: true),
+                  ),
+                  const _HairDivider(),
+                  DetailRow(
+                    icon: Ic.cloud,
+                    label: 'Switch to Cloud',
+                    value: 'Sync',
+                    onTap: () => Navigator.of(context).push(
+                      themedRoute((_) => const SwitchToCloudScreen()),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: Sp.x7),
+          ],
 
           // ── Your device ──────────────────────────────────────────────
           const SectionHeader('Your device'),

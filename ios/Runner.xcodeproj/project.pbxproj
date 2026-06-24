@@ -163,6 +163,15 @@
 			path = RunnerTests;
 			sourceTree = "<group>";
 		};
+		6A2B37C32FDD000100000001 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				6A2B37C42FDD000100000001 /* Signing.defaults.xcconfig */,
+				6A2B37C52FDD000100000001 /* Signing.xcconfig.example */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
 		7AE58D6D3A9D5791559034B2 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -172,15 +181,6 @@
 				5348973E2FDC19C80033A4D9 /* SwiftUI.framework */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		6A2B37C32FDD000100000001 /* Config */ = {
-			isa = PBXGroup;
-			children = (
-				6A2B37C42FDD000100000001 /* Signing.defaults.xcconfig */,
-				6A2B37C52FDD000100000001 /* Signing.xcconfig.example */,
-			);
-			path = Config;
 			sourceTree = "<group>";
 		};
 		9740EEB11CF90186004384FC /* Flutter */ = {
@@ -298,6 +298,7 @@
 			buildConfigurationList = 97C147051CF9000F007C117D /* Build configuration list for PBXNativeTarget "Runner" */;
 			buildPhases = (
 				45867976D551EFEFA5552E57 /* [CP] Check Pods Manifest.lock */,
+				F5EB8EC58E74C5246DD88DA7 /* Build OpenStrap Rust core (osc_edge) */,
 				9740EEB61CF901F6004384FC /* Run Script */,
 				97C146EA1CF9000F007C117D /* Sources */,
 				97C146EB1CF9000F007C117D /* Frameworks */,
@@ -482,6 +483,24 @@
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
 		};
+		F5EB8EC58E74C5246DD88DA7 /* Build OpenStrap Rust core (osc_edge) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build OpenStrap Rust core (osc_edge)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nexport PATH=\"$HOME/.cargo/bin:$PATH\"\nif ! command -v cargo >/dev/null 2>&1; then echo \"warning: cargo not found; using pre-copied libosc_edge.a\"; exit 0; fi\ncd \"$SRCROOT/../rust\"\nif [[ \"$PLATFORM_NAME\" == *simulator* ]]; then RTARGET=aarch64-apple-ios-sim; else RTARGET=aarch64-apple-ios; fi\nrustup target add \"$RTARGET\" >/dev/null 2>&1 || true\ncargo build --release --target \"$RTARGET\"\nmkdir -p \"$SRCROOT/Flutter\"\ncp \"target/$RTARGET/release/libosc_edge.a\" \"$SRCROOT/Flutter/libosc_edge.a\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -615,8 +634,16 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/Flutter/libosc_edge.a",
+					"-Wl,-exported_symbol,_osc_call",
+					"-Wl,-exported_symbol,_osc_free",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRIP_INSTALLED_PRODUCT = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -936,8 +963,16 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/Flutter/libosc_edge.a",
+					"-Wl,-exported_symbol,_osc_call",
+					"-Wl,-exported_symbol,_osc_free",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRIP_INSTALLED_PRODUCT = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -960,8 +995,16 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-force_load",
+					"$(SRCROOT)/Flutter/libosc_edge.a",
+					"-Wl,-exported_symbol,_osc_call",
+					"-Wl,-exported_symbol,_osc_free",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRIP_INSTALLED_PRODUCT = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";

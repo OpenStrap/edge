@@ -111,12 +111,20 @@ class LocalDb {
         columns: ['hex', 'packet_type', 'captured_at'], orderBy: 'captured_at ASC', limit: limit);
   }
 
-  /// Prune raw older than [cutoffMs] — ONLY rows the caller has confirmed are derived
-  /// (LocalPipeline passes raw captured before cutoff for days present in derivedDates()).
-  /// Enforces the "never prune raw before its day is derived" invariant.
-  static Future<int> pruneRawBefore(int cutoffMs) async {
+  /// Prune raw older than [cutoffMs]. Two retention regimes share this:
+  ///
+  ///   • CLOUD mode ([requireUploaded] = true, the default): the cloud is the system
+  ///     of record, so a raw blob may only be dropped once it's confirmed uploaded.
+  ///     (In practice cloud mode deletes on the 200 via [markUploaded]; this is the
+  ///     belt-and-braces sweep.)
+  ///   • LOCAL mode ([requireUploaded] = false): nothing is ever uploaded, so the
+  ///     14-day cutoff alone governs. Safe because the LocalPipeline ALWAYS derives
+  ///     (computeAll) before it prunes — so any raw past the cutoff has long since
+  ///     been folded into the permanent derived store. Raw goes; results stay.
+  static Future<int> pruneRawBefore(int cutoffMs, {bool requireUploaded = true}) async {
     final db = await instance;
-    return db.rawDelete('DELETE FROM raw_records WHERE captured_at < ? AND uploaded = 1', [cutoffMs]);
+    final clause = requireUploaded ? ' AND uploaded = 1' : '';
+    return db.rawDelete('DELETE FROM raw_records WHERE captured_at < ?$clause', [cutoffMs]);
   }
 
   // samples — header-only record index (counter, ts, hr). The band is a raw pipe;

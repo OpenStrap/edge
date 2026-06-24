@@ -63,3 +63,7 @@ android/key.properties
 # build outputs / release artifacts
 dist/
 *.apk
+
+# OpenStrap Rust core build artifacts (rebuilt by Podfile script phase)
+ios/Flutter/libosc_edge.a
+rust/target/

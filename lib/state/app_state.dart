@@ -33,9 +33,16 @@ import '../sync/edge_tracking.dart';
 import '../widget/widget_service.dart';
 import '../sync/file_log.dart';
 import '../sync/uploader.dart';
+import '../local/app_mode.dart';
+import '../local/local_profile.dart';
+import '../local/local_pipeline.dart';
+import '../local/local_api_client.dart';
+import '../native/native_core.dart';
 
 /// The onboarding/app gate states, in order. See [AppState.route].
-enum AppRoute { loading, backend, auth, profile, pairing, shell }
+/// `modeSelect` is the first real screen (local vs cloud). The LOCAL branch then
+/// goes profile → pairing → shell with NO backend/auth steps (no email).
+enum AppRoute { loading, modeSelect, backend, auth, profile, pairing, shell }
 
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
@@ -43,6 +50,17 @@ class AppState extends ChangeNotifier {
   Session? session;
   ApiClient? api;
   PairedDevice? paired;
+
+  /// Local-first vs cloud (LOCAL_FIRST_DESIGN). Null until the user picks in the
+  /// mode-select screen → `_Gate` shows it first. In LOCAL mode compute runs
+  /// on-device via the Rust core (NativeCore + LocalPipeline); cloud is unchanged.
+  AppMode? appMode;
+  bool get modeChosen => appMode != null;
+  bool get isLocalMode => appMode == AppMode.local;
+
+  /// LOCAL-mode profile (no account/email). Mirrors the cloud `session.user` map so
+  /// every screen + the strain/calorie math read profile fields the same way.
+  Map<String, dynamic>? localUser;
 
   DeviceState get device => engine.state;
   final DeviceAlerts _deviceAlerts = DeviceAlerts();
@@ -105,17 +123,16 @@ class AppState extends ChangeNotifier {
   bool get backendChosen => config?.chosen ?? false;
   bool get isAuthenticated => session?.isValid ?? false;
   bool get isPaired => paired != null;
-  Map<String, dynamic>? get user => session?.user;
+  // In LOCAL mode the profile lives on-device (no account); in cloud mode it's the
+  // signed-in user. Screens + strain/calorie math read `user` uniformly.
+  Map<String, dynamic>? get user => isLocalMode ? localUser : session?.user;
 
-  /// True once age/height/weight are set (collected post-OTP via /profile PATCH).
-  /// Until then the gate shows ProfileSetupScreen.
-  bool get profileComplete {
-    final u = session?.user;
-    return u != null &&
-        u['age'] != null &&
-        u['height_cm'] != null &&
-        u['weight_kg'] != null;
-  }
+  /// True once age/height/weight are set (cloud: post-OTP via /profile PATCH;
+  /// local: in the on-device profile). Until then the gate shows ProfileSetupScreen.
+  bool _hasProfileFields(Map<String, dynamic>? u) =>
+      u != null && u['age'] != null && u['height_cm'] != null && u['weight_kg'] != null;
+  bool get profileComplete => _hasProfileFields(session?.user);
+  bool get localProfileComplete => _hasProfileFields(localUser);
 
   /// The single onboarding/route the UI gate is in. `_Gate` selects on THIS so it
   /// rebuilds only on a real route transition — NOT on every ~1 Hz notifyListeners
@@ -123,6 +140,14 @@ class AppState extends ChangeNotifier {
   /// and starve the background BLE connection.
   AppRoute get route {
     if (!initialized) return AppRoute.loading;
+    if (!modeChosen) return AppRoute.modeSelect;
+    if (isLocalMode) {
+      // LOCAL: no backend, no email/auth — just profile → pair → app.
+      if (!localProfileComplete) return AppRoute.profile;
+      if (!isPaired) return AppRoute.pairing;
+      return AppRoute.shell;
+    }
+    // CLOUD (unchanged).
     if (!backendChosen) return AppRoute.backend;
     if (!isAuthenticated) return AppRoute.auth;
     if (!profileComplete) return AppRoute.profile;
@@ -181,6 +206,69 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Persist the user's local/cloud choice (mode-select screen) and re-gate.
+  Future<void> chooseMode(AppMode mode) async {
+    appMode = mode;
+    await AppModeStore.save(mode);
+    _rebuildApi(); // local → LocalApiClient; cloud → real client (if config/session ready)
+    notifyListeners();
+  }
+
+  /// LOCAL mode on-device compute: decode the stored raw + derive the FULL metric set
+  /// via the Rust core (protocol decoder + analytics, incl. the 1 Hz family), writing
+  /// the permanent local derived store and pruning raw past 14 days. Returns the number
+  /// of days computed. Opportunistic — called after a drain / from the Local home;
+  /// never as heavy background work (iOS would kill it).
+  bool _computing = false;
+  // Last on-device compute outcome — surfaced in the UI (Profile → Data & sync) so
+  // you can SEE the Rust analytics actually ran, without a console.
+  int? lastComputeDays;
+  int? lastComputeMs;
+  DateTime? lastComputeAt;
+  String? lastComputeError;
+  int _lastRawAtCompute = -1; // raw-record count at the last successful compute
+  bool get computing => _computing;
+
+  /// THE on-open recompute (no cron — cron doesn't survive the app sandbox).
+  /// Safe to call on every cold start / foreground / post-drain: analytics are a
+  /// pure, idempotent function of stored raw (computeAll replaces, never appends).
+  /// Skips instantly when nothing new has been stored since the last run, so calling
+  /// it on every open is cheap; pass force:true (manual tap) to recompute regardless.
+  Future<int> runLocalCompute({bool force = false}) async {
+    if (!isLocalMode || _computing) return 0;
+    final rawNow = (await LocalDb.counts())['raw'] ?? 0;
+    if (!force && lastComputeAt != null && rawNow == _lastRawAtCompute) {
+      return lastComputeDays ?? 0; // nothing new since last compute → no-op
+    }
+    _computing = true;
+    notifyListeners();
+    final started = DateTime.now();
+    try {
+      final core = NativeCore.open();
+      final pipeline = LocalPipeline(core, profile: localUser);
+      final n = await pipeline.computeAll();
+      final dec = pipeline.lastDecode;
+      dbCounts = await LocalDb.counts();
+      _lastRawAtCompute = rawNow;
+      lastComputeDays = n;
+      lastComputeMs = DateTime.now().difference(started).inMilliseconds;
+      lastComputeAt = DateTime.now();
+      lastComputeError = null;
+      _log('[LOCAL] on-device compute via Rust FFI: $n day(s) derived in '
+          '${lastComputeMs}ms — decoded ${dec?.kept ?? 0} R24 frames, '
+          'skipped ${dec?.skipped ?? 0} (live/non-R24/garbage-ts), '
+          'raw stored=${dbCounts['raw']}.');
+      return n;
+    } catch (e) {
+      lastComputeError = '$e';
+      _log('[LOCAL] on-device compute FAILED: $e');
+      rethrow;
+    } finally {
+      _computing = false;
+      notifyListeners();
+    }
+  }
+
   AppState() {
     _gestureDispatcher = GestureDispatcher(
       settings: gestureSettings,
@@ -210,6 +298,8 @@ class AppState extends ChangeNotifier {
     config = await BackendConfig.load();
     session = await Session.load();
     paired = await PairedDevice.load();
+    appMode = await AppModeStore.loadOrNull();
+    localUser = await LocalProfile.load();
     _rebuildApi();
     lastSynced = await LocalDb.latestSample();
     dbCounts = await LocalDb.counts();
@@ -227,11 +317,22 @@ class AppState extends ChangeNotifier {
     // SQLite (and retries anything a prior tick failed to send). Start it as soon as
     // we're authenticated so a backlog drains even if the live connection comes up via
     // _reconnect rather than openSession.
-    if (isAuthenticated) _startFlusher();
-    if (isAuthenticated && isPaired) openSession();
+    // Cloud: the flusher (upload path) starts as soon as we're signed in. Local mode
+    // never uploads, so it never starts the flusher.
+    if (!isLocalMode && isAuthenticated) _startFlusher();
+    if (isPaired && (isLocalMode || isAuthenticated)) openSession();
+    // LOCAL: recompute on open over whatever raw is already stored — even if the band
+    // isn't reachable right now (openSession may fail). Analytics never wait on BLE.
+    if (isLocalMode) unawaited(runLocalCompute());
   }
 
   void _rebuildApi() {
+    // LOCAL mode: the "API" reads the on-device derived store (no HTTP, no account)
+    // and synthesizes the same envelopes, so every screen renders unchanged.
+    if (isLocalMode) {
+      api = LocalApiClient();
+      return;
+    }
     if (config == null || session == null) return;
     api = ApiClient(config!, session!, onLoggedOut: _onLoggedOut);
   }
@@ -291,9 +392,69 @@ class AppState extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> fields) async {
+    if (isLocalMode) {
+      // LOCAL: persist on-device (no account). Drives localProfileComplete → gate.
+      localUser = await LocalProfile.patch(fields);
+      notifyListeners();
+      return localUser!;
+    }
     final u = await api!.patchProfile(fields);
     notifyListeners();
     return u;
+  }
+
+  // ── switch LOCAL → CLOUD ────────────────────────────────────────────────────
+  // Profile "Switch to Cloud": ask email → OTP → confirm "this syncs all your data
+  // with the cloud, proceed?" → on confirm, sign in/register, flip mode, and let the
+  // flusher upload the retained local raw. After the flip, cloud retention applies
+  // (raw is deleted on its upload-200, no longer kept for 14 days).
+  //
+  // Step 1: pick a backend (defaults to the hosted instance) + request the OTP.
+  Future<Map<String, dynamic>> beginCloudSwitch(String email) async {
+    // Ensure a backend + api exist (local mode never chose one).
+    config ??= await BackendConfig.load();
+    if (!(config!.chosen)) {
+      config!
+        ..url = BackendConfig.defaultUrl
+        ..chosen = true;
+      await config!.save();
+    }
+    session ??= await Session.load();
+    // Force a REAL HTTP client for the OTP exchange — we're still in local mode, so
+    // _rebuildApi() would hand back a LocalApiClient whose auth calls are no-ops.
+    api = ApiClient(config!, session!, onLoggedOut: _onLoggedOut);
+    // Register carries the local name; if the account already exists the backend
+    // falls back to an OTP sign-in (request-otp), so try register then request-otp.
+    try {
+      return await api!.register(email: email, name: localUser?['name'] as String?);
+    } catch (_) {
+      return await api!.requestOtp(email);
+    }
+  }
+
+  /// Step 2: verify the OTP, PATCH the local profile up to the cloud, flip to CLOUD
+  /// mode, and start the uploader so the retained local raw syncs. The band stays
+  /// paired; existing local derived stays on-device (the cloud recomputes from raw).
+  Future<void> completeCloudSwitch(String email, String code) async {
+    await api!.verifyOtp(email, code);
+    // Push the on-device profile to the new account so cloud metrics match.
+    final lu = localUser;
+    if (lu != null) {
+      final fields = {
+        for (final k in const ['name', 'sex', 'age', 'height_cm', 'weight_kg'])
+          if (lu[k] != null) k: lu[k],
+      };
+      if (fields.isNotEmpty) {
+        try {
+          await api!.patchProfile(fields);
+        } catch (_) {/* best-effort; user can re-edit in Profile */}
+      }
+    }
+    appMode = AppMode.cloud;
+    await AppModeStore.save(AppMode.cloud);
+    // Cloud retention now governs: the uploader deletes each raw blob on its 200.
+    _startFlusher();
+    notifyListeners();
   }
 
   Future<void> signOut() async {
@@ -371,6 +532,7 @@ class AppState extends ChangeNotifier {
   /// uploadPending() no-ops cheaply when nothing is queued, so the tick is unconditional.
   /// Stopped on session teardown only (logout / signOut / unpair / endSession).
   void _startFlusher() {
+    if (isLocalMode) return; // LOCAL mode never uploads — there is no flush path
     if (_flushTimer != null) return; // already running — timer survives background + reconnect
     if (!uploading) unawaited(upload()); // immediate kick on cold start
     _flushTimer = Timer.periodic(_kFlushInterval, (_) {
@@ -483,7 +645,8 @@ class AppState extends ChangeNotifier {
 
   // ── session: drain history, go live, stay connected ──────────────────────────
   Future<void> openSession() async {
-    if (busy || paired == null || !isAuthenticated) return;
+    // Cloud needs an account; LOCAL mode pairs + drains with no auth (and never uploads).
+    if (busy || paired == null || (!isLocalMode && !isAuthenticated)) return;
     // Returning to the foreground with the connection still alive (kept during
     // background): don't tear it down and reconnect — just reclaim ownership. The
     // flusher kept running through the background, so uploads are already current;
@@ -550,8 +713,10 @@ class AppState extends ChangeNotifier {
       _log('Drained ${report.records} records in ${report.batches} batches '
           '(${report.complete ? "complete" : "idle-stopped"}).');
       dbCounts = await LocalDb.counts();
-      // No explicit upload here — the flusher (kicked on start, then every 60s) is the
-      // single upload path; the freshly-drained backlog goes up on its next tick.
+      // CLOUD: the flusher (kicked on start, every 60s) uploads the freshly-drained
+      // backlog on its next tick. LOCAL: nothing uploads — instead compute on-device
+      // right after the drain so the new data shows up as derived metrics.
+      if (isLocalMode) unawaited(runLocalCompute());
     } catch (e) {
       lastError = e.toString();
     } finally {
@@ -588,6 +753,8 @@ class AppState extends ChangeNotifier {
           await engine.enableLiveStreams();
           dbCounts = await LocalDb.counts();
           // Upload handled by the flusher (single path) — runs within the next tick.
+          // LOCAL: re-derive on the freshly-drained backlog (no cloud cron to do it).
+          if (isLocalMode) unawaited(runLocalCompute());
           _log('Reconnected — backlog drained.');
           break;
         }
@@ -610,6 +777,8 @@ class AppState extends ChangeNotifier {
       dbCounts = await LocalDb.counts();
       notifyListeners();
       // Upload handled by the always-running flusher (single path), next tick ≤60s.
+      // LOCAL: re-derive on the just-backfilled window.
+      if (isLocalMode) unawaited(runLocalCompute());
     } catch (e) {
       _log('Resync failed: $e');
     }

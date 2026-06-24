@@ -47,83 +47,12 @@ Uint8List hexToBytes(String hex) {
 }
 
 // ── 5.5 The type-24 record (the historical substrate), 1 Hz ──────────────────
-// EDGE DECODES HEADER ONLY. The band is a raw sensor pipe: the full frame is
-// stored + uploaded as hex (raw_records) and the CLOUD owns the sensor decode
-// (openstrap-protocol/ts/records.ts → spo2/temp/ppg/ambient/HRV). We extract just
-// the header here for sync bookkeeping (timestamp span, idempotency counter, HR).
-// Do NOT re-add the sensor block on-device — it's never read and the cloud is the
-// system of record.
-class R24 {
-  final int tsEpoch; // u32 @[7:11] seconds — AUTHORITATIVE
-  final int tsSubsec; // u16 @[11:13] — AUTHORITATIVE
-  final int counter; // u32 @[3:7] — AUTHORITATIVE (idempotency key)
-  final int hr; // u8 @[17] bpm — AUTHORITATIVE; 0 = no reading (off-wrist)
-
-  R24({
-    required this.tsEpoch,
-    required this.tsSubsec,
-    required this.counter,
-    required this.hr,
-  });
-}
-
-/// Decode the HEADER of a type-24 record (`inner` starts at the packet_type byte).
-/// Returns null if too short. Sensors live in the raw hex; the cloud decodes them.
-R24? parseR24(Uint8List inner) {
-  if (inner.length < 89) return null;
-  return R24(
-    tsEpoch: u32(inner, 7),
-    tsSubsec: u16(inner, 11),
-    counter: u32(inner, 3),
-    hr: inner[17],
-  );
-}
-
-// ── R10 (HR + IMU) — appears in BOTH live (0x2B) and historical (0x2F) on
-// firmware 5.454.0. We extract the header vitals (real unix ts + HR + counter);
-// the IMU arrays stay in the raw bytes for the cloud. Verified live 2026-06-07.
-class R10Lite {
-  final int tsEpoch; // u32 @[7:11] — real unix seconds in historical R10
-  final int hr; // u8 @[17]
-  final int counter; // u32 @[3:7] generic data-record counter
-  R10Lite(this.tsEpoch, this.hr, this.counter);
-}
-
-R10Lite? parseR10Lite(Uint8List inner) {
-  if (inner.length < 18) return null;
-  return R10Lite(u32(inner, 7), inner[17], u32(inner, 3));
-}
-
-// ── 5.6 Compact realtime HR (small 0x28 packet body) ─────────────────────────
-class RealtimeHr {
-  final int hrBpm;
-  final double hrPrecise;
-  final List<int> rrMs;
-  final bool wearing;
-  final int tsRaw;
-  RealtimeHr(this.hrBpm, this.hrPrecise, this.rrMs, this.wearing, this.tsRaw);
-}
-
-/// 0x28 HR payload: [0:4]ts [4:6]HR u16/256 [6]rr_count [7:9]rr1 [9:11]rr2 [15]wearing.
-RealtimeHr? parseRealtimeHr(Uint8List body) {
-  if (body.length < 7) return null;
-  final ts = u32(body, 0);
-  final hrPrecise = u16(body, 4) / 256.0;
-  final hr = hrPrecise.round();
-  if (hr < 1 || hr > 250) return null;
-  final rr = <int>[];
-  final n = body[6];
-  if (n > 0 && body.length >= 9) {
-    final v = u16(body, 7);
-    if (v >= 200 && v <= 2500) rr.add(v);
-  }
-  if (n > 1 && body.length >= 11) {
-    final v = u16(body, 9);
-    if (v >= 200 && v <= 2500) rr.add(v);
-  }
-  final wearing = body.length > 15 ? body[15] == 1 : true;
-  return RealtimeHr(hr, _round(hrPrecise, 2), rr, wearing, ts);
-}
+// RECORD DECODING LIVES IN THE RUST CORE (openstrap-protocol, via dart:ffi):
+// decode_record / decode_r24 / realtime_rr / frame_accel. The edge does NOT decode
+// record bytes in Dart anymore — there is one decoder, shared with the cloud (wasm)
+// and the on-device analytics (FFI), so it can't drift. This file keeps only the
+// CONTROL-PLANE decode the Rust crate doesn't expose: HELLO, events, command
+// responses (battery/alarm/strap-name), and sync markers.
 
 // ── 5.1 HELLO identity ───────────────────────────────────────────────────────
 class HelloInfo {
@@ -322,53 +251,11 @@ Decoded decodeFrame(Frame frame) {
         final m = parseMetadata(inner);
         if (m != null) return Decoded('metadata', {'sub': m.name, 'batch_id': m.batchId});
         break;
-      case PacketType.historicalData:
-      case PacketType.realtimeData:
-      case PacketType.realtimeRawData:
-        return _decodeDataRecord(inner);
+      // Data records (0x2F historical, 0x28/0x2B live) are decoded by the Rust core
+      // via FFI in BleEngine, not here — decodeFrame only handles the control plane.
     }
   } catch (e) {
     return Decoded('decode_error', {'error': e.toString()});
   }
   return Decoded('other', {'packet_type': pt});
-}
-
-Decoded _decodeDataRecord(Uint8List inner) {
-  final recType = inner.length > 1 ? inner[1] : -1;
-  // Compact realtime stream (small packet).
-  if (inner.length < 64) {
-    final body = inner.length > 3 ? Uint8List.sublistView(inner, 3) : Uint8List(0);
-    final hr = parseRealtimeHr(body);
-    if (hr != null) {
-      return Decoded('realtime_hr', {
-        'rec_type': recType,
-        'hr': hr.hrBpm,
-        'hr_precise': hr.hrPrecise,
-        'rr_ms': hr.rrMs,
-        'wearing': hr.wearing,
-      });
-    }
-    return Decoded('realtime_small', {'rec_type': recType});
-  }
-  // Live R10 (HR + IMU) — surface HR for the live display.
-  if (recType == Record.r10) {
-    final r = parseR10Lite(inner);
-    if (r != null && r.hr > 0) {
-      return Decoded('realtime_hr', {'rec_type': recType, 'hr': r.hr, 'wearing': true});
-    }
-  }
-  // R24: header only on-device (ts/counter/hr). The full frame is uploaded as raw
-  // hex and the cloud decodes the sensor block.
-  if (recType == Record.r24) {
-    final r = parseR24(inner);
-    if (r != null) {
-      return Decoded('R24_telemetry', {
-        'ts_epoch': r.tsEpoch,
-        'ts_subsec': r.tsSubsec,
-        'counter': r.counter,
-        'hr': r.hr,
-      });
-    }
-  }
-  return Decoded('data_record', {'rec_type': recType});
 }

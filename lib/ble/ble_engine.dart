@@ -22,6 +22,7 @@ import '../protocol/constants.dart';
 import '../protocol/framing.dart';
 import '../protocol/records.dart';
 import '../data/models.dart';
+import '../native/native_core.dart';
 
 typedef SampleSink = Future<void> Function(Sample? sample, RawRecord raw);
 typedef StateSink = void Function(DeviceState state);
@@ -54,6 +55,22 @@ class BleEngine {
       this.log,
       this.onEvent,
       this.onRecordsBatch});
+
+  // The ONE decoder: the Rust protocol core via dart:ffi. Both the live-HR path and
+  // the historical-drain sample decode go through this — there is no Dart record
+  // decoder anymore, so a working live HR proves the Rust decoder end-to-end.
+  // Lazily opened (process-linked on iOS, libosc_edge.so on Android).
+  NativeCore? _coreInst;
+  NativeCore get _core => _coreInst ??= NativeCore.open();
+
+  /// inner hex → {rec_type, ts, hr, wrist_on, activity, steps_inc} or null.
+  Map<String, dynamic>? _decodeRecord(String innerHex) {
+    try {
+      return _core.decode('decode_record', innerHex);
+    } catch (_) {
+      return null; // never let a decode hiccup break the BLE loop
+    }
+  }
 
   // Drain buffer (historical 0x2F records), flushed before each sync ACK.
   final List<RawRecord> _drainRaws = [];
@@ -300,28 +317,39 @@ class BleEngine {
     if (pt == PacketType.realtimeData ||
         pt == PacketType.realtimeRawData ||
         pt == PacketType.realtimeImuStream) {
+      final hex = _innerHex(frame.inner);
       final raw = RawRecord(
         counter: _counterFromInner(frame.inner),
         packetType: pt,
-        hex: _innerHex(frame.inner),
+        hex: hex,
         capturedAt: DateTime.now().millisecondsSinceEpoch,
       );
-      onRecord(null, raw); // store raw only; no edge decode (dumb pipe)
-      // No early return here — allow fallthrough to decodeFrame and _absorbState
-      // so the UI gets live telemetry updates.
+      onRecord(null, raw); // store raw for upload; cloud field-decodes the rest
+      // Live HR for the UI comes from the SAME Rust decoder used for analytics
+      // (decode_record handles 0x28 + R10). IMU (0x33) decodes to null → no HR.
+      final d = _decodeRecord(hex);
+      final hr = (d?['hr'] as num?)?.toInt() ?? 0;
+      if (hr > 0) {
+        state.liveHr = hr;
+        state.liveHrAt = DateTime.now().millisecondsSinceEpoch;
+        if (d?['wrist_on'] is bool) state.wristOn = d!['wrist_on'] as bool;
+        onState(state);
+      }
+      return; // fully handled — no Dart fall-through decode
     }
     if (pt == PacketType.historicalData) {
       _syncRecords++;
-      final recType = frame.inner.length > 1 ? frame.inner[1] : -1;
       final counter = _counterFromInner(frame.inner);
+      final hex = _innerHex(frame.inner);
       final raw = RawRecord(
         counter: counter,
         packetType: pt,
-        hex: _innerHex(frame.inner),
+        hex: hex,
         capturedAt: DateTime.now().millisecondsSinceEpoch,
       );
       // Track timestamp span of this drain (to see if the cursor persists/advances
-      // across syncs). Read ts from the generic header [7:11].
+      // across syncs). Read ts from the generic header [7:11]. This is a raw envelope
+      // field read for sync bookkeeping, not record decoding.
       if (frame.inner.length >= 11) {
         final ts = u32(frame.inner, 7);
         if (ts > 1000000000) {
@@ -329,26 +357,17 @@ class BleEngine {
           _lastTs = ts;
         }
       }
+      // Header sample (ts/hr) for the local index — via the SAME Rust decoder
+      // (decode_record handles R24 + R10). Counter comes from the generic header.
       Sample? sample;
-      if (recType == Record.r24) {
-        final r = parseR24(frame.inner);
-        if (r != null) {
-          sample = Sample(
-            tsEpoch: r.tsEpoch,
-            counter: r.counter,
-            hr: r.hr,
-          );
-        }
-      } else if (recType == Record.r10) {
-        // Historical R10: HR + real unix ts (no spo2/temp/rhr in this record).
-        final r = parseR10Lite(frame.inner);
-        if (r != null) {
-          sample = Sample(
-            tsEpoch: r.tsEpoch,
-            counter: r.counter,
-            hr: r.hr,
-          );
-        }
+      final d = _decodeRecord(hex);
+      final hr = (d?['hr'] as num?)?.toInt();
+      if (d != null && hr != null) {
+        sample = Sample(
+          tsEpoch: (d['ts'] as num?)?.toInt() ?? 0,
+          counter: counter,
+          hr: hr,
+        );
       }
       // Background sync: store ONLY. Never touch the live display — the screen
       // shows genuine live-stream data (0x2B/0x28), not historical drain values.
@@ -406,15 +425,9 @@ class BleEngine {
       state.wristOn = h.wristOn ?? state.wristOn;
       onState(state);
     }
-    if (d.kind == 'realtime_hr') {
-      final hr = f['hr'] as int;
-      if (hr > 0) {
-        state.liveHr = hr;
-        state.liveHrAt = DateTime.now().millisecondsSinceEpoch;
-        state.wristOn = (f['wearing'] as bool?) ?? state.wristOn;
-        onState(state);
-      }
-    }
+    // (Live HR is no longer decoded here — it's set in the live-frame branch of
+    // _onFrame via the Rust decoder. decodeFrame now only yields control-plane
+    // kinds: cmd_response / event / metadata.)
   }
 
   /// Persist buffered drain records in one transaction. Snapshots the buffer so

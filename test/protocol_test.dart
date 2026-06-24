@@ -11,6 +11,7 @@ import 'package:openstrap_edge/protocol/commands.dart';
 import 'package:openstrap_edge/protocol/framing.dart';
 import 'package:openstrap_edge/protocol/records.dart';
 import 'package:openstrap_edge/protocol/constants.dart';
+import 'package:openstrap_edge/native/native_core.dart';
 
 String _hex(List<int> b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
@@ -100,20 +101,28 @@ void main() {
           .toList();
     });
 
-    test('record 0 matches whoop.py exactly', () {
-      final r = parseR24(hexToBytes(records[0]['hex'] as String))!;
-      // Edge decodes the HEADER only (ts/counter/hr); the cloud owns the sensor
-      // block. Sensor-field decoding is covered by the cloud golden test
-      // (openstrap-protocol/ts/test_decoder.ts) + the Python reference.
-      expect(r.tsEpoch, 1775395266);
-      expect(r.hr, 98);
+    // Record decoding now lives ONLY in the Rust core (via FFI). These goldens
+    // validate that decoder against whoop.py's reference values.
+    final dylib = '${Platform.environment['HOME']}/Documents/whoop-master/'
+        'openstrap-edge/rust/target/debug/libosc_edge.dylib';
+
+    test('record 0 matches whoop.py exactly (via Rust FFI decode_r24)', () {
+      if (!File(dylib).existsSync()) {
+        fail('build the glue first: cd openstrap-edge/rust && cargo build');
+      }
+      final core = NativeCore.open(libPath: dylib);
+      final r = core.decode('decode_r24', records[0]['hex'] as String)!;
+      expect(r['ts_epoch'], 1775395266);
+      expect(r['hr'], 98);
     });
 
-    test('all 550 records decode without throwing', () {
+    test('all 550 records decode without throwing (via Rust FFI)', () {
+      if (!File(dylib).existsSync()) return; // covered when the dylib is built
+      final core = NativeCore.open(libPath: dylib);
       int ok = 0;
       for (final rec in records) {
-        final r = parseR24(hexToBytes(rec['hex'] as String));
-        if (r != null) ok++;
+        final r = core.decode('decode_r24', rec['hex'] as String);
+        if (r != null && r['hr'] != null) ok++;
       }
       expect(ok, records.length);
     });

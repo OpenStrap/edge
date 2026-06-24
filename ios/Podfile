@@ -47,4 +47,67 @@ post_install do |installer|
       end
     end
   end
+
+  # ── OpenStrap: link the Rust core static lib (osc_edge) into Runner for dart:ffi ──
+  # ../rust (protocol decoder + analytics) builds to libosc_edge.a; -force_load keeps
+  # the C-ABI osc_call/osc_free symbols so DynamicLibrary.process() resolves them. A
+  # build phase rebuilds the lib per active arch; a pre-copied ios/Flutter/libosc_edge.a
+  # guarantees the link even on a first/clean build.
+  begin
+    require 'fileutils'
+    # Build the static lib NOW (pod install runs before the first Xcode build) so the
+    # linker finds it on a clean build — the in-build script phase only keeps it fresh
+    # on later builds and can race the linker the very first time. Device (arm64) arch;
+    # the script phase overwrites with the active arch (sim) when needed.
+    rust_dir = File.expand_path(File.join(__dir__, '..', 'rust'))
+    out = File.join(__dir__, 'Flutter', 'libosc_edge.a')
+    if !File.exist?(out) && system('command -v cargo >/dev/null 2>&1')
+      Pod::UI.puts '[OpenStrap] Building Rust core for iOS (first build)…' if defined?(Pod::UI)
+      system("cd '#{rust_dir}' && (rustup target add aarch64-apple-ios >/dev/null 2>&1 || true) && cargo build --release --target aarch64-apple-ios")
+      src = File.join(rust_dir, 'target', 'aarch64-apple-ios', 'release', 'libosc_edge.a')
+      FileUtils.mkdir_p(File.dirname(out))
+      FileUtils.cp(src, out) if File.exist?(src)
+    end
+    runner_project = Xcodeproj::Project.open(File.join(__dir__, 'Runner.xcodeproj'))
+    runner = runner_project.targets.find { |t| t.name == 'Runner' }
+    if runner
+      phase_name = 'Build OpenStrap Rust core (osc_edge)'
+      unless runner.shell_script_build_phases.any? { |p| p.name == phase_name }
+        phase = runner.new_shell_script_build_phase(phase_name)
+        phase.shell_script = <<~'SH'
+          set -e
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v cargo >/dev/null 2>&1; then echo "warning: cargo not found; using pre-copied libosc_edge.a"; exit 0; fi
+          cd "$SRCROOT/../rust"
+          if [[ "$PLATFORM_NAME" == *simulator* ]]; then RTARGET=aarch64-apple-ios-sim; else RTARGET=aarch64-apple-ios; fi
+          rustup target add "$RTARGET" >/dev/null 2>&1 || true
+          cargo build --release --target "$RTARGET"
+          mkdir -p "$SRCROOT/Flutter"
+          cp "target/$RTARGET/release/libosc_edge.a" "$SRCROOT/Flutter/libosc_edge.a"
+        SH
+        # Run before Compile/Link so the .a is fresh when the linker needs it.
+        runner.build_phases.unshift(runner.build_phases.delete(phase))
+      end
+      runner.build_configurations.each do |config|
+        flags = config.build_settings['OTHER_LDFLAGS'] || ['$(inherited)']
+        flags = [flags] unless flags.is_a?(Array)
+        lib = '$(SRCROOT)/Flutter/libosc_edge.a'
+        flags += ['-force_load', lib] unless flags.include?(lib)
+        # The C-ABI symbols are only called via dlsym at runtime, so the linker's
+        # dead-code stripping prunes them despite -force_load. Mark them EXPORTED so
+        # they're roots (kept) AND land in the export trie that DynamicLibrary.process()
+        # / dlsym reads. Also keep the symbol table (belt-and-suspenders).
+        ['_osc_call', '_osc_free'].each do |sym|
+          ef = "-Wl,-exported_symbol,#{sym}"
+          flags += [ef] unless flags.include?(ef)
+        end
+        config.build_settings['OTHER_LDFLAGS'] = flags
+        config.build_settings['STRIP_INSTALLED_PRODUCT'] = 'NO'
+      end
+      runner_project.save
+      Pod::UI.puts '[OpenStrap] Linked Rust core (osc_edge) into Runner.' if defined?(Pod::UI)
+    end
+  rescue => e
+    Pod::UI.warn "[OpenStrap] Could not auto-link Rust core: #{e}. See HANDOFF_RUST_ANALYTICS.md (iOS device QA)." if defined?(Pod::UI)
+  end
 end

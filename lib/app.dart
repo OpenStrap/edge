@@ -9,6 +9,7 @@ import 'theme/theme_switcher.dart';
 import 'theme/tokens.dart';
 import 'ui/kit/kit.dart';
 import 'ui/onboarding_screens.dart';
+import 'ui/onboarding/mode_select_screen.dart';
 import 'ui/pairing_screen.dart';
 import 'ui/today/today_screen.dart';
 import 'ui/screens/screens.dart';
@@ -47,7 +48,13 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     if (state == AppLifecycleState.resumed) {
       app.maybeFinishFromLiveActivity();
       app.refreshAppStatus(); // re-check OTA + admin banner on every foreground
-      if (app.isAuthenticated && app.isPaired) app.openSession();
+      // Resume the session on foreground: cloud needs auth; LOCAL just needs a paired
+      // band (no account). openSession reclaims the live link or drains.
+      if (app.isPaired && (app.isLocalMode || app.isAuthenticated)) app.openSession();
+      // LOCAL: recompute-on-open is the model (no cron survives the app sandbox).
+      // Always re-derive on foreground — it's idempotent and skips instantly when
+      // nothing new has been stored since the last run.
+      if (app.isLocalMode) app.runLocalCompute();
     } else if (state == AppLifecycleState.paused) {
       // Backgrounded: hand the band to the iOS restore path so it can wake-and-drain
       // in the background (no-op on Android, where the foreground service holds it).
@@ -92,15 +99,23 @@ class _Gate extends StatelessWidget {
         return Scaffold(
           body: Center(child: CircularProgressIndicator(color: AppColors.coral)),
         );
+      case AppRoute.modeSelect:
+        // First real screen: Local vs Cloud (LOCAL_FIRST_DESIGN §3).
+        return ModeSelectScreen(
+          onSelected: (m) => context.read<AppState>().chooseMode(m),
+        );
       case AppRoute.backend:
         return BackendChoiceScreen();
       case AppRoute.auth:
         return AuthScreen();
       case AppRoute.profile:
+        // Same details screen for both modes — local saves on-device (no email).
         return ProfileSetupScreen();
       case AppRoute.pairing:
         return PairingScreen();
       case AppRoute.shell:
+        // The SAME 5-tab shell for both modes. In LOCAL mode the injected
+        // LocalApiClient serves every screen from the on-device derived store.
         return _Shell();
     }
   }
