@@ -69,7 +69,14 @@ class _Session {
   };
   final List<StreamSubscription> subs = [];
   Timer? heartbeat;
-  bool connected = true; // false the moment the connectionState stream says so
+  // Starts false: we are NOT connected until connect() resolves / the OS
+  // connectionState stream reports `connected`. (It was previously initialised
+  // true, which combined with the stream replaying a spurious initial
+  // `disconnected` aborted setup before the bond-triggering write.)
+  bool connected = false;
+  // True once we've actually observed a `connected` state. Used to ignore the
+  // initial `disconnected` that flutter_blue_plus replays on listen.
+  bool sawConnected = false;
   bool intentionalClose = false;
 
   _Session(this.device);
@@ -238,8 +245,17 @@ class BleEngine {
     // SOURCE OF TRUTH: listen to the OS connection-state stream FIRST so we never
     // miss the disconnect that can fire during discovery/subscribe.
     session.subs.add(device.connectionState.listen((s) {
-      if (s == BluetoothConnectionState.disconnected) {
-        _onLinkDown(session);
+      if (s == BluetoothConnectionState.connected) {
+        session.connected = true;
+        session.sawConnected = true;
+      } else if (s == BluetoothConnectionState.disconnected) {
+        // flutter_blue_plus REPLAYS the current state on listen — for a
+        // not-yet-connected device that's a spurious `disconnected`. Only treat
+        // it as a real link-down once we've actually observed `connected`.
+        if (session.sawConnected) {
+          session.connected = false;
+          _onLinkDown(session);
+        }
       }
     }));
 
@@ -252,6 +268,12 @@ class BleEngine {
       _setPhase(BleConnState.idle);
       return false;
     }
+
+    // connect() resolved without throwing => the link is up. Set this explicitly
+    // rather than racing the connectionState stream's `connected` emission, so
+    // the setup below (discover/subscribe/SET_CLOCK → bond) is never skipped.
+    session.connected = true;
+    session.sawConnected = true;
 
     // Bond. On Android we explicitly createBond (the strap gates commands behind
     // encryption — without a bond the ACK/commands are silently dropped). On iOS
