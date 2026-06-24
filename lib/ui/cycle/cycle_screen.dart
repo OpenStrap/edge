@@ -6,7 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../net/api_client.dart';
+import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
@@ -25,7 +25,7 @@ class _CycleScreenState extends State<CycleScreen> {
   bool _noApi = false;
   String? _error;
 
-  ApiClient? get _api => context.read<AppState>().api;
+  LocalRepository? get _api => context.read<AppState>().repo;
 
   @override
   void initState() {
@@ -46,7 +46,7 @@ class _CycleScreenState extends State<CycleScreen> {
       setState(() { _data = d; _loading = false; });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _loading = false; _error = e is ApiException ? e.body : e.toString(); });
+      setState(() { _loading = false; _error = e is RepositoryException ? e.body : e.toString(); });
     }
   }
 
@@ -64,7 +64,7 @@ class _CycleScreenState extends State<CycleScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Couldn't log: ${e is ApiException ? e.body : e}")));
+            SnackBar(content: Text("Couldn't log: ${e is RepositoryException ? e.body : e}")));
       }
     }
   }

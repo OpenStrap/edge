@@ -46,7 +46,7 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
   Future<void> _initEngine() async {
     final app = context.read<AppState>();
     final cfg = context.read<CoachConfig>();
-    final api = app.api;
+    final api = app.repo;
     if (api == null) return;
     final uid = (app.user?['id'] ?? 'anon').toString();
     final engine = CoachEngine(config: cfg, api: api, storageKey: uid);
@@ -217,7 +217,7 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
   @override
   Widget build(BuildContext context) {
     final cfg = context.watch<CoachConfig>();
-    final signedIn = context.select<AppState, bool>((s) => s.api != null);
+    final signedIn = context.select<AppState, bool>((s) => s.repo != null);
 
     return Scaffold(
       backgroundColor: AppColors.bg,

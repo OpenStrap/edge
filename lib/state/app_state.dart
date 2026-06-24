@@ -1,13 +1,17 @@
-// AppState — the single ChangeNotifier the UI listens to. Orchestrates auth,
-// the BLE engine, local DB writes (raw-first), and per-user cloud upload.
+// AppState — the single ChangeNotifier the UI listens to. Orchestrates the BLE
+// engine, local DB writes (raw-first), live telemetry, and the screen data SEAM.
+//
+// CLOUD EXCISED: there is no backend, no auth, no upload. Records are captured
+// locally (raw_records / samples / events in lib/data/db.dart) and that is the
+// system of record. Screens read through `repo` (a LocalRepository — the seam to
+// the future on-device analytics re-layer); they no longer talk to a server.
 //
 // Onboarding gate (see app.dart):
-//   backend not chosen → BackendChoice
-//   not authenticated  → Auth → OTP
-//   not paired         → Pairing (LOCAL device pref; re-pair after every sign-in)
-//   else               → main Shell (auto-connect saved band, drain, live, upload)
+//   not paired → Pairing (LOCAL device pref)
+//   else       → main Shell (auto-connect saved band, drain, go live)
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -20,29 +24,34 @@ import '../models/app_status.dart';
 import '../ble/ble_engine.dart';
 import '../ble/ios_ble_restore.dart';
 import '../data/db.dart';
+import '../data/local_repository.dart';
 import '../gestures/gesture_settings.dart';
 import '../gestures/gesture_dispatcher.dart';
 import '../data/models.dart';
-import '../net/api_client.dart';
 import '../live/live_activity.dart';
 import '../notify/device_alerts.dart';
 import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
-import '../sync/config.dart';
 import '../sync/edge_tracking.dart';
+import '../sync/paired_device.dart';
+import '../sync/update_service.dart';
 import '../widget/widget_service.dart';
 import '../sync/file_log.dart';
-import '../sync/uploader.dart';
 
 /// The onboarding/app gate states, in order. See [AppState.route].
-enum AppRoute { loading, backend, auth, profile, pairing, shell }
+/// CLOUD EXCISED: the old backend / auth / profile states are gone — once a band
+/// is paired we go straight to the shell.
+enum AppRoute { loading, pairing, shell }
 
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
-  BackendConfig? config;
-  Session? session;
-  ApiClient? api;
   PairedDevice? paired;
+
+  /// SEAM: the screen data layer. Today every method throws UnimplementedError
+  /// (see lib/data/local_repository.dart) — the future re-layer implements it
+  /// against openstrap_analytics over lib/data/db.dart. Null until set by a
+  /// re-layer; screens guard on `repo == null` exactly as they used to on `api`.
+  LocalRepository? repo;
 
   DeviceState get device => engine.state;
   final DeviceAlerts _deviceAlerts = DeviceAlerts();
@@ -76,45 +85,46 @@ class AppState extends ChangeNotifier {
 
   /// True while the app is backgrounded. On iOS we KEEP the BLE connection alive in
   /// this state (see [pauseForBackground]) so the OS keeps resuming us per BLE
-  /// notification and the live drain + flush continue.
+  /// notification and the live drain continues.
   bool _background = false;
 
-  // THE single upload path. Every record source (live 0x28/R10/IMU, historical drain)
-  // only ever STORES locally (raw_records, hex PK, retain-until-200). This one timer is
-  // the ONLY thing that POSTs: it kicks once on start, then uploads everything pending
-  // every _kFlushInterval, deleting each chunk only on its confirmed 200 (so a non-200/
-  // 429 just leaves rows queued for the next tick — no backoff needed; the 60s cadence
-  // sits well under the backend rate limit of burst 30 / refill 0.5/s). Uniform
-  // behaviour everywhere — no per-event upload() calls to drift out of sync.
-  //
-  // The 60s cadence collapses the steady-state 1 Hz trickle from ~1 POST/15s (~5,760/
-  // day) to ~1 POST/min (~1,440/day) — ~4× fewer R2 puts + D1 writes + Workers requests,
-  // with zero data loss (cloud metrics land at the wake-close, so ≤1 min upload latency
-  // is invisible). Connection-independent: keeps flushing through background and across
-  // reconnects; stopped only on session teardown (logout / signOut / unpair / endSession).
-  Timer? _flushTimer;
-  static const Duration _kFlushInterval = Duration(seconds: 60);
-  // Backfill fast-drain: while a large local backlog remains (e.g. the morning drain of a
-  // full night the band buffered while disconnected), re-upload after this short delay
-  // instead of waiting the full _kFlushInterval, so thousands of records clear in minutes
-  // rather than over many 60 s ticks. The delay lets a little more BLE backlog accumulate
-  // so each pass sends a full _kBackfillBatch. Self-limiting — it stops re-arming once
-  // pending drops below kBacklogThreshold, and the steady 60 s timer resumes as baseline.
-  static const Duration _kBackfillFlushDelay = Duration(seconds: 2);
-
-  bool get backendChosen => config?.chosen ?? false;
-  bool get isAuthenticated => session?.isValid ?? false;
   bool get isPaired => paired != null;
-  Map<String, dynamic>? get user => session?.user;
 
-  /// True once age/height/weight are set (collected post-OTP via /profile PATCH).
-  /// Until then the gate shows ProfileSetupScreen.
-  bool get profileComplete {
-    final u = session?.user;
-    return u != null &&
-        u['age'] != null &&
-        u['height_cm'] != null &&
-        u['weight_kg'] != null;
+  // ── local profile (was server-side; now device-local) ───────────────────────
+  // CLOUD EXCISED: the user's name/sex/age/height/weight + prefs (track_cycle,
+  // step_goal, resting_hr…) used to live on the backend behind the JWT. They are
+  // now a small LOCAL map persisted in shared_preferences. This is the on-device
+  // profile the analytics re-layer will read for personalization. `null` until set.
+  static const String _kProfile = 'local_profile_json';
+  Map<String, dynamic>? user;
+
+  Future<void> _loadProfile() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kProfile);
+    if (raw != null) {
+      try {
+        user = (jsonDecode(raw) as Map).cast<String, dynamic>();
+      } catch (_) {/* ignore corrupt blob */}
+    }
+  }
+
+  /// Merge + persist local profile fields. Returns the updated map. Replaces the
+  /// old cloud PATCH /profile (no network).
+  Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> fields) async {
+    user = {...?user, ...fields};
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kProfile, jsonEncode(user));
+    notifyListeners();
+    return user!;
+  }
+
+  /// Clear the local profile + unpair the band (the former "sign out", now purely
+  /// local — there is no session to end).
+  Future<void> signOut() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kProfile);
+    user = null;
+    await unpair();
   }
 
   /// The single onboarding/route the UI gate is in. `_Gate` selects on THIS so it
@@ -123,14 +133,13 @@ class AppState extends ChangeNotifier {
   /// and starve the background BLE connection.
   AppRoute get route {
     if (!initialized) return AppRoute.loading;
-    if (!backendChosen) return AppRoute.backend;
-    if (!isAuthenticated) return AppRoute.auth;
-    if (!profileComplete) return AppRoute.profile;
     if (!isPaired) return AppRoute.pairing;
     return AppRoute.shell;
   }
 
   // ── app status: OTA update pointer + admin-pushed alert banner ──────────────
+  // Now fetched directly by UpdateService from a public, unauthenticated pointer
+  // URL — independent of any backend / JWT (the authed client was deleted).
   AppStatus? appStatus;
   int _currentBuild = 0; // our build number (from package_info); 0 if unknown
   final Set<String> _dismissedBanners = {};
@@ -165,13 +174,12 @@ class AppState extends ChangeNotifier {
     await refreshAppStatus();
   }
 
-  /// Re-poll /app/status (best-effort; called on launch and on app resume).
+  /// Re-poll the update pointer (best-effort; called on launch and on app resume).
   Future<void> refreshAppStatus() async {
-    if (api == null) return;
-    try {
-      appStatus = AppStatus.fromJson(await api!.getAppStatus());
-      notifyListeners();
-    } catch (_) {/* best-effort — never disrupt the UI */}
+    final status = await UpdateService.fetchStatus();
+    if (status == null) return;
+    appStatus = status;
+    notifyListeners();
   }
 
   Future<void> dismissBanner(String id) async {
@@ -207,10 +215,8 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _init() async {
-    config = await BackendConfig.load();
-    session = await Session.load();
     paired = await PairedDevice.load();
-    _rebuildApi();
+    await _loadProfile();
     lastSynced = await LocalDb.latestSample();
     dbCounts = await LocalDb.counts();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
@@ -223,27 +229,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.
     unawaited(_loadAppStatus());
-    // The flusher is connection-INDEPENDENT: it just uploads whatever's queued in
-    // SQLite (and retries anything a prior tick failed to send). Start it as soon as
-    // we're authenticated so a backlog drains even if the live connection comes up via
-    // _reconnect rather than openSession.
-    if (isAuthenticated) _startFlusher();
-    if (isAuthenticated && isPaired) openSession();
-  }
-
-  void _rebuildApi() {
-    if (config == null || session == null) return;
-    api = ApiClient(config!, session!, onLoggedOut: _onLoggedOut);
-  }
-
-  void _onLoggedOut() {
-    // Refresh failed — session already cleared by ApiClient. Drop to login.
-    // The local upload queue persists and retries after re-login.
-    _keepAlive = false;
-    _stopFlusher();
-    engine.disconnect();
-    _log('Session expired — please sign in again.');
-    notifyListeners();
+    if (isPaired) openSession();
   }
 
   void _log(String line) {
@@ -254,81 +240,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── onboarding: backend choice ────────────────────────────────────────────────
-  Future<void> chooseBackend(String url) async {
-    config!
-      ..url = url.trim().isEmpty ? BackendConfig.defaultUrl : url.trim()
-      ..chosen = true;
-    await config!.save();
-    _rebuildApi();
-    notifyListeners();
-  }
-
-  Future<void> updateBackendUrl(String url) async {
-    config!.url = url.trim();
-    await config!.save();
-    _rebuildApi();
-    notifyListeners();
-  }
-
-  // ── auth ──────────────────────────────────────────────────────────────────────
-  Future<void> register({
-    required String email,
-    String? name,
-    int? age,
-    double? heightCm,
-    double? weightKg,
-  }) =>
-      api!.register(email: email, name: name, age: age, heightCm: heightCm, weightKg: weightKg);
-
-  Future<void> requestOtp(String email) => api!.requestOtp(email);
-
-  /// Verify OTP → session persisted by ApiClient. Returns true on success.
-  Future<void> verifyOtp(String email, String code) async {
-    await api!.verifyOtp(email, code);
-    _startFlusher();
-    notifyListeners();
-  }
-
-  Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> fields) async {
-    final u = await api!.patchProfile(fields);
-    notifyListeners();
-    return u;
-  }
-
-  Future<void> signOut() async {
-    _keepAlive = false;
-    _stopFlusher();
-    IosBleRestore.foregroundActive = false;
-    await EdgeTracking.stop();
-    await IosBleRestore.disarm();
-    await engine.disconnect();
-    await session!.clear();
-    notifyListeners();
-  }
-
   /// Called when the app goes to the background.
   ///
   /// iOS keeps an app alive in the background ONLY while it holds an active BLE
   /// connection with a subscribed characteristic (UIBackgroundModes: bluetooth-central).
   /// So we DELIBERATELY keep the live connection + streams up here instead of
   /// disconnecting — the band keeps pushing notifications, iOS resumes us per
-  /// notification, and the drain+upload continue continuously. (The old code called
-  /// `engine.disconnect()` here, which made iOS drop the Bluetooth assertion and suspend
-  /// us within ~34s, so sync only ever ran when the app was reopened.)
+  /// notification, and the local drain continues continuously.
   ///
   /// We still own the band, so the restore central must NOT arm a competing connect.
   /// `BleRestoreManager` is armed only as a RECOVERY path if the connection actually
   /// drops (band out of range / app jettisoned) — see [_onEngineState] / [_armRecovery].
   ///
-  /// On Android the Edge Tracking foreground service keeps the process + connection
-  /// alive, so the live drain just continues there too.
+  /// On Android the Edge Tracking foreground service keeps the process + connection alive.
   Future<void> pauseForBackground() async {
     _background = true;
     if (Platform.isAndroid) {
       // Android: ensure the Edge Tracking foreground service is up (idempotent) so the
-      // process + live connection survive backgrounding; the shared flusher keeps
-      // uploading. No periodic task, no restore central — the service IS the keep-alive.
+      // process + live connection survive backgrounding. The service IS the keep-alive.
       EdgeTracking.start();
       return;
     }
@@ -336,7 +265,7 @@ class AppState extends ChangeNotifier {
     if (engine.isConnected) {
       IosBleRestore.foregroundActive = true; // "app owns the band" — don't let restore compete
       await IosBleRestore.setOwnsBand(true);
-      _log('Backgrounded — holding live connection for continuous background sync');
+      _log('Backgrounded — holding live connection for continuous background capture');
     } else {
       // No live connection to hold — fall back to the restore path so iOS relaunches us
       // when the band reappears.
@@ -361,26 +290,6 @@ class AppState extends ChangeNotifier {
       if (_spotFrames.length < 8000) _spotFrames.add(raw.hex);
     }
     await LocalDb.insertRecord(raw, sample);
-  }
-
-  /// Start the session-long flusher (idempotent). On a COLD start (no timer yet) it kicks
-  /// once immediately so the first session doesn't wait a full interval, then runs every
-  /// _kFlushInterval. If the timer is already running — foreground-reclaim or a
-  /// mid-session reconnect, since the flusher survives both — this is a no-op and the
-  /// already-running timer carries the upload on its next tick (≤_kFlushInterval).
-  /// uploadPending() no-ops cheaply when nothing is queued, so the tick is unconditional.
-  /// Stopped on session teardown only (logout / signOut / unpair / endSession).
-  void _startFlusher() {
-    if (_flushTimer != null) return; // already running — timer survives background + reconnect
-    if (!uploading) unawaited(upload()); // immediate kick on cold start
-    _flushTimer = Timer.periodic(_kFlushInterval, (_) {
-      if (!uploading) unawaited(upload());
-    });
-  }
-
-  void _stopFlusher() {
-    _flushTimer?.cancel();
-    _flushTimer = null;
   }
 
   void _onEngineState(DeviceState s) {
@@ -420,20 +329,12 @@ class AppState extends ChangeNotifier {
     // Now that there's a band to alert about, ask for notification permission
     // (a natural moment; battery/charging alerts depend on it). Best-effort.
     unawaited(NotificationService.instance.ensurePermission());
-    final s = serial ?? device.serial;
-    if (config != null &&
-        (config!.deviceId.isEmpty || config!.deviceId == 'whoop-unknown') &&
-        s != null) {
-      config!.deviceId = s;
-      await config!.save();
-    }
     notifyListeners();
     await openSession();
   }
 
   Future<void> unpair() async {
     _keepAlive = false;
-    _stopFlusher();
     IosBleRestore.foregroundActive = false;
     await EdgeTracking.stop();
     await IosBleRestore.disarm();
@@ -483,18 +384,15 @@ class AppState extends ChangeNotifier {
 
   // ── session: drain history, go live, stay connected ──────────────────────────
   Future<void> openSession() async {
-    if (busy || paired == null || !isAuthenticated) return;
+    if (busy || paired == null) return;
     // Returning to the foreground with the connection still alive (kept during
-    // background): don't tear it down and reconnect — just reclaim ownership. The
-    // flusher kept running through the background, so uploads are already current;
-    // _startFlusher() below is a no-op (timer alive) and no explicit flush is needed.
+    // background): don't tear it down and reconnect — just reclaim ownership.
     final wasBackground = _background;
     _background = false;
     if (wasBackground && engine.isConnected) {
       IosBleRestore.foregroundActive = true;
       await IosBleRestore.setOwnsBand(true);
       EdgeTracking.start(); // Android: keep the foreground service up (idempotent)
-      _startFlusher(); // timer was running through background; this is a no-op if so
       // iOS can resume with the peripheral still flagged "connected" while its GATT
       // notifications died during suspension — UI shows connected but NO events arrive,
       // and only a kill+reopen (full reconnect) recovers. Trust DATA, not the flag: if a
@@ -503,9 +401,8 @@ class AppState extends ChangeNotifier {
       // re-subscribes (the only place setNotifyValue runs) and drains the gap.
       if (engine.sinceLastRx < const Duration(seconds: 30)) {
         // Healthy link → fast reclaim. But the fast path skips the band polls the full
-        // connect path runs, so the cached battery %/charging/strap-name/alarm go stale
-        // (charge only refreshed on a cold restart). Re-poll them in the background so the
-        // UI stays current without forcing a reconnect. Non-blocking; failures are benign.
+        // connect path runs, so the cached battery %/charging/strap-name/alarm go stale.
+        // Re-poll them in the background so the UI stays current. Non-blocking.
         unawaited(() async {
           try {
             await engine.getBattery();
@@ -529,7 +426,7 @@ class AppState extends ChangeNotifier {
     // The foreground guard stops a wake from fighting this live session for the band.
     IosBleRestore.foregroundActive = true;
     IosBleRestore.arm(paired!.remoteId);
-    _log('===== SESSION START ===== pending=${dbCounts['pending']} raw=${dbCounts['raw']}');
+    _log('===== SESSION START ===== raw=${dbCounts['raw']}');
     try {
       if (!await engine.connectToRemoteId(paired!.remoteId)) {
         lastError = 'Could not reach your band. Is it nearby and free '
@@ -541,17 +438,10 @@ class AppState extends ChangeNotifier {
       await engine.getStrapName(); // populate strap name + alarm for the Profile UI
       await engine.getAlarm();
       _log('Live session active.');
-
-      // Start the session-long flusher (it keeps running after the drain, flushing live
-      // records + retrying anything a tick failed to send). Replaces the old
-      // drain-scoped timer that stopped once history finished.
-      _startFlusher();
       final report = await engine.runSync();
       _log('Drained ${report.records} records in ${report.batches} batches '
           '(${report.complete ? "complete" : "idle-stopped"}).');
       dbCounts = await LocalDb.counts();
-      // No explicit upload here — the flusher (kicked on start, then every 60s) is the
-      // single upload path; the freshly-drained backlog goes up on its next tick.
     } catch (e) {
       lastError = e.toString();
     } finally {
@@ -564,10 +454,8 @@ class AppState extends ChangeNotifier {
     _reconnecting = true;
     try {
       // Keep trying for as long as we still want the link (a session is active) —
-      // a runner who left their phone behind can be out of range for an hour. The
-      // old 5-try (~30s) limit gave up long before they got back, so the band's
-      // offline backlog was never pulled until the next manual app open. Capped
-      // exponential backoff so we don't hammer the radio.
+      // a runner who left their phone behind can be out of range for an hour.
+      // Capped exponential backoff so we don't hammer the radio.
       int attempt = 0;
       while (_keepAlive && !engine.isConnected) {
         attempt++;
@@ -579,15 +467,12 @@ class AppState extends ChangeNotifier {
             IosBleRestore.foregroundActive = true;
             await IosBleRestore.setOwnsBand(true);
           }
-          _startFlusher();     // ensure live uploads run even on a reconnect-only path
           EdgeTracking.start(); // ensure the Android foreground service is up too
           // FULL drain (no short timeout): pull the ENTIRE offline backlog the band
-          // buffered to flash while we were out of range. A 30s cap silently cut a
-          // long gap (e.g. a phone-free run) short and lost the rest.
+          // buffered to flash while we were out of range.
           await engine.runSync();
           await engine.enableLiveStreams();
           dbCounts = await LocalDb.counts();
-          // Upload handled by the flusher (single path) — runs within the next tick.
           _log('Reconnected — backlog drained.');
           break;
         }
@@ -609,7 +494,6 @@ class AppState extends ChangeNotifier {
       await engine.enableLiveStreams();
       dbCounts = await LocalDb.counts();
       notifyListeners();
-      // Upload handled by the always-running flusher (single path), next tick ≤60s.
     } catch (e) {
       _log('Resync failed: $e');
     }
@@ -619,78 +503,10 @@ class AppState extends ChangeNotifier {
 
   Future<void> endSession() async {
     _keepAlive = false;
-    _stopFlusher();
     await engine.disconnect();
   }
 
-  // ── upload ───────────────────────────────────────────────────────────────────
-  bool uploading = false;
-
-  String get status {
-    if (uploading) return 'uploading';
-    return device.connection;
-  }
-
-  Future<void> upload() async {
-    if (!isAuthenticated || api == null) {
-      _log('Upload skipped — not signed in.');
-      return;
-    }
-    if (uploading) return;
-    uploading = true;
-    notifyListeners();
-    bool progressed = false;
-    try {
-      progressed = await _uploadInner();
-    } finally {
-      uploading = false;
-      notifyListeners();
-    }
-    // Backfill fast-drain: after a successful, progress-making pass that still leaves a
-    // large backlog (the band kept feeding flash records while we uploaded), re-drain
-    // promptly instead of waiting the full trickle interval. Gated on `progressed` so a
-    // 429 / network failure falls back to the steady 60 s timer's retry rather than
-    // spinning, and on `_flushTimer != null` so it only runs during an active session.
-    if (progressed &&
-        _flushTimer != null &&
-        (dbCounts['pending'] ?? 0) > kBacklogThreshold) {
-      Timer(_kBackfillFlushDelay, () {
-        if (_flushTimer != null && !uploading) unawaited(upload());
-      });
-    }
-  }
-
-  /// Returns true if a raw-record upload pass succeeded AND moved records (i.e. made
-  /// progress) — used to decide whether to keep fast-draining a backlog.
-  Future<bool> _uploadInner() async {
-    final uploader = Uploader(api!);
-    // Size the batch to the current backlog: big batches blast through a night's drain,
-    // small batches keep the steady trickle's payloads tiny (see uploader.dart).
-    final pending = (await LocalDb.counts())['pending'] ?? 0;
-    final result = await uploader.uploadPending(
-        batchSize: batchSizeForBacklog(pending), onChunk: () async {
-      dbCounts = await LocalDb.counts();
-      notifyListeners();
-    });
-    if (result.ok) {
-      // Suppress the every-tick "0/0" noise — the flusher polls on a steady cadence.
-      if (result.attempted > 0) {
-        _log('Uploaded ${result.accepted}/${result.attempted} records.');
-      }
-    } else {
-      lastError = 'Upload failed: ${result.error}';
-      _log(lastError!);
-    }
-    final ev = await uploader.uploadEvents();
-    if (ev.ok && ev.attempted > 0) {
-      _log('Uploaded ${ev.accepted} events.');
-    } else if (!ev.ok) {
-      _log('Event upload failed: ${ev.error}');
-    }
-    dbCounts = await LocalDb.counts();
-    notifyListeners();
-    return result.ok && result.attempted > 0;
-  }
+  String get status => device.connection;
 
   void _setBusy(bool b) {
     busy = b;
@@ -705,8 +521,8 @@ class AppState extends ChangeNotifier {
 
   // ── live HRV spot-check ──────────────────────────────────────────────────────
   // User taps "spot check": we enable wrist-gated optical + realtime records,
-  // collect live frames for [spotDuration]s, then POST them to /spotcheck which
-  // decodes RR + computes HRV server-side. Ephemeral — nothing is stored.
+  // collect live frames for [spotDuration]s, then hand them to the repo seam which
+  // (in the re-layer) decodes RR + computes HRV on-device. Ephemeral — nothing stored.
   static const int spotDuration = 60;
   bool spotActive = false;
   int spotRemaining = 0;             // seconds left in the current scan
@@ -756,9 +572,9 @@ class AppState extends ChangeNotifier {
     final frames = List<String>.from(_spotFrames);
     notifyListeners();
     try {
-      final res = api == null || frames.isEmpty
+      final res = repo == null || frames.isEmpty
           ? null
-          : await api!.spotCheck(frames);
+          : await repo!.spotCheck(frames);
       spotResult = res;
       if (res == null) {
         spotError = 'No reading captured — keep the band snug and still.';
@@ -766,7 +582,7 @@ class AppState extends ChangeNotifier {
         spotError = 'Not enough clean beats — try again, sitting still.';
       }
     } catch (e) {
-      spotError = 'Spot check failed: ${e is ApiException ? e.body : e}';
+      spotError = 'Spot check failed: ${e is RepositoryException ? e.body : e}';
     } finally {
       spotActive = false;
       notifyListeners();
@@ -786,6 +602,8 @@ class AppState extends ChangeNotifier {
 
   DateTime _lastLaPush = DateTime.fromMillisecondsSinceEpoch(0);
 
+  // Sourced from the LOCAL profile (no server). Fall back to representative
+  // defaults when a field isn't set yet. maxHr = 220 - age.
   int get _maxHr {
     final age = (user?['age'] as num?)?.toDouble() ?? 30.0;
     return (220 - age).round();
@@ -851,13 +669,11 @@ class AppState extends ChangeNotifier {
   }
 
   // ── band-gesture actions (in-app) ─────────────────────────────────────────────
-  // Driven by the double-tap dispatcher (lib/gestures). Native actions (media, torch,
-  // ring) go over the platform channel; these two act on our own app/backend, so they
-  // work on every platform — and a haptic confirms the tap registered.
+  // Driven by the double-tap dispatcher (lib/gestures).
 
-  /// Double-tap → start a workout if none is live, else end the active one. Mirrors
-  /// the UI start/stop flow (api session + local live engine), minus the type picker
-  /// (defaults to 'other'; the user can refine it in the app).
+  /// Double-tap → start a workout if none is live, else end the active one.
+  /// CLOUD EXCISED: the workout now lives purely in-app (the local live engine).
+  /// The repo seam start/end calls will be re-wired to local persistence later.
   Future<void> _toggleWorkoutFromGesture() async {
     try {
       if (activeWorkout != null) {
@@ -865,16 +681,15 @@ class AppState extends ChangeNotifier {
         stopWorkout();
         if (id != null) {
           try {
-            await api?.endWorkout(id);
-          } catch (_) {/* local already stopped; backend trues up on next sync */}
+            await repo?.endWorkout(id);
+          } catch (_) {/* seam not implemented yet; local already stopped */}
         }
       } else {
-        if (api == null) return;
         String? id;
         try {
-          final w = await api!.startWorkout('other');
-          id = w['workout_id'] as String?;
-        } catch (_) {/* still start locally so the user gets the live session */}
+          final w = await repo?.startWorkout('other');
+          id = w?['workout_id'] as String?;
+        } catch (_) {/* seam not implemented yet; still start locally */}
         startWorkout(workoutId: id, type: 'other');
       }
       await HapticFeedback.mediumImpact();
@@ -886,8 +701,8 @@ class AppState extends ChangeNotifier {
   /// Double-tap → stamp a timestamped tag onto today's journal (read-modify-write so
   /// existing tags/note survive). "Remember this" for a spike, a set, a feeling.
   Future<void> _markMomentFromGesture() async {
-    final a = api;
-    if (a == null) return;
+    final r = repo;
+    if (r == null) return;
     try {
       final now = DateTime.now();
       final date = '${now.year.toString().padLeft(4, '0')}-'
@@ -898,16 +713,16 @@ class AppState extends ChangeNotifier {
       List<String> tags = [];
       String note = '';
       try {
-        final journal = await a.getJournal(range: '7d');
+        final journal = await r.getJournal(range: '7d');
         final today = journal.firstWhere(
-          (r) => r['date'] == date,
+          (e) => e['date'] == date,
           orElse: () => <String, dynamic>{},
         );
         tags = (today['tags'] as List?)?.map((e) => e.toString()).toList() ?? [];
         note = (today['note'] as String?) ?? '';
-      } catch (_) {/* fresh day / offline — start clean */}
+      } catch (_) {/* fresh day / seam not implemented — start clean */}
       tags.add('moment $hhmm');
-      await a.postJournal(date, tags, note);
+      await r.postJournal(date, tags, note);
       _log('[gesture] moment marked at $hhmm');
       await HapticFeedback.mediumImpact();
     } catch (e) {
@@ -924,10 +739,9 @@ class AppState extends ChangeNotifier {
     if (w.currentHr > w.maxHrSeen) w.maxHrSeen = w.currentHr;
 
     if (w.currentHr > 0) {
-      // Calorie burn formula (estimate per second):
-      // Male: [(-55.0969 + (0.6309 * HR) + (0.1988 * W) + (0.2017 * A)) / 4.184] / 60
-      // Female: [(-20.4022 + (0.4472 * HR) - (0.1263 * W) + (0.074 * A)) / 4.184] / 60
-      final u = user ?? {};
+      // Calorie burn formula (estimate per second). Personalized from the LOCAL
+      // profile, with representative fallbacks (30y, 70kg, male) when unset.
+      final u = user ?? const {};
       final age = (u['age'] as num?)?.toDouble() ?? 30.0;
       final weight = (u['weight_kg'] as num?)?.toDouble() ?? 70.0;
       final female = u['sex'] == 'f';
@@ -940,9 +754,8 @@ class AppState extends ChangeNotifier {
       }
       // Add per-second slice (kcal/min / 60). Clamp to 0 in case of low HR.
       w.calories += (kcalMin.clamp(0.0, 30.0) / 60.0);
-      
-      // Rough strain accumulation (experimental):
-      // Simple linear mapping of HRR% (HR Reserve) to strain units per second.
+
+      // Rough strain accumulation (experimental): HRR% (HR Reserve) → strain/sec.
       final maxHr = 220.0 - age;
       final rhr = (u['resting_hr'] as num?)?.toDouble() ?? 60.0;
       final hrr = (w.currentHr - rhr) / (maxHr - rhr).clamp(1.0, 200.0);
@@ -970,7 +783,7 @@ class AppState extends ChangeNotifier {
 class LiveWorkoutState {
   final DateTime startTime;
   final double targetKcal;
-  final String? workoutId; // backend session id (for the breakdown on finish)
+  final String? workoutId; // local session id (for the breakdown on finish)
   final String type;       // exercise type label
   Duration elapsed = Duration.zero;
   double calories = 0.0;

@@ -44,7 +44,7 @@ class _FetchState extends State<_Fetch> {
     _go();
   }
   Future<void> _go() async {
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) return;
     try {
       final d = await widget.load(api);
@@ -572,7 +572,7 @@ class _SectionExtrasState extends State<SectionExtras> {
   }
 
   Future<void> _go() async {
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) return;
     try {
       final r = await api.getRecords();

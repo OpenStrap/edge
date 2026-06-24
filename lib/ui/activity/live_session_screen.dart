@@ -203,7 +203,7 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
     final app = context.read<AppState>();
     final id = widget.workoutId ?? app.activeWorkout?.workoutId;
     app.stopWorkout(); // clears local + ends iOS Live Activity
-    try { if (id != null) await app.api?.endWorkout(id); } catch (_) {}
+    try { if (id != null) await app.repo?.endWorkout(id); } catch (_) {}
     if (!mounted) return;
     if (id != null) {
       Navigator.of(context).pushReplacement(themedRoute((_) => WorkoutDetailScreen(id: id)));

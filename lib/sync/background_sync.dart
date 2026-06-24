@@ -1,46 +1,34 @@
-// Headless sync — runs the connect → drain → upload flow with NO UI, NO Provider.
-// "Comes, does its job, goes." Invoked by the iOS CoreBluetooth-restoration RECOVERY
-// path (ios_ble_restore.dart) when the band reappears after the live connection dropped.
+// Headless LOCAL drain — runs the connect → drain → store-locally flow with NO UI,
+// NO Provider, and (since the cloud excision) NO upload. "Comes, does its job, goes."
+// Invoked by the iOS CoreBluetooth-restoration RECOVERY path (ios_ble_restore.dart)
+// when the band reappears after the live connection dropped.
 //
-// There is NO OS periodic scheduler anymore (no WorkManager 15-min task, no BGTask):
-// continuous sync is the kept-alive live connection + the persistent flusher in
-// AppState. This is purely the relaunch-recovery fallback.
-//
-// Connectivity-agnostic by design: it does NOT assume the strap stays connected.
-// It connects-by-id if reachable, drains whatever the band buffered to flash
-// (non-destructive cursor — catches up everything since last time), uploads, and
-// disconnects. A missed run is harmless; the next reconnect catches up.
+// There is NO OS periodic scheduler (no WorkManager task, no BGTask): continuous
+// capture is the kept-alive live connection in AppState. This is purely the
+// relaunch-recovery fallback that pulls the band's offline flash backlog into the
+// local SQLite store (lib/data/db.dart), the system of record. A missed run is
+// harmless; the next reconnect catches up from the non-destructive cursor.
 
 import 'package:flutter/widgets.dart';
 
 import '../ble/ble_engine.dart';
 import '../data/db.dart';
-import '../net/api_client.dart';
-import 'config.dart';
-import 'uploader.dart';
+import 'paired_device.dart';
 
-/// One headless sync pass. Safe to call from a background isolate. Never throws.
+/// One headless LOCAL drain pass. Safe to call from a background isolate. Never
+/// throws. Connects-by-id if reachable, drains whatever the band buffered to
+/// flash into local storage (non-destructive cursor — catches up everything since
+/// last time), and disconnects. No network.
 Future<bool> runHeadlessSync() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    final config = await BackendConfig.load();
-    final session = await Session.load();
     final paired = await PairedDevice.load();
-    if (!session.isValid || paired == null) {
-      debugPrint('[bgsync] not signed in / not paired — nothing to do.');
+    if (paired == null) {
+      debugPrint('[bgsync] not paired — nothing to do.');
       return true;
     }
 
-    final api = ApiClient(config, session); // no onLoggedOut in headless mode
-    final uploader = Uploader(api);
-
-    // 1. Flush any backlog first — covers the case where a prior run captured
-    //    records but the upload leg failed (offline, etc.).
-    await uploader.uploadPending(
-        batchSize: batchSizeForBacklog((await LocalDb.counts())['pending'] ?? 0));
-    await uploader.uploadEvents();
-
-    // 2. Connect → drain → upload. No live streams (battery): in and out.
+    // Connect → drain → store. No live streams (battery): in and out.
     final engine = BleEngine(
       onRecord: (sample, raw) => LocalDb.insertRecord(raw, sample),
       onState: (_) {},
@@ -60,15 +48,10 @@ Future<bool> runHeadlessSync() async {
       // short, the drain persists what it got (flush-before-ACK) and the next wake
       // resumes from the cursor — so a longer budget only helps, never hurts.
       await engine.runSync();
-      // Post-drain: the band's offline flash backlog is now in local DB — a full night
-      // is thousands of records, so size up the batch (backfill mode).
-      await uploader.uploadPending(
-          batchSize: batchSizeForBacklog((await LocalDb.counts())['pending'] ?? 0));
-      await uploader.uploadEvents();
     } finally {
       await engine.disconnect();
     }
-    debugPrint('[bgsync] done.');
+    debugPrint('[bgsync] done (local drain only).');
     return true;
   } catch (e) {
     debugPrint('[bgsync] error (ignored): $e');

@@ -6,7 +6,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../net/api_client.dart';
+import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
@@ -55,7 +55,7 @@ class _JournalScreenState extends State<JournalScreen> {
 
   // ── data ────────────────────────────────────────────────────────────────────
 
-  ApiClient? get _api => context.read<AppState>().api;
+  LocalRepository? get _api => context.read<AppState>().repo;
 
   Future<void> _load() async {
     final api = _api;
@@ -99,7 +99,7 @@ class _JournalScreenState extends State<JournalScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e is ApiException ? e.body : e.toString();
+        _error = e is RepositoryException ? e.body : e.toString();
       });
     }
   }
@@ -555,7 +555,7 @@ String _prettyDate(String iso) {
 }
 
 String _shortErr(Object e) {
-  final s = e is ApiException ? e.body : e.toString();
+  final s = e is RepositoryException ? e.body : e.toString();
   return s.length > 80 ? '${s.substring(0, 80)}…' : s;
 }
 

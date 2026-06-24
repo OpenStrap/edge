@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/metric.dart';
 import '../../models/payloads.dart';
-import '../../net/api_client.dart';
+import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
@@ -39,10 +39,10 @@ class _ActivityScreenState extends State<ActivityScreen>
   String get cacheKey => 'activity';
 
   @override
-  Future<Object?> fetch(ApiClient api) async {
-    final strain = await api.getStrain();
+  Future<Object?> fetch(LocalRepository repo) async {
+    final strain = await repo.getStrain();
     try {
-      final sess = await api.getSessions();
+      final sess = await repo.getSessions();
       if (mounted) {
         setState(() => _sessions = sess.map((e) => Session(e)).toList());
       }

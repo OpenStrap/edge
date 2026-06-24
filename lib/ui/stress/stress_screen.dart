@@ -7,7 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../net/api_client.dart';
+import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
@@ -37,7 +37,7 @@ class _StressScreenState extends State<StressScreen> {
   }
 
   Future<void> _load() async {
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) {
       setState(() { _phase = _Phase.error; _error = 'Not signed in.'; });
       return;
@@ -60,7 +60,7 @@ class _StressScreenState extends State<StressScreen> {
       if (!mounted) return;
       setState(() {
         _phase = _Phase.error;
-        _error = e is ApiException ? e.body : e.toString();
+        _error = e is RepositoryException ? e.body : e.toString();
       });
     }
   }

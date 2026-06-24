@@ -608,6 +608,20 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "9.4.1"
+  openstrap_analytics:
+    dependency: "direct main"
+    description:
+      path: "../openstrap-analytics-dart"
+      relative: true
+    source: path
+    version: "1.0.0"
+  openstrap_protocol:
+    dependency: "direct main"
+    description:
+      path: "../openstrap-protocol-dart"
+      relative: true
+    source: path
+    version: "1.0.0"
   ota_update:
     dependency: "direct main"
     description:

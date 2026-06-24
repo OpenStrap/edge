@@ -16,12 +16,15 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart';
 
-import '../protocol/commands.dart';
-import '../protocol/constants.dart';
-import '../protocol/framing.dart';
-import '../protocol/records.dart';
 import '../data/models.dart';
+
+// Little-endian u32 reader. The package keeps `u32` private (it isn't on the
+// public barrel), and the engine only needs it to peek the record-counter / ts
+// out of a raw historical frame header — so we inline the one-liner here.
+int u32(Uint8List b, int o) =>
+    b.buffer.asByteData(b.offsetInBytes, b.length).getUint32(o, Endian.little);
 
 typedef SampleSink = Future<void> Function(Sample? sample, RawRecord raw);
 typedef StateSink = void Function(DeviceState state);

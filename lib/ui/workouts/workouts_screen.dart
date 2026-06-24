@@ -85,7 +85,7 @@ Future<void> startWorkoutFlow(BuildContext context) async {
   );
   if (type == null || !context.mounted) return;
   final app = context.read<AppState>();
-  final api = app.api;
+  final api = app.repo;
   if (api == null) return;
   try {
     final w = await api.startWorkout(type);
@@ -150,7 +150,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
   }
 
   Future<void> _load() async {
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) return;
     setState(() => _loading = true);
     try {
@@ -232,7 +232,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
     if (id == null) return;
     final t = await pickWorkoutType(context, title: 'Correct workout type');
     if (t == null || !mounted) return;
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) return;
     try { await api.setWorkoutType(id, t); _load(); } catch (_) {/* retryable */}
   }
@@ -275,7 +275,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       ),
     );
     if (ok != true || !mounted) return false;
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) return false;
     try { await api.deleteWorkout(id); _load(); return true; }
     catch (_) { return false; }
@@ -474,7 +474,7 @@ class WorkoutDetailScreen extends StatelessWidget {
       ),
     );
     if (ok != true || !context.mounted) return;
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) return;
     try { await api.deleteWorkout(id); if (context.mounted) Navigator.of(context).pop(); } catch (_) {}
   }
@@ -511,7 +511,7 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
   @override
   void initState() { super.initState(); _go(); }
   Future<void> _go() async {
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) return;
     try { final d = await api.getWorkout(widget.id); if (mounted) setState(() { _d = d; _loading = false; }); }
     catch (_) { if (mounted) setState(() => _loading = false); }

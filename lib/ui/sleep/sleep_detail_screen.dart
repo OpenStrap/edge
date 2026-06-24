@@ -4,7 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../net/api_client.dart';
+import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
@@ -56,7 +56,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   }
 
   Future<void> _load() async {
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) {
       setState(() {
         _phase = _Phase.error;
@@ -80,7 +80,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       if (!mounted) return;
       setState(() {
         _phase = _Phase.error;
-        _error = e is ApiException ? e.body : e.toString();
+        _error = e is RepositoryException ? e.body : e.toString();
       });
     }
   }

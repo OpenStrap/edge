@@ -6,7 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../net/api_client.dart';
+import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
@@ -47,17 +47,13 @@ class _StepGoalScreenState extends State<StepGoalScreen> {
 
   Future<void> _save() async {
     final app = context.read<AppState>();
-    if (app.api == null) {
-      Navigator.of(context).maybePop();
-      return;
-    }
     setState(() => _saving = true);
     try {
-      // Routed through AppState so session.user updates and listeners refresh.
+      // Routed through AppState so the LOCAL profile updates + listeners refresh.
       await app.updateProfile({'step_goal': _goal});
       if (!mounted) return;
       Navigator.of(context).pop(_goal);
-    } on ApiException catch (e) {
+    } on RepositoryException catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(

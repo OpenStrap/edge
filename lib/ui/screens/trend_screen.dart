@@ -78,7 +78,7 @@ class _TrendTodayCardState extends State<_TrendTodayCard> {
   @override
   void initState() { super.initState(); _go(); }
   Future<void> _go() async {
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) return;
     try { final d = await api.getTrend(widget.metric, scale: 'week'); if (mounted) setState(() { _d = d; _loading = false; }); }
     catch (_) { if (mounted) setState(() => _loading = false); }

@@ -8,7 +8,6 @@ import 'theme/theme_controller.dart';
 import 'theme/theme_switcher.dart';
 import 'theme/tokens.dart';
 import 'ui/kit/kit.dart';
-import 'ui/onboarding_screens.dart';
 import 'ui/pairing_screen.dart';
 import 'ui/today/today_screen.dart';
 import 'ui/screens/screens.dart';
@@ -47,7 +46,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     if (state == AppLifecycleState.resumed) {
       app.maybeFinishFromLiveActivity();
       app.refreshAppStatus(); // re-check OTA + admin banner on every foreground
-      if (app.isAuthenticated && app.isPaired) app.openSession();
+      if (app.isPaired) app.openSession();
     } else if (state == AppLifecycleState.paused) {
       // Backgrounded: hand the band to the iOS restore path so it can wake-and-drain
       // in the background (no-op on Android, where the foreground service holds it).
@@ -71,7 +70,8 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   }
 }
 
-/// Onboarding gate: backend choice ("the catch") → auth → profile → pairing → app.
+/// Onboarding gate: pairing → app. CLOUD EXCISED — the old backend / auth /
+/// profile gate states are gone; once a band is paired we go straight to the shell.
 class _Gate extends StatelessWidget {
   const _Gate();
   @override
@@ -92,12 +92,6 @@ class _Gate extends StatelessWidget {
         return Scaffold(
           body: Center(child: CircularProgressIndicator(color: AppColors.coral)),
         );
-      case AppRoute.backend:
-        return BackendChoiceScreen();
-      case AppRoute.auth:
-        return AuthScreen();
-      case AppRoute.profile:
-        return ProfileSetupScreen();
       case AppRoute.pairing:
         return PairingScreen();
       case AppRoute.shell:

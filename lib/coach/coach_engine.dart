@@ -2,9 +2,14 @@
 // (BYOK), runs a tool-calling loop over read-only data tools + a plot tool + action
 // tools (writes require user confirmation), and streams items back to the UI.
 //
-// Data flow: user asks → model calls data tools (we hit the authed backend) → model
-// reasons → optionally calls plot_chart with a figure it built → optionally proposes
-// an action (we confirm with the user) → model returns the final text.
+// Data flow: user asks → model calls data tools (we read via the LocalRepository
+// seam) → model reasons → optionally calls plot_chart with a figure it built →
+// optionally proposes an action (we confirm) → model returns the final text.
+//
+// CLOUD EXCISED: the data tools used to hit the authed backend via ApiClient. They
+// now go through LocalRepository (lib/data/local_repository.dart) — the same
+// surface, implemented on-device by the future analytics re-layer. The LLM call
+// itself still uses `http` directly (BYOK, the user's own provider — not our backend).
 
 import 'dart:convert';
 import 'dart:io';
@@ -12,7 +17,7 @@ import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
-import '../net/api_client.dart';
+import '../data/local_repository.dart';
 import 'coach_config.dart';
 import 'coach_prompt.dart';
 
@@ -145,7 +150,7 @@ class CoachSessionMeta {
 
 class CoachEngine {
   final CoachConfig config;
-  final ApiClient api;
+  final LocalRepository api;
   final String storageKey; // per-user, so accounts don't share a transcript
   final http.Client _http = http.Client();
 
@@ -508,7 +513,7 @@ class CoachEngine {
           return 'Unknown tool: $name';
       }
     } catch (e) {
-      return 'Tool $name failed: ${e is ApiException ? e.body : e}';
+      return 'Tool $name failed: ${e is RepositoryException ? e.body : e}';
     }
   }
 

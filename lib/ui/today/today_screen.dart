@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/metric.dart';
 import '../../models/payloads.dart';
-import '../../net/api_client.dart';
+import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
@@ -41,19 +41,19 @@ class _TodayScreenState extends State<TodayScreen>
   String get cacheKey => 'today';
 
   @override
-  Future<Object?> fetch(ApiClient api) async {
-    final today = await api.getToday();
-    // Push a fresh snapshot + auth to the home/lock-screen widget (best-effort).
-    // Auth lets the widget self-refresh /today ~hourly even when the app is closed.
-    WidgetService.saveAuth(api.config.url, api.session.accessJwt);
+  Future<Object?> fetch(LocalRepository repo) async {
+    final today = await repo.getToday();
+    // Push a fresh snapshot to the home/lock-screen widget (best-effort).
+    // CLOUD EXCISED: the widget's cloud self-refresh (saveAuth) is gone — the
+    // re-layer will push computed snapshots locally instead.
     WidgetService.push(TodayData.fromJson(today));
     // HR chart + notification count are best-effort — never fail the screen.
     try {
-      final chart = await api.getChart('hr');
+      final chart = await repo.getChart('hr');
       if (mounted) setState(() => _hr = ChartSeries.fromJson(chart));
     } catch (_) {}
     try {
-      final n = await api.getNotifications();
+      final n = await repo.getNotifications();
       if (mounted) setState(() => _unread = (n['unread'] as num?)?.toInt() ?? 0);
     } catch (_) {}
     return today;
@@ -202,7 +202,7 @@ class _TodayScreenState extends State<TodayScreen>
               themedRoute((_) => const NotificationsScreen()));
           if (!mounted) return;
           try {
-            final n = await context.read<AppState>().api?.getNotifications();
+            final n = await context.read<AppState>().repo?.getNotifications();
             if (mounted) setState(() => _unread = (n?['unread'] as num?)?.toInt() ?? 0);
           } catch (_) {}
         }),

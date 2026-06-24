@@ -154,7 +154,7 @@ class _DrillLevelState extends State<_DrillLevel> {
   }
 
   Future<void> _load() async {
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) return;
     try {
       final d = await api.getTrend(widget.metric, scale: widget.scale, anchor: widget.anchor);

@@ -237,8 +237,9 @@ class ProfileScreen extends StatelessWidget {
             const SizedBox(height: Sp.x7),
           ],
 
-          // ── Backend ──────────────────────────────────────────────────
-          const SectionHeader('Backend'),
+          // ── Storage ──────────────────────────────────────────────────
+          // CLOUD EXCISED: there is no backend. Everything lives on this device.
+          const SectionHeader('Storage'),
           ProCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,7 +251,7 @@ class ProfileScreen extends StatelessWidget {
                       color: AppColors.surfaceAlt,
                       borderRadius: BorderRadius.circular(R.chip),
                     ),
-                    child: AppIcon(Ic.server,
+                    child: AppIcon(Ic.shield,
                         size: 20, color: AppColors.inkSoft),
                   ),
                   const SizedBox(width: Sp.x3),
@@ -258,9 +259,9 @@ class ProfileScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Self-hosted server', style: AppText.title),
+                        Text('On this device', style: AppText.title),
                         const SizedBox(height: 2),
-                        Text(app.config?.url ?? '—',
+                        Text('Local-first — no cloud',
                             style: AppText.caption,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis),
@@ -270,8 +271,8 @@ class ProfileScreen extends StatelessWidget {
                 ]),
                 const SizedBox(height: Sp.x3),
                 Text(
-                  'Your data lives on this server. It can\'t be migrated, so the '
-                  'backend is fixed for this account.',
+                  'Your raw band data and metrics are stored entirely on this '
+                  'phone. Nothing is uploaded to a server.',
                   style: AppText.captionMuted,
                 ),
               ],
@@ -481,7 +482,8 @@ class _DeviceHero extends StatelessWidget {
 
     final d = app.device;
     final conn = d.connection;
-    final (dotColor, statusText) = _status(conn, app.uploading);
+    // CLOUD EXCISED: there is no upload status anymore — connection state only.
+    final (dotColor, statusText) = _status(conn, false);
     final batteryPct = d.batteryPct;
     final wristOn = d.wristOn;
 

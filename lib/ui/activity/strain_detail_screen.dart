@@ -4,7 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../net/api_client.dart';
+import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
@@ -36,7 +36,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
   }
 
   Future<void> _load() async {
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) {
       setState(() {
         _phase = _Phase.error;
@@ -59,7 +59,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
       if (!mounted) return;
       setState(() {
         _phase = _Phase.error;
-        _error = e is ApiException ? e.body : e.toString();
+        _error = e is RepositoryException ? e.body : e.toString();
       });
     }
   }
@@ -612,7 +612,7 @@ class _FitnessModelCardState extends State<_FitnessModelCard> {
   @override
   void initState() { super.initState(); _go(); }
   Future<void> _go() async {
-    final api = context.read<AppState>().api;
+    final api = context.read<AppState>().repo;
     if (api == null) { setState(() => _loading = false); return; }
     try {
       final f = await api.getTrend('fitness', scale: 'quarter');
