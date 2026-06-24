@@ -11,6 +11,8 @@ import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
+import '../broadcast/broadcast_hr_screen.dart';
+import '../strava/strava_screen.dart';
 import '../today/step_goal_screen.dart';
 import 'gesture_section.dart';
 import 'notification_relay_section.dart';
@@ -139,6 +141,22 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 ),
               ),
+            ),
+          ),
+
+          const SizedBox(height: Sp.x7),
+
+          // ── Integrations ─────────────────────────────────────────────
+          const SectionHeader('Integrations'),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+                horizontal: Sp.x5, vertical: Sp.x2),
+            child: DetailRow(
+              icon: Ic.activity,
+              label: 'Strava',
+              value: 'Rides & workouts',
+              onTap: () => Navigator.of(context)
+                  .push(themedRoute((_) => const StravaScreen())),
             ),
           ),
 
@@ -646,6 +664,21 @@ class _DeviceSheet extends StatelessWidget {
           ),
         const _HairDivider(),
         DetailRow(
+          icon: Ic.bluetooth,
+          label: 'Find my band',
+          value: connected ? 'Buzz it' : 'Connect first',
+          onTap: connected ? () => _findMyBand(context, live) : null,
+        ),
+        const _HairDivider(),
+        DetailRow(
+          icon: Ic.pulse,
+          label: 'Broadcast HR',
+          value: live.isBroadcastingHr ? 'On' : 'To bike computer',
+          onTap: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const BroadcastHrScreen())),
+        ),
+        const _HairDivider(),
+        DetailRow(
           icon: Ic.info,
           label: 'Serial',
           value: live.device.serial ?? live.paired?.serial ?? '—',
@@ -707,6 +740,15 @@ class _DeviceSheet extends StatelessWidget {
       if (context.mounted) _snack(context, 'Renamed to "$name".');
     } catch (e) {
       if (context.mounted) _snack(context, 'Rename failed: $e');
+    }
+  }
+
+  Future<void> _findMyBand(BuildContext context, AppState app) async {
+    try {
+      await app.buzzBand();
+      if (context.mounted) _snack(context, 'Buzzing your band…');
+    } catch (e) {
+      if (context.mounted) _snack(context, 'Buzz failed: $e');
     }
   }
 

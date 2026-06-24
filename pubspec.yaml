@@ -14,6 +14,10 @@ dependencies:
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.35.5
 
+  # BLE peripheral mode — lets the phone re-broadcast the band's live HR as a
+  # standard Heart Rate Service (0x180D) so bike computers / gym kit can read it.
+  ble_peripheral: ^2.0.0
+
   # Local raw-first storage.
   sqflite: ^2.4.1
   path: ^1.9.0
