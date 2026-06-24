@@ -29,9 +29,11 @@ class LocalDb {
         await _createSamples(db);
         await db.execute('CREATE INDEX idx_samples_ts ON samples(ts)');
         await _createEvents(db);
+        await _createDerived(db);
       },
       onUpgrade: (db, oldV, newV) async {
         if (oldV < 2) await _createEvents(db);
+        if (oldV < 5) await _createDerived(db);
         if (oldV < 3) {
           // Re-key raw_records by frame hex so LIVE packets (0x28/0x33) — which
           // have no per-record counter — can be queued without PK collisions.
@@ -49,8 +51,72 @@ class LocalDb {
           await db.execute('CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts)');
         }
       },
-      version: 4,
+      version: 5,
     );
+  }
+
+  // derived — LOCAL-mode computed results (the device runs the Rust analytics core
+  // on its raw and stores the outputs here, PERMANENT). Generic (date,kind)→json so
+  // adding a new metric never needs a migration. kind = 'daily'|'sleep'|'sessions'|
+  // 'baselines'|'hrv'|'frontier:<name>'… payload = the metric's JSON.
+  static Future<void> _createDerived(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS derived (
+        date TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (date, kind)
+      )
+    ''');
+  }
+
+  /// Upsert a computed result for a (date, kind). Idempotent (last write wins).
+  static Future<void> upsertDerived(String date, String kind, String payloadJson) async {
+    final db = await instance;
+    await db.insert(
+      'derived',
+      {'date': date, 'kind': kind, 'payload': payloadJson, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Read one derived payload (JSON string) or null.
+  static Future<String?> getDerived(String date, String kind) async {
+    final db = await instance;
+    final rows = await db.query('derived',
+        columns: ['payload'], where: 'date = ? AND kind = ?', whereArgs: [date, kind], limit: 1);
+    return rows.isEmpty ? null : rows.first['payload'] as String;
+  }
+
+  /// Read a kind across a date range (inclusive), ascending.
+  static Future<List<Map<String, dynamic>>> getDerivedRange(String kind, String fromDate, String toDate) async {
+    final db = await instance;
+    return db.query('derived',
+        where: 'kind = ? AND date >= ? AND date <= ?', whereArgs: [kind, fromDate, toDate], orderBy: 'date ASC');
+  }
+
+  /// Which dates already have a derived 'daily' row (so prune never drops un-derived raw).
+  static Future<Set<String>> derivedDates() async {
+    final db = await instance;
+    final rows = await db.query('derived', columns: ['date'], where: "kind = 'daily'");
+    return rows.map((r) => r['date'] as String).toSet();
+  }
+
+  /// All stored raw frames (hex + capture time) for the LOCAL compute pipeline to
+  /// decode + derive. Ordered oldest-first. Local mode keeps raw regardless of upload.
+  static Future<List<Map<String, dynamic>>> rawHexForCompute({int limit = 200000}) async {
+    final db = await instance;
+    return db.query('raw_records',
+        columns: ['hex', 'packet_type', 'captured_at'], orderBy: 'captured_at ASC', limit: limit);
+  }
+
+  /// Prune raw older than [cutoffMs] — ONLY rows the caller has confirmed are derived
+  /// (LocalPipeline passes raw captured before cutoff for days present in derivedDates()).
+  /// Enforces the "never prune raw before its day is derived" invariant.
+  static Future<int> pruneRawBefore(int cutoffMs) async {
+    final db = await instance;
+    return db.rawDelete('DELETE FROM raw_records WHERE captured_at < ? AND uploaded = 1', [cutoffMs]);
   }
 
   // samples — header-only record index (counter, ts, hr). The band is a raw pipe;

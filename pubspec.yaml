@@ -25,6 +25,7 @@ dependencies:
   # State + small settings persistence.
   provider: ^6.1.2
   shared_preferences: ^2.3.3
+  ffi: ^2.1.3
 
   # Charts (for the future server-analytics view).
   fl_chart: ^0.69.2

@@ -1,0 +1,18 @@
+[package]
+name = "osc_edge"
+version = "0.1.0"
+edition = "2021"
+description = "OpenStrap edge FFI glue — exposes the protocol decoder + analytics core to Flutter via a tiny C-ABI (dart:ffi). Native counterpart of the cloud wasm build."
+
+[lib]
+# staticlib → iOS; cdylib → Android + macOS/host .dylib (used by the dart:ffi test).
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+openstrap-protocol = { path = "../../openstrap-protocol" }
+openstrap-core = { path = "../../openstrap-analytics/core" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
