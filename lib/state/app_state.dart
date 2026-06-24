@@ -18,6 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_status.dart';
 import '../ble/ble_engine.dart';
+import '../ble/hr_broadcast.dart';
 import '../ble/ios_ble_restore.dart';
 import '../data/db.dart';
 import '../gestures/gesture_settings.dart';
@@ -473,6 +474,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Vibrate the band briefly so you can locate it ("find my band"). Best-effort;
+  /// needs a live connection. Sends only the safe haptic-pattern command — never
+  /// touches flash, optical LEDs, or any guarded opcode.
+  Future<void> buzzBand() async {
+    if (!isConnected) throw Exception('Connect to your strap first');
+    await engine.buzz();
+  }
+
   Future<void> renameStrap(String name) async {
     if (!isConnected) throw Exception('Connect to your strap first');
     await engine.setStrapName(name);
@@ -778,6 +787,49 @@ class AppState extends ChangeNotifier {
       unawaited(engine.disableLiveStreams());
     }
     _spotEnabledStreams = false;
+  }
+
+  // ── live HR broadcast (phone → bike computer / gym equipment) ────────────────
+  // Re-broadcast the band's live HR as a standard BLE Heart Rate Monitor, so a
+  // Wahoo/Garmin/gym machine pairs with the phone like a chest strap. Best with
+  // the app foregrounded (iOS limits background BLE peripheral advertising).
+  HrBroadcaster? _hrBroadcaster;
+  Timer? _hrBroadcastTimer;
+  bool _broadcastEnabledStreams = false;
+
+  bool get isBroadcastingHr => _hrBroadcaster?.isAdvertising ?? false;
+  int get hrBroadcastSubscribers => _hrBroadcaster?.subscribers ?? 0;
+  int get liveHrBpm => device.liveHr ?? 0;
+
+  Future<void> startHrBroadcast() async {
+    if (!isConnected) throw Exception('Connect to your strap first');
+    _hrBroadcaster ??= HrBroadcaster(onChange: notifyListeners);
+    if (!await _hrBroadcaster!.isSupported()) {
+      throw Exception("This phone can't broadcast Bluetooth HR.");
+    }
+    // Reuse a running workout's streams; else turn live HR on ourselves.
+    if (activeWorkout == null) {
+      await engine.enableLiveStreams();
+      _broadcastEnabledStreams = true;
+    }
+    await _hrBroadcaster!.start();
+    _hrBroadcastTimer?.cancel();
+    _hrBroadcastTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final hr = device.liveHr ?? 0;
+      if (hr > 0) unawaited(_hrBroadcaster!.pushHr(hr));
+    });
+    notifyListeners();
+  }
+
+  Future<void> stopHrBroadcast() async {
+    _hrBroadcastTimer?.cancel();
+    _hrBroadcastTimer = null;
+    await _hrBroadcaster?.stop();
+    if (_broadcastEnabledStreams && activeWorkout == null && !_spotEnabledStreams) {
+      unawaited(engine.disableLiveStreams());
+    }
+    _broadcastEnabledStreams = false;
+    notifyListeners();
   }
 
   // ── live session coach ───────────────────────────────────────────────────────

@@ -346,6 +346,22 @@ class ApiClient {
     return {if (from != null) 'from': '$from', if (to != null) 'to': '$to'};
   }
 
+  // ── Strava ───────────────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> stravaStatus() => _getObj('/strava/status');
+  Future<Map<String, dynamic>> stravaConnect() => _getObj('/strava/connect');
+  Future<Map<String, dynamic>> stravaSync() => _getObj('/strava/sync');
+
+  Future<List<Map<String, dynamic>>> stravaActivities() async {
+    final r = await _getObj('/strava/activities');
+    return ((r['activities'] as List?) ?? const []).cast<Map<String, dynamic>>();
+  }
+
+  Future<void> stravaDisconnect() async {
+    final resp =
+        await _authed((h) => _client.post(_u('/strava/disconnect'), headers: h));
+    if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
+  }
+
   Future<Map<String, dynamic>> _getObj(String path, [Map<String, String>? q]) async {
     final resp = await _authed((h) => _client.get(_u(path, q), headers: h));
     if (resp.statusCode != 200) throw ApiException(resp.statusCode, resp.body);
