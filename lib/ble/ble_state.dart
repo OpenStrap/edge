@@ -5,8 +5,8 @@
 //   - the sequence-counter allocators (live high range / sync ACK low range)
 //   - the drain stop-condition predicates
 //
-// Keeping this seam pure is what lets us test the risky parts (the parts that
-// USED to race in the old engine) without a real WHOOP band.
+// Keeping this layer pure makes the race-prone transitions unit-testable
+// without a real WHOOP band.
 
 import 'dart:math';
 

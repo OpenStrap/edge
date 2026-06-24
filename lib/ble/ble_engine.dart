@@ -23,10 +23,9 @@
 // range (5+, continuing from INIT 0..4). Allocated by `SeqAllocator` so they
 // never collide.
 //
-// PUBLIC SURFACE is identical to the old engine — AppState / background_sync /
-// edge_tracking compile unchanged. The drain-completion signal the
-// DerivationEngine depends on (runSync() returning SyncReport after the final
-// flush) is preserved.
+// PUBLIC SURFACE consumed by AppState / background_sync / edge_tracking. The
+// drain-completion signal the DerivationEngine depends on — runSync() returning
+// SyncReport after the final flush — is part of that surface.
 
 import 'dart:async';
 import 'dart:io';
@@ -58,7 +57,7 @@ class SyncReport {
 
 /// All per-connection resources. A fresh one is built on every connect and torn
 /// down (every subscription + timer cancelled, characteristics nulled) on every
-/// disconnect — so NOTHING bleeds across reconnects (the old engine's #1 leak).
+/// disconnect — so nothing bleeds across reconnects.
 class _Session {
   final BluetoothDevice device;
   BluetoothCharacteristic? cmdTo;
@@ -395,7 +394,7 @@ class BleEngine {
   // ── write (serialised through a single chain) ───────────────────────────────────
   // The cmd characteristic write is WITH-RESPONSE: that's what triggers BLE bonding
   // (the auth challenge) AND gets commands delivered + acknowledged. Write-WITHOUT-
-  // response can't bond and is silently dropped — the bug that broke the whole sync.
+  // response is silently dropped by the band and never establishes the bond.
   Future<void> _write(Uint8List raw) {
     final session = _session;
     final completer = Completer<void>();
