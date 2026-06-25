@@ -112,10 +112,10 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   num? get _regularity => _num(_data['regularity']); // 0..100
   bool get _stagesBeta => _bool(_data['stages_beta']) ?? false;
 
-  Map<String, dynamic> get _stages => _map(_data['stages']);
-  num? get _deepMin => _num(_stages['deep_min']);
-  num? get _remMin => _num(_stages['rem_min']);
-  num? get _lightMin => _num(_stages['light_min']);
+  // The stager only resolves wake/nrem/rem — no light/deep split. NREM is the
+  // combined "Core" stage; both values come from the day-sleep payload top level.
+  num? get _nremMin => _num(_data['nrem_min']);
+  num? get _remMin => _num(_data['rem_min']);
 
   // Sleep cycles (ultradian NREM↔REM, fractal-cycle method on HRV). Beta.
   List<Map<String, dynamic>> get _cycles {
@@ -233,6 +233,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         return AppColors.coral.withValues(alpha: 0.35);
       case 'rem':
         return AppColors.coral;
+      case 'nrem':
       case 'deep':
         return AppColors.coralDeep;
       default:
@@ -248,6 +249,8 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         return 'Light';
       case 'rem':
         return 'REM';
+      case 'nrem':
+        return 'Core (NREM)';
       case 'deep':
         return 'Deep';
       default:
@@ -312,9 +315,9 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
           TrendMetricRow(icon: Ic.chart, accent: AppColors.good, label: 'Efficiency',
               info: infoFor('efficiency'), value: '${(_efficiency! * 100).round()}', unit: '%',
               metric: 'efficiency', trendTitle: 'Sleep efficiency'),
-        if (_deepMin != null)
-          TrendMetricRow(icon: Ic.pulse, accent: AppColors.coral, label: 'Deep sleep',
-              info: infoFor('deep'), value: _hm(_deepMin), metric: 'deep', trendTitle: 'Deep sleep'),
+        if (_nremMin != null)
+          TrendMetricRow(icon: Ic.pulse, accent: AppColors.coral, label: 'Core (NREM)',
+              info: infoFor('deep'), value: _hm(_nremMin), metric: 'deep', trendTitle: 'Core (NREM) sleep'),
         if (_remMin != null)
           TrendMetricRow(icon: Ic.pulse, accent: AppColors.coralSoft, label: 'REM sleep',
               info: infoFor('rem'), value: _hm(_remMin), metric: 'rem', trendTitle: 'REM sleep'),
@@ -592,9 +595,8 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       spacing: Sp.x4,
       runSpacing: Sp.x2,
       children: [
-        swatch('deep'),
+        swatch('nrem'),
         swatch('rem'),
-        swatch('light'),
         swatch('awake'),
       ],
     );
@@ -607,11 +609,9 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
     return ProCard(
       child: Column(
         children: [
-          _stageRow('deep', _deepMin, inBed),
+          _stageRow('nrem', _nremMin, inBed),
           const SizedBox(height: Sp.x4),
           _stageRow('rem', _remMin, inBed),
-          const SizedBox(height: Sp.x4),
-          _stageRow('light', _lightMin, inBed),
           const SizedBox(height: Sp.x4),
           _stageRow('awake', _awakeMin, inBed),
         ],
@@ -935,6 +935,7 @@ class _HypnogramPainter extends CustomPainter {
   static const _depth = {
     'awake': 0.0,
     'rem': 0.30,
+    'nrem': 0.75, // combined Core (the stager emits wake/nrem/rem only)
     'light': 0.60,
     'deep': 0.92,
   };

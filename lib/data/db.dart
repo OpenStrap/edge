@@ -31,6 +31,7 @@ class LocalDb {
         await db.execute('CREATE INDEX idx_samples_ts ON samples(ts)');
         await _createEvents(db);
         await _createDerived(db);
+        await _createUserTables(db);
       },
       onUpgrade: (db, oldV, newV) async {
         if (oldV < 2) await _createEvents(db);
@@ -68,8 +69,13 @@ class LocalDb {
           await db.execute(
               'CREATE INDEX IF NOT EXISTS idx_raw_rects ON raw_records(rec_ts)');
         }
+        if (oldV < 7) {
+          // LOCAL-FIRST user-data layer: journal, menstrual cycle log, workout
+          // sessions, and the notifications feed — all on-device, additive.
+          await _createUserTables(db);
+        }
       },
-      version: 6,
+      version: 7,
     );
   }
 
@@ -116,6 +122,58 @@ class LocalDb {
     ''');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_metric_series_key ON metric_series(key, date)');
+  }
+
+  // ── USER-DATA STORE (journal / cycle / workouts / notifications) ────────────
+  // On-device user-entered + locally-generated data. All keyed for idempotent
+  // upserts; none of it round-trips to a server (cloud excised).
+  static Future<void> _createUserTables(Database db) async {
+    // journal — one row per day; tags is a JSON string list, note free text.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS journal (
+        date TEXT PRIMARY KEY,
+        tags_json TEXT NOT NULL DEFAULT '[]',
+        note TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cycle_log (
+        date TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        note TEXT
+      )
+    ''');
+    // sessions — manual/live/auto workouts; status 'live'|'done', zone tallies JSON.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        start_ts INTEGER NOT NULL,
+        end_ts INTEGER,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        calories REAL,
+        strain REAL,
+        max_hr INTEGER,
+        duration_min INTEGER,
+        zone_min_json TEXT,
+        source TEXT NOT NULL DEFAULT 'manual',
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    // notifications — locally-generated insight feed (illness/anomaly/temp/readiness).
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        date TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        read INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
   }
 
   // samples — header-only record index (counter, ts, hr). The band is a raw pipe;
@@ -527,6 +585,123 @@ class LocalDb {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  // ── journal I/O ─────────────────────────────────────────────────────────────
+
+  /// Upsert one day's journal (tags JSON + note). Idempotent on date.
+  static Future<void> putJournal(String date, String tagsJson, String note) async {
+    final db = await instance;
+    await db.insert(
+      'journal',
+      {
+        'date': date,
+        'tags_json': tagsJson,
+        'note': note,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Recent journal rows, newest first. [sinceDaysEpoch] (a YYYY-MM-DD label) is
+  /// an optional inclusive lower bound on `date`.
+  static Future<List<Map<String, dynamic>>> journalRows({String? sinceDaysEpoch}) async {
+    final db = await instance;
+    if (sinceDaysEpoch != null) {
+      return db.query('journal',
+          where: 'date >= ?', whereArgs: [sinceDaysEpoch], orderBy: 'date DESC');
+    }
+    return db.query('journal', orderBy: 'date DESC');
+  }
+
+  // ── cycle log I/O ─────────────────────────────────────────────────────────────
+
+  static Future<void> putCycleLog(String date, String kind, {String? note}) async {
+    final db = await instance;
+    await db.insert(
+      'cycle_log',
+      {'date': date, 'kind': kind, 'note': note},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  static Future<void> deleteCycleLog(String date) async {
+    final db = await instance;
+    await db.delete('cycle_log', where: 'date = ?', whereArgs: [date]);
+  }
+
+  /// All cycle markers, oldest first.
+  static Future<List<Map<String, dynamic>>> cycleLogs() async {
+    final db = await instance;
+    return db.query('cycle_log', orderBy: 'date ASC');
+  }
+
+  // ── sessions (workouts) I/O ────────────────────────────────────────────────
+
+  /// Upsert a workout session row (INSERT OR REPLACE — idempotent on id).
+  static Future<void> putSession(Map<String, dynamic> row) async {
+    final db = await instance;
+    await db.insert('sessions', row, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<Map<String, dynamic>?> session(String id) async {
+    final db = await instance;
+    final rows = await db.query('sessions', where: 'id = ?', whereArgs: [id], limit: 1);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// Sessions whose `start_ts` (epoch SECONDS) is in [fromTs, toTs], newest first.
+  static Future<List<Map<String, dynamic>>> sessionsInRange(int fromTs, int toTs) async {
+    final db = await instance;
+    return db.query('sessions',
+        where: 'start_ts >= ? AND start_ts <= ?',
+        whereArgs: [fromTs, toTs],
+        orderBy: 'start_ts DESC');
+  }
+
+  static Future<void> deleteSession(String id) async {
+    final db = await instance;
+    await db.delete('sessions', where: 'id = ?', whereArgs: [id]);
+  }
+
+  static Future<void> setSessionType(String id, String type) async {
+    final db = await instance;
+    await db.update('sessions', {'type': type}, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ── notifications I/O ─────────────────────────────────────────────────────────
+
+  /// Insert a notification (INSERT OR IGNORE — idempotent by id, so the
+  /// generator can re-run every derivation pass without duplicating).
+  static Future<void> putNotification(Map<String, dynamic> row) async {
+    final db = await instance;
+    await db.insert('notifications', row, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  /// All notifications, newest first.
+  static Future<List<Map<String, dynamic>>> notifications() async {
+    final db = await instance;
+    return db.query('notifications', orderBy: 'created_at DESC');
+  }
+
+  /// Mark notifications read (all, or the given [ids]).
+  static Future<void> markNotificationsRead({List<String>? ids}) async {
+    final db = await instance;
+    if (ids == null || ids.isEmpty) {
+      await db.update('notifications', {'read': 1});
+      return;
+    }
+    final placeholders = List.filled(ids.length, '?').join(',');
+    await db.rawUpdate(
+        'UPDATE notifications SET read = 1 WHERE id IN ($placeholders)', ids);
+  }
+
+  static Future<int> unreadCount() async {
+    final db = await instance;
+    return Sqflite.firstIntValue(await db
+            .rawQuery('SELECT COUNT(*) FROM notifications WHERE read = 0')) ??
+        0;
   }
 
   // ── raw pruning (raw-first invariant) ───────────────────────────────────────

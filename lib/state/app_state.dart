@@ -770,12 +770,24 @@ class AppState extends ChangeNotifier {
   void startWorkout({double targetKcal = 300, String? workoutId, String type = 'other'}) {
     if (activeWorkout != null) return;
     final start = DateTime.now();
+    final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
     activeWorkout = LiveWorkoutState(
       startTime: start,
       targetKcal: targetKcal,
-      workoutId: workoutId,
+      workoutId: id,
       type: type,
     );
+    // Persist the live session (INSERT OR REPLACE — idempotent if repo already
+    // inserted this id). Final stats are written on stop.
+    unawaited(LocalDb.putSession({
+      'id': id,
+      'start_ts': start.millisecondsSinceEpoch ~/ 1000,
+      'end_ts': null,
+      'type': type,
+      'status': 'live',
+      'source': 'manual',
+      'created_at': start.millisecondsSinceEpoch,
+    }));
     _workoutTimer = Timer.periodic(const Duration(seconds: 1), (_) => _tickWorkout());
     notifyListeners();
     _log('Live session started. Goal: ${targetKcal.round()} kcal');
@@ -801,7 +813,25 @@ class AppState extends ChangeNotifier {
     if (activeWorkout == null) return;
     _workoutTimer?.cancel();
     _workoutTimer = null;
-    final finalKcal = activeWorkout!.calories.round();
+    final w = activeWorkout!;
+    final finalKcal = w.calories.round();
+    // Persist the finalized session before clearing the live state. No per-zone
+    // minute tallies are tracked live, so zone_min is honestly empty.
+    final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
+    unawaited(LocalDb.putSession({
+      'id': id,
+      'start_ts': w.startTime.millisecondsSinceEpoch ~/ 1000,
+      'end_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      'type': w.type,
+      'status': 'done',
+      'calories': w.calories,
+      'strain': w.strain,
+      'max_hr': w.maxHrSeen > 0 ? w.maxHrSeen : null,
+      'duration_min': w.elapsed.inMinutes,
+      'zone_min_json': jsonEncode(const <num>[]),
+      'source': 'manual',
+      'created_at': w.startTime.millisecondsSinceEpoch,
+    }));
     activeWorkout = null;
     notifyListeners();
     _log('Live session ended. Burned $finalKcal kcal.');

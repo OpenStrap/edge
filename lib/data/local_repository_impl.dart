@@ -306,9 +306,51 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getDayStress(String date) async {
-    // No dedicated stress family in the 1 Hz bundle yet — surface an honest
-    // empty so the screen shows "—" rather than fabricated arousal minutes.
-    return const {};
+    // No Baevsky SI in the 1 Hz family — `si` stays null (never fabricated).
+    // Stress is surfaced as a RELATIVE inverse of readiness; lf/hf + rmssd are
+    // shown as honest HRV context. Nocturnal arousal isn't computed, so
+    // `sleep_stress` is intentionally absent (the screen handles it).
+    final b = await _bundle(date) ?? await _latestBundle();
+    if (b == null) return const {};
+
+    final readiness = _scalar(b, 'readiness');
+    int? score;
+    String? level;
+    if (readiness != null) {
+      score = (100 - readiness).round().clamp(0, 100);
+      level = score < 34 ? 'low' : (score < 67 ? 'moderate' : 'high');
+    }
+
+    final lfHf = (_sub(b, 'clinical.hrv_freq')?['lf_hf'] as num?);
+    final rmssd = _scalar(b, 'rmssd');
+    final hrCurve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
+
+    // Drivers from the cross-day glass-box readiness, when present.
+    final drivers = <Map<String, dynamic>>[];
+    final cd = await _crossDay();
+    final gb = cd?['readiness_glassbox'];
+    final gbDrivers = gb is Map ? (gb['drivers'] as List?) : null;
+    if (gbDrivers != null) {
+      for (final d in gbDrivers) {
+        if (d is Map) {
+          final label = (d['label'] ?? '').toString();
+          if (label.isEmpty) continue;
+          drivers.add({'label': label, 'detail': (d['detail'] ?? '').toString()});
+        }
+      }
+    }
+
+    return {
+      'stress': {
+        'score': score,
+        'si': null,
+        'lf_hf': lfHf,
+        'rmssd': rmssd,
+        'level': level,
+      },
+      'hr': hrCurve,
+      'drivers': drivers,
+    };
   }
 
   @override
@@ -453,64 +495,368 @@ class LocalRepositoryImpl extends LocalRepository {
     };
   }
 
-  // ── workouts (manual / live / auto) — local-only stubs, valid shapes ────────
+  // ── workouts (manual / live / auto) — local sessions store ──────────────────
+
+  /// Shape one sessions-table row into the workout map the screens parse.
+  /// start_ts/end_ts are epoch SECONDS; zone_min decodes the JSON list.
+  Map<String, dynamic> _workoutOf(Map<String, dynamic> r) {
+    final zoneMin = _decodeList(r['zone_min_json']);
+    final type = (r['type'] as String?) ?? 'other';
+    return {
+      'id': r['id'],
+      'start_ts': (r['start_ts'] as num?)?.toInt(),
+      'end_ts': (r['end_ts'] as num?)?.toInt(),
+      'status': r['status'],
+      'type': type,
+      'title': type,
+      'strain': (r['strain'] as num?)?.toDouble(),
+      'calories': (r['calories'] as num?)?.round(),
+      'duration_min': (r['duration_min'] as num?)?.toInt(),
+      'zone_min': zoneMin,
+    };
+  }
+
+  List<dynamic> _decodeList(Object? json) {
+    if (json is! String || json.isEmpty) return const [];
+    try {
+      final d = jsonDecode(json);
+      return d is List ? d : const [];
+    } catch (_) {
+      return const [];
+    }
+  }
 
   @override
-  Future<Map<String, dynamic>> getWorkouts({String range = 'month'}) async =>
-      {'workouts': const []};
+  Future<Map<String, dynamic>> getWorkouts({String range = 'month'}) async {
+    final now = DateTime.now();
+    final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+    final fromTs = _rangeFromSec(range, now);
+    final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
+    final workouts = [for (final r in rows) _workoutOf(r)];
+
+    // Summary excludes live sessions (no final stats yet).
+    final done = workouts.where((w) => w['status'] != 'live');
+    var count = 0, totalMin = 0, totalCal = 0;
+    final zoneSum = <num>[];
+    for (final w in done) {
+      count++;
+      totalMin += (w['duration_min'] as int?) ?? 0;
+      totalCal += (w['calories'] as int?) ?? 0;
+      final zm = (w['zone_min'] as List?) ?? const [];
+      for (var i = 0; i < zm.length; i++) {
+        final v = (zm[i] as num?) ?? 0;
+        if (i < zoneSum.length) {
+          zoneSum[i] += v;
+        } else {
+          zoneSum.add(v);
+        }
+      }
+    }
+    return {
+      'workouts': workouts,
+      'summary': {
+        'count': count,
+        'total_min': totalMin,
+        'total_calories': totalCal,
+        'zone_min': zoneSum,
+      },
+    };
+  }
+
+  /// Epoch SECONDS lower bound for a range label. 'all' → 0.
+  int _rangeFromSec(String range, DateTime now) {
+    switch (range) {
+      case 'all':
+        return 0;
+      case 'week':
+        return now.subtract(const Duration(days: 7)).millisecondsSinceEpoch ~/ 1000;
+      case 'quarter':
+      case '3m':
+        return now.subtract(const Duration(days: 90)).millisecondsSinceEpoch ~/ 1000;
+      case 'month':
+      default:
+        return now.subtract(const Duration(days: 31)).millisecondsSinceEpoch ~/ 1000;
+    }
+  }
 
   @override
-  Future<Map<String, dynamic>> getWorkout(String id) async => const {};
+  Future<Map<String, dynamic>> getWorkout(String id) async {
+    final r = await LocalDb.session(id);
+    return r == null ? const {} : _workoutOf(r);
+  }
 
   @override
-  Future<void> deleteWorkout(String id) async {}
+  Future<void> deleteWorkout(String id) async => LocalDb.deleteSession(id);
 
   @override
   Future<Map<String, dynamic>> startWorkout(String type, {String? title}) async {
-    final id = 'w${DateTime.now().millisecondsSinceEpoch}';
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final id = 'w$nowMs';
+    await LocalDb.putSession({
+      'id': id,
+      'start_ts': nowMs ~/ 1000,
+      'end_ts': null,
+      'type': type,
+      'status': 'live',
+      'source': 'manual',
+      'created_at': nowMs,
+    });
     return {'workout_id': id, 'type': type};
   }
 
   @override
-  Future<Map<String, dynamic>> endWorkout(String workoutId) async =>
-      {'workout_id': workoutId};
+  Future<Map<String, dynamic>> endWorkout(String workoutId) async {
+    // Mark done + stamp end_ts; final stats (calories/strain/etc) are written by
+    // app_state.stopWorkout from the LiveWorkoutState (it has the live tallies).
+    final r = await LocalDb.session(workoutId);
+    if (r != null) {
+      await LocalDb.putSession({
+        ...r,
+        'status': 'done',
+        'end_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      });
+    }
+    return {'workout_id': workoutId};
+  }
 
   @override
-  Future<Map<String, dynamic>> setWorkoutType(String id, String type) async =>
-      {'workout_id': id, 'type': type};
+  Future<Map<String, dynamic>> setWorkoutType(String id, String type) async {
+    await LocalDb.setSessionType(id, type);
+    return {'workout_id': id, 'type': type};
+  }
 
-  // ── journal — local-only stubs ───────────────────────────────────────────────
-
-  @override
-  Future<List<Map<String, dynamic>>> getJournal({String range = '30d'}) async =>
-      const [];
+  // ── journal — local store + tag-vs-metric correlation insights ──────────────
 
   @override
-  Future<void> postJournal(String date, List<String> tags, String note) async {}
+  Future<List<Map<String, dynamic>>> getJournal({String range = '30d'}) async {
+    final since = _rangeSinceLabel(range);
+    final rows = await LocalDb.journalRows(sinceDaysEpoch: since);
+    return [
+      for (final r in rows)
+        {
+          'date': r['date'],
+          'tags': _decodeStrList(r['tags_json']),
+          'note': (r['note'] as String?) ?? '',
+        }
+    ];
+  }
 
   @override
-  Future<Map<String, dynamic>> getJournalInsights({String range = '90d'}) async =>
-      const {'insights': []};
+  Future<void> postJournal(String date, List<String> tags, String note) async {
+    await LocalDb.putJournal(date, jsonEncode(tags), note);
+  }
 
-  // ── cycle — local-only stubs ─────────────────────────────────────────────────
+  /// For each distinct tag in the window, compare mean readiness on tagged days
+  /// vs the window mean and emit a metric-delta card (only when n_with >= 2).
+  @override
+  Future<Map<String, dynamic>> getJournalInsights({String range = '90d'}) async {
+    final since = _rangeSinceLabel(range);
+    final journal = await LocalDb.journalRows(sinceDaysEpoch: since);
+    if (journal.isEmpty) return const {'insights': []};
+
+    // readiness by date over the window.
+    final series = await LocalDb.metricSeries('readiness');
+    final byDate = <String, double>{};
+    for (final r in series) {
+      final v = (r['value'] as num?)?.toDouble();
+      if (v != null) byDate[r['date'] as String] = v;
+    }
+    if (byDate.isEmpty) return const {'insights': []};
+    final windowMean =
+        byDate.values.reduce((a, b) => a + b) / byDate.length;
+
+    // tag -> readiness values on days carrying that tag (that also have a metric).
+    final byTag = <String, List<double>>{};
+    for (final j in journal) {
+      final date = j['date'] as String?;
+      final v = date == null ? null : byDate[date];
+      if (v == null) continue;
+      for (final t in _decodeStrList(j['tags_json'])) {
+        (byTag[t] ??= <double>[]).add(v);
+      }
+    }
+
+    final insights = <Map<String, dynamic>>[];
+    for (final e in byTag.entries) {
+      if (e.value.length < 2) continue;
+      final mean = e.value.reduce((a, b) => a + b) / e.value.length;
+      if (windowMean == 0) continue;
+      final deltaPct = (mean - windowMean) / windowMean * 100.0;
+      insights.add({
+        'label': e.key,
+        'delta_pct': deltaPct,
+        'better': mean >= windowMean,
+        'n_with': e.value.length,
+      });
+    }
+    insights.sort((a, b) =>
+        (b['delta_pct'] as double).abs().compareTo((a['delta_pct'] as double).abs()));
+    return {'insights': insights};
+  }
+
+  List<String> _decodeStrList(Object? json) =>
+      [for (final e in _decodeList(json)) e.toString()];
+
+  /// A YYYY-MM-DD lower-bound label for a '30d'/'90d'/'7d'-style range, or null
+  /// (no bound) for 'all'.
+  String? _rangeSinceLabel(String range) {
+    if (range == 'all') return null;
+    final m = RegExp(r'(\d+)').firstMatch(range);
+    final days = m == null ? 30 : int.parse(m.group(1)!);
+    final d = DateTime.now().subtract(Duration(days: days));
+    return '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+  }
+
+  // ── menstrual cycle — local log + honest phase/prediction ───────────────────
 
   @override
-  Future<Map<String, dynamic>> getCycle() async => const {'enabled': false};
+  Future<Map<String, dynamic>> getCycle() async {
+    final enabled = getProfileMap()?['track_cycle'] == true;
+    if (!enabled) {
+      return {'enabled': false, 'note': 'Enable cycle tracking in your profile.'};
+    }
+    final rows = await LocalDb.cycleLogs(); // oldest first
+    final logs = [
+      for (final r in rows) {'date': r['date'], 'kind': r['kind']}
+    ];
+    final startDates = [
+      for (final r in rows)
+        if (r['kind'] == 'start') r['date'] as String
+    ];
+
+    // Mean cycle length = mean of gaps (days) between consecutive starts.
+    double? meanLength;
+    if (startDates.length >= 2) {
+      final gaps = <int>[];
+      for (var i = 1; i < startDates.length; i++) {
+        final a = DateTime.tryParse(startDates[i - 1]);
+        final b = DateTime.tryParse(startDates[i]);
+        if (a != null && b != null) gaps.add(b.difference(a).inDays);
+      }
+      if (gaps.isNotEmpty) {
+        meanLength = gaps.reduce((a, b) => a + b) / gaps.length;
+      }
+    }
+
+    final lastStartStr = startDates.isEmpty ? null : startDates.last;
+    final lastStart = lastStartStr == null ? null : DateTime.tryParse(lastStartStr);
+    final today = DateTime.now();
+    int? cycleDay;
+    if (lastStart != null) {
+      final d0 = DateTime(lastStart.year, lastStart.month, lastStart.day);
+      final t0 = DateTime(today.year, today.month, today.day);
+      cycleDay = t0.difference(d0).inDays + 1; // day 1 = start day
+    }
+
+    String? predictedNext;
+    num? daysUntilNext;
+    if (lastStart != null && meanLength != null) {
+      final next = lastStart.add(Duration(days: meanLength.round()));
+      predictedNext = _ymd(next);
+      final t0 = DateTime(today.year, today.month, today.day);
+      daysUntilNext =
+          DateTime(next.year, next.month, next.day).difference(t0).inDays;
+    }
+
+    // Phase + fertile window — only when meanLength is known (else honest unknown).
+    String phase = 'unknown';
+    String? fertileStart, fertileEnd;
+    if (meanLength != null && cycleDay != null && lastStart != null) {
+      final ovDay = (meanLength - 14).round().clamp(10, meanLength.round());
+      if (cycleDay <= 5) {
+        phase = 'menstrual';
+      } else if (cycleDay < ovDay) {
+        phase = 'follicular';
+      } else if (cycleDay <= ovDay + 1) {
+        phase = 'ovulation';
+      } else {
+        phase = 'luteal';
+      }
+      final ovDate = lastStart.add(Duration(days: ovDay - 1));
+      fertileStart = _ymd(ovDate.subtract(const Duration(days: 2)));
+      fertileEnd = _ymd(ovDate.add(const Duration(days: 2)));
+    }
+
+    // Retrospective ovulation confirmation via 3-over-6 coverline on recent
+    // nightly RELATIVE skin-temp z (derived). Honest: confirmation only.
+    String? ovulationEst;
+    final derived = await LocalDb.recentDerivedDays(120);
+    if (derived.isNotEmpty) {
+      // recentDerivedDays is newest-first; coverline wants oldest-first.
+      final ordered = derived.reversed.toList();
+      final dates = <String>[];
+      final temps = <double?>[];
+      for (final r in ordered) {
+        final b = _decode(r['payload_json']);
+        dates.add(r['date'] as String);
+        temps.add(_scalar(b, 'skin_temp_z')?.toDouble());
+      }
+      final ov = ana.menstrualCoverline(dates, temps);
+      final events = ov.value;
+      if (events != null && events.isNotEmpty) {
+        ovulationEst = events.last.date;
+      }
+    }
+
+    final confidence = (startDates.length / 3.0).clamp(0.0, 1.0);
+
+    return {
+      'enabled': true,
+      'phase': phase,
+      'cycle_day': cycleDay,
+      'days_until_next': daysUntilNext,
+      'predicted_next': predictedNext,
+      'fertile_start': fertileStart,
+      'fertile_end': fertileEnd,
+      'ovulation_est': ovulationEst,
+      'mean_length': meanLength,
+      'note': null,
+      'confidence': confidence,
+      'logs': logs,
+      'overlay': const [],
+    };
+  }
+
+  String _ymd(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
 
   @override
-  Future<void> postCycleLog(String date, {String kind = 'start', String? note}) async {}
+  Future<void> postCycleLog(String date, {String kind = 'start', String? note}) async {
+    await LocalDb.putCycleLog(date, kind, note: note);
+  }
 
   @override
-  Future<void> deleteCycleLog(String date) async {}
+  Future<void> deleteCycleLog(String date) async => LocalDb.deleteCycleLog(date);
 
-  // ── notifications — derived from illness/anomaly flags (none yet) ────────────
-
-  @override
-  Future<Map<String, dynamic>> getNotifications() async =>
-      const {'unread': 0, 'notifications': []};
+  // ── notifications — locally-generated feed (written by DerivationEngine) ─────
 
   @override
-  Future<void> markNotificationsRead({List<String>? ids}) async {}
+  Future<Map<String, dynamic>> getNotifications() async {
+    final rows = await LocalDb.notifications();
+    return {
+      'unread': await LocalDb.unreadCount(),
+      'notifications': [
+        for (final r in rows)
+          {
+            'id': r['id'],
+            'kind': r['kind'],
+            'title': r['title'],
+            'body': r['body'],
+            'date': r['date'],
+            'created_at': r['created_at'],
+            'read': (r['read'] as num?) == 1,
+          }
+      ],
+    };
+  }
+
+  @override
+  Future<void> markNotificationsRead({List<String>? ids}) async =>
+      LocalDb.markNotificationsRead(ids: ids);
 
   // ── live HRV spot-check (on-device decode + HRV) ────────────────────────────
 

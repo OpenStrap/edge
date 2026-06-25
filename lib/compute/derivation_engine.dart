@@ -88,6 +88,7 @@ class DerivationEngine {
       // Cross-day rollup over the recent day series. Best-effort: a failure here
       // must NOT abort the sweep or block pruning — we log and continue.
       await _runCrossDay(profile);
+      await _runNotifications();
       await _pruneOldRaw();
       return days.length;
     } catch (e, st) {
@@ -356,6 +357,68 @@ class DerivationEngine {
     } catch (e) {
       // A cross-day failure must never abort the sweep or block pruning.
       _log('crossday FAILED/skipped: $e');
+    }
+  }
+
+  // ── notifications generator ─────────────────────────────────────────────────
+
+  /// Emit idempotent notifications for the LATEST day's flags from the cross-day
+  /// rollup (illness / anomaly / elevated temp / low readiness). id =
+  /// `date:kind` + INSERT OR IGNORE, so re-running a pass never duplicates.
+  /// Best-effort: any failure is swallowed (never aborts the sweep).
+  Future<void> _runNotifications() async {
+    try {
+      final cdRow = await LocalDb.baseline('crossday');
+      final cd = _decodeBundle(cdRow?['payload_json']);
+      if (cd == null) return;
+
+      // Latest day's date: prefer the recent[] tail, else the flag payloads.
+      String? date;
+      final recent = cd['recent'];
+      if (recent is List && recent.isNotEmpty) {
+        final last = recent.last;
+        if (last is Map) date = last['date'] as String?;
+      }
+      final illness = cd['illness'] is Map ? cd['illness'] as Map : null;
+      final anomaly = cd['anomaly'] is Map ? cd['anomaly'] as Map : null;
+      final temp = cd['temp_illness'] is Map ? cd['temp_illness'] as Map : null;
+      final gb = cd['readiness_glassbox'] is Map
+          ? cd['readiness_glassbox'] as Map
+          : null;
+      date ??= (illness?['date'] ?? anomaly?['date'] ?? temp?['date']) as String?;
+      if (date == null) return;
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+      Future<void> emit(String kind, String title, String body) =>
+          LocalDb.putNotification({
+            'id': '$date:$kind',
+            'kind': kind,
+            'title': title,
+            'body': body,
+            'date': date,
+            'created_at': now,
+            'read': 0,
+          });
+
+      if (illness != null && illness['state'] == 'red') {
+        await emit('illness', 'Possible illness onset',
+            'Elevated resting HR + suppressed HRV over recent nights.');
+      }
+      if (anomaly != null && anomaly['flagged'] == true) {
+        await emit('anomaly', 'Unusual overnight physiology',
+            'Your nightly signals deviate from your personal baseline.');
+      }
+      if (temp != null && temp['flag'] == 'elevated') {
+        await emit('temp', 'Skin temperature elevated',
+            'Sustained rise vs your baseline — a possible illness signal.');
+      }
+      final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
+      if (score is num && score < 34) {
+        await emit('readiness', 'Low readiness today',
+            'Your recovery markers are below your usual range — ease off.');
+      }
+    } catch (e) {
+      _log('notifications FAILED/skipped: $e');
     }
   }
 
