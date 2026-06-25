@@ -33,7 +33,7 @@ dependencies:
   # 24-h spectra). Android: a real OS-scheduled WorkManager job. iOS: see the
   # honest caveat in lib/compute/background_derivation.dart — app-killed heavy
   # compute is opportunistic via BGTaskScheduler, never guaranteed.
-  workmanager: ^0.5.2
+  workmanager: ^0.9.0
 
   # HTTP — retained ONLY for the OTA self-update pointer (see lib/sync/update_service.dart)
   # and the AI Coach's direct LLM (BYOK) calls. No backend / auth traffic anymore.

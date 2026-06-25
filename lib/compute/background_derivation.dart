@@ -80,13 +80,13 @@ class BackgroundDerivation {
         _kHeavyTask,
         frequency: const Duration(hours: 6),
         constraints: Constraints(
-          networkType: NetworkType.not_required,
+          networkType: NetworkType.notRequired,
           requiresBatteryNotLow: true,
           // Prefer running while charging/idle so heavy 24-h spectra + staging
           // don't tax the battery during active use.
           requiresCharging: false,
         ),
-        existingWorkPolicy: ExistingWorkPolicy.keep,
+        existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
       );
     } catch (e) {
       debugPrint('[bg-derive] schedule failed: $e');
