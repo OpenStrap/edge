@@ -152,7 +152,11 @@ class ProfileScreen extends StatelessWidget {
             child: DetailRow(
               icon: Ic.history,
               label: 'Re-analyze data',
-              value: app.reanalyzing ? 'Working…' : 'Run',
+              value: app.reanalyzing
+                  ? (app.reanalyzeProgress.isEmpty
+                      ? 'Working…'
+                      : app.reanalyzeProgress)
+                  : 'Run',
               onTap: () async {
                 if (app.reanalyzing) return;
                 final messenger = ScaffoldMessenger.of(context);

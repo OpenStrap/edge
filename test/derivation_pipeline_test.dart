@@ -13,8 +13,40 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_edge/compute/onehz_pipeline.dart';
 import 'package:openstrap_edge/compute/profile.dart';
+import 'package:openstrap_edge/data/db.dart';
 
 void main() {
+  // The backfill/insert fix: rec_ts must come from the frame's REAL device time,
+  // never from receive time. decodeRecTs is the pure resolver used at insert AND
+  // in the v6 migration backfill — if it returned the fallback (≈now) the whole
+  // multi-day backfill would collapse into one "today" bucket and hang derivation.
+  test('decodeRecTs reads the frame\'s real ts, not the fallback', () {
+    final candidates = ['../whoop_hist.jsonl', '../../whoop_hist.jsonl', 'whoop_hist.jsonl'];
+    File? f;
+    for (final c in candidates) {
+      if (File(c).existsSync()) { f = File(c); break; }
+    }
+    expect(f, isNotNull, reason: 'whoop_hist.jsonl fixture not found');
+
+    const sentinelFallback = 111; // a value the real ts can never equal
+    final dayLabels = <String>{};
+    var decodedCount = 0;
+    for (final line in f!.readAsLinesSync()) {
+      if (line.trim().isEmpty) continue;
+      final hex = (jsonDecode(line) as Map<String, dynamic>)['hex'] as String?;
+      if (hex == null) continue;
+      final ts = LocalDb.decodeRecTs(hex, fallbackSec: sentinelFallback);
+      if (ts == sentinelFallback) continue; // undecodable frame (events etc.)
+      decodedCount++;
+      expect(ts, greaterThan(1600000000), reason: 'a real 2020+ epoch, not fallback');
+      final d = DateTime.fromMillisecondsSinceEpoch(ts * 1000, isUtc: false);
+      dayLabels.add('${d.year}-${d.month}-${d.day}');
+    }
+    expect(decodedCount, greaterThan(50), reason: 'decoded real frames');
+    // Every decoded frame bucketed by its own real day (here all one day).
+    expect(dayLabels, isNotEmpty);
+  });
+
   test('deriveDayBundle on real raw frames produces a sane bundle', () {
     // The fixture sits next to the worktree: whoop-master/whoop_hist.jsonl.
     final candidates = [

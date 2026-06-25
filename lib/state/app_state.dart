@@ -236,7 +236,16 @@ class AppState extends ChangeNotifier {
   /// derived rows.
   Future<void> _afterDrain({bool heavy = false}) async {
     try {
-      await _derive.run(_profile, heavy: heavy);
+      // Refresh the UI after EACH day so Today/trends fill in as the sweep runs,
+      // not only at the end (a multi-day backfill can be many days of work).
+      await _derive.run(
+        _profile,
+        heavy: heavy,
+        onDayDone: (day, index, total) async {
+          dbCounts = await LocalDb.counts();
+          notifyListeners();
+        },
+      );
       notifyListeners(); // screens re-fetch from the derived store
     } catch (e) {
       _log('[derive] post-drain failed: $e');
@@ -247,15 +256,31 @@ class AppState extends ChangeNotifier {
   /// spinner). Separate from the engine's internal coalescing flag.
   bool reanalyzing = false;
 
+  /// Human-readable progress for the Re-analyze button, e.g. "Analyzing 3/12".
+  /// Empty when idle. Updated per-day as the sweep advances.
+  String reanalyzeProgress = '';
+
   /// User-initiated "Re-analyze data": force-derive EVERY day that has raw,
   /// ignoring the derived cursor, then refresh the UI. Returns the number of days
   /// derived (for a result message). Use when screens are empty despite stored raw.
   Future<int> reanalyzeAll() async {
     if (reanalyzing) return 0;
     reanalyzing = true;
+    reanalyzeProgress = 'Analyzing…';
     notifyListeners();
     try {
-      final n = await _derive.run(_profile, heavy: true, force: true);
+      final n = await _derive.run(
+        _profile,
+        heavy: true,
+        force: true,
+        // Per-day callback: surface progress AND refresh the UI so each real day's
+        // metrics appear as soon as it's derived (Today fills in one day at a time).
+        onDayDone: (day, index, total) async {
+          reanalyzeProgress = 'Analyzing $index/$total';
+          dbCounts = await LocalDb.counts();
+          notifyListeners();
+        },
+      );
       dbCounts = await LocalDb.counts();
       return n;
     } catch (e) {
@@ -263,6 +288,7 @@ class AppState extends ChangeNotifier {
       return 0;
     } finally {
       reanalyzing = false;
+      reanalyzeProgress = '';
       notifyListeners(); // screens re-read the derived store
     }
   }

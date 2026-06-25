@@ -51,7 +51,14 @@ class DerivationEngine {
   /// [force]=true re-derives EVERY day that has raw, ignoring the derived
   /// cursor — the user-initiated "re-analyze all data" path. Re-entrant calls
   /// are coalesced. Returns the number of days derived.
-  Future<int> run(Profile profile, {bool heavy = false, bool force = false}) async {
+  /// [onDayDone] fires on the MAIN isolate after each day finishes (or is skipped),
+  /// so the caller can refresh the UI incrementally and show progress.
+  Future<int> run(
+    Profile profile, {
+    bool heavy = false,
+    bool force = false,
+    void Function(String day, int index, int total)? onDayDone,
+  }) async {
     if (_running) return 0;
     _running = true;
     try {
@@ -65,8 +72,17 @@ class DerivationEngine {
       final days = (heavy || force) ? stale : stale.sublist(stale.length - 1);
       _log('derive: ${days.length} day(s) '
           '(${force ? "force-all" : heavy ? "heavy" : "light"})');
-      for (final day in days) {
-        await _deriveDay(day, profile);
+      for (var i = 0; i < days.length; i++) {
+        final day = days[i];
+        try {
+          await _deriveDay(day, profile);
+        } catch (e) {
+          // A single pathological/timed-out day must never stall the whole sweep.
+          // Write a skip marker so it isn't retried forever, then move on.
+          _log('derive day $day FAILED/skipped: $e');
+          await _markDaySkipped(day);
+        }
+        onDayDone?.call(day, i + 1, days.length); // incremental UI refresh
       }
       await _pruneOldRaw();
       return days.length;
@@ -78,34 +94,49 @@ class DerivationEngine {
     }
   }
 
+  /// Max wall-clock for ONE day's off-isolate compute. On timeout the day is
+  /// skipped so the sweep always makes progress and finishes in finite time.
+  static const Duration _perDayTimeout = Duration(seconds: 90);
+
+  /// Defensive caps on a single day's decoded series. With the rec_ts bucketing fix
+  /// a day should hold ~1 real day of samples, so these should rarely trigger; they
+  /// guard against a clock-glitched/duplicate flood collapsing into one bucket.
+  static const int _maxHrSamples = 100000; // ~1 Hz over a day is ~86 400
+  static const int _maxRrSamples = 200000;
+
+  /// Persist a minimal derived row for a skipped day so it's not re-derived every
+  /// pass (its last_raw_ts is advanced to the day's end).
+  Future<void> _markDaySkipped(String date) async {
+    final toSec =
+        (DateTime.parse('$date 23:59:59').millisecondsSinceEpoch + 999) ~/ 1000;
+    try {
+      await LocalDb.putDerivedDay(
+        date: date,
+        payloadJson: jsonEncode({'skipped': true, 'reason': 'timeout_or_error'}),
+        version: derivedVersion,
+        lastRawTs: toSec,
+      );
+    } catch (_) {/* best-effort */}
+  }
+
   // ── find days needing (re)derivation ───────────────────────────────────────
 
   /// Physiological-day labels (sorted ascending) that have raw newer than their
   /// derived `last_raw_ts` (or were never derived / are an old bundle version).
   /// [force]=true returns EVERY day that has raw, ignoring the derived cursor.
   Future<List<String>> _staleDays({bool force = false}) async {
-    final earliest = await LocalDb.earliestRawCapturedAt();
-    final latest = await LocalDb.latestRawCapturedAt();
-    if (earliest == null || latest == null) return const [];
+    // Group raw by the LOCAL calendar date of each record's REAL time (rec_ts),
+    // NOT its receive time (captured_at). This is the core of the backfill fix: a
+    // whole multi-day flash offload arrives in one sync (one captured_at≈now) but
+    // carries many real days of rec_ts — so it splits into correct per-day buckets
+    // instead of collapsing into a single "today" that would run 24-h spectra over
+    // many days at once. The day label is refined by the sleep window in the bundle.
+    final dayMax = await LocalDb.rawRecTsMaxByDay();
+    if (dayMax.isEmpty) return const [];
 
-    // Group raw capture times by physiological-day label. We approximate the
-    // wake-to-wake day by the LOCAL calendar date of the capture; this is the
-    // edge-supplied display label, refined by the sleep window inside the
-    // bundle. Bucketing on a per-day max is enough to detect "new raw".
+    // `last_raw_ts` keeps its semantics (the cursor of raw already reflected for a
+    // day) but is now keyed on rec_ts seconds instead of captured_at ms.
     final lastRawByDay = await LocalDb.derivedLastRawTs();
-    final dayMax = <String, int>{};
-    // Walk the whole raw range in day-sized buckets. We only need each day's max
-    // captured_at, which we get cheaply by scanning distinct day labels.
-    final db = await LocalDb.instance;
-    final rows = await db.rawQuery(
-      "SELECT strftime('%Y-%m-%d', captured_at/1000, 'unixepoch', 'localtime') AS d, "
-      'MAX(captured_at) AS mx FROM raw_records GROUP BY d',
-    );
-    for (final r in rows) {
-      final d = r['d'] as String?;
-      final mx = (r['mx'] as num?)?.toInt();
-      if (d != null && mx != null) dayMax[d] = mx;
-    }
 
     final stale = <String>[];
     for (final e in dayMax.entries) {
@@ -125,23 +156,42 @@ class DerivationEngine {
   // ── derive one day ──────────────────────────────────────────────────────────
 
   Future<void> _deriveDay(String date, Profile profile) async {
-    // Day window in epoch ms (local-calendar day). last_raw_ts is captured here
-    // on the MAIN isolate, before the heavy work, so a concurrent live insert
-    // mid-pass is simply picked up next pass (its captured_at > last_raw_ts).
-    final from = DateTime.parse('$date 00:00:00').millisecondsSinceEpoch;
-    final to = DateTime.parse('$date 23:59:59').millisecondsSinceEpoch + 999;
+    // Day window in epoch SECONDS (local-calendar day of the record's REAL time).
+    // last_raw_ts is captured here on the MAIN isolate, before the heavy work, so a
+    // concurrent live insert mid-pass is simply picked up next pass (its rec_ts is
+    // re-bucketed and compared against this cursor next run).
+    final fromSec = DateTime.parse('$date 00:00:00').millisecondsSinceEpoch ~/ 1000;
+    final toSec =
+        (DateTime.parse('$date 23:59:59').millisecondsSinceEpoch + 999) ~/ 1000;
 
-    final hexes = await LocalDb.rawHexInCaptureRange(from, to);
+    final hexes = await LocalDb.rawHexInRecTsRange(fromSec, toSec);
     if (hexes.isEmpty) return;
-    final lastRawTs = to; // everything in-window is now reflected.
+    final lastRawTs = toSec; // everything in-window (by rec_ts) is now reflected.
 
     // (main isolate) DECODE the raw hex → 1 Hz numeric series.
     final input = _buildDayInput(date, hexes, profile);
+
+    // Defensive cap: if a single day's series is pathologically large (e.g. a clock
+    // glitch fused multiple days into one rec_ts bucket), downsample the spectral
+    // input so Lomb-Scargle stays bounded. With the rec_ts fix this rarely fires.
+    final hrLen = (input['hr'] as List?)?.length ?? 0;
+    final rrLen = (input['rr_ms'] as List?)?.length ?? 0;
+    if (hrLen > _maxHrSamples || rrLen > _maxRrSamples) {
+      _log('WARN $date oversized series (hr=$hrLen rr=$rrLen) — downsampling');
+      _downsampleInPlace(input, 'hr_ts', _maxHrSamples);
+      _downsampleInPlace(input, 'hr', _maxHrSamples);
+      _downsampleInPlace(input, 'rr_ts_ms', _maxRrSamples);
+      _downsampleInPlace(input, 'rr_ms', _maxRrSamples);
+    }
+
     // Attach trailing baselines for pass-2.
     final withHistory = await _attachHistory(input);
 
     // (off-isolate) run the pure pipeline. Isolate.run copies the map in/out.
-    final bundle = await Isolate.run(() => deriveDayBundle(withHistory));
+    // A per-day timeout guarantees one bad day can't hang the whole sweep — on
+    // timeout the future throws and run()'s catch marks the day skipped.
+    final bundle = await Isolate.run(() => deriveDayBundle(withHistory))
+        .timeout(_perDayTimeout);
 
     // (main isolate) persist.
     final scalars = (bundle['scalars'] as Map?)?.cast<String, dynamic>() ?? const {};
@@ -168,6 +218,16 @@ class DerivationEngine {
     );
     await _refreshBaselines();
     _log('derived $date — ${hexes.length} raw → bundle v$derivedVersion');
+  }
+
+  /// Uniformly decimate a serialized series list (in place) down to at most [max]
+  /// elements, preserving time order. Only used by the oversized-day guard.
+  void _downsampleInPlace(Map<String, dynamic> input, String key, int max) {
+    final list = input[key] as List?;
+    if (list == null || list.length <= max) return;
+    final stride = (list.length / max).ceil();
+    final out = [for (var i = 0; i < list.length; i += stride) list[i]];
+    input[key] = out;
   }
 
   /// Decode raw frames into a serialized [DayInput] map (the isolate input).
@@ -279,28 +339,25 @@ class DerivationEngine {
   // ── raw pruning (raw-first invariant) ──────────────────────────────────────
 
   /// Prune raw older than [rawRetentionDays] — but only days that ARE derived.
-  /// We compute the cutoff and clamp it so we never delete raw newer than the
-  /// oldest UN-derived day's window.
+  /// Age is measured by `captured_at` (STORAGE age, ms) — pruning by how long we've
+  /// held a row is correct and independent of rec_ts. The raw-first guard: if ANY
+  /// day still needs derivation we skip pruning this pass, so an un-derived day's
+  /// raw is never deleted (it survives until its bundle is written). Un-derived
+  /// days are rare here because the sweep derives them before pruning.
   Future<void> _pruneOldRaw() async {
-    final retentionCutoff = DateTime.now()
+    // Never prune while there are un-derived days — protects the raw-first invariant
+    // regardless of whether the stale day's raw is old or new by storage age.
+    final stale = await _staleDays();
+    if (stale.isNotEmpty) {
+      _log('prune skipped — ${stale.length} day(s) not yet derived');
+      return;
+    }
+    final cutoff = DateTime.now()
         .subtract(const Duration(days: rawRetentionDays))
         .millisecondsSinceEpoch;
-
-    // Find the earliest stale (un-derived) day; never prune at/after its window.
-    final stale = await _staleDays();
-    int guardedCutoff = retentionCutoff;
-    if (stale.isNotEmpty) {
-      final earliestStale =
-          DateTime.parse('${stale.first} 00:00:00').millisecondsSinceEpoch;
-      if (earliestStale < guardedCutoff) {
-        // The oldest un-derived day is older than the retention cutoff — only
-        // prune strictly before it so its raw survives until it's derived.
-        guardedCutoff = earliestStale;
-      }
-    }
-    if (guardedCutoff <= 0) return;
-    final deleted = await LocalDb.pruneRawBefore(guardedCutoff);
-    if (deleted > 0) _log('pruned $deleted raw rows < ${guardedCutoff ~/ 1000}');
+    if (cutoff <= 0) return;
+    final deleted = await LocalDb.pruneRawBefore(cutoff);
+    if (deleted > 0) _log('pruned $deleted raw rows captured < ${cutoff ~/ 1000}');
   }
 
   void _log(String m) {
