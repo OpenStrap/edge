@@ -42,6 +42,13 @@ class LocalRepositoryImpl extends LocalRepository {
     return _decode(row['payload_json']);
   }
 
+  /// The cross-day analytics rollup bundle (from the `crossday` baseline), or
+  /// null when none has been computed yet.
+  Future<Map<String, dynamic>?> _crossDay() async {
+    final r = await LocalDb.baseline('crossday');
+    return _decode(r?['payload_json']);
+  }
+
   static Map<String, dynamic>? _decode(Object? json) {
     if (json is! String) return null;
     try {
@@ -110,6 +117,7 @@ class LocalRepositoryImpl extends LocalRepository {
     }
     final clinical = _sub(b, 'clinical') ?? const {};
     final resp = _sub(b, 'respiration') ?? const {};
+    final cd = await _crossDay();
 
     final hrvTime = clinical['hrv_time'] is Map
         ? (clinical['hrv_time'] as Map).cast<String, dynamic>()
@@ -142,9 +150,19 @@ class LocalRepositoryImpl extends LocalRepository {
       if (resp['rsa'] is Map) 'resp': _respObj(b),
       'hrv': ?hrv,
       'skin_temp': {'value': _scalar(b, 'skin_temp_z')},
+      // Cross-day rollup surfaced on Today (present only when computed).
+      'illness': ?cd?['illness'],
+      'anomaly': ?cd?['anomaly'],
+      'load': ?cd?['load'],
+      'readiness_breakdown': ?cd?['readiness_glassbox'],
+      'regularity': ?cd?['regularity'],
       'step_goal': await _stepGoal(),
     };
   }
+
+  @override
+  Future<Map<String, dynamic>> getInsights() async =>
+      (await _crossDay()) ?? const {};
 
   Future<int> _stepGoal() async =>
       (getProfileMap()?['step_goal'] as num?)?.toInt() ?? 10000;

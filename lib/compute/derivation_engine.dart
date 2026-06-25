@@ -24,6 +24,7 @@ import 'package:flutter/foundation.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
 import '../data/db.dart';
+import 'crossday_pipeline.dart';
 import 'onehz_pipeline.dart';
 import 'profile.dart';
 
@@ -84,6 +85,9 @@ class DerivationEngine {
         }
         onDayDone?.call(day, i + 1, days.length); // incremental UI refresh
       }
+      // Cross-day rollup over the recent day series. Best-effort: a failure here
+      // must NOT abort the sweep or block pruning — we log and continue.
+      await _runCrossDay(profile);
       await _pruneOldRaw();
       return days.length;
     } catch (e, st) {
@@ -313,6 +317,93 @@ class DerivationEngine {
     input['resp_history'] = await hist('resp_rate');
     input['skin_temp_z_history'] = await hist('skin_temp_z');
     return input;
+  }
+
+  /// Max wall-clock for the off-isolate cross-day rollup.
+  static const Duration _crossDayTimeout = Duration(seconds: 30);
+
+  /// How many trailing derived days feed the cross-day families.
+  static const int _crossDayWindow = 90;
+
+  // ── cross-day rollup ─────────────────────────────────────────────────────────
+
+  /// Gather the recent derived-day series and run the cross-day analytics
+  /// families (illness/anomaly/load/temp/SRI/jetlag/chronotype/sleep-debt/
+  /// percentile/glass-box/BRV) ONCE, storing the result in the `crossday`
+  /// baseline. Best-effort: every failure path logs and returns without storing.
+  Future<void> _runCrossDay(Profile profile) async {
+    try {
+      final rows = await LocalDb.recentDerivedDays(_crossDayWindow);
+      // recentDerivedDays is newest-first; the families want oldest-first.
+      final days = <Map<String, dynamic>>[];
+      for (final row in rows.reversed) {
+        final payload = _decodeBundle(row['payload_json']);
+        if (payload == null) continue;
+        if (payload['skipped'] == true) continue; // skip marker rows
+        final rec = _crossDayRecord(row, payload);
+        if (rec != null) days.add(rec);
+      }
+      if (days.length < 3) {
+        _log('crossday: only ${days.length} usable day(s) — skip');
+        return;
+      }
+      final profileMap = profile.toMap();
+      final bundle = await Isolate.run(
+        () => buildCrossDayBundle(days, profileMap),
+      ).timeout(_crossDayTimeout);
+      await LocalDb.putBaseline('crossday', jsonEncode(bundle));
+      _log('crossday: stored over ${days.length} day(s)');
+    } catch (e) {
+      // A cross-day failure must never abort the sweep or block pruning.
+      _log('crossday FAILED/skipped: $e');
+    }
+  }
+
+  /// Decode a derived_day payload_json into a map (null on any failure).
+  static Map<String, dynamic>? _decodeBundle(Object? json) {
+    if (json is! String) return null;
+    try {
+      final d = jsonDecode(json);
+      return d is Map ? d.cast<String, dynamic>() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Build the cross-day day-record from a derived_day row + its payload bundle.
+  /// Scalars prefer the row columns (rhr/rmssd/readiness) and fall back to the
+  /// payload `scalars`; resp_rate/skin_temp_z/trimp come from the payload.
+  /// Returns null when the row carries no usable date.
+  static Map<String, dynamic>? _crossDayRecord(
+      Map<String, dynamic> row, Map<String, dynamic> payload) {
+    final date = row['date'] as String?;
+    if (date == null || date.isEmpty) return null;
+    final scalars = (payload['scalars'] as Map?)?.cast<String, dynamic>() ?? const {};
+    num? sc(String k) => scalars[k] is num ? scalars[k] as num : null;
+    num? col(String k) => row[k] is num ? row[k] as num : null;
+
+    final sleep = (payload['sleep'] as Map?)?.cast<String, dynamic>();
+    final window = (sleep?['window'] as Map?)?.cast<String, dynamic>();
+    final acct = (sleep?['accounting'] as Map?)?.cast<String, dynamic>();
+    final series = (payload['series'] as Map?)?.cast<String, dynamic>();
+
+    final onsetMs = (window?['onset_ms'] as num?)?.toDouble();
+    final offsetMs = (window?['offset_ms'] as num?)?.toDouble();
+    final tstSec = (acct?['tst_sec'] as num?)?.toDouble();
+
+    return {
+      'date': date,
+      'rhr': col('rhr') ?? sc('rhr'),
+      'rmssd': col('rmssd') ?? sc('rmssd'),
+      'readiness': col('readiness') ?? sc('readiness'),
+      'resp_rate': sc('resp_rate'),
+      'skin_temp_z': sc('skin_temp_z'),
+      'trimp': sc('trimp'),
+      'onset_sec': onsetMs == null ? null : (onsetMs / 1000).round(),
+      'wake_sec': offsetMs == null ? null : (offsetMs / 1000).round(),
+      'tst_min': tstSec == null ? null : (tstSec / 60).round(),
+      'hypnogram': series?['hypnogram'],
+    };
   }
 
   /// Refresh rolling baselines from the recent derived rows (cheap: from columns).

@@ -45,6 +45,12 @@ abstract class LocalRepository {
   Future<Map<String, dynamic>> getHistory({String range = '30d'}) =>
       throw UnimplementedError('re-layer: getHistory');
 
+  /// Cross-day analytics rollup (illness/anomaly/load/SRI/jetlag/chronotype/
+  /// sleep-debt/percentile/glass-box/BRV) — the seam the cross-day screens and
+  /// notifications read. Empty map when no rollup has been computed yet.
+  Future<Map<String, dynamic>> getInsights() =>
+      throw UnimplementedError('re-layer: getInsights');
+
   // ── day drill-down detail ────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getDaySleepV2(String date) =>
       throw UnimplementedError('re-layer: getDaySleepV2');
