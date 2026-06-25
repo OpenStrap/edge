@@ -137,12 +137,15 @@ private final class Impl {
     }
 
     let descriptor = ASDiscoveryDescriptor()
+    // Match on the WHOOP custom service UUID alone. The foreground scan finds the
+    // band via startScan(withServices:[thisUUID]) and succeeds, which proves the
+    // band advertises this service — so it's a reliable, sufficient filter. Every
+    // descriptor criterion must be declared in Info.plist; the UUID is listed under
+    // NSAccessorySetupBluetoothServices. (No bluetoothNameSubstring: a single
+    // descriptor AND-combines its criteria, and a name filter would also require an
+    // NSAccessorySetupBluetoothNames entry and risk excluding the band on a name
+    // mismatch.)
     descriptor.bluetoothServiceUUID = CBUUID(string: AccessorySetup.whoopServiceUUID)
-    // Name fallback: WHOOP may not always advertise its custom service UUID in the
-    // connectable advert (the Dart scan path also falls back to a name match). The
-    // service UUID stays the primary filter and MUST be listed in Info.plist's
-    // NSAccessorySetupBluetoothServices.
-    descriptor.bluetoothNameSubstring = "whoop"
 
     let item = ASPickerDisplayItem(
       name: "WHOOP band",
