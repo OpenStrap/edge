@@ -280,6 +280,13 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
           value: _exporting ? 'Exporting…' : 'Share',
           onTap: () async {
             if (_exporting) return;
+            // iOS share sheet is a popover and REQUIRES an anchor rect, or it
+            // throws PlatformException(sharePositionOrigin must be set).
+            // Capture it before the async gap, while layout is stable.
+            final box = context.findRenderObject() as RenderBox?;
+            final origin = (box != null && box.hasSize)
+                ? (box.localToGlobal(Offset.zero) & box.size)
+                : null;
             setState(() => _exporting = true);
             try {
               final path = await LocalDb.exportCopy();
@@ -287,6 +294,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                 [XFile(path)],
                 subject: 'OpenStrap data export',
                 text: 'OpenStrap local DB (raw + derived).',
+                sharePositionOrigin: origin,
               );
             } catch (e) {
               if (mounted) {
