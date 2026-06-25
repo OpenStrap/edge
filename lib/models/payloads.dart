@@ -341,7 +341,11 @@ class SleepData {
   // Sleep-timing consistency 0–100 (circular variance of bed/wake times — not the
   // Phillips epoch-agreement SRI); backend column is `regularity` (bare number).
   Metric get regularity => metricOf(_row, 'regularity', flags: _flags);
-  // Stages are Awake / Core (NREM) / REM only — no light/deep split (no EEG).
+  // 4-class wrist stages (estimate): Awake / Light / Deep / REM. Light + Deep
+  // split NREM via HR + motion (no EEG); Deep is a low-confidence overlay.
+  // nremMin (= light + deep) is kept for back-compat.
+  Metric get lightMin => metricOf(_row, 'light_min', flags: _flags);
+  Metric get deepMin => metricOf(_row, 'deep_min', flags: _flags);
   Metric get nremMin => metricOf(_row, 'nrem_min', flags: _flags);
   Metric get remMin => metricOf(_row, 'rem_min', flags: _flags);
 

@@ -294,7 +294,6 @@ class LocalRepositoryImpl extends LocalRepository {
     if (b == null) return const {};
     // Each is a Metric envelope — read the inner `.value` where the fields live.
     final acct = _sub(b, 'sleep.accounting.value');
-    final stager = _sub(b, 'sleep.stager.value');
     final win = _sub(b, 'sleep.window.value');
     final tst = (acct?['tst_sec'] as num?);
     if (tst == null) return const {'has_sleep': false};
@@ -303,6 +302,13 @@ class LocalRepositoryImpl extends LocalRepository {
     final effPct = (acct?['efficiency_pct'] as num?);
     num? sec(String k) =>
         (win?[k] as num?) == null ? null : ((win![k] as num) / 1000).round();
+    // 4-class stage minutes straight from the single-source segmentation seconds
+    // (Light + Deep == NREM). Deep is the LOW-CONFIDENCE HR-depth overlay.
+    int? min(String k) {
+      final v = acct?[k] as num?;
+      return v == null ? null : (v / 60).round();
+    }
+    final sleepConf = _sub(b, 'sleep.accounting')?['confidence'] as num?;
     return {
       // Shape matches sleep_detail_screen's contract exactly.
       'has_sleep': true,
@@ -312,10 +318,16 @@ class LocalRepositoryImpl extends LocalRepository {
       'efficiency': effPct == null ? null : effPct / 100.0, // screen wants 0..1
       'onset_ts': sec('onset_ms'),
       'wake_ts': sec('offset_ms'),
-      // stager resolves only wake/nrem/rem — NREM is the combined "Core" stage.
-      'nrem_min': _stagePct(stager, 'nrem_pct', tst),
-      'rem_min': _stagePct(stager, 'rem_pct', tst),
+      // 4-class stage minutes: Awake / Light / Deep / REM. Light+Deep is the
+      // legacy combined "Core" (nrem_min) kept for any reader that wants it.
+      'light_min': min('light_sec'),
+      'deep_min': min('deep_sec'),
+      'rem_min': min('rem_sec'),
+      'nrem_min': min('nrem_sec'),
       'stages_beta': true,
+      // The 4-class stager is a low-confidence wrist ESTIMATE; Deep especially is
+      // an unvalidated overlay. The screen badges the whole stage block honestly.
+      'stages_confidence': sleepConf,
       'hypnogram': _hypnoPoints(b), // [{t, stage}] points the screen merges
       'nocturnal': _nocturnal(b),
       'resp': _respObj(b),
@@ -345,12 +357,6 @@ class LocalRepositoryImpl extends LocalRepository {
       out.add({'t': last['end'], 'stage': last['stage']});
     }
     return out;
-  }
-
-  int? _stagePct(Map<String, dynamic>? stager, String key, num? tstSec) {
-    final pct = (stager?[key] as num?); // nrem_pct/rem_pct are PERCENT (0..100)
-    if (pct == null || tstSec == null) return null;
-    return ((tstSec / 60) * pct / 100).round();
   }
 
   @override

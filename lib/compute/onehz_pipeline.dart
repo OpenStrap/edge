@@ -185,6 +185,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final inBedSec = (d.sleepJson['in_bed_sec'] as num?)?.toInt();
   final effPct = (d.sleepJson['efficiency_pct'] as num?)?.toDouble();
   final nremSec = (d.sleepJson['nrem_sec'] as num?)?.toInt();
+  // 4-class split of NREM into Light/Deep (Deep = LOW CONFIDENCE overlay).
+  final lightSec = (d.sleepJson['light_sec'] as num?)?.toInt();
+  final deepSec = (d.sleepJson['deep_sec'] as num?)?.toInt();
   final remSec = (d.sleepJson['rem_sec'] as num?)?.toInt();
   final wakeSec = (d.sleepJson['wake_sec'] as num?)?.toInt();
   final sleepConf = (d.sleepJson['confidence'] as num?)?.toDouble() ?? 0;
@@ -342,8 +345,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
               'in_bed_sec': inBedSec,
               'efficiency_pct': effPct,
               'nrem_sec': nremSec,
+              // 4-class split: Light + Deep == NREM. Deep is LOW CONFIDENCE.
+              'light_sec': lightSec,
+              'deep_sec': deepSec,
               'rem_sec': remSec,
               'wake_sec': wakeSec,
+              'deep_low_confidence': true,
             }
           : null,
       confidence: sleepConf,
@@ -496,7 +503,9 @@ List<bool>? _nremMaskAlignedToNn(
   for (var s = 0; s < span; s++) {
     final hypnoIdx = (firstRrSec + s) - d.sleepOnsetSec;
     if (hypnoIdx >= 0 && hypnoIdx < d.hypnoStages.length) {
-      mask[s] = d.hypnoStages[hypnoIdx] == 'nrem';
+      // NREM = Light + Deep in the 4-class stream (was the single 'nrem' label).
+      final lbl = d.hypnoStages[hypnoIdx];
+      mask[s] = lbl == 'light' || lbl == 'deep' || lbl == 'nrem';
     }
   }
   return mask;

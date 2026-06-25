@@ -146,13 +146,19 @@ class DerivationEngine {
         ? sub.sliceIdx(day.sleepLoIdx, day.sleepHiIdx)
         : Substrate.empty;
 
-    // Per-second stage labels (the single source) → 'wake'|'nrem'|'rem' strings.
-    final hypno = <String>[
-      for (final s in day.sleep.stages)
-        s == ana.SleepStage.wake
-            ? 'wake'
-            : (s == ana.SleepStage.rem ? 'rem' : 'nrem')
-    ];
+    // Per-second 4-class stage labels (the single source): 'wake'|'light'|
+    // 'deep'|'rem'. analytics' segmentSleep exposes the 4-class stream directly
+    // (NREM split into Light/Deep via the LOW-CONFIDENCE HR-depth overlay); we
+    // pass it through verbatim so the UI can render Light vs Deep. Fall back to
+    // the 3-class enum (light = plain NREM) only if stages4 is unexpectedly empty.
+    final hypno = day.sleep.stages4.isNotEmpty
+        ? List<String>.from(day.sleep.stages4)
+        : <String>[
+            for (final s in day.sleep.stages)
+              s == ana.SleepStage.wake
+                  ? 'wake'
+                  : (s == ana.SleepStage.rem ? 'rem' : 'light')
+          ];
     final win = day.sleep.window;
     final onsetSec = win == null
         ? 0

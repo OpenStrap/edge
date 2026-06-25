@@ -39,7 +39,7 @@ enum _Phase { loading, ready, empty, error }
 
 /// One compressed run of a stage in the hypnogram.
 class _Seg {
-  final String stage; // 'awake' | 'nrem' (Core) | 'rem'
+  final String stage; // 'awake' | 'light' | 'deep' | 'rem'
   final int seconds;
   const _Seg(this.stage, this.seconds);
 }
@@ -112,9 +112,11 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   num? get _regularity => _num(_data['regularity']); // 0..100
   bool get _stagesBeta => _bool(_data['stages_beta']) ?? false;
 
-  // The stager only resolves wake/nrem/rem — no light/deep split. NREM is the
-  // combined "Core" stage; both values come from the day-sleep payload top level.
-  num? get _nremMin => _num(_data['nrem_min']);
+  // 4-class wrist stager: Awake / Light / Deep / REM. Light+Deep is the legacy
+  // combined "Core" (nrem_min). Deep is a LOW-CONFIDENCE overlay; the whole stage
+  // block is badged as an estimate. All values come from the day-sleep payload.
+  num? get _lightMin => _num(_data['light_min']);
+  num? get _deepMin => _num(_data['deep_min']);
   num? get _remMin => _num(_data['rem_min']);
 
   // Sleep cycles (ultradian NREM↔REM, fractal-cycle method on HRV). Beta.
@@ -225,29 +227,37 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
 
   // ── stage colors / labels ─────────────────────────────────────────────────
 
+  // Four stage colors: Awake (muted) / Light (cool blue) / Deep (deep coral) /
+  // REM (coral). 'nrem' maps to Light for any legacy combined-Core data.
   Color _stageColor(String stage) {
     switch (stage) {
       case 'awake':
         return AppColors.inkMuted;
       case 'rem':
         return AppColors.coral;
-      case 'nrem':
+      case 'deep':
         return AppColors.coralDeep;
+      case 'light':
+      case 'nrem': // legacy combined Core → render as Light
+        return AppColors.loadDetraining;
       default:
         return AppColors.inkMuted;
     }
   }
 
-  // The stager resolves only three classes: Awake / Core (NREM) / REM. There is
-  // no light/deep split (no EEG), so those labels are intentionally absent.
+  // 4-class labels: Awake / Light / Deep / REM. Deep is a low-confidence overlay;
+  // the surrounding card carries the "estimated, low confidence" badge.
   String _stageLabel(String stage) {
     switch (stage) {
       case 'awake':
         return 'Awake';
       case 'rem':
         return 'REM';
+      case 'deep':
+        return 'Deep';
+      case 'light':
       case 'nrem':
-        return 'Core (NREM)';
+        return 'Light';
       default:
         return stage;
     }
@@ -270,21 +280,13 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       return [_stateCard(Ic.cloud, "Couldn't load this night", _error ?? 'Please try again.')];
     }
     return [
+      // ── TRUSTWORTHY BLOCK FIRST ──────────────────────────────────────────
+      // Lead with the figures we stand behind: duration, efficiency, and the
+      // onset/wake timing. These come straight from the van Hees window +
+      // asleep/awake accounting (not the stage model), so they head the screen.
       _hero(),
-      const SizedBox(height: Sp.x6),
-      // Minute-level hypnogram only for recent nights; older nights keep the
-      // stage/efficiency/debt summaries below (those are permanent).
-      detailedAvailable(widget.date)
-          ? _hypnogramCard()
-          : const DetailRetentionNote(what: 'sleep hypnogram'),
-      const SizedBox(height: Sp.x6),
-      SectionHeader('Stages'),
-      _stageBreakdown(),
-      // Cycles sit directly under Stages (same block — not a separate section).
-      if (detailedAvailable(widget.date) && _cycles.isNotEmpty) ...[
-        const SizedBox(height: Sp.x3),
-        _cyclesCard(),
-      ],
+      const SizedBox(height: Sp.x4),
+      _timingCard(),
       const SizedBox(height: Sp.x6),
       SectionHeader('Efficiency'),
       _efficiencyCard(),
@@ -294,6 +296,23 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       const SizedBox(height: Sp.x6),
       SectionHeader('Consistency'),
       _consistencyCard(),
+      // ── ESTIMATED STAGE BLOCK (below the trustworthy numbers) ────────────
+      const SizedBox(height: Sp.x6),
+      SectionHeader('Sleep stages'),
+      _stagesEstimateBadge(),
+      const SizedBox(height: Sp.x3),
+      // Minute-level hypnogram only for recent nights; older nights keep the
+      // stage breakdown below (that is permanent).
+      detailedAvailable(widget.date)
+          ? _hypnogramCard()
+          : const DetailRetentionNote(what: 'sleep hypnogram'),
+      const SizedBox(height: Sp.x4),
+      _stageBreakdown(),
+      // Cycles sit directly under Stages (same block — not a separate section).
+      if (detailedAvailable(widget.date) && _cycles.isNotEmpty) ...[
+        const SizedBox(height: Sp.x3),
+        _cyclesCard(),
+      ],
       if (_hasNocturnal) ...[
         const SizedBox(height: Sp.x6),
         SectionHeader('Nocturnal heart'),
@@ -310,9 +329,12 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
           TrendMetricRow(icon: Ic.chart, accent: AppColors.good, label: 'Efficiency',
               info: infoFor('efficiency'), value: '${(_efficiency! * 100).round()}', unit: '%',
               metric: 'efficiency', trendTitle: 'Sleep efficiency'),
-        if (_nremMin != null)
-          TrendMetricRow(icon: Ic.pulse, accent: AppColors.coral, label: 'Core (NREM)',
-              info: infoFor('nrem'), value: _hm(_nremMin), metric: 'nrem', trendTitle: 'Core (NREM) sleep'),
+        if (_lightMin != null)
+          TrendMetricRow(icon: Ic.pulse, accent: AppColors.loadDetraining, label: 'Light sleep',
+              info: infoFor('light'), value: _hm(_lightMin), metric: 'light', trendTitle: 'Light sleep'),
+        if (_deepMin != null)
+          TrendMetricRow(icon: Ic.pulse, accent: AppColors.coralDeep, label: 'Deep sleep',
+              info: infoFor('deep'), value: _hm(_deepMin), metric: 'deep', trendTitle: 'Deep sleep'),
         if (_remMin != null)
           TrendMetricRow(icon: Ic.pulse, accent: AppColors.coralSoft, label: 'REM sleep',
               info: infoFor('rem'), value: _hm(_remMin), metric: 'rem', trendTitle: 'REM sleep'),
@@ -442,6 +464,61 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // ── timing (onset → wake) — part of the trustworthy lead block ──────────────
+
+  Widget _timingCard() {
+    final onset = _num(_data['onset_ts']);
+    final wake = _num(_data['wake_ts']);
+    if (onset == null && wake == null) return const SizedBox.shrink();
+    return ProCard(
+      child: Row(
+        children: [
+          Expanded(child: _timingStat('TO BED', _clock(onset), Ic.moon)),
+          Container(width: 1, height: 34, color: AppColors.surfaceAlt),
+          Expanded(child: _timingStat('WOKE', _clock(wake), Ic.clock)),
+        ],
+      ),
+    );
+  }
+
+  Widget _timingStat(String label, String value, IconData icon) => Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            AppIcon(icon, size: 14, color: AppColors.coralDeep),
+            const SizedBox(width: Sp.x2),
+            Text(label, style: AppText.overline),
+          ]),
+          const SizedBox(height: Sp.x2),
+          Text(value, style: AppText.metricSm.copyWith(fontSize: 22)),
+        ],
+      );
+
+  // ── estimate badge for the whole stage block ────────────────────────────────
+
+  Widget _stagesEstimateBadge() {
+    return Container(
+      padding: const EdgeInsets.all(Sp.x3),
+      decoration: BoxDecoration(
+        color: AppColors.warnSoft,
+        borderRadius: BorderRadius.circular(R.cardSm),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        AppIcon(Ic.info, size: 16, color: AppColors.warn),
+        const SizedBox(width: Sp.x2),
+        Expanded(
+          child: Text(
+            'Estimated — wrist staging, low confidence. Stages are inferred from '
+            'heart rate + motion (no EEG). REM may read high, and Deep is an '
+            'experimental overlay. Trust the duration and efficiency above.',
+            style: AppText.captionMuted,
+          ),
+        ),
+      ]),
     );
   }
 
@@ -590,7 +667,8 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       spacing: Sp.x4,
       runSpacing: Sp.x2,
       children: [
-        swatch('nrem'),
+        swatch('deep'),
+        swatch('light'),
         swatch('rem'),
         swatch('awake'),
       ],
@@ -601,10 +679,14 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
 
   Widget _stageBreakdown() {
     final inBed = _inBedMin;
+    // 4-class breakdown: Deep / Light / REM / Awake. Deep first (deepest), then
+    // Light, REM, Awake — depth order, matching the hypnogram lanes.
     return ProCard(
       child: Column(
         children: [
-          _stageRow('nrem', _nremMin, inBed),
+          _stageRow('deep', _deepMin, inBed),
+          const SizedBox(height: Sp.x4),
+          _stageRow('light', _lightMin, inBed),
           const SizedBox(height: Sp.x4),
           _stageRow('rem', _remMin, inBed),
           const SizedBox(height: Sp.x4),
@@ -926,12 +1008,15 @@ class _HypnogramPainter extends CustomPainter {
   final Color Function(String) colorOf;
   _HypnogramPainter({required this.segs, required this.colorOf});
 
-  // Vertical lane (0 = top .. 1 = bottom) per stage. The stager emits only
-  // wake / nrem (Core) / rem — there is no light/deep split.
+  // Vertical lane (0 = top .. 1 = bottom) per stage — 4-class hypnogram:
+  // Awake (top) → REM → Light → Deep (bottom). 'nrem' (legacy combined Core)
+  // sits at the Light lane.
   static const _depth = {
     'awake': 0.0,
     'rem': 0.30,
-    'nrem': 0.75, // combined Core
+    'light': 0.62,
+    'nrem': 0.62, // legacy combined Core → Light lane
+    'deep': 0.92,
   };
 
   @override

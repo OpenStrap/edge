@@ -209,11 +209,15 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
     return const [];
   }
 
-  // Stages are Awake / Core (NREM) / REM only — no light/deep split (no EEG).
+  // 4-class wrist stages (estimate): Awake / Light / Deep / REM. Deep + Light
+  // split NREM (no EEG); Deep is a low-confidence overlay. Falls back to the
+  // legacy combined nrem_min (rendered as Light) when light/deep are absent.
   Widget _stageBar(Map<String, dynamic> s) {
-    final nrem = (_num(s['nrem_min']) ?? 0).toDouble();
+    var light = (_num(s['light_min']) ?? 0).toDouble();
+    final deep = (_num(s['deep_min']) ?? 0).toDouble();
     final rem = (_num(s['rem_min']) ?? 0).toDouble();
-    final total = nrem + rem;
+    if (light <= 0 && deep <= 0) light = (_num(s['nrem_min']) ?? 0).toDouble();
+    final total = light + deep + rem;
     if (total <= 0) return const SizedBox.shrink();
     Widget seg(double v, Color c) =>
         v <= 0 ? const SizedBox.shrink() : Expanded(flex: (v * 100).round(), child: Container(color: c));
@@ -222,7 +226,8 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
       child: SizedBox(
         height: 14,
         child: Row(children: [
-          seg(nrem, _stageColor('nrem')),
+          seg(deep, _stageColor('deep')),
+          seg(light, _stageColor('light')),
           seg(rem, _stageColor('rem')),
         ]),
       ),
@@ -238,19 +243,28 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
         Text('$label ${_hm(v)}', style: AppText.caption.copyWith(color: AppColors.inkSoft)),
       ]);
     }
+    final hasSplit =
+        (_num(s['light_min']) ?? 0) > 0 || (_num(s['deep_min']) ?? 0) > 0;
     return Wrap(spacing: Sp.x4, runSpacing: Sp.x2, children: [
-      item('Core (NREM)', 'nrem', _stageColor('nrem')),
+      if (hasSplit) ...[
+        item('Deep', 'deep', _stageColor('deep')),
+        item('Light', 'light', _stageColor('light')),
+      ] else
+        item('Core (NREM)', 'nrem', _stageColor('light')),
       item('REM', 'rem', _stageColor('rem')),
     ]);
   }
 
-  // Same stage palette as the single-night detail screen.
+  // Same stage palette as the single-night detail screen (4-class).
   Color _stageColor(String stage) {
     switch (stage) {
       case 'rem':
         return AppColors.coral;
-      case 'nrem':
+      case 'deep':
         return AppColors.coralDeep;
+      case 'light':
+      case 'nrem':
+        return AppColors.loadDetraining;
       default:
         return AppColors.inkMuted;
     }
@@ -318,8 +332,9 @@ class _HypnoPainter extends CustomPainter {
   final List<Map<String, dynamic>> pts;
   final Color Function(String) colorOf;
   _HypnoPainter(this.pts, this.colorOf);
-  // Awake / REM / Core (NREM) — no light/deep split.
-  static const _rank = {'awake': 0, 'rem': 1, 'nrem': 2};
+  // 4-class lanes: Awake (top) / REM / Light / Deep (bottom). 'nrem' (legacy
+  // combined Core) shares the Light lane.
+  static const _rank = {'awake': 0, 'rem': 1, 'light': 2, 'nrem': 2, 'deep': 3};
 
   @override
   void paint(Canvas c, Size s) {
@@ -329,7 +344,7 @@ class _HypnoPainter extends CustomPainter {
     final w = s.width / (n - 1);
     final paint = Paint();
     for (int i = 0; i < n - 1; i++) {
-      final st = (pts[i]['stage'] as String?) ?? 'nrem';
+      final st = (pts[i]['stage'] as String?) ?? 'light';
       final r = (_rank[st] ?? 2).toDouble();
       paint.color = colorOf(st);
       c.drawRect(Rect.fromLTWH(i * w, r * bandH, w + 0.5, bandH - 1), paint);
