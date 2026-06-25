@@ -36,10 +36,22 @@ class LocalRepositoryImpl extends LocalRepository {
     return _decode(row['payload_json']);
   }
 
+  /// The most-recent derived day that is a REAL bundle (non-empty `scalars`,
+  /// not a `{skipped:true}` marker). A single skipped/empty most-recent day used
+  /// to blank Today; we now walk back to the latest day that actually has data,
+  /// falling back to the newest decodable bundle, else null.
   Future<Map<String, dynamic>?> _latestBundle() async {
-    final row = await LocalDb.latestDerivedDay();
-    if (row == null) return null;
-    return _decode(row['payload_json']);
+    final rows = await LocalDb.recentDerivedDays(14);
+    Map<String, dynamic>? newest;
+    for (final row in rows) {
+      final b = _decode(row['payload_json']);
+      if (b == null) continue;
+      newest ??= b;
+      if (b['skipped'] == true) continue;
+      final scalars = b['scalars'];
+      if (scalars is Map && scalars.isNotEmpty) return b;
+    }
+    return newest;
   }
 
   /// The cross-day analytics rollup bundle (from the `crossday` baseline), or

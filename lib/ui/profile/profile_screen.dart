@@ -14,6 +14,7 @@ import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../today/step_goal_screen.dart';
+import '../debug/diagnostics_screen.dart';
 import 'gesture_section.dart';
 import 'notification_relay_section.dart';
 
@@ -167,6 +168,18 @@ class ProfileScreen extends StatelessWidget {
                       : 'No raw data to analyze yet.'),
                 ));
               },
+            ),
+          ),
+          const SizedBox(height: Sp.x3),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+                horizontal: Sp.x5, vertical: Sp.x2),
+            child: DetailRow(
+              icon: Ic.info,
+              label: 'Diagnostics',
+              value: 'View',
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const DiagnosticsScreen())),
             ),
           ),
 

@@ -7,6 +7,8 @@
 // `counter` (u32 @[3:7]) is the band's per-record id and our natural idempotency
 // key — re-draining the same flash region inserts nothing new (INSERT OR IGNORE).
 
+import 'dart:convert';
+
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
@@ -546,6 +548,72 @@ class LocalDb {
   static Future<List<Map<String, dynamic>>> recentDerivedDays(int limit) async {
     final db = await instance;
     return db.query('derived_day', orderBy: 'date DESC', limit: limit);
+  }
+
+  // ── diagnostics (read-only summaries for the Diagnostics screen) ────────────
+
+  /// Raw store summary: total rows, rec_ts span (real record time, sec, >0 only),
+  /// per-packet_type counts, and the captured_at span (ms) for comparison.
+  static Future<Map<String, dynamic>> rawStats() async {
+    final db = await instance;
+    final count = Sqflite.firstIntValue(
+            await db.rawQuery('SELECT COUNT(*) FROM raw_records')) ??
+        0;
+    final tsRow = (await db.rawQuery(
+            'SELECT MIN(rec_ts) AS lo, MAX(rec_ts) AS hi FROM raw_records WHERE rec_ts > 0'))
+        .first;
+    final capRow = (await db.rawQuery(
+            'SELECT MIN(captured_at) AS lo, MAX(captured_at) AS hi FROM raw_records'))
+        .first;
+    final typeRows = await db.rawQuery(
+        'SELECT packet_type AS t, COUNT(*) AS n FROM raw_records GROUP BY packet_type');
+    final byType = <String, int>{};
+    for (final r in typeRows) {
+      byType['${(r['t'] as int?) ?? -1}'] = (r['n'] as int?) ?? 0;
+    }
+    return {
+      'count': count,
+      'min_rec_ts': (tsRow['lo'] as num?)?.toInt(),
+      'max_rec_ts': (tsRow['hi'] as num?)?.toInt(),
+      'by_type': byType,
+      'min_captured_ms': (capRow['lo'] as num?)?.toInt(),
+      'max_captured_ms': (capRow['hi'] as num?)?.toInt(),
+    };
+  }
+
+  /// Derived store summary: total days, how many are skipped markers, the latest
+  /// date label, and the most recent (up to 14) date labels.
+  static Future<Map<String, dynamic>> derivedStats() async {
+    final db = await instance;
+    final count = Sqflite.firstIntValue(
+            await db.rawQuery('SELECT COUNT(*) FROM derived_day')) ??
+        0;
+    final skipped = Sqflite.firstIntValue(await db.rawQuery(
+            "SELECT COUNT(*) FROM derived_day WHERE payload_json LIKE '%\"skipped\":true%'")) ??
+        0;
+    final rows = await db.query('derived_day',
+        columns: ['date'], orderBy: 'date DESC', limit: 14);
+    final dates = [for (final r in rows) r['date'] as String];
+    return {
+      'count': count,
+      'skipped': skipped,
+      'latest_date': dates.isEmpty ? null : dates.first,
+      'dates': dates,
+    };
+  }
+
+  /// Cross-day rollup presence + day count, read from the `crossday` baseline.
+  static Future<Map<String, dynamic>?> crossDayStats() async {
+    final r = await baseline('crossday');
+    final json = r?['payload_json'];
+    if (json is! String) return {'present': false};
+    try {
+      final p = jsonDecode(json);
+      final nDays = p is Map ? p['n_days'] : null;
+      return {'present': true, 'n_days': nDays};
+    } catch (_) {
+      return {'present': false};
+    }
   }
 
   /// `{date -> last_raw_ts}` for every derived day — the engine compares these
