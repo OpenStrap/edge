@@ -2,10 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
-	<key>OpenStrapAppGroupIdentifier</key>
-	<string>$(APP_GROUP_IDENTIFIER)</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -30,18 +26,22 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
-	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
+	<key>NSAccessorySetupBluetoothServices</key>
+	<array>
+		<string>61080001-8D6D-82B8-614A-1C8CB0F8DCC6</string>
+	</array>
 	<key>NSAccessorySetupKitSupports</key>
 	<array>
 		<string>Bluetooth</string>
 	</array>
-	<key>NSAccessorySetupBluetoothServices</key>
-	<array>
-		<string>61080001-8d6d-82b8-614a-1c8cb0f8dcc6</string>
-	</array>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>OpenStrapAppGroupIdentifier</key>
+	<string>$(APP_GROUP_IDENTIFIER)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
