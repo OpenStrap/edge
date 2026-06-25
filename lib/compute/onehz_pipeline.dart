@@ -190,7 +190,16 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final sleepConf = (d.sleepJson['confidence'] as num?)?.toDouble() ?? 0;
 
   // ── CLINICAL (sleep-windowed) ──────────────────────────────────────────────
+  // Whole-window time-domain HRV (kept for the SDNN scalar + a detail row); its
+  // single-night RMSSD is inflated by REM/arousal bursts, so it is NO LONGER the
+  // headline RMSSD — see `robustRmssd` below.
   final hrvT = hrvTime(nn, nnTimesMs: nnTimes);
+  // THE headline nocturnal RMSSD: robust median of consecutive 5-min-window
+  // RMSSDs over the SLEEP NN, restricted to NREM seconds. Aligned to nnTimes.first
+  // (the window the estimator is t0-relative to). This brings the displayed RMSSD
+  // back to physiological tens-of-ms instead of the whole-night ~129 ms value.
+  final nremMask = _nremMaskAlignedToNn(d, nnTimes, d.sleepRrTsMs);
+  final robustRmssd = nocturnalRmssd(nn, nnTimes, stageMaskPerSec: nremMask);
   final hrvF = nn.length >= 20
       ? hrvFreq(nn, nnTimes, artifactFraction: artifactFraction)
       : const Metric<HrvFreq>.absent(tier: Tier.high, inputs_used: ['rr_cleaned']);
@@ -288,6 +297,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     }
   }
 
+  // HEADLINE STRAIN = 0–21 log-squash of raw TRIMP; raw TRIMP kept as a detail.
+  final rawTrimp = trimp.present ? trimp.value : null;
+  final strainMetric = strainScoreMetric(rawTrimp);
+
   // ── curve series for the UI ────────────────────────────────────────────────
   final hrCurve = _downsampleHr(d.dayTsSec, d.dayHr);
   final hypnogram = _hypnogramSegments(d);
@@ -296,6 +309,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // ── ASSEMBLE the bundle (envelopes are plain JSON) ─────────────────────────
   final clinical = <String, dynamic>{
     'hrv_time': hrvT.toJson((v) => v.toJson()),
+    // The headline nocturnal RMSSD envelope (robust, NREM, median-of-5min). Carry
+    // its honesty note so detail screens can surface it.
+    'rmssd_nocturnal': robustRmssd.toJson(),
     'hrv_freq': hrvF.toJson((v) => v.toJson()),
     'resting_hr': rhr.toJson((v) => v.toJson()),
     'hr_dip': dip.toJson((v) => v.toJson()),
@@ -303,6 +319,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'prsa_ac': ac.toJson((v) => v.toJson()),
     'readiness_lnrmssd': lnReadiness.toJson((v) => v.toJson()),
     'readiness_composite': composite.toJson((v) => v.toJson()),
+    // Headline 0–21 strain envelope; raw Banister TRIMP kept as `trimp`.
+    'strain': strainMetric.toJson(),
     'trimp': trimp.toJson(),
   };
 
@@ -373,9 +391,16 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
 
   // Indexed scalars (also surfaced to metric_series by the engine).
   final rhrScalar = rhr.present ? rhr.value!.low30Mean : null;
-  final rmssdScalar =
+  // HEADLINE RMSSD = robust nocturnal (NREM, median-of-5min). Fall back to the
+  // whole-window time-domain RMSSD only if the robust estimator can't compute.
+  final rmssdScalar = robustRmssd.present
+      ? robustRmssd.value
+      : ((hrvT.present && hrvT.value!.rmssd != null) ? hrvT.value!.rmssd : null);
+  // Whole-window RMSSD kept available as a secondary detail (NOT the headline).
+  final rmssdWholeScalar =
       (hrvT.present && hrvT.value!.rmssd != null) ? hrvT.value!.rmssd : null;
   final readinessScalar = composite.present ? composite.value!.score : null;
+  final strainScalar = strainMetric.present ? strainMetric.value : null;
 
   return <String, dynamic>{
     'date': d.date,
@@ -400,8 +425,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     },
     'scalars': {
       'rhr': rhrScalar,
+      // Headline RMSSD (robust nocturnal, NREM). Whole-window kept separately.
       'rmssd': rmssdScalar,
+      'rmssd_whole': rmssdWholeScalar,
       'readiness': readinessScalar,
+      // Headline 0–21 strain (the screens already expect a 0–21 scale); raw
+      // Banister TRIMP stays under `trimp` as the secondary "training load".
+      'strain': strainScalar,
       'ln_rmssd': lnToday,
       'resp_rate': respToday,
       'skin_temp_z': skinTempZ,
@@ -435,6 +465,42 @@ Map<String, dynamic> _envelope(
       'tier': tier,
       'inputs_used': inputs,
     };
+
+/// Build a per-second NREM bool mask ALIGNED to the NN window the robust
+/// nocturnal-RMSSD estimator uses.
+///
+/// `nocturnalRmssd` is t0-relative to `nnTimes.first`, masking a window by its
+/// midpoint SECOND counted from that t0. CRUCIAL: `correctRr` RE-BASES nnTimesMs
+/// to start near zero (NOT epoch ms), so the mask is indexed in seconds elapsed
+/// since the first NN beat — NOT epoch seconds. The first NN beat's absolute
+/// instant is the first ORIGINAL RR timestamp (`d.sleepRrTsMs.first`, epoch ms),
+/// so mask index `s` maps to absolute second `firstRrSec + s`, then to the hypno
+/// index `firstRrSec + s − sleepOnsetSec` (hypnoStages run per-second from
+/// sleepOnsetSec). Returns null if we lack NN times / RR times / stages (the
+/// estimator then runs unmasked over all sleep windows — still robust, just not
+/// NREM-restricted).
+List<bool>? _nremMaskAlignedToNn(
+    DayBundleInput d, List<double> nnTimes, List<double> nnTimesSrcMs) {
+  if (nnTimes.isEmpty ||
+      nnTimesSrcMs.isEmpty ||
+      d.hypnoStages.isEmpty ||
+      d.sleepOnsetSec == 0) {
+    return null;
+  }
+  // Absolute epoch second of the first NN beat (from the ORIGINAL RR times).
+  final firstRrSec = (nnTimesSrcMs.first / 1000.0).floor();
+  // Span in seconds is measured on the RE-BASED nn time base (starts ~0).
+  final span = (nnTimes.last / 1000.0).floor() + 1;
+  if (span <= 0) return null;
+  final mask = List<bool>.filled(span, false);
+  for (var s = 0; s < span; s++) {
+    final hypnoIdx = (firstRrSec + s) - d.sleepOnsetSec;
+    if (hypnoIdx >= 0 && hypnoIdx < d.hypnoStages.length) {
+      mask[s] = d.hypnoStages[hypnoIdx] == 'nrem';
+    }
+  }
+  return mask;
+}
 
 /// Day-side HR: the day-span HR samples that fall OUTSIDE the sleep window.
 List<double> _dayHrOutsideSleep(DayBundleInput d) {

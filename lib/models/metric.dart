@@ -29,6 +29,11 @@ class Metric {
   final List<String> inputsUsed;
   final bool beta;
 
+  /// Optional honesty / machine-readable note from the metric envelope. Carries
+  /// the `need_baseline:have=H,need=N` convention for baseline-gated abstentions
+  /// so the UI can render "Need N more nights" instead of a bare "—".
+  final String? note;
+
   const Metric({
     this.value,
     this.unit,
@@ -37,7 +42,13 @@ class Metric {
     this.label,
     this.inputsUsed = const [],
     this.beta = false,
+    this.note,
   });
+
+  /// Parsed `need_baseline:have=H,need=N` → remaining nights (need − have, ≥1),
+  /// or null when this metric is not a baseline-gated abstention. Drives the
+  /// "Need N more nights" copy.
+  int? get needMoreNights => needMoreNightsFromNote(note);
 
   /// A metric with no real data — renders as "—".
   static const empty = Metric();
@@ -70,6 +81,7 @@ class Metric {
         label: m['label']?.toString(),
         inputsUsed: _list(m['inputs_used']),
         beta: _bool(m['beta']) || _tierFrom(m['tier']) == MetricTier.estimate,
+        note: m['note']?.toString(),
       );
     }
     // Case B: a scalar value + a separate flags entry {c, tier, label, beta}.
@@ -106,6 +118,21 @@ class Metric {
     if (v is List) return v.map((e) => e.toString()).toList();
     return const [];
   }
+}
+
+/// Parse the analytics `need_baseline:have=H,need=N` note convention into the
+/// number of additional nights still required (need − have, floored at 1), or
+/// null if [note] isn't a need_baseline note. Lets any screen turn a baseline-
+/// gated abstention into "Need N more nights" copy.
+int? needMoreNightsFromNote(String? note) {
+  if (note == null || !note.contains('need_baseline:')) return null;
+  final m = RegExp(r'have=(\d+),need=(\d+)').firstMatch(note);
+  if (m == null) return null;
+  final have = int.tryParse(m.group(1)!);
+  final need = int.tryParse(m.group(2)!);
+  if (have == null || need == null) return null;
+  final remaining = need - have;
+  return remaining < 1 ? 1 : remaining;
 }
 
 /// Pull a per-metric flag map ({c, tier, label, beta}) out of a row's `flags`

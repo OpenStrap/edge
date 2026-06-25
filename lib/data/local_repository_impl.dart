@@ -89,13 +89,27 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   /// A bare metric from a scalar (used where a screen reads a number directly).
-  Map<String, dynamic> _scalarMetric(num? v, String tier, {String? unit}) => {
+  /// An optional [note] (e.g. a `need_baseline:…` string) is carried through so
+  /// the UI can render "Need N more nights" for baseline-gated abstentions.
+  Map<String, dynamic> _scalarMetric(num? v, String tier,
+          {String? unit, String? note}) =>
+      {
         'value': v ?? '—',
         'confidence': v == null ? 0 : 0.8,
         'tier': tier,
         'inputs_used': const [],
         'unit': ?unit,
+        'note': ?note,
       };
+
+  /// The `note` string of a metric envelope at [path] (e.g.
+  /// 'clinical.readiness_composite'), or null. Used to surface the
+  /// `need_baseline:have=H,need=N` convention to the UI.
+  String? _needNote(Map<String, dynamic>? b, String path) {
+    final env = _sub(b, path);
+    final note = env?['note'];
+    return note is String ? note : null;
+  }
 
   // ── profile ─────────────────────────────────────────────────────────────────
   // The profile lives in AppState (shared_preferences); AppState.updateProfile
@@ -139,11 +153,20 @@ class LocalRepositoryImpl extends LocalRepository {
         : null;
 
     final rmssd = _scalar(b, 'rmssd');
+    // Readiness/recovery: when the composite abstains for lack of baseline, the
+    // envelope carries a `need_baseline:have=H,need=N` note. Pass that note
+    // through so the hero can render "Need N more nights" instead of a number.
+    final readinessScalar = _scalar(b, 'readiness');
+    final readinessNote =
+        readinessScalar == null ? _needNote(b, 'clinical.readiness_composite') : null;
+    final readinessMetric =
+        _scalarMetric(readinessScalar, 'HIGH', note: readinessNote);
     final daily = <String, dynamic>{
-      'readiness': _scalarMetric(_scalar(b, 'readiness'), 'HIGH'),
-      'recovery': _scalarMetric(_scalar(b, 'readiness'), 'HIGH'),
+      'readiness': readinessMetric,
+      'recovery': readinessMetric,
       'resting_hr': _scalarMetric(_scalar(b, 'rhr')?.round(), 'HIGH', unit: 'bpm'),
-      'strain': _scalarMetric(_scalar(b, 'trimp'), 'ESTIMATE'),
+      // Headline 0–21 strain (the strain gauge already expects a 0–21 scale).
+      'strain': _scalarMetric(_scalar(b, 'strain'), 'ESTIMATE'),
       'wear_min': _scalarMetric(_wearMin(b), 'HIGH', unit: 'min'),
     };
 
@@ -222,6 +245,7 @@ class LocalRepositoryImpl extends LocalRepository {
     if (b == null) return const {};
     final hrCurve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
     final rmssd = _scalar(b, 'rmssd');
+    final cd = await _crossDay();
     return {
       'hr': hrCurve, // [{t, v}] — detail_cards reads e['v']
       'resting_hr': _scalar(b, 'rhr')?.round(),
@@ -235,6 +259,10 @@ class LocalRepositoryImpl extends LocalRepository {
       },
       'nocturnal': _nocturnal(b),
       'resp': _respObj(b),
+      // Illness watch (CUSUM/NightSignal) — carries `note` (need_baseline) while
+      // baseline is short, so the card can say "Need N more nights".
+      'illness': ?cd?['illness'],
+      'skin_temp': {'value': _scalar(b, 'skin_temp_z')},
     };
   }
 
@@ -404,7 +432,10 @@ class LocalRepositoryImpl extends LocalRepository {
     final b = await _bundle(date) ?? await _latestBundle();
     if (b == null) return const {};
     return {
-      'strain': _scalar(b, 'trimp'),
+      // Headline 0–21 strain (the detail screen clamps to 0..21). Raw Banister
+      // TRIMP is kept as the secondary "training load" figure.
+      'strain': _scalar(b, 'strain'),
+      'training_load': _scalar(b, 'trimp'),
       'flags': const {},
     };
   }
@@ -449,7 +480,8 @@ class LocalRepositoryImpl extends LocalRepository {
           'date': r['date'],
           'strain': (() {
             final b = _decode(r['payload_json']);
-            return _scalar(b, 'trimp');
+            // Headline 0–21 strain (fall back to nothing if older bundle).
+            return _scalar(b, 'strain');
           })(),
           'flags': const {},
         }

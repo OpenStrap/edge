@@ -341,16 +341,15 @@ class SleepData {
   // Sleep-timing consistency 0–100 (circular variance of bed/wake times — not the
   // Phillips epoch-agreement SRI); backend column is `regularity` (bare number).
   Metric get regularity => metricOf(_row, 'regularity', flags: _flags);
-  Metric get lightMin => metricOf(_row, 'light_min', flags: _flags);
-  Metric get deepMin => metricOf(_row, 'deep_min', flags: _flags);
+  // Stages are Awake / Core (NREM) / REM only — no light/deep split (no EEG).
+  Metric get nremMin => metricOf(_row, 'nrem_min', flags: _flags);
   Metric get remMin => metricOf(_row, 'rem_min', flags: _flags);
 
   int? get onsetEpoch => _num(_row['onset'] ?? _row['onset_ts'])?.toInt();
   int? get wakeEpoch => _num(_row['wake'] ?? _row['wake_ts'])?.toInt();
 
   /// Stages are ESTIMATE/beta per CONFIDENCE.
-  bool get stagesBeta =>
-      lightMin.beta || deepMin.beta || remMin.beta || true;
+  bool get stagesBeta => true;
 
   bool get isEmpty => _row.isEmpty;
 }

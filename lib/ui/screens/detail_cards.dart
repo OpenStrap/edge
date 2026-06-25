@@ -5,6 +5,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/metric.dart' show needMoreNightsFromNote;
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
@@ -308,12 +309,22 @@ class _IllnessCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dist = _num(illness?['distance']);
-    final signal = illness?['signal'] == true;
+    // The 1 Hz illness day (CUSUM/NightSignal) exposes: state (green|yellow|red),
+    // optional cusum, and `note` carrying the need_baseline:have=H,need=N
+    // convention while the baseline is still too short.
+    final state = illness?['state']?.toString();
+    final cusum = _num(illness?['cusum']);
+    final note = illness?['note']?.toString();
+    final needNights = needMoreNightsFromNote(note);
+    final signal = state == 'red' || state == 'yellow';
     final drivers = (illness?['drivers'] as List?)?.whereType<Map>().toList() ?? const [];
 
-    // No baseline yet → honest "building" state.
-    if (illness == null || dist == null) {
+    // No baseline yet → honest "Need N more nights" state (precise when the note
+    // carries the count; otherwise the generic ~7-night copy).
+    if (illness == null || (cusum == null && !signal)) {
+      final needLine = needNights != null
+          ? 'Need $needNights more night${needNights == 1 ? '' : 's'} of wear to start.'
+          : 'It needs about 7 nights of wear to start.';
       return ProCard(child: Padding(padding: const EdgeInsets.all(Sp.x4), child: Row(children: [
         Container(
           padding: const EdgeInsets.all(9),
@@ -322,10 +333,12 @@ class _IllnessCard extends StatelessWidget {
         ),
         const SizedBox(width: Sp.x3),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Building your baseline', style: AppText.label),
+          Text(needNights != null
+              ? 'Need $needNights more night${needNights == 1 ? '' : 's'}'
+              : 'Building your baseline', style: AppText.label),
           const SizedBox(height: 2),
           Text('Illness watch compares today’s resting HR, HRV and skin temperature '
-              'against your normal range. It needs about 7 nights of wear to start.',
+              'against your normal range. $needLine',
               style: AppText.captionMuted),
         ])),
       ])));
@@ -350,7 +363,8 @@ class _IllnessCard extends StatelessWidget {
           Row(children: [
             Text(title, style: AppText.label.copyWith(color: accent)),
             const Spacer(),
-            Text('index ${dist.toStringAsFixed(1)}', style: AppText.captionMuted),
+            if (cusum != null)
+              Text('index ${cusum.toStringAsFixed(1)}', style: AppText.captionMuted),
           ]),
           const SizedBox(height: 2),
           Text(blurb, style: AppText.captionMuted),

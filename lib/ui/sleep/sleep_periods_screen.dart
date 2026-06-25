@@ -209,11 +209,11 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
     return const [];
   }
 
+  // Stages are Awake / Core (NREM) / REM only — no light/deep split (no EEG).
   Widget _stageBar(Map<String, dynamic> s) {
-    final deep = (_num(s['deep_min']) ?? 0).toDouble();
+    final nrem = (_num(s['nrem_min']) ?? 0).toDouble();
     final rem = (_num(s['rem_min']) ?? 0).toDouble();
-    final light = (_num(s['light_min']) ?? 0).toDouble();
-    final total = deep + rem + light;
+    final total = nrem + rem;
     if (total <= 0) return const SizedBox.shrink();
     Widget seg(double v, Color c) =>
         v <= 0 ? const SizedBox.shrink() : Expanded(flex: (v * 100).round(), child: Container(color: c));
@@ -222,8 +222,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
       child: SizedBox(
         height: 14,
         child: Row(children: [
-          seg(deep, _stageColor('deep')),
-          seg(light, _stageColor('light')),
+          seg(nrem, _stageColor('nrem')),
           seg(rem, _stageColor('rem')),
         ]),
       ),
@@ -240,8 +239,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
       ]);
     }
     return Wrap(spacing: Sp.x4, runSpacing: Sp.x2, children: [
-      item('Deep', 'deep', _stageColor('deep')),
-      item('Light', 'light', _stageColor('light')),
+      item('Core (NREM)', 'nrem', _stageColor('nrem')),
       item('REM', 'rem', _stageColor('rem')),
     ]);
   }
@@ -249,11 +247,9 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
   // Same stage palette as the single-night detail screen.
   Color _stageColor(String stage) {
     switch (stage) {
-      case 'light':
-        return AppColors.coral.withValues(alpha: 0.35);
       case 'rem':
         return AppColors.coral;
-      case 'deep':
+      case 'nrem':
         return AppColors.coralDeep;
       default:
         return AppColors.inkMuted;
@@ -322,7 +318,8 @@ class _HypnoPainter extends CustomPainter {
   final List<Map<String, dynamic>> pts;
   final Color Function(String) colorOf;
   _HypnoPainter(this.pts, this.colorOf);
-  static const _rank = {'awake': 0, 'rem': 1, 'light': 2, 'deep': 3};
+  // Awake / REM / Core (NREM) — no light/deep split.
+  static const _rank = {'awake': 0, 'rem': 1, 'nrem': 2};
 
   @override
   void paint(Canvas c, Size s) {
@@ -332,7 +329,7 @@ class _HypnoPainter extends CustomPainter {
     final w = s.width / (n - 1);
     final paint = Paint();
     for (int i = 0; i < n - 1; i++) {
-      final st = (pts[i]['stage'] as String?) ?? 'light';
+      final st = (pts[i]['stage'] as String?) ?? 'nrem';
       final r = (_rank[st] ?? 2).toDouble();
       paint.color = colorOf(st);
       c.drawRect(Rect.fromLTWH(i * w, r * bandH, w + 0.5, bandH - 1), paint);

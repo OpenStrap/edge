@@ -216,6 +216,8 @@ class DerivationEngine {
         // so the baseline fills and z begins computing from ~day 4.
         'skin_temp_adc': sc('skin_temp_adc'),
         'dip_pct': sc('dip_pct'),
+        // Headline 0–21 strain (for trend/sparkline); raw TRIMP kept too.
+        'strain': sc('strain'),
         'trimp': sc('trimp'),
         'odi_per_hour': sc('odi_per_hour'),
         'cpc_ratio': sc('cpc_ratio'),

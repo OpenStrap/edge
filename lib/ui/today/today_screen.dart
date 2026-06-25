@@ -253,8 +253,11 @@ class _TodayScreenState extends State<TodayScreen>
         _bodyAlert(alert),
         const SizedBox(height: Sp.x4),
       ],
-      // Composite Readiness headline (abstains until HRV exists).
-      if (!t.readiness.isEmpty) ...[
+      // Composite Readiness headline. Shows the score when present, or a
+      // "Need N more nights" baseline-building state when the composite abstains
+      // for lack of baseline (need_baseline note). Hidden only when there is
+      // neither a score nor a baseline note (genuinely no signal yet).
+      if (!t.readiness.isEmpty || t.readiness.needMoreNights != null) ...[
         _readinessHero(t),
         const SizedBox(height: Sp.x4),
       ],
@@ -444,9 +447,20 @@ class _TodayScreenState extends State<TodayScreen>
   Widget _readinessHero(TodayData t) {
     final r = t.readiness;
     final score = r.isEmpty ? null : r.value!.round();
+    // Baseline-building state: the composite abstains until it has enough nights.
+    final needNights = score == null ? r.needMoreNights : null;
     final tcol = score == null
         ? AppColors.inkMuted
         : (score >= 66 ? AppColors.good : score >= 40 ? AppColors.coral : AppColors.coralDeep);
+    // Headline glyph: the score, or "Need N" while building the baseline.
+    final headline = score != null
+        ? '$score'
+        : (needNights != null ? 'Need $needNights' : '—');
+    final subtitle = score != null
+        ? 'HRV recovery + sleep, blended'
+        : (needNights != null
+            ? 'Need $needNights more night${needNights == 1 ? '' : 's'} to build your baseline'
+            : 'Building baseline — needs nocturnal HRV');
     return GlowCard(
       padding: const EdgeInsets.all(Sp.x6),
       glow: tcol,
@@ -458,11 +472,11 @@ class _TodayScreenState extends State<TodayScreen>
             Text('READINESS', style: AppText.overline),
           ]),
           const SizedBox(height: Sp.x3),
-          Text(score == null ? '—' : '$score', style: AppText.display.copyWith(color: tcol)),
+          Text(headline,
+              style: (score != null ? AppText.display : AppText.metricSm)
+                  .copyWith(color: tcol)),
           const SizedBox(height: Sp.x2),
-          Text(score == null
-              ? 'Building baseline — needs nocturnal HRV'
-              : 'HRV recovery + sleep, blended', style: AppText.bodySoft),
+          Text(subtitle, style: AppText.bodySoft),
         ])),
         if (score != null)
           RingStat(t: (score / 100).clamp(0.0, 1.0), color: tcol, size: 96, stroke: 11,

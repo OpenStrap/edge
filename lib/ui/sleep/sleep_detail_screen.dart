@@ -39,7 +39,7 @@ enum _Phase { loading, ready, empty, error }
 
 /// One compressed run of a stage in the hypnogram.
 class _Seg {
-  final String stage; // 'awake' | 'light' | 'deep' | 'rem'
+  final String stage; // 'awake' | 'nrem' (Core) | 'rem'
   final int seconds;
   const _Seg(this.stage, this.seconds);
 }
@@ -229,30 +229,25 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
     switch (stage) {
       case 'awake':
         return AppColors.inkMuted;
-      case 'light':
-        return AppColors.coral.withValues(alpha: 0.35);
       case 'rem':
         return AppColors.coral;
       case 'nrem':
-      case 'deep':
         return AppColors.coralDeep;
       default:
         return AppColors.inkMuted;
     }
   }
 
+  // The stager resolves only three classes: Awake / Core (NREM) / REM. There is
+  // no light/deep split (no EEG), so those labels are intentionally absent.
   String _stageLabel(String stage) {
     switch (stage) {
       case 'awake':
         return 'Awake';
-      case 'light':
-        return 'Light';
       case 'rem':
         return 'REM';
       case 'nrem':
         return 'Core (NREM)';
-      case 'deep':
-        return 'Deep';
       default:
         return stage;
     }
@@ -317,7 +312,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
               metric: 'efficiency', trendTitle: 'Sleep efficiency'),
         if (_nremMin != null)
           TrendMetricRow(icon: Ic.pulse, accent: AppColors.coral, label: 'Core (NREM)',
-              info: infoFor('deep'), value: _hm(_nremMin), metric: 'deep', trendTitle: 'Core (NREM) sleep'),
+              info: infoFor('nrem'), value: _hm(_nremMin), metric: 'nrem', trendTitle: 'Core (NREM) sleep'),
         if (_remMin != null)
           TrendMetricRow(icon: Ic.pulse, accent: AppColors.coralSoft, label: 'REM sleep',
               info: infoFor('rem'), value: _hm(_remMin), metric: 'rem', trendTitle: 'REM sleep'),
@@ -931,13 +926,12 @@ class _HypnogramPainter extends CustomPainter {
   final Color Function(String) colorOf;
   _HypnogramPainter({required this.segs, required this.colorOf});
 
-  // Vertical lane (0 = top .. 1 = bottom) per stage.
+  // Vertical lane (0 = top .. 1 = bottom) per stage. The stager emits only
+  // wake / nrem (Core) / rem — there is no light/deep split.
   static const _depth = {
     'awake': 0.0,
     'rem': 0.30,
-    'nrem': 0.75, // combined Core (the stager emits wake/nrem/rem only)
-    'light': 0.60,
-    'deep': 0.92,
+    'nrem': 0.75, // combined Core
   };
 
   @override

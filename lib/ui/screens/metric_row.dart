@@ -26,9 +26,10 @@ const Map<String, String> kMetricInfo = {
   'sleep': 'Time actually asleep last night.',
   'efficiency': 'Share of time in bed actually spent asleep.',
   'regularity': 'How consistent your sleep timing is, 0–100.',
-  'deep': 'Deepest, most physically restorative sleep.',
+  // Core (NREM) is the combined non-REM stage — the stager resolves only
+  // Awake / Core (NREM) / REM (no light/deep split without EEG).
+  'nrem': 'Core (NREM) — the body’s most physically restorative sleep.',
   'rem': 'Dreaming sleep — mental restoration and memory.',
-  'light': 'The bridge between deeper stages; most of the night.',
   'nocturnal_dip': 'How far your heart rate falls in sleep — a bigger dip is better.',
   'sleeping_hr': 'Average heart rate while you slept.',
   'resp': 'Breaths per minute, derived from heart-rate variability.',
