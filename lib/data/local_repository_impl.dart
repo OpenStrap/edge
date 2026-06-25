@@ -186,7 +186,9 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   Map<String, dynamic> _sleepSummary(Map<String, dynamic> b) {
-    final acct = _sub(b, 'sleep.accounting');
+    // sleep.accounting is a Metric envelope {value:{tst_sec,…}, confidence,…} —
+    // read the inner `.value`, not the envelope (the fields live one level down).
+    final acct = _sub(b, 'sleep.accounting.value');
     final tst = (acct?['tst_sec'] as num?);
     final eff = (acct?['efficiency_pct'] as num?);
     if (tst == null) return const {};
@@ -262,9 +264,10 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> _daySleep(String date) async {
     final b = await _bundle(date) ?? await _latestBundle();
     if (b == null) return const {};
-    final acct = _sub(b, 'sleep.accounting');
-    final stager = _sub(b, 'sleep.stager');
-    final win = _sub(b, 'sleep.window');
+    // Each is a Metric envelope — read the inner `.value` where the fields live.
+    final acct = _sub(b, 'sleep.accounting.value');
+    final stager = _sub(b, 'sleep.stager.value');
+    final win = _sub(b, 'sleep.window.value');
     final tst = (acct?['tst_sec'] as num?);
     final hypnogram = (_sub(b, 'series')?['hypnogram'] as List?) ?? const [];
     return {
@@ -333,7 +336,7 @@ class LocalRepositoryImpl extends LocalRepository {
       level = score < 34 ? 'low' : (score < 67 ? 'moderate' : 'high');
     }
 
-    final lfHf = (_sub(b, 'clinical.hrv_freq')?['lf_hf'] as num?);
+    final lfHf = (_sub(b, 'clinical.hrv_freq.value')?['lf_hf'] as num?);
     final rmssd = _scalar(b, 'rmssd');
     final hrCurve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
 
@@ -391,7 +394,7 @@ class LocalRepositoryImpl extends LocalRepository {
     for (final r in rows) {
       final b = _decode(r['payload_json']);
       if (b == null) continue;
-      final acct = _sub(b, 'sleep.accounting');
+      final acct = _sub(b, 'sleep.accounting.value');
       final tst = (acct?['tst_sec'] as num?);
       if (tst == null) continue;
       out.add({
@@ -496,7 +499,7 @@ class LocalRepositoryImpl extends LocalRepository {
     int nights = 0;
     for (final r in rows) {
       final b = _decode(r['payload_json']);
-      if (_sub(b, 'sleep.accounting')?['tst_sec'] != null) nights++;
+      if (_sub(b, 'sleep.accounting.value')?['tst_sec'] != null) nights++;
     }
     return {
       'days_tracked': days,
