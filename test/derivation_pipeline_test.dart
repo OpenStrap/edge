@@ -1,6 +1,7 @@
-// Integration test for the on-device compute path:
-//   real raw frames (whoop_hist.jsonl) → decode (openstrap_protocol)
-//   → DayInput → deriveDayBundle (the pure isolate entry, called SYNCHRONOUSLY)
+// Integration test for the on-device V2 compute path:
+//   real raw frames (whoop_hist.jsonl) → decodeSubstrate (ONE decode point)
+//   → physiologicalDays (wake-to-wake segmentation) → DayBundleInput
+//   → deriveDayBundle (the pure isolate entry, called SYNCHRONOUSLY)
 //   → assert a sane derived bundle (RHR, an HRV value, no crash).
 //
 // Also shapes the bundle the way LocalRepositoryImpl.getToday() does and asserts
@@ -10,9 +11,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
+import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_edge/compute/onehz_pipeline.dart';
-import 'package:openstrap_edge/compute/profile.dart';
+import 'package:openstrap_edge/compute/substrate.dart';
 import 'package:openstrap_edge/data/db.dart';
 
 void main() {
@@ -47,7 +48,7 @@ void main() {
     expect(dayLabels, isNotEmpty);
   });
 
-  test('deriveDayBundle on real raw frames produces a sane bundle', () {
+  test('V2 path: decodeSubstrate → segmentation → deriveDayBundle is sane', () {
     // The fixture sits next to the worktree: whoop-master/whoop_hist.jsonl.
     final candidates = [
       '../whoop_hist.jsonl',
@@ -73,94 +74,78 @@ void main() {
     }
     expect(hexes.length, greaterThan(100), reason: 'expected real frames');
 
-    // ── decode → 1 Hz series (mirrors DerivationEngine._buildDayInput) ────────
-    final hrTs = <int>[], hrBpm = <int>[];
-    final rrTsMs = <double>[], rrMs = <double>[];
-    final aTs = <double>[], ax = <double>[], ay = <double>[], az = <double>[];
-    final skinTemp = <int>[], spo2Red = <int>[], spo2Ir = <int>[];
+    // ── ONE decode point: raw hex → Substrate ────────────────────────────────
+    final sub = decodeSubstrate(hexes);
+    expect(sub.length, greaterThan(50), reason: 'decoded 1 Hz substrate');
+    expect(sub.hr.where((h) => h > 0).length, greaterThan(50),
+        reason: 'valid HR samples');
+    expect(sub.rrMs.length, greaterThan(50), reason: 'decoded RR beats');
 
-    for (final hex in hexes) {
-      final r = proto.parseR24(proto.hexToBytes(hex));
-      if (r == null || r.tsEpoch <= 0) continue;
-      hrTs.add(r.tsEpoch);
-      hrBpm.add(r.hr);
-      final t = r.tsEpoch * 1000.0;
-      for (final rr in r.rrIntervalsMs) {
-        if (rr > 0) {
-          rrMs.add(rr.toDouble());
-          rrTsMs.add(t);
-        }
-      }
-      if (r.accelG.length == 3) {
-        aTs.add(r.tsEpoch.toDouble());
-        ax.add(r.accelG[0]);
-        ay.add(r.accelG[1]);
-        az.add(r.accelG[2]);
-      }
-      skinTemp.add(r.skinTempRaw);
-      spo2Red.add(r.spo2RedRaw);
-      spo2Ir.add(r.spo2IrRaw);
-    }
+    // ── wake-to-wake segmentation: a day always exists when there's data ──────
+    // The fixture is ~9 min — too short to qualify as a ≥3 h main sleep, so this
+    // exercises the FALLBACK noon-to-noon container (flagged LOW_CONFIDENCE).
+    final days = physiologicalDays(sub);
+    expect(days, isNotEmpty, reason: 'a physiological day always exists');
+    final day = days.first;
 
-    // Sanity on decode itself.
-    expect(hrBpm.where((h) => h > 0).length, greaterThan(50),
-        reason: 'decoded valid HR samples');
-    expect(rrMs.length, greaterThan(50), reason: 'decoded RR beats');
-
-    // The fixture is ~9 min of real frames. Nocturnal RHR needs ≥~15 min of
-    // valid HR (a half-window). Tile the REAL decoded HR/accel forward in time
-    // to ~30 min so the night-grade clinical metrics (RHR, dip) exercise on
-    // genuine values — no synthetic numbers, just real samples repeated along a
-    // continuous timeline.
-    final tiles = (1800 / hrBpm.length).ceil() + 1; // ≥30 min @1 Hz
-    final baseTs = hrTs.first;
-    final n0 = hrBpm.length;
-    final a0 = ax.length;
-    final hrBpm0 = List<int>.from(hrBpm);
-    final ax0 = List<double>.from(ax);
-    final ay0 = List<double>.from(ay);
-    final az0 = List<double>.from(az);
-    final st0 = List<int>.from(skinTemp);
-    final sr0 = List<int>.from(spo2Red);
-    final si0 = List<int>.from(spo2Ir);
-    for (var t = 1; t < tiles; t++) {
+    // ── coordinator slice → DayBundleInput → deriveDayBundle (synchronous) ────
+    // The fixture is ~9 min. Nocturnal RHR needs ≥~15 min (half its 30-min
+    // window) of valid HR. Tile the REAL decoded HR/RR forward in time to ~30 min
+    // so the night-grade clinical metrics exercise on genuine values — no
+    // synthetic numbers, just real samples repeated along a continuous timeline.
+    // Treat the whole tiled capture as both the day span AND the HRV/RHR window
+    // (in lieu of a qualifying sleep), mirroring the engine's slicing without a DB.
+    final n0 = sub.length;
+    final tiles = (1800 / n0).ceil() + 1;
+    final dayTs = <int>[], dayHr = <int>[];
+    final sRed = <int>[], sIr = <int>[], sTemp = <int>[];
+    final rrTs = <double>[], rrMs = <double>[];
+    final base = sub.tsSec.first;
+    for (var t = 0; t < tiles; t++) {
+      final shift = t * (n0 + 1);
       for (var i = 0; i < n0; i++) {
-        hrTs.add(baseTs + t * n0 + i);
-        hrBpm.add(hrBpm0[i]);
+        dayTs.add(base + shift + i);
+        dayHr.add(sub.hr[i]);
+        sRed.add(sub.spo2Red[i]);
+        sIr.add(sub.spo2Ir[i]);
+        sTemp.add(sub.skinTemp[i]);
       }
-      for (var i = 0; i < a0; i++) {
-        aTs.add((baseTs + t * n0 + i).toDouble());
-        ax.add(ax0[i]);
-        ay.add(ay0[i]);
-        az.add(az0[i]);
-        skinTemp.add(st0[i]);
-        spo2Red.add(sr0[i]);
-        spo2Ir.add(si0[i]);
+      // Re-anchor each RR beat into this tile's second (preserves order/spacing).
+      for (var i = 0; i < sub.rrMs.length; i++) {
+        rrTs.add(sub.rrTsMs[i] + shift * 1000.0);
+        rrMs.add(sub.rrMs[i]);
       }
     }
-
-    final input = DayInput(
-      date: '2026-06-24',
-      hrTsSec: hrTs,
-      hrBpm: hrBpm,
-      rrTsMs: rrTsMs,
-      rrMs: rrMs,
-      accelTsSec: aTs,
-      ax: ax,
-      ay: ay,
-      az: az,
-      skinTempRaw: skinTemp,
-      spo2RedRaw: spo2Red,
-      spo2IrRaw: spo2Ir,
-      profile: const Profile(
-        ageYears: 30, weightKg: 75, heightCm: 178, sex: 'm').toMap(),
+    final hypno = <String>[
+      for (final s in day.sleep.stages)
+        s == ana.SleepStage.wake
+            ? 'wake'
+            : (s == ana.SleepStage.rem ? 'rem' : 'nrem')
+    ];
+    final input = DayBundleInput(
+      date: day.date,
+      dayTsSec: dayTs,
+      dayHr: dayHr,
+      sleepTsSec: dayTs,
+      sleepHr: dayHr,
+      sleepRrTsMs: rrTs,
+      sleepRrMs: rrMs,
+      sleepSpo2Red: sRed,
+      sleepSpo2Ir: sIr,
+      sleepSkinTemp: sTemp,
+      sleepJson: day.sleep.toJson(),
+      hypnoStages: hypno,
+      sleepOnsetSec: dayTs.first,
+      sleepOffsetSec: dayTs.last + 1,
+      profile: const {'age': 30, 'sex': 'm', 'weight': 75, 'height': 178},
+      dayConfidence: day.confidence,
+      dayFlags: day.flags,
     ).toJson();
 
-    // ── run the pure pipeline synchronously (the isolate entry fn) ───────────
     final bundle = deriveDayBundle(input);
 
     // Bundle is well-formed + JSON-serializable.
-    expect(bundle['date'], '2026-06-24');
+    expect(bundle['date'], day.date);
     expect(() => jsonEncode(bundle), returnsNormally);
 
     final scalars = (bundle['scalars'] as Map).cast<String, dynamic>();

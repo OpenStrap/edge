@@ -35,6 +35,7 @@ class LocalDb {
         await db.execute('CREATE INDEX idx_samples_ts ON samples(ts)');
         await _createEvents(db);
         await _createDerived(db);
+        await _createDayResult(db);
         await _createUserTables(db);
       },
       onUpgrade: (db, oldV, newV) async {
@@ -98,8 +99,27 @@ class LocalDb {
           );
           await db.execute('DROP TABLE _raw_old');
         }
+        if (oldV < 9) {
+          // VERSIONED IMMUTABLE DERIVED STORE (ARCHITECTURE_V2 invariant 6).
+          // Replace the single-row `derived_day` (PK date) with
+          // `day_result(day_id, algo_version)` so an algo bump writes a NEW
+          // version instead of mutating, and the serve seam reads the latest
+          // version per day. Additive: create the new table and best-effort
+          // migrate any existing derived_day rows across at the prior version, so
+          // history survives the upgrade (raw is the source of truth regardless).
+          await _createDayResult(db);
+          try {
+            await db.execute(
+              'INSERT OR IGNORE INTO day_result '
+              '(day_id, algo_version, payload_json, window_json, computed_at, '
+              ' finalized, rhr, rmssd, readiness) '
+              "SELECT date, 1, payload_json, '{}', computed_at, 0, rhr, rmssd, readiness "
+              'FROM derived_day',
+            );
+          } catch (_) {/* derived_day may be absent — fine, raw rebuilds it */}
+        }
       },
-      version: 8,
+      version: 9,
     );
   }
 
@@ -146,6 +166,31 @@ class LocalDb {
     ''');
     await db.execute(
         'CREATE INDEX IF NOT EXISTS idx_metric_series_key ON metric_series(key, date)');
+  }
+
+  // ── VERSIONED IMMUTABLE DERIVED STORE (ARCHITECTURE_V2 invariant 6) ─────────
+  // day_result — one row per (physiological day, algo_version). Derived rows are
+  // IMMUTABLE per version: an algo_version bump writes a NEW row (never mutates).
+  // The serve seam reads the LATEST algo_version per day_id. A day stays
+  // recomputable for ~48 h after its wake (finalized=0); then it LOCKS
+  // (finalized=1) and is no longer recomputed even on a version bump.
+  static Future<void> _createDayResult(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS day_result (
+        day_id TEXT NOT NULL,
+        algo_version INTEGER NOT NULL,
+        payload_json TEXT NOT NULL,
+        window_json TEXT NOT NULL DEFAULT '{}',
+        computed_at INTEGER NOT NULL,
+        finalized INTEGER NOT NULL DEFAULT 0,
+        rhr REAL,
+        rmssd REAL,
+        readiness REAL,
+        PRIMARY KEY (day_id, algo_version)
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_day_result_day ON day_result(day_id, algo_version)');
   }
 
   // ── USER-DATA STORE (journal / cycle / workouts / notifications) ────────────
@@ -505,14 +550,26 @@ class LocalDb {
         await db.rawQuery('SELECT MIN(captured_at) FROM raw_records'));
   }
 
-  // ── derived store I/O (main isolate only — sqflite isn't isolate-safe) ──────
+  /// ALL retained raw record hexes, ordered by REAL record time (rec_ts). The
+  /// engine decodes these ONCE into a single continuous Substrate (substrate.dart).
+  static Future<List<String>> allRawHexByRecTs() async {
+    final db = await instance;
+    final rows = await db.query('raw_records',
+        columns: ['hex'], orderBy: 'rec_ts ASC');
+    return rows.map((m) => m['hex'] as String).toList();
+  }
 
-  /// Upsert a derived-day bundle + its indexed scalars in one transaction.
-  static Future<void> putDerivedDay({
-    required String date,
+  // ── VERSIONED DERIVED STORE I/O (day_result; main isolate only) ─────────────
+
+  /// Upsert one (day_id, algo_version) result + its indexed scalars in one
+  /// transaction. Immutable PER VERSION: a version bump writes a new row. The
+  /// `finalized` flag locks a day from further recompute (~48 h after wake).
+  static Future<void> putDayResult({
+    required String dayId,
+    required int algoVersion,
     required String payloadJson,
-    required int version,
-    required int lastRawTs,
+    required String windowJson,
+    bool finalized = false,
     double? rhr,
     double? rmssd,
     double? readiness,
@@ -522,13 +579,14 @@ class LocalDb {
     final now = DateTime.now().millisecondsSinceEpoch;
     await db.transaction((txn) async {
       await txn.insert(
-        'derived_day',
+        'day_result',
         {
-          'date': date,
+          'day_id': dayId,
+          'algo_version': algoVersion,
           'payload_json': payloadJson,
-          'version': version,
-          'last_raw_ts': lastRawTs,
+          'window_json': windowJson,
           'computed_at': now,
+          'finalized': finalized ? 1 : 0,
           'rhr': rhr,
           'rmssd': rmssd,
           'readiness': readiness,
@@ -538,41 +596,70 @@ class LocalDb {
       for (final e in series.entries) {
         await txn.insert(
           'metric_series',
-          {'date': date, 'key': e.key, 'value': e.value},
+          {'date': dayId, 'key': e.key, 'value': e.value},
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
     });
   }
 
-  /// The full derived row for one day (or null). Columns + decoded payload_json.
-  static Future<Map<String, dynamic>?> derivedDay(String date) async {
+  /// The latest-version result row for one day_id (highest algo_version), with a
+  /// normalized `date` alias for callers. Null if absent.
+  static Future<Map<String, dynamic>?> dayResult(String dayId) async {
     final db = await instance;
-    final rows =
-        await db.query('derived_day', where: 'date = ?', whereArgs: [date], limit: 1);
+    final rows = await db.query('day_result',
+        where: 'day_id = ?',
+        whereArgs: [dayId],
+        orderBy: 'algo_version DESC',
+        limit: 1);
+    return rows.isEmpty ? null : _withDate(rows.first);
+  }
+
+  /// The most recent day (highest day_id label), latest version, or null.
+  static Future<Map<String, dynamic>?> latestDayResult() async {
+    final rows = await recentDayResults(1);
     return rows.isEmpty ? null : rows.first;
   }
 
-  /// The most recent derived row (highest date label), or null.
-  static Future<Map<String, dynamic>?> latestDerivedDay() async {
+  /// The N most recent days (newest day_id first), each at its LATEST version.
+  static Future<List<Map<String, dynamic>>> recentDayResults(int limit) async {
     final db = await instance;
-    final rows = await db.query('derived_day', orderBy: 'date DESC', limit: 1);
-    return rows.isEmpty ? null : rows.first;
+    // For each day_id pick MAX(algo_version), then join back for the full row.
+    final rows = await db.rawQuery(
+      'SELECT r.* FROM day_result r '
+      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result GROUP BY day_id) m '
+      '  ON r.day_id = m.day_id AND r.algo_version = m.v '
+      'ORDER BY r.day_id DESC LIMIT ?',
+      [limit],
+    );
+    return [for (final r in rows) _withDate(r)];
   }
 
-  /// Derived rows whose `date` is in [from, to] (inclusive string labels),
-  /// newest first.
-  static Future<List<Map<String, dynamic>>> derivedDaysBetween(
-      String from, String to) async {
+  /// The set of day_id labels that already have a result at [algoVersion].
+  static Future<Set<String>> dayResultIds(int algoVersion) async {
     final db = await instance;
-    return db.query('derived_day',
-        where: 'date >= ? AND date <= ?', whereArgs: [from, to], orderBy: 'date DESC');
+    final rows = await db.query('day_result',
+        columns: ['day_id'], where: 'algo_version = ?', whereArgs: [algoVersion]);
+    return {for (final r in rows) r['day_id'] as String};
   }
 
-  /// The N most recent derived rows, newest first.
-  static Future<List<Map<String, dynamic>>> recentDerivedDays(int limit) async {
+  /// The set of day_id labels that are FINALIZED at [algoVersion] (locked). A
+  /// finalized day is never recomputed even on a version bump.
+  static Future<Set<String>> finalizedDayIds(int algoVersion) async {
     final db = await instance;
-    return db.query('derived_day', orderBy: 'date DESC', limit: limit);
+    final rows = await db.query('day_result',
+        columns: ['day_id'],
+        where: 'algo_version = ? AND finalized = 1',
+        whereArgs: [algoVersion]);
+    return {for (final r in rows) r['day_id'] as String};
+  }
+
+  /// Normalize a day_result row to also carry a `date` key (== day_id) so legacy
+  /// readers that keyed on `date` keep working.
+  static Map<String, dynamic> _withDate(Map<String, dynamic> row) {
+    final m = Map<String, dynamic>.from(row);
+    m['date'] = m['day_id'];
+    return m;
   }
 
   /// Write a consistent, compacted snapshot of the DB to a temp file for export.
@@ -621,19 +708,20 @@ class LocalDb {
     };
   }
 
-  /// Derived store summary: total days, how many are skipped markers, the latest
-  /// date label, and the most recent (up to 14) date labels.
+  /// Derived store summary: distinct days, how many are skipped markers (latest
+  /// version), the latest day label, and the most recent (up to 14) day labels.
   static Future<Map<String, dynamic>> derivedStats() async {
     final db = await instance;
-    final count = Sqflite.firstIntValue(
-            await db.rawQuery('SELECT COUNT(*) FROM derived_day')) ??
+    final count = Sqflite.firstIntValue(await db
+            .rawQuery('SELECT COUNT(DISTINCT day_id) FROM day_result')) ??
         0;
-    final skipped = Sqflite.firstIntValue(await db.rawQuery(
-            "SELECT COUNT(*) FROM derived_day WHERE payload_json LIKE '%\"skipped\":true%'")) ??
-        0;
-    final rows = await db.query('derived_day',
-        columns: ['date'], orderBy: 'date DESC', limit: 14);
-    final dates = [for (final r in rows) r['date'] as String];
+    final recent = await recentDayResults(14);
+    var skipped = 0;
+    for (final r in recent) {
+      final pj = r['payload_json'];
+      if (pj is String && pj.contains('"skipped":true')) skipped++;
+    }
+    final dates = [for (final r in recent) r['day_id'] as String];
     return {
       'count': count,
       'skipped': skipped,
@@ -654,14 +742,6 @@ class LocalDb {
     } catch (_) {
       return {'present': false};
     }
-  }
-
-  /// `{date -> last_raw_ts}` for every derived day — the engine compares these
-  /// against the raw it has to decide which days need (re)derivation.
-  static Future<Map<String, int>> derivedLastRawTs() async {
-    final db = await instance;
-    final rows = await db.query('derived_day', columns: ['date', 'last_raw_ts']);
-    return {for (final r in rows) r['date'] as String: r['last_raw_ts'] as int};
   }
 
   /// A long-format metric series (oldest first) for trends/sparklines.

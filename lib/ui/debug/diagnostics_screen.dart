@@ -50,7 +50,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     final raw = await LocalDb.rawStats();
     final derived = await LocalDb.derivedStats();
     final cross = await LocalDb.crossDayStats();
-    final latestRow = await LocalDb.latestDerivedDay();
+    final latestRow = await LocalDb.latestDayResult();
     Map<String, dynamic>? latest;
     if (latestRow != null && latestRow['payload_json'] is String) {
       try {

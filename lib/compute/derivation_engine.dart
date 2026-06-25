@@ -1,40 +1,49 @@
-// DerivationEngine — the on-device compute orchestrator (MAIN ISOLATE).
+// DerivationEngine — the on-device compute COORDINATOR (MAIN ISOLATE).
 //
-// Flow (per trigger):
-//   1. Find physiological days with NEW raw since their stored `last_raw_ts`
-//      (un-derived OR stale). Battery-sense: a day is recomputed only if it has
-//      new raw — no fingerprint gymnastics.
-//   2. For each such day (main isolate): read its raw rows from LocalDb, decode
-//      via openstrap_protocol → numeric 1 Hz series (HR / RR / accel / ADC).
-//   3. Hand the SERIALIZED series + Profile + trailing baselines to a PURE
-//      top-level fn (`deriveDayBundle`) via `Isolate.run` — heavy work (24-h
-//      spectra, sleep staging) runs OFF the UI isolate. DB I/O stays on main
-//      (sqflite isn't isolate-safe). Pass-1 (baseline-independent: RMSSD/RHR)
-//      and pass-2 (baseline-dependent: readiness) both happen inside the bundle
-//      using the trailing history we pass in.
-//   4. Write the bundle → derived_day (+ metric_series + refresh baselines).
-//   5. Prune raw older than rawRetentionDays — but NEVER for a day not yet
-//      derived (raw-first invariant).
+// V2 flow (per trigger):
+//   1. Decode ALL retained raw R24 into ONE continuous Substrate (one decode
+//      point — substrate.dart). Raw is the canonical replayable ledger.
+//   2. Segment the substrate into WAKE-TO-WAKE physiological days (the V2 day
+//      model): each day is anchored on a detected WAKE (sleep offset); the sleep
+//      that ends at wake W closes the prior day and its recovery is attributed
+//      to the day STARTING at W. Date label = local date of the wake. Fallback:
+//      noon-to-noon container flagged LOW_CONFIDENCE_RECOVERY when no sleep in
+//      ~36 h, so a day always exists when there's data.
+//   3. For each day that is NOT finalized and needs (re)compute: slice the
+//      substrate to the day + to the SLEEP window (from segmentSleep), build the
+//      serialized DayBundleInput, and run the PURE pipeline OFF-isolate
+//      (Isolate.run, per-day timeout). HRV/RHR/recovery run over the sleep
+//      window; strain over wake; the sleep section is ENTIRELY the one
+//      segmentSleep result.
+//   4. Write each bundle → versioned day_result(day_id, algo_version, …) +
+//      metric_series + refresh baselines. Finalization: a day locks 48 h after
+//      its wake. algo_version bump → recompute non-finalized recent days.
+//   5. Prune raw older than rawRetentionDays — never for a day not yet derived.
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
-import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
+import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import '../data/db.dart';
 import 'crossday_pipeline.dart';
 import 'onehz_pipeline.dart';
 import 'profile.dart';
+import 'substrate.dart';
 
-/// Bundle schema version — bump to force a full recompute on a logic change.
-const int derivedVersion = 1;
+/// Analytics/bundle version — bump to force a recompute of non-finalized days.
+const int kAlgoVersion = 2;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
-const int rawRetentionDays = 7;
+const int rawRetentionDays = 14;
 
-/// How many trailing derived days feed pass-2 baselines.
+/// A day stays recomputable for this long after its wake, then FINALIZES (locks)
+/// — more flash may still drain within this buffer (ARCHITECTURE_V2: ~48 h).
+const int _finalizationSec = 48 * 3600;
+
+/// How many trailing derived days feed readiness/composite baselines.
 const int _baselineWindowDays = 28;
 
 class DerivationEngine {
@@ -42,18 +51,12 @@ class DerivationEngine {
   final void Function(String)? log;
 
   bool _running = false;
-
-  /// True while a derivation pass is in flight (so triggers don't pile up).
   bool get running => _running;
 
   /// Run a derivation pass. [heavy]=false runs a bounded light pass (only the
-  /// most-recent affected day) suitable for a short background BLE wake;
-  /// [heavy]=true sweeps every stale day (the nightly scheduled pass).
-  /// [force]=true re-derives EVERY day that has raw, ignoring the derived
-  /// cursor — the user-initiated "re-analyze all data" path. Re-entrant calls
-  /// are coalesced. Returns the number of days derived.
-  /// [onDayDone] fires on the MAIN isolate after each day finishes (or is skipped),
-  /// so the caller can refresh the UI incrementally and show progress.
+  /// most-recent affected day); [heavy]=true sweeps every recomputable day.
+  /// [force]=true recomputes EVERY non-finalized day regardless of the cursor.
+  /// Re-entrant calls are coalesced. Returns the number of days computed.
   Future<int> run(
     Profile profile, {
     bool heavy = false,
@@ -63,34 +66,64 @@ class DerivationEngine {
     if (_running) return 0;
     _running = true;
     try {
-      final stale = await _staleDays(force: force);
-      if (stale.isEmpty) {
-        _log('derive: nothing to do');
+      // 1. ONE decode of all retained raw → one continuous Substrate.
+      final hexes = await LocalDb.allRawHexByRecTs();
+      if (hexes.isEmpty) {
+        _log('derive: no raw');
         return 0;
       }
-      // Light pass: only the newest affected day (capture-window-sized work).
-      // Heavy/force: every affected day.
-      final days = (heavy || force) ? stale : stale.sublist(stale.length - 1);
-      _log('derive: ${days.length} day(s) '
-          '(${force ? "force-all" : heavy ? "heavy" : "light"})');
-      for (var i = 0; i < days.length; i++) {
-        final day = days[i];
-        try {
-          await _deriveDay(day, profile);
-        } catch (e) {
-          // A single pathological/timed-out day must never stall the whole sweep.
-          // Write a skip marker so it isn't retried forever, then move on.
-          _log('derive day $day FAILED/skipped: $e');
-          await _markDaySkipped(day);
-        }
-        onDayDone?.call(day, i + 1, days.length); // incremental UI refresh
+      final sub = decodeSubstrate(hexes);
+      if (sub.isEmpty) {
+        _log('derive: substrate empty after decode');
+        return 0;
       }
-      // Cross-day rollup over the recent day series. Best-effort: a failure here
-      // must NOT abort the sweep or block pruning — we log and continue.
+
+      // 2. Wake-to-wake physiological days.
+      final days = physiologicalDays(sub);
+      if (days.isEmpty) {
+        _log('derive: no physiological days');
+        return 0;
+      }
+
+      // 3. Which days to compute. Skip FINALIZED days entirely. Among the rest,
+      //    a light pass does only the newest; heavy/force do all recomputable.
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
+      final computable = <PhysioDay>[];
+      for (final day in days) {
+        if (finalized.contains(day.date)) continue; // locked
+        computable.add(day);
+      }
+      if (computable.isEmpty) {
+        _log('derive: all days finalized — nothing to do');
+        await _pruneOldRaw(days);
+        return 0;
+      }
+      final todo = (heavy || force)
+          ? computable
+          : computable.sublist(computable.length - 1);
+      _log('derive: ${todo.length}/${days.length} day(s) '
+          '(${force ? "force" : heavy ? "heavy" : "light"}; v$kAlgoVersion)');
+
+      var done = 0;
+      for (var i = 0; i < todo.length; i++) {
+        final day = todo[i];
+        try {
+          await _deriveDay(sub, day, profile, nowSec);
+          done++;
+        } catch (e) {
+          _log('derive day ${day.date} FAILED/skipped: $e');
+          await _markDaySkipped(day, nowSec);
+        }
+        onDayDone?.call(day.date, i + 1, todo.length);
+      }
+
+      // 4. Cross-day rollup + notifications (best-effort).
       await _runCrossDay(profile);
       await _runNotifications();
-      await _pruneOldRaw();
-      return days.length;
+      // 5. Prune raw — never for a day still inside its raw window / un-derived.
+      await _pruneOldRaw(days);
+      return done;
     } catch (e, st) {
       _log('derive ERROR: $e\n$st');
       return 0;
@@ -100,112 +133,73 @@ class DerivationEngine {
   }
 
   /// Max wall-clock for ONE day's off-isolate compute. On timeout the day is
-  /// skipped so the sweep always makes progress and finishes in finite time.
+  /// skipped so the sweep always makes progress.
   static const Duration _perDayTimeout = Duration(seconds: 90);
-
-  /// Defensive caps on a single day's decoded series. With the rec_ts bucketing fix
-  /// a day should hold ~1 real day of samples, so these should rarely trigger; they
-  /// guard against a clock-glitched/duplicate flood collapsing into one bucket.
-  static const int _maxHrSamples = 100000; // ~1 Hz over a day is ~86 400
-  static const int _maxRrSamples = 200000;
-
-  /// Persist a minimal derived row for a skipped day so it's not re-derived every
-  /// pass (its last_raw_ts is advanced to the day's end).
-  Future<void> _markDaySkipped(String date) async {
-    final toSec =
-        (DateTime.parse('$date 23:59:59').millisecondsSinceEpoch + 999) ~/ 1000;
-    try {
-      await LocalDb.putDerivedDay(
-        date: date,
-        payloadJson: jsonEncode({'skipped': true, 'reason': 'timeout_or_error'}),
-        version: derivedVersion,
-        lastRawTs: toSec,
-      );
-    } catch (_) {/* best-effort */}
-  }
-
-  // ── find days needing (re)derivation ───────────────────────────────────────
-
-  /// Physiological-day labels (sorted ascending) that have raw newer than their
-  /// derived `last_raw_ts` (or were never derived / are an old bundle version).
-  /// [force]=true returns EVERY day that has raw, ignoring the derived cursor.
-  Future<List<String>> _staleDays({bool force = false}) async {
-    // Group raw by the LOCAL calendar date of each record's REAL time (rec_ts),
-    // NOT its receive time (captured_at). This is the core of the backfill fix: a
-    // whole multi-day flash offload arrives in one sync (one captured_at≈now) but
-    // carries many real days of rec_ts — so it splits into correct per-day buckets
-    // instead of collapsing into a single "today" that would run 24-h spectra over
-    // many days at once. The day label is refined by the sleep window in the bundle.
-    final dayMax = await LocalDb.rawRecTsMaxByDay();
-    if (dayMax.isEmpty) return const [];
-
-    // `last_raw_ts` keeps its semantics (the cursor of raw already reflected for a
-    // day) but is now keyed on rec_ts seconds instead of captured_at ms.
-    final lastRawByDay = await LocalDb.derivedLastRawTs();
-
-    final stale = <String>[];
-    for (final e in dayMax.entries) {
-      if (force) {
-        stale.add(e.key);
-        continue;
-      }
-      final derivedTs = lastRawByDay[e.key];
-      if (derivedTs == null || e.value > derivedTs) {
-        stale.add(e.key);
-      }
-    }
-    stale.sort();
-    return stale;
-  }
 
   // ── derive one day ──────────────────────────────────────────────────────────
 
-  Future<void> _deriveDay(String date, Profile profile) async {
-    // Day window in epoch SECONDS (local-calendar day of the record's REAL time).
-    // last_raw_ts is captured here on the MAIN isolate, before the heavy work, so a
-    // concurrent live insert mid-pass is simply picked up next pass (its rec_ts is
-    // re-bucketed and compared against this cursor next run).
-    final fromSec = DateTime.parse('$date 00:00:00').millisecondsSinceEpoch ~/ 1000;
-    final toSec =
-        (DateTime.parse('$date 23:59:59').millisecondsSinceEpoch + 999) ~/ 1000;
+  Future<void> _deriveDay(
+      Substrate sub, PhysioDay day, Profile profile, int nowSec) async {
+    // Slice the substrate to the day container and to the SLEEP window.
+    final daySub = sub.slice(day.startSec, day.endSec);
+    final sleepSub = day.hasSleep
+        ? sub.sliceIdx(day.sleepLoIdx, day.sleepHiIdx)
+        : Substrate.empty;
 
-    final hexes = await LocalDb.rawHexInRecTsRange(fromSec, toSec);
-    if (hexes.isEmpty) return;
-    final lastRawTs = toSec; // everything in-window (by rec_ts) is now reflected.
+    // Per-second stage labels (the single source) → 'wake'|'nrem'|'rem' strings.
+    final hypno = <String>[
+      for (final s in day.sleep.stages)
+        s == ana.SleepStage.wake
+            ? 'wake'
+            : (s == ana.SleepStage.rem ? 'rem' : 'nrem')
+    ];
+    final win = day.sleep.window;
+    final onsetSec = win == null
+        ? 0
+        : (win.onsetMs != null
+            ? (win.onsetMs! / 1000).round()
+            : (sleepSub.firstTs ?? 0));
+    final offsetSec = win == null
+        ? 0
+        : (win.offsetMs != null
+            ? (win.offsetMs! / 1000).round() + 1
+            : ((sleepSub.lastTs ?? -1) + 1));
 
-    // (main isolate) DECODE the raw hex → 1 Hz numeric series.
-    final input = _buildDayInput(date, hexes, profile);
-
-    // Defensive cap: if a single day's series is pathologically large (e.g. a clock
-    // glitch fused multiple days into one rec_ts bucket), downsample the spectral
-    // input so Lomb-Scargle stays bounded. With the rec_ts fix this rarely fires.
-    final hrLen = (input['hr'] as List?)?.length ?? 0;
-    final rrLen = (input['rr_ms'] as List?)?.length ?? 0;
-    if (hrLen > _maxHrSamples || rrLen > _maxRrSamples) {
-      _log('WARN $date oversized series (hr=$hrLen rr=$rrLen) — downsampling');
-      _downsampleInPlace(input, 'hr_ts', _maxHrSamples);
-      _downsampleInPlace(input, 'hr', _maxHrSamples);
-      _downsampleInPlace(input, 'rr_ts_ms', _maxRrSamples);
-      _downsampleInPlace(input, 'rr_ms', _maxRrSamples);
-    }
-
-    // Attach trailing baselines for pass-2.
+    final input = DayBundleInput(
+      date: day.date,
+      dayTsSec: daySub.tsSec,
+      dayHr: daySub.hr,
+      sleepTsSec: sleepSub.tsSec,
+      sleepHr: sleepSub.hr,
+      sleepRrTsMs: sleepSub.rrTsMs,
+      sleepRrMs: sleepSub.rrMs,
+      sleepSpo2Red: sleepSub.spo2Red,
+      sleepSpo2Ir: sleepSub.spo2Ir,
+      sleepSkinTemp: sleepSub.skinTemp,
+      sleepJson: day.sleep.toJson(),
+      hypnoStages: hypno,
+      sleepOnsetSec: onsetSec,
+      sleepOffsetSec: offsetSec,
+      profile: profile.toMap(),
+      dayConfidence: day.confidence,
+      dayFlags: day.flags,
+    );
     final withHistory = await _attachHistory(input);
 
-    // (off-isolate) run the pure pipeline. Isolate.run copies the map in/out.
-    // A per-day timeout guarantees one bad day can't hang the whole sweep — on
-    // timeout the future throws and run()'s catch marks the day skipped.
     final bundle = await Isolate.run(() => deriveDayBundle(withHistory))
         .timeout(_perDayTimeout);
 
-    // (main isolate) persist.
+    // Finalize if the day's wake is >48 h in the past (no more flash will land).
+    final finalized = (day.endSec + _finalizationSec) < nowSec;
+
     final scalars = (bundle['scalars'] as Map?)?.cast<String, dynamic>() ?? const {};
     double? sc(String k) => (scalars[k] as num?)?.toDouble();
-    await LocalDb.putDerivedDay(
-      date: date,
+    await LocalDb.putDayResult(
+      dayId: day.date,
+      algoVersion: kAlgoVersion,
       payloadJson: jsonEncode(bundle),
-      version: derivedVersion,
-      lastRawTs: lastRawTs,
+      windowJson: jsonEncode(day.sleep.window?.toJson() ?? const {}),
+      finalized: finalized,
       rhr: sc('rhr'),
       rmssd: sc('rmssd'),
       readiness: sc('readiness'),
@@ -224,123 +218,51 @@ class DerivationEngine {
       },
     );
     await _refreshBaselines();
-    _log('derived $date — ${hexes.length} raw → bundle v$derivedVersion');
+    _log('derived ${day.date} v$kAlgoVersion '
+        '(sleep=${day.hasSleep}, final=$finalized)');
   }
 
-  /// Uniformly decimate a serialized series list (in place) down to at most [max]
-  /// elements, preserving time order. Only used by the oversized-day guard.
-  void _downsampleInPlace(Map<String, dynamic> input, String key, int max) {
-    final list = input[key] as List?;
-    if (list == null || list.length <= max) return;
-    final stride = (list.length / max).ceil();
-    final out = [for (var i = 0; i < list.length; i += stride) list[i]];
-    input[key] = out;
+  /// Persist a minimal skip marker so a pathological day isn't retried forever.
+  Future<void> _markDaySkipped(PhysioDay day, int nowSec) async {
+    try {
+      await LocalDb.putDayResult(
+        dayId: day.date,
+        algoVersion: kAlgoVersion,
+        payloadJson: jsonEncode({'skipped': true, 'reason': 'timeout_or_error'}),
+        windowJson: '{}',
+        finalized: (day.endSec + _finalizationSec) < nowSec,
+      );
+    } catch (_) {/* best-effort */}
   }
 
-  /// Decode raw frames into a serialized [DayInput] map (the isolate input).
-  Map<String, dynamic> _buildDayInput(
-      String date, List<String> hexes, Profile profile) {
-    final hrTs = <int>[], hrBpm = <int>[];
-    final rrTsMs = <double>[], rrMs = <double>[];
-    final aTs = <double>[], ax = <double>[], ay = <double>[], az = <double>[];
-    final skinTemp = <int>[], spo2Red = <int>[], spo2Ir = <int>[];
-
-    for (final hex in hexes) {
-      // Type-24 historical (1 Hz biometric) records carry the full substrate.
-      proto.R24? r;
-      try {
-        r = proto.parseR24(proto.hexToBytes(hex));
-      } catch (_) {
-        r = null;
-      }
-      if (r != null && r.tsEpoch > 0) {
-        hrTs.add(r.tsEpoch);
-        hrBpm.add(r.hr);
-        // RR beats: distribute across the 1-s record, anchored at record end.
-        var t = r.tsEpoch * 1000.0;
-        for (final rr in r.rrIntervalsMs) {
-          if (rr > 0) {
-            rrMs.add(rr.toDouble());
-            rrTsMs.add(t);
-            t += 0; // beats share the record second; time order preserved
-          }
-        }
-        if (r.accelG.length == 3) {
-          aTs.add(r.tsEpoch.toDouble());
-          ax.add(r.accelG[0]);
-          ay.add(r.accelG[1]);
-          az.add(r.accelG[2]);
-        }
-        skinTemp.add(r.skinTempRaw);
-        spo2Red.add(r.spo2RedRaw);
-        spo2Ir.add(r.spo2IrRaw);
-        continue;
-      }
-      // Live RR-bearing frames (0x28 / R10) — fold their beats in too.
-      final live = proto.realtimeRr(hex);
-      if (live != null && live.ts > 0) {
-        for (final rr in live.rrMs) {
-          if (rr > 0) {
-            rrMs.add(rr.toDouble());
-            rrTsMs.add(live.ts * 1000.0);
-          }
-        }
-      }
-    }
-
-    // Order all series by time (decode order ~= capture order, but be safe for RR).
-    return DayInput(
-      date: date,
-      hrTsSec: hrTs,
-      hrBpm: hrBpm,
-      rrTsMs: rrTsMs,
-      rrMs: rrMs,
-      accelTsSec: aTs,
-      ax: ax,
-      ay: ay,
-      az: az,
-      skinTempRaw: skinTemp,
-      spo2RedRaw: spo2Red,
-      spo2IrRaw: spo2Ir,
-      profile: profile.toMap(),
-    ).toJson();
-  }
-
-  /// Attach trailing personal history (from metric_series) for pass-2 baselines.
-  Future<Map<String, dynamic>> _attachHistory(Map<String, dynamic> input) async {
+  /// Attach trailing personal history (from metric_series) for the readiness pass.
+  Future<Map<String, dynamic>> _attachHistory(DayBundleInput input) async {
     Future<List<double>> hist(String key) async {
       final rows = await LocalDb.metricSeries(key, limit: _baselineWindowDays);
       return [for (final r in rows) (r['value'] as num).toDouble()];
     }
 
-    input['ln_rmssd_history'] = await hist('ln_rmssd');
-    input['rhr_history'] = await hist('rhr');
-    input['resp_history'] = await hist('resp_rate');
-    input['skin_temp_z_history'] = await hist('skin_temp_z');
-    return input;
+    final m = input.toJson();
+    m['ln_rmssd_history'] = await hist('ln_rmssd');
+    m['rhr_history'] = await hist('rhr');
+    m['resp_history'] = await hist('resp_rate');
+    m['skin_temp_z_history'] = await hist('skin_temp_z');
+    return m;
   }
-
-  /// Max wall-clock for the off-isolate cross-day rollup.
-  static const Duration _crossDayTimeout = Duration(seconds: 30);
-
-  /// How many trailing derived days feed the cross-day families.
-  static const int _crossDayWindow = 90;
 
   // ── cross-day rollup ─────────────────────────────────────────────────────────
 
-  /// Gather the recent derived-day series and run the cross-day analytics
-  /// families (illness/anomaly/load/temp/SRI/jetlag/chronotype/sleep-debt/
-  /// percentile/glass-box/BRV) ONCE, storing the result in the `crossday`
-  /// baseline. Best-effort: every failure path logs and returns without storing.
+  static const Duration _crossDayTimeout = Duration(seconds: 30);
+  static const int _crossDayWindow = 90;
+
   Future<void> _runCrossDay(Profile profile) async {
     try {
-      final rows = await LocalDb.recentDerivedDays(_crossDayWindow);
-      // recentDerivedDays is newest-first; the families want oldest-first.
+      final rows = await LocalDb.recentDayResults(_crossDayWindow);
       final days = <Map<String, dynamic>>[];
       for (final row in rows.reversed) {
         final payload = _decodeBundle(row['payload_json']);
         if (payload == null) continue;
-        if (payload['skipped'] == true) continue; // skip marker rows
+        if (payload['skipped'] == true) continue;
         final rec = _crossDayRecord(row, payload);
         if (rec != null) days.add(rec);
       }
@@ -355,24 +277,17 @@ class DerivationEngine {
       await LocalDb.putBaseline('crossday', jsonEncode(bundle));
       _log('crossday: stored over ${days.length} day(s)');
     } catch (e) {
-      // A cross-day failure must never abort the sweep or block pruning.
       _log('crossday FAILED/skipped: $e');
     }
   }
 
   // ── notifications generator ─────────────────────────────────────────────────
 
-  /// Emit idempotent notifications for the LATEST day's flags from the cross-day
-  /// rollup (illness / anomaly / elevated temp / low readiness). id =
-  /// `date:kind` + INSERT OR IGNORE, so re-running a pass never duplicates.
-  /// Best-effort: any failure is swallowed (never aborts the sweep).
   Future<void> _runNotifications() async {
     try {
       final cdRow = await LocalDb.baseline('crossday');
       final cd = _decodeBundle(cdRow?['payload_json']);
       if (cd == null) return;
-
-      // Latest day's date: prefer the recent[] tail, else the flag payloads.
       String? date;
       final recent = cd['recent'];
       if (recent is List && recent.isNotEmpty) {
@@ -387,7 +302,6 @@ class DerivationEngine {
           : null;
       date ??= (illness?['date'] ?? anomaly?['date'] ?? temp?['date']) as String?;
       if (date == null) return;
-
       final now = DateTime.now().millisecondsSinceEpoch;
       Future<void> emit(String kind, String title, String body) =>
           LocalDb.putNotification({
@@ -399,7 +313,6 @@ class DerivationEngine {
             'created_at': now,
             'read': 0,
           });
-
       if (illness != null && illness['state'] == 'red') {
         await emit('illness', 'Possible illness onset',
             'Elevated resting HR + suppressed HRV over recent nights.');
@@ -422,7 +335,6 @@ class DerivationEngine {
     }
   }
 
-  /// Decode a derived_day payload_json into a map (null on any failure).
   static Map<String, dynamic>? _decodeBundle(Object? json) {
     if (json is! String) return null;
     try {
@@ -433,26 +345,25 @@ class DerivationEngine {
     }
   }
 
-  /// Build the cross-day day-record from a derived_day row + its payload bundle.
-  /// Scalars prefer the row columns (rhr/rmssd/readiness) and fall back to the
-  /// payload `scalars`; resp_rate/skin_temp_z/trimp come from the payload.
-  /// Returns null when the row carries no usable date.
+  /// Build the cross-day record from a day_result row + its payload bundle.
   static Map<String, dynamic>? _crossDayRecord(
       Map<String, dynamic> row, Map<String, dynamic> payload) {
-    final date = row['date'] as String?;
+    final date = row['day_id'] as String?;
     if (date == null || date.isEmpty) return null;
     final scalars = (payload['scalars'] as Map?)?.cast<String, dynamic>() ?? const {};
     num? sc(String k) => scalars[k] is num ? scalars[k] as num : null;
     num? col(String k) => row[k] is num ? row[k] as num : null;
 
     final sleep = (payload['sleep'] as Map?)?.cast<String, dynamic>();
-    final window = (sleep?['window'] as Map?)?.cast<String, dynamic>();
+    final win = (sleep?['window'] as Map?)?.cast<String, dynamic>();
+    final winVal = (win?['value'] as Map?)?.cast<String, dynamic>();
     final acct = (sleep?['accounting'] as Map?)?.cast<String, dynamic>();
+    final acctVal = (acct?['value'] as Map?)?.cast<String, dynamic>();
     final series = (payload['series'] as Map?)?.cast<String, dynamic>();
 
-    final onsetMs = (window?['onset_ms'] as num?)?.toDouble();
-    final offsetMs = (window?['offset_ms'] as num?)?.toDouble();
-    final tstSec = (acct?['tst_sec'] as num?)?.toDouble();
+    final onsetMs = (winVal?['onset_ms'] as num?)?.toDouble();
+    final offsetMs = (winVal?['offset_ms'] as num?)?.toDouble();
+    final tstSec = (acctVal?['tst_sec'] as num?)?.toDouble();
 
     return {
       'date': date,
@@ -469,9 +380,9 @@ class DerivationEngine {
     };
   }
 
-  /// Refresh rolling baselines from the recent derived rows (cheap: from columns).
+  /// Refresh rolling baselines from the latest day_result rows (cheap: columns).
   Future<void> _refreshBaselines() async {
-    final recent = await LocalDb.recentDerivedDays(_baselineWindowDays);
+    final recent = await LocalDb.recentDayResults(_baselineWindowDays);
     double? avg(String col) {
       final vs = [
         for (final r in recent)
@@ -494,18 +405,13 @@ class DerivationEngine {
 
   // ── raw pruning (raw-first invariant) ──────────────────────────────────────
 
-  /// Prune raw older than [rawRetentionDays] — but only days that ARE derived.
-  /// Age is measured by `captured_at` (STORAGE age, ms) — pruning by how long we've
-  /// held a row is correct and independent of rec_ts. The raw-first guard: if ANY
-  /// day still needs derivation we skip pruning this pass, so an un-derived day's
-  /// raw is never deleted (it survives until its bundle is written). Un-derived
-  /// days are rare here because the sweep derives them before pruning.
-  Future<void> _pruneOldRaw() async {
-    // Never prune while there are un-derived days — protects the raw-first invariant
-    // regardless of whether the stale day's raw is old or new by storage age.
-    final stale = await _staleDays();
-    if (stale.isNotEmpty) {
-      _log('prune skipped — ${stale.length} day(s) not yet derived');
+  /// Prune raw older than [rawRetentionDays]. Guard: never prune while any day
+  /// in [days] is NOT yet derived at the current algo version (raw-first).
+  Future<void> _pruneOldRaw(List<PhysioDay> days) async {
+    final derivedIds = await LocalDb.dayResultIds(kAlgoVersion);
+    final pending = days.where((d) => !derivedIds.contains(d.date)).toList();
+    if (pending.isNotEmpty) {
+      _log('prune skipped — ${pending.length} day(s) not yet derived');
       return;
     }
     final cutoff = DateTime.now()

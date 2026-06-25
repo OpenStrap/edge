@@ -31,7 +31,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   /// Decode a derived_day row's payload bundle, or null.
   Future<Map<String, dynamic>?> _bundle(String date) async {
-    final row = await LocalDb.derivedDay(date);
+    final row = await LocalDb.dayResult(date);
     if (row == null) return null;
     return _decode(row['payload_json']);
   }
@@ -41,7 +41,7 @@ class LocalRepositoryImpl extends LocalRepository {
   /// to blank Today; we now walk back to the latest day that actually has data,
   /// falling back to the newest decodable bundle, else null.
   Future<Map<String, dynamic>?> _latestBundle() async {
-    final rows = await LocalDb.recentDerivedDays(14);
+    final rows = await LocalDb.recentDayResults(14);
     Map<String, dynamic>? newest;
     for (final row in rows) {
       final b = _decode(row['payload_json']);
@@ -269,29 +269,60 @@ class LocalRepositoryImpl extends LocalRepository {
     final stager = _sub(b, 'sleep.stager.value');
     final win = _sub(b, 'sleep.window.value');
     final tst = (acct?['tst_sec'] as num?);
-    final hypnogram = (_sub(b, 'series')?['hypnogram'] as List?) ?? const [];
+    if (tst == null) return const {'has_sleep': false};
+    final spt = (win?['spt_sec'] as num?);
+    final waso = (acct?['waso_sec'] as num?);
+    final effPct = (acct?['efficiency_pct'] as num?);
+    num? sec(String k) =>
+        (win?[k] as num?) == null ? null : ((win![k] as num) / 1000).round();
     return {
-      'duration_min': tst == null ? null : (tst / 60).round(),
-      'efficiency': acct?['efficiency_pct'],
-      'waso_min': acct?['waso_sec'] == null ? null : ((acct!['waso_sec'] as num) / 60).round(),
-      'cycles': acct?['cycles'],
-      'onset': (win?['onset_ms'] as num?) == null ? null : ((win!['onset_ms'] as num) / 1000).round(),
-      'wake': (win?['offset_ms'] as num?) == null ? null : ((win!['offset_ms'] as num) / 1000).round(),
-      'light_min': null, // no light/deep split — stager only does wake/nrem/rem
-      'deep_min': null,
-      'nrem_min': _stagePct(stager, 'nrem_pct', tst), // combined NREM (real)
+      // Shape matches sleep_detail_screen's contract exactly.
+      'has_sleep': true,
+      'duration_min': (tst / 60).round(),
+      'in_bed_min': spt == null ? null : (spt / 60).round(),
+      'awake_min': waso == null ? null : (waso / 60).round(),
+      'efficiency': effPct == null ? null : effPct / 100.0, // screen wants 0..1
+      'onset_ts': sec('onset_ms'),
+      'wake_ts': sec('offset_ms'),
+      // stager resolves only wake/nrem/rem — NREM is the combined "Core" stage.
+      'nrem_min': _stagePct(stager, 'nrem_pct', tst),
       'rem_min': _stagePct(stager, 'rem_pct', tst),
-      'stages': hypnogram, // [{start, end, stage}]
-      'flags': {
-        'duration': {'c': 0.6, 'tier': 'ESTIMATE', 'beta': true},
-      },
+      'stages_beta': true,
+      'hypnogram': _hypnoPoints(b), // [{t, stage}] points the screen merges
+      'nocturnal': _nocturnal(b),
+      'resp': _respObj(b),
+      // not computed in the 1 Hz family yet — honest nulls/empties (screen guards):
+      'need_min': null,
+      'debt_min': null,
+      'regularity': null,
+      'cycles': const [],
+      'cycles_mean_min': null,
+      'cycle_series': const [],
     };
   }
 
+  /// The bundle stores the hypnogram as segments {start,end,stage} (epoch sec);
+  /// the detail screen wants per-point {t,stage} and re-merges them. Emit one
+  /// point per segment boundary plus a closing point so the last stage has width.
+  List<Map<String, dynamic>> _hypnoPoints(Map<String, dynamic> b) {
+    final segs = (_sub(b, 'series')?['hypnogram'] as List?) ?? const [];
+    final out = <Map<String, dynamic>>[];
+    for (final s in segs) {
+      if (s is Map && s['start'] != null && s['stage'] != null) {
+        out.add({'t': s['start'], 'stage': s['stage']});
+      }
+    }
+    final last = segs.isNotEmpty ? segs.last : null;
+    if (last is Map && last['end'] != null && last['stage'] != null) {
+      out.add({'t': last['end'], 'stage': last['stage']});
+    }
+    return out;
+  }
+
   int? _stagePct(Map<String, dynamic>? stager, String key, num? tstSec) {
-    final pct = (stager?[key] as num?);
+    final pct = (stager?[key] as num?); // nrem_pct/rem_pct are PERCENT (0..100)
     if (pct == null || tstSec == null) return null;
-    return ((tstSec / 60) * pct).round();
+    return ((tstSec / 60) * pct / 100).round();
   }
 
   @override
@@ -389,7 +420,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<List<Map<String, dynamic>>> getSleep({int? from, int? to}) async {
-    final rows = await LocalDb.recentDerivedDays(60);
+    final rows = await LocalDb.recentDayResults(60);
     final out = <Map<String, dynamic>>[];
     for (final r in rows) {
       final b = _decode(r['payload_json']);
@@ -411,7 +442,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<List<Map<String, dynamic>>> getStrain({int? from, int? to}) async {
-    final rows = await LocalDb.recentDerivedDays(60);
+    final rows = await LocalDb.recentDayResults(60);
     return [
       for (final r in rows)
         {
@@ -431,7 +462,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getHistory({String range = '30d'}) async {
-    final rows = await LocalDb.recentDerivedDays(90);
+    final rows = await LocalDb.recentDayResults(90);
     return {
       'days': [
         for (final r in rows)
@@ -494,7 +525,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getRecords() async {
-    final rows = await LocalDb.recentDerivedDays(3650);
+    final rows = await LocalDb.recentDayResults(3650);
     final days = rows.length;
     int nights = 0;
     for (final r in rows) {
@@ -797,7 +828,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // Retrospective ovulation confirmation via 3-over-6 coverline on recent
     // nightly RELATIVE skin-temp z (derived). Honest: confirmation only.
     String? ovulationEst;
-    final derived = await LocalDb.recentDerivedDays(120);
+    final derived = await LocalDb.recentDayResults(120);
     if (derived.isNotEmpty) {
       // recentDerivedDays is newest-first; coverline wants oldest-first.
       final ordered = derived.reversed.toList();
