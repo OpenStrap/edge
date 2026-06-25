@@ -46,23 +46,59 @@ class BleRestoreManager: NSObject {
 
   // MARK: - Lifecycle
 
-  /// Instantiate the restoring central early in didFinishLaunching so iOS can call
-  /// willRestoreState when relaunching us for a Bluetooth event.
+  /// Wire lifecycle observers, but DO NOT create the CBCentralManager yet unless a band
+  /// is already saved (i.e. an accessory was provisioned on a prior launch).
+  ///
+  /// CRITICAL ORDERING (AccessorySetupKit): `ASAccessorySession.showPicker` fails with
+  /// "CBManager is active with global permissions" if ANY CBCentralManager already exists
+  /// in the process when the picker is shown. On a FIRST-time pairing there is no
+  /// provisioned accessory yet, so creating the restore central here at launch is exactly
+  /// what blocked the picker. The fix: only instantiate the restore central when we
+  /// already have a provisioned band (saved bandUUID). On a fresh install the central is
+  /// created LATER — see `bandProvisioned(_:)`, called right after the ASK picker succeeds.
+  ///
+  /// On launches where the band is already provisioned, creating the central here is fine
+  /// (scoped Bluetooth authorization is already granted, and we never show the picker), so
+  /// iOS can still call willRestoreState to relaunch us for a Bluetooth event.
   func start(launchOptions: [UIApplication.LaunchOptionsKey: Any]?) {
     bandUUID = loadBandUUID()
-    if central == nil {
-      central = CBCentralManager(
-        delegate: self,
-        queue: nil,
-        options: [CBCentralManagerOptionRestoreIdentifierKey: BleRestoreManager.restoreId]
-      )
-    }
     let nc = NotificationCenter.default
     nc.addObserver(self, selector: #selector(appDidEnterBackground),
                    name: UIApplication.didEnterBackgroundNotification, object: nil)
     nc.addObserver(self, selector: #selector(appWillEnterForeground),
                    name: UIApplication.willEnterForegroundNotification, object: nil)
-    NSLog("[ble-restore] started, band=\(bandUUID?.uuidString ?? "none")")
+    if bandUUID != nil {
+      // Already provisioned on a prior launch → safe to create the restore central now so
+      // iOS can relaunch us via willRestoreState. (No picker is ever shown in this case.)
+      ensureCentral()
+      NSLog("[ble-restore] started (band=\(bandUUID!.uuidString)) — restore central up")
+    } else {
+      // Fresh install / no provisioned accessory → DEFER central creation so the ASK
+      // picker can be shown with no CBCentralManager alive.
+      NSLog("[ble-restore] started (no band) — restore central deferred until provisioned")
+    }
+  }
+
+  /// Lazily create the restoring CBCentralManager (idempotent). Must only be called once a
+  /// band has been provisioned via ASK — never before the first ASK picker, or it
+  /// re-introduces the "CBManager is active with global permissions" failure.
+  private func ensureCentral() {
+    guard central == nil else { return }
+    central = CBCentralManager(
+      delegate: self,
+      queue: nil,
+      options: [CBCentralManagerOptionRestoreIdentifierKey: BleRestoreManager.restoreId]
+    )
+  }
+
+  /// Called from Dart immediately AFTER the ASK picker provisions an accessory (first-time
+  /// pairing). Now that an accessory exists, it is safe to create the restore central; from
+  /// here on the app behaves exactly as a normal already-provisioned launch.
+  func bandProvisioned(_ uuid: UUID) {
+    saveBandUUID(uuid)
+    bandUUID = uuid
+    ensureCentral()
+    NSLog("[ble-restore] band provisioned — restore central created")
   }
 
   /// Wire the Dart channel. Safe on the implicit engine too (background launch).
@@ -71,10 +107,21 @@ class BleRestoreManager: NSObject {
     ch.setMethodCallHandler { [weak self] call, result in
       guard let self = self else { result(nil); return }
       switch call.method {
+      case "provisioned":
+        // First-time ASK pairing just succeeded — NOW it's safe to create the restore
+        // central (an accessory exists, so showPicker is no longer pending and the
+        // "CBManager is active with global permissions" constraint no longer applies).
+        if let s = call.arguments as? String, let uuid = UUID(uuidString: s) {
+          self.bandProvisioned(uuid)
+        }
+        result(nil)
       case "arm":
         if let s = call.arguments as? String, let uuid = UUID(uuidString: s) {
           self.saveBandUUID(uuid)
           self.bandUUID = uuid
+          // The band is provisioned by the time Dart arms; ensure the restore central
+          // exists (it may have been deferred at launch on a fresh install).
+          self.ensureCentral()
           self.handedOff = false
           self.idleAfterSync = false   // explicit (re-)arm request from Dart
           self.armIfAppropriate()
@@ -163,7 +210,19 @@ class BleRestoreManager: NSObject {
     cancelPending()
     clearBandUUID()
     bandUUID = nil
-    NSLog("[ble-restore] disarmed")
+    // Release the restore central so the process has NO CBCentralManager again. This
+    // matters when the user unpairs and then re-pairs in the same app session: ASK's
+    // showPicker fails with "CBManager is active with global permissions" if a central is
+    // still alive. Dropping our strong reference lets CoreBluetooth tear it down; a fresh
+    // one is re-created on the next provision/arm. (flutter_blue_plus's central is also
+    // disconnected by AppState.unpair → engine.disconnect before re-pairing.)
+    if central != nil {
+      central?.delegate = nil
+      central = nil
+      NSLog("[ble-restore] disarmed — restore central released")
+    } else {
+      NSLog("[ble-restore] disarmed")
+    }
   }
 
   // MARK: - Wake → Flutter

@@ -381,6 +381,11 @@ class AppState extends ChangeNotifier {
   /// the known id) if a WHOOP is already provisioned via ASK.
   Future<void> pairViaAccessorySetup({String? serial}) async {
     final remoteId = await AccessorySetup.showPicker();
+    // CRITICAL ORDERING: the ASK picker has now provisioned the accessory. Only NOW is it
+    // safe for the native restore central (BleRestoreManager) to exist — it was deferred
+    // at launch on a fresh install so showPicker could run with no CBCentralManager alive.
+    // Create it here, BEFORE _persistPaired → openSession touches flutter_blue_plus.
+    await IosBleRestore.provisioned(remoteId);
     await _persistPaired(remoteId, serial);
   }
 

@@ -61,6 +61,18 @@ class IosBleRestore {
     } catch (_) {}
   }
 
+  /// Tell native that an accessory was just provisioned via the ASK picker (first-time
+  /// pairing). This is the cue for the native restore central to be CREATED — it is
+  /// deliberately deferred at launch on a fresh install so the ASK picker can be shown
+  /// with NO CBCentralManager alive (else `showPicker` fails with "CBManager is active
+  /// with global permissions"). Must be called BEFORE any flutter_blue_plus call.
+  static Future<void> provisioned(String remoteId) async {
+    if (!Platform.isIOS) return;
+    try {
+      await _ch.invokeMethod('provisioned', remoteId);
+    } catch (_) {}
+  }
+
   /// Arm restoration for this band (its iOS peripheral UUID == PairedDevice.remoteId).
   static Future<void> arm(String remoteId) async {
     if (!Platform.isIOS) return;
