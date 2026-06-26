@@ -341,7 +341,11 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         if (_regularity != null)
           TrendMetricRow(icon: Ic.calendar, accent: AppColors.good, label: 'Consistency',
               info: infoFor('regularity'), value: '${_regularity!.round()}', metric: 'regularity',
-              trendTitle: 'Sleep consistency'),
+              trendTitle: 'Sleep consistency')
+        else
+          // Honest gated state: SRI needs several nights of sleep timing.
+          MetricRow(icon: Ic.calendar, accent: AppColors.inkSoft, label: 'Consistency',
+              info: infoFor('regularity'), value: 'Need a few more nights'),
       ]),
     ];
   }

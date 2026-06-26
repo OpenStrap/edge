@@ -7,7 +7,7 @@
 // per-day coordinator, every metric) slices THIS object — nothing decodes raw a
 // second time.
 //
-// It also owns the V2 DAY MODEL: `physiologicalDays` walks the substrate and
+// It also owns the DAY MODEL: `calendarDays` walks the substrate and
 // returns wake-to-wake `PhysioDay`s anchored on each detected WAKE (sleep
 // offset), with a noon-to-noon fallback so a day always exists when there's data.
 
@@ -324,158 +324,108 @@ String localDateLabel(int epochSec) {
   return '${d.year.toString().padLeft(4, '0')}-${two(d.month)}-${two(d.day)}';
 }
 
-/// Walk the substrate and segment it into wake-to-wake physiological days.
+/// Split the substrate into CALENDAR days (local midnight → next local midnight).
 ///
-/// Iterative walk: from a cursor, detect the next sleep window (scanning a
-/// forward horizon), anchor a day on its WAKE (offset), advance the cursor past
-/// that wake, repeat. A day's container spans from its anchoring wake to the
-/// next wake (or end of data). The sleep attributed to a day is the one whose
-/// OFFSET equals the day's start wake (recovery follows the wake into the day).
+/// Each day owns its 24 h of data. A day's SLEEP is the main sleep that ENDED
+/// that morning (last night's sleep): we search the nocturnal window (~previous
+/// 18:00 → this noon) and attribute the detected window ONLY if its WAKE
+/// (offset) lands inside this calendar day. So recovery attributes to the day
+/// you woke INTO and strain to that day's waking activity — "recovery for the
+/// last 24 h." Deterministic midnight boundaries: no wake-scan day model, no
+/// search horizon, no back-extension. A day with no detected morning sleep is
+/// still emitted (flag NO_SLEEP_DETECTED) so a calendar day always exists.
 ///
-/// FALLBACK: when no sleep is found within a ~36 h horizon from the cursor, emit
-/// a noon-to-noon container day flagged LOW_CONFIDENCE_RECOVERY so a day always
-/// exists when there is data.
-///
-/// Single-night data yields exactly ONE physiological day (the day of the wake).
-List<PhysioDay> physiologicalDays(Substrate sub) {
+/// A sleep that crosses midnight is attributed to the day it ENDS; its window
+/// indices (sleepLoIdx/Hi) point into the full substrate, so the coordinator
+/// still slices the whole window for HRV/RHR/recovery regardless of the boundary.
+List<PhysioDay> calendarDays(Substrate sub) {
   if (sub.isEmpty) return const [];
   final accel = sub.accelSamples();
   final hr = sub.hr1hz();
-
-  final days = <PhysioDay>[];
   final dataStart = sub.tsSec.first;
   final dataEnd = sub.tsSec.last + 1;
-  const horizon = 36 * 3600; // ~36 h fallback span
 
-  var cursorIdx = 0; // index into sub arrays where the current search begins
+  final days = <PhysioDay>[];
+  var dayStart = _localMidnight(dataStart);
   var guard = 0;
+  while (dayStart < dataEnd && guard++ < 400) {
+    final dayEnd = _nextLocalMidnight(dayStart);
+    final cs = math.max(dayStart, dataStart);
+    final ce = math.min(dayEnd, dataEnd);
+    if (ce <= cs) {
+      dayStart = dayEnd;
+      continue;
+    }
 
-  while (cursorIdx < sub.length && guard++ < 64) {
-    final searchStartSec = sub.tsSec[cursorIdx];
-    final searchEndSec = math.min(dataEnd, searchStartSec + horizon);
-    final hiIdx = _lowerBound(sub.tsSec, searchEndSec);
+    // The main sleep that ENDS in this calendar day: search ~prev 18:00 → this
+    // noon (covers a sleep begun the prior evening that ends this morning).
+    final searchStart = math.max(dataStart, dayStart - 6 * 3600);
+    final searchEnd = math.min(dataEnd, dayStart + 12 * 3600);
+    final loS = _lowerBound(sub.tsSec, searchStart);
+    final hiS = _lowerBound(sub.tsSec, searchEnd);
 
-    // Daytime HR baseline for the dip-consensus: HR before the search window
-    // (the most recent waking period). Falls back to whole-history valid HR.
-    final base = <double>[
-      for (var i = 0; i < cursorIdx; i++)
-        if (hr[i] > 0) hr[i]
-    ];
-    final hrBaseline = base.length >= 60 ? base : null;
-
-    final segAccel = accel.sublist(cursorIdx, hiIdx);
-    final segHr = hr.sublist(cursorIdx, hiIdx);
-    final seg = ana.segmentSleep(segAccel, segHr, hrBaseline: hrBaseline);
-
-    if (seg.present && seg.window != null) {
-      final w = seg.window!;
-      // Window indices are into the SEARCH slice; rebase to the full substrate.
-      final loIdx = cursorIdx + w.onsetIdx;
-      final hiWin = cursorIdx + w.offsetIdx;
-      final wakeSec = sub.tsSec[(hiWin - 1).clamp(0, sub.length - 1)] + 1;
-
-      // Day container starts at this wake. Its end is the NEXT wake — but we
-      // don't know it yet, so we provisionally extend to data end and trim when
-      // the next day is found.
-      days.add(PhysioDay(
-        date: localDateLabel(wakeSec),
-        startSec: wakeSec,
-        endSec: dataEnd,
-        sleep: seg,
-        sleepLoIdx: loIdx,
-        sleepHiIdx: hiWin,
-        confidence: seg.confidence,
-        flags: const [],
-      ));
-
-      // Advance past this wake to look for the next sleep.
-      final nextIdx = _lowerBound(sub.tsSec, wakeSec);
-      cursorIdx = nextIdx > cursorIdx ? nextIdx : cursorIdx + 1;
-    } else {
-      // No sleep found from the cursor through the horizon. If we ALREADY have a
-      // day, this trailing wake-span is just the tail of the current day (the
-      // user simply hasn't slept again) — extend the last day to data end and
-      // stop; do NOT spawn a spurious fallback day. Only when NO day exists at
-      // all (we never found any sleep) do we emit a noon-to-noon fallback
-      // container flagged LOW_CONFIDENCE_RECOVERY so a day always exists.
-      if (days.isNotEmpty) {
-        final last = days.last;
-        days[days.length - 1] = PhysioDay(
-          date: last.date,
-          startSec: last.startSec,
-          endSec: dataEnd,
-          sleep: last.sleep,
-          sleepLoIdx: last.sleepLoIdx,
-          sleepHiIdx: last.sleepHiIdx,
-          confidence: last.confidence,
-          flags: last.flags,
-        );
-        break;
+    var seg = ana.SleepSegmentation.absent;
+    var sleepLo = 0, sleepHi = 0;
+    if (hiS - loS >= 600) {
+      // Daytime HR baseline = valid HR before the nocturnal search window.
+      final base = <double>[for (var i = 0; i < loS; i++) if (hr[i] > 0) hr[i]];
+      final hrBaseline = base.length >= 60 ? base : null;
+      // RR beats within the search slice (absolute ms) for RMSSD-based staging.
+      final s0 = sub.tsSec[loS] * 1000;
+      final s1 = sub.tsSec[(hiS - 1).clamp(0, sub.length - 1)] * 1000;
+      final rrMsSeg = <double>[];
+      final rrTsSeg = <double>[];
+      for (var k = 0; k < sub.rrMs.length; k++) {
+        final t = sub.rrTsMs[k];
+        if (t >= s0 && t <= s1) {
+          rrMsSeg.add(sub.rrMs[k]);
+          rrTsSeg.add(t);
+        }
       }
-      final noon = _noonOnOrAfter(searchStartSec);
-      final endNoon = math.min(dataEnd, noon + 24 * 3600);
-      days.add(PhysioDay(
-        date: localDateLabel(searchStartSec),
-        startSec: searchStartSec,
-        endSec: endNoon,
-        sleep: ana.SleepSegmentation.absent,
-        sleepLoIdx: 0,
-        sleepHiIdx: 0,
-        confidence: 0.2,
-        flags: const ['LOW_CONFIDENCE_RECOVERY'],
-      ));
-      final nextIdx = _lowerBound(sub.tsSec, endNoon);
-      cursorIdx = nextIdx > cursorIdx ? nextIdx : sub.length;
-    }
-  }
-
-  // Trim each day's container end to the next day's start so containers tile.
-  for (var i = 0; i < days.length - 1; i++) {
-    final d = days[i];
-    final next = days[i + 1];
-    if (next.startSec < d.endSec && next.startSec > d.startSec) {
-      days[i] = PhysioDay(
-        date: d.date,
-        startSec: d.startSec,
-        endSec: next.startSec,
-        sleep: d.sleep,
-        sleepLoIdx: d.sleepLoIdx,
-        sleepHiIdx: d.sleepHiIdx,
-        confidence: d.confidence,
-        flags: d.flags,
+      final s = ana.segmentSleep(
+        accel.sublist(loS, hiS),
+        hr.sublist(loS, hiS),
+        hrBaseline: hrBaseline,
+        rrMs: rrMsSeg,
+        rrTsMs: rrTsSeg,
       );
+      // Attribute ONLY if the sleep's wake (offset) falls within this day.
+      if (s.present && s.window != null) {
+        final offSec = s.window!.offsetMs! ~/ 1000;
+        if (offSec >= dayStart && offSec < dayEnd) {
+          seg = s;
+          sleepLo = loS + s.window!.onsetIdx;
+          sleepHi = loS + s.window!.offsetIdx;
+        }
+      }
     }
-  }
 
-  // If there's data BEFORE the first day's wake (the leading sleep's own night),
-  // that pre-wake span has no anchoring wake of its own — it belongs to the day
-  // it wakes into, which IS days[0]. So we extend days[0] backward to data start
-  // so the sleep window (which precedes the wake) is inside the day's container.
-  if (days.isNotEmpty && days.first.startSec > dataStart) {
-    final d = days.first;
-    days[0] = PhysioDay(
-      date: d.date,
-      startSec: dataStart,
-      endSec: d.endSec,
-      sleep: d.sleep,
-      sleepLoIdx: d.sleepLoIdx,
-      sleepHiIdx: d.sleepHiIdx,
-      confidence: d.confidence,
-      flags: d.flags,
-    );
+    days.add(PhysioDay(
+      date: localDateLabel(dayStart),
+      startSec: cs,
+      endSec: ce,
+      sleep: seg,
+      sleepLoIdx: sleepLo,
+      sleepHiIdx: sleepHi,
+      confidence: seg.present ? seg.confidence : 0.0,
+      flags:
+          seg.present ? const <String>[] : const <String>['NO_SLEEP_DETECTED'],
+    ));
+    dayStart = dayEnd;
   }
-
   return days;
 }
 
-/// Local noon (epoch sec) at or after [epochSec].
-int _noonOnOrAfter(int epochSec) {
+/// Local midnight (epoch sec) at/before [epochSec].
+int _localMidnight(int epochSec) {
   final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000, isUtc: false);
-  var noon = DateTime(d.year, d.month, d.day, 12);
-  if (noon.millisecondsSinceEpoch ~/ 1000 < epochSec) {
-    noon = noon.add(const Duration(days: 1));
-  }
-  return noon.millisecondsSinceEpoch ~/ 1000;
+  return DateTime(d.year, d.month, d.day).millisecondsSinceEpoch ~/ 1000;
+}
+
+/// The next local midnight strictly after the local midnight of [epochSec].
+int _nextLocalMidnight(int epochSec) {
+  final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000, isUtc: false);
+  return DateTime(d.year, d.month, d.day + 1).millisecondsSinceEpoch ~/ 1000;
 }
 
 /// First index i in sorted [xs] with xs[i] >= target (std lower_bound).

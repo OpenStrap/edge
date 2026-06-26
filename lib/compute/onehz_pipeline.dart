@@ -213,6 +213,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final dip = hrDip(dayOnly, sleepHr);
   final dc = decelerationCapacity(nn);
   final ac = accelerationCapacity(nn);
+  // Baevsky Stress Index over the sleep NN — resting autonomic tension (a
+  // transparent RR-histogram metric; no ML). Daily resting-stress indicator.
+  final stress = baevskyStressIndex(nn);
 
   // ── RESPIRATION (sleep-windowed) ───────────────────────────────────────────
   final resp = nn.length >= 30
@@ -287,16 +290,26 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final sex = (prof['sex'] as String?)?.toLowerCase();
   final hrMax = age == null ? null : 208 - 0.7 * age; // Tanaka
   final rhrForTrimp = rhrToday ?? (prof['resting_hr'] as num?)?.toDouble();
+  final weightKg = (prof['weight_kg'] as num?)?.toDouble();
+  // Wake-span per-minute mean HR = the day minus the sleep window (shared by
+  // TRIMP, HR zones, and calories so all three see the same wake series).
+  final perMin = _perMinuteMeanWake(d);
   Metric<double> trimp = const Metric<double>.absent(
       tier: Tier.estimate, inputs_used: ['hr_1hz', 'profile']);
-  if (hrMax != null && rhrForTrimp != null && sex != null && dayHrValid.isNotEmpty) {
-    // Wake-span per-minute mean HR = the day minus the sleep window.
-    final perMin = _perMinuteMeanWake(d);
-    if (perMin.isNotEmpty) {
+  Map<String, int> hrZones = const {};
+  double? caloriesKcal;
+  if (hrMax != null && perMin.isNotEmpty) {
+    if (rhrForTrimp != null && sex != null && dayHrValid.isNotEmpty) {
       trimp = banisterTrimp(perMin,
           restingHr: rhrForTrimp,
           maxHr: hrMax,
           sex: sex == 'f' ? Sex.female : Sex.male);
+    }
+    // HR zones by %HRmax — Z1–Z5 at 50/60/70/80/90% (one minute per perMin point).
+    hrZones = _hrZones(perMin, hrMax);
+    // Keytel 2005 HR→kcal over the wake span (needs age + weight + sex).
+    if (age != null && sex != null && weightKg != null) {
+      caloriesKcal = _keytelCalories(perMin, age, weightKg, hrMax, sex == 'f');
     }
   }
 
@@ -310,8 +323,42 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final hrvTimeline = _hrvTimeline(nn, nnTimes);
 
   // ── ASSEMBLE the bundle (envelopes are plain JSON) ─────────────────────────
+  // ── HRV stability (CV = SDNN/meanNN) + Poincaré irregular-beat screen ──────
+  // Both over the sleep NN. CV is a normalized variability stability index;
+  // SD1/SD2 are the Poincaré descriptors; a high SD1/SD2 ratio flags erratic
+  // beat-to-beat timing (a SCREEN, not a diagnosis).
+  double? hrvCv, sd1, sd2;
+  var irregularFlag = false;
+  var irregularConf = 0.0;
+  if (nn.length >= 20) {
+    final meanNn = nn.reduce((a, b) => a + b) / nn.length;
+    final sdnn = hrvT.present ? hrvT.value!.sdnn : null;
+    if (sdnn != null && meanNn > 0) hrvCv = sdnn / meanNn * 100;
+    final diffs = [for (var i = 1; i < nn.length; i++) nn[i] - nn[i - 1]];
+    final sdsd = _stddev(diffs);
+    if (sdsd != null && sdnn != null) {
+      sd1 = sdsd / math.sqrt2;
+      final v = 2 * sdnn * sdnn - sd1 * sd1;
+      sd2 = v > 0 ? math.sqrt(v) : 0.0;
+      irregularConf = 0.5;
+      // CONSERVATIVE: a healthy Poincaré SD1/SD2 sits ~0.2–0.5 (RSA pushes it
+      // toward 0.5); erratic/AF-like rhythms scatter the plot toward a blob
+      // (ratio → ~1). Flag only clearly-abnormal ≥0.7 to avoid false alarms —
+      // this is a SCREEN, not a diagnosis.
+      irregularFlag = sd2 > 0 && (sd1 / sd2) >= 0.70;
+    }
+  }
+
   final clinical = <String, dynamic>{
     'hrv_time': hrvT.toJson((v) => v.toJson()),
+    // HRV stability (CV %) + Poincaré irregular-beat screen.
+    'cv': hrvCv == null ? null : _round(hrvCv, 1),
+    'irregular': <String, dynamic>{
+      'sd1': sd1 == null ? null : _round(sd1, 1),
+      'sd2': sd2 == null ? null : _round(sd2, 1),
+      'flag': irregularFlag,
+      'confidence': irregularConf,
+    },
     // The headline nocturnal RMSSD envelope (robust, NREM, median-of-5min). Carry
     // its honesty note so detail screens can surface it.
     'rmssd_nocturnal': robustRmssd.toJson(),
@@ -409,14 +456,96 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final readinessScalar = composite.present ? composite.value!.score : null;
   final strainScalar = strainMetric.present ? strainMetric.value : null;
 
+  // ── STRESS: Baevsky SI → a transparent 0–100 score (log-mapped over the
+  //    plausible resting SI range [20, 600]). Resting autonomic tension; the
+  //    stress screen reads this {score, si, lf_hf, rmssd, level} block directly.
+  final si = stress.present ? stress.value!.si : null;
+  final lfhf = hrvF.present ? hrvF.value!.lfhf : null;
+  double? stressScore;
+  if (si != null && si > 0) {
+    final lo = math.log(20), hi = math.log(600);
+    stressScore = (100 * (math.log(si) - lo) / (hi - lo)).clamp(0.0, 100.0);
+  }
+  final stressBlock = <String, dynamic>{
+    'value': stressScore == null ? '—' : _round(stressScore, 1),
+    'score': stressScore == null ? null : _round(stressScore, 1),
+    'si': si == null ? null : _round(si, 2),
+    'level': stress.present ? stress.value!.level : null,
+    'lf_hf': lfhf == null ? null : _round(lfhf, 3),
+    'rmssd': rmssdScalar == null ? null : _round(rmssdScalar, 1),
+    'confidence': stress.present ? _round(stress.confidence, 4) : 0,
+    'tier': Tier.estimate,
+    'inputs_used': const ['rr_cleaned'],
+    'note': 'Baevsky Stress Index → 0–100; resting autonomic tension (PRV).',
+  };
+
+  // ── SpO₂ (RELATIVE only): the overnight desaturation index (dips/hour). We
+  //    have relative ADC, never absolute %SpO₂ — so we surface the ODI screen as
+  //    "blood-oxygen relative to your baseline", honestly labelled. 0 = no dips.
+  final odiPerHour = odi.present ? odi.value!.odiPerHour : null;
+  final spo2Block = <String, dynamic>{
+    'value': odiPerHour == null ? '—' : _round(odiPerHour, 2),
+    'odi_per_hour': odiPerHour == null ? null : _round(odiPerHour, 2),
+    'confidence': odi.present ? _round(odi.confidence, 4) : 0,
+    'tier': Tier.relative,
+    'inputs_used': const ['spo2_red_raw', 'spo2_ir_raw'],
+    'note': 'relative desaturation index (dips/h); no absolute %SpO₂ from this band',
+  };
+
+  // ── NOCTURNAL detail: sleeping-HR nadir + waking HR. Both computable today
+  //    with NO baseline; the "vs baseline" comparison is added at the seam from
+  //    the rhr history series.
+  final nadir = rhr.present ? rhr.value!.p1 : null;
+  final wakingHr = dip.present ? dip.value!.dayMean : null;
+  // Nadir INSTANT: epoch-second of the lowest valid sleeping-HR second, so the
+  // nocturnal card can render "@ HH:MM" instead of "@ -". From the sleep-window
+  // HR series (parallel to sleepTsSec); null when no valid sleep HR.
+  int? nadirTs;
+  {
+    var lo = 1 << 30;
+    for (var i = 0; i < d.sleepHr.length && i < d.sleepTsSec.length; i++) {
+      final h = d.sleepHr[i];
+      if (h > 0 && h < lo) {
+        lo = h;
+        nadirTs = d.sleepTsSec[i];
+      }
+    }
+  }
+
+  // ── HR stats over the day's valid HR (for the strain detail hr {max,avg,min}).
+  final hrStats = dayHrValid.isEmpty
+      ? null
+      : {
+          'max': dayHrValid.reduce(math.max).round(),
+          'min': dayHrValid.reduce(math.min).round(),
+          'avg': _mean(dayHrValid)!.round(),
+        };
+
+  // ── SLEEP CYCLES from the per-second hypnogram (NREM→REM completions).
+  // Sleep cycles — Rosenblum 2024 "fractal cycles", HRV-adapted: peak-to-peak of
+  // the smoothed per-minute RMSSD series (REM peaks / NREM troughs), NOT
+  // categorical REM-episode counting. Over the sleep window's RR.
+  final cyc = detectSleepCycles(
+      d.sleepRrMs, d.sleepRrTsMs, d.sleepOnsetSec, d.sleepOffsetSec);
+  sleep['cycles'] = [for (final c in cyc.cycles) c.toJson()];
+  sleep['cycle_count'] = cyc.n;
+  sleep['cycles_mean_min'] = cyc.meanDurationMin;
+  // The continuous z-RMSSD wave the cycle GRAPH plots ({t: epochSec, z}).
+  sleep['cycle_series'] = cyc.series;
+
   return <String, dynamic>{
     'date': d.date,
     'day_confidence': _round(d.dayConfidence, 4),
     'flags': d.dayFlags,
     'clinical': clinical,
     'sleep': sleep,
+    'zones': hrZones,
+    'hr_stats': ?hrStats,
+    'calories': caloriesKcal == null ? null : _round(caloriesKcal, 0),
     'respiration': respiration,
     'wellness': wellness,
+    'stress': stressBlock,
+    'spo2': spo2Block,
     'series': {
       'hr_curve': hrCurve,
       'hrv_timeline': hrvTimeline,
@@ -452,6 +581,26 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'trimp': trimp.present ? trimp.value : null,
       'odi_per_hour': odi.present ? odi.value!.odiPerHour : null,
       'cpc_ratio': cpc.present ? cpc.value!.cpcRatio : null,
+      // Stress score (0–100) + SI for trends; spo2 relative desaturation index.
+      'stress': stressScore,
+      'stress_si': si,
+      'spo2': odiPerHour,
+      // Active calories (Keytel) + nocturnal HR detail (nadir / waking HR).
+      'calories': caloriesKcal == null ? null : _round(caloriesKcal, 0),
+      'sleeping_hr_nadir': nadir,
+      'sleeping_hr_nadir_ts': nadirTs?.toDouble(),
+      'waking_hr': wakingHr,
+      // Sleep-stage minutes + HRV freq/stability — surfaced as scalars so they
+      // flow to metric_series and get day/week/month/3M trends.
+      'rem_min': remSec == null ? null : (remSec / 60).roundToDouble(),
+      'deep_min': deepSec == null ? null : (deepSec / 60).roundToDouble(),
+      'light_min': lightSec == null ? null : (lightSec / 60).roundToDouble(),
+      'tst_min': tstSec == null ? null : (tstSec / 60).roundToDouble(),
+      'lf_hf': lfhf == null ? null : _round(lfhf, 3),
+      'hrv_cv': hrvCv == null ? null : _round(hrvCv, 1),
+      // Sleep efficiency % + worn minutes → their own day/week/month/3M trends.
+      'efficiency': effPct == null ? null : _round(effPct, 1),
+      'worn_min': dayHrValid.isEmpty ? null : (dayHrValid.length / 60).roundToDouble(),
     },
   };
 }
@@ -535,6 +684,45 @@ List<double> _perMinuteMeanWake(DayBundleInput d) {
   }
   final keys = buckets.keys.toList()..sort();
   return [for (final k in keys) _mean(buckets[k]!)!];
+}
+
+/// HR zones by %HRmax — Z1–Z5 at 50/60/70/80/90%. [perMin] is per-minute mean
+/// wake HR, so each entry contributes one minute. Returns minutes per zone.
+Map<String, int> _hrZones(List<double> perMin, double hrMax) {
+  final z = {'z1': 0, 'z2': 0, 'z3': 0, 'z4': 0, 'z5': 0};
+  for (final hr in perMin) {
+    final pct = hr / hrMax;
+    if (pct >= 0.90) {
+      z['z5'] = z['z5']! + 1;
+    } else if (pct >= 0.80) {
+      z['z4'] = z['z4']! + 1;
+    } else if (pct >= 0.70) {
+      z['z3'] = z['z3']! + 1;
+    } else if (pct >= 0.60) {
+      z['z2'] = z['z2']! + 1;
+    } else if (pct >= 0.50) {
+      z['z1'] = z['z1']! + 1;
+    }
+  }
+  return z;
+}
+
+/// Active calories (kcal) over the wake span via Keytel et al. 2005 HR→energy,
+/// gated to minutes ≥50% HRmax (below that the HR-kcal relation is unreliable).
+/// One [perMin] entry = one minute. age (yr), weight (kg), [female] selects the
+/// sex-specific Keytel coefficients.
+double _keytelCalories(
+    List<double> perMin, double age, double weight, double hrMax, bool female) {
+  var kcal = 0.0;
+  for (final hr in perMin) {
+    if (hr < 0.50 * hrMax) continue; // gate: HR-kcal invalid at rest
+    // Keytel 2005 kJ/min, then ÷4.184 → kcal/min.
+    final kjMin = female
+        ? (-20.4022 + 0.4472 * hr - 0.1263 * weight + 0.074 * age) / 4.184
+        : (-55.0969 + 0.6309 * hr + 0.1988 * weight + 0.2017 * age) / 4.184;
+    if (kjMin > 0) kcal += kjMin;
+  }
+  return kcal;
 }
 
 double? _mean(List<double> xs) {

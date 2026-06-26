@@ -135,6 +135,19 @@ int? needMoreNightsFromNote(String? note) {
   return remaining < 1 ? 1 : remaining;
 }
 
+/// A natural-language "need more data" message from a need_baseline note.
+/// [unit] picks the wording: 'nights' (sleep/recovery/HRV-baseline metrics) →
+/// "Need N more nights"; 'days' (activity/fitness) → "Wear N more days to
+/// unlock". Returns null when [note] isn't a need_baseline note.
+String? needMessageFromNote(String? note, {String unit = 'nights'}) {
+  final n = needMoreNightsFromNote(note);
+  if (n == null) return null;
+  if (unit == 'days') {
+    return 'Wear $n more day${n == 1 ? '' : 's'} to unlock';
+  }
+  return 'Need $n more night${n == 1 ? '' : 's'}';
+}
+
 /// Pull a per-metric flag map ({c, tier, label, beta}) out of a row's `flags`
 /// blob, which may be a JSON string or an already-decoded map.
 Map<String, dynamic>? flagFor(Object? flags, String key) {

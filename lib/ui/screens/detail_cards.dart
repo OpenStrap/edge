@@ -5,7 +5,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../models/metric.dart' show needMoreNightsFromNote;
+import '../../models/metric.dart' show needMoreNightsFromNote, needMessageFromNote;
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
@@ -256,14 +256,17 @@ class HeartDayCard extends StatelessWidget {
             const SizedBox(height: Sp.x6),
             SectionHeader('Skin temperature'),
             MetricGroup([
-              if (d['skin_temp'] is Map)
+              if (d['skin_temp'] is Map && _n((d['skin_temp'] as Map)['value']) != null)
                 TrendMetricRow(icon: Ic.thermometer, accent: AppColors.coralDeep, label: 'Skin temp vs baseline',
                     info: infoFor('skin_temp'),
                     value: _signed(_n((d['skin_temp'] as Map)['value'])), unit: 'Δ',
                     metric: 'skin_temp', trendTitle: 'Skin temp vs baseline')
               else
+                // No value yet → honest "Need N more nights" (baseline building),
+                // from the need_baseline note, instead of a bare "—".
                 MetricRow(icon: Ic.thermometer, accent: AppColors.inkSoft, label: 'Skin temp vs baseline',
-                    info: infoFor('skin_temp'), value: '—'),
+                    info: infoFor('skin_temp'),
+                    value: needMessageFromNote((d['skin_temp'] as Map?)?['note'] as String?) ?? '—'),
             ]),
           ],
 

@@ -14,7 +14,6 @@ import '../kit/kit.dart';
 import '../kit/charts.dart';
 import '../widgets/screen_loader.dart';
 import '../widgets/status_banner.dart';
-import 'step_goal_screen.dart';
 import '../journal/journal_screen.dart';
 import '../recap/recap_screen.dart';
 import '../coach/coach_screen.dart';
@@ -298,15 +297,13 @@ class _TodayScreenState extends State<TodayScreen>
       _statRow(
         StatTile(
           icon: Ic.run,
-          label: 'Steps',
-          value: _int(t.steps),
+          label: 'Active',
+          value: t.steps.isEmpty ? null : '${t.steps.value!.round()}m',
           accent: AppColors.good,
           confidence: t.steps.isEmpty ? null : t.steps.confidence,
           tag: Tag.forMetric(t.steps),
-          onTap: () => _push(() => StepGoalScreen(
-            steps: t.steps.isEmpty ? null : t.steps.value!.round(),
-            goal: t.stepGoal,
-          )),
+          // Active-minutes trend (Today/Week/Month/3M) + step-goal setter inside.
+          onTap: () => _push(() => const ActivityScreen()),
         ),
         StatTile(
           icon: Ic.watch,
@@ -452,14 +449,15 @@ class _TodayScreenState extends State<TodayScreen>
     final tcol = score == null
         ? AppColors.inkMuted
         : (score >= 66 ? AppColors.good : score >= 40 ? AppColors.coral : AppColors.coralDeep);
-    // Headline glyph: the score, or "Need N" while building the baseline.
+    // Headline glyph: the score, or a clean "N nights" count while building the
+    // baseline (the subtitle carries the explanation — no bare "Need 3").
     final headline = score != null
         ? '$score'
-        : (needNights != null ? 'Need $needNights' : '—');
+        : (needNights != null ? '$needNights night${needNights == 1 ? '' : 's'}' : '—');
     final subtitle = score != null
         ? 'HRV recovery + sleep, blended'
         : (needNights != null
-            ? 'Need $needNights more night${needNights == 1 ? '' : 's'} to build your baseline'
+            ? 'more overnight wear to unlock your readiness baseline'
             : 'Building baseline — needs nocturnal HRV');
     return GlowCard(
       padding: const EdgeInsets.all(Sp.x6),

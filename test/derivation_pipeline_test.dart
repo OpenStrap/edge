@@ -81,11 +81,11 @@ void main() {
         reason: 'valid HR samples');
     expect(sub.rrMs.length, greaterThan(50), reason: 'decoded RR beats');
 
-    // ── wake-to-wake segmentation: a day always exists when there's data ──────
-    // The fixture is ~9 min — too short to qualify as a ≥3 h main sleep, so this
-    // exercises the FALLBACK noon-to-noon container (flagged LOW_CONFIDENCE).
-    final days = physiologicalDays(sub);
-    expect(days, isNotEmpty, reason: 'a physiological day always exists');
+    // ── calendar-day segmentation: a day always exists when there's data ──────
+    // The fixture is ~9 min — too short to qualify as a ≥3 h main sleep, so the
+    // day is emitted with no sleep (flag NO_SLEEP_DETECTED).
+    final days = calendarDays(sub);
+    expect(days, isNotEmpty, reason: 'a calendar day always exists');
     final day = days.first;
 
     // ── coordinator slice → DayBundleInput → deriveDayBundle (synchronous) ────

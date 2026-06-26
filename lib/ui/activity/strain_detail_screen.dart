@@ -251,7 +251,43 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
           metric: 'monotony', trendTitle: 'Training monotony'));
     }
     final hasModel = fm['fitness'] != null || fm['fatigue'] != null || fm['form'] != null;
-    if (rows.isEmpty && !hasModel) return const [];
+    // Nothing computed yet → an HONEST unlock card (not a hidden section / bare
+    // "—"): VO₂max needs a hard effort; the Banister model needs weeks of data.
+    if (rows.isEmpty && !hasModel) {
+      return [
+        const SectionHeader('Fitness'),
+        ProCard(
+          child: Padding(
+            padding: const EdgeInsets.all(Sp.x4),
+            child: Row(children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                    color: AppColors.surfaceSunk,
+                    borderRadius: BorderRadius.circular(R.chip)),
+                child: AppIcon(Ic.pulse, size: 17, color: AppColors.inkMuted),
+              ),
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Building your fitness picture', style: AppText.label),
+                    const SizedBox(height: 2),
+                    Text(
+                        'VO₂max needs a hard, near-max effort to estimate; '
+                        'fitness, fatigue & form build over ~2–3 weeks of '
+                        'training. Keep wearing it and training as usual.',
+                        style: AppText.captionMuted),
+                  ],
+                ),
+              ),
+            ]),
+          ),
+        ),
+        const SizedBox(height: Sp.x4),
+      ];
+    }
     return [
       const SectionHeader('Fitness'),
       if (hasModel) ...[

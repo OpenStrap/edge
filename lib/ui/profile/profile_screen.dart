@@ -667,26 +667,37 @@ class _LastDataIndicatorState extends State<LastDataIndicator> {
     super.dispose();
   }
 
-  String _ago(DateTime? at) {
+  static const _mon = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+
+  /// Show the RECORD's own timestamp (the band's clock), not "time since the last
+  /// BLE frame". During a flash backfill, frames arrive continuously ("just now")
+  /// while carrying hours-old records — that lie is exactly what this fixes.
+  String _label(DateTime? at) {
     if (at == null) return 'waiting for data…';
-    final s = DateTime.now().difference(at).inSeconds;
-    if (s <= 1) return 'last data: just now';
-    if (s < 60) return 'last data: ${s}s ago';
-    final m = s ~/ 60;
-    if (m < 60) return 'last data: ${m}m ago';
-    return 'last data: ${m ~/ 60}h ago';
+    final h = at.hour;
+    final h12 = h % 12 == 0 ? 12 : h % 12;
+    final ap = h < 12 ? 'AM' : 'PM';
+    final t = '$h12:${at.minute.toString().padLeft(2, '0')} $ap';
+    final now = DateTime.now();
+    final sameDay =
+        at.year == now.year && at.month == now.month && at.day == now.day;
+    if (sameDay) return 'last data: today $t';
+    return 'last data: ${_mon[at.month - 1]} ${at.day}, $t';
   }
 
   @override
   Widget build(BuildContext context) {
-    final at = context.read<AppState>().lastDataAt;
+    final at = context.read<AppState>().lastRecordAt;
     return AnimatedScale(
       scale: _pulse ? 1.06 : 1.0,
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
       alignment: Alignment.centerLeft,
       child: Text(
-        _ago(at),
+        _label(at),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: AppText.caption.copyWith(color: AppColors.onNightSoft),

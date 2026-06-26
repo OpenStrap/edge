@@ -80,6 +80,12 @@ class AppState extends ChangeNotifier {
     isConnected: () => engine.isConnected,
   );
   Sample? lastSynced;
+  // REAL device time (epoch SECONDS) of the newest record we hold — the band's
+  // own clock, NOT when the BLE frame arrived. During a flash backfill, frames
+  // land "just now" but carry hours-old records; THIS is the timestamp the
+  // "last data: …" indicator must show. Seeded from the DB at init, advanced as
+  // records (drained + live) flow in.
+  int? _lastRecTs;
   Map<String, int> dbCounts = {'raw': 0, 'pending': 0};
   final List<String> logLines = [];
   String? lastError;
@@ -415,6 +421,7 @@ class AppState extends ChangeNotifier {
     paired = await PairedDevice.load();
     await _loadProfile();
     lastSynced = await LocalDb.latestSample();
+    _lastRecTs = await LocalDb.lastRawRecTs() ?? lastSynced?.tsEpoch;
     dbCounts = await LocalDb.counts();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
     // Band-gesture mapping: load the saved action + query native capabilities so the
@@ -483,6 +490,8 @@ class AppState extends ChangeNotifier {
   // Historical singles only now (live frames go through _onLiveFrame and are
   // never persisted). Just write the raw record (+ optional decoded sample).
   Future<void> _onRecord(Sample? sample, RawRecord raw) async {
+    final ts = raw.recTs ?? sample?.tsEpoch;
+    if (ts != null && ts > 0 && ts > (_lastRecTs ?? 0)) _lastRecTs = ts;
     await LocalDb.insertRecord(raw, sample);
   }
 
@@ -490,6 +499,9 @@ class AppState extends ChangeNotifier {
   // taps the RR-bearing frames (0x28 compact HR, 0x2B R10) into the in-memory
   // scan buffer. Cheap-bounded; cleared at each scan start.
   void _onLiveFrame(int pt, String hex, int? recTs) {
+    if (recTs != null && recTs > 0 && recTs > (_lastRecTs ?? 0)) {
+      _lastRecTs = recTs;
+    }
     if (spotActive && (pt == 0x28 || pt == 0x2B)) {
       if (_spotFrames.length < 8000) _spotFrames.add(hex);
     }
@@ -754,9 +766,18 @@ class AppState extends ChangeNotifier {
 
   String get status => device.connection;
 
-  /// Wall-clock of the last BLE notification received (any characteristic), for the
-  /// "last data: Xs ago" UI. `null` until the first frame this connection.
+  /// Wall-clock of the last BLE notification received (any characteristic). Used
+  /// only to PULSE the indicator (link is alive / frames flowing). `null` until
+  /// the first frame this connection.
   DateTime? get lastDataAt => engine.lastRxAt;
+
+  /// REAL device timestamp of the newest record we hold (the band's own clock),
+  /// NOT when the BLE frame arrived. This is what "last data: …" displays — a
+  /// flash backfill arrives "now" but carries hours-old records. `null` until any
+  /// record exists.
+  DateTime? get lastRecordAt => _lastRecTs == null
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(_lastRecTs! * 1000);
 
   void _setBusy(bool b) {
     busy = b;

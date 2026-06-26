@@ -36,22 +36,33 @@ class LocalRepositoryImpl extends LocalRepository {
     return _decode(row['payload_json']);
   }
 
-  /// The most-recent derived day that is a REAL bundle (non-empty `scalars`,
-  /// not a `{skipped:true}` marker). A single skipped/empty most-recent day used
-  /// to blank Today; we now walk back to the latest day that actually has data,
-  /// falling back to the newest decodable bundle, else null.
+  /// The most-recent COMPLETE derived day to show on Today. With the calendar-day
+  /// model "today" starts empty at midnight and only gains sleep/recovery once
+  /// tonight's sleep is recorded — so a partial today must NOT blank the screen.
+  /// We walk newest→oldest and PREFER the latest day that actually has SLEEP (the
+  /// recovery/sleep headline), i.e. "show me last night's sleep + latest
+  /// recovery". Fallbacks, in order: latest day with sleep → latest day with any
+  /// scalars → newest decodable → null. This is what makes Today show yesterday's
+  /// data when today hasn't filled yet (and the day-detail seams inherit it).
   Future<Map<String, dynamic>?> _latestBundle() async {
     final rows = await LocalDb.recentDayResults(14);
-    Map<String, dynamic>? newest;
+    Map<String, dynamic>? newest, withScalars;
     for (final row in rows) {
       final b = _decode(row['payload_json']);
       if (b == null) continue;
       newest ??= b;
       if (b['skipped'] == true) continue;
       final scalars = b['scalars'];
-      if (scalars is Map && scalars.isNotEmpty) return b;
+      if (scalars is Map && scalars.isNotEmpty) withScalars ??= b;
+      if (_bundleHasSleep(b)) return b; // latest COMPLETE day wins
     }
-    return newest;
+    return withScalars ?? newest;
+  }
+
+  /// True when a bundle carries a real sleep (single-source accounting present).
+  bool _bundleHasSleep(Map<String, dynamic> b) {
+    final acc = ((b['sleep'] as Map?)?['accounting'] as Map?)?['value'];
+    return acc is Map && acc['tst_sec'] != null;
   }
 
   /// The cross-day analytics rollup bundle (from the `crossday` baseline), or
@@ -161,6 +172,12 @@ class LocalRepositoryImpl extends LocalRepository {
         readinessScalar == null ? _needNote(b, 'clinical.readiness_composite') : null;
     final readinessMetric =
         _scalarMetric(readinessScalar, 'HIGH', note: readinessNote);
+    // Active minutes (1 Hz movement proxy) — the honest stand-in for the steps
+    // tile, since 1 Hz can't count steps (Nyquist). Real step counts come from
+    // live workout streaming only.
+    final activeMin = (b['activity'] is Map)
+        ? ((b['activity'] as Map)['active_min'] as num?)?.round()
+        : _scalar(b, 'active_min')?.round();
     final daily = <String, dynamic>{
       'readiness': readinessMetric,
       'recovery': readinessMetric,
@@ -168,6 +185,12 @@ class LocalRepositoryImpl extends LocalRepository {
       // Headline 0–21 strain (the strain gauge already expects a 0–21 scale).
       'strain': _scalarMetric(_scalar(b, 'strain'), 'ESTIMATE'),
       'wear_min': _scalarMetric(_wearMin(b), 'HIGH', unit: 'min'),
+      // Active calories (Keytel HR→kcal over the wake span).
+      'calories': _scalarMetric(_scalar(b, 'calories')?.round(), 'ESTIMATE', unit: 'kcal'),
+      // Activity minutes shown on the steps tile (labeled "active min"); real
+      // steps stay live-only. `active_min` carried separately for the trend.
+      'steps': _scalarMetric(activeMin, 'ESTIMATE', unit: 'active min'),
+      'active_min': _scalarMetric(activeMin, 'ESTIMATE', unit: 'min'),
     };
 
     final hrv = rmssd == null
@@ -181,10 +204,15 @@ class LocalRepositoryImpl extends LocalRepository {
     return {
       'daily': daily,
       'sleep': _sleepSummary(b),
-      if (rhrEnv != null) 'nocturnal': _nocturnal(b),
+      if (rhrEnv != null) 'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
       if (resp['rsa'] is Map) 'resp': _respObj(b),
       'hrv': ?hrv,
-      'skin_temp': {'value': _scalar(b, 'skin_temp_z')},
+      'skin_temp': await _skinTempBlock(b),
+      // Stress (Baevsky SI → 0–100 score block) + relative SpO₂ (desat index),
+      // both emitted by the pipeline. The Today tiles + stress screen read these.
+      if (b['stress'] is Map) 'stress': b['stress'],
+      if (b['spo2'] is Map) 'spo2': b['spo2'],
+      if (b['activity'] is Map) 'activity': b['activity'],
       // Cross-day rollup surfaced on Today (present only when computed).
       'illness': ?cd?['illness'],
       'anomaly': ?cd?['anomaly'],
@@ -221,12 +249,30 @@ class LocalRepositoryImpl extends LocalRepository {
     };
   }
 
-  Map<String, dynamic> _nocturnal(Map<String, dynamic> b) {
-    final rhr = _scalar(b, 'rhr');
+  Map<String, dynamic> _nocturnal(Map<String, dynamic> b, {num? baselineRhr}) {
+    final rhr = _scalar(b, 'rhr'); // sleeping-HR avg (low30 mean)
     final dip = _scalar(b, 'dip_pct');
+    final nadir = _scalar(b, 'sleeping_hr_nadir'); // lowest sleeping HR
+    final waking = _scalar(b, 'waking_hr'); // waking-span mean HR
+    // vs baseline: tonight's sleeping HR minus the personal rhr baseline. Null
+    // (→ "Need N nights") until a baseline exists; never fabricated.
+    final vsBase =
+        (rhr != null && baselineRhr != null) ? (rhr - baselineRhr) : null;
+    // Elevated sleeping HR = ≥ baseline + 4 bpm (calcNocturnalHeart rule); false
+    // until a baseline exists.
+    final elevated =
+        (rhr != null && baselineRhr != null) && rhr >= baselineRhr + 4;
+    // KEY NAMES must match what the screens read: sleep_detail + detail_cards
+    // use sleeping_hr_min / day_hr_avg / vs_baseline_bpm / nadir_ts / elevated.
     return {
       'sleeping_hr_avg': rhr?.round(),
+      'sleeping_hr_min': nadir?.round(),
+      'day_hr_avg': waking?.round(),
+      'vs_baseline_bpm':
+          vsBase == null ? null : double.parse(vsBase.toStringAsFixed(1)),
       'dip_pct': dip == null ? null : dip / 100.0,
+      'nadir_ts': _scalar(b, 'sleeping_hr_nadir_ts')?.toInt(),
+      'elevated': elevated,
     };
   }
 
@@ -234,7 +280,21 @@ class LocalRepositoryImpl extends LocalRepository {
     final rr = _scalar(b, 'resp_rate');
     if (rr == null) return null;
     final env = _sub(b, 'respiration.rsa');
-    return {'value': rr, 'confidence': (env?['confidence'] as num?) ?? 0.5};
+    // Round to 1 dp — the raw double (16.0121312…) was overflowing the card.
+    return {
+      'value': double.parse(rr.toStringAsFixed(1)),
+      'confidence': (env?['confidence'] as num?) ?? 0.5,
+    };
+  }
+
+  /// Relative skin-temp deviation block. Present once a value exists; otherwise
+  /// a `need_baseline:have=H,need=3` note so the card shows "Need N more nights"
+  /// instead of a bare "—" (skin-temp z needs ≥3 nights of ADC baseline).
+  Future<Map<String, dynamic>> _skinTempBlock(Map<String, dynamic> b) async {
+    final z = _scalar(b, 'skin_temp_z');
+    if (z != null) return {'value': z};
+    final have = (await LocalDb.metricSeries('skin_temp_adc')).length;
+    return {'value': null, 'note': 'need_baseline:have=$have,need=3'};
   }
 
   // ── day drill-downs ─────────────────────────────────────────────────────────
@@ -256,13 +316,20 @@ class LocalRepositoryImpl extends LocalRepository {
         if (rmssd != null) 'rmssd': rmssd.round(),
         'sdnn': _scalar(b, 'sdnn')?.round(),
         'baseline': (await _seriesMean('rmssd'))?.round(),
+        // HRV stability (CV %) + LF/HF — both now computed.
+        'cv': _sub(b, 'clinical')?['cv'],
+        'lf_hf': _sub(b, 'clinical.hrv_freq.value')?['lf_hf'],
       },
-      'nocturnal': _nocturnal(b),
+      // Poincaré irregular-beat screen (sd1/sd2/flag/confidence).
+      'irregular': _sub(b, 'clinical')?['irregular'],
+      // Waking ultradian HRV timeline (RMSSD over the day, outside sleep).
+      'daytime_hrv': b['daytime_hrv'],
+      'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
       'resp': _respObj(b),
       // Illness watch (CUSUM/NightSignal) — carries `note` (need_baseline) while
       // baseline is short, so the card can say "Need N more nights".
       'illness': ?cd?['illness'],
-      'skin_temp': {'value': _scalar(b, 'skin_temp_z')},
+      'skin_temp': await _skinTempBlock(b),
     };
   }
 
@@ -329,16 +396,35 @@ class LocalRepositoryImpl extends LocalRepository {
       // an unvalidated overlay. The screen badges the whole stage block honestly.
       'stages_confidence': sleepConf,
       'hypnogram': _hypnoPoints(b), // [{t, stage}] points the screen merges
-      'nocturnal': _nocturnal(b),
+      'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
       'resp': _respObj(b),
-      // not computed in the 1 Hz family yet — honest nulls/empties (screen guards):
-      'need_min': null,
-      'debt_min': null,
-      'regularity': null,
-      'cycles': const [],
-      'cycles_mean_min': null,
-      'cycle_series': const [],
+      // Sleep need: default 8 h (480 min) until a personal sleep-need baseline
+      // exists. Debt = need − actual TST (≥0). Never null so the gauge always reads.
+      'need_min': 480,
+      'debt_min': ((480 - (tst / 60)).clamp(0, 480)).round(),
+      'regularity': null, // needs ≥several nights (honest null → "Need N nights")
+      // Sleep periods (main + naps) for the periods screen.
+      'periods': (b['sleep_periods'] as Map?)?['periods'] ?? const [],
+      'total_asleep_min': (b['sleep_periods'] as Map?)?['total_asleep_min'],
+      // Sleep cycles — Rosenblum 2024 "fractal cycles" (HRV-adapted): peak-to-
+      // peak of the smoothed per-minute RMSSD series (REM peaks / NREM troughs).
+      'cycles': _sub(b, 'sleep')?['cycles'] ?? const [],
+      'cycle_count': (_sub(b, 'sleep')?['cycle_count'] as num?)?.toInt() ?? 0,
+      'cycles_mean_min': _cyclesMeanMin(b),
+      // The graph plots the continuous z-RMSSD wave [{t,z}] — NOT the cycle spans.
+      'cycle_series': _sub(b, 'sleep')?['cycle_series'] ?? const [],
     };
+  }
+
+  /// Mean completed-cycle length (min), or null when no cycles.
+  num? _cyclesMeanMin(Map<String, dynamic> b) {
+    final cyc = _sub(b, 'sleep')?['cycles'];
+    if (cyc is! List || cyc.isEmpty) return null;
+    var sum = 0.0;
+    for (final c in cyc) {
+      sum += ((c as Map)['len_min'] as num?)?.toDouble() ?? 0;
+    }
+    return (sum / cyc.length).round();
   }
 
   /// The bundle stores the hypnogram as segments {start,end,stage} (epoch sec);
@@ -377,32 +463,47 @@ class LocalRepositoryImpl extends LocalRepository {
     final cov = _sub(b, 'coverage');
     final valid = (cov?['hr_valid'] as num?)?.toInt() ?? 0;
     final total = (cov?['hr_samples'] as num?)?.toInt() ?? 0;
+    // Wear block (on/off segments, first/last on, longest off) computed in the
+    // engine; fall back to the coverage counts when absent.
+    final w = b['wear'] is Map ? (b['wear'] as Map).cast<String, dynamic>() : null;
     return {
-      'worn_min': (valid / 60).round(),
-      'coverage_pct': total == 0 ? 0 : (100 * valid / total).round(),
+      'worn_min': (w?['worn_min'] as num?)?.toInt() ?? (valid / 60).round(),
+      'coverage_pct': (w?['coverage_pct'] as num?)?.toInt() ??
+          (total == 0 ? 0 : (100 * valid / total).round()),
+      'segments': w?['segments'] ?? const [],
+      'first_on': w?['first_on'],
+      'last_on': w?['last_on'],
+      'longest_off_min': w?['longest_off_min'],
       'hourly': const [],
     };
   }
 
   @override
   Future<Map<String, dynamic>> getDayStress(String date) async {
-    // No Baevsky SI in the 1 Hz family — `si` stays null (never fabricated).
-    // Stress is surfaced as a RELATIVE inverse of readiness; lf/hf + rmssd are
-    // shown as honest HRV context. Nocturnal arousal isn't computed, so
-    // `sleep_stress` is intentionally absent (the screen handles it).
+    // Stress = the pipeline's Baevsky Stress Index block (resting autonomic
+    // tension; transparent RR-histogram metric → 0–100 score). Falls back to the
+    // readiness inverse only if SI is absent. Nocturnal arousal isn't computed,
+    // so `sleep_stress` is intentionally absent (the screen handles it).
     final b = await _bundle(date) ?? await _latestBundle();
     if (b == null) return const {};
 
-    final readiness = _scalar(b, 'readiness');
-    int? score;
-    String? level;
-    if (readiness != null) {
-      score = (100 - readiness).round().clamp(0, 100);
-      level = score < 34 ? 'low' : (score < 67 ? 'moderate' : 'high');
+    final stressBlk =
+        b['stress'] is Map ? (b['stress'] as Map).cast<String, dynamic>() : null;
+    num? score = (stressBlk?['score'] as num?);
+    String? level = stressBlk?['level'] as String?;
+    final si = (stressBlk?['si'] as num?);
+    if (score == null) {
+      // Fallback: inverse of readiness (only when SI couldn't compute).
+      final readiness = _scalar(b, 'readiness');
+      if (readiness != null) {
+        score = (100 - readiness).round().clamp(0, 100);
+        level = score < 34 ? 'low' : (score < 67 ? 'moderate' : 'high');
+      }
     }
 
-    final lfHf = (_sub(b, 'clinical.hrv_freq.value')?['lf_hf'] as num?);
-    final rmssd = _scalar(b, 'rmssd');
+    final lfHf = (stressBlk?['lf_hf'] as num?) ??
+        (_sub(b, 'clinical.hrv_freq.value')?['lf_hf'] as num?);
+    final rmssd = (stressBlk?['rmssd'] as num?) ?? _scalar(b, 'rmssd');
     final hrCurve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
 
     // Drivers from the cross-day glass-box readiness, when present.
@@ -423,13 +524,17 @@ class LocalRepositoryImpl extends LocalRepository {
     return {
       'stress': {
         'score': score,
-        'si': null,
+        'si': si,
         'lf_hf': lfHf,
         'rmssd': rmssd,
         'level': level,
       },
       'hr': hrCurve,
       'drivers': drivers,
+      // Nocturnal restlessness (movement fragmentation) + waking ultradian HRV,
+      // both computed in the engine from accel / day-RR.
+      'restlessness': b['restlessness'],
+      'daytime_hrv': b['daytime_hrv'],
     };
   }
 
@@ -437,11 +542,34 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> getDayStrain(String date) async {
     final b = await _bundle(date) ?? await _latestBundle();
     if (b == null) return const {};
+    final zones = _sub(b, 'zones');
+    final hrStats = _sub(b, 'hr_stats');
+    final curve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
+    // EWMA-ACWR training load lives in the cross-day rollup (acute/chronic over a
+    // history window); the strain detail's "Training load (ACWR)" row reads it.
+    final cd = await _crossDay();
     return {
       // Headline 0–21 strain (the detail screen clamps to 0..21). Raw Banister
       // TRIMP is kept as the secondary "training load" figure.
       'strain': _scalar(b, 'strain'),
       'training_load': _scalar(b, 'trimp'),
+      'load': ?cd?['load'], // {acwr, acute, chronic, band} when ≥ history exists
+      // HR-zone minutes (Z1–Z5 by %HRmax) — the strain detail's zone bars.
+      'zones': {
+        'z1': (zones?['z1'] as num?)?.toInt() ?? 0,
+        'z2': (zones?['z2'] as num?)?.toInt() ?? 0,
+        'z3': (zones?['z3'] as num?)?.toInt() ?? 0,
+        'z4': (zones?['z4'] as num?)?.toInt() ?? 0,
+        'z5': (zones?['z5'] as num?)?.toInt() ?? 0,
+      },
+      'curve': [for (final p in curve) {'v': (p as Map)['v']}],
+      'calories': _scalar(b, 'calories')?.round(),
+      'steps': null, // 1 Hz can't count steps; activity-minutes lives on Today
+      'hr': {
+        'max': (hrStats?['max'] as num?)?.toInt(),
+        'avg': (hrStats?['avg'] as num?)?.toInt(),
+        'min': (hrStats?['min'] as num?)?.toInt(),
+      },
       'flags': const {},
     };
   }
@@ -450,7 +578,77 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> getDayTimeline(String date) async {
     final b = await _bundle(date) ?? await _latestBundle();
     if (b == null) return const {};
-    return {'hr': (_sub(b, 'series')?['hr_curve'] as List?) ?? const []};
+    final hrCurve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
+
+    // Peak / lowest HR + their instants, from the day HR curve (seam-side; the
+    // curve is what's stored, good enough for a daily overview + gives @time).
+    num? peakV, lowV;
+    int? peakT, lowT;
+    for (final e in hrCurve) {
+      if (e is! Map) continue;
+      final v = e['v'] as num?;
+      final t = (e['t'] as num?)?.toInt();
+      if (v == null || t == null || v <= 0) continue;
+      if (peakV == null || v > peakV) {
+        peakV = v;
+        peakT = t;
+      }
+      if (lowV == null || v < lowV) {
+        lowV = v;
+        lowT = t;
+      }
+    }
+
+    // Day window from the BUNDLE's date (not the requested date) so hr/sleep/
+    // segments stay consistent when a partial "today" falls back to the latest
+    // complete day.
+    final bundleDate = (b['date'] as String?) ?? date;
+    final dayStart = _localMidnightSec(bundleDate);
+    final dayEnd = dayStart + 86400;
+
+    // Sleep span (onset/wake) for the context band + sleep symbol.
+    final sw = _sub(b, 'sleep.window.value');
+    final sleep = <Map<String, dynamic>>[];
+    final onMs = sw?['onset_ms'] as num?;
+    final offMs = sw?['offset_ms'] as num?;
+    if (onMs != null && offMs != null) {
+      sleep.add({
+        'onset_ts': (onMs / 1000).round(),
+        'wake_ts': (offMs / 1000).round(),
+      });
+    }
+
+    // Workouts + device events for that calendar day.
+    final sess = await LocalDb.sessionsInRange(dayStart, dayEnd);
+    final allEvents = await LocalDb.unuploadedEvents(limit: 2000);
+    final events = <Map<String, dynamic>>[
+      for (final e in allEvents)
+        if (((e['ts'] as num?)?.toInt() ?? -1) >= dayStart &&
+            ((e['ts'] as num?)?.toInt() ?? -1) < dayEnd)
+          {'event_id': (e['event_id'] as num?)?.toInt(), 'ts': (e['ts'] as num?)?.toInt()},
+    ];
+
+    return {
+      'hr': hrCurve,
+      'activity': b['activity_curve'] ?? const [],
+      'day_start': dayStart,
+      'highs': {
+        if (peakV != null) 'peak_hr': {'v': peakV, 't': peakT},
+        if (lowV != null) 'low_hr': {'v': lowV, 't': lowT},
+      },
+      'sleep': sleep,
+      'sessions': [for (final r in sess) _workoutOf(r)],
+      'events': events,
+    };
+  }
+
+  /// Local midnight (epoch sec) of a 'YYYY-MM-DD' date string.
+  int _localMidnightSec(String ymd) {
+    final p = ymd.split('-');
+    if (p.length != 3) return 0;
+    final y = int.tryParse(p[0]), m = int.tryParse(p[1]), d = int.tryParse(p[2]);
+    if (y == null || m == null || d == null) return 0;
+    return DateTime(y, m, d).millisecondsSinceEpoch ~/ 1000;
   }
 
   // ── lists / summaries ─────────────────────────────────────────────────────
@@ -520,16 +718,154 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> getTrend(String metric,
       {String scale = 'week', String? anchor}) async {
     final key = _trendKey(metric);
-    final rows = await LocalDb.metricSeries(key);
-    final series = [
-      for (final r in rows)
-        {'date': r['date'], 'v': (r['value'] as num?)?.toDouble()}
-    ];
+    final rows = await LocalDb.metricSeries(key); // ascending by date
+    final byDate = <String, double>{};
+    for (final r in rows) {
+      final v = (r['value'] as num?)?.toDouble();
+      if (v != null) byDate[r['date'] as String] = v;
+    }
+    final (unit, label) = _unitLabel(metric);
+    final base = {'baseline': {'resting_hr': await _seriesMean('rhr')}};
+    if (byDate.isEmpty) {
+      return {'buckets': const [], 'unit': unit, 'label': label, ...base};
+    }
+
+    DateTime parseD(String s) {
+      final p = s.split('-');
+      return DateTime.utc(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
+    }
+    int secOf(DateTime d) => d.millisecondsSinceEpoch ~/ 1000;
+    String ymd(DateTime d) => '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    double? meanOf(Iterable<double> xs) {
+      final l = xs.toList();
+      return l.isEmpty ? null : l.reduce((a, b) => a + b) / l.length;
+    }
+
+    final anchorDay = anchor != null ? parseD(anchor) : parseD(rows.last['date'] as String);
+
+    // Mean of the metric over [start, endInclusive] calendar days.
+    double? windowMean(DateTime start, DateTime endIncl) {
+      final vals = <double>[];
+      var d = start;
+      while (!d.isAfter(endIncl)) {
+        final v = byDate[ymd(d)];
+        if (v != null) vals.add(v);
+        d = d.add(const Duration(days: 1));
+      }
+      return meanOf(vals);
+    }
+
+    final buckets = <Map<String, dynamic>>[];
+    if (scale == 'week') {
+      // 7 daily buckets ending at the anchor day.
+      for (var i = 6; i >= 0; i--) {
+        final day = anchorDay.subtract(Duration(days: i));
+        final v = byDate[ymd(day)];
+        buckets.add({
+          'value': v ?? 0.0,
+          'has': v != null,
+          't_start': secOf(day),
+          't_end': secOf(day.add(const Duration(days: 1))),
+        });
+      }
+    } else if (scale == 'month') {
+      // 4 weekly buckets (mean of each week) ending at the anchor week.
+      for (var w = 3; w >= 0; w--) {
+        final end = anchorDay.subtract(Duration(days: w * 7));
+        final start = end.subtract(const Duration(days: 6));
+        final m = windowMean(start, end);
+        buckets.add({
+          'value': m ?? 0.0,
+          'has': m != null,
+          't_start': secOf(start),
+          't_end': secOf(end.add(const Duration(days: 1))),
+        });
+      }
+    } else {
+      // quarter → 3 monthly buckets (mean of each calendar month).
+      for (var mo = 2; mo >= 0; mo--) {
+        final monthStart = DateTime.utc(anchorDay.year, anchorDay.month - mo, 1);
+        final nextMonth = DateTime.utc(monthStart.year, monthStart.month + 1, 1);
+        final m = windowMean(monthStart, nextMonth.subtract(const Duration(days: 1)));
+        buckets.add({
+          'value': m ?? 0.0,
+          'has': m != null,
+          't_start': secOf(monthStart),
+          't_end': secOf(nextMonth),
+        });
+      }
+    }
+
+    // Summary: avg over present buckets + delta vs the immediately-prior window.
+    final present = [for (final b in buckets) if (b['has'] == true) b['value'] as double];
+    final avg = meanOf(present);
+    final spanDays = scale == 'week' ? 7 : (scale == 'month' ? 28 : 90);
+    final prevEnd = anchorDay.subtract(Duration(days: spanDays));
+    final prevAvg = windowMean(prevEnd.subtract(Duration(days: spanDays - 1)), prevEnd);
+    final delta = (avg != null && prevAvg != null) ? avg - prevAvg : null;
+
     return {
-      metric: series,
-      'series': {metric: series},
-      'baseline': {'resting_hr': await _seriesMean('rhr')},
+      'buckets': buckets,
+      'unit': unit,
+      'label': label,
+      'summary': {
+        'avg': avg == null ? null : double.parse(avg.toStringAsFixed(1)),
+        'delta_vs_prev': delta == null ? null : double.parse(delta.toStringAsFixed(1)),
+        'total': present.length,
+      },
+      ...base,
     };
+  }
+
+  /// Display (unit, label) per trend metric.
+  (String, String) _unitLabel(String metric) {
+    switch (metric) {
+      case 'resting_hr':
+        return ('bpm', 'resting HR');
+      case 'hrv':
+        return ('ms', 'HRV');
+      case 'recovery':
+        return ('%', 'recovery');
+      case 'strain':
+        return ('', 'strain');
+      case 'stress':
+        return ('', 'stress');
+      case 'spo2':
+        return ('dips/h', 'blood O₂');
+      case 'sleep':
+        return ('h', 'sleep');
+      case 'active_min':
+        return ('min', 'active');
+      case 'calories':
+        return ('kcal', 'calories');
+      case 'steps':
+        return ('min', 'active');
+      case 'resp_rate':
+        return ('rpm', 'respiratory rate');
+      case 'light':
+        return ('min', 'light sleep');
+      case 'deep':
+        return ('min', 'deep sleep');
+      case 'rem':
+        return ('min', 'REM sleep');
+      case 'tst':
+        return ('min', 'time asleep');
+      case 'lf_hf':
+        return ('', 'LF / HF');
+      case 'hrv_cv':
+        return ('%', 'HRV stability');
+      case 'dip':
+        return ('%', 'nocturnal HR dip');
+      case 'efficiency':
+        return ('%', 'sleep efficiency');
+      case 'wear':
+        return ('', 'wear'); // minutes; the screen formats as Hh Mm
+      case 'skin_temp':
+        return ('', 'skin temp'); // relative z vs baseline
+      default:
+        return ('', metric);
+    }
   }
 
   String _trendKey(String metric) {
@@ -538,6 +874,28 @@ class LocalRepositoryImpl extends LocalRepository {
         return 'rmssd';
       case 'recovery':
         return 'readiness';
+      case 'resting_hr': // series key is `rhr`
+        return 'rhr';
+      case 'skin_temp': // series key is the relative z-score
+        return 'skin_temp_z';
+      case 'wear': // worn-minutes trend
+        return 'worn_min';
+      case 'efficiency': // sleep-efficiency % trend
+        return 'efficiency';
+      case 'steps': // 1 Hz has no steps; the tile/trend uses activity minutes
+        return 'active_min';
+      case 'light':
+        return 'light_min';
+      case 'deep':
+        return 'deep_min';
+      case 'rem':
+        return 'rem_min';
+      case 'tst':
+      case 'sleep': // the Sleep screen's trend metric → time-asleep series
+        return 'tst_min';
+      case 'dip':
+        return 'dip_pct';
+      // lf_hf, hrv_cv map to themselves (series keys match).
       default:
         return metric;
     }

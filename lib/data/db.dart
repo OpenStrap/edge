@@ -894,20 +894,31 @@ class LocalDb {
 
   // ── raw pruning (raw-first invariant) ───────────────────────────────────────
 
-  /// Delete raw_records / samples / events captured strictly before [cutoffMs].
-  /// The caller is responsible for only pruning windows that are FULLY DERIVED —
-  /// never prune raw for a day that hasn't been derived yet. Returns rows deleted.
-  static Future<int> pruneRawBefore(int cutoffMs) async {
+  /// Delete raw_records / samples / events whose RECORD TIME (epoch seconds) is
+  /// strictly before [cutoffSec]. Keyed on record time (`rec_ts`/`ts`), NOT
+  /// receive time (`captured_at`): retention tracks the DATA, so a multi-day
+  /// flash backfill drained in a single sync is never pruned merely for having
+  /// just landed. The caller only prunes windows that are FULLY DERIVED — never
+  /// prune raw for a day that hasn't been derived yet. Returns rows deleted.
+  static Future<int> pruneRawBeforeRecTs(int cutoffSec) async {
     final db = await instance;
     int deleted = 0;
     await db.transaction((txn) async {
       deleted = await txn
-          .delete('raw_records', where: 'captured_at < ?', whereArgs: [cutoffMs]);
-      // samples is keyed by counter with its own ts (epoch seconds); prune in
-      // step using the same cutoff converted to seconds.
-      await txn.delete('samples', where: 'ts < ?', whereArgs: [cutoffMs ~/ 1000]);
-      await txn.delete('events', where: 'captured_at < ?', whereArgs: [cutoffMs]);
+          .delete('raw_records', where: 'rec_ts < ?', whereArgs: [cutoffSec]);
+      await txn.delete('samples', where: 'ts < ?', whereArgs: [cutoffSec]);
+      await txn.delete('events', where: 'ts < ?', whereArgs: [cutoffSec]);
     });
     return deleted;
+  }
+
+  /// The DATA EDGE — the timestamp (epoch seconds) of the last record we've
+  /// actually drained. This, not the wall clock, is "the latest data we have":
+  /// the band buffers in flash and drains on sync, so this can lag wall-clock
+  /// time by hours/days. Null when there's no raw yet.
+  static Future<int?> lastRawRecTs() async {
+    final db = await instance;
+    return Sqflite.firstIntValue(await db.rawQuery(
+        'SELECT MAX(rec_ts) FROM raw_records WHERE rec_ts > 0'));
   }
 }
