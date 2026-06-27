@@ -264,6 +264,12 @@ class AppState extends ChangeNotifier {
   /// Android: open the Play Store to install/update Health Connect.
   Future<void> installHealthConnect() => _healthExport.install();
 
+  /// Android: open the Health Connect app/settings so the user can enable our
+  /// per-app access manually. Re-checks state when they come back.
+  Future<void> openHealthConnect() async {
+    await _healthExport.openSettings();
+  }
+
   /// Toggle continuous export. Enabling requests permission + does a first sync.
   Future<void> setHealthSync(bool on) async {
     healthSyncEnabled = on;

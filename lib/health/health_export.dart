@@ -20,6 +20,7 @@
 import 'dart:convert';
 import 'dart:io' show Platform;
 
+import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 
@@ -163,6 +164,25 @@ class HealthExporter {
       await _health.installHealthConnect();
     } catch (e) {
       debugPrint('[health] installHealthConnect: $e');
+    }
+  }
+
+  /// Open the Health Connect app / settings so the user can enable OpenStrap's
+  /// access manually — the reliable path when the in-app request dialog is locked
+  /// out. Android-only. API 34+ folds HC into system settings; older uses the HC
+  /// app, so try the modern action first then fall back.
+  Future<void> openSettings() async {
+    if (!Platform.isAndroid) return;
+    for (final action in const [
+      'android.health.connect.action.HEALTH_HOME_SETTINGS',
+      'androidx.health.ACTION_HEALTH_CONNECT_SETTINGS',
+    ]) {
+      try {
+        await AndroidIntent(action: action).launch();
+        return;
+      } catch (e) {
+        debugPrint('[health] open settings ($action): $e');
+      }
     }
   }
 

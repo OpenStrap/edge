@@ -638,10 +638,47 @@ class _HealthSection extends StatelessWidget {
         ]);
       case HealthLinkState.needsPermission:
       case HealthLinkState.unknown:
-        return _cta(
-            'Grant write access so we can add your data to $store.',
-            'Grant access',
-            () => app.requestHealth());
+        // Tapping "Grant access" opens the platform permission flow — on Android
+        // that's the Health Connect app, where the user enables OpenStrap. The
+        // subtitle tells them what to do once it opens.
+        final subtitle = app.healthIsApple
+            ? 'When the Apple Health sheet opens, turn ON every category so '
+                'OpenStrap can write them, then come back.'
+            : 'Opens Health Connect. There, allow OpenStrap to write the data '
+                'above — App permissions → OpenStrap → Allow all — then come back.';
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+                child: Text('Grant write access to add your data to $store.',
+                    style: AppText.captionMuted)),
+            const SizedBox(width: Sp.x2),
+            FilledButton(
+              onPressed: () => app.requestHealth(),
+              style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.coral,
+                  visualDensity: VisualDensity.compact),
+              child: const Text('Grant access',
+                  style: TextStyle(color: Colors.white)),
+            ),
+          ]),
+          const SizedBox(height: Sp.x2),
+          Text(subtitle,
+              style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+          if (!app.healthIsApple)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () async {
+                  await app.openHealthConnect();
+                  await app.checkHealth(); // re-read state when they return
+                },
+                style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    visualDensity: VisualDensity.compact),
+                child: const Text('Open Health Connect'),
+              ),
+            ),
+        ]);
       case HealthLinkState.notInstalled:
         return _cta('$store isn’t installed. Install it, then come back.',
             'Install', () => app.installHealthConnect());
