@@ -14,8 +14,8 @@ import androidx.core.app.NotificationCompat
 /**
  * Foreground service that keeps the app process alive while backgrounded so the live
  * flutter_blue_plus connection keeps draining the strap. Silent, low-priority, ongoing
- * notification titled "Edge Tracking". Not sticky — like reference, it doesn't resurrect
- * after an OS kill; the app re-starts it when reopened.
+ * notification titled "Edge Tracking". Not sticky — it doesn't resurrect after an OS
+ * kill; the app re-starts it when reopened.
  */
 class EdgeTrackingService : Service() {
     companion object {

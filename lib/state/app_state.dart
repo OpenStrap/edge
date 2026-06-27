@@ -225,6 +225,12 @@ class AppState extends ChangeNotifier {
       log: _log,
       onEvent: _onLiveEvent,
       onRecordsBatch: LocalDb.insertRecordsBatch,
+      // RESUMABLE SYNC: atomic commit of raw + samples + continuation cursor
+      // before the HISTORY_END ACK, and a reader to seed the offload frontier
+      // from the durable high-water on (re)connect.
+      onCommitBatch: (raws, samples, trimTokenHex) =>
+          LocalDb.commitSyncBatch(raws, samples, trimToken: trimTokenHex),
+      cursorReader: LocalDb.getCursorInt,
       // Debounced compute trigger: with continuous listening there's no discrete
       // "sync done", so the engine coalesces stored-record bursts and fires this
       // once a burst goes quiet. Light pass (newest affected day) — the foreground
@@ -258,7 +264,21 @@ class AppState extends ChangeNotifier {
       notifyListeners(); // screens re-fetch from the derived store
       // A heavy finalize is where a freshly-closed sleep window + recovery for a
       // new physiological day lands — fire the "recovery ready" push off it.
-      if (heavy) unawaited(_maybeNotifyRecoveryReady());
+      if (heavy) {
+        unawaited(_maybeNotifyRecoveryReady());
+        // Baseline-dirty rescan: new data may have shifted the rolling baseline,
+        // so refresh baseline-dependent scalars (readiness/illness/stress) on
+        // recent FINALIZED days. Cheap when the baseline is unchanged (a single
+        // signature read). Best-effort — never throws into the BLE path.
+        unawaited(() async {
+          try {
+            final n = await _derive.rescanRecent(_profile);
+            if (n > 0) notifyListeners(); // screens re-read the refreshed scalars
+          } catch (e) {
+            _log('[derive] rescan failed: $e');
+          }
+        }());
+      }
     } catch (e) {
       _log('[derive] post-drain failed: $e');
     }

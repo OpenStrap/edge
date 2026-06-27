@@ -37,6 +37,7 @@ class LocalDb {
         await _createDerived(db);
         await _createDayResult(db);
         await _createUserTables(db);
+        await _createSyncCursor(db);
       },
       onUpgrade: (db, oldV, newV) async {
         if (oldV < 2) await _createEvents(db);
@@ -118,9 +119,131 @@ class LocalDb {
             );
           } catch (_) {/* derived_day may be absent — fine, raw rebuilds it */}
         }
+        if (oldV < 10) {
+          // RESUMABLE SYNC. Durable key→value cursor store so the historical
+          // offload survives app restarts / disconnects: we persist the strap's
+          // continuation token + counter/rec_ts high-water BEFORE ACKing a
+          // HISTORY_END (the safe-trim invariant), and reconnect detectors read
+          // it to tell a stalled cursor from a healthy one. Additive.
+          await _createSyncCursor(db);
+        }
       },
-      version: 9,
+      version: 10,
     );
+  }
+
+  // ── RESUMABLE-SYNC CURSOR (durable KV) ──────────────────────────────────────
+  // A tiny key→value store for sync bookkeeping that must survive process death.
+  // Keys we use (durable resumable-sync cursor semantics):
+  //   strap_trim       — hex of the last ACKed HISTORY_END 8-byte token
+  //   counter_hw       — highest record `counter` we have durably persisted
+  //   rec_ts_hw        — highest record `rec_ts` (epoch sec) durably persisted
+  //   data_range_lo/hi — strap's own oldest/newest banked record unix (GET_DATA_RANGE)
+  // The "safe-trim invariant" is: persist decoded+raw → persist this cursor →
+  // ACK with-response. The band only trims its flash once the ACK is link-layer
+  // confirmed, so a crash anywhere before the ACK re-delivers the batch.
+  static Future<void> _createSyncCursor(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_cursor (
+        name TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  /// Read a sync-cursor value (null if unset).
+  static Future<String?> getCursor(String name) async {
+    final db = await instance;
+    final rows = await db.query('sync_cursor',
+        columns: ['value'], where: 'name = ?', whereArgs: [name], limit: 1);
+    return rows.isEmpty ? null : rows.first['value'] as String?;
+  }
+
+  static Future<int?> getCursorInt(String name) async {
+    final v = await getCursor(name);
+    return v == null ? null : int.tryParse(v);
+  }
+
+  /// Read a cursor int through a specific executor (used inside a transaction so
+  /// the read shares the open txn instead of contending on the global handle).
+  static Future<int?> _cursorIntVia(DatabaseExecutor ex, String name) async {
+    final rows = await ex.query('sync_cursor',
+        columns: ['value'], where: 'name = ?', whereArgs: [name], limit: 1);
+    if (rows.isEmpty) return null;
+    return int.tryParse(rows.first['value'] as String? ?? '');
+  }
+
+  /// Upsert a sync-cursor value. Caller may pass a [txn] so the cursor write
+  /// shares the SAME transaction as the raw batch — keeping "persist raw then
+  /// persist cursor" atomic before the band is ACKed.
+  static Future<void> setCursor(String name, String value,
+      {DatabaseExecutor? txn}) async {
+    final ex = txn ?? await instance;
+    await ex.insert(
+      'sync_cursor',
+      {
+        'name': name,
+        'value': value,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Persist a sync batch atomically: the raw records, their samples, AND the
+  /// continuation cursor in ONE transaction. This is the durable half of the
+  /// safe-trim invariant — it MUST return before the engine writes the ACK frame.
+  /// Advances counter_hw / rec_ts_hw to the batch max so a restart resumes cleanly.
+  static Future<void> commitSyncBatch(
+    List<RawRecord> raws,
+    List<Sample?> samples, {
+    String? trimToken,
+    Map<String, String>? extraCursors,
+  }) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      // Read the existing high-water THROUGH the txn — never via the global db
+      // handle, which would deadlock against this same open transaction.
+      var maxCounter = await _cursorIntVia(txn, 'counter_hw') ?? 0;
+      var maxRecTs = await _cursorIntVia(txn, 'rec_ts_hw') ?? 0;
+      final batch = txn.batch();
+      for (var i = 0; i < raws.length; i++) {
+        final raw = raws[i];
+        final recTs = _recTsFor(raw);
+        batch.insert(
+          'raw_records',
+          {
+            'hex': raw.hex,
+            'packet_type': raw.packetType,
+            'counter': raw.counter,
+            'captured_at': raw.capturedAt,
+            'rec_ts': recTs,
+            'uploaded': raw.uploaded ? 1 : 0,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        final sample = samples[i];
+        if (sample != null) {
+          batch.insert(
+            'samples',
+            {'counter': raw.counter, ...sample.toDbMap()},
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+        }
+        if (raw.counter > maxCounter) maxCounter = raw.counter;
+        if (recTs > maxRecTs) maxRecTs = recTs;
+      }
+      await batch.commit(noResult: true);
+      await setCursor('counter_hw', '$maxCounter', txn: txn);
+      await setCursor('rec_ts_hw', '$maxRecTs', txn: txn);
+      if (trimToken != null) await setCursor('strap_trim', trimToken, txn: txn);
+      if (extraCursors != null) {
+        for (final e in extraCursors.entries) {
+          await setCursor(e.key, e.value, txn: txn);
+        }
+      }
+    });
   }
 
   // ── DERIVED STORE (permanent, rich) ────────────────────────────────────────

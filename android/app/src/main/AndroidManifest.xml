@@ -16,6 +16,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Band-gesture "ring my phone" haptic. Normal permission, no runtime prompt. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Reboot survival: restart EdgeTrackingService + headless auto-connect after device reboot. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Keep the CPU alive while the boot receiver starts the foreground service. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- OTA self-update: download + launch the system installer for the new APK. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Notification relay: let the user pick from their installed apps. Android 11+
@@ -56,6 +60,18 @@
             android:name=".EdgeTrackingService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- Boot receiver: restarts EdgeTrackingService + headless auto-connect after reboot.
+             Handles BOOT_COMPLETED + QUICKBOOT_POWERON. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
         <!-- Notification relay (notification_listener_service plugin). The system binds
              this to deliver posted notifications; gated behind the user granting

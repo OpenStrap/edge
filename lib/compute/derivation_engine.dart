@@ -19,6 +19,22 @@
 //      metric_series + refresh baselines. Finalization: a day locks 48 h after
 //      its wake. algo_version bump → recompute non-finalized recent days.
 //   5. Prune raw older than rawRetentionDays — never for a day not yet derived.
+//
+// INVARIANTS:
+//   * A finalized day is IMMUTABLE w.r.t. its RAW-derived STRUCTURE — sleep
+//     stages, the hypnogram, HR/HRV curves, wear/restlessness, detected workouts
+//     are deterministic functions of the (now-pruned) raw and never change once
+//     finalized. `run()` never recomputes a finalized day.
+//   * The ONE exception is `rescanRecent()` (background re-trigger):
+//     baseline-DEPENDENT SCALARS (readiness/recovery, illness/anomaly, stress
+//     — anything computed against the trailing 28-day rolling baseline) DO drift
+//     after a day finalizes, because later days shift that baseline. rescanRecent
+//     re-derives recent days (incl. finalized ones inside the raw-retention
+//     window) ONLY when the baseline signature actually changed, overwriting the
+//     row at the SAME algo_version (putDayResult is INSERT OR REPLACE). The
+//     raw-derived structure recomputes to the SAME values (deterministic); only
+//     the baseline-relative scalars refresh. Days older than the raw-retention
+//     window aren't in the substrate, so they're naturally excluded — expected.
 
 import 'dart:async';
 import 'dart:convert';
@@ -89,6 +105,12 @@ const int _finalizationSec = 48 * 3600;
 
 /// How many trailing derived days feed readiness/composite baselines.
 const int _baselineWindowDays = 28;
+
+/// Background re-trigger window: how far back from the DATA EDGE a
+/// baseline-dirty rescan re-derives days (including finalized ones). Kept ≤ the
+/// raw-retention window so every day in scope still has raw to re-derive from;
+/// older days simply aren't in the substrate and are naturally excluded.
+const int _rescanWindowDays = 21;
 
 class DerivationEngine {
   DerivationEngine({this.log});
@@ -185,6 +207,127 @@ class DerivationEngine {
     }
   }
 
+  // ── baseline-dirty recent rescan ─────────────────────────────────────────────
+
+  /// Re-derive the recent (≤ raw-retention) window — INCLUDING finalized days —
+  /// when the rolling baseline has actually shifted, so baseline-DEPENDENT
+  /// scalars (readiness/recovery, illness/anomaly, stress) on already-finalized
+  /// days refresh as later data moves their baseline.
+  ///
+  /// CHEAP BY DEFAULT: we gate on a baseline SIGNATURE — a stable hash of the
+  /// current rolling baseline compared to the stored `baseline_sig` cursor. If unchanged
+  /// we do ~one read and return 0 (no redundant writes). Only a real baseline
+  /// change re-derives, and only the recent window (older raw is already pruned).
+  ///
+  /// Re-entrant calls are coalesced (shares the `_running` guard with run()).
+  /// Best-effort: returns the number of days re-derived (0 on skip/empty/error).
+  Future<int> rescanRecent(
+    Profile profile, {
+    void Function(String day, int index, int total)? onDayDone,
+  }) async {
+    if (_running) return 0;
+    _running = true;
+    try {
+      // Decode the substrate + calendar days exactly like run().
+      final hexes = await LocalDb.allRawHexByRecTs();
+      if (hexes.isEmpty) {
+        _log('rescan: no raw');
+        return 0;
+      }
+      final sub = decodeSubstrate(hexes);
+      if (sub.isEmpty) {
+        _log('rescan: substrate empty after decode');
+        return 0;
+      }
+      final days = calendarDays(sub);
+      if (days.isEmpty) {
+        _log('rescan: no physiological days');
+        return 0;
+      }
+
+      // Baseline gate: compute the CURRENT signature and compare to the stored
+      // one. Unchanged → nothing to refresh; bail cheaply (no redundant writes).
+      final sig = await _baselineSignature();
+      final prev = await LocalDb.getCursor('baseline_sig');
+      if (sig == prev) {
+        _log('baseline unchanged — rescan skipped');
+        return 0;
+      }
+
+      // Baseline moved: re-derive every day whose wake (endSec) is within
+      // _rescanWindowDays of the DATA EDGE — including FINALIZED days — so their
+      // baseline-dependent scalars refresh. Days older than the raw-retention
+      // window aren't in the substrate, so they're naturally excluded (expected:
+      // their raw is pruned and they're past the rescan horizon anyway).
+      final dataNowSec = sub.lastTs!; // sub non-empty (guarded above)
+      final cutoffSec = dataNowSec - _rescanWindowDays * 86400;
+      final todo = [for (final d in days) if (d.endSec >= cutoffSec) d];
+      _log('rescan: baseline changed — re-deriving ${todo.length}/${days.length} '
+          'recent day(s) (incl. finalized; v$kAlgoVersion)');
+
+      var done = 0;
+      for (var i = 0; i < todo.length; i++) {
+        final day = todo[i];
+        try {
+          // _deriveDay's write path is putDayResult (INSERT OR REPLACE), so the
+          // existing finalized row is OVERWRITTEN at the same algo_version. The
+          // recomputed `finalized` flag stays true for a day already past its
+          // 48 h horizon, so the day remains locked w.r.t. run() — only its
+          // baseline-relative scalars change.
+          await _deriveDay(sub, day, profile, dataNowSec);
+          done++;
+        } catch (e) {
+          _log('rescan day ${day.date} FAILED/skipped: $e');
+          // Do NOT mark-skipped here — a finalized day already has a good row;
+          // overwriting it with a skip marker would DISCARD real structure.
+        }
+        onDayDone?.call(day.date, i + 1, todo.length);
+      }
+
+      // Cross-day rollup + notifications reflect the refreshed scalars.
+      await _runCrossDay(profile);
+      await _runNotifications();
+      // Store the new signature so the next tick is a cheap no-op until it moves.
+      await LocalDb.setCursor('baseline_sig', sig);
+      return done;
+    } catch (e, st) {
+      _log('rescan ERROR: $e\n$st');
+      return 0;
+    } finally {
+      _running = false;
+    }
+  }
+
+  /// A stable, cheap signature of the CURRENT rolling baseline — the same inputs
+  /// the readiness/illness baselines fold over. We take the trailing
+  /// _baselineWindowDays derived rows and the median of each baseline series
+  /// (RHR, RMSSD, skin-temp ADC mean, respiration), rounded to a stable
+  /// precision, joined into a string. When new days land (or a recent day is
+  /// re-derived) these medians shift and the signature changes → a rescan fires;
+  /// when nothing moved the signature is byte-identical → the rescan is skipped.
+  Future<String> _baselineSignature() async {
+    Future<double?> med(String key) async {
+      final rows = await LocalDb.metricSeries(key, limit: _baselineWindowDays);
+      final vs = <double>[for (final r in rows) (r['value'] as num).toDouble()]
+        ..sort();
+      if (vs.isEmpty) return null;
+      final mid = vs.length ~/ 2;
+      return vs.length.isOdd ? vs[mid] : (vs[mid - 1] + vs[mid]) / 2;
+    }
+
+    String fmt(double? v) => v == null ? 'na' : (v * 100).round().toString();
+    // metricSeries returns the OLDEST `limit` rows for the key; we only need a
+    // stable function of the baseline window's distribution, so the median over
+    // whatever rows exist is sufficient and deterministic.
+    final rhr = await med('rhr');
+    final rmssd = await med('rmssd');
+    final temp = await med('skin_temp_adc');
+    final resp = await med('resp_rate');
+    final n = (await LocalDb.recentDayResults(_baselineWindowDays)).length;
+    return 'v$kAlgoVersion|n$n|rhr${fmt(rhr)}|rmssd${fmt(rmssd)}'
+        '|temp${fmt(temp)}|resp${fmt(resp)}';
+  }
+
   /// Max wall-clock for ONE day's off-isolate compute. On timeout the day is
   /// skipped so the sweep always makes progress.
   static const Duration _perDayTimeout = Duration(seconds: 90);
@@ -279,6 +422,16 @@ class DerivationEngine {
     // Per-5-min movement-level curve for the "Your day" Movement view ([{t,v}],
     // v = fraction of moving seconds 0..1). Fresh top-level list — no typed-map.
     bundle['activity_curve'] = _activityCurve(daySub);
+
+    // ── AUTO-DETECTED WORKOUTS (WorkoutDetector, 1 Hz HR + gravity) ──────────
+    // Retroactive bout detection over the day's HR + gravity (lives in daySub,
+    // not the bundle input). Per-bout strain/zones/calories via the analytics
+    // family. OVERLAP-DEDUP: any manual/live session for this day is passed as a
+    // saved span so a detected bout overlapping it is dropped (manual wins). The
+    // sport seam stays default ("detected") — OpenStrap's HAR typer can be wired
+    // in once high-rate accel features exist.
+    bundle['detected_workouts'] =
+        await _detectedWorkouts(daySub, day, profile);
 
     // Finalize once the DATA EDGE has moved >48 h past the day's wake — i.e. we
     // have continuous drained data well beyond it, so no more flash can land for
@@ -578,6 +731,59 @@ class DerivationEngine {
       if (tot > 0 && (moveSec[m] ?? 0) / tot >= activeFrac) active++;
     });
     return active;
+  }
+
+  /// Auto-detected workouts for the day via [ana.WorkoutDetector] over the
+  /// day's 1 Hz HR + gravity. Returns a list of per-bout maps (each bout's
+  /// avg/peak HR, duration, zone time-%, strain, calories, sport). Manual/live
+  /// sessions overlapping the day are passed as saved spans so an overlapping
+  /// detected bout is dropped (OVERLAP-DEDUP; manual wins). Empty list when no
+  /// bout qualifies. Never throws — best-effort, like the other detail blocks.
+  Future<List<Map<String, dynamic>>> _detectedWorkouts(
+      Substrate s, PhysioDay day, Profile profile) async {
+    try {
+      if (s.length < 60) return const [];
+      // Saved/manual spans for this calendar day → overlap-dedup.
+      final saved = <ana.SavedWorkoutSpan>[];
+      final rows = await LocalDb.sessionsInRange(day.startSec, day.endSec);
+      for (final r in rows) {
+        final st = (r['start_ts'] as num?)?.toInt();
+        final en = (r['end_ts'] as num?)?.toInt() ??
+            (r['start_ts'] as num?)?.toInt();
+        if (st != null && en != null) {
+          saved.add(ana.SavedWorkoutSpan(st, en));
+        }
+      }
+      // Calorie sex string: 'm'→male, 'f'→female, else nonbinary.
+      final sexStr = profile.sex == 'm'
+          ? 'male'
+          : (profile.sex == 'f' ? 'female' : 'nonbinary');
+      final prof = profile.isComplete
+          ? ana.WorkoutUserProfile(
+              weightKg: profile.weightKg!,
+              heightCm: profile.heightCm!,
+              age: profile.ageYears!.toDouble(),
+              sex: sexStr,
+            )
+          : null;
+      final sessions = ana.WorkoutDetector.detect(
+        hrTs: s.tsSec,
+        hrBpm: [for (final h in s.hr) h.toDouble()],
+        gravTs: s.tsSec,
+        gx: s.ax,
+        gy: s.ay,
+        gz: s.az,
+        maxHR: profile.hrMaxTanaka,
+        restingHR: profile.restingHrManual?.toDouble(),
+        age: profile.ageYears?.toDouble(),
+        profile: prof,
+        savedSpans: saved,
+      );
+      return [for (final w in sessions) w.toJson()];
+    } catch (e) {
+      _log('detected-workouts ${day.date} skipped: $e');
+      return const [];
+    }
   }
 
   /// Per-5-min movement-level curve over the whole day ([{t, v}], v = fraction

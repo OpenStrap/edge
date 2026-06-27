@@ -13,6 +13,7 @@
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
 		46AF580757DC25648B6B0C95 /* BleRestoreManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 606824C7302BC5108CEC40DF /* BleRestoreManager.swift */; };
 		ACCE55E7000000000000B11D /* AccessorySetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACCE55E7000000000000F11E /* AccessorySetup.swift */; };
+		0BGTASK00000000000000001 /* BgSyncScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BGTASK00000000000000002 /* BgSyncScheduler.swift */; };
 		5348973D2FDC19C80033A4D9 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5348973C2FDC19C80033A4D9 /* WidgetKit.framework */; };
 		5348973F2FDC19C80033A4D9 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5348973E2FDC19C80033A4D9 /* SwiftUI.framework */; };
 		5348974E2FDC19C90033A4D9 /* OpenStrapWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5348973B2FDC19C80033A4D9 /* OpenStrapWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -82,6 +83,7 @@
 		534897A62FDC2B310033A4D9 /* LiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityBridge.swift; sourceTree = "<group>"; };
 		606824C7302BC5108CEC40DF /* BleRestoreManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BleRestoreManager.swift; sourceTree = "<group>"; };
 		ACCE55E7000000000000F11E /* AccessorySetup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AccessorySetup.swift; sourceTree = "<group>"; };
+		0BGTASK00000000000000002 /* BgSyncScheduler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BgSyncScheduler.swift; sourceTree = "<group>"; };
 		6A2B37C42FDD000100000001 /* Signing.defaults.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.defaults.xcconfig; sourceTree = "<group>"; };
 		6A2B37C52FDD000100000001 /* Signing.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig.example; sourceTree = "<group>"; };
 		73008EEA61B58B119FFFF6D8 /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -237,6 +239,7 @@
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 				606824C7302BC5108CEC40DF /* BleRestoreManager.swift */,
 				ACCE55E7000000000000F11E /* AccessorySetup.swift */,
+				0BGTASK00000000000000002 /* BgSyncScheduler.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -513,6 +516,7 @@
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 				46AF580757DC25648B6B0C95 /* BleRestoreManager.swift in Sources */,
 				ACCE55E7000000000000B11D /* AccessorySetup.swift in Sources */,
+				0BGTASK00000000000000001 /* BgSyncScheduler.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

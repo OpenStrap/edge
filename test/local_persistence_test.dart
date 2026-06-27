@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/models.dart';
 
 void main() {
   // Route sqflite through the FFI factory so LocalDb.instance opens a real
@@ -125,5 +126,62 @@ void main() {
     await LocalDb.deleteCycleLog('2026-05-01');
     logs = await LocalDb.cycleLogs();
     expect(logs.any((r) => r['date'] == '2026-05-01'), isFalse);
+  });
+
+  // ── resumable-sync cursor ──────────────────────────────────────────────────────
+  // Kept in THIS file (not a separate suite) so it shares the single DB-test
+  // isolate — two test files both opening LocalDb's fixed openstrap.db path race
+  // on the on-disk sqlite file.
+  test('sync cursor set/get round-trip + int parse', () async {
+    expect(await LocalDb.getCursor('strap_trim'), isNull);
+    await LocalDb.setCursor('strap_trim', 'deadbeef0102');
+    expect(await LocalDb.getCursor('strap_trim'), 'deadbeef0102');
+    await LocalDb.setCursor('strap_trim', 'cafe'); // REPLACE, not duplicate
+    expect(await LocalDb.getCursor('strap_trim'), 'cafe');
+    await LocalDb.setCursor('rec_ts_hw', '1750000000');
+    expect(await LocalDb.getCursorInt('rec_ts_hw'), 1750000000);
+    expect(await LocalDb.getCursorInt('missing'), isNull);
+  });
+
+  test('commitSyncBatch persists raw + advances high-water + stores trim token',
+      () async {
+    RawRecord raw(int counter, int recTs) => RawRecord(
+        counter: counter,
+        packetType: 47,
+        hex: 'aa$counter',
+        capturedAt: 1750000000000,
+        recTs: recTs);
+    await LocalDb.commitSyncBatch(
+      [raw(10, 1750000100), raw(11, 1750000200)],
+      [
+        Sample(tsEpoch: 1750000100, counter: 10, hr: 60),
+        Sample(tsEpoch: 1750000200, counter: 11, hr: 61),
+      ],
+      trimToken: 'aa00bb11cc22dd33',
+    );
+    final counts = await LocalDb.counts();
+    expect(counts['raw'], greaterThanOrEqualTo(2));
+    expect(await LocalDb.getCursorInt('counter_hw'), 11);
+    expect(await LocalDb.getCursorInt('rec_ts_hw'), 1750000200);
+    expect(await LocalDb.getCursor('strap_trim'), 'aa00bb11cc22dd33');
+  });
+
+  test('high-water only advances (a re-delivered older batch never regresses it)',
+      () async {
+    await LocalDb.commitSyncBatch(
+      [
+        RawRecord(
+            counter: 5,
+            packetType: 47,
+            hex: 'aa5',
+            capturedAt: 1750000000000,
+            recTs: 1750000050)
+      ],
+      [Sample(tsEpoch: 1750000050, counter: 5, hr: 59)],
+      trimToken: 'beef',
+    );
+    expect(await LocalDb.getCursorInt('counter_hw'), 11); // unchanged
+    expect(await LocalDb.getCursorInt('rec_ts_hw'), 1750000200); // unchanged
+    expect(await LocalDb.getCursor('strap_trim'), 'beef'); // always latest ACK
   });
 }

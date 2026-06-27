@@ -693,8 +693,79 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> getSessions({int? from, int? to}) async =>
-      const []; // auto-workout detection not in the 1 Hz bundle yet.
+  Future<List<Map<String, dynamic>>> getSessions({int? from, int? to}) async {
+    // Manual/live sessions (the sessions table) MERGED with auto-detected
+    // workouts from the per-day bundle. Manual/saved WINS on overlap: a detected
+    // bout overlapping a manual session is dropped here (and is already dropped
+    // upstream in the engine via savedSpans — this is a belt-and-suspenders pass
+    // for sessions saved after the day was derived).
+    final now = DateTime.now();
+    final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+    final fromSec = from ??
+        now.subtract(const Duration(days: 31)).millisecondsSinceEpoch ~/ 1000;
+    final toSec = to ?? nowSec;
+
+    final manualRows = await LocalDb.sessionsInRange(fromSec, toSec);
+    final manual = [for (final r in manualRows) _workoutOf(r)];
+
+    // Saved spans (manual) for overlap-dedup of detected bouts.
+    final savedSpans = <List<int>>[];
+    for (final w in manual) {
+      final st = (w['start_ts'] as num?)?.toInt();
+      final en = (w['end_ts'] as num?)?.toInt() ?? st;
+      if (st != null && en != null) savedSpans.add([st, en]);
+    }
+    bool overlapsSaved(int s, int e) =>
+        savedSpans.any((sp) => s <= sp[1] && sp[0] <= e);
+
+    // Detected workouts from each recent derived day's bundle.
+    final detected = <Map<String, dynamic>>[];
+    final dayRows = await LocalDb.recentDayResults(60);
+    for (final r in dayRows) {
+      final b = _decode(r['payload_json']);
+      final list = b?['detected_workouts'];
+      if (list is! List) continue;
+      for (final dw in list) {
+        if (dw is! Map) continue;
+        final st = (dw['start'] as num?)?.toInt();
+        final en = (dw['end'] as num?)?.toInt();
+        if (st == null || en == null) continue;
+        if (st < fromSec || st > toSec) continue;
+        if (overlapsSaved(st, en)) continue; // manual wins
+        detected.add(_detectedWorkoutOf(dw, r['date'] as String?));
+      }
+    }
+
+    final all = [...manual, ...detected];
+    all.sort((a, b) => ((b['start_ts'] as num?) ?? 0)
+        .compareTo((a['start_ts'] as num?) ?? 0));
+    return all;
+  }
+
+  /// Shape a bundle `detected_workouts` entry (ExerciseSession.toJson) into the
+  /// workout map the screens parse. start/end are epoch SECONDS.
+  Map<String, dynamic> _detectedWorkoutOf(Map dw, String? date) {
+    final start = (dw['start'] as num?)?.toInt();
+    final end = (dw['end'] as num?)?.toInt();
+    final durS = (dw['duration_s'] as num?)?.toDouble() ??
+        ((start != null && end != null) ? (end - start).toDouble() : null);
+    final sport = (dw['sport'] as String?) ?? 'detected';
+    return {
+      'id': 'auto_${date ?? ''}_$start',
+      'start_ts': start,
+      'end_ts': end,
+      'status': 'detected',
+      'source': 'auto',
+      'type': sport,
+      'title': sport,
+      'strain': (dw['strain'] as num?)?.toDouble(),
+      'calories': (dw['calories_kcal'] as num?)?.round(),
+      'duration_min': durS == null ? null : (durS / 60).round(),
+      'avg_hr': (dw['avg_hr'] as num?)?.round(),
+      'peak_hr': (dw['peak_hr'] as num?)?.toInt(),
+      'zone_min': const [],
+    };
+  }
 
   @override
   Future<Map<String, dynamic>> getHistory({String range = '30d'}) async {

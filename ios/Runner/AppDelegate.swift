@@ -2,6 +2,7 @@ import Flutter
 import UIKit
 import AudioToolbox
 import AVFoundation
+import BackgroundTasks
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -9,13 +10,24 @@ import AVFoundation
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // No OS periodic background task (no WorkManager 15-min / BGTask): continuous sync is
-    // the kept-alive live BLE connection + the persistent flusher in AppState, with
-    // CoreBluetooth state restoration below as the relaunch-recovery fallback.
-
     // CoreBluetooth state restoration — must be created here (early) so iOS can relaunch
     // us with willRestoreState when the band reappears. Wakes the app → headless sync.
     BleRestoreManager.shared.start(launchOptions: launchOptions)
+
+    // BGTaskScheduler registration MUST happen before didFinishLaunching returns.
+    // The channel wiring (messenger) happens in didInitializeImplicitFlutterEngine below;
+    // here we only register the identifier with the OS so it survives to that point.
+    // schedule() is called after the channel is wired so Dart is ready to handle the task.
+    BGTaskScheduler.shared.register(
+      forTaskWithIdentifier: BackgroundTaskManager.taskIdentifier,
+      using: nil
+    ) { task in
+      guard let processingTask = task as? BGProcessingTask else {
+        task.setTaskCompleted(success: false)
+        return
+      }
+      BackgroundTaskManager.handleTask(processingTask)
+    }
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -43,6 +55,12 @@ import AVFoundation
     // Build-time iOS configuration exposed to Dart without requiring --dart-define.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ConfigBridge") {
       ConfigBridge.register(messenger: registrar.messenger())
+    }
+    // BGTask channel: Dart handler for opportunistic headless sync + heavy derivation.
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BackgroundTaskManager") {
+      BackgroundTaskManager.wireChannel(messenger: registrar.messenger())
+      // Now that the channel is wired, submit the first BGProcessingTask request.
+      BackgroundTaskManager.schedule()
     }
   }
 }

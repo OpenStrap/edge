@@ -67,5 +67,23 @@ class DeviceState {
   String? strapName; // strap advertising name (editable via SET_ADVERTISING_NAME)
   String connection; // 'disconnected' | 'scanning' | 'connecting' | 'connected'
 
+  // ── resumable-sync / reconnect-health flags ──────────────────────────────────
+  /// MarginalRadioDetector tripped: the BT radio can't sustain the R10/R11 raw
+  /// stream — next connect should stick to standard HR only.
+  bool standardHrFallback = false;
+  /// PostBondTimeoutLoopDetector tripped (#617): bond-then-instant-timeout loop —
+  /// surface the re-pair guide to the user.
+  bool needsRepairGuide = false;
+  /// EmptySyncTracker tripped: ≥3 consecutive console-only offloads — the strap's
+  /// RTC has likely lost sync.
+  bool syncClockLost = false;
+  /// StuckStrapDetector tripped: frontier frozen while the strap is ahead — a
+  /// defensive reboot/clock-reset was attempted.
+  bool strapNeedsReboot = false;
+  /// Strap's own banked-data window from GET_DATA_RANGE (unix sec), for the
+  /// session-relative plausibility gate + the UI's "history available" readout.
+  int? dataRangeOldest;
+  int? dataRangeNewest;
+
   DeviceState({this.connection = 'disconnected'});
 }

@@ -62,8 +62,8 @@ String connStringFor(BleConnState s) {
 ///
 /// delay(attempt) = clamp(base * 2^(attempt-1), base, cap), then ± up to
 /// `jitterFraction` of that value. `attempt` is 1-based (the first retry is 1).
-/// Mirrors reference's `didFailToConnect` capped backoff but adds jitter so a fleet of
-/// devices doesn't thunder-herd a flaky radio.
+/// Capped exponential backoff with jitter so a fleet of devices doesn't
+/// thunder-herd a flaky radio.
 class ReconnectPolicy {
   final Duration base;
   final Duration cap;
