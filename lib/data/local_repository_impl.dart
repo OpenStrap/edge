@@ -199,11 +199,15 @@ class LocalRepositoryImpl extends LocalRepository {
       // Headline 0–21 strain (the strain gauge already expects a 0–21 scale).
       'strain': _scalarMetric(_scalar(b, 'strain'), 'ESTIMATE'),
       'wear_min': _scalarMetric(_wearMin(b), 'HIGH', unit: 'min'),
-      // Active calories (Keytel HR→kcal over the wake span).
+      // Active calories (Keytel HR→kcal over the wake span) + total daily energy
+      // (TDEE: Mifflin BMR floor + active surplus).
       'calories': _scalarMetric(_scalar(b, 'calories')?.round(), 'ESTIMATE', unit: 'kcal'),
-      // Activity minutes shown on the steps tile (labeled "active min"); real
-      // steps stay live-only. `active_min` carried separately for the trend.
-      'steps': _scalarMetric(activeMin, 'ESTIMATE', unit: 'active min'),
+      'calories_total':
+          _scalarMetric(_scalar(b, 'calories_total')?.round(), 'ESTIMATE', unit: 'kcal'),
+      // STEPS — 24/7 ESTIMATE (ambulatory-minutes × cadence; 1 Hz can't COUNT
+      // steps, the live pedometer personalizes the cadence). `active_min` is the
+      // separate raw movement-minutes metric.
+      'steps': _scalarMetric(_scalar(b, 'steps')?.round(), 'ESTIMATE', unit: 'steps'),
       'active_min': _scalarMetric(activeMin, 'ESTIMATE', unit: 'min'),
     };
 
@@ -587,7 +591,9 @@ class LocalRepositoryImpl extends LocalRepository {
       },
       'curve': [for (final p in curve) {'v': (p as Map)['v']}],
       'calories': _scalar(b, 'calories')?.round(),
-      'steps': null, // 1 Hz can't count steps; activity-minutes lives on Today
+      // Total daily energy (TDEE) + 24/7 step ESTIMATE (live pedometer tunes it).
+      'calories_total': _scalar(b, 'calories_total')?.round(),
+      'steps': _scalar(b, 'steps')?.round(),
       'hr': {
         'max': (hrStats?['max'] as num?)?.toInt(),
         'avg': (hrStats?['avg'] as num?)?.toInt(),
@@ -933,8 +939,10 @@ class LocalRepositoryImpl extends LocalRepository {
         return ('min', 'active');
       case 'calories':
         return ('kcal', 'calories');
+      case 'calories_total':
+        return ('kcal', 'total calories');
       case 'steps':
-        return ('min', 'active');
+        return ('steps', 'steps');
       case 'resp_rate':
         return ('rpm', 'respiratory rate');
       case 'light':
@@ -976,8 +984,8 @@ class LocalRepositoryImpl extends LocalRepository {
         return 'worn_min';
       case 'efficiency': // sleep-efficiency % trend
         return 'efficiency';
-      case 'steps': // 1 Hz has no steps; the tile/trend uses activity minutes
-        return 'active_min';
+      case 'steps': // 24/7 step ESTIMATE series (ambulatory-min × cadence)
+        return 'steps';
       case 'light':
         return 'light_min';
       case 'deep':
@@ -1048,6 +1056,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'strain': (r['strain'] as num?)?.toDouble(),
       'calories': (r['calories'] as num?)?.round(),
       'duration_min': (r['duration_min'] as num?)?.toInt(),
+      'steps': (r['steps'] as num?)?.toInt(),
       'zone_min': zoneMin,
     };
   }

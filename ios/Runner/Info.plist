@@ -36,6 +36,10 @@
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>OpenStrap reads recent samples to avoid writing duplicates into Apple Health.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>OpenStrap writes your sleep, resting heart rate, HRV, respiratory rate, energy and workouts into Apple Health.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
 	<key>NSSupportsLiveActivities</key>

@@ -333,7 +333,11 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
         ],
         if (fitness != null) DetailRow(label: 'Fitness trend', value: fitness),
         if (cals != null) DetailRow(label: 'Active calories', value: '${cals.round()} kcal'),
-        if (steps != null) DetailRow(label: 'Steps', value: '${steps.round()}'),
+        if (_num(_data['calories_total']) != null)
+          DetailRow(
+              label: 'Total calories',
+              value: '${_num(_data['calories_total'])!.round()} kcal'),
+        if (steps != null) DetailRow(label: 'Steps (est.)', value: '${steps.round()}'),
         // Edwards zone-weighted "effort" (0–100) — finer-grained intensity read
         // than the 0–21 headline, over the per-second wake HR.
         if (effort != null) DetailRow(label: 'Effort (0–100)', value: '${effort.round()}'),

@@ -1,6 +1,6 @@
 package wtf.openstrap.openstrap_edge
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
 /**
  * Attaches to the long-lived engine pre-warmed in [EdgeApplication] rather than spinning
@@ -11,8 +11,12 @@ import io.flutter.embedding.android.FlutterActivity
  *
  * Platform channels are registered on the engine in EdgeApplication (NativeChannels), not
  * here, so they exist even while no Activity is attached (headless channel calls work).
+ *
+ * FlutterFragmentActivity (not FlutterActivity) is required by the `health` plugin — its
+ * Health Connect permission flow uses the AndroidX activity-result APIs, which need a
+ * FragmentActivity host. The cached-engine overrides work the same on either base.
  */
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     override fun getCachedEngineId(): String = EdgeApplication.ENGINE_ID
     override fun shouldDestroyEngineWithHost(): Boolean = false
 }

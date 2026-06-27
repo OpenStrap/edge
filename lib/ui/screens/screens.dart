@@ -111,26 +111,28 @@ class BodyScreen extends StatelessWidget {
       );
 }
 
-/// Activity — daily movement (active minutes from 1 Hz wrist motion; 1 Hz can't
-/// count steps, so real step counts come only from live workouts). Bars track
-/// active minutes over Today/Week/Month/3M; the detail explains the metric and
-/// keeps the daily step-goal setter. Reached from the home "Steps/Activity" tile.
+/// Steps — daily step ESTIMATE. The band's always-on 1 Hz stream can't COUNT
+/// steps (Nyquist), so the 24/7 number is ambulatory-minutes × your cadence; the
+/// live 100 Hz workout stream counts real steps AND tunes that cadence. Bars
+/// track the daily step estimate; the detail explains it honestly and keeps the
+/// daily step-goal setter. Reached from the home "Steps" tile.
 class ActivityScreen extends StatelessWidget {
   const ActivityScreen({super.key});
   @override
   Widget build(BuildContext context) => MetricScreen(
-        title: 'Activity',
-        metric: 'steps', // → active_min series (movement minutes)
-        icon: Ic.strain,
-        accent: AppColors.coral,
-        valueFmt: (v) => v == 0 ? '' : v.toStringAsFixed(0), // active min on bars
+        title: 'Steps',
+        metric: 'steps', // → steps series (24/7 estimate)
+        icon: Ic.run,
+        accent: AppColors.good,
+        valueFmt: (v) => v == 0 ? '' : v.toStringAsFixed(0), // steps on bars
         todayDetail: (ctx) => const _ActivityDetail(),
         dayDetail: (ctx, date) => const _ActivityDetail(),
       );
 }
 
-/// Detail under the Activity trend: explains "active minutes" (honest — not a
-/// fabricated step count) + a tappable row to set the daily step goal.
+/// Detail under the Steps trend: explains the estimate honestly (24/7 estimate,
+/// real counts during live workouts that personalize your cadence) + a tappable
+/// row to set the daily step goal.
 class _ActivityDetail extends StatelessWidget {
   const _ActivityDetail();
   @override
@@ -141,18 +143,20 @@ class _ActivityDetail extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
-                color: AppColors.coral.withValues(alpha: 0.14),
+                color: AppColors.good.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(R.chip)),
-            child: AppIcon(Ic.strain, size: 18, color: AppColors.coral),
+            child: AppIcon(Ic.run, size: 18, color: AppColors.good),
           ),
           const SizedBox(width: Sp.x3),
           Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Active minutes', style: AppText.label),
+            Text('Steps (estimated)', style: AppText.label),
             const SizedBox(height: 2),
             Text(
-                'Minutes you were moving, from wrist motion. Step counts need '
-                'high-rate motion — available only during live workouts.',
+                'Your all-day step count is estimated from walking minutes — the '
+                'band\'s background sensor samples too slowly to count each step. '
+                'Walk with the app open and it counts real steps and learns your '
+                'cadence, so the daily estimate keeps getting more accurate.',
                 style: AppText.captionMuted),
           ])),
         ]),

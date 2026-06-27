@@ -10,6 +10,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -127,8 +128,13 @@ class LocalDb {
           // it to tell a stalled cursor from a healthy one. Additive.
           await _createSyncCursor(db);
         }
+        if (oldV < 11) {
+          // Live workout steps (Tier-A pedometer over the session's 100 Hz
+          // R10 accel). Additive nullable column — old rows read null.
+          await db.execute('ALTER TABLE sessions ADD COLUMN steps INTEGER');
+        }
       },
-      version: 10,
+      version: 11,
     );
   }
 
@@ -350,6 +356,7 @@ class LocalDb {
         max_hr INTEGER,
         duration_min INTEGER,
         zone_min_json TEXT,
+        steps INTEGER,
         source TEXT NOT NULL DEFAULT 'manual',
         created_at INTEGER NOT NULL
       )
@@ -967,6 +974,30 @@ class LocalDb {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
+
+  // ── step-cadence calibration (baselines key `step_cadence`) ─────────────────
+  // The personal cadence model the live 100 Hz pedometer learns and the 1 Hz
+  // daily step ESTIMATE consumes (see analytics steps.dart). Stored as the
+  // StepCalibration JSON so live walking steadily tunes the 24/7 estimate.
+
+  /// The persisted personal cadence model, or null if never calibrated.
+  static Future<ana.StepCalibration?> getStepCalibration() async {
+    final row = await baseline('step_cadence');
+    final json = row?['payload_json'];
+    if (json is! String) return null;
+    try {
+      final m = jsonDecode(json);
+      return m is Map
+          ? ana.StepCalibration.fromJson(m.cast<String, dynamic>())
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Persist the personal cadence model (overwrites — it's a running estimate).
+  static Future<void> putStepCalibration(ana.StepCalibration c) =>
+      putBaseline('step_cadence', jsonEncode(c.toJson()));
 
   // ── journal I/O ─────────────────────────────────────────────────────────────
 

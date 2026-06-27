@@ -297,12 +297,12 @@ class _TodayScreenState extends State<TodayScreen>
       _statRow(
         StatTile(
           icon: Ic.run,
-          label: 'Active',
-          value: t.steps.isEmpty ? null : '${t.steps.value!.round()}m',
+          label: 'Steps',
+          value: t.steps.isEmpty ? null : '${t.steps.value!.round()}',
           accent: AppColors.good,
           confidence: t.steps.isEmpty ? null : t.steps.confidence,
           tag: Tag.forMetric(t.steps),
-          // Active-minutes trend (Today/Week/Month/3M) + step-goal setter inside.
+          // 24/7 step ESTIMATE trend + active-minutes + step-goal setter inside.
           onTap: () => _push(() => const ActivityScreen()),
         ),
         StatTile(

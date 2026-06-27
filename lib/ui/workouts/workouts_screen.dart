@@ -589,6 +589,10 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
             _heroStat(noData ? '—' : '${d['max_hr'] ?? '—'}', 'max bpm'),
             _heroStat(noData ? '—' : '${d['min_hr'] ?? '—'}', 'min bpm'),
             _heroStat('${d['calories'] ?? 0}', 'kcal'),
+            // Steps are recorded only for manual workouts ridden by the live
+            // 100 Hz stream; older/auto sessions have none.
+            if ((d['steps'] as num?) != null && (d['steps'] as num) > 0)
+              _heroStat('${d['steps']}', 'steps'),
           ]),
         ]),
       ),

@@ -17,6 +17,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:openstrap_analytics/onehz.dart' as ana;
+import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -31,6 +33,7 @@ import '../data/db.dart';
 import '../data/local_repository.dart';
 import '../data/local_repository_impl.dart';
 import '../gestures/gesture_settings.dart';
+import '../health/health_export.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
@@ -140,6 +143,10 @@ class AppState extends ChangeNotifier {
     // Load the user's backend-URL override (if any) so the cloud client resolves
     // it ahead of the build-time BACKEND_URL.
     BackendClient.overrideUrl = prefs.getString(_kBackendUrl);
+    healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
+    // Best-effort, no prompt: learn the current health-permission state so the
+    // Profile toggle reflects reality on open.
+    if (healthSyncEnabled) unawaited(checkHealth());
   }
 
   // ── backend URL (cloud import / existing-user login) ────────────────────────
@@ -229,6 +236,58 @@ class AppState extends ChangeNotifier {
     } catch (_) {/* best-effort */}
     notifyListeners();
     return counts.values.fold<int>(0, (a, b) => a + b);
+  }
+
+  // ── platform health export (Apple Health / Health Connect) ──────────────────
+  final HealthExporter _healthExport = HealthExporter();
+  HealthLinkState healthState = HealthLinkState.unknown;
+  bool healthSyncEnabled = false;
+  static const String _kHealthSync = 'health_sync';
+
+  /// "Apple Health" (iOS) or "Health Connect" (Android).
+  String get healthStoreName => HealthExporter.storeName;
+  bool get healthIsApple => HealthExporter.isApple;
+
+  /// Check current permission state WITHOUT prompting (startup-safe).
+  Future<void> checkHealth() async {
+    healthState = await _healthExport.check();
+    notifyListeners();
+  }
+
+  /// Prompt for write access (user gesture). On grant + enabled, kick a sync.
+  Future<void> requestHealth() async {
+    healthState = await _healthExport.request();
+    notifyListeners();
+    if (healthState == HealthLinkState.ready && healthSyncEnabled) {
+      unawaited(healthSyncNow());
+    }
+  }
+
+  /// Android: open the Play Store to install/update Health Connect.
+  Future<void> installHealthConnect() => _healthExport.install();
+
+  /// Android: open the Health Connect app/settings so the user can enable our
+  /// per-app access manually. Re-checks state when they come back.
+  Future<void> openHealthConnect() async {
+    await _healthExport.openSettings();
+  }
+
+  /// Toggle continuous export. Enabling requests permission + does a first sync.
+  Future<void> setHealthSync(bool on) async {
+    healthSyncEnabled = on;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kHealthSync, on);
+    notifyListeners();
+    if (on) {
+      await requestHealth();
+      if (healthState == HealthLinkState.ready) unawaited(healthSyncNow());
+    }
+  }
+
+  /// Export all finalized-but-unexported days now. Returns days written.
+  Future<int> healthSyncNow() async {
+    final n = await _healthExport.exportAll();
+    return n;
   }
 
   /// Merge + persist local profile fields. Returns the updated map. Replaces the
@@ -386,6 +445,20 @@ class AppState extends ChangeNotifier {
             if (n > 0) notifyListeners(); // screens re-read the refreshed scalars
           } catch (e) {
             _log('[derive] rescan failed: $e');
+          }
+        }());
+      }
+      // Continuous health export: push freshly-derived days (incl. TODAY) to Apple
+      // Health / Health Connect AS SOON as they're computed — runs on BOTH the
+      // light (every drain) and heavy passes, not only on finalize. Idempotent
+      // (delete-then-write), best-effort, never throws into the BLE/derive path.
+      if (healthSyncEnabled) {
+        unawaited(() async {
+          try {
+            final n = await _healthExport.exportAll();
+            if (n > 0) _log('[health] exported $n day(s)');
+          } catch (e) {
+            _log('[health] export failed: $e');
           }
         }());
       }
@@ -635,6 +708,123 @@ class AppState extends ChangeNotifier {
     if (spotActive && (pt == 0x28 || pt == 0x2B)) {
       if (_spotFrames.length < 8000) _spotFrames.add(hex);
     }
+    // LIVE STEP COUNTER. The dedicated 0x33 IMU stream is the high-rate live
+    // accel — it arrives ~10 frames/s (10 samples each), so it drives a smooth,
+    // responsive count. Full R10 (0x2B) is only a fallback when the IMU stream
+    // isn't flowing (and live 0x2B is often R10-LITE, which carries no accel).
+    // `frameAccel` returns |a|(g) samples for both; once 0x33 is seen we ignore
+    // 0x2B to avoid double-counting the same motion from two stream formats.
+    if (pt == 0x33) {
+      _imuStreamSeen = true;
+      final f = _safeFrameAccel(hex);
+      if (f != null) _ingestLiveMags(f.mags);
+    } else if (pt == 0x2B && !_imuStreamSeen) {
+      final f = _safeFrameAccel(hex);
+      if (f != null) _ingestLiveMags(f.mags);
+    }
+  }
+
+  proto.ImuFrame? _safeFrameAccel(String hex) {
+    try {
+      return proto.frameAccel(hex);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── live pedometer (foreground 100 Hz R10 accel) ────────────────────────────
+  // Real step counting via the LOCKED AN-2554 pedometer (analytics `pedometer`),
+  // the same algorithm + ×1.11 gain the backend calibrated on a 100-step walk.
+  // AN-2554's gain was calibrated on PER-MINUTE contiguous signals, so we count
+  // in 60 s chunks: each full minute is committed into `_committedRaw`, and the
+  // still-filling partial minute is re-counted each frame for a live readout.
+  // AN-2554's CONFIRM=8 regularity gate reads 0 at rest (rejects fidgeting).
+  final List<double> _magMin = []; // current minute's magnitude signal
+  int _committedRaw = 0; // raw (pre-gain) steps from completed minutes
+  int _liveSamples = 0; // total 100 Hz samples streamed this session
+  double _liveEnmoSum = 0; // 1 Hz-equivalent ENMO accumulator (for calibration)
+  int _liveEnmoN = 0;
+  bool _imuStreamSeen = false; // prefer the 0x33 IMU stream once it appears
+  static const int _minuteSamples = 6000; // 60 s @ 100 Hz — calibration chunk
+
+  /// Raw (pre-gain) session step total = committed minutes + the partial minute.
+  int get _liveRaw => _committedRaw + ana.pedometer(_magMin);
+
+  /// Steps counted on the live 100 Hz stream this connected session (real,
+  /// gain-applied). Used for cadence calibration. 0 when not streaming.
+  int get liveSteps => (_liveRaw * ana.StepParams.gain).round();
+
+  // Snapshot of the RAW session total at the moment a manual workout started, so
+  // the live-session screen shows steps FOR THIS WORKOUT (not since connection).
+  int? _workoutRawBase;
+
+  /// Steps taken since the active workout started (real, live, gain-applied).
+  /// 0 when no workout is running. This is what the workout screen shows.
+  int get workoutSteps {
+    if (activeWorkout == null || _workoutRawBase == null) return 0;
+    final raw = _liveRaw - _workoutRawBase!;
+    return raw > 0 ? (raw * ana.StepParams.gain).round() : 0;
+  }
+
+  void _ingestLiveMags(List<double> mags) {
+    if (mags.isEmpty) return;
+    // Append this frame's |a|(g) samples (gravity INCLUDED — AN-2554's dynamic
+    // threshold rides the ~1 g baseline). Also accumulate a 1 Hz-equivalent ENMO
+    // sample (mean |a| − 1 g) for cadence calibration.
+    var magSum = 0.0;
+    for (final m in mags) {
+      _magMin.add(m);
+      magSum += m;
+    }
+    _liveSamples += mags.length;
+    final e = (magSum / mags.length) - 1.0;
+    _liveEnmoSum += e > 0 ? e : 0.0;
+    _liveEnmoN++;
+
+    // Commit each completed minute into the raw total (matches the gain's
+    // per-minute calibration), then keep counting the next partial minute.
+    while (_magMin.length >= _minuteSamples) {
+      final minute = _magMin.sublist(0, _minuteSamples);
+      _magMin.removeRange(0, _minuteSamples);
+      _committedRaw += ana.pedometer(minute);
+    }
+    notifyListeners(); // live readout re-counts the partial minute on read
+  }
+
+  /// Reset the live step counter for a fresh connected session.
+  void _resetLivePedometer() {
+    _magMin.clear();
+    _committedRaw = 0;
+    _liveSamples = 0;
+    _liveEnmoSum = 0;
+    _liveEnmoN = 0;
+    _imuStreamSeen = false;
+  }
+
+  /// End-of-session: if the bout is credible walking, fold it into the personal
+  /// cadence calibration (persisted) so the 24/7 estimate gets more accurate.
+  Future<void> _finalizeLivePedometer() async {
+    final steps = liveSteps; // gain-applied
+    final durS = _liveSamples / 100.0;
+    final enmo = _liveEnmoN > 0 ? _liveEnmoSum / _liveEnmoN : 0.0;
+    _resetLivePedometer();
+    if (steps <= 0 || durS < 20) return;
+    final cadence = steps / (durS / 60.0);
+    // Any nonzero AN-2554 count is CONFIRM-gated gait; confidence is high when
+    // the cadence lands in a walking band (else let calibrateCadence reject it).
+    final conf = (cadence >= 60 && cadence <= 200) ? 0.85 : 0.4;
+    final result = ana.PedometerResult(steps, durS, cadence, 0.0, conf);
+    try {
+      final prior = await LocalDb.getStepCalibration();
+      final next = ana.calibrateCadence(prior, result, enmo);
+      if (next != null && !identical(next, prior)) {
+        await LocalDb.putStepCalibration(next);
+        _log('[steps] cadence calibrated → '
+            '${next.cadenceSpm.toStringAsFixed(0)} spm (n=${next.n})');
+      }
+    } catch (e) {
+      _log('[steps] calibration skipped: $e');
+    }
   }
 
   void _onEngineState(DeviceState s) {
@@ -652,6 +842,9 @@ class AppState extends ChangeNotifier {
           s.batteryPct == null ? null : battPct, s.charging, s.strapName));
     }
     if (_prevConn != 'disconnected' && s.connection == 'disconnected') {
+      // Live stream ended → fold this bout into the personal cadence calibration
+      // (best-effort; only credible walking updates it) and reset the counter.
+      unawaited(_finalizeLivePedometer());
       if (_keepAlive && isPaired && !_reconnecting) {
         _log('Connection dropped — reconnecting…');
         // If we're backgrounded, also arm the iOS restore path: if the in-process
@@ -809,6 +1002,7 @@ class AppState extends ChangeNotifier {
         return;
       }
       await engine.enableLiveStreams();
+      _resetLivePedometer(); // fresh live step count for this connected session
       await engine.getBattery();
       await engine.getStrapName(); // populate strap name + alarm for the Profile UI
       await engine.getAlarm();
@@ -1034,6 +1228,9 @@ class AppState extends ChangeNotifier {
       workoutId: id,
       type: type,
     );
+    // Scope the live step count to THIS workout: remember the running session
+    // raw total now, so `workoutSteps` reports only steps taken from here on.
+    _workoutRawBase = _liveRaw;
     // Persist the live session (INSERT OR REPLACE — idempotent if repo already
     // inserted this id). Final stats are written on stop.
     unawaited(LocalDb.putSession({
@@ -1072,6 +1269,7 @@ class AppState extends ChangeNotifier {
     _workoutTimer = null;
     final w = activeWorkout!;
     final finalKcal = w.calories.round();
+    final wSteps = workoutSteps; // real steps taken during this workout
     // Persist the finalized session before clearing the live state. No per-zone
     // minute tallies are tracked live, so zone_min is honestly empty.
     final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
@@ -1086,9 +1284,11 @@ class AppState extends ChangeNotifier {
       'max_hr': w.maxHrSeen > 0 ? w.maxHrSeen : null,
       'duration_min': w.elapsed.inMinutes,
       'zone_min_json': jsonEncode(const <num>[]),
+      if (wSteps > 0) 'steps': wSteps,
       'source': 'manual',
       'created_at': w.startTime.millisecondsSinceEpoch,
     }));
+    _workoutRawBase = null;
     activeWorkout = null;
     notifyListeners();
     _log('Live session ended. Burned $finalKcal kcal.');

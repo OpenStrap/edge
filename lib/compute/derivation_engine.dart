@@ -102,7 +102,13 @@ import 'substrate.dart';
 /// Cole–Kripke/DoG stager's main-session AASM metrics + hypnogram (parallel
 /// ESTIMATE; the single-source `sleep` block stays the headline). Bumping
 /// re-derives non-finalized recent days so the new blocks populate.
-const int kAlgoVersion = 16;
+/// v17: STEPS (24/7 ESTIMATE = ambulatory-minutes × cadence, personalized by the
+/// live 100 Hz pedometer's cadence calibration) + TOTAL DAILY ENERGY (TDEE via
+/// HR-flex: Mifflin BMR floor + active Keytel surplus). New scalars `steps` +
+/// `calories_total` → metric_series; `steps`/`calories_total` bundle blocks. 1 Hz
+/// still can't COUNT steps (Nyquist) — real counts come from live streaming, which
+/// also tunes this estimate. Bumping re-derives non-finalized days so they fill.
+const int kAlgoVersion = 17;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 14;
@@ -188,11 +194,15 @@ class DerivationEngine {
       _log('derive: ${todo.length}/${days.length} day(s) '
           '(${force ? "force" : heavy ? "heavy" : "light"}; v$kAlgoVersion)');
 
+      // Personal cadence model (live 100 Hz pedometer) → tunes the 1 Hz daily
+      // step ESTIMATE. Read once per pass and threaded into every day.
+      final stepCalib = await LocalDb.getStepCalibration();
+
       var done = 0;
       for (var i = 0; i < todo.length; i++) {
         final day = todo[i];
         try {
-          await _deriveDay(sub, day, profile, dataNowSec);
+          await _deriveDay(sub, day, profile, dataNowSec, stepCalib: stepCalib);
           done++;
         } catch (e) {
           _log('derive day ${day.date} FAILED/skipped: $e');
@@ -273,6 +283,8 @@ class DerivationEngine {
       _log('rescan: baseline changed — re-deriving ${todo.length}/${days.length} '
           'recent day(s) (incl. finalized; v$kAlgoVersion)');
 
+      final stepCalib = await LocalDb.getStepCalibration();
+
       var done = 0;
       for (var i = 0; i < todo.length; i++) {
         final day = todo[i];
@@ -282,7 +294,7 @@ class DerivationEngine {
           // recomputed `finalized` flag stays true for a day already past its
           // 48 h horizon, so the day remains locked w.r.t. run() — only its
           // baseline-relative scalars change.
-          await _deriveDay(sub, day, profile, dataNowSec);
+          await _deriveDay(sub, day, profile, dataNowSec, stepCalib: stepCalib);
           done++;
         } catch (e) {
           _log('rescan day ${day.date} FAILED/skipped: $e');
@@ -361,11 +373,13 @@ class DerivationEngine {
     if (sub.isEmpty || dates.isEmpty) return 0;
     final days = calendarDays(sub);
     final dataNowSec = sub.lastTs ?? 0;
+    final stepCalib = await LocalDb.getStepCalibration();
     var done = 0;
     for (final day in days) {
       if (!dates.contains(day.date)) continue;
       try {
-        await _deriveDay(sub, day, profile, dataNowSec, forceFinalize: true);
+        await _deriveDay(sub, day, profile, dataNowSec,
+            forceFinalize: true, stepCalib: stepCalib);
         done++;
         onDayDone?.call(day.date);
       } catch (e) {
@@ -386,7 +400,7 @@ class DerivationEngine {
 
   Future<void> _deriveDay(
       Substrate sub, PhysioDay day, Profile profile, int dataNowSec,
-      {bool forceFinalize = false}) async {
+      {bool forceFinalize = false, ana.StepCalibration? stepCalib}) async {
     // Slice the substrate to the day container and to the SLEEP window.
     final daySub = sub.slice(day.startSec, day.endSec);
     final sleepSub = day.hasSleep
@@ -463,6 +477,15 @@ class DerivationEngine {
           'true step counts come from live workout streaming',
     };
 
+    // ── STEPS (24/7 ESTIMATE) + TOTAL DAILY ENERGY (TDEE) ─────────────────────
+    // 1 Hz cannot COUNT steps (Nyquist) — but it can detect ambulatory MINUTES
+    // and multiply by a cadence (steps/min) for an honest 24/7 ESTIMATE. The
+    // live 100 Hz pedometer (app_state) counts real steps AND personalizes the
+    // cadence this estimate uses (stepCalib). TDEE = HR-flex (BMR floor + active
+    // Keytel surplus). Both need accel/HR from daySub + the profile, so they run
+    // here on the main isolate (like activeMin), not in the pure bundle pipeline.
+    _stepsAndEnergy(bundle, scMap, daySub, profile, stepCalib);
+
     // ── More substrate-derived detail blocks (computed here, where the full
     //    sliced substrate lives — same pattern as activeMin; these are fresh
     //    <String,dynamic> blocks so ints are safe, unlike the double? scalars). ─
@@ -535,6 +558,9 @@ class DerivationEngine {
         'spo2': sc('spo2'),
         'active_min': sc('active_min'),
         'calories': sc('calories'),
+        // 24/7 step ESTIMATE (ambulatory-min × cadence) + total daily energy.
+        'steps': sc('steps'),
+        'calories_total': sc('calories_total'),
         // Sleep-stage minutes + HRV freq/stability trends.
         'rem_min': sc('rem_min'),
         'deep_min': sc('deep_min'),
@@ -803,6 +829,101 @@ class DerivationEngine {
       if (tot > 0 && (moveSec[m] ?? 0) / tot >= activeFrac) active++;
     });
     return active;
+  }
+
+  /// 24/7 step ESTIMATE (Tier B) + total daily energy (TDEE), written into the
+  /// bundle's `steps` block + `scalars` (steps, calories_total). 1 Hz can't COUNT
+  /// steps (Nyquist) — this is ambulatory-minutes × cadence, personalized by the
+  /// live pedometer's [stepCalib]. TDEE is the HR-flex method (Mifflin BMR floor +
+  /// active Keytel surplus). Best-effort; leaves scalars null on missing data.
+  void _stepsAndEnergy(
+    Map<String, dynamic> bundle,
+    Map<String, dynamic>? scMap,
+    Substrate daySub,
+    Profile profile,
+    ana.StepCalibration? stepCalib,
+  ) {
+    try {
+      if (daySub.length < 60) return;
+      // Per-minute ENMO over the whole day (van Hees), and per-minute mean HR
+      // aligned 1:1 to those minutes (for the walking HR-gate).
+      final motion = ana.enmoSeries(daySub.accelSamples()).minutes;
+      if (motion.isEmpty) return;
+      final hrByMin = <int, List<double>>{};
+      final allHrByMin = <int, List<double>>{};
+      for (var i = 0; i < daySub.length; i++) {
+        final h = daySub.hr[i];
+        if (h <= 0) continue;
+        final mi = daySub.tsSec[i] ~/ 60;
+        (hrByMin[mi] ??= <double>[]).add(h.toDouble());
+        (allHrByMin[mi] ??= <double>[]).add(h.toDouble());
+      }
+      double meanOf(List<double> l) => l.reduce((a, b) => a + b) / l.length;
+      final hrPerMin = <double>[
+        for (final mm in motion)
+          () {
+            final l = hrByMin[(mm.tsMinStartMs / 60000).round()];
+            return (l == null || l.isEmpty) ? 0.0 : meanOf(l);
+          }()
+      ];
+
+      final rhr = (scMap?['rhr'] as num?)?.toDouble();
+      final est = ana.dailyStepEstimate(
+        motion,
+        hrPerMin: hrPerMin,
+        restingHr: rhr,
+        calib: stepCalib,
+      );
+      if (est.present) {
+        final v = est.value!;
+        scMap?['steps'] = v.steps.toDouble();
+        bundle['steps'] = <String, dynamic>{
+          'value': v.steps,
+          'estimated': true,
+          'ambulatory_min': v.ambulatoryMinutes,
+          'cadence_used_spm': v.cadenceUsed,
+          'calibrated': v.calibrated,
+          'confidence': est.confidence,
+          'tier': est.tier,
+          'inputs_used': est.inputs_used,
+          'note': est.note,
+        };
+      }
+
+      // Total daily energy (TDEE) — HR-flex over the day's per-minute HR.
+      if (profile.isComplete) {
+        final perMinFull = <double>[
+          for (final mi in (allHrByMin.keys.toList()..sort()))
+            meanOf(allHrByMin[mi]!)
+        ];
+        final sexStr = profile.sex == 'm'
+            ? 'male'
+            : (profile.sex == 'f' ? 'female' : 'nonbinary');
+        final e = ana.Calories.dailyEnergy(
+          perMinFull,
+          profile: ana.WorkoutUserProfile(
+            weightKg: profile.weightKg!,
+            heightCm: profile.heightCm!,
+            age: profile.ageYears!.toDouble(),
+            sex: sexStr,
+          ),
+          hrmax: profile.hrMaxTanaka,
+        );
+        scMap?['calories_total'] = e.total.roundToDouble();
+        bundle['calories_total'] = <String, dynamic>{
+          'value': e.total.round(),
+          'active': e.active.round(),
+          'basal': e.basal.round(),
+          'confidence': 0.5,
+          'tier': 'ESTIMATE',
+          'inputs_used': const ['hr_1hz', 'profile'],
+          'note': 'total daily energy: Mifflin BMR floor + active Keytel surplus '
+              '(HR-flex)',
+        };
+      }
+    } catch (e) {
+      _log('steps/energy skipped: $e');
+    }
   }
 
   /// Auto-detected workouts for the day via [ana.WorkoutDetector] over the

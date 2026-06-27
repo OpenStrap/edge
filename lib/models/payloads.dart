@@ -108,7 +108,10 @@ class TodayData {
   Metric get rhrDelta => metricOf(_daily, 'resting_hr_delta');
   Metric get wearTime => metricOf(_daily, 'wear_min');
   Metric get calories => metricOf(_daily, 'calories'); // active calories (est.)
-  Metric get steps => metricOf(_daily, 'steps'); // real detected steps (est.)
+  Metric get caloriesTotal =>
+      metricOf(_daily, 'calories_total'); // total daily energy (TDEE, est.)
+  Metric get steps => metricOf(_daily, 'steps'); // 24/7 step estimate
+  Metric get activeMin => metricOf(_daily, 'active_min'); // movement minutes
 
   /// Body alert (illness/overtraining) — {signal, kind, triggers, note} or null.
   Map<String, dynamic>? get bodyAlert {
