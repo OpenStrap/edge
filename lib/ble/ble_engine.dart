@@ -612,7 +612,48 @@ class BleEngine {
       return;
     }
     _lastBackfillAt = _wallSecs();
+    await _startHistoricalRefresh(
+      trigger: trigger,
+      reason: trigger.name,
+      refreshRange: true,
+    );
+  }
+
+  /// Canonical historical-refresh entrypoint for the whole app.
+  ///
+  /// Why this exists:
+  /// - A *fresh* connection already runs the 5-packet INIT, whose seq2 polls the
+  ///   strap's `GET_DATA_RANGE` and whose seq4 starts the historical drain.
+  /// - A *long-lived* connection used to re-kick history with only
+  ///   `SEND_HISTORICAL_DATA`. In practice that can stall at the live edge: the
+  ///   app knows backlog remains, but a later refresh produces no frontier
+  ///   advance and eventually ends as `session_end`.
+  ///
+  /// So every re-triggered offload now goes through ONE reusable path:
+  ///   1. re-arm the drain controller;
+  ///   2. refresh the strap's banked-data range (updates newest/oldest);
+  ///   3. send `SEND_HISTORICAL_DATA`.
+  ///
+  /// This keeps periodic sync, manual resync, workout-end backfill, and future
+  /// callers on the same protocol path instead of each open-coding their own
+  /// "maybe just send 0x16" behavior.
+  Future<void> _startHistoricalRefresh({
+    required BackfillTrigger trigger,
+    required String reason,
+    bool refreshRange = true,
+  }) async {
+    final d = _drain;
+    if (_session?.connected != true || d == null) return;
     d.rearm();
+    _setOffloadActive(true);
+    if (refreshRange) {
+      _log('[SYNC] refresh($reason) — polling GET_DATA_RANGE before 0x16.');
+      await _send(Cmd.getDataRange, const [0x00]);
+      // INIT spaces commands by ~120 ms; keep the same cadence here so the band
+      // has time to emit the range response before we request another drain.
+      await Future.delayed(const Duration(milliseconds: 120));
+    }
+    _log('[SYNC] refresh($reason) — sending SEND_HISTORICAL_DATA.');
     await _send(Cmd.sendHistoricalData, const [0x00]);
   }
 
@@ -1183,13 +1224,15 @@ class BleEngine {
     await LocalDb.upsertSyncLedgerEntry(
       status: 'requested',
       metaPatch: {
+        'request_reason': 'manual',
+        'request_refresh_range': true,
+        'request_sent_at': DateTime.now().millisecondsSinceEpoch,
         'history_requests': _historyRequests,
         'history_completions': _historyCompletions,
         'strap_history_oldest_ts': _strapHistoryOldestTs,
         'strap_history_newest_ts': _strapHistoryNewestTs,
       },
     );
-    _setOffloadActive(true);
     await _triggerBackfill(BackfillTrigger.manual);
   }
 
