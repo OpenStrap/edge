@@ -20,6 +20,7 @@ import '../kit/kit.dart';
 import '../today/step_goal_screen.dart';
 import 'gesture_section.dart';
 import 'notification_relay_section.dart';
+import 'notification_settings_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -317,12 +318,25 @@ class ProfileScreen extends StatelessWidget {
 
           const SizedBox(height: Sp.x7),
 
-          // ── Notifications (Android only — section self-hides on iOS) ──
+          // ── Notifications ────────────────────────────────────────────
+          const SectionHeader('Notifications'),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+                horizontal: Sp.x5, vertical: Sp.x2),
+            child: DetailRow(
+              icon: Ic.bell,
+              label: 'Alerts & reminders',
+              value: 'Manage',
+              onTap: () => Navigator.of(context).push(
+                  themedRoute((_) => const NotificationSettingsScreen())),
+            ),
+          ),
+          // Notification relay (Android only — self-hides on iOS).
           if (app.notificationRelay.supported) ...[
-            const SectionHeader('Notifications'),
+            const SizedBox(height: Sp.x3),
             const NotificationRelaySection(),
-            const SizedBox(height: Sp.x7),
           ],
+          const SizedBox(height: Sp.x7),
 
           // ── Storage ──────────────────────────────────────────────────
           // CLOUD EXCISED: there is no backend. Everything lives on this device.

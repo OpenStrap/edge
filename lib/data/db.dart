@@ -19,15 +19,23 @@ import 'models.dart';
 
 class LocalDb {
   static Database? _db;
+  static String dbName = 'openstrap.db';
 
   static Future<Database> get instance async {
     _db ??= await _open();
     return _db!;
   }
 
+  static Future<void> close() async {
+    if (_db != null) {
+      await _db!.close();
+      _db = null;
+    }
+  }
+
   static Future<Database> _open() async {
     final dir = await getDatabasesPath();
-    final path = p.join(dir, 'openstrap.db');
+    final path = p.join(dir, dbName);
     return openDatabase(
       path,
       onCreate: (db, version) async {

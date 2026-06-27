@@ -32,6 +32,9 @@ import '../compute/profile.dart';
 import '../data/db.dart';
 import '../data/local_repository.dart';
 import '../data/local_repository_impl.dart';
+import '../notify/notification_center.dart';
+import '../notify/notification_event.dart';
+import '../notify/notification_prefs.dart';
 import '../gestures/gesture_settings.dart';
 import '../health/health_export.dart';
 import '../import/noop_import.dart';
@@ -381,6 +384,23 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A tapped notification asks the shell to switch to this tab index. The shell
+  /// listens; it resets to -1 after consuming. Kept off the ChangeNotifier path so
+  /// a deep-link doesn't repaint the whole tree.
+  final ValueNotifier<int> navRequest = ValueNotifier<int>(-1);
+  StreamSubscription<String>? _tapSub;
+
+  static const Map<String, int> _routeToTab = {
+    '/today': 0,
+    '/sleep': 1,
+    '/heart': 2,
+    '/body': 3,
+    '/workouts': 4,
+  };
+  void _handleTapRoute(String route) {
+    navRequest.value = _routeToTab[route] ?? 0; // unknown (e.g. /recap) → Today
+  }
+
   AppState() {
     _gestureDispatcher = GestureDispatcher(
       settings: gestureSettings,
@@ -411,6 +431,16 @@ class AppState extends ChangeNotifier {
     );
     repo = LocalRepositoryImpl(getProfileMap: () => user);
     _init();
+    // Notification taps → request a tab switch (the shell listens to navRequest).
+    _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
+    unawaited(NotificationService.instance.consumeLaunchRoute());
+  }
+
+  @override
+  void dispose() {
+    _tapSub?.cancel();
+    navRequest.dispose();
+    super.dispose();
   }
 
   /// Compute trigger: kick the DerivationEngine after data is persisted.
@@ -501,64 +531,94 @@ class AppState extends ChangeNotifier {
       } catch (_) {/* body just omits the slept-for clause */}
 
       await prefs.setString(_kLastRecoveryNotifDay, dayId);
-      await NotificationService.instance.showInsight(
-        id: NotificationService.idRecoveryReady,
+      await NotificationCenter.instance.emit(NotificationEvent(
+        dedupeKey: '$dayId:recovery_ready',
+        category: NotifCategory.recovery,
+        priority: NotifPriority.normal,
         title: 'Your recovery is ready',
         body: 'Recovery $score$slept. Tap to see today.',
-      );
+        date: dayId,
+        route: '/today',
+      ));
       _log('[notify] recovery-ready fired for $dayId (score=$score)');
     } catch (e) {
       _log('[notify] recovery-ready skipped: $e');
     }
   }
 
-  /// Time-of-day cadence nudges (evening wind-down, weekly recap). Simple checks
-  /// run on app foreground: each fires at most once per its period, gated by a
-  /// persisted "last fired" stamp. Honest about platform limits — these fire when
-  /// the app is alive around the target time, not via a guaranteed OS timer.
-  /// Each notification carries its "why" in the body.
-  static const String _kLastWindDownDay = 'last_winddown_day';
-  static const String _kLastRecapWeek = 'last_weekly_recap_week';
+  /// Foreground cadence pass. Wind-down + weekly recap are now REAL OS-scheduled
+  /// notifications (see _ensureRemindersScheduled) so they fire even when the app
+  /// is closed — we just re-assert that schedule here (cheap, idempotent, picks up
+  /// any prefs change), then run the data-driven foreground nudges.
   Future<void> runCadenceChecks() async {
     try {
       if (!isPaired) return;
-      final now = DateTime.now();
-      final prefs = await SharedPreferences.getInstance();
-      final today = '${now.year}-${now.month}-${now.day}';
-
-      // Evening wind-down — once/day, in the 20:00–23:00 window.
-      if (now.hour >= 20 && now.hour < 23 &&
-          prefs.getString(_kLastWindDownDay) != today) {
-        await prefs.setString(_kLastWindDownDay, today);
-        await NotificationService.instance.showInsight(
-          id: NotificationService.idWindDown,
-          title: 'Time to wind down',
-          body: 'A consistent bedtime steadies your recovery — start easing off '
-              'screens and lights now.',
-        );
-      }
-
-      // Weekly recap — once/week (ISO week key), Sunday evening onward.
-      final week = '${now.year}-w${_isoWeek(now)}';
-      if (now.weekday == DateTime.sunday && now.hour >= 18 &&
-          prefs.getString(_kLastRecapWeek) != week) {
-        await prefs.setString(_kLastRecapWeek, week);
-        await NotificationService.instance.showInsight(
-          id: NotificationService.idWeeklyRecap,
-          title: 'Your week in review',
-          body: 'A new weekly recap is ready — see how your sleep, strain and '
-              'recovery trended.',
-        );
-      }
+      await _ensureRemindersScheduled();
+      await _maybeNotifyStepGoal();
+      await _maybeNotifyInactivity();
     } catch (e) {
       _log('[notify] cadence checks skipped: $e');
     }
   }
 
-  static int _isoWeek(DateTime d) {
-    final dayOfYear =
-        DateTime(d.year, d.month, d.day).difference(DateTime(d.year, 1, 1)).inDays + 1;
-    return (dayOfYear - d.weekday + 10) ~/ 7;
+  /// Fire once per day when the daily step ESTIMATE crosses the user's goal.
+  /// Reads the latest derived `steps` series (an estimate — same tier as the
+  /// Steps tile), so it never claims a precise count.
+  static const String _kLastStepGoalDay = 'last_stepgoal_day';
+  Future<void> _maybeNotifyStepGoal() async {
+    try {
+      final goal = (user?['step_goal'] as num?)?.toInt();
+      if (goal == null || goal <= 0) return;
+      final rows = await LocalDb.metricSeries('steps');
+      if (rows.isEmpty) return;
+      final last = rows.last;
+      final date = last['date'] as String?;
+      final steps = (last['value'] as num?)?.toInt();
+      if (date == null || steps == null || steps < goal) return;
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString(_kLastStepGoalDay) == date) return; // already fired
+      await prefs.setString(_kLastStepGoalDay, date);
+      await NotificationCenter.instance.emit(NotificationEvent(
+        dedupeKey: '$date:step_goal',
+        category: NotifCategory.reminders,
+        priority: NotifPriority.low,
+        title: 'Step goal reached',
+        body: 'You hit about $steps steps — at or above your $goal goal. Nice work.',
+        date: date,
+        route: '/today',
+      ));
+    } catch (_) {/* best-effort */}
+  }
+
+  /// Opportunistic "time to move" nudge. HONEST LIMIT: movement is only visible
+  /// while the band is streaming live IMU, so this can only fire when we've seen
+  /// recent live data and then a daytime gap with no ambulatory movement. Silent
+  /// when we have no movement data at all (never nudges on missing data).
+  static const String _kLastInactivityMs = 'last_inactivity_ms';
+  Future<void> _maybeNotifyInactivity() async {
+    try {
+      if (_lastMovementMs == 0) return; // no live movement data → stay silent
+      final now = DateTime.now();
+      if (now.hour < 9 || now.hour >= 21) return; // daytime only
+      final nowMs = now.millisecondsSinceEpoch;
+      final idleMs = nowMs - _lastMovementMs;
+      if (idleMs < 2 * 60 * 60 * 1000) return; // < 2h idle → no nudge
+      final prefs = await SharedPreferences.getInstance();
+      final lastFired = prefs.getInt(_kLastInactivityMs) ?? 0;
+      if (nowMs - lastFired < 2 * 60 * 60 * 1000) return; // rate-limit to /2h
+      await prefs.setInt(_kLastInactivityMs, nowMs);
+      final today = '${now.year}-${now.month}-${now.day}';
+      await NotificationCenter.instance.emit(NotificationEvent(
+        dedupeKey: '$today:move:${nowMs ~/ (2 * 60 * 60 * 1000)}',
+        category: NotifCategory.reminders,
+        priority: NotifPriority.low,
+        title: 'Time to move',
+        body: "You've been still for a couple of hours — a short walk keeps your "
+            'energy and circulation up.',
+        date: today,
+        route: '/today',
+      ));
+    } catch (_) {/* best-effort */}
   }
 
   /// True while a user-initiated full re-analysis is running (drives the button's
@@ -636,7 +696,21 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.
     unawaited(_loadAppStatus());
+    // Register the recurring wall-clock nudges as real OS-scheduled notifications
+    // (wind-down, weekly recap) so they fire even when the app is closed.
+    if (isPaired) unawaited(_ensureRemindersScheduled());
     if (isPaired) openSession();
+  }
+
+  /// (Re)register standing scheduled reminders per the user's prefs. Idempotent;
+  /// safe to call repeatedly (cancels + re-schedules). Best-effort.
+  Future<void> _ensureRemindersScheduled() async {
+    try {
+      final prefs = await NotificationPrefs.load();
+      await NotificationCenter.instance.scheduleStandingReminders(prefs);
+    } catch (e) {
+      _log('[notify] schedule reminders skipped: $e');
+    }
   }
 
   void _log(String line) {
@@ -746,6 +820,7 @@ class AppState extends ChangeNotifier {
   int _liveEnmoN = 0;
   bool _imuStreamSeen = false; // prefer the 0x33 IMU stream once it appears
   static const int _minuteSamples = 6000; // 60 s @ 100 Hz — calibration chunk
+  int _lastMovementMs = 0; // wall-clock of the last live frame showing real motion
 
   /// Raw (pre-gain) session step total = committed minutes + the partial minute.
   int get _liveRaw => _committedRaw + ana.pedometer(_magMin);
@@ -780,6 +855,9 @@ class AppState extends ChangeNotifier {
     final e = (magSum / mags.length) - 1.0;
     _liveEnmoSum += e > 0 ? e : 0.0;
     _liveEnmoN++;
+    // Stamp last real motion (for the inactivity nudge). 0.02 g over baseline is
+    // clearly dynamic movement, not resting jitter.
+    if (e > 0.02) _lastMovementMs = DateTime.now().millisecondsSinceEpoch;
 
     // Commit each completed minute into the raw total (matches the gain's
     // per-minute calibration), then keep counting the next partial minute.

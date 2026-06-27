@@ -45,6 +45,8 @@ import 'package:flutter/foundation.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import '../data/db.dart';
+import '../notify/notification_center.dart';
+import '../notify/notification_event.dart';
 import 'crossday_pipeline.dart';
 import 'onehz_pipeline.dart';
 import 'profile.dart';
@@ -664,33 +666,75 @@ class DerivationEngine {
           : null;
       date ??= (illness?['date'] ?? anomaly?['date'] ?? temp?['date']) as String?;
       if (date == null) return;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      Future<void> emit(String kind, String title, String body) =>
-          LocalDb.putNotification({
-            'id': '$date:$kind',
-            'kind': kind,
-            'title': title,
-            'body': body,
-            'date': date,
-            'created_at': now,
-            'read': 0,
-          });
+      // Single emitter: writes the in-app feed AND (per user prefs) fires the OS
+      // notification. Health signals are critical (may override quiet hours);
+      // recovery/insight signals are normal (respect quiet hours).
+      Future<void> emit(
+        String kind,
+        String title,
+        String body, {
+        NotifCategory category = NotifCategory.health,
+        NotifPriority priority = NotifPriority.critical,
+        String route = '/today',
+      }) =>
+          NotificationCenter.instance.emit(NotificationEvent(
+            dedupeKey: '$date:$kind',
+            category: category,
+            priority: priority,
+            title: title,
+            body: body,
+            date: date!,
+            route: route,
+          ));
       if (illness != null && illness['state'] == 'red') {
         await emit('illness', 'Possible illness onset',
-            'Elevated resting HR + suppressed HRV over recent nights.');
+            'Elevated resting HR + suppressed HRV over recent nights.',
+            route: '/heart');
       }
       if (anomaly != null && anomaly['flagged'] == true) {
         await emit('anomaly', 'Unusual overnight physiology',
-            'Your nightly signals deviate from your personal baseline.');
+            'Your nightly signals deviate from your personal baseline.',
+            route: '/heart');
       }
       if (temp != null && temp['flag'] == 'elevated') {
         await emit('temp', 'Skin temperature elevated',
-            'Sustained rise vs your baseline — a possible illness signal.');
+            'Sustained rise vs your baseline — a possible illness signal.',
+            route: '/body');
       }
       final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
       if (score is num && score < 34) {
         await emit('readiness', 'Low readiness today',
-            'Your recovery markers are below your usual range — ease off.');
+            'Your recovery markers are below your usual range — ease off.',
+            category: NotifCategory.recovery,
+            priority: NotifPriority.normal,
+            route: '/today');
+      }
+
+      // "Something changed" — online CUSUM on the recent resting-HR series. Fire
+      // only when the shift lands on the LATEST day (a fresh change, not old
+      // history we'd re-announce every pass). Dedupe key includes the date so it
+      // surfaces at most once per day.
+      final rhrSeries = <double>[];
+      if (recent is List) {
+        for (final r in recent) {
+          if (r is Map && r['rhr'] is num) {
+            rhrSeries.add((r['rhr'] as num).toDouble());
+          }
+        }
+      }
+      if (rhrSeries.length >= 10) {
+        final dets = ana.cusumChangePoints(rhrSeries, h: 5.0);
+        if (dets.isNotEmpty && dets.last.index == rhrSeries.length - 1) {
+          final dir = dets.last.direction > 0 ? 'risen' : 'fallen';
+          await emit(
+            'changed',
+            'Your resting heart-rate trend shifted',
+            'Your resting HR has $dir noticeably versus your recent baseline.',
+            category: NotifCategory.recovery,
+            priority: NotifPriority.normal,
+            route: '/heart',
+          );
+        }
       }
     } catch (e) {
       _log('notifications FAILED/skipped: $e');

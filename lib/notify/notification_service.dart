@@ -1,23 +1,30 @@
 // notification_service.dart — the ONE place OS-level notifications are presented.
 //
-// Today it serves local, on-device triggers (band battery low / charging, see
-// device_alerts.dart). It is deliberately source-agnostic so a future push
-// system (Firebase Cloud Messaging / APNs) is plug-and-play and CANNOT collide
-// with what we ship now:
+// It is source-agnostic: device alerts (battery/charging), derive-driven insights
+// (illness, recovery), and scheduled nudges (wind-down, weekly recap, move) all
+// flow through here. NotificationCenter decides *whether* to fire; this class is
+// purely the OS presentation + scheduling layer.
 //
-//   • Channels are partitioned by source. Device alerts live on `device_alerts`.
-//     A future server/push layer gets its own `insights` channel (id reserved
-//     below) — created by that layer when it lands, so the two never share one.
-//   • Notification IDs are partitioned. Device alerts use fixed ids < kServerIdBase;
-//     server/push notifications must start at kServerIdBase so neither overwrites
-//     the other.
-//   • One init, one permission prompt. FCM would call show(...) here to display
-//     foreground messages and reuse ensurePermission() — no second plugin setup.
+// Design guarantees:
+//   • One channel per category (NotifCategory) so Android users mute each kind
+//     independently. The `health` channel is max-importance (illness alerts).
+//   • Notification ids are partitioned by NotificationEvent.osId; fixed device +
+//     scheduled-reminder ids live in disjoint low bands (< 3000).
+//   • One init, one permission prompt.
+//   • Local + scheduled only — NO FCM/APNs (this app is cloud-free by design).
+//     `kServerIdBase` stays reserved-but-unused for any future push layer.
 //
-// flutter_local_notifications coexists with firebase_messaging by design: FCM
-// delivers, this displays. Nothing here imports or assumes Firebase.
+// Tap routing: a tapped notification's payload (a deep-link route) is pushed onto
+// [taps]; AppState listens and navigates.
+
+import 'dart:async';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
+
+import 'notification_event.dart';
 
 class NotificationService {
   NotificationService._();
@@ -28,7 +35,11 @@ class NotificationService {
   bool _inited = false;
   bool? _granted;
 
-  // ── Channels (one per source — keep them disjoint) ──────────────────────────
+  /// Deep-link routes from tapped notifications. AppState listens & navigates.
+  final StreamController<String> _taps = StreamController<String>.broadcast();
+  Stream<String> get taps => _taps.stream;
+
+  // ── Channels (one per category — keep them disjoint) ────────────────────────
   static const AndroidNotificationChannel _deviceChannel =
       AndroidNotificationChannel(
     'device_alerts',
@@ -36,42 +47,61 @@ class NotificationService {
     description: 'Band battery and charging',
     importance: Importance.high,
   );
-
-  /// Insights channel — locally-generated, derive-driven nudges (recovery ready,
-  /// wind-down, weekly recap). Disjoint from device alerts so the two never share
-  /// a channel or an id range.
-  static const AndroidNotificationChannel _insightsChannel =
+  static const AndroidNotificationChannel _healthChannel =
       AndroidNotificationChannel(
-    'insights',
-    'Insights',
-    description: 'Recovery, sleep and weekly summaries from your own data',
+    'health',
+    'Health alerts',
+    description: 'Illness, unusual physiology and temperature signals',
+    importance: Importance.max,
+  );
+  static const AndroidNotificationChannel _recoveryChannel =
+      AndroidNotificationChannel(
+    'recovery',
+    'Recovery',
+    description: 'Daily recovery readiness from your own data',
     importance: Importance.defaultImportance,
   );
-  static const String insightsChannelId = 'insights';
+  static const AndroidNotificationChannel _remindersChannel =
+      AndroidNotificationChannel(
+    'reminders',
+    'Reminders',
+    description: 'Wind-down, movement nudges, goals and weekly recaps',
+    importance: Importance.defaultImportance,
+  );
 
-  // Stable insight notification ids (≥ kServerIdBase; never collide w/ device).
-  static const int idRecoveryReady = 2001;
-  static const int idWindDown = 2002;
-  static const int idWeeklyRecap = 2003;
-
-  // ── Notification id space (never reuse an id across sources) ─────────────────
+  // ── Fixed ids: device alerts + scheduled reminders (disjoint low band) ───────
   static const int idLowBattery = 1001;
   static const int idCharging = 1002;
+  static const int idWindDown = 2002; // scheduled daily
+  static const int idWeeklyRecap = 2003; // scheduled weekly
 
-  /// Server/push notifications MUST start here so they can't overwrite a device
-  /// alert (and vice-versa). e.g. `kServerIdBase + serverNotifId.hashCode % 100000`.
+  /// Reserved for a future server/push layer (unused — app is cloud-free).
   static const int kServerIdBase = 2000;
 
-  /// Set up the plugin + the device-alerts channel. Idempotent. Does NOT prompt.
+  AndroidNotificationChannel _channelFor(NotifCategory c) => switch (c) {
+        NotifCategory.health => _healthChannel,
+        NotifCategory.recovery => _recoveryChannel,
+        NotifCategory.reminders => _remindersChannel,
+        NotifCategory.device => _deviceChannel,
+      };
+
+  Importance _importanceFor(NotifCategory c) =>
+      c == NotifCategory.health ? Importance.max : Importance.defaultImportance;
+  Priority _priorityFor(NotifCategory c) =>
+      c == NotifCategory.health ? Priority.max : Priority.defaultPriority;
+
+  /// Set up the plugin, channels, timezone db and the tap handler. Idempotent.
+  /// Does NOT prompt for permission.
   Future<void> init() async {
     if (_inited) return;
-    // Use the real launcher mipmap — the project renamed it to `launcher_icon`
-    // (see AndroidManifest android:icon), so the Flutter-default `ic_launcher`
-    // no longer resolves and made initialize() throw `invalid_icon` in release,
-    // which (being awaited before runApp) blanked the whole app on launch.
+    try {
+      tzdata.initializeTimeZones();
+      final name = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(name));
+    } catch (_) {/* tz stays UTC; scheduling still works, just in UTC wall-clock */}
+
     const AndroidInitializationSettings android =
         AndroidInitializationSettings('@mipmap/launcher_icon');
-    // We prompt explicitly later (after pairing), not at plugin init.
     const DarwinInitializationSettings darwin = DarwinInitializationSettings(
       requestAlertPermission: false,
       requestBadgePermission: false,
@@ -79,16 +109,34 @@ class NotificationService {
     );
     await _plugin.initialize(
       const InitializationSettings(android: android, iOS: darwin),
+      onDidReceiveNotificationResponse: _onTap,
     );
     final androidImpl = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await androidImpl?.createNotificationChannel(_deviceChannel);
-    await androidImpl?.createNotificationChannel(_insightsChannel);
+    await androidImpl?.createNotificationChannel(_healthChannel);
+    await androidImpl?.createNotificationChannel(_recoveryChannel);
+    await androidImpl?.createNotificationChannel(_remindersChannel);
     _inited = true;
   }
 
-  /// Request notification permission once (iOS always; Android 13+). Safe to call
-  /// repeatedly — the result is cached. Returns whether notifications are allowed.
+  void _onTap(NotificationResponse r) {
+    final route = r.payload;
+    if (route != null && route.isNotEmpty) _taps.add(route);
+  }
+
+  /// If the app was launched by tapping a notification, replay its route once.
+  Future<void> consumeLaunchRoute() async {
+    try {
+      final d = await _plugin.getNotificationAppLaunchDetails();
+      if (d?.didNotificationLaunchApp ?? false) {
+        final route = d?.notificationResponse?.payload;
+        if (route != null && route.isNotEmpty) _taps.add(route);
+      }
+    } catch (_) {}
+  }
+
+  /// Request notification permission once (iOS always; Android 13+). Cached.
   Future<bool> ensurePermission() async {
     await init();
     if (_granted != null) return _granted!;
@@ -109,62 +157,115 @@ class NotificationService {
     return granted;
   }
 
-  /// Present (or replace) a device-alert notification. Same id replaces, so we
-  /// never stack duplicate low-battery alerts. Never throws into the caller.
+  NotificationDetails _details(NotifCategory c) {
+    final ch = _channelFor(c);
+    return NotificationDetails(
+      android: AndroidNotificationDetails(
+        ch.id,
+        ch.name,
+        channelDescription: ch.description,
+        importance: _importanceFor(c),
+        priority: _priorityFor(c),
+        icon: '@mipmap/launcher_icon',
+      ),
+      iOS: const DarwinNotificationDetails(),
+    );
+  }
+
+  /// Present a NotificationEvent on its category channel. Same osId replaces, so
+  /// re-firing the same logical event never stacks duplicates. Never throws.
+  Future<void> presentEvent(NotificationEvent e) async {
+    try {
+      if (!await ensurePermission()) return;
+      await _plugin.show(
+        e.osId,
+        e.title,
+        e.body,
+        _details(e.category),
+        payload: e.route,
+      );
+    } catch (_) {/* best-effort */}
+  }
+
+  /// Legacy device-alert entry (battery/charging). Kept for device_alerts.dart.
   Future<void> showDevice({
     required int id,
     required String title,
     required String body,
   }) async {
     try {
-      final ok = await ensurePermission();
-      if (!ok) return;
-      await _plugin.show(
-        id,
-        title,
-        body,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            _deviceChannel.id,
-            _deviceChannel.name,
-            channelDescription: _deviceChannel.description,
-            importance: Importance.high,
-            priority: Priority.high,
-            icon: '@mipmap/ic_launcher',
-          ),
-          iOS: const DarwinNotificationDetails(),
-        ),
-      );
-    } catch (_) {/* notifications are best-effort — never break the app */}
+      if (!await ensurePermission()) return;
+      await _plugin.show(id, title, body, _details(NotifCategory.device));
+    } catch (_) {}
   }
 
-  /// Present a locally-generated INSIGHT notification (recovery ready, wind-down,
-  /// weekly recap). Lives on its own channel + id range. Never throws.
-  Future<void> showInsight({
+  // ── Scheduling (wall-clock recurring nudges) ────────────────────────────────
+
+  tz.TZDateTime _nextInstanceOf(int hour, int minute, {int? weekday}) {
+    final now = tz.TZDateTime.now(tz.local);
+    var d = tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+    if (weekday != null) {
+      while (d.weekday != weekday) {
+        d = d.add(const Duration(days: 1));
+      }
+    }
+    if (!d.isAfter(now)) {
+      d = d.add(Duration(days: weekday != null ? 7 : 1));
+    }
+    return d;
+  }
+
+  Future<void> scheduleDaily({
     required int id,
+    required NotifCategory category,
     required String title,
     required String body,
+    required int hour,
+    required int minute,
+    String? route,
   }) async {
     try {
-      final ok = await ensurePermission();
-      if (!ok) return;
-      await _plugin.show(
+      if (!await ensurePermission()) return;
+      await _plugin.zonedSchedule(
         id,
         title,
         body,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            _insightsChannel.id,
-            _insightsChannel.name,
-            channelDescription: _insightsChannel.description,
-            importance: Importance.defaultImportance,
-            priority: Priority.defaultPriority,
-            icon: '@mipmap/ic_launcher',
-          ),
-          iOS: const DarwinNotificationDetails(),
-        ),
+        _nextInstanceOf(hour, minute),
+        _details(category),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.time,
+        payload: route,
       );
-    } catch (_) {/* best-effort */}
+    } catch (_) {}
+  }
+
+  Future<void> scheduleWeekly({
+    required int id,
+    required NotifCategory category,
+    required String title,
+    required String body,
+    required int weekday, // DateTime.monday..sunday
+    required int hour,
+    required int minute,
+    String? route,
+  }) async {
+    try {
+      if (!await ensurePermission()) return;
+      await _plugin.zonedSchedule(
+        id,
+        title,
+        body,
+        _nextInstanceOf(hour, minute, weekday: weekday),
+        _details(category),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+        payload: route,
+      );
+    } catch (_) {}
   }
 
   Future<void> cancel(int id) async {
