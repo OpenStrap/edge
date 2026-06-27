@@ -72,6 +72,20 @@ class LocalRepositoryImpl extends LocalRepository {
     return _decode(r?['payload_json']);
   }
 
+  /// True when [date] is today's (UTC) label — the only case where a missing
+  /// derived row should fall back to the latest complete day. The screens pass
+  /// `todayUtc()` for the Today tab; historical drill-downs pass an exact past
+  /// date, which must NEVER fall back (else every empty day renders the latest
+  /// day's data — the "stage minutes show the latest night" bug).
+  bool _isTodayLabel(String date) =>
+      date == DateTime.now().toUtc().toIso8601String().substring(0, 10);
+
+  /// The bundle for a requested date: the exact day's row, or — only for the
+  /// Today request — the latest complete day. A historical date with no row
+  /// returns null (→ the caller's honest empty shape), not the latest.
+  Future<Map<String, dynamic>?> _bundleForDate(String date) async =>
+      await _bundle(date) ?? (_isTodayLabel(date) ? await _latestBundle() : null);
+
   static Map<String, dynamic>? _decode(Object? json) {
     if (json is! String) return null;
     try {
@@ -185,11 +199,15 @@ class LocalRepositoryImpl extends LocalRepository {
       // Headline 0–21 strain (the strain gauge already expects a 0–21 scale).
       'strain': _scalarMetric(_scalar(b, 'strain'), 'ESTIMATE'),
       'wear_min': _scalarMetric(_wearMin(b), 'HIGH', unit: 'min'),
-      // Active calories (Keytel HR→kcal over the wake span).
+      // Active calories (Keytel HR→kcal over the wake span) + total daily energy
+      // (TDEE: Mifflin BMR floor + active surplus).
       'calories': _scalarMetric(_scalar(b, 'calories')?.round(), 'ESTIMATE', unit: 'kcal'),
-      // Activity minutes shown on the steps tile (labeled "active min"); real
-      // steps stay live-only. `active_min` carried separately for the trend.
-      'steps': _scalarMetric(activeMin, 'ESTIMATE', unit: 'active min'),
+      'calories_total':
+          _scalarMetric(_scalar(b, 'calories_total')?.round(), 'ESTIMATE', unit: 'kcal'),
+      // STEPS — 24/7 ESTIMATE (ambulatory-minutes × cadence; 1 Hz can't COUNT
+      // steps, the live pedometer personalizes the cadence). `active_min` is the
+      // separate raw movement-minutes metric.
+      'steps': _scalarMetric(_scalar(b, 'steps')?.round(), 'ESTIMATE', unit: 'steps'),
       'active_min': _scalarMetric(activeMin, 'ESTIMATE', unit: 'min'),
     };
 
@@ -301,7 +319,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getDayHeart(String date) async {
-    final b = await _bundle(date) ?? await _latestBundle();
+    final b = await _bundleForDate(date);
     if (b == null) return const {};
     final hrCurve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
     final rmssd = _scalar(b, 'rmssd');
@@ -322,6 +340,9 @@ class LocalRepositoryImpl extends LocalRepository {
       },
       // Poincaré irregular-beat screen (sd1/sd2/flag/confidence).
       'irregular': _sub(b, 'clinical')?['irregular'],
+      // Winsorized-EWMA personal baselines (rhr/hrv/resp/skin_temp) — robust
+      // center + spread + z + cold-start status for each.
+      'baselines': b['baselines'],
       // Waking ultradian HRV timeline (RMSSD over the day, outside sleep).
       'daytime_hrv': b['daytime_hrv'],
       'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
@@ -335,7 +356,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getDayHrv(String date) async {
-    final b = await _bundle(date) ?? await _latestBundle();
+    final b = await _bundleForDate(date);
     if (b == null) return const {};
     return {
       'timeline': (_sub(b, 'series')?['hrv_timeline'] as List?) ?? const [],
@@ -357,7 +378,7 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> getDaySleepV2(String date) => _daySleep(date);
 
   Future<Map<String, dynamic>> _daySleep(String date) async {
-    final b = await _bundle(date) ?? await _latestBundle();
+    final b = await _bundleForDate(date);
     if (b == null) return const {};
     // Each is a Metric envelope — read the inner `.value` where the fields live.
     final acct = _sub(b, 'sleep.accounting.value');
@@ -413,6 +434,10 @@ class LocalRepositoryImpl extends LocalRepository {
       'cycles_mean_min': _cyclesMeanMin(b),
       // The graph plots the continuous z-RMSSD wave [{t,z}] — NOT the cycle spans.
       'cycle_series': _sub(b, 'sleep')?['cycle_series'] ?? const [],
+      // Parallel 4-class AASM read (Cole–Kripke/DoG stager): SOL / REM-latency /
+      // disturbances + stage minutes + hypnogram. ESTIMATE; the headline stages
+      // above stay the single source. {present:false} when none qualifies.
+      'advanced': b['advanced_sleep'],
     };
   }
 
@@ -447,7 +472,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getDayLungs(String date) async {
-    final b = await _bundle(date) ?? await _latestBundle();
+    final b = await _bundleForDate(date);
     if (b == null) return const {};
     return {
       'resp': _respObj(b),
@@ -458,7 +483,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getDayWear(String date) async {
-    final b = await _bundle(date) ?? await _latestBundle();
+    final b = await _bundleForDate(date);
     if (b == null) return const {};
     final cov = _sub(b, 'coverage');
     final valid = (cov?['hr_valid'] as num?)?.toInt() ?? 0;
@@ -484,7 +509,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // tension; transparent RR-histogram metric → 0–100 score). Falls back to the
     // readiness inverse only if SI is absent. Nocturnal arousal isn't computed,
     // so `sleep_stress` is intentionally absent (the screen handles it).
-    final b = await _bundle(date) ?? await _latestBundle();
+    final b = await _bundleForDate(date);
     if (b == null) return const {};
 
     final stressBlk =
@@ -540,7 +565,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getDayStrain(String date) async {
-    final b = await _bundle(date) ?? await _latestBundle();
+    final b = await _bundleForDate(date);
     if (b == null) return const {};
     final zones = _sub(b, 'zones');
     final hrStats = _sub(b, 'hr_stats');
@@ -553,6 +578,8 @@ class LocalRepositoryImpl extends LocalRepository {
       // TRIMP is kept as the secondary "training load" figure.
       'strain': _scalar(b, 'strain'),
       'training_load': _scalar(b, 'trimp'),
+      // Secondary 0–100 Edwards "effort" strain (zone-weighted, per-second wake HR).
+      'effort': _scalar(b, 'strain_effort'),
       'load': ?cd?['load'], // {acwr, acute, chronic, band} when ≥ history exists
       // HR-zone minutes (Z1–Z5 by %HRmax) — the strain detail's zone bars.
       'zones': {
@@ -564,7 +591,9 @@ class LocalRepositoryImpl extends LocalRepository {
       },
       'curve': [for (final p in curve) {'v': (p as Map)['v']}],
       'calories': _scalar(b, 'calories')?.round(),
-      'steps': null, // 1 Hz can't count steps; activity-minutes lives on Today
+      // Total daily energy (TDEE) + 24/7 step ESTIMATE (live pedometer tunes it).
+      'calories_total': _scalar(b, 'calories_total')?.round(),
+      'steps': _scalar(b, 'steps')?.round(),
       'hr': {
         'max': (hrStats?['max'] as num?)?.toInt(),
         'avg': (hrStats?['avg'] as num?)?.toInt(),
@@ -576,7 +605,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getDayTimeline(String date) async {
-    final b = await _bundle(date) ?? await _latestBundle();
+    final b = await _bundleForDate(date);
     if (b == null) return const {};
     final hrCurve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
 
@@ -693,8 +722,79 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> getSessions({int? from, int? to}) async =>
-      const []; // auto-workout detection not in the 1 Hz bundle yet.
+  Future<List<Map<String, dynamic>>> getSessions({int? from, int? to}) async {
+    // Manual/live sessions (the sessions table) MERGED with auto-detected
+    // workouts from the per-day bundle. Manual/saved WINS on overlap: a detected
+    // bout overlapping a manual session is dropped here (and is already dropped
+    // upstream in the engine via savedSpans — this is a belt-and-suspenders pass
+    // for sessions saved after the day was derived).
+    final now = DateTime.now();
+    final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+    final fromSec = from ??
+        now.subtract(const Duration(days: 31)).millisecondsSinceEpoch ~/ 1000;
+    final toSec = to ?? nowSec;
+
+    final manualRows = await LocalDb.sessionsInRange(fromSec, toSec);
+    final manual = [for (final r in manualRows) _workoutOf(r)];
+
+    // Saved spans (manual) for overlap-dedup of detected bouts.
+    final savedSpans = <List<int>>[];
+    for (final w in manual) {
+      final st = (w['start_ts'] as num?)?.toInt();
+      final en = (w['end_ts'] as num?)?.toInt() ?? st;
+      if (st != null && en != null) savedSpans.add([st, en]);
+    }
+    bool overlapsSaved(int s, int e) =>
+        savedSpans.any((sp) => s <= sp[1] && sp[0] <= e);
+
+    // Detected workouts from each recent derived day's bundle.
+    final detected = <Map<String, dynamic>>[];
+    final dayRows = await LocalDb.recentDayResults(60);
+    for (final r in dayRows) {
+      final b = _decode(r['payload_json']);
+      final list = b?['detected_workouts'];
+      if (list is! List) continue;
+      for (final dw in list) {
+        if (dw is! Map) continue;
+        final st = (dw['start'] as num?)?.toInt();
+        final en = (dw['end'] as num?)?.toInt();
+        if (st == null || en == null) continue;
+        if (st < fromSec || st > toSec) continue;
+        if (overlapsSaved(st, en)) continue; // manual wins
+        detected.add(_detectedWorkoutOf(dw, r['date'] as String?));
+      }
+    }
+
+    final all = [...manual, ...detected];
+    all.sort((a, b) => ((b['start_ts'] as num?) ?? 0)
+        .compareTo((a['start_ts'] as num?) ?? 0));
+    return all;
+  }
+
+  /// Shape a bundle `detected_workouts` entry (ExerciseSession.toJson) into the
+  /// workout map the screens parse. start/end are epoch SECONDS.
+  Map<String, dynamic> _detectedWorkoutOf(Map dw, String? date) {
+    final start = (dw['start'] as num?)?.toInt();
+    final end = (dw['end'] as num?)?.toInt();
+    final durS = (dw['duration_s'] as num?)?.toDouble() ??
+        ((start != null && end != null) ? (end - start).toDouble() : null);
+    final sport = (dw['sport'] as String?) ?? 'detected';
+    return {
+      'id': 'auto_${date ?? ''}_$start',
+      'start_ts': start,
+      'end_ts': end,
+      'status': 'detected',
+      'source': 'auto',
+      'type': sport,
+      'title': sport,
+      'strain': (dw['strain'] as num?)?.toDouble(),
+      'calories': (dw['calories_kcal'] as num?)?.round(),
+      'duration_min': durS == null ? null : (durS / 60).round(),
+      'avg_hr': (dw['avg_hr'] as num?)?.round(),
+      'peak_hr': (dw['peak_hr'] as num?)?.toInt(),
+      'zone_min': const [],
+    };
+  }
 
   @override
   Future<Map<String, dynamic>> getHistory({String range = '30d'}) async {
@@ -839,8 +939,10 @@ class LocalRepositoryImpl extends LocalRepository {
         return ('min', 'active');
       case 'calories':
         return ('kcal', 'calories');
+      case 'calories_total':
+        return ('kcal', 'total calories');
       case 'steps':
-        return ('min', 'active');
+        return ('steps', 'steps');
       case 'resp_rate':
         return ('rpm', 'respiratory rate');
       case 'light':
@@ -882,8 +984,8 @@ class LocalRepositoryImpl extends LocalRepository {
         return 'worn_min';
       case 'efficiency': // sleep-efficiency % trend
         return 'efficiency';
-      case 'steps': // 1 Hz has no steps; the tile/trend uses activity minutes
-        return 'active_min';
+      case 'steps': // 24/7 step ESTIMATE series (ambulatory-min × cadence)
+        return 'steps';
       case 'light':
         return 'light_min';
       case 'deep':
@@ -954,6 +1056,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'strain': (r['strain'] as num?)?.toDouble(),
       'calories': (r['calories'] as num?)?.round(),
       'duration_min': (r['duration_min'] as num?)?.toInt(),
+      'steps': (r['steps'] as num?)?.toInt(),
       'zone_min': zoneMin,
     };
   }

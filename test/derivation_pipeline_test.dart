@@ -169,6 +169,32 @@ void main() {
     final cov = (bundle['coverage'] as Map).cast<String, dynamic>();
     expect(cov['nn_clean'] as num, greaterThan(0));
 
+    // ── v16 additive blocks: Edwards "effort" strain + EWMA baselines ─────────
+    // Secondary 0–100 Edwards strain envelope present + honest-shaped. With
+    // profile age/sex set and dense HR over a 30-min wake span it should compute
+    // (gate: ≥600 samples or ≥600 s span, HRmax>RHR).
+    final effort = (clinical['strain_effort'] as Map).cast<String, dynamic>();
+    expect(effort.containsKey('tier'), isTrue);
+    final effortVal = scalars['strain_effort'];
+    if (effortVal != null) {
+      expect(effortVal as num, inInclusiveRange(0, 100));
+    }
+
+    // Winsorized-EWMA personal baselines for rhr/hrv/resp, each carrying the
+    // BaselineState fields + a cold-start status (calibrating on a single night).
+    final baselines = (bundle['baselines'] as Map).cast<String, dynamic>();
+    for (final k in const ['resting_hr', 'hrv', 'resp']) {
+      final b = (baselines[k] as Map).cast<String, dynamic>();
+      expect(b.containsKey('baseline'), isTrue, reason: '$k baseline');
+      expect(b.containsKey('spread'), isTrue, reason: '$k spread');
+      expect(
+          b['status'],
+          anyOf('calibrating', 'provisional', 'trusted', 'stale'),
+          reason: '$k status');
+    }
+    // Whole bundle still JSON-serializable with the new blocks.
+    expect(() => jsonEncode(bundle['baselines']), returnsNormally);
+
     // ── shape it like getToday() and assert a well-formed Today map ──────────
     final today = _shapeToday(bundle);
     expect(today['daily'], isA<Map>());

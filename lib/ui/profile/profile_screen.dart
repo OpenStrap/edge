@@ -5,17 +5,21 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../data/db.dart';
+import '../../health/health_export.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
-import '../kit/kit.dart';
-import '../today/step_goal_screen.dart';
 import '../debug/diagnostics_screen.dart';
 import '../debug/metrics_diagnostics_screen.dart';
+import '../import/import_screen.dart';
+import '../kit/kit.dart';
+import '../today/step_goal_screen.dart';
 import 'gesture_section.dart';
 import 'notification_relay_section.dart';
 
@@ -153,6 +157,36 @@ class ProfileScreen extends StatelessWidget {
               vertical: Sp.x2,
             ),
             child: DetailRow(
+              icon: Ic.cloud,
+              label: 'Import data',
+              value: 'NOOP · Edge · WHOOP',
+              onTap: () => Navigator.of(
+                context,
+              ).push(themedRoute((_) => const ImportScreen())),
+            ),
+          ),
+          const SizedBox(height: Sp.x3),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x5,
+              vertical: Sp.x2,
+            ),
+            child: DetailRow(
+              icon: Ic.cloud,
+              label: 'Backend URL',
+              value: app.backendConfigured
+                  ? _shortUrl(app.backendUrl)
+                  : 'Not set',
+              onTap: () => _editBackendUrl(context, app),
+            ),
+          ),
+          const SizedBox(height: Sp.x3),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x5,
+              vertical: Sp.x2,
+            ),
+            child: DetailRow(
               icon: Ic.history,
               label: 'Re-analyze data',
               value: app.reanalyzing
@@ -174,6 +208,41 @@ class ProfileScreen extends StatelessWidget {
                   ),
                 );
               },
+            ),
+          ),
+          const SizedBox(height: Sp.x3),
+          // Export the local SQLite store (transactionally-consistent VACUUM INTO
+          // snapshot) via the share sheet — for backup, moving to a new device
+          // ("Import from Edge"), or sharing for debugging.
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x5,
+              vertical: Sp.x2,
+            ),
+            child: Builder(
+              builder: (rowCtx) => DetailRow(
+                icon: Ic.cloud,
+                label: 'Export data (.db)',
+                value: 'Share',
+                onTap: () async {
+                  final messenger = ScaffoldMessenger.of(rowCtx);
+                  final box = rowCtx.findRenderObject() as RenderBox?;
+                  try {
+                    final path = await LocalDb.exportCopy();
+                    await Share.shareXFiles(
+                      [XFile(path)],
+                      text: 'OpenStrap data export',
+                      sharePositionOrigin: box != null
+                          ? box.localToGlobal(Offset.zero) & box.size
+                          : null,
+                    );
+                  } catch (e) {
+                    messenger.showSnackBar(
+                      SnackBar(content: Text('Export failed: $e')),
+                    );
+                  }
+                },
+              ),
             ),
           ),
           const SizedBox(height: Sp.x3),
@@ -208,6 +277,12 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
           ),
+
+          const SizedBox(height: Sp.x7),
+
+          // ── Apple Health (iOS) / Health Connect (Android) ─────────────
+          SectionHeader(app.healthStoreName),
+          _HealthSection(app: app),
 
           const SizedBox(height: Sp.x7),
 
@@ -481,6 +556,69 @@ class ProfileScreen extends StatelessWidget {
     return s[0].toUpperCase() + s.substring(1);
   }
 
+  /// Compact host for the row value (drop scheme + trailing path).
+  static String _shortUrl(String url) {
+    var u = url.replaceFirst(RegExp(r'^https?://'), '');
+    final slash = u.indexOf('/');
+    if (slash > 0) u = u.substring(0, slash);
+    return u;
+  }
+
+  /// Edit the cloud backend URL (used by existing-user login / cloud import).
+  /// Blank clears the override → falls back to the build-time BACKEND_URL.
+  Future<void> _editBackendUrl(BuildContext context, AppState app) async {
+    final ctrl = TextEditingController(text: app.backendUrl);
+    final messenger = ScaffoldMessenger.of(context);
+    final url = await showDialog<String>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Backend URL'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Where existing-user login + cloud import connect. Leave blank to '
+              'use the build default.',
+              style: AppText.captionMuted,
+            ),
+            const SizedBox(height: Sp.x3),
+            TextField(
+              controller: ctrl,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              decoration: const InputDecoration(
+                hintText: 'https://your-worker.workers.dev',
+                isDense: true,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dctx).pop(ctrl.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (url == null) return; // cancelled
+    await app.setBackendUrl(url);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          url.isEmpty
+              ? 'Backend URL cleared — using the build default.'
+              : 'Backend URL saved.',
+        ),
+      ),
+    );
+  }
+
   // ── Profile edit sheet ────────────────────────────────────────────────
   Future<void> _editProfileSheet(BuildContext context, AppState app) async {
     await showModalBottomSheet<void>(
@@ -541,6 +679,171 @@ Future<bool?> _confirm(
 }
 
 // ── Header ──────────────────────────────────────────────────────────────────
+/// Apple Health (iOS) / Health Connect (Android) export controls: a toggle to
+/// keep pushing each day's metrics, plus state-aware CTAs (grant / install).
+class _HealthSection extends StatelessWidget {
+  final AppState app;
+  const _HealthSection({required this.app});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = app.healthStoreName;
+    final st = app.healthState;
+    return ProCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: AppColors.coralSoft,
+                  borderRadius: BorderRadius.circular(R.chip),
+                ),
+                child: AppIcon(Ic.heart, size: 18, color: AppColors.coralInk),
+              ),
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Sync to $store', style: AppText.label),
+                    const SizedBox(height: 1),
+                    Text(
+                      'Sleep, resting HR, HRV, respiratory rate, energy & workouts.',
+                      style: AppText.captionMuted,
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: app.healthSyncEnabled,
+                activeThumbColor: AppColors.coral,
+                onChanged: (v) => app.setHealthSync(v),
+              ),
+            ],
+          ),
+          if (app.healthSyncEnabled) ...[
+            const SizedBox(height: Sp.x2),
+            const _HairDivider(),
+            const SizedBox(height: Sp.x3),
+            _statusRow(context, st, store),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _statusRow(BuildContext context, HealthLinkState st, String store) {
+    final messenger = ScaffoldMessenger.of(context);
+    // Health Connect must be installed/updated first (Android).
+    if (st == HealthLinkState.notInstalled) {
+      return _cta(
+        '$store isn’t installed. Install it, then come back.',
+        'Install',
+        () => app.installHealthConnect(),
+      );
+    }
+    if (st == HealthLinkState.needsUpdate) {
+      return _cta(
+        '$store needs an update before we can write to it.',
+        'Update',
+        () => app.installHealthConnect(),
+      );
+    }
+    if (st == HealthLinkState.unsupported) {
+      return Text(
+        '$store isn’t available on this device.',
+        style: AppText.captionMuted,
+      );
+    }
+
+    // Available: we can't reliably read the per-type WRITE grant (the platform
+    // hides it), so we just keep writing and tell the user how to allow access
+    // if data isn't showing — never a stuck "Grant access" gate.
+    final subtitle = app.healthIsApple
+        ? 'New days are written automatically. If they don’t appear in Apple '
+              'Health, tap Allow access and turn ON every category.'
+        : 'New days are written automatically. If they don’t appear, open '
+              'Health Connect → App permissions → OpenStrap → Allow all.';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            AppIcon(Ic.check, size: 16, color: AppColors.good),
+            const SizedBox(width: Sp.x2),
+            Expanded(
+              child: Text('Syncing to $store.', style: AppText.captionMuted),
+            ),
+          ],
+        ),
+        const SizedBox(height: Sp.x2),
+        Text(
+          subtitle,
+          style: AppText.caption.copyWith(color: AppColors.inkMuted),
+        ),
+        const SizedBox(height: Sp.x2),
+        Wrap(
+          spacing: Sp.x2,
+          children: [
+            FilledButton(
+              onPressed: () => app.requestHealth(),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.coral,
+                visualDensity: VisualDensity.compact,
+              ),
+              child: const Text(
+                'Allow access',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+            if (!app.healthIsApple)
+              OutlinedButton(
+                onPressed: () => app.openHealthConnect(),
+                style: OutlinedButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: const Text('Open Health Connect'),
+              ),
+            TextButton(
+              onPressed: () async {
+                final n = await app.healthSyncNow();
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      n > 0
+                          ? 'Synced $n day${n == 1 ? '' : 's'} to $store.'
+                          : 'Up to date — new days sync as they’re computed.',
+                    ),
+                  ),
+                );
+              },
+              child: const Text('Sync now'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _cta(String text, String label, VoidCallback onTap) => Row(
+    children: [
+      Expanded(child: Text(text, style: AppText.captionMuted)),
+      const SizedBox(width: Sp.x2),
+      FilledButton(
+        onPressed: onTap,
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.coral,
+          visualDensity: VisualDensity.compact,
+        ),
+        child: Text(label, style: TextStyle(color: Colors.white)),
+      ),
+    ],
+  );
+}
+
 class _Header extends StatelessWidget {
   final String name;
   final VoidCallback onEdit;

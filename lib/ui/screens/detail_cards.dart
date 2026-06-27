@@ -27,6 +27,27 @@ String _signed(num? v) {
   return v > 0 ? '+$s' : s;
 }
 
+/// One Winsorized-EWMA baseline row: "center unit · z value" plus a status tag.
+/// [relative] metrics (skin temp, raw ADC) show only z + status (no absolute).
+Widget _baselineRow(Map<String, dynamic> b, String label, String unit,
+    {bool relative = false}) {
+  num? n(Object? v) => v is num ? v : null;
+  final center = n(b['baseline']);
+  final z = n(b['z']);
+  final status = (b['status'] as String?) ?? 'calibrating';
+  // status → tag colour: trusted=good, provisional=warn, calibrating/stale=muted.
+  final tagColor = status == 'trusted'
+      ? AppColors.good
+      : (status == 'provisional' ? AppColors.warn : AppColors.inkSoft);
+  final parts = <String>[];
+  if (!relative && center != null) {
+    parts.add('${center.round()}${unit.isEmpty ? '' : ' $unit'}');
+  }
+  if (z != null) parts.add('z ${_signed(z)}');
+  final value = parts.isEmpty ? '—' : parts.join(' · ');
+  return DetailRow(label: label, value: value, trailing: Tag(status, color: tagColor));
+}
+
 /// Shared async wrapper: fetch a map, render via builder; spinner/empty states.
 class _Fetch extends StatefulWidget {
   final Future<Map<String, dynamic>> Function(dynamic api) load;
@@ -98,6 +119,7 @@ class HeartDayCard extends StatelessWidget {
         final illness = (d['illness'] as Map?);
         final resp = (d['resp'] as Map?);
         final spo2 = (d['spo2'] as Map?);
+        final baselines = (d['baselines'] as Map?);
         final dmap = (d['drivers'] as Map?) ?? const {};
         final heartDrivers = [
           ...((dmap['recovery'] as List?) ?? const []),
@@ -176,6 +198,29 @@ class HeartDayCard extends StatelessWidget {
                     info: 'Your typical RMSSD — recovery is measured against this.',
                     value: '${(_n(hrv['baseline']) ?? 0).round()}', unit: 'ms'),
             ]),
+          ],
+
+          // Personal baselines (Winsorized-EWMA) — robust center + how settled
+          // each baseline is (calibrating → trusted), with today's z vs your range.
+          if (baselines != null && baselines.isNotEmpty) ...[
+            const SizedBox(height: Sp.x6),
+            const SectionHeader('Personal baselines'),
+            ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Robust, recency-weighted (Winsorized EWMA). "z" is today vs your '
+                  'personal range; status shows how settled each baseline is.',
+                  style: AppText.captionMuted),
+              const SizedBox(height: Sp.x3),
+              for (final e in const [
+                ['resting_hr', 'Resting HR', 'bpm', false],
+                ['hrv', 'HRV (RMSSD)', 'ms', false],
+                ['resp', 'Respiratory rate', 'rpm', false],
+                ['skin_temp', 'Skin temp', '', true], // relative-only (raw ADC)
+              ])
+                if (baselines[e[0] as String] is Map)
+                  _baselineRow(
+                      (baselines[e[0] as String] as Map).cast<String, dynamic>(),
+                      e[1] as String, e[2] as String, relative: e[3] as bool),
+            ])),
           ],
 
           // Stress (HRV-based).

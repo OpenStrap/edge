@@ -9,13 +9,15 @@
 //            charging + idle is preferred). WorkManager genuinely runs us in a
 //            background isolate even when the app is killed.
 //
-//   iOS:     HONEST CAVEAT — there is NO guaranteed app-killed heavy compute on
-//            iOS. We register/schedule a BGProcessingTask identifier so iOS MAY
-//            run us opportunistically when the device is idle + charging, but the
-//            OS decides if/when, and a force-quit app never runs background tasks
-//            at all. The reliable iOS coverage is therefore: (a) the light pass
-//            during CoreBluetooth-restoration BLE wakes, and (b) finalize-on-
-//            -foreground when the app next opens. We do NOT pretend otherwise.
+//   iOS:     HONEST CAVEAT — heavy compute on iOS is NOT guaranteed.
+//            BackgroundTasks.swift registers "wtf.openstrap.edge.bgsync" as a
+//            BGProcessingTask and ios_bg_task.dart handles the run→Dart callout
+//            (sync + heavy derive). iOS decides if/when to run it (idle + power
+//            preferred; force-quit apps never run background tasks at all).
+//            Reliable iOS coverage: (a) the light pass during CoreBluetooth-
+//            restoration BLE wakes (IosBleRestore), (b) BGProcessingTask when iOS
+//            grants budget (IosBgTask), and (c) finalize-on-foreground when the
+//            app next opens. We do NOT pretend the BGTask is guaranteed.
 //
 // The WorkManager callback runs in its OWN isolate with no Provider/UI — it reads
 // the profile straight from shared_preferences and drives DerivationEngine, which
@@ -43,8 +45,12 @@ void derivationDispatcher() {
     WidgetsFlutterBinding.ensureInitialized();
     try {
       final profile = await _loadProfile();
-      await DerivationEngine(log: (m) => debugPrint('[bg-derive] $m'))
-          .run(profile, heavy: true);
+      final engine = DerivationEngine(log: (m) => debugPrint('[bg-derive] $m'));
+      await engine.run(profile, heavy: true);
+      // Baseline-dirty rescan on the scheduled tick: refresh baseline-dependent
+      // scalars on recent finalized days when the rolling baseline has moved.
+      // Cheap no-op when the baseline signature is unchanged.
+      await engine.rescanRecent(profile);
       return true;
     } catch (e, st) {
       debugPrint('[bg-derive] failed: $e\n$st');

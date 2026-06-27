@@ -9,6 +9,7 @@ import 'theme/theme_controller.dart';
 import 'theme/theme_switcher.dart';
 import 'theme/tokens.dart';
 import 'ui/kit/kit.dart';
+import 'ui/onboarding/welcome_screen.dart';
 import 'ui/pairing_screen.dart';
 import 'ui/profile_setup_screen.dart';
 import 'ui/today/today_screen.dart';
@@ -95,6 +96,8 @@ class _Gate extends StatelessWidget {
         return Scaffold(
           body: Center(child: CircularProgressIndicator(color: AppColors.coral)),
         );
+      case AppRoute.welcome:
+        return const WelcomeScreen();
       case AppRoute.pairing:
         return PairingScreen();
       case AppRoute.profile:

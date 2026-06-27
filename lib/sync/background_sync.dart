@@ -52,6 +52,9 @@ Future<bool> runHeadlessSync() async {
       onEvent: (id, ts, hex) => LocalDb.insertEvent(id, ts, hex),
       log: (l) => debugPrint('[bgsync] $l'),
       onRecordsBatch: LocalDb.insertRecordsBatch,
+      onCommitBatch: (raws, samples, trimTokenHex) =>
+          LocalDb.commitSyncBatch(raws, samples, trimToken: trimTokenHex),
+      cursorReader: LocalDb.getCursorInt,
     );
 
     // connect() subscribes → SET_CLOCK → INIT, so the historical offload is already

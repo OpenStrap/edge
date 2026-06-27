@@ -24,6 +24,7 @@ import '../models/app_status.dart';
 import '../ble/accessory_setup.dart';
 import '../ble/ble_engine.dart';
 import '../ble/ios_ble_restore.dart';
+import '../cloud/backend_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
 import '../compute/profile.dart';
@@ -31,6 +32,9 @@ import '../data/db.dart';
 import '../data/local_repository.dart';
 import '../data/local_repository_impl.dart';
 import '../gestures/gesture_settings.dart';
+import '../health/health_export.dart';
+import '../import/noop_import.dart';
+import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
 import '../data/models.dart';
 import '../live/live_activity.dart';
@@ -47,7 +51,7 @@ import '../sync/file_log.dart';
 /// Flow: loading → pairing → profile (only if incomplete) → shell. The profile
 /// step collects age/weight/height/sex so the on-device analytics can
 /// personalize (HRmax, calories, TRIMP); it's skipped once those are set.
-enum AppRoute { loading, pairing, profile, shell }
+enum AppRoute { loading, welcome, pairing, profile, shell }
 
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
@@ -128,6 +132,14 @@ class AppState extends ChangeNotifier {
   static const String _kProfile = 'local_profile_json';
   Map<String, dynamic>? user;
 
+  // ── onboarding choice (new vs existing v2 user) ─────────────────────────────
+  // 'new' | 'existing' | null (not chosen yet → the welcome screen shows). Once
+  // set, the welcome screen never reappears (a returning paired user also skips
+  // it). Persisted so a relaunch mid-onboarding doesn't re-prompt.
+  static const String _kOnboard = 'onboarding_choice';
+  String? _onboardChoice;
+  String? get onboardChoice => _onboardChoice;
+
   Future<void> _loadProfile() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_kProfile);
@@ -138,6 +150,169 @@ class AppState extends ChangeNotifier {
         /* ignore corrupt blob */
       }
     }
+    _onboardChoice = prefs.getString(_kOnboard);
+    // Load the user's backend-URL override (if any) so the cloud client resolves
+    // it ahead of the build-time BACKEND_URL.
+    BackendClient.overrideUrl = prefs.getString(_kBackendUrl);
+    healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
+    // Best-effort, no prompt: learn the current health-permission state so the
+    // Profile toggle reflects reality on open.
+    if (healthSyncEnabled) unawaited(checkHealth());
+  }
+
+  // ── backend URL (cloud import / existing-user login) ────────────────────────
+  // Resolved by BackendClient as: this override → build-time BACKEND_URL → empty.
+  static const String _kBackendUrl = 'backend_url';
+
+  /// The effective backend base URL (override or build-time), '' if unconfigured.
+  String get backendUrl => BackendClient.effectiveBase;
+
+  /// True when no backend is configured (no override + no build-time URL).
+  bool get backendConfigured => BackendClient.effectiveBase.trim().isNotEmpty;
+
+  /// Set (or clear, with '') the runtime backend-URL override.
+  Future<void> setBackendUrl(String url) async {
+    final v = url.trim();
+    final prefs = await SharedPreferences.getInstance();
+    if (v.isEmpty) {
+      await prefs.remove(_kBackendUrl);
+      BackendClient.overrideUrl = null;
+    } else {
+      await prefs.setString(_kBackendUrl, v);
+      BackendClient.overrideUrl = v;
+    }
+    notifyListeners();
+  }
+
+  /// New-user path: record the choice and advance (welcome → pairing → profile).
+  Future<void> chooseNewUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kOnboard, 'new');
+    _onboardChoice = 'new';
+    notifyListeners();
+  }
+
+  /// Existing-user path: after a successful cloud import, persist the cloud
+  /// profile + mark onboarding done so the gate advances to pairing → shell.
+  /// [cloudProfile] is the mapped local-profile field set from CloudImporter.
+  Future<void> completeCloudOnboard(Map<String, dynamic> cloudProfile) async {
+    await updateProfile(cloudProfile); // persists + notifies
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kOnboard, 'existing');
+    _onboardChoice = 'existing';
+    notifyListeners();
+  }
+
+  /// Mark onboarding complete after a file import (welcome → import flow). No-op
+  /// if a choice was already made (a returning user importing from Profile). The
+  /// route then advances past `welcome` to pairing → profile → shell.
+  Future<void> completeImportOnboard() async {
+    if (_onboardChoice != null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kOnboard, 'imported');
+    _onboardChoice = 'imported';
+    notifyListeners();
+  }
+
+  // ── data imports (NOOP raw CSV / Edge backup / WHOOP export) ────────────────
+  // Reachable from onboarding AND Profile (a returning user is past the welcome
+  // gate). Each runs against the engine + local profile, then notifies so every
+  // screen re-reads the freshly imported days.
+
+  /// NOOP raw-sensor CSV → FULL 1 Hz re-derivation (memory-bounded streaming).
+  Future<int> importNoopCsv(
+    String path, {
+    void Function(int days)? onProgress,
+  }) async {
+    final res = await NoopImporter.importFile(
+      path,
+      _profile,
+      _derive,
+      onProgress: onProgress,
+    );
+    notifyListeners();
+    return res.days;
+  }
+
+  /// WHOOP export CSV(s) → derived-snapshot days (+ workouts). BETA.
+  Future<int> importWhoopCsvs(
+    List<String> paths, {
+    void Function(int days)? onProgress,
+  }) async {
+    final res = await WhoopImporter.importFiles(
+      paths,
+      engine: _derive,
+      profile: _profile,
+      onProgress: onProgress,
+    );
+    notifyListeners();
+    return res.days;
+  }
+
+  /// Another device's exported OpenStrap DB (.db) → merge into the local store.
+  /// Returns total rows copied across tables.
+  Future<int> importEdgeBackup(String path) async {
+    final counts = await LocalDb.importFromDbFile(path);
+    // Imported rows include derived day_result/metric_series → refresh rollups.
+    try {
+      await _derive.finalizeImport(_profile);
+    } catch (_) {
+      /* best-effort */
+    }
+    notifyListeners();
+    return counts.values.fold<int>(0, (a, b) => a + b);
+  }
+
+  // ── platform health export (Apple Health / Health Connect) ──────────────────
+  final HealthExporter _healthExport = HealthExporter();
+  HealthLinkState healthState = HealthLinkState.unknown;
+  bool healthSyncEnabled = false;
+  static const String _kHealthSync = 'health_sync';
+
+  /// "Apple Health" (iOS) or "Health Connect" (Android).
+  String get healthStoreName => HealthExporter.storeName;
+  bool get healthIsApple => HealthExporter.isApple;
+
+  /// Check current permission state WITHOUT prompting (startup-safe).
+  Future<void> checkHealth() async {
+    healthState = await _healthExport.check();
+    notifyListeners();
+  }
+
+  /// Prompt for write access (user gesture). On grant + enabled, kick a sync.
+  Future<void> requestHealth() async {
+    healthState = await _healthExport.request();
+    notifyListeners();
+    if (healthState == HealthLinkState.ready && healthSyncEnabled) {
+      unawaited(healthSyncNow());
+    }
+  }
+
+  /// Android: open the Play Store to install/update Health Connect.
+  Future<void> installHealthConnect() => _healthExport.install();
+
+  /// Android: open the Health Connect app/settings so the user can enable our
+  /// per-app access manually. Re-checks state when they come back.
+  Future<void> openHealthConnect() async {
+    await _healthExport.openSettings();
+  }
+
+  /// Toggle continuous export. Enabling requests permission + does a first sync.
+  Future<void> setHealthSync(bool on) async {
+    healthSyncEnabled = on;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kHealthSync, on);
+    notifyListeners();
+    if (on) {
+      await requestHealth();
+      if (healthState == HealthLinkState.ready) unawaited(healthSyncNow());
+    }
+  }
+
+  /// Export all finalized-but-unexported days now. Returns days written.
+  Future<int> healthSyncNow() async {
+    final n = await _healthExport.exportAll();
+    return n;
   }
 
   /// Merge + persist local profile fields. Returns the updated map. Replaces the
@@ -157,6 +332,8 @@ class AppState extends ChangeNotifier {
   Future<void> signOut() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kProfile);
+    await prefs.remove(_kOnboard);
+    _onboardChoice = null;
     user = null;
     await unpair();
   }
@@ -167,6 +344,10 @@ class AppState extends ChangeNotifier {
   /// and starve the background BLE connection.
   AppRoute get route {
     if (!initialized) return AppRoute.loading;
+    // First run, fresh install: offer "existing v2 user vs new user" before we
+    // ask anyone to pair. A returning (already-paired) user skips it even if the
+    // choice flag predates this build.
+    if (_onboardChoice == null && !isPaired) return AppRoute.welcome;
     if (!isPaired) return AppRoute.pairing;
     if (!profileComplete) return AppRoute.profile;
     return AppRoute.shell;
@@ -246,6 +427,12 @@ class AppState extends ChangeNotifier {
       log: _log,
       onEvent: _onLiveEvent,
       onRecordsBatch: LocalDb.insertRecordsBatch,
+      // RESUMABLE SYNC: atomic commit of raw + samples + continuation cursor
+      // before the HISTORY_END ACK, and a reader to seed the offload frontier
+      // from the durable high-water on (re)connect.
+      onCommitBatch: (raws, samples, trimTokenHex) =>
+          LocalDb.commitSyncBatch(raws, samples, trimToken: trimTokenHex),
+      cursorReader: LocalDb.getCursorInt,
       // Debounced compute trigger: with continuous listening there's no discrete
       // "sync done", so the engine coalesces stored-record bursts and fires this
       // once a burst goes quiet. Light pass (newest affected day) — the foreground
@@ -282,7 +469,37 @@ class AppState extends ChangeNotifier {
       notifyListeners(); // screens re-fetch from the derived store
       // A heavy finalize is where a freshly-closed sleep window + recovery for a
       // new physiological day lands — fire the "recovery ready" push off it.
-      if (heavy) unawaited(_maybeNotifyRecoveryReady());
+      if (heavy) {
+        unawaited(_maybeNotifyRecoveryReady());
+        // Baseline-dirty rescan: new data may have shifted the rolling baseline,
+        // so refresh baseline-dependent scalars (readiness/illness/stress) on
+        // recent FINALIZED days. Cheap when the baseline is unchanged (a single
+        // signature read). Best-effort — never throws into the BLE path.
+        unawaited(() async {
+          try {
+            final n = await _derive.rescanRecent(_profile);
+            if (n > 0) {
+              notifyListeners(); // screens re-read the refreshed scalars
+            }
+          } catch (e) {
+            _log('[derive] rescan failed: $e');
+          }
+        }());
+      }
+      // Continuous health export: push freshly-derived days (incl. TODAY) to Apple
+      // Health / Health Connect AS SOON as they're computed — runs on BOTH the
+      // light (every drain) and heavy passes, not only on finalize. Idempotent
+      // (delete-then-write), best-effort, never throws into the BLE/derive path.
+      if (healthSyncEnabled) {
+        unawaited(() async {
+          try {
+            final n = await _healthExport.exportAll();
+            if (n > 0) _log('[health] exported $n day(s)');
+          } catch (e) {
+            _log('[health] export failed: $e');
+          }
+        }());
+      }
     } catch (e) {
       _log('[derive] post-drain failed: $e');
     }
@@ -553,6 +770,16 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // Live workout-step support is temporarily disabled on this branch until the
+  // sibling analytics package exposes the calibrated pedometer API again.
+  int get liveSteps => 0;
+
+  int get workoutSteps => 0;
+
+  void _resetLivePedometer() {}
+
+  Future<void> _finalizeLivePedometer() async {}
+
   void _onEngineState(DeviceState s) {
     // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
     _deviceAlerts.onDeviceState(batteryPct: s.batteryPct, charging: s.charging);
@@ -591,6 +818,9 @@ class AppState extends ChangeNotifier {
       );
     }
     if (_prevConn != 'disconnected' && s.connection == 'disconnected') {
+      // Live stream ended → fold this bout into the personal cadence calibration
+      // (best-effort; only credible walking updates it) and reset the counter.
+      unawaited(_finalizeLivePedometer());
       if (_keepAlive && isPaired && !_reconnecting) {
         _log('Connection dropped — reconnecting…');
         _stopBackfillTimer();
@@ -841,6 +1071,7 @@ class AppState extends ChangeNotifier {
         return;
       }
       await engine.enableLiveStreams();
+      _resetLivePedometer(); // fresh live step count for this connected session
       await engine.getBattery();
       await engine
           .getStrapName(); // populate strap name + alarm for the Profile UI
@@ -1144,6 +1375,7 @@ class AppState extends ChangeNotifier {
     _workoutTimer = null;
     final w = activeWorkout!;
     final finalKcal = w.calories.round();
+    final wSteps = workoutSteps; // real steps taken during this workout
     // Persist the finalized session before clearing the live state. No per-zone
     // minute tallies are tracked live, so zone_min is honestly empty.
     final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
@@ -1159,6 +1391,7 @@ class AppState extends ChangeNotifier {
         'max_hr': w.maxHrSeen > 0 ? w.maxHrSeen : null,
         'duration_min': w.elapsed.inMinutes,
         'zone_min_json': jsonEncode(const <num>[]),
+        if (wSteps > 0) 'steps': wSteps,
         'source': 'manual',
         'created_at': w.startTime.millisecondsSinceEpoch,
       }),

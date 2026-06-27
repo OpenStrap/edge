@@ -197,7 +197,12 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     final fitness = _data['fitness_trend']?.toString();
     final cals = _num(_data['calories']);
     final steps = _num(_data['steps']);
-    final hasLoad = load.isNotEmpty || fitness != null || cals != null || steps != null;
+    final effort = _num(_data['effort']);
+    final hasLoad = load.isNotEmpty ||
+        fitness != null ||
+        cals != null ||
+        steps != null ||
+        effort != null;
     final drivers = [for (final dr in _list(_map(_data['drivers'])['strain'])) _map(dr)]
         .where((dr) => (dr['label']?.toString() ?? '').isNotEmpty).toList();
     return [
@@ -205,7 +210,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
       const SizedBox(height: Sp.x4),
       if (hasLoad) ...[
         const SectionHeader('Training load'),
-        _loadCard(load, fitness, cals, steps),
+        _loadCard(load, fitness, cals, steps, effort),
         const SizedBox(height: Sp.x4),
       ],
       ..._fitnessSection(),
@@ -299,7 +304,8 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     ];
   }
 
-  Widget _loadCard(Map<String, dynamic> load, String? fitness, num? cals, num? steps) {
+  Widget _loadCard(Map<String, dynamic> load, String? fitness, num? cals,
+      num? steps, num? effort) {
     final acwr = _num(load['acwr']);
     final band = load['band']?.toString();
     Color bandColor() {
@@ -327,7 +333,14 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
         ],
         if (fitness != null) DetailRow(label: 'Fitness trend', value: fitness),
         if (cals != null) DetailRow(label: 'Active calories', value: '${cals.round()} kcal'),
-        if (steps != null) DetailRow(label: 'Steps', value: '${steps.round()}'),
+        if (_num(_data['calories_total']) != null)
+          DetailRow(
+              label: 'Total calories',
+              value: '${_num(_data['calories_total'])!.round()} kcal'),
+        if (steps != null) DetailRow(label: 'Steps (est.)', value: '${steps.round()}'),
+        // Edwards zone-weighted "effort" (0–100) — finer-grained intensity read
+        // than the 0–21 headline, over the per-second wake HR.
+        if (effort != null) DetailRow(label: 'Effort (0–100)', value: '${effort.round()}'),
       ]),
     );
   }

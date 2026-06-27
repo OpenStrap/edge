@@ -146,6 +146,11 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   Map<String, dynamic> get _resp => _map(_data['resp']);
   bool get _hasNocturnal => _num(_nocturnal['sleeping_hr_avg']) != null;
 
+  // Parallel 4-class AASM read (Cole–Kripke/DoG stager). ESTIMATE; shown below
+  // the single-source stages as a "beta" cross-check.
+  Map<String, dynamic> get _advanced => _map(_data['advanced']);
+  bool get _hasAdvanced => _advanced['present'] == true;
+
   /// Compressed hypnogram: consecutive same-stage points merged into segments.
   List<_Seg> _segments() {
     final raw = _data['hypnogram'];
@@ -312,6 +317,11 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       if (detailedAvailable(widget.date) && _cycles.isNotEmpty) ...[
         const SizedBox(height: Sp.x3),
         _cyclesCard(),
+      ],
+      if (_hasAdvanced) ...[
+        const SizedBox(height: Sp.x6),
+        const SectionHeader('Advanced stages (beta)'),
+        _advancedCard(),
       ],
       if (_hasNocturnal) ...[
         const SizedBox(height: Sp.x6),
@@ -676,6 +686,48 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         swatch('rem'),
         swatch('awake'),
       ],
+    );
+  }
+
+  // ── 4b. ADVANCED STAGES (beta) ──────────────────────────────────────────────
+  // AASM figures from the parallel Cole–Kripke/DoG stager. ESTIMATE — a cross-
+  // check beside the single-source stages above, not a replacement.
+  Widget _advancedCard() {
+    final m = _map(_advanced['metrics']);
+    String mins(String key) {
+      final s = _num(m[key]);
+      return s == null ? '—' : '${(s / 60).round()} min';
+    }
+
+    String minsFromMin(String key) {
+      final v = _num(m[key]);
+      return v == null ? '—' : '${v.round()} min';
+    }
+
+    final remLat = _num(m['rem_latency_s']);
+    final dist = _num(m['disturbances']);
+    final eff = _num(_advanced['efficiency']); // 0..1
+    return ProCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(
+            'A second, independent 4-class estimate (Cole–Kripke + HR-variability). '
+            'Wrist autonomic — not PSG. Use it as a sanity check on the stages above.',
+            style: AppText.captionMuted),
+        const SizedBox(height: Sp.x3),
+        DetailRow(label: 'Sleep onset latency', value: mins('sol_s')),
+        DetailRow(
+            label: 'REM latency',
+            value: remLat == null ? '—' : '${(remLat / 60).round()} min'),
+        DetailRow(
+            label: 'Disturbances',
+            value: dist == null ? '—' : '${dist.round()}'),
+        DetailRow(label: 'Deep', value: minsFromMin('deep_min')),
+        DetailRow(label: 'Light', value: minsFromMin('light_min')),
+        DetailRow(label: 'REM', value: minsFromMin('rem_min')),
+        if (eff != null)
+          DetailRow(
+              label: 'Efficiency', value: '${(eff * 100).round()}%'),
+      ]),
     );
   }
 

@@ -10,6 +10,8 @@ import 'coach/coach_config.dart';
 import 'state/app_state.dart';
 import 'state/prefs.dart';
 import 'state/units_controller.dart';
+import 'sync/headless_boot.dart';
+import 'sync/ios_bg_task.dart';
 import 'theme/theme_controller.dart';
 import 'widget/widget_service.dart';
 
@@ -33,10 +35,14 @@ Future<void> main() async {
   // native launch screen (blank/icon). Guard each so the UI always boots.
   // iOS: registers the CoreBluetooth-restoration wake handler (no-op on Android).
   await _safeInit('IosBleRestore', IosBleRestore.init);
+  // iOS: BGProcessingTask Dart handler (openstrap/bg_task channel). No-op on Android.
+  await _safeInit('IosBgTask', IosBgTask.init);
+  // Android: headless auto-connect after reboot (no-op if a view is attached or iOS).
+  await _safeInit('HeadlessBoot', maybeHeadlessBoot);
   await _safeInit('WidgetService', WidgetService.init);
   await _safeInit('NotificationService', NotificationService.instance.init);
-  // Schedule the heavy nightly derivation (Android WorkManager; iOS no-op — see
-  // the honest caveat in background_derivation.dart). Best-effort.
+  // Schedule the heavy nightly derivation (Android WorkManager; iOS now also has a
+  // BGProcessingTask via BackgroundTasks.swift — see background_derivation.dart).
   await _safeInit('BackgroundDerivation', BackgroundDerivation.init);
   // Cache SharedPreferences so UI screens can synchronously RESTORE saved
   // selections (tab, range toggles) in initState with no async flash.

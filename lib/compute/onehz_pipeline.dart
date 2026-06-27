@@ -61,6 +61,13 @@ class DayBundleInput {
   final List<double> rhrHistory;
   final List<double> respHistory;
 
+  /// Trailing robust nocturnal RMSSD means (ms) — the SAME `rmssd` series the
+  /// engine writes to metric_series (NREM-restricted, median-of-5-min). Used as
+  /// the history for the EWMA hrv baseline so its center and today's value are the
+  /// SAME metric (was previously reconstructed from ln(whole-window RMSSD), a
+  /// definition mismatch that made the z spuriously large).
+  final List<double> rmssdHistory;
+
   /// Trailing RAW nightly skin-temp ADC means (NOT z-scores). The personal
   /// baseline for the relative skin-temp deviation: today's mean sleep-window
   /// ADC is z-scored against THIS series. Must be raw ADC means so the unit
@@ -90,40 +97,43 @@ class DayBundleInput {
     this.lnRmssdHistory = const [],
     this.rhrHistory = const [],
     this.respHistory = const [],
+    this.rmssdHistory = const [],
     this.skinTempAdcHistory = const [],
     this.dayConfidence = 0,
     this.dayFlags = const [],
   });
 
   Map<String, dynamic> toJson() => {
-        'date': date,
-        'day_ts': dayTsSec,
-        'day_hr': dayHr,
-        'sleep_ts': sleepTsSec,
-        'sleep_hr': sleepHr,
-        'sleep_rr_ts_ms': sleepRrTsMs,
-        'sleep_rr_ms': sleepRrMs,
-        'sleep_spo2_red': sleepSpo2Red,
-        'sleep_spo2_ir': sleepSpo2Ir,
-        'sleep_skin_temp': sleepSkinTemp,
-        'sleep_json': sleepJson,
-        'hypno_stages': hypnoStages,
-        'sleep_onset_sec': sleepOnsetSec,
-        'sleep_offset_sec': sleepOffsetSec,
-        'profile': profile,
-        'ln_rmssd_history': lnRmssdHistory,
-        'rhr_history': rhrHistory,
-        'resp_history': respHistory,
-        'skin_temp_adc_history': skinTempAdcHistory,
-        'day_confidence': dayConfidence,
-        'day_flags': dayFlags,
-      };
+    'date': date,
+    'day_ts': dayTsSec,
+    'day_hr': dayHr,
+    'sleep_ts': sleepTsSec,
+    'sleep_hr': sleepHr,
+    'sleep_rr_ts_ms': sleepRrTsMs,
+    'sleep_rr_ms': sleepRrMs,
+    'sleep_spo2_red': sleepSpo2Red,
+    'sleep_spo2_ir': sleepSpo2Ir,
+    'sleep_skin_temp': sleepSkinTemp,
+    'sleep_json': sleepJson,
+    'hypno_stages': hypnoStages,
+    'sleep_onset_sec': sleepOnsetSec,
+    'sleep_offset_sec': sleepOffsetSec,
+    'profile': profile,
+    'ln_rmssd_history': lnRmssdHistory,
+    'rhr_history': rhrHistory,
+    'resp_history': respHistory,
+    'rmssd_history': rmssdHistory,
+    'skin_temp_adc_history': skinTempAdcHistory,
+    'day_confidence': dayConfidence,
+    'day_flags': dayFlags,
+  };
 
   static DayBundleInput fromJson(Map<String, dynamic> m) {
     List<int> ints(String k) =>
         ((m[k] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
-    List<double> dbls(String k) =>
-        ((m[k] as List?) ?? const []).map((e) => (e as num).toDouble()).toList();
+    List<double> dbls(String k) => ((m[k] as List?) ?? const [])
+        .map((e) => (e as num).toDouble())
+        .toList();
     List<String> strs(String k) =>
         ((m[k] as List?) ?? const []).map((e) => e.toString()).toList();
     return DayBundleInput(
@@ -137,7 +147,8 @@ class DayBundleInput {
       sleepSpo2Red: ints('sleep_spo2_red'),
       sleepSpo2Ir: ints('sleep_spo2_ir'),
       sleepSkinTemp: ints('sleep_skin_temp'),
-      sleepJson: ((m['sleep_json'] as Map?) ?? const {}).cast<String, dynamic>(),
+      sleepJson: ((m['sleep_json'] as Map?) ?? const {})
+          .cast<String, dynamic>(),
       hypnoStages: strs('hypno_stages'),
       sleepOnsetSec: (m['sleep_onset_sec'] as num?)?.toInt() ?? 0,
       sleepOffsetSec: (m['sleep_offset_sec'] as num?)?.toInt() ?? 0,
@@ -145,6 +156,7 @@ class DayBundleInput {
       lnRmssdHistory: dbls('ln_rmssd_history'),
       rhrHistory: dbls('rhr_history'),
       respHistory: dbls('resp_history'),
+      rmssdHistory: dbls('rmssd_history'),
       skinTempAdcHistory: dbls('skin_temp_adc_history'),
       dayConfidence: (m['day_confidence'] as num?)?.toDouble() ?? 0,
       dayFlags: strs('day_flags'),
@@ -205,7 +217,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final robustRmssd = nocturnalRmssd(nn, nnTimes, stageMaskPerSec: nremMask);
   final hrvF = nn.length >= 20
       ? hrvFreq(nn, nnTimes, artifactFraction: artifactFraction)
-      : const Metric<HrvFreq>.absent(tier: Tier.high, inputs_used: ['rr_cleaned']);
+      : const Metric<HrvFreq>.absent(
+          tier: Tier.high,
+          inputs_used: ['rr_cleaned'],
+        );
   // Nocturnal RHR over the SLEEP HR (fallback to day-valid only if no sleep HR).
   final rhr = nocturnalRhr(sleepHr.isNotEmpty ? sleepHr : dayHrValid);
   // HR dip: day-side = waking HR outside the sleep window; night-side = sleep HR.
@@ -221,36 +236,46 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final resp = nn.length >= 30
       ? rsaRespRate(nn, nnTimes, artifactFraction: artifactFraction)
       : const Metric<RespEstimate>.absent(
-          tier: Tier.estimate, inputs_used: ['rr_cleaned']);
+          tier: Tier.estimate,
+          inputs_used: ['rr_cleaned'],
+        );
   final cvhr = nn.length >= 60
       ? cvhrApneaScreen(nn, nnTimes, artifactFraction: artifactFraction)
       : const Metric<CvhrResult>.absent(
-          tier: Tier.estimate, inputs_used: ['rr_cleaned']);
+          tier: Tier.estimate,
+          inputs_used: ['rr_cleaned'],
+        );
   final cpc = nn.length >= 60
       ? cardiopulmonaryCoupling(nn, nnTimes)
       : const Metric<CpcResult>.absent(
-          tier: Tier.high, inputs_used: ['rr_cleaned']);
+          tier: Tier.high,
+          inputs_used: ['rr_cleaned'],
+        );
 
   // Relative ODI over the SLEEP window's spo2 channels (desaturation screen).
   final odiRed = [for (final v in d.sleepSpo2Red) v.toDouble()];
   final odiIr = [for (final v in d.sleepSpo2Ir) v.toDouble()];
   final odiTs = [for (final t in d.sleepTsSec) t.toDouble()];
-  final odi = (odiRed.length == odiIr.length &&
+  final odi =
+      (odiRed.length == odiIr.length &&
           odiRed.length == odiTs.length &&
           odiRed.length >= 60)
       ? relativeOdi(odiRed, odiIr, odiTs)
       : const Metric<RelativeOdiResult>.absent(
-          tier: Tier.relative, inputs_used: ['spo2_red_raw', 'spo2_ir_raw']);
+          tier: Tier.relative,
+          inputs_used: ['spo2_red_raw', 'spo2_ir_raw'],
+        );
 
   // ── WELLNESS: relative skin-temp deviation (z) vs personal baseline ────────
   // STEP 1 — today's RAW mean sleep-window skin-temp ADC. ALWAYS computable when
   // there's sleep + temp data; stored EVERY day to build the baseline series so
   // z starts computing once ≥3 prior days exist (honest bootstrap: first ~3 days
   // legitimately read "—", then it works).
-  final tempValid =
-      d.sleepSkinTemp.where((v) => v > 0).map((v) => v.toDouble()).toList();
-  final double? skinTempAdc =
-      tempValid.length >= 60 ? _mean(tempValid) : null;
+  final tempValid = d.sleepSkinTemp
+      .where((v) => v > 0)
+      .map((v) => v.toDouble())
+      .toList();
+  final double? skinTempAdc = tempValid.length >= 60 ? _mean(tempValid) : null;
   // STEP 2 — z-score today's RAW mean against the RAW-ADC baseline history (NOT
   // the previously-computed z-scores; that unit mismatch was the bug). Gated on
   // ≥3 prior raw means.
@@ -264,8 +289,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // ── READINESS (the canonical composite, baseline-dependent) ───────────────
   final lnToday =
       (hrvT.present && hrvT.value!.rmssd != null && hrvT.value!.rmssd! > 0)
-          ? math.log(hrvT.value!.rmssd!)
-          : null;
+      ? math.log(hrvT.value!.rmssd!)
+      : null;
   final rhrToday = rhr.present ? rhr.value!.low30Mean : null;
   final respToday = resp.present ? resp.value!.brpm : null;
   final composite = readinessComposite([
@@ -282,7 +307,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final lnReadiness = lnHist.length >= 4
       ? readinessLnRmssd(lnHist)
       : const Metric<ReadinessLnRmssd>.absent(
-          tier: Tier.high, inputs_used: ['ln_rmssd_history']);
+          tier: Tier.high,
+          inputs_used: ['ln_rmssd_history'],
+        );
 
   // ── STRAIN: Banister TRIMP over the WAKE span (per-minute day HR) ──────────
   final prof = d.profile;
@@ -295,15 +322,19 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // TRIMP, HR zones, and calories so all three see the same wake series).
   final perMin = _perMinuteMeanWake(d);
   Metric<double> trimp = const Metric<double>.absent(
-      tier: Tier.estimate, inputs_used: ['hr_1hz', 'profile']);
+    tier: Tier.estimate,
+    inputs_used: ['hr_1hz', 'profile'],
+  );
   Map<String, int> hrZones = const {};
   double? caloriesKcal;
   if (hrMax != null && perMin.isNotEmpty) {
     if (rhrForTrimp != null && sex != null && dayHrValid.isNotEmpty) {
-      trimp = banisterTrimp(perMin,
-          restingHr: rhrForTrimp,
-          maxHr: hrMax,
-          sex: sex == 'f' ? Sex.female : Sex.male);
+      trimp = banisterTrimp(
+        perMin,
+        restingHr: rhrForTrimp,
+        maxHr: hrMax,
+        sex: sex == 'f' ? Sex.female : Sex.male,
+      );
     }
     // HR zones by %HRmax — Z1–Z5 at 50/60/70/80/90% (one minute per perMin point).
     hrZones = _hrZones(perMin, hrMax);
@@ -439,7 +470,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'confidence': skinTempZ == null ? 0 : 0.5,
       'tier': Tier.relative,
       'inputs_used': const ['skin_temp_raw'],
-      'note': 'relative deviation (z) vs your baseline; raw ADC, no absolute °C',
+      'note':
+          'relative deviation (z) vs your baseline; raw ADC, no absolute °C',
     },
   };
 
@@ -449,10 +481,13 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // whole-window time-domain RMSSD only if the robust estimator can't compute.
   final rmssdScalar = robustRmssd.present
       ? robustRmssd.value
-      : ((hrvT.present && hrvT.value!.rmssd != null) ? hrvT.value!.rmssd : null);
+      : ((hrvT.present && hrvT.value!.rmssd != null)
+            ? hrvT.value!.rmssd
+            : null);
   // Whole-window RMSSD kept available as a secondary detail (NOT the headline).
-  final rmssdWholeScalar =
-      (hrvT.present && hrvT.value!.rmssd != null) ? hrvT.value!.rmssd : null;
+  final rmssdWholeScalar = (hrvT.present && hrvT.value!.rmssd != null)
+      ? hrvT.value!.rmssd
+      : null;
   final readinessScalar = composite.present ? composite.value!.score : null;
   final strainScalar = strainMetric.present ? strainMetric.value : null;
 
@@ -489,7 +524,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'confidence': odi.present ? _round(odi.confidence, 4) : 0,
     'tier': Tier.relative,
     'inputs_used': const ['spo2_red_raw', 'spo2_ir_raw'],
-    'note': 'relative desaturation index (dips/h); no absolute %SpO₂ from this band',
+    'note':
+        'relative desaturation index (dips/h); no absolute %SpO₂ from this band',
   };
 
   // ── NOCTURNAL detail: sleeping-HR nadir + waking HR. Both computable today
@@ -526,18 +562,33 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // the smoothed per-minute RMSSD series (REM peaks / NREM troughs), NOT
   // categorical REM-episode counting. Over the sleep window's RR.
   final cyc = detectSleepCycles(
-      d.sleepRrMs, d.sleepRrTsMs, d.sleepOnsetSec, d.sleepOffsetSec);
+    d.sleepRrMs,
+    d.sleepRrTsMs,
+    d.sleepOnsetSec,
+    d.sleepOffsetSec,
+  );
   sleep['cycles'] = [for (final c in cyc.cycles) c.toJson()];
   sleep['cycle_count'] = cyc.n;
   sleep['cycles_mean_min'] = cyc.meanDurationMin;
   // The continuous z-RMSSD wave the cycle GRAPH plots ({t: epochSec, z}).
   sleep['cycle_series'] = cyc.series;
 
+  // ── PERSONAL BASELINES (Winsorized-EWMA) ───────────────────────────────────
+  // Robust, recency-weighted personal centers + spread for the metrics whose
+  // units match the engine configs (rhr bpm, hrv RMSSD ms, resp brpm). Fold the
+  // trailing history + today's value, then z/delta/ratio + cold-start status.
+  // ADDITIVE: a richer, calibration-honest baseline block the recovery/illness
+  // layer can consume; the existing readiness/skin_temp_z headlines are untouched.
+  // skin_temp is intentionally EXCLUDED — its series is raw ADC, not the °C the
+  // skin_temp cfg bounds expect, so feeding it would hard-reject every night.
+  final baselines = const <String, dynamic>{};
+
   return <String, dynamic>{
     'date': d.date,
     'day_confidence': _round(d.dayConfidence, 4),
     'flags': d.dayFlags,
     'clinical': clinical,
+    'baselines': baselines,
     'sleep': sleep,
     'zones': hrZones,
     'hr_stats': ?hrStats,
@@ -600,7 +651,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'hrv_cv': hrvCv == null ? null : _round(hrvCv, 1),
       // Sleep efficiency % + worn minutes → their own day/week/month/3M trends.
       'efficiency': effPct == null ? null : _round(effPct, 1),
-      'worn_min': dayHrValid.isEmpty ? null : (dayHrValid.length / 60).roundToDouble(),
+      'worn_min': dayHrValid.isEmpty
+          ? null
+          : (dayHrValid.length / 60).roundToDouble(),
     },
   };
 }
@@ -614,13 +667,12 @@ Map<String, dynamic> _envelope(
   required double confidence,
   required String tier,
   required List<String> inputs,
-}) =>
-    {
-      'value': value ?? '—',
-      'confidence': value == null ? 0 : _round(confidence, 6),
-      'tier': tier,
-      'inputs_used': inputs,
-    };
+}) => {
+  'value': value ?? '—',
+  'confidence': value == null ? 0 : _round(confidence, 6),
+  'tier': tier,
+  'inputs_used': inputs,
+};
 
 /// Build a per-second NREM bool mask ALIGNED to the NN window the robust
 /// nocturnal-RMSSD estimator uses.
@@ -636,7 +688,10 @@ Map<String, dynamic> _envelope(
 /// estimator then runs unmasked over all sleep windows — still robust, just not
 /// NREM-restricted).
 List<bool>? _nremMaskAlignedToNn(
-    DayBundleInput d, List<double> nnTimes, List<double> nnTimesSrcMs) {
+  DayBundleInput d,
+  List<double> nnTimes,
+  List<double> nnTimesSrcMs,
+) {
   if (nnTimes.isEmpty ||
       nnTimesSrcMs.isEmpty ||
       d.hypnoStages.isEmpty ||
@@ -668,7 +723,9 @@ List<double> _dayHrOutsideSleep(DayBundleInput d) {
   final out = <double>[];
   for (var i = 0; i < d.dayHr.length; i++) {
     final t = d.dayTsSec[i];
-    if (t < d.sleepOnsetSec || t >= d.sleepOffsetSec) out.add(d.dayHr[i].toDouble());
+    if (t < d.sleepOnsetSec || t >= d.sleepOffsetSec) {
+      out.add(d.dayHr[i].toDouble());
+    }
   }
   return out;
 }
@@ -712,7 +769,12 @@ Map<String, int> _hrZones(List<double> perMin, double hrMax) {
 /// One [perMin] entry = one minute. age (yr), weight (kg), [female] selects the
 /// sex-specific Keytel coefficients.
 double _keytelCalories(
-    List<double> perMin, double age, double weight, double hrMax, bool female) {
+  List<double> perMin,
+  double age,
+  double weight,
+  double hrMax,
+  bool female,
+) {
   var kcal = 0.0;
   for (final hr in perMin) {
     if (hr < 0.50 * hrMax) continue; // gate: HR-kcal invalid at rest
@@ -759,7 +821,7 @@ List<Map<String, num>> _downsampleHr(List<int> tsSec, List<int> hr) {
   }
   final keys = buckets.keys.toList()..sort();
   return [
-    for (final k in keys) {'t': k * 60, 'v': _mean(buckets[k]!)!.round()}
+    for (final k in keys) {'t': k * 60, 'v': _mean(buckets[k]!)!.round()},
   ];
 }
 

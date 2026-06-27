@@ -36,6 +36,10 @@
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>OpenStrap reads recent samples to avoid writing duplicates into Apple Health.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>OpenStrap writes your sleep, resting heart rate, HRV, respiratory rate, energy and workouts into Apple Health.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
 	<key>NSSupportsLiveActivities</key>
@@ -65,9 +69,21 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<!-- BGTaskSchedulerPermittedIdentifiers: the BGProcessingTask used by
+	     BackgroundTasks.swift for opportunistic headless sync + heavy derivation.
+	     NOTE: "location" is deliberately NOT in UIBackgroundModes — OpenStrap has
+	     no GPS/workout-route feature; adding it without purpose risks App Store
+	     rejection. "processing" enables BGProcessingTask; "fetch" enables
+	     BGAppRefreshTask (future use). -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>wtf.openstrap.edge.bgsync</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
+		<string>processing</string>
+		<string>fetch</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>

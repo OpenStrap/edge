@@ -477,9 +477,11 @@ class _ControlPanel extends StatelessWidget {
             child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               _Stat(label: 'CALORIES', value: workout.calories.round().toString(), unit: 'kcal', icon: Ic.fire),
               _Stat(label: 'STRAIN', value: workout.strain.toStringAsFixed(1), unit: '', icon: Ic.strain),
-              _Stat(label: 'BURN/MIN',
-                  value: (workout.calories / math.max(1, workout.elapsed.inMinutes)).toStringAsFixed(1),
-                  unit: '', icon: Ic.pulse),
+              // Real steps counted on the live 100 Hz stream, scoped to THIS
+              // workout (resets at start, not at connection).
+              _Stat(label: 'STEPS',
+                  value: context.watch<AppState>().workoutSteps.toString(),
+                  unit: '', icon: Ic.run),
             ]),
           ),
         ),
