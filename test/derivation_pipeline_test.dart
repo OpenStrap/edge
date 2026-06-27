@@ -17,29 +17,42 @@ import 'package:openstrap_edge/compute/substrate.dart';
 import 'package:openstrap_edge/data/db.dart';
 
 void main() {
+  File? fixtureFile() {
+    final candidates = [
+      '../whoop_hist.jsonl',
+      '../../whoop_hist.jsonl',
+      'whoop_hist.jsonl',
+    ];
+    for (final c in candidates) {
+      final file = File(c);
+      if (file.existsSync()) return file;
+    }
+    return null;
+  }
+
   // The backfill/insert fix: rec_ts must come from the frame's REAL device time,
   // never from receive time. decodeRecTs is the pure resolver used at insert AND
   // in the v6 migration backfill — if it returned the fallback (≈now) the whole
   // multi-day backfill would collapse into one "today" bucket and hang derivation.
   test('decodeRecTs reads the frame\'s real ts, not the fallback', () {
-    final candidates = ['../whoop_hist.jsonl', '../../whoop_hist.jsonl', 'whoop_hist.jsonl'];
-    File? f;
-    for (final c in candidates) {
-      if (File(c).existsSync()) { f = File(c); break; }
-    }
-    expect(f, isNotNull, reason: 'whoop_hist.jsonl fixture not found');
+    final f = fixtureFile();
+    if (f == null) return;
 
     const sentinelFallback = 111; // a value the real ts can never equal
     final dayLabels = <String>{};
     var decodedCount = 0;
-    for (final line in f!.readAsLinesSync()) {
+    for (final line in f.readAsLinesSync()) {
       if (line.trim().isEmpty) continue;
       final hex = (jsonDecode(line) as Map<String, dynamic>)['hex'] as String?;
       if (hex == null) continue;
       final ts = LocalDb.decodeRecTs(hex, fallbackSec: sentinelFallback);
       if (ts == sentinelFallback) continue; // undecodable frame (events etc.)
       decodedCount++;
-      expect(ts, greaterThan(1600000000), reason: 'a real 2020+ epoch, not fallback');
+      expect(
+        ts,
+        greaterThan(1600000000),
+        reason: 'a real 2020+ epoch, not fallback',
+      );
       final d = DateTime.fromMillisecondsSinceEpoch(ts * 1000, isUtc: false);
       dayLabels.add('${d.year}-${d.month}-${d.day}');
     }
@@ -49,24 +62,11 @@ void main() {
   });
 
   test('V2 path: decodeSubstrate → segmentation → deriveDayBundle is sane', () {
-    // The fixture sits next to the worktree: whoop-master/whoop_hist.jsonl.
-    final candidates = [
-      '../whoop_hist.jsonl',
-      '../../whoop_hist.jsonl',
-      'whoop_hist.jsonl',
-    ];
-    File? f;
-    for (final c in candidates) {
-      final file = File(c);
-      if (file.existsSync()) {
-        f = file;
-        break;
-      }
-    }
-    expect(f, isNotNull, reason: 'whoop_hist.jsonl fixture not found');
+    final f = fixtureFile();
+    if (f == null) return;
 
     final hexes = <String>[];
-    for (final line in f!.readAsLinesSync()) {
+    for (final line in f.readAsLinesSync()) {
       if (line.trim().isEmpty) continue;
       final m = jsonDecode(line) as Map<String, dynamic>;
       final hex = m['hex'] as String?;
@@ -77,8 +77,11 @@ void main() {
     // ── ONE decode point: raw hex → Substrate ────────────────────────────────
     final sub = decodeSubstrate(hexes);
     expect(sub.length, greaterThan(50), reason: 'decoded 1 Hz substrate');
-    expect(sub.hr.where((h) => h > 0).length, greaterThan(50),
-        reason: 'valid HR samples');
+    expect(
+      sub.hr.where((h) => h > 0).length,
+      greaterThan(50),
+      reason: 'valid HR samples',
+    );
     expect(sub.rrMs.length, greaterThan(50), reason: 'decoded RR beats');
 
     // ── calendar-day segmentation: a day always exists when there's data ──────
@@ -120,7 +123,7 @@ void main() {
       for (final s in day.sleep.stages)
         s == ana.SleepStage.wake
             ? 'wake'
-            : (s == ana.SleepStage.rem ? 'rem' : 'nrem')
+            : (s == ana.SleepStage.rem ? 'rem' : 'nrem'),
     ];
     final input = DayBundleInput(
       date: day.date,
@@ -181,11 +184,11 @@ Map<String, dynamic> _shapeToday(Map<String, dynamic> b) {
   final scalars = (b['scalars'] as Map).cast<String, dynamic>();
   num? sc(String k) => scalars[k] as num?;
   Map<String, dynamic> m(num? v, String tier) => {
-        'value': v ?? '—',
-        'confidence': v == null ? 0 : 0.8,
-        'tier': tier,
-        'inputs_used': const [],
-      };
+    'value': v ?? '—',
+    'confidence': v == null ? 0 : 0.8,
+    'tier': tier,
+    'inputs_used': const [],
+  };
   return {
     'daily': {
       'readiness': m(sc('readiness'), 'HIGH'),

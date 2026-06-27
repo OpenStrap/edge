@@ -162,6 +162,38 @@ class Substrate {
     }
     return (ts, rr);
   }
+
+  Map<String, dynamic> toJson() => {
+        'ts_sec': tsSec,
+        'hr': hr,
+        'rr_ts_ms': rrTsMs,
+        'rr_ms': rrMs,
+        'ax': ax,
+        'ay': ay,
+        'az': az,
+        'spo2_red': spo2Red,
+        'spo2_ir': spo2Ir,
+        'skin_temp': skinTemp,
+      };
+
+  static Substrate fromJson(Map<String, dynamic> m) {
+    List<int> ints(String k) =>
+        ((m[k] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
+    List<double> dbls(String k) =>
+        ((m[k] as List?) ?? const []).map((e) => (e as num).toDouble()).toList();
+    return Substrate(
+      tsSec: ints('ts_sec'),
+      hr: ints('hr'),
+      rrTsMs: dbls('rr_ts_ms'),
+      rrMs: dbls('rr_ms'),
+      ax: dbls('ax'),
+      ay: dbls('ay'),
+      az: dbls('az'),
+      spo2Red: ints('spo2_red'),
+      spo2Ir: ints('spo2_ir'),
+      skinTemp: ints('skin_temp'),
+    );
+  }
 }
 
 /// Decode the WHOLE retained raw ledger into one continuous, time-sorted

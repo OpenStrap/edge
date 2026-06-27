@@ -15,6 +15,7 @@ import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import '../today/step_goal_screen.dart';
 import '../debug/diagnostics_screen.dart';
+import '../debug/metrics_diagnostics_screen.dart';
 import 'gesture_section.dart';
 import 'notification_relay_section.dart';
 
@@ -65,7 +66,9 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('Profile'),
           ProCard(
             padding: const EdgeInsets.symmetric(
-                horizontal: Sp.x5, vertical: Sp.x2),
+              horizontal: Sp.x5,
+              vertical: Sp.x2,
+            ),
             child: Column(
               children: [
                 DetailRow(
@@ -111,8 +114,10 @@ class ProfileScreen extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.only(top: Sp.x2, left: Sp.x2),
-            child: Text('Body metrics improve your calorie estimate.',
-                style: AppText.captionMuted),
+            child: Text(
+              'Body metrics improve your calorie estimate.',
+              style: AppText.captionMuted,
+            ),
           ),
 
           const SizedBox(height: Sp.x7),
@@ -121,7 +126,9 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('Goals'),
           ProCard(
             padding: const EdgeInsets.symmetric(
-                horizontal: Sp.x5, vertical: Sp.x2),
+              horizontal: Sp.x5,
+              vertical: Sp.x2,
+            ),
             child: DetailRow(
               icon: Ic.run,
               label: 'Daily step goal',
@@ -129,7 +136,8 @@ class ProfileScreen extends StatelessWidget {
                   ? '${user['step_goal']} steps'
                   : 'Set',
               onTap: () => Navigator.of(context).push(
-                themedRoute((_) => StepGoalScreen(
+                themedRoute(
+                  (_) => StepGoalScreen(
                     goal: (user['step_goal'] as num?)?.toInt(),
                   ),
                 ),
@@ -141,37 +149,63 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('Data'),
           ProCard(
             padding: const EdgeInsets.symmetric(
-                horizontal: Sp.x5, vertical: Sp.x2),
+              horizontal: Sp.x5,
+              vertical: Sp.x2,
+            ),
             child: DetailRow(
               icon: Ic.history,
               label: 'Re-analyze data',
               value: app.reanalyzing
                   ? (app.reanalyzeProgress.isEmpty
-                      ? 'Working…'
-                      : app.reanalyzeProgress)
+                        ? 'Working…'
+                        : app.reanalyzeProgress)
                   : 'Run',
               onTap: () async {
                 if (app.reanalyzing) return;
                 final messenger = ScaffoldMessenger.of(context);
                 final n = await app.reanalyzeAll();
-                messenger.showSnackBar(SnackBar(
-                  content: Text(n > 0
-                      ? 'Analyzed $n day${n == 1 ? '' : 's'} of stored data.'
-                      : 'No raw data to analyze yet.'),
-                ));
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      n > 0
+                          ? 'Analyzed $n day${n == 1 ? '' : 's'} of stored data.'
+                          : 'No raw data to analyze yet.',
+                    ),
+                  ),
+                );
               },
             ),
           ),
           const SizedBox(height: Sp.x3),
           ProCard(
             padding: const EdgeInsets.symmetric(
-                horizontal: Sp.x5, vertical: Sp.x2),
+              horizontal: Sp.x5,
+              vertical: Sp.x2,
+            ),
             child: DetailRow(
               icon: Ic.info,
-              label: 'Diagnostics',
+              label: 'Data diagnostics',
               value: 'View',
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const DiagnosticsScreen())),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const DiagnosticsScreen()),
+              ),
+            ),
+          ),
+          const SizedBox(height: Sp.x3),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x5,
+              vertical: Sp.x2,
+            ),
+            child: DetailRow(
+              icon: Ic.activity,
+              label: 'Metrics diagnostics',
+              value: 'View',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const MetricsDiagnosticsScreen(),
+                ),
+              ),
             ),
           ),
 
@@ -188,21 +222,33 @@ class ProfileScreen extends StatelessWidget {
                     child: GestureDetector(
                       onTap: () => units.setSystem(s),
                       child: Container(
-                        margin: EdgeInsets.only(right: s == UnitSystem.metric ? Sp.x2 : 0),
+                        margin: EdgeInsets.only(
+                          right: s == UnitSystem.metric ? Sp.x2 : 0,
+                        ),
                         padding: const EdgeInsets.symmetric(vertical: Sp.x3),
                         decoration: BoxDecoration(
-                          color: units.system == s ? AppColors.coralSoft : AppColors.surfaceSunk,
+                          color: units.system == s
+                              ? AppColors.coralSoft
+                              : AppColors.surfaceSunk,
                           borderRadius: BorderRadius.circular(R.chip),
                         ),
                         child: Column(
                           children: [
-                            Text(s.label,
-                                textAlign: TextAlign.center,
-                                style: AppText.label.copyWith(
-                                    color: units.system == s ? AppColors.coralInk : AppColors.inkSoft)),
+                            Text(
+                              s.label,
+                              textAlign: TextAlign.center,
+                              style: AppText.label.copyWith(
+                                color: units.system == s
+                                    ? AppColors.coralInk
+                                    : AppColors.inkSoft,
+                              ),
+                            ),
                             const SizedBox(height: 2),
-                            Text(s == UnitSystem.metric ? 'kg · cm' : 'lb · ft/in',
-                                textAlign: TextAlign.center, style: AppText.captionMuted),
+                            Text(
+                              s == UnitSystem.metric ? 'kg · cm' : 'lb · ft/in',
+                              textAlign: TextAlign.center,
+                              style: AppText.captionMuted,
+                            ),
                           ],
                         ),
                       ),
@@ -217,7 +263,10 @@ class ProfileScreen extends StatelessWidget {
           // ── Cycle tracking (explicit opt-in) ─────────────────────────
           const SectionHeader('Cycle tracking'),
           ProCard(
-            padding: const EdgeInsets.symmetric(horizontal: Sp.x5, vertical: Sp.x3),
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x5,
+              vertical: Sp.x3,
+            ),
             child: Row(
               children: [
                 AppIcon(Ic.calendar, size: 18, color: AppColors.coral),
@@ -228,15 +277,18 @@ class ProfileScreen extends StatelessWidget {
                     children: [
                       Text('Track menstrual cycle', style: AppText.title),
                       const SizedBox(height: 2),
-                      Text('Log periods and see phase, next period & fertile window. '
-                          'Off by default — nothing is computed until you turn this on.',
-                          style: AppText.captionMuted),
+                      Text(
+                        'Log periods and see phase, next period & fertile window. '
+                        'Off by default — nothing is computed until you turn this on.',
+                        style: AppText.captionMuted,
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(width: Sp.x3),
                 Switch(
-                  value: user['track_cycle'] == true || user['track_cycle'] == 1,
+                  value:
+                      user['track_cycle'] == true || user['track_cycle'] == 1,
                   onChanged: (v) async {
                     try {
                       await app.updateProfile({'track_cycle': v ? 1 : 0});
@@ -251,9 +303,7 @@ class ProfileScreen extends StatelessWidget {
 
           // ── Appearance ───────────────────────────────────────────────
           const SectionHeader('Appearance'),
-          ProCard(
-            child: const AppearanceSelector(labeled: true),
-          ),
+          ProCard(child: const AppearanceSelector(labeled: true)),
 
           const SizedBox(height: Sp.x7),
 
@@ -277,31 +327,38 @@ class ProfileScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  Container(
-                    padding: const EdgeInsets.all(Sp.x3),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceAlt,
-                      borderRadius: BorderRadius.circular(R.chip),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(Sp.x3),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceAlt,
+                        borderRadius: BorderRadius.circular(R.chip),
+                      ),
+                      child: AppIcon(
+                        Ic.shield,
+                        size: 20,
+                        color: AppColors.inkSoft,
+                      ),
                     ),
-                    child: AppIcon(Ic.shield,
-                        size: 20, color: AppColors.inkSoft),
-                  ),
-                  const SizedBox(width: Sp.x3),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('On this device', style: AppText.title),
-                        const SizedBox(height: 2),
-                        Text('Local-first — no cloud',
+                    const SizedBox(width: Sp.x3),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('On this device', style: AppText.title),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Local-first — no cloud',
                             style: AppText.caption,
                             maxLines: 1,
-                            overflow: TextOverflow.ellipsis),
-                      ],
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ]),
+                  ],
+                ),
                 const SizedBox(height: Sp.x3),
                 Text(
                   'Your raw band data and metrics are stored entirely on this '
@@ -317,33 +374,45 @@ class ProfileScreen extends StatelessWidget {
           // ── Community ────────────────────────────────────────────────
           const SectionHeader('Community'),
           ProCard(
-            child: Row(children: [
-              for (final s in _socials)
-                Expanded(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(R.card),
-                    onTap: () => _openUrl(s.url),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: Sp.x3),
-                      child: Column(children: [
-                        Container(
-                          padding: const EdgeInsets.all(11),
-                          decoration: BoxDecoration(
-                              color: AppColors.surfaceSunk, shape: BoxShape.circle),
-                          child: AppIcon(s.icon, size: 20, color: AppColors.ink),
+            child: Row(
+              children: [
+                for (final s in _socials)
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(R.card),
+                      onTap: () => _openUrl(s.url),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: Sp.x3),
+                        child: Column(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(11),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceSunk,
+                                shape: BoxShape.circle,
+                              ),
+                              child: AppIcon(
+                                s.icon,
+                                size: 20,
+                                color: AppColors.ink,
+                              ),
+                            ),
+                            const SizedBox(height: Sp.x2),
+                            Text(s.label, style: AppText.caption),
+                          ],
                         ),
-                        const SizedBox(height: Sp.x2),
-                        Text(s.label, style: AppText.caption),
-                      ]),
+                      ),
                     ),
                   ),
-                ),
-            ]),
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.only(top: Sp.x2, left: Sp.x2),
-            child: Text('Join the community, report bugs, or peek at the source.',
-                style: AppText.captionMuted),
+            child: Text(
+              'Join the community, report bugs, or peek at the source.',
+              style: AppText.captionMuted,
+            ),
           ),
 
           const SizedBox(height: Sp.x7),
@@ -352,14 +421,19 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('Reset'),
           ProCard(
             padding: const EdgeInsets.symmetric(
-                horizontal: Sp.x5, vertical: Sp.x1),
+              horizontal: Sp.x5,
+              vertical: Sp.x1,
+            ),
             child: DetailRow(
               icon: Ic.logout,
               label: 'Reset profile',
               value: '',
               onTap: () => _confirmSignOut(context, app),
-              trailing: AppIcon(Ic.arrowRight,
-                  size: 16, color: AppColors.coral),
+              trailing: AppIcon(
+                Ic.arrowRight,
+                size: 16,
+                color: AppColors.coral,
+              ),
             ),
           ),
 
@@ -372,11 +446,13 @@ class ProfileScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  AppIcon(Ic.shield, size: 18, color: AppColors.inkSoft),
-                  const SizedBox(width: Sp.x2),
-                  Text('How your metrics are made', style: AppText.label),
-                ]),
+                Row(
+                  children: [
+                    AppIcon(Ic.shield, size: 18, color: AppColors.inkSoft),
+                    const SizedBox(width: Sp.x2),
+                    Text('How your metrics are made', style: AppText.label),
+                  ],
+                ),
                 const SizedBox(height: Sp.x3),
                 Text(
                   'Metrics are computed from published algorithms over the raw '
@@ -386,8 +462,10 @@ class ProfileScreen extends StatelessWidget {
                   style: AppText.bodySoft,
                 ),
                 const SizedBox(height: Sp.x3),
-                Text('OpenStrap • MIT • the analytics source is public.',
-                    style: AppText.captionMuted),
+                Text(
+                  'OpenStrap • MIT • the analytics source is public.',
+                  style: AppText.captionMuted,
+                ),
               ],
             ),
           ),
@@ -417,7 +495,8 @@ class ProfileScreen extends StatelessWidget {
     final ok = await _confirm(
       context,
       title: 'Reset profile?',
-      body: 'Clears your local profile (name, age, body metrics) and forgets your '
+      body:
+          'Clears your local profile (name, age, body metrics) and forgets your '
           'strap. Your stored band data stays on this phone.',
       confirmLabel: 'Reset',
       destructive: true,
@@ -439,14 +518,16 @@ Future<bool?> _confirm(
     builder: (c) => AlertDialog(
       backgroundColor: AppColors.surface,
       surfaceTintColor: Colors.transparent,
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.card)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(R.card),
+      ),
       title: Text(title, style: AppText.h2),
       content: Text(body, style: AppText.bodySoft),
       actions: [
         TextButton(
-            onPressed: () => Navigator.pop(c, false),
-            child: const Text('Cancel')),
+          onPressed: () => Navigator.pop(c, false),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
           style: destructive
               ? FilledButton.styleFrom(backgroundColor: AppColors.bad)
@@ -473,10 +554,12 @@ class _Header extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(name,
-                  style: AppText.h1,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
+              Text(
+                name,
+                style: AppText.h1,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
           ),
         ),
@@ -496,12 +579,13 @@ class _DeviceHero extends StatelessWidget {
   Widget build(BuildContext context) {
     if (app.paired == null) {
       return ProCard(
-        child: Row(children: [
-          AppIcon(Ic.watch, size: 22, color: AppColors.inkMuted),
-          const SizedBox(width: Sp.x3),
-          Expanded(
-              child: Text('No strap paired.', style: AppText.bodySoft)),
-        ]),
+        child: Row(
+          children: [
+            AppIcon(Ic.watch, size: 22, color: AppColors.inkMuted),
+            const SizedBox(width: Sp.x3),
+            Expanded(child: Text('No strap paired.', style: AppText.bodySoft)),
+          ],
+        ),
       );
     }
 
@@ -517,48 +601,67 @@ class _DeviceHero extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(Sp.x3),
-              decoration: BoxDecoration(
-                color: AppColors.nightAlt,
-                borderRadius: BorderRadius.circular(R.chip),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(Sp.x3),
+                decoration: BoxDecoration(
+                  color: AppColors.nightAlt,
+                  borderRadius: BorderRadius.circular(R.chip),
+                ),
+                child: const AppIcon(
+                  Ic.watch,
+                  size: 24,
+                  color: AppColors.onNight,
+                ),
               ),
-              child: const AppIcon(Ic.watch, size: 24, color: AppColors.onNight),
-            ),
-            const SizedBox(width: Sp.x4),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(app.strapName ?? 'OpenStrap',
+              const SizedBox(width: Sp.x4),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      app.strapName ?? 'OpenStrap',
                       style: AppText.h2.copyWith(color: AppColors.onNight),
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                          color: dotColor, shape: BoxShape.circle),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(width: Sp.x2),
-                    Text(statusText,
-                        style: AppText.caption
-                            .copyWith(color: AppColors.onNightSoft)),
-                    // Single listening mode: show data freshness instead of a
-                    // syncing/live flip. Throttled to ~1/s with a subtle pulse.
-                    if (conn == 'connected') ...[
-                      const SizedBox(width: Sp.x3),
-                      const Expanded(child: LastDataIndicator()),
-                    ],
-                  ]),
-                ],
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: dotColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: Sp.x2),
+                        Text(
+                          statusText,
+                          style: AppText.caption.copyWith(
+                            color: AppColors.onNightSoft,
+                          ),
+                        ),
+                        // Single listening mode: show data freshness instead of a
+                        // syncing/live flip. Throttled to ~1/s with a subtle pulse.
+                        if (conn == 'connected') ...[
+                          const SizedBox(width: Sp.x3),
+                          const Expanded(child: LastDataIndicator()),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const AppIcon(Ic.arrowRight, size: 18, color: AppColors.onNightSoft),
-          ]),
+              const AppIcon(
+                Ic.arrowRight,
+                size: 18,
+                color: AppColors.onNightSoft,
+              ),
+            ],
+          ),
           const SizedBox(height: Sp.x5),
           Wrap(
             spacing: Sp.x6,
@@ -616,14 +719,13 @@ class _Stat extends StatelessWidget {
   const _Stat({required this.icon, required this.text});
   @override
   Widget build(BuildContext context) => Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AppIcon(icon, size: 18, color: AppColors.onNightSoft),
-          const SizedBox(width: Sp.x2),
-          Text(text,
-              style: AppText.title.copyWith(color: AppColors.onNight)),
-        ],
-      );
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      AppIcon(icon, size: 18, color: AppColors.onNightSoft),
+      const SizedBox(width: Sp.x2),
+      Text(text, style: AppText.title.copyWith(color: AppColors.onNight)),
+    ],
+  );
 }
 
 /// "last data: Xs ago" — driven by the engine's last-RX time. Refreshes at most
@@ -668,8 +770,18 @@ class _LastDataIndicatorState extends State<LastDataIndicator> {
   }
 
   static const _mon = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   /// Show the RECORD's own timestamp (the band's clock), not "time since the last
@@ -722,8 +834,7 @@ class _DeviceSheet extends StatelessWidget {
       title: live.strapName ?? 'OpenStrap',
       children: [
         if (!connected)
-          _Notice(
-              'Connect to your strap to rename it or change the alarm.'),
+          _Notice('Connect to your strap to rename it or change the alarm.'),
         DetailRow(
           icon: Ic.edit,
           label: 'Rename strap',
@@ -769,7 +880,9 @@ class _DeviceSheet extends StatelessWidget {
             style: OutlinedButton.styleFrom(
               foregroundColor: AppColors.bad,
               side: BorderSide(
-                  color: AppColors.bad.withValues(alpha: 0.5), width: 1.5),
+                color: AppColors.bad.withValues(alpha: 0.5),
+                width: 1.5,
+              ),
             ),
             onPressed: () => _forget(context, live),
             icon: AppIcon(Ic.cancel, size: 18, color: AppColors.bad),
@@ -805,8 +918,7 @@ class _DeviceSheet extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: FilledButton(
-              onPressed: () =>
-                  Navigator.pop(context, ctrl.text.trim()),
+              onPressed: () => Navigator.pop(context, ctrl.text.trim()),
               child: const Text('Save'),
             ),
           ),
@@ -829,8 +941,13 @@ class _DeviceSheet extends StatelessWidget {
       initialTime: TimeOfDay(hour: (now.hour + 8) % 24, minute: 0),
     );
     if (picked == null) return;
-    var when =
-        DateTime(now.year, now.month, now.day, picked.hour, picked.minute);
+    var when = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      picked.hour,
+      picked.minute,
+    );
     if (!when.isAfter(now)) when = when.add(const Duration(days: 1));
     try {
       await app.setAlarm(when);
@@ -884,11 +1001,14 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
     final u = widget.app.user ?? const {};
     _units = context.read<UnitsController>();
     _name = TextEditingController(text: (u['name'] ?? '').toString());
-    _age = TextEditingController(
-        text: u['age'] != null ? '${u['age']}' : '');
+    _age = TextEditingController(text: u['age'] != null ? '${u['age']}' : '');
     // Pre-fill height/weight in the user's chosen units (stored as cm/kg).
-    _height = TextEditingController(text: _units.heightField(u['height_cm'] as num?));
-    _weight = TextEditingController(text: _units.weightField(u['weight_kg'] as num?));
+    _height = TextEditingController(
+      text: _units.heightField(u['height_cm'] as num?),
+    );
+    _weight = TextEditingController(
+      text: _units.weightField(u['weight_kg'] as num?),
+    );
     _sex = u['sex']?.toString();
   }
 
@@ -934,31 +1054,33 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
           decoration: const InputDecoration(labelText: 'Name'),
         ),
         const SizedBox(height: Sp.x3),
-        Row(children: [
-          Expanded(
-            child: TextField(
-              controller: _age,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Age'),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _age,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Age'),
+              ),
             ),
-          ),
-          const SizedBox(width: Sp.x3),
-          Expanded(
-            child: TextField(
-              controller: _height,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(labelText: _units.heightLabel),
+            const SizedBox(width: Sp.x3),
+            Expanded(
+              child: TextField(
+                controller: _height,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(labelText: _units.heightLabel),
+              ),
             ),
-          ),
-          const SizedBox(width: Sp.x3),
-          Expanded(
-            child: TextField(
-              controller: _weight,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(labelText: _units.weightLabel),
+            const SizedBox(width: Sp.x3),
+            Expanded(
+              child: TextField(
+                controller: _weight,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(labelText: _units.weightLabel),
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
         const SizedBox(height: Sp.x4),
         Text('Sex (optional)', style: AppText.label),
         const SizedBox(height: Sp.x2),
@@ -973,10 +1095,12 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
                     setState(() => _sex = _sex == opt ? null : opt),
                 selectedColor: AppColors.coralSoft,
                 labelStyle: AppText.label.copyWith(
-                    color: _sex == opt ? AppColors.coralInk : AppColors.inkSoft),
+                  color: _sex == opt ? AppColors.coralInk : AppColors.inkSoft,
+                ),
                 backgroundColor: AppColors.surfaceAlt,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(R.pill)),
+                  borderRadius: BorderRadius.circular(R.pill),
+                ),
                 side: BorderSide.none,
               ),
           ],
@@ -993,7 +1117,10 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
                     height: 20,
                     width: 20,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
                 : const Text('Save profile'),
           ),
         ),
@@ -1011,8 +1138,7 @@ class _SheetShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-          Sp.x6, Sp.x2, Sp.x6, Sp.x6 + bottom),
+      padding: EdgeInsets.fromLTRB(Sp.x6, Sp.x2, Sp.x6, Sp.x6 + bottom),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1031,18 +1157,20 @@ class _Notice extends StatelessWidget {
   const _Notice(this.text);
   @override
   Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.only(bottom: Sp.x3),
-        padding: const EdgeInsets.all(Sp.x3),
-        decoration: BoxDecoration(
-          color: AppColors.warnSoft,
-          borderRadius: BorderRadius.circular(R.chip),
-        ),
-        child: Row(children: [
-          AppIcon(Ic.info, size: 18, color: AppColors.warn),
-          const SizedBox(width: Sp.x2),
-          Expanded(child: Text(text, style: AppText.caption)),
-        ]),
-      );
+    margin: const EdgeInsets.only(bottom: Sp.x3),
+    padding: const EdgeInsets.all(Sp.x3),
+    decoration: BoxDecoration(
+      color: AppColors.warnSoft,
+      borderRadius: BorderRadius.circular(R.chip),
+    ),
+    child: Row(
+      children: [
+        AppIcon(Ic.info, size: 18, color: AppColors.warn),
+        const SizedBox(width: Sp.x2),
+        Expanded(child: Text(text, style: AppText.caption)),
+      ],
+    ),
+  );
 }
 
 class _HairDivider extends StatelessWidget {

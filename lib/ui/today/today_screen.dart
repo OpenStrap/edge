@@ -53,7 +53,9 @@ class _TodayScreenState extends State<TodayScreen>
     } catch (_) {}
     try {
       final n = await repo.getNotifications();
-      if (mounted) setState(() => _unread = (n['unread'] as num?)?.toInt() ?? 0);
+      if (mounted) {
+        setState(() => _unread = (n['unread'] as num?)?.toInt() ?? 0);
+      }
     } catch (_) {}
     return today;
   }
@@ -72,12 +74,27 @@ class _TodayScreenState extends State<TodayScreen>
 
   String _dateLabel() {
     const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     const days = [
-      'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
-      'Sunday'
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
     ];
     final n = DateTime.now();
     return '${days[n.weekday - 1]}, ${months[n.month - 1]} ${n.day}';
@@ -170,18 +187,30 @@ class _TodayScreenState extends State<TodayScreen>
         const SizedBox(width: Sp.x3),
         _bellButton(),
         const SizedBox(width: Sp.x2),
-        RoundIconButton(Ic.edit, onTap: () => _push(() => const JournalScreen())),
+        RoundIconButton(
+          Ic.edit,
+          onTap: () => _push(() => const JournalScreen()),
+        ),
         const SizedBox(width: Sp.x2),
         // Profile / settings (the old "You" tab moved here). ProfileScreen is tab
         // content (no Scaffold of its own), so wrap it when pushing standalone —
         // otherwise it renders with no Material (black bg + yellow-underlined text).
-        RoundIconButton(Ic.profile, onTap: () => _push(() =>
-            Scaffold(backgroundColor: AppColors.bg, body: const ProfileScreen()))),
+        RoundIconButton(
+          Ic.profile,
+          onTap: () => _push(
+            () => Scaffold(
+              backgroundColor: AppColors.bg,
+              body: const ProfileScreen(),
+            ),
+          ),
+        ),
         const SizedBox(width: Sp.x2),
-        RoundIconButton(Ic.chart,
-            bg: AppColors.coral,
-            fg: Colors.white,
-            onTap: () => _push(() => const RecapScreen())),
+        RoundIconButton(
+          Ic.chart,
+          bg: AppColors.coral,
+          fg: Colors.white,
+          onTap: () => _push(() => const RecapScreen()),
+        ),
       ],
     );
   }
@@ -191,15 +220,21 @@ class _TodayScreenState extends State<TodayScreen>
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        RoundIconButton(Ic.bell, onTap: () async {
-          await Navigator.of(context).push(
-              themedRoute((_) => const NotificationsScreen()));
-          if (!mounted) return;
-          try {
-            final n = await context.read<AppState>().repo?.getNotifications();
-            if (mounted) setState(() => _unread = (n?['unread'] as num?)?.toInt() ?? 0);
-          } catch (_) {}
-        }),
+        RoundIconButton(
+          Ic.bell,
+          onTap: () async {
+            await Navigator.of(
+              context,
+            ).push(themedRoute((_) => const NotificationsScreen()));
+            if (!mounted) return;
+            try {
+              final n = await context.read<AppState>().repo?.getNotifications();
+              if (mounted) {
+                setState(() => _unread = (n?['unread'] as num?)?.toInt() ?? 0);
+              }
+            } catch (_) {}
+          },
+        ),
         if (_unread > 0)
           Positioned(
             right: -1,
@@ -216,7 +251,10 @@ class _TodayScreenState extends State<TodayScreen>
                 _unread > 9 ? '9+' : '$_unread',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700),
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ),
@@ -234,8 +272,7 @@ class _TodayScreenState extends State<TodayScreen>
       children: [
         AppIcon(Ic.cloud, size: 14, color: AppColors.inkMuted),
         const SizedBox(width: Sp.x2),
-        Text('Showing cached • $label',
-            style: AppText.captionMuted),
+        Text('Showing cached • $label', style: AppText.captionMuted),
       ],
     );
   }
@@ -248,10 +285,7 @@ class _TodayScreenState extends State<TodayScreen>
     final date = _todayStr();
 
     return [
-      if (alert != null) ...[
-        _bodyAlert(alert),
-        const SizedBox(height: Sp.x4),
-      ],
+      if (alert != null) ...[_bodyAlert(alert), const SizedBox(height: Sp.x4)],
       // Composite Readiness headline. Shows the score when present, or a
       // "Need N more nights" baseline-building state when the composite abstains
       // for lack of baseline (need_baseline note). Hidden only when there is
@@ -265,10 +299,7 @@ class _TodayScreenState extends State<TodayScreen>
       const SizedBox(height: Sp.x4),
 
       // Coach — Today's Plan (server-computed).
-      if (coach != null) ...[
-        _coachCard(coach),
-        const SizedBox(height: Sp.x4),
-      ],
+      if (coach != null) ...[_coachCard(coach), const SizedBox(height: Sp.x4)],
 
       // Stat grid. Strain lives on the Body tab now (tap the Strain gauge above) —
       // no duplicate Day-strain tile here.
@@ -329,7 +360,7 @@ class _TodayScreenState extends State<TodayScreen>
         StatTile(
           icon: Ic.pulse,
           label: 'HRV (RMSSD)',
-          value: t.hrv == null ? null : t.hrv!.rmssd.toStringAsFixed(0),
+          value: t.hrv?.rmssd.toStringAsFixed(0),
           unit: 'ms',
           accent: AppColors.good,
           confidence: t.hrv?.confidence,
@@ -360,13 +391,14 @@ class _TodayScreenState extends State<TodayScreen>
   /// Illness / overtraining early-warning banner (a signal, not a diagnosis).
   Widget _bodyAlert(Map<String, dynamic> a) {
     final kind = (a['kind'] ?? '').toString();
-    final note = (a['note'] ?? 'Your body is showing strain signals.').toString();
+    final note = (a['note'] ?? 'Your body is showing strain signals.')
+        .toString();
     final overtrain = kind == 'overtraining' || kind == 'both';
     final title = kind == 'overtraining'
         ? 'High training load'
         : kind == 'both'
-            ? 'Strain + high load'
-            : 'Recovery signal';
+        ? 'Strain + high load'
+        : 'Recovery signal';
     return ProCard(
       color: AppColors.warnSoft,
       child: Row(
@@ -378,8 +410,11 @@ class _TodayScreenState extends State<TodayScreen>
               color: AppColors.surface.withValues(alpha: 0.6),
               borderRadius: BorderRadius.circular(R.chip),
             ),
-            child: AppIcon(overtrain ? Ic.strain : Ic.heart,
-                size: 20, color: AppColors.warn),
+            child: AppIcon(
+              overtrain ? Ic.strain : Ic.heart,
+              size: 20,
+              color: AppColors.warn,
+            ),
           ),
           const SizedBox(width: Sp.x4),
           Expanded(
@@ -406,34 +441,52 @@ class _TodayScreenState extends State<TodayScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(
-                  color: AppColors.coralSoft, borderRadius: BorderRadius.circular(R.chip)),
-              child: AppIcon(Ic.recovery, size: 17, color: AppColors.coralDeep),
-            ),
-            const SizedBox(width: Sp.x2),
-            Expanded(child: Text("Today's plan", style: AppText.h2)),
-            if (tgt != null)
-              Text('strain ~${tgt.value.toStringAsFixed(0)}',
-                  style: AppText.label.copyWith(color: AppColors.coralDeep)),
-            const SizedBox(width: 4),
-            AppIcon(Ic.arrowRight, size: 16, color: AppColors.coralDeep),
-          ]),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: AppColors.coralSoft,
+                  borderRadius: BorderRadius.circular(R.chip),
+                ),
+                child: AppIcon(
+                  Ic.recovery,
+                  size: 17,
+                  color: AppColors.coralDeep,
+                ),
+              ),
+              const SizedBox(width: Sp.x2),
+              Expanded(child: Text("Today's plan", style: AppText.h2)),
+              if (tgt != null)
+                Text(
+                  'strain ~${tgt.value.toStringAsFixed(0)}',
+                  style: AppText.label.copyWith(color: AppColors.coralDeep),
+                ),
+              const SizedBox(width: 4),
+              AppIcon(Ic.arrowRight, size: 16, color: AppColors.coralDeep),
+            ],
+          ),
           const SizedBox(height: Sp.x3),
           if (top != null) ...[
             Text(top.title, style: AppText.title),
             const SizedBox(height: 2),
-            Text(top.body, style: AppText.bodySoft,
-                maxLines: 2, overflow: TextOverflow.ellipsis),
+            Text(
+              top.body,
+              style: AppText.bodySoft,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
           ] else
-            Text(coach.summary.isEmpty ? 'You\'re all set today.' : coach.summary,
-                style: AppText.bodySoft),
+            Text(
+              coach.summary.isEmpty ? 'You\'re all set today.' : coach.summary,
+              style: AppText.bodySoft,
+            ),
           if (coach.plan.length > 1) ...[
             const SizedBox(height: Sp.x3),
-            Text('+${coach.plan.length - 1} more in your plan',
-                style: AppText.captionMuted),
+            Text(
+              '+${coach.plan.length - 1} more in your plan',
+              style: AppText.captionMuted,
+            ),
           ],
         ],
       ),
@@ -448,38 +501,64 @@ class _TodayScreenState extends State<TodayScreen>
     final needNights = score == null ? r.needMoreNights : null;
     final tcol = score == null
         ? AppColors.inkMuted
-        : (score >= 66 ? AppColors.good : score >= 40 ? AppColors.coral : AppColors.coralDeep);
+        : (score >= 66
+              ? AppColors.good
+              : score >= 40
+              ? AppColors.coral
+              : AppColors.coralDeep);
     // Headline glyph: the score, or a clean "N nights" count while building the
     // baseline (the subtitle carries the explanation — no bare "Need 3").
     final headline = score != null
         ? '$score'
-        : (needNights != null ? '$needNights night${needNights == 1 ? '' : 's'}' : '—');
+        : (needNights != null
+              ? '$needNights night${needNights == 1 ? '' : 's'}'
+              : '—');
     final subtitle = score != null
         ? 'HRV recovery + sleep, blended'
         : (needNights != null
-            ? 'more overnight wear to unlock your readiness baseline'
-            : 'Building baseline — needs nocturnal HRV');
+              ? 'more overnight wear to unlock your readiness baseline'
+              : 'Building baseline — needs nocturnal HRV');
     return GlowCard(
       padding: const EdgeInsets.all(Sp.x6),
       glow: tcol,
-      child: Row(children: [
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          Row(children: [
-            AppIcon(Ic.recovery, size: 16, color: AppColors.coralDeep),
-            const SizedBox(width: Sp.x2),
-            Text('READINESS', style: AppText.overline),
-          ]),
-          const SizedBox(height: Sp.x3),
-          Text(headline,
-              style: (score != null ? AppText.display : AppText.metricSm)
-                  .copyWith(color: tcol)),
-          const SizedBox(height: Sp.x2),
-          Text(subtitle, style: AppText.bodySoft),
-        ])),
-        if (score != null)
-          RingStat(t: (score / 100).clamp(0.0, 1.0), color: tcol, size: 96, stroke: 11,
-              center: Text('$score', style: AppText.metricSm.copyWith(color: tcol))),
-      ]),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    AppIcon(Ic.recovery, size: 16, color: AppColors.coralDeep),
+                    const SizedBox(width: Sp.x2),
+                    Text('READINESS', style: AppText.overline),
+                  ],
+                ),
+                const SizedBox(height: Sp.x3),
+                Text(
+                  headline,
+                  style: (score != null ? AppText.display : AppText.metricSm)
+                      .copyWith(color: tcol),
+                ),
+                const SizedBox(height: Sp.x2),
+                Text(subtitle, style: AppText.bodySoft),
+              ],
+            ),
+          ),
+          if (score != null)
+            RingStat(
+              t: (score / 100).clamp(0.0, 1.0),
+              color: tcol,
+              size: 96,
+              stroke: 11,
+              center: Text(
+                '$score',
+                style: AppText.metricSm.copyWith(color: tcol),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -491,100 +570,138 @@ class _TodayScreenState extends State<TodayScreen>
         ? double.nan
         : (t.sleepDuration.value! / need).clamp(0.0, 1.0).toDouble();
     final hrv = t.hrv;
-    final hrvT = hrv == null ? double.nan : (hrv.rmssd / 150).clamp(0.0, 1.0).toDouble();
+    final hrvT = hrv == null
+        ? double.nan
+        : (hrv.rmssd / 150).clamp(0.0, 1.0).toDouble();
     return ProCard(
       child: Row(
         children: [
-          _gauge('STRAIN', t.strain.isEmpty ? null : t.strain.value!.toStringAsFixed(1),
-              null, strainT, AppColors.coral,
-              onTap: () => _push(() => const BodyScreen())),
-          _gauge('SLEEP', t.sleepDuration.isEmpty ? null : (t.sleepDuration.value! / 60).toStringAsFixed(1),
-              'h', sleepT, AppColors.loadDetraining,
-              onTap: () => _push(() => const SleepScreen())),
-          _gauge('HRV', hrv == null ? null : hrv.rmssd.toStringAsFixed(0),
-              'ms', hrvT, AppColors.good,
-              onTap: () => _push(() => const HeartScreen())),
+          _gauge(
+            'STRAIN',
+            t.strain.isEmpty ? null : t.strain.value!.toStringAsFixed(1),
+            null,
+            strainT,
+            AppColors.coral,
+            onTap: () => _push(() => const BodyScreen()),
+          ),
+          _gauge(
+            'SLEEP',
+            t.sleepDuration.isEmpty
+                ? null
+                : (t.sleepDuration.value! / 60).toStringAsFixed(1),
+            'h',
+            sleepT,
+            AppColors.loadDetraining,
+            onTap: () => _push(() => const SleepScreen()),
+          ),
+          _gauge(
+            'HRV',
+            hrv?.rmssd.toStringAsFixed(0),
+            'ms',
+            hrvT,
+            AppColors.good,
+            onTap: () => _push(() => const HeartScreen()),
+          ),
         ],
       ),
     );
   }
 
-  Widget _gauge(String label, String? value, String? unit, double t, Color color,
-      {VoidCallback? onTap}) {
+  Widget _gauge(
+    String label,
+    String? value,
+    String? unit,
+    double t,
+    Color color, {
+    VoidCallback? onTap,
+  }) {
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          RingStat(
-            t: t,
-            color: color,
-            size: 80,
-            stroke: 8,
-            center: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(value ?? '—',
-                    style: AppText.metricSm
-                        .copyWith(color: value == null ? AppColors.inkMuted : color)),
-                if (unit != null && value != null)
-                  Text(unit, style: AppText.overline),
-              ],
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            RingStat(
+              t: t,
+              color: color,
+              size: 80,
+              stroke: 8,
+              center: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    value ?? '—',
+                    style: AppText.metricSm.copyWith(
+                      color: value == null ? AppColors.inkMuted : color,
+                    ),
+                  ),
+                  if (unit != null && value != null)
+                    Text(unit, style: AppText.overline),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: Sp.x2),
-          Text(label, style: AppText.overline),
-        ],
+            const SizedBox(height: Sp.x2),
+            Text(label, style: AppText.overline),
+          ],
         ),
       ),
     );
   }
 
   Widget _statRow(Widget a, Widget b) => Row(
-        children: [
-          Expanded(child: a),
-          const SizedBox(width: Sp.x3),
-          Expanded(child: b),
-        ],
-      );
+    children: [
+      Expanded(child: a),
+      const SizedBox(width: Sp.x3),
+      Expanded(child: b),
+    ],
+  );
 
   /// Entry point to the "Your body over time" records/streaks screen.
   Widget _bodyOverTimeTile() => ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 110),
-        child: ProCard(
-          onTap: () => _push(() => const RecordsScreen()),
-          padding: const EdgeInsets.all(Sp.x3),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    constraints: const BoxConstraints(minHeight: 110),
+    child: ProCard(
+      onTap: () => _push(() => const RecordsScreen()),
+      padding: const EdgeInsets.all(Sp.x3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
             children: [
-              Row(children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                      color: AppColors.coralSoft, borderRadius: BorderRadius.circular(R.chip)),
-                  child: AppIcon(Ic.recovery, size: 16, color: AppColors.coralDeep),
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.coralSoft,
+                  borderRadius: BorderRadius.circular(R.chip),
                 ),
-                const SizedBox(width: Sp.x2),
-                Expanded(child: Text('Your body', style: AppText.label)),
-                AppIcon(Ic.arrowRight, size: 15, color: AppColors.coralDeep),
-              ]),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('Records & streaks',
-                      style: AppText.title.copyWith(fontSize: 16)),
-                  const SizedBox(height: 2),
-                  Text('Over time', style: AppText.captionMuted),
-                ],
+                child: AppIcon(
+                  Ic.recovery,
+                  size: 16,
+                  color: AppColors.coralDeep,
+                ),
               ),
+              const SizedBox(width: Sp.x2),
+              Expanded(child: Text('Your body', style: AppText.label)),
+              AppIcon(Ic.arrowRight, size: 15, color: AppColors.coralDeep),
             ],
           ),
-        ),
-      );
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Records & streaks',
+                style: AppText.title.copyWith(fontSize: 16),
+              ),
+              const SizedBox(height: 2),
+              Text('Over time', style: AppText.captionMuted),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
 
   Widget _hrCard() {
     final values = _hr.points.map((p) => p.v).toList();
@@ -598,10 +715,11 @@ class _TodayScreenState extends State<TodayScreen>
             children: [
               AppIcon(Ic.pulse, size: 19, color: AppColors.coral),
               const SizedBox(width: Sp.x2),
-              Expanded(
-                child: Text("Today's heart rate", style: AppText.h2),
+              Expanded(child: Text("Today's heart rate", style: AppText.h2)),
+              Text(
+                'Your day',
+                style: AppText.label.copyWith(color: AppColors.coralDeep),
               ),
-              Text('Your day', style: AppText.label.copyWith(color: AppColors.coralDeep)),
               const SizedBox(width: 2),
               AppIcon(Ic.arrowRight, size: 15, color: AppColors.coralDeep),
             ],
@@ -618,8 +736,10 @@ class _TodayScreenState extends State<TodayScreen>
                   children: [
                     AppIcon(Ic.heart, size: 26, color: AppColors.inkMuted),
                     const SizedBox(height: Sp.x2),
-                    Text('No heart-rate data yet today',
-                        style: AppText.captionMuted),
+                    Text(
+                      'No heart-rate data yet today',
+                      style: AppText.captionMuted,
+                    ),
                   ],
                 ),
               ),
@@ -638,9 +758,11 @@ class _TodayScreenState extends State<TodayScreen>
   Widget _emptyOrProcessing(AppState app) {
     final raw = app.dbCounts['raw'] ?? 0;
     if (app.reanalyzing) {
-      return _processing(app.reanalyzeProgress.isEmpty
-          ? 'Analyzing your stored data…'
-          : '${app.reanalyzeProgress.replaceFirst('Analyzing', 'Processing')} days');
+      return _processing(
+        app.reanalyzeProgress.isEmpty
+            ? 'Analyzing your stored data…'
+            : '${app.reanalyzeProgress.replaceFirst('Analyzing', 'Processing')} days',
+      );
     }
     if (raw > 0) {
       return _processingPrompt(app, raw);
@@ -654,46 +776,62 @@ class _TodayScreenState extends State<TodayScreen>
   }
 
   Widget _processing(String label) => ProCard(
-        padding: const EdgeInsets.all(Sp.x6),
-        child: Column(children: [
-          SizedBox(
-              width: 30,
-              height: 30,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2.5, color: AppColors.coral)),
-          const SizedBox(height: Sp.x4),
-          Text('Processing your data', style: AppText.h2, textAlign: TextAlign.center),
-          const SizedBox(height: Sp.x2),
-          Text(label, style: AppText.bodySoft, textAlign: TextAlign.center),
-        ]),
-      );
+    padding: const EdgeInsets.all(Sp.x6),
+    child: Column(
+      children: [
+        SizedBox(
+          width: 30,
+          height: 30,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: AppColors.coral,
+          ),
+        ),
+        const SizedBox(height: Sp.x4),
+        Text(
+          'Processing your data',
+          style: AppText.h2,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: Sp.x2),
+        Text(label, style: AppText.bodySoft, textAlign: TextAlign.center),
+      ],
+    ),
+  );
 
   Widget _processingPrompt(AppState app, int raw) => ProCard(
-        padding: const EdgeInsets.all(Sp.x6),
-        child: Column(children: [
-          Container(
-            padding: const EdgeInsets.all(Sp.x4),
-            decoration: BoxDecoration(
-                color: AppColors.coralSoft, shape: BoxShape.circle),
-            child: AppIcon(Ic.history, size: 30, color: AppColors.coralDeep),
+    padding: const EdgeInsets.all(Sp.x6),
+    child: Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(Sp.x4),
+          decoration: BoxDecoration(
+            color: AppColors.coralSoft,
+            shape: BoxShape.circle,
           ),
-          const SizedBox(height: Sp.x4),
-          Text('Data collected — not analyzed yet',
-              style: AppText.h2, textAlign: TextAlign.center),
-          const SizedBox(height: Sp.x2),
-          Text(
-            'Stored $raw raw record${raw == 1 ? '' : 's'} from your strap. '
-            'Analysis runs automatically after a sync — or run it now.',
-            style: AppText.bodySoft,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: Sp.x5),
-          FilledButton(
-            onPressed: () => app.reanalyzeAll(),
-            child: const Text('Analyze now'),
-          ),
-        ]),
-      );
+          child: AppIcon(Ic.history, size: 30, color: AppColors.coralDeep),
+        ),
+        const SizedBox(height: Sp.x4),
+        Text(
+          'Data collected — not analyzed yet',
+          style: AppText.h2,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: Sp.x2),
+        Text(
+          'Stored $raw raw record${raw == 1 ? '' : 's'} from your strap. '
+          'Analysis runs automatically after a sync — or run it now.',
+          style: AppText.bodySoft,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: Sp.x5),
+        FilledButton(
+          onPressed: () => app.reanalyzeAll(),
+          child: const Text('Analyze now'),
+        ),
+      ],
+    ),
+  );
 
   Widget _empty({required String title, required String message}) {
     return ProCard(
@@ -711,27 +849,26 @@ class _TodayScreenState extends State<TodayScreen>
           const SizedBox(height: Sp.x4),
           Text(title, style: AppText.h2, textAlign: TextAlign.center),
           const SizedBox(height: Sp.x2),
-          Text(message,
-              style: AppText.bodySoft, textAlign: TextAlign.center),
+          Text(message, style: AppText.bodySoft, textAlign: TextAlign.center),
         ],
       ),
     );
   }
 
   List<Widget> _skeleton() => [
-        const ProCard(child: SizedBox(height: 96)),
-        const SizedBox(height: Sp.x4),
-        _statRow(_skelTile(), _skelTile()),
-        const SizedBox(height: Sp.x3),
-        _statRow(_skelTile(), _skelTile()),
-        const SizedBox(height: Sp.x3),
-        _statRow(_skelTile(), _skelTile()),
-        const SizedBox(height: Sp.x4),
-        const ProCard(child: SizedBox(height: 140)),
-      ];
+    const ProCard(child: SizedBox(height: 96)),
+    const SizedBox(height: Sp.x4),
+    _statRow(_skelTile(), _skelTile()),
+    const SizedBox(height: Sp.x3),
+    _statRow(_skelTile(), _skelTile()),
+    const SizedBox(height: Sp.x3),
+    _statRow(_skelTile(), _skelTile()),
+    const SizedBox(height: Sp.x4),
+    const ProCard(child: SizedBox(height: 140)),
+  ];
 
   Widget _skelTile() => const ProCard(
-        padding: EdgeInsets.all(Sp.x4),
-        child: SizedBox(height: 96),
-      );
+    padding: EdgeInsets.all(Sp.x4),
+    child: SizedBox(height: 96),
+  );
 }
