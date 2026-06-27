@@ -28,6 +28,9 @@ Future<void> main() async {
   try {
     await FlutterBluePlus.setOptions(restoreState: true);
   } catch (_) {/* older plugin / unsupported platform — ignore */}
+  try {
+    await FlutterBluePlus.setLogLevel(LogLevel.none, color: false);
+  } catch (_) {/* older plugin / unsupported platform — ignore */}
 
   // Optional startup services. A failure in any one of these must NEVER block the
   // first frame — they are awaited before runApp, so an unguarded throw (e.g. the
