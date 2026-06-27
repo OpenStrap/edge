@@ -17,9 +17,13 @@ dependencies:
   # lib/compute/derivation_engine.dart). The analytics package now points at the
   # 1 Hz-native family (import via `package:openstrap_analytics/onehz.dart`).
   openstrap_protocol:
-    path: ../openstrap-protocol-dart
+    git:
+      url: https://github.com/OpenStrap/protocol.git
+      ref: main
   openstrap_analytics:
-    path: ../openstrap-analytics-onehz
+    git:
+      url: https://github.com/OpenStrap/analytics.git
+      ref: main
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.35.5
