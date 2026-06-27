@@ -430,8 +430,44 @@ class LocalDb {
   }
 
   static Future<void> _ensureSyncStateSchema(Database db) async {
+    await _ensureSyncCursorSchema(db);
     await _ensureSyncLedgerSchema(db);
     await _ensureSyncQuarantineSchema(db);
+  }
+
+  static Future<void> _ensureSyncCursorSchema(Database db) async {
+    final tables = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sync_cursor'",
+    );
+    if (tables.isEmpty) {
+      await _createSyncCursor(db);
+      return;
+    }
+    final cols = await db.rawQuery("PRAGMA table_info(sync_cursor)");
+    final names = {
+      for (final c in cols)
+        if (c['name'] is String) c['name'] as String,
+    };
+    if (names.contains('name') &&
+        names.contains('value') &&
+        names.contains('updated_at')) {
+      return;
+    }
+
+    await db.execute('ALTER TABLE sync_cursor RENAME TO sync_cursor_legacy');
+    await _createSyncCursor(db);
+    final legacyRows = await db.query('sync_cursor_legacy');
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final row in legacyRows) {
+      final name = row['name'] as String?;
+      if (name == null || name.isEmpty) continue;
+      await db.insert('sync_cursor', {
+        'name': name,
+        'value': row['value']?.toString(),
+        'updated_at': (row['updated_at'] as num?)?.toInt() ?? now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await db.execute('DROP TABLE sync_cursor_legacy');
   }
 
   static Future<void> _ensureSyncLedgerSchema(Database db) async {

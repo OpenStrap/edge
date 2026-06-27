@@ -446,131 +446,137 @@ class BleEngine {
     // the setup below (discover/subscribe/SET_CLOCK → bond) is never skipped.
     session.connected = true;
     session.sawConnected = true;
-
-    // Bond. On Android we explicitly createBond (the strap gates commands behind
-    // encryption — without a bond the ACK/commands are silently dropped). On iOS
-    // bonding happens implicitly on the first write-with-response.
-    if (Platform.isAndroid) {
-      try {
-        await device.createBond();
-        _log('Bonded (or already bonded).');
-      } catch (e) {
-        _log('createBond: $e');
-      }
-    }
-
-    // Larger MTU + a fast connection interval for the drain (Android-only levers;
-    // no-ops on iOS, which picks a fast interval itself when data is pending).
     try {
-      await device.requestMtu(247);
-    } catch (_) {}
-    if (Platform.isAndroid) {
-      try {
-        await device.requestConnectionPriority(
-          connectionPriorityRequest: ConnectionPriority.high,
-        );
-      } catch (_) {}
-    }
-
-    if (!session.connected) {
-      _log('connect: link dropped during setup.');
-      return false;
-    }
-
-    _setPhase(BleConnState.discovering);
-    final services = await device.discoverServices();
-    BluetoothService? svc;
-    for (final s in services) {
-      if (s.uuid.str.toLowerCase().startsWith('61080001')) svc = s;
-    }
-    if (svc == null) {
-      _log('Harvard service not found on device.');
-      await _teardownSession(intentional: true);
-      _setPhase(BleConnState.idle);
-      return false;
-    }
-    BluetoothCharacteristic? find(String prefix) {
-      for (final c in svc!.characteristics) {
-        if (c.uuid.str.toLowerCase().startsWith(prefix)) return c;
+      // Bond. On Android we explicitly createBond (the strap gates commands behind
+      // encryption — without a bond the ACK/commands are silently dropped). On iOS
+      // bonding happens implicitly on the first write-with-response.
+      if (Platform.isAndroid) {
+        try {
+          await device.createBond();
+          _log('Bonded (or already bonded).');
+        } catch (e) {
+          _log('createBond: $e');
+        }
       }
-      return null;
-    }
 
-    session.cmdTo = find('61080002');
-    final cmdFrom = find('61080003');
-    final events = find('61080004');
-    final data = find('61080005');
-    if (session.cmdTo == null ||
-        cmdFrom == null ||
-        events == null ||
-        data == null) {
-      _log('Missing one or more Harvard characteristics.');
+      // Larger MTU + a fast connection interval for the drain (Android-only levers;
+      // no-ops on iOS, which picks a fast interval itself when data is pending).
+      try {
+        await device.requestMtu(247);
+      } catch (_) {}
+      if (Platform.isAndroid) {
+        try {
+          await device.requestConnectionPriority(
+            connectionPriorityRequest: ConnectionPriority.high,
+          );
+        } catch (_) {}
+      }
+
+      if (!session.connected) {
+        _log('connect: link dropped during setup.');
+        return false;
+      }
+
+      _setPhase(BleConnState.discovering);
+      final services = await device.discoverServices();
+      BluetoothService? svc;
+      for (final s in services) {
+        if (s.uuid.str.toLowerCase().startsWith('61080001')) svc = s;
+      }
+      if (svc == null) {
+        _log('Harvard service not found on device.');
+        await _teardownSession(intentional: true);
+        _setPhase(BleConnState.idle);
+        return false;
+      }
+      BluetoothCharacteristic? find(String prefix) {
+        for (final c in svc!.characteristics) {
+          if (c.uuid.str.toLowerCase().startsWith(prefix)) return c;
+        }
+        return null;
+      }
+
+      session.cmdTo = find('61080002');
+      final cmdFrom = find('61080003');
+      final events = find('61080004');
+      final data = find('61080005');
+      if (session.cmdTo == null ||
+          cmdFrom == null ||
+          events == null ||
+          data == null) {
+        _log('Missing one or more Harvard characteristics.');
+        await _teardownSession(intentional: true);
+        _setPhase(BleConnState.idle);
+        return false;
+      }
+
+      _setPhase(BleConnState.subscribing);
+      await _subscribe(session, cmdFrom, 'cmd_from');
+      await _subscribe(session, events, 'events');
+      await _subscribe(session, data, 'data');
+
+      _setPhase(BleConnState.settingUp);
+      // Set the strap RTC to real wall-clock time. The band ships with an unset
+      // clock; SET_CLOCK is non-destructive (it's what the official app does each
+      // connect). Records stamped after this carry real unix time.
+      await setClock();
+      // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
+      // here — they count consecutive bad cycles across reconnects and self-reset on
+      // a healthy disconnect. Empty-sync + stuck are per-connection.
+      _emptySync = EmptySyncTracker();
+      _stuckStrap = StuckStrapDetector();
+      _autoContinueCount = 0;
+      _lastBackfillAt = 0;
+      _droppedImplausible = 0;
+      _sessionOldestUnix = null;
+      _sessionNewestUnix = null;
+      _bondTime = DateTime.now();
+      // Seed the frontier from the durable high-water so the stuck/continuation
+      // detectors are correct on the first offload after a restart.
+      _frontierTs = (await cursorReader?.call('rec_ts_hw')) ?? 0;
+
+      // Heartbeat: keep the link alive (~10s LINK_VALID). Owned by the session, so a
+      // disconnect cancels it — no zombie timer firing into a dead characteristic.
+      session.heartbeat = Timer.periodic(const Duration(seconds: 10), (_) {
+        if (session.connected) _send(Cmd.linkValid, const [0x00]);
+      });
+      // Keep-alive (30s): liveness watchdog (bounce a silently-dead link), periodic
+      // battery poll, and realtime re-arm.
+      session.keepAlive = Timer.periodic(
+        const Duration(seconds: kKeepAliveIntervalSeconds),
+        (_) => _keepAliveFire(session),
+      );
+      // Periodic backfill (900s): re-trigger the historical offload while connected,
+      // floored by BackfillPolicy so a flapping link can't hammer the strap.
+      session.periodicBackfill = Timer.periodic(
+        const Duration(seconds: kBackfillIntervalSeconds),
+        (_) => _triggerBackfill(BackfillTrigger.periodic),
+      );
+
+      _lastRx = DateTime.now(); // fresh link — never treat as stale on resume
+
+      // SINGLE LISTENING MODE. Arm the offload controller, enter `listening`, then
+      // fire INIT — which triggers the historical flood. Historical + live records
+      // then arrive on the same subscription; HISTORY_END markers are committed
+      // (raw+samples+cursor, atomically) BEFORE we ACK, so the offload is resumable.
+      _drain = _DrainController(
+        onRecord: _storeRecord,
+        onRecordsBatch: onRecordsBatch == null ? null : _storeRecordsBatch,
+        onCommit: onCommitBatch == null ? null : _commitBatch,
+        log: _log,
+      );
+      _setPhase(BleConnState.listening);
+      _log('Connected + subscribed — listening (history + live).');
+      _setOffloadActive(true);
+      _lastBackfillAt = _wallSecs();
+      await sendInit(); // triggers the historical offload flood
+      return true;
+    } catch (e) {
+      _log('connect setup failed: $e');
       await _teardownSession(intentional: true);
       _setPhase(BleConnState.idle);
       return false;
     }
-
-    _setPhase(BleConnState.subscribing);
-    await _subscribe(session, cmdFrom, 'cmd_from');
-    await _subscribe(session, events, 'events');
-    await _subscribe(session, data, 'data');
-
-    _setPhase(BleConnState.settingUp);
-    // Set the strap RTC to real wall-clock time. The band ships with an unset
-    // clock; SET_CLOCK is non-destructive (it's what the official app does each
-    // connect). Records stamped after this carry real unix time.
-    await setClock();
-    // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
-    // here — they count consecutive bad cycles across reconnects and self-reset on
-    // a healthy disconnect. Empty-sync + stuck are per-connection.
-    _emptySync = EmptySyncTracker();
-    _stuckStrap = StuckStrapDetector();
-    _autoContinueCount = 0;
-    _lastBackfillAt = 0;
-    _droppedImplausible = 0;
-    _sessionOldestUnix = null;
-    _sessionNewestUnix = null;
-    _bondTime = DateTime.now();
-    // Seed the frontier from the durable high-water so the stuck/continuation
-    // detectors are correct on the first offload after a restart.
-    _frontierTs = (await cursorReader?.call('rec_ts_hw')) ?? 0;
-
-    // Heartbeat: keep the link alive (~10s LINK_VALID). Owned by the session, so a
-    // disconnect cancels it — no zombie timer firing into a dead characteristic.
-    session.heartbeat = Timer.periodic(const Duration(seconds: 10), (_) {
-      if (session.connected) _send(Cmd.linkValid, const [0x00]);
-    });
-    // Keep-alive (30s): liveness watchdog (bounce a silently-dead link), periodic
-    // battery poll, and realtime re-arm.
-    session.keepAlive = Timer.periodic(
-      const Duration(seconds: kKeepAliveIntervalSeconds),
-      (_) => _keepAliveFire(session),
-    );
-    // Periodic backfill (900s): re-trigger the historical offload while connected,
-    // floored by BackfillPolicy so a flapping link can't hammer the strap.
-    session.periodicBackfill = Timer.periodic(
-      const Duration(seconds: kBackfillIntervalSeconds),
-      (_) => _triggerBackfill(BackfillTrigger.periodic),
-    );
-
-    _lastRx = DateTime.now(); // fresh link — never treat as stale on resume
-
-    // SINGLE LISTENING MODE. Arm the offload controller, enter `listening`, then
-    // fire INIT — which triggers the historical flood. Historical + live records
-    // then arrive on the same subscription; HISTORY_END markers are committed
-    // (raw+samples+cursor, atomically) BEFORE we ACK, so the offload is resumable.
-    _drain = _DrainController(
-      onRecord: _storeRecord,
-      onRecordsBatch: onRecordsBatch == null ? null : _storeRecordsBatch,
-      onCommit: onCommitBatch == null ? null : _commitBatch,
-      log: _log,
-    );
-    _setPhase(BleConnState.listening);
-    _log('Connected + subscribed — listening (history + live).');
-    _setOffloadActive(true);
-    _lastBackfillAt = _wallSecs();
-    await sendInit(); // triggers the historical offload flood
-    return true;
   }
 
   // ── keep-alive + periodic backfill ──────────────────────────────────────────
