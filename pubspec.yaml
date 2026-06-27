@@ -56,6 +56,10 @@ dependencies:
   # File picker for data imports (NOOP raw CSV, Edge .db backup, WHOOP export CSV).
   file_picker: ^8.1.6
 
+  # Apple Health (HealthKit, iOS) + Google Health Connect (Android) — export each
+  # day's derived metrics to the platform health store.
+  health: ^11.1.1
+
   # Home/lock-screen widget bridge (writes a snapshot to the App Group → WidgetKit).
   home_widget: ^0.6.0
 

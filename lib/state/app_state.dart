@@ -31,6 +31,7 @@ import '../data/db.dart';
 import '../data/local_repository.dart';
 import '../data/local_repository_impl.dart';
 import '../gestures/gesture_settings.dart';
+import '../health/health_export.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
@@ -140,6 +141,10 @@ class AppState extends ChangeNotifier {
     // Load the user's backend-URL override (if any) so the cloud client resolves
     // it ahead of the build-time BACKEND_URL.
     BackendClient.overrideUrl = prefs.getString(_kBackendUrl);
+    healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
+    // Best-effort, no prompt: learn the current health-permission state so the
+    // Profile toggle reflects reality on open.
+    if (healthSyncEnabled) unawaited(checkHealth());
   }
 
   // ── backend URL (cloud import / existing-user login) ────────────────────────
@@ -229,6 +234,52 @@ class AppState extends ChangeNotifier {
     } catch (_) {/* best-effort */}
     notifyListeners();
     return counts.values.fold<int>(0, (a, b) => a + b);
+  }
+
+  // ── platform health export (Apple Health / Health Connect) ──────────────────
+  final HealthExporter _healthExport = HealthExporter();
+  HealthLinkState healthState = HealthLinkState.unknown;
+  bool healthSyncEnabled = false;
+  static const String _kHealthSync = 'health_sync';
+
+  /// "Apple Health" (iOS) or "Health Connect" (Android).
+  String get healthStoreName => HealthExporter.storeName;
+  bool get healthIsApple => HealthExporter.isApple;
+
+  /// Check current permission state WITHOUT prompting (startup-safe).
+  Future<void> checkHealth() async {
+    healthState = await _healthExport.check();
+    notifyListeners();
+  }
+
+  /// Prompt for write access (user gesture). On grant + enabled, kick a sync.
+  Future<void> requestHealth() async {
+    healthState = await _healthExport.request();
+    notifyListeners();
+    if (healthState == HealthLinkState.ready && healthSyncEnabled) {
+      unawaited(healthSyncNow());
+    }
+  }
+
+  /// Android: open the Play Store to install/update Health Connect.
+  Future<void> installHealthConnect() => _healthExport.install();
+
+  /// Toggle continuous export. Enabling requests permission + does a first sync.
+  Future<void> setHealthSync(bool on) async {
+    healthSyncEnabled = on;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kHealthSync, on);
+    notifyListeners();
+    if (on) {
+      await requestHealth();
+      if (healthState == HealthLinkState.ready) unawaited(healthSyncNow());
+    }
+  }
+
+  /// Export all finalized-but-unexported days now. Returns days written.
+  Future<int> healthSyncNow() async {
+    final n = await _healthExport.exportAll();
+    return n;
   }
 
   /// Merge + persist local profile fields. Returns the updated map. Replaces the
@@ -386,6 +437,20 @@ class AppState extends ChangeNotifier {
             if (n > 0) notifyListeners(); // screens re-read the refreshed scalars
           } catch (e) {
             _log('[derive] rescan failed: $e');
+          }
+        }());
+      }
+      // Continuous health export: push freshly-derived days (incl. TODAY) to Apple
+      // Health / Health Connect AS SOON as they're computed — runs on BOTH the
+      // light (every drain) and heavy passes, not only on finalize. Idempotent
+      // (delete-then-write), best-effort, never throws into the BLE/derive path.
+      if (healthSyncEnabled) {
+        unawaited(() async {
+          try {
+            final n = await _healthExport.exportAll();
+            if (n > 0) _log('[health] exported $n day(s)');
+          } catch (e) {
+            _log('[health] export failed: $e');
           }
         }());
       }

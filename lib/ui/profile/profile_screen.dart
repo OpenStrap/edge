@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/db.dart';
+import '../../health/health_export.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../theme/theme.dart';
@@ -221,6 +222,12 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
           ),
+
+          const SizedBox(height: Sp.x7),
+
+          // ── Apple Health (iOS) / Health Connect (Android) ─────────────
+          SectionHeader(app.healthStoreName),
+          _HealthSection(app: app),
 
           const SizedBox(height: Sp.x7),
 
@@ -563,6 +570,103 @@ Future<bool?> _confirm(
 }
 
 // ── Header ──────────────────────────────────────────────────────────────────
+/// Apple Health (iOS) / Health Connect (Android) export controls: a toggle to
+/// keep pushing each day's metrics, plus state-aware CTAs (grant / install).
+class _HealthSection extends StatelessWidget {
+  final AppState app;
+  const _HealthSection({required this.app});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = app.healthStoreName;
+    final st = app.healthState;
+    return ProCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+                color: AppColors.coralSoft,
+                borderRadius: BorderRadius.circular(R.chip)),
+            child: AppIcon(Ic.heart, size: 18, color: AppColors.coralInk),
+          ),
+          const SizedBox(width: Sp.x3),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Sync to $store', style: AppText.label),
+              const SizedBox(height: 1),
+              Text('Sleep, resting HR, HRV, respiratory rate, energy & workouts.',
+                  style: AppText.captionMuted),
+            ]),
+          ),
+          Switch(
+            value: app.healthSyncEnabled,
+            activeThumbColor: AppColors.coral,
+            onChanged: (v) => app.setHealthSync(v),
+          ),
+        ]),
+        if (app.healthSyncEnabled) ...[
+          const SizedBox(height: Sp.x2),
+          const _HairDivider(),
+          const SizedBox(height: Sp.x3),
+          _statusRow(context, st, store),
+        ],
+      ]),
+    );
+  }
+
+  Widget _statusRow(BuildContext context, HealthLinkState st, String store) {
+    final messenger = ScaffoldMessenger.of(context);
+    switch (st) {
+      case HealthLinkState.ready:
+        return Row(children: [
+          AppIcon(Ic.check, size: 16, color: AppColors.good),
+          const SizedBox(width: Sp.x2),
+          Expanded(
+              child: Text('Connected — new days sync automatically.',
+                  style: AppText.captionMuted)),
+          TextButton(
+            onPressed: () async {
+              final n = await app.healthSyncNow();
+              messenger.showSnackBar(SnackBar(
+                  content: Text(n > 0
+                      ? 'Synced $n day${n == 1 ? '' : 's'} to $store.'
+                      : 'Already up to date.')));
+            },
+            child: const Text('Sync now'),
+          ),
+        ]);
+      case HealthLinkState.needsPermission:
+      case HealthLinkState.unknown:
+        return _cta(
+            'Grant write access so we can add your data to $store.',
+            'Grant access',
+            () => app.requestHealth());
+      case HealthLinkState.notInstalled:
+        return _cta('$store isn’t installed. Install it, then come back.',
+            'Install', () => app.installHealthConnect());
+      case HealthLinkState.needsUpdate:
+        return _cta('$store needs an update before we can write to it.',
+            'Update', () => app.installHealthConnect());
+      case HealthLinkState.unsupported:
+        return Text('$store isn’t available on this device.',
+            style: AppText.captionMuted);
+    }
+  }
+
+  Widget _cta(String text, String label, VoidCallback onTap) => Row(children: [
+        Expanded(child: Text(text, style: AppText.captionMuted)),
+        const SizedBox(width: Sp.x2),
+        FilledButton(
+          onPressed: onTap,
+          style: FilledButton.styleFrom(
+              backgroundColor: AppColors.coral,
+              visualDensity: VisualDensity.compact),
+          child: Text(label, style: TextStyle(color: Colors.white)),
+        ),
+      ]);
+}
+
 class _Header extends StatelessWidget {
   final String name;
   final VoidCallback onEdit;
