@@ -106,6 +106,9 @@ class AppState extends ChangeNotifier {
   int _widgetBattPct = -2;
   bool? _widgetBattCharging;
   String? _widgetBattName;
+  int? _storedBatteryPct;
+  bool? _storedBatteryCharging;
+  bool? _storedBatteryWristOn;
   bool initialized = false;
 
   /// True while the app is backgrounded. On iOS we KEEP the BLE connection alive in
@@ -553,8 +556,26 @@ class AppState extends ChangeNotifier {
   void _onEngineState(DeviceState s) {
     // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
     _deviceAlerts.onDeviceState(batteryPct: s.batteryPct, charging: s.charging);
+    final roundedPct = s.batteryPct?.round();
+    if (roundedPct != _storedBatteryPct ||
+        s.charging != _storedBatteryCharging ||
+        s.wristOn != _storedBatteryWristOn) {
+      _storedBatteryPct = roundedPct;
+      _storedBatteryCharging = s.charging;
+      _storedBatteryWristOn = s.wristOn;
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      unawaited(
+        LocalDb.insertBandBatterySample(
+          ts: nowSec,
+          batteryPct: roundedPct?.toDouble(),
+          charging: s.charging,
+          wristOn: s.wristOn,
+          source: 'device_state',
+        ),
+      );
+    }
     // Keep the lock-screen Band Battery widget current — only when it changed.
-    final battPct = s.batteryPct?.round() ?? -1;
+    final battPct = roundedPct ?? -1;
     if (battPct != _widgetBattPct ||
         s.charging != _widgetBattCharging ||
         s.strapName != _widgetBattName) {

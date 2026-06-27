@@ -1,8 +1,10 @@
 // Local raw-first storage (SQLite via sqflite).
 //
-// Two tables:
-//   raw_records  — the band's bytes verbatim, keyed by counter. Source of truth.
-//   samples      — decoded telemetry, keyed by counter. Idempotent on counter.
+// Durable storage layers:
+//   raw_records   — the band's bytes verbatim, keyed by counter. Replay/debug ledger.
+//   decoded_onehz — canonical per-frame decoded substrate, keyed by counter.
+//   decoded_rr    — sparse RR beats keyed by (counter, beat_index).
+//   samples       — legacy header cache kept only for backward-compat fallback.
 //
 // `counter` (u32 @[3:7]) is the band's per-record id and our natural idempotency
 // key — re-draining the same flash region inserts nothing new (INSERT OR IGNORE).
@@ -35,6 +37,7 @@ class LocalDb {
         await _createDecodedStore(db);
         await db.execute('CREATE INDEX idx_samples_ts ON samples(ts)');
         await _createEvents(db);
+        await _createBandSignals(db);
         await _createDerived(db);
         await _createDayResult(db);
         await _createUserTables(db);
@@ -132,11 +135,14 @@ class LocalDb {
           await _createDecodedStore(db);
           await _backfillDecodedStore(db);
         }
+        if (oldV < 12) {
+          await _createBandSignals(db);
+        }
       },
       onOpen: (db) async {
         await _ensureSyncStateSchema(db);
       },
-      version: 11,
+      version: 12,
     );
   }
 
@@ -381,8 +387,9 @@ class LocalDb {
     await db.execute('DROP TABLE sync_quarantine_legacy');
   }
 
-  // samples — header-only record index (counter, ts, hr). The band is a raw pipe;
-  // sensors are decoded in the cloud from the uploaded raw hex, never on-device.
+  // samples — LEGACY header-only record index (counter, ts, hr). Retained only
+  // so pre-v11 databases stay readable if decoded_onehz backfill was partial.
+  // New writes should go to decoded_onehz instead.
   static Future<void> _createSamples(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS samples (
@@ -604,14 +611,121 @@ class LocalDb {
     ''');
   }
 
+  // band_events / band_battery — structured local history for device-state
+  // signals that were previously only ephemeral or raw-only. Additive beside
+  // the upload-queue `events` table.
+  static Future<void> _createBandSignals(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS band_events (
+        hex TEXT PRIMARY KEY,
+        event_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        ts INTEGER NOT NULL,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        captured_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_band_events_ts ON band_events(ts, event_id)',
+    );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS band_battery (
+        ts INTEGER NOT NULL,
+        battery_pct REAL,
+        charging INTEGER,
+        wrist_on INTEGER,
+        source TEXT NOT NULL,
+        PRIMARY KEY (ts, source)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_band_battery_ts ON band_battery(ts DESC)',
+    );
+  }
+
   static Future<void> insertEvent(int eventId, int ts, String hex) async {
     final db = await instance;
+    final capturedAt = DateTime.now().millisecondsSinceEpoch;
     await db.insert('events', {
       'hex': hex,
       'event_id': eventId,
       'ts': ts,
-      'captured_at': DateTime.now().millisecondsSinceEpoch,
+      'captured_at': capturedAt,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    final parsed = () {
+      try {
+        return proto.parseEvent(proto.hexToBytes(hex));
+      } catch (_) {
+        return null;
+      }
+    }();
+    await db.insert('band_events', {
+      'hex': hex,
+      'event_id': eventId,
+      'name': parsed?.name ?? proto.EventId.name(eventId),
+      'ts': parsed?.tsEpoch ?? ts,
+      'payload_json': jsonEncode(parsed?.decoded ?? const <String, dynamic>{}),
+      'captured_at': capturedAt,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  static Future<void> insertBandBatterySample({
+    required int ts,
+    double? batteryPct,
+    bool? charging,
+    bool? wristOn,
+    required String source,
+  }) async {
+    final db = await instance;
+    await db.insert('band_battery', {
+      'ts': ts,
+      'battery_pct': batteryPct,
+      'charging': charging == null ? null : (charging ? 1 : 0),
+      'wrist_on': wristOn == null ? null : (wristOn ? 1 : 0),
+      'source': source,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  static Future<Map<String, dynamic>?> latestBandBatterySample() async {
+    final db = await instance;
+    final rows = await db.query('band_battery', orderBy: 'ts DESC', limit: 1);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  static Future<Map<String, dynamic>> bandSignalsStats() async {
+    final db = await instance;
+    final eventCount =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM band_events'),
+        ) ??
+        0;
+    final batteryCount =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM band_battery'),
+        ) ??
+        0;
+    final eventSpan = (await db.rawQuery(
+      'SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM band_events',
+    )).first;
+    final batterySpan = (await db.rawQuery(
+      'SELECT MIN(ts) AS lo, MAX(ts) AS hi FROM band_battery',
+    )).first;
+    final eventKinds = await db.rawQuery(
+      'SELECT name, COUNT(*) AS n FROM band_events GROUP BY name ORDER BY n DESC, name ASC',
+    );
+    return {
+      'event_count': eventCount,
+      'battery_count': batteryCount,
+      'event_min_ts': (eventSpan['lo'] as num?)?.toInt(),
+      'event_max_ts': (eventSpan['hi'] as num?)?.toInt(),
+      'battery_min_ts': (batterySpan['lo'] as num?)?.toInt(),
+      'battery_max_ts': (batterySpan['hi'] as num?)?.toInt(),
+      'event_kinds': {
+        for (final row in eventKinds)
+          (row['name']?.toString() ?? 'unknown'):
+              (row['n'] as num?)?.toInt() ?? 0,
+      },
+    };
   }
 
   static Future<List<Map<String, dynamic>>> unuploadedEvents({
@@ -655,22 +769,17 @@ class LocalDb {
         'rec_ts': _recTsFor(raw),
         'uploaded': raw.uploaded ? 1 : 0,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
-      if (sample != null) {
-        await txn.insert('samples', {
-          'counter': raw.counter,
-          ...sample.toDbMap(),
-        }, conflictAlgorithm: ConflictAlgorithm.ignore);
-      }
       _queueDecodedOneHz(batch, raw, sample);
       await batch.commit(noResult: true);
     });
     return rawRows != 0;
   }
 
-  /// Insert many records in ONE transaction. During a historical drain this is far
-  /// faster than a transaction-per-record (one fsync instead of thousands). `raws`
-  /// and `samples` are parallel lists; a null sample means raw-only (live/no decode).
-  /// Raw-first is preserved — callers flush this before ACKing a sync batch.
+  /// Insert many records in ONE transaction. During a historical drain this is
+  /// far faster than a transaction-per-record (one fsync instead of thousands).
+  /// `samples` is now purely an ingest carrier for decoded fields; rows are
+  /// persisted into decoded_onehz/decoded_rr, not into the legacy `samples`
+  /// table. Raw-first is preserved — callers flush this before ACKing a sync batch.
   static Future<void> insertRecordsBatch(
     List<RawRecord> raws,
     List<Sample?> samples,
@@ -690,12 +799,6 @@ class LocalDb {
           'uploaded': raw.uploaded ? 1 : 0,
         }, conflictAlgorithm: ConflictAlgorithm.ignore);
         final sample = samples[i];
-        if (sample != null) {
-          batch.insert('samples', {
-            'counter': raw.counter,
-            ...sample.toDbMap(),
-          }, conflictAlgorithm: ConflictAlgorithm.ignore);
-        }
         _queueDecodedOneHz(batch, raw, sample);
       }
       await batch.commit(noResult: true);
@@ -820,6 +923,24 @@ class LocalDb {
 
   static Future<List<Sample>> samplesInRange(int fromTs, int toTs) async {
     final db = await instance;
+    final decodedRows = await db.query(
+      'decoded_onehz',
+      columns: ['counter', 'rec_ts', 'hr'],
+      where: 'rec_ts >= ? AND rec_ts <= ?',
+      whereArgs: [fromTs, toTs],
+      orderBy: 'rec_ts ASC, counter ASC',
+    );
+    if (decodedRows.isNotEmpty) {
+      return decodedRows
+          .map(
+            (m) => Sample(
+              tsEpoch: (m['rec_ts'] as num).toInt(),
+              counter: (m['counter'] as num).toInt(),
+              hr: (m['hr'] as num?)?.toInt() ?? 0,
+            ),
+          )
+          .toList();
+    }
     final rows = await db.query(
       'samples',
       where: 'ts >= ? AND ts <= ?',
@@ -831,6 +952,20 @@ class LocalDb {
 
   static Future<Sample?> latestSample() async {
     final db = await instance;
+    final decodedRows = await db.query(
+      'decoded_onehz',
+      columns: ['counter', 'rec_ts', 'hr'],
+      orderBy: 'rec_ts DESC, counter DESC',
+      limit: 1,
+    );
+    if (decodedRows.isNotEmpty) {
+      final row = decodedRows.first;
+      return Sample(
+        tsEpoch: (row['rec_ts'] as num).toInt(),
+        counter: (row['counter'] as num).toInt(),
+        hr: (row['hr'] as num?)?.toInt() ?? 0,
+      );
+    }
     final rows = await db.query('samples', orderBy: 'ts DESC', limit: 1);
     return rows.isEmpty ? null : Sample.fromDbMap(rows.first);
   }
@@ -1175,6 +1310,21 @@ class LocalDb {
     for (final r in typeRows) {
       byType['${(r['t'] as int?) ?? -1}'] = (r['n'] as int?) ?? 0;
     }
+    final decodedOneHz =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM decoded_onehz'),
+        ) ??
+        0;
+    final decodedRr =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM decoded_rr'),
+        ) ??
+        0;
+    final legacySamples =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM samples'),
+        ) ??
+        0;
     return {
       'count': count,
       'min_rec_ts': (tsRow['lo'] as num?)?.toInt(),
@@ -1182,6 +1332,9 @@ class LocalDb {
       'by_type': byType,
       'min_captured_ms': (capRow['lo'] as num?)?.toInt(),
       'max_captured_ms': (capRow['hi'] as num?)?.toInt(),
+      'decoded_onehz': decodedOneHz,
+      'decoded_rr': decodedRr,
+      'legacy_samples': legacySamples,
     };
   }
 
@@ -1501,7 +1654,8 @@ class LocalDb {
 
   // ── raw pruning (raw-first invariant) ───────────────────────────────────────
 
-  /// Delete raw_records / samples / events whose RECORD TIME (epoch seconds) is
+  /// Delete raw_records / decoded substrate / structured band signals / events whose RECORD TIME (epoch
+  /// seconds) is
   /// strictly before [cutoffSec]. Keyed on record time (`rec_ts`/`ts`), NOT
   /// receive time (`captured_at`): retention tracks the DATA, so a multi-day
   /// flash backfill drained in a single sync is never pruned merely for having
@@ -1516,8 +1670,21 @@ class LocalDb {
         where: 'rec_ts < ?',
         whereArgs: [cutoffSec],
       );
+      await txn.delete(
+        'decoded_rr',
+        where:
+            'counter IN (SELECT counter FROM decoded_onehz WHERE rec_ts < ?)',
+        whereArgs: [cutoffSec],
+      );
+      await txn.delete(
+        'decoded_onehz',
+        where: 'rec_ts < ?',
+        whereArgs: [cutoffSec],
+      );
       await txn.delete('samples', where: 'ts < ?', whereArgs: [cutoffSec]);
       await txn.delete('events', where: 'ts < ?', whereArgs: [cutoffSec]);
+      await txn.delete('band_events', where: 'ts < ?', whereArgs: [cutoffSec]);
+      await txn.delete('band_battery', where: 'ts < ?', whereArgs: [cutoffSec]);
     });
     return deleted;
   }

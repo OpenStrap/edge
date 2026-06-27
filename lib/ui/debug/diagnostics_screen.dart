@@ -25,6 +25,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
   Map<String, dynamic>? _derived;
   Map<String, dynamic>? _cross;
   Map<String, dynamic>? _syncLedger;
+  Map<String, dynamic>? _bandSignals;
   Map<String, dynamic>? _latest; // latest derived_day bundle (decoded)
   bool _loading = true;
   bool _exporting = false;
@@ -52,6 +53,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
     final derived = await LocalDb.derivedStats();
     final cross = await LocalDb.crossDayStats();
     final ledger = await LocalDb.syncLedgerSummary();
+    final bandSignals = await LocalDb.bandSignalsStats();
     final latestRow = await LocalDb.latestDayResult();
     Map<String, dynamic>? latest;
     if (latestRow != null && latestRow['payload_json'] is String) {
@@ -66,6 +68,7 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
       _derived = derived;
       _cross = cross;
       _syncLedger = ledger;
+      _bandSignals = bandSignals;
       _latest = latest;
       _loading = false;
     });
@@ -122,6 +125,8 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                 const SizedBox(height: Sp.x6),
                 _pipelineSection(app),
                 const SizedBox(height: Sp.x6),
+                _bandSignalsSection(),
+                const SizedBox(height: Sp.x6),
                 _derivedSection(),
                 const SizedBox(height: Sp.x6),
                 _latestSection(),
@@ -161,6 +166,9 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _kv('Total events', '${r['count'] ?? 0}'),
+              _kv('Decoded 1 Hz rows', '${r['decoded_onehz'] ?? 0}'),
+              _kv('Decoded RR beats', '${r['decoded_rr'] ?? 0}'),
+              _kv('Legacy samples', '${r['legacy_samples'] ?? 0}'),
               _kv('From (record time)', _ts(r['min_rec_ts'])),
               _kv('To (record time)', _ts(r['max_rec_ts'])),
               _kv('Span (real time)', _span(r['min_rec_ts'], r['max_rec_ts'])),
@@ -168,6 +176,14 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                 'Received span',
                 _span(r['min_captured_ms'], r['max_captured_ms'], ms: true),
               ),
+              if ((r['decoded_onehz'] as int? ?? 0) == 0 &&
+                  (r['count'] as int? ?? 0) > 0) ...[
+                const SizedBox(height: Sp.x3),
+                Text(
+                  'Decoded substrate is empty while raw exists. That suggests the v11 backfill did not run or failed.',
+                  style: AppText.caption.copyWith(color: AppColors.warn),
+                ),
+              ],
               const Divider(height: Sp.x5),
               Text('By packet type', style: AppText.label),
               const SizedBox(height: Sp.x2),
@@ -217,6 +233,39 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   'Recent: ${dates.join(', ')}',
                   style: AppText.caption.copyWith(color: AppColors.inkMuted),
                 ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _bandSignalsSection() {
+    final s = _bandSignals ?? const {};
+    final kinds =
+        (s['event_kinds'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader('Band signals'),
+        ProCard(
+          padding: const EdgeInsets.all(Sp.x4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _kv('Structured events', '${s['event_count'] ?? 0}'),
+              _kv('Battery samples', '${s['battery_count'] ?? 0}'),
+              _kv('Event span', _span(s['event_min_ts'], s['event_max_ts'])),
+              _kv(
+                'Battery span',
+                _span(s['battery_min_ts'], s['battery_max_ts']),
+              ),
+              if (kinds.isNotEmpty) ...[
+                const Divider(height: Sp.x5),
+                Text('Event kinds', style: AppText.label),
+                const SizedBox(height: Sp.x2),
+                ...kinds.entries.take(8).map((e) => _kv(e.key, '${e.value}')),
+              ],
             ],
           ),
         ),

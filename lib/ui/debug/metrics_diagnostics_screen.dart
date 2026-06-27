@@ -23,6 +23,7 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
   Map<String, dynamic>? _latestDay;
   Map<String, dynamic>? _cross;
   Map<String, dynamic>? _rolling;
+  Map<String, dynamic>? _bandSignals;
   List<Map<String, dynamic>> _recentDays = const [];
   Map<String, int> _seriesCounts = const {};
 
@@ -48,6 +49,7 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
     final latestDay = await LocalDb.latestDayResult();
     final cross = await LocalDb.crossDayStats();
     final rolling = await LocalDb.baseline('rolling');
+    final bandSignals = await LocalDb.bandSignalsStats();
     final recentDays = await LocalDb.recentDayDiagnostics(10);
     final seriesCounts = await LocalDb.metricSeriesCounts(_baselineKeys);
     if (!mounted) return;
@@ -56,6 +58,7 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
       _latestDay = latestDay;
       _cross = cross;
       _rolling = rolling;
+      _bandSignals = bandSignals;
       _recentDays = recentDays;
       _seriesCounts = seriesCounts;
       _loading = false;
@@ -164,6 +167,13 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
             children: [
               _kv('Latest raw edge', _ts(raw['max_rec_ts'])),
               _kv('Latest raw day', _dayLabelFromSec(raw['max_rec_ts'])),
+              _kv('Decoded 1 Hz rows', '${raw['decoded_onehz'] ?? 0}'),
+              _kv('Decoded RR beats', '${raw['decoded_rr'] ?? 0}'),
+              _kv(
+                'Structured band events',
+                '${_bandSignals?['event_count'] ?? 0}',
+              ),
+              _kv('Battery samples', '${_bandSignals?['battery_count'] ?? 0}'),
               _kv('Latest derived day', latestDayId ?? '—'),
               _kv('Latest derived compute', _ageMs(latest?['computed_at'])),
               _kv(

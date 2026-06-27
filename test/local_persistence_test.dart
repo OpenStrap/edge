@@ -258,6 +258,44 @@ void main() {
       expect(rr, hasLength(2));
       expect(rr.first['rr_ms'], 980);
       expect(rr.last['rr_ms'], 1005);
+
+      final latest = await LocalDb.latestSample();
+      expect(latest, isNotNull);
+      expect(latest!.counter, 424242);
+      expect(latest.tsEpoch, startSec);
+
+      final ranged = await LocalDb.samplesInRange(startSec - 1, startSec + 1);
+      expect(ranged, hasLength(1));
+      expect(ranged.first.counter, 424242);
+
+      final stats = await LocalDb.rawStats();
+      expect(stats['decoded_onehz'], greaterThanOrEqualTo(1));
+      expect(stats['decoded_rr'], greaterThanOrEqualTo(2));
+    },
+  );
+
+  test(
+    'structured band signals persist event history and battery samples',
+    () async {
+      const eventHex = '3000070000105e5f';
+      await LocalDb.insertEvent(7, 1600000000, eventHex);
+      await LocalDb.insertBandBatterySample(
+        ts: 1600000100,
+        batteryPct: 77.0,
+        charging: true,
+        wristOn: true,
+        source: 'device_state',
+      );
+
+      final stats = await LocalDb.bandSignalsStats();
+      expect(stats['event_count'], greaterThanOrEqualTo(1));
+      expect(stats['battery_count'], greaterThanOrEqualTo(1));
+      final latestBattery = await LocalDb.latestBandBatterySample();
+      expect(latestBattery, isNotNull);
+      expect(latestBattery!['battery_pct'], 77.0);
+      expect(latestBattery['charging'], 1);
+      final kinds = (stats['event_kinds'] as Map).cast<String, dynamic>();
+      expect(kinds['CHARGING_ON'], greaterThanOrEqualTo(1));
     },
   );
 }
