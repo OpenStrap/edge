@@ -191,10 +191,32 @@ class LocalDb {
         }
       },
       onOpen: (db) async {
-        await _ensureSyncStateSchema(db);
+        await _repairOpenSchema(db);
       },
       version: 17,
     );
+  }
+
+  static Future<void> _repairOpenSchema(Database db) async {
+    // Same-version merged builds can still need additive schema repair on an
+    // existing install. Keep this idempotent and cheap: create missing tables,
+    // indexes, and additive columns the current code assumes are present.
+    await _createSamples(db);
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts)');
+    await _createEvents(db);
+    await _createBandSignals(db);
+    await _createDerived(db);
+    await _createDayResult(db);
+    await _createUserTables(db);
+    await _createSyncState(db);
+    await _createSyncCursor(db);
+    await _createComputeState(db);
+    await _createPrimitiveArtifacts(db);
+    await _createDecodedStore(db);
+    await _createLiveCoverage(db);
+    await _ensureRawRecordSchema(db);
+    await _ensureSessionSchema(db);
+    await _ensureSyncStateSchema(db);
   }
 
   // ── RESUMABLE-SYNC CURSOR (durable KV) ──────────────────────────────────────
@@ -576,6 +598,32 @@ class LocalDb {
     await _ensureSyncCursorSchema(db);
     await _ensureSyncLedgerSchema(db);
     await _ensureSyncQuarantineSchema(db);
+  }
+
+  static Future<void> _ensureRawRecordSchema(Database db) async {
+    final cols = await db.rawQuery("PRAGMA table_info(raw_records)");
+    final names = {
+      for (final c in cols)
+        if (c['name'] is String) c['name'] as String,
+    };
+    if (!names.contains('rec_ts')) {
+      await _addRecTsColumn(db);
+      await _backfillRecTs(db);
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_raw_rects ON raw_records(rec_ts)',
+      );
+    }
+  }
+
+  static Future<void> _ensureSessionSchema(Database db) async {
+    final cols = await db.rawQuery("PRAGMA table_info(sessions)");
+    final names = {
+      for (final c in cols)
+        if (c['name'] is String) c['name'] as String,
+    };
+    if (!names.contains('steps')) {
+      await db.execute('ALTER TABLE sessions ADD COLUMN steps INTEGER');
+    }
   }
 
   static Future<void> _ensureSyncCursorSchema(Database db) async {
@@ -1832,6 +1880,83 @@ class LocalDb {
       'decoded_onehz': decodedOneHz,
       'decoded_rr': decodedRr,
       'legacy_samples': legacySamples,
+    };
+  }
+
+  static Future<Map<String, dynamic>> schemaHealth() async {
+    final db = await instance;
+    Future<bool> hasTable(String name) async {
+      final rows = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        [name],
+      );
+      return rows.isNotEmpty;
+    }
+
+    Future<Set<String>> cols(String table) async {
+      final info = await db.rawQuery('PRAGMA table_info($table)');
+      return {
+        for (final c in info)
+          if (c['name'] is String) c['name'] as String,
+      };
+    }
+
+    final requiredTables = <String>[
+      'raw_records',
+      'samples',
+      'decoded_onehz',
+      'decoded_rr',
+      'events',
+      'band_events',
+      'band_battery',
+      'day_result',
+      'metric_series',
+      'baselines',
+      'sessions',
+      'journal',
+      'cycle_log',
+      'notifications',
+      'sync_cursor',
+      'sync_ledger',
+      'sync_quarantine',
+      'compute_freshness',
+      'compute_jobs',
+      'sleep_session_candidates',
+      'wake_day_features',
+      'live_coverage',
+    ];
+
+    final missingTables = <String>[];
+    for (final table in requiredTables) {
+      if (!await hasTable(table)) missingTables.add(table);
+    }
+
+    final rawCols =
+        await hasTable('raw_records') ? await cols('raw_records') : <String>{};
+    final sessionCols =
+        await hasTable('sessions') ? await cols('sessions') : <String>{};
+    final syncLedgerCols =
+        await hasTable('sync_ledger') ? await cols('sync_ledger') : <String>{};
+
+    final missingColumns = <String, List<String>>{};
+    void expect(String table, Set<String> present, List<String> required) {
+      final miss = [for (final c in required) if (!present.contains(c)) c];
+      if (miss.isNotEmpty) missingColumns[table] = miss;
+    }
+
+    expect('raw_records', rawCols, ['counter', 'hex', 'captured_at', 'rec_ts']);
+    expect('sessions', sessionCols, ['id', 'start_ts', 'status', 'steps']);
+    expect('sync_ledger', syncLedgerCols,
+        ['chunk_id', 'kind', 'status', 'updated_at', 'meta_json']);
+
+    final integrity = await db.rawQuery('PRAGMA integrity_check');
+    final integrityOk = integrity.isNotEmpty && integrity.first.values.first == 'ok';
+
+    return {
+      'ok': missingTables.isEmpty && missingColumns.isEmpty && integrityOk,
+      'missing_tables': missingTables,
+      'missing_columns': missingColumns,
+      'integrity_ok': integrityOk,
     };
   }
 
