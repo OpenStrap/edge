@@ -349,7 +349,8 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
     }
     final sorted = [...widget.points]..sort((a, b) => a.x.compareTo(b.x));
     final loX = widget.minX ?? sorted.first.x;
-    final hiX = math.max(widget.maxX ?? sorted.last.x, loX + 1);
+    final rawHiX = math.max(widget.maxX ?? sorted.last.x, loX + 1);
+    final hiX = _stabilizeTimeUpperBound(loX, rawHiX);
     final ys = [for (final p in sorted) p.y];
     final minYRaw = ys.reduce(math.min);
     final maxYRaw = ys.reduce(math.max);
@@ -393,12 +394,13 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
               ? null
               : chartH - ((active.y - loY) / (hiY - loY)) * chartH;
 
-          return Listener(
+          return GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onPointerDown: (e) => updateSelection(e.localPosition),
-            onPointerMove: (e) => updateSelection(e.localPosition),
-            onPointerUp: (_) => setState(() => _active = null),
-            onPointerCancel: (_) => setState(() => _active = null),
+            onTapDown: (e) => updateSelection(e.localPosition),
+            onHorizontalDragStart: (e) => updateSelection(e.localPosition),
+            onHorizontalDragUpdate: (e) => updateSelection(e.localPosition),
+            onHorizontalDragEnd: (_) => setState(() => _active = null),
+            onHorizontalDragCancel: () => setState(() => _active = null),
             child: Stack(
               children: [
                 ExcludeSemantics(
@@ -616,6 +618,22 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
   static double _axisInterval(double span, {required int targetTicks}) {
     if (span <= 0) return 1;
     return span / math.max(1, targetTicks - 1);
+  }
+
+  static double _stabilizeTimeUpperBound(double loX, double hiX) {
+    final span = hiX - loX;
+    if (span <= 0) return hiX;
+    double snapSec;
+    if (span >= 18 * 3600) {
+      snapSec = 15 * 60;
+    } else if (span >= 6 * 3600) {
+      snapSec = 10 * 60;
+    } else if (span >= 3600) {
+      snapSec = 5 * 60;
+    } else {
+      snapSec = 60;
+    }
+    return (hiX / snapSec).ceilToDouble() * snapSec;
   }
 
   static String _defaultXLabel(double value) {
