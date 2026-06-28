@@ -97,6 +97,12 @@ dev_dependencies:
   flutter_launcher_icons: ^0.13.1
   sqflite_common_ffi: ^2.4.0+3
 
+dependency_overrides:
+  openstrap_protocol:
+    path: ../openstrap-protocol-dart
+  openstrap_analytics:
+    path: ../openstrap-analytics-onehz
+
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true

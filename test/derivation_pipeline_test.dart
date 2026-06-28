@@ -36,12 +36,12 @@ void main() {
   // multi-day backfill would collapse into one "today" bucket and hang derivation.
   test('decodeRecTs reads the frame\'s real ts, not the fallback', () {
     final f = fixtureFile();
-    if (f == null) return;
+    expect(f, isNotNull, reason: 'whoop_hist.jsonl fixture not found');
 
     const sentinelFallback = 111; // a value the real ts can never equal
     final dayLabels = <String>{};
     var decodedCount = 0;
-    for (final line in f.readAsLinesSync()) {
+    for (final line in f!.readAsLinesSync()) {
       if (line.trim().isEmpty) continue;
       final hex = (jsonDecode(line) as Map<String, dynamic>)['hex'] as String?;
       if (hex == null) continue;
@@ -63,10 +63,10 @@ void main() {
 
   test('V2 path: decodeSubstrate → segmentation → deriveDayBundle is sane', () {
     final f = fixtureFile();
-    if (f == null) return;
+    expect(f, isNotNull, reason: 'whoop_hist.jsonl fixture not found');
 
     final hexes = <String>[];
-    for (final line in f.readAsLinesSync()) {
+    for (final line in f!.readAsLinesSync()) {
       if (line.trim().isEmpty) continue;
       final m = jsonDecode(line) as Map<String, dynamic>;
       final hex = m['hex'] as String?;

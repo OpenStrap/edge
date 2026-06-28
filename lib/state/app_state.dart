@@ -1614,6 +1614,7 @@ class AppState extends ChangeNotifier {
     if (activeWorkout != null) return;
     final start = DateTime.now();
     final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
+    _workoutRawBase = _liveRaw;
     activeWorkout = LiveWorkoutState(
       startTime: start,
       targetKcal: targetKcal,
@@ -1685,6 +1686,7 @@ class AppState extends ChangeNotifier {
       }),
     );
     activeWorkout = null;
+    _workoutRawBase = null;
     notifyListeners();
     _log('Live session ended. Burned $finalKcal kcal.');
     LiveActivity.end();
