@@ -657,7 +657,9 @@ class LocalRepositoryImpl extends LocalRepository {
     if (b == null) return const {};
     final zones = _sub(b, 'zones');
     final hrStats = _sub(b, 'hr_stats');
-    final curve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
+    final series = _sub(b, 'series');
+    final curve = (series?['strain_curve'] as List?) ?? const [];
+    final zoneTimeline = (series?['zone_timeline'] as List?) ?? const [];
     // EWMA-ACWR training load lives in the cross-day rollup (acute/chronic over a
     // history window); the strain detail's "Training load (ACWR)" row reads it.
     final cd = await _crossDay();
@@ -677,7 +679,14 @@ class LocalRepositoryImpl extends LocalRepository {
         'z4': (zones?['z4'] as num?)?.toInt() ?? 0,
         'z5': (zones?['z5'] as num?)?.toInt() ?? 0,
       },
-      'curve': [for (final p in curve) {'v': (p as Map)['v']}],
+      'curve': [
+        for (final p in curve.whereType<Map>())
+          {'t': p['t'], 'v': p['v']},
+      ],
+      'zone_timeline': [
+        for (final p in zoneTimeline.whereType<Map>())
+          {'t': p['t'], 'z': p['z']},
+      ],
       'calories': _scalar(b, 'calories')?.round(),
       // Total daily energy (TDEE) + 24/7 step ESTIMATE (live pedometer tunes it).
       'calories_total': _scalar(b, 'calories_total')?.round(),
@@ -687,6 +696,9 @@ class LocalRepositoryImpl extends LocalRepository {
         'avg': (hrStats?['avg'] as num?)?.toInt(),
         'min': (hrStats?['min'] as num?)?.toInt(),
       },
+      'max_hr_used': b['max_hr_used'] is num
+          ? b['max_hr_used'] as num
+          : _scalar(b, 'max_hr_used'),
       'flags': const {},
     };
   }

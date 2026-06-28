@@ -299,6 +299,13 @@ class TimeSeriesPoint {
   const TimeSeriesPoint(this.x, this.y);
 }
 
+class HorizontalBand {
+  final double fromY;
+  final double toY;
+  final Color color;
+  const HorizontalBand(this.fromY, this.toY, this.color);
+}
+
 class TimeSeriesChart extends StatefulWidget {
   final List<TimeSeriesPoint> points;
   final Color? color;
@@ -312,6 +319,9 @@ class TimeSeriesChart extends StatefulWidget {
   final bool fill;
   final double gapThresholdSec;
   final double lineWidth;
+  final double? minY;
+  final double? maxY;
+  final List<HorizontalBand> bands;
 
   const TimeSeriesChart({
     super.key,
@@ -327,6 +337,9 @@ class TimeSeriesChart extends StatefulWidget {
     this.fill = true,
     this.gapThresholdSec = 900,
     this.lineWidth = 2.6,
+    this.minY,
+    this.maxY,
+    this.bands = const [],
   });
 
   @override
@@ -355,8 +368,8 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
     final minYRaw = ys.reduce(math.min);
     final maxYRaw = ys.reduce(math.max);
     final yPad = math.max(2.0, (maxYRaw - minYRaw) * 0.12);
-    final loY = minYRaw - yPad;
-    final hiY = maxYRaw + yPad;
+    final loY = widget.minY ?? (minYRaw - yPad);
+    final hiY = widget.maxY ?? (maxYRaw + yPad);
     final xInterval = _axisInterval(hiX - loX, targetTicks: 4);
     final yInterval = _axisInterval(hiY - loY, targetTicks: 5);
     final bars = _buildBars(
@@ -410,6 +423,16 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
                       maxX: hiX,
                       minY: loY,
                       maxY: hiY,
+                      rangeAnnotations: RangeAnnotations(
+                        horizontalRangeAnnotations: [
+                          for (final band in widget.bands)
+                            HorizontalRangeAnnotation(
+                              y1: band.fromY,
+                              y2: band.toY,
+                              color: band.color,
+                            ),
+                        ],
+                      ),
                       gridData: FlGridData(
                         show: true,
                         drawVerticalLine: true,
@@ -656,6 +679,84 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
     final mm = dt.minute.toString().padLeft(2, '0');
     final v = point.y.round();
     return '${dt.hour}:$mm\n$v${unit == null || unit.isEmpty ? '' : ' $unit'}';
+  }
+}
+
+class ZoneTimelineBar extends StatelessWidget {
+  final List<TimeSeriesPoint> points; // x=time sec, y=zone number
+  final List<Color> colors; // index 0 = below zone 1, 1..5 = z1..z5
+  final double minX;
+  final double maxX;
+  final double height;
+  final double leftPad;
+
+  const ZoneTimelineBar({
+    super.key,
+    required this.points,
+    required this.colors,
+    required this.minX,
+    required this.maxX,
+    this.height = 12,
+    this.leftPad = 52,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (points.isEmpty || maxX <= minX) {
+      return Padding(
+        padding: EdgeInsets.only(left: leftPad),
+        child: Container(
+          height: height,
+          decoration: BoxDecoration(
+            color: AppColors.surfaceAlt,
+            borderRadius: BorderRadius.circular(R.pill),
+          ),
+        ),
+      );
+    }
+    final sorted = [...points]..sort((a, b) => a.x.compareTo(b.x));
+    final total = maxX - minX;
+    final segments = <({double start, double end, int zone})>[];
+    var start = sorted.first.x;
+    var zone = sorted.first.y.round().clamp(0, 5);
+    for (var i = 1; i < sorted.length; i++) {
+      final nextZone = sorted[i].y.round().clamp(0, 5);
+      if (nextZone != zone) {
+        segments.add((start: start, end: sorted[i].x, zone: zone));
+        start = sorted[i].x;
+        zone = nextZone;
+      }
+    }
+    segments.add((start: start, end: maxX, zone: zone));
+
+    return Row(
+      children: [
+        SizedBox(width: leftPad),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(R.pill),
+            child: SizedBox(
+              height: height,
+              child: Row(
+                children: [
+                  for (final seg in segments)
+                    if (seg.end > seg.start)
+                      Expanded(
+                        flex: math.max(
+                          1,
+                          (((seg.end - seg.start) / total) * 1000).round(),
+                        ),
+                        child: Container(
+                          color: colors[seg.zone],
+                        ),
+                      ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 

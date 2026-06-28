@@ -1379,23 +1379,26 @@ class DerivationEngine {
     return [for (final k in keys) _meanWake(buckets[k]!)!];
   }
 
-  Map<String, int> _hrZonesWake(List<double> perMin, double hrMax) {
-    final z = {'z1': 0, 'z2': 0, 'z3': 0, 'z4': 0, 'z5': 0};
-    for (final hr in perMin) {
-      final pct = hr / hrMax;
-      if (pct >= 0.90) {
-        z['z5'] = z['z5']! + 1;
-      } else if (pct >= 0.80) {
-        z['z4'] = z['z4']! + 1;
-      } else if (pct >= 0.70) {
-        z['z3'] = z['z3']! + 1;
-      } else if (pct >= 0.60) {
-        z['z2'] = z['z2']! + 1;
-      } else if (pct >= 0.50) {
-        z['z1'] = z['z1']! + 1;
+  Map<String, int> _wakeZoneMinutes(
+    Substrate s,
+    int sleepOnsetSec,
+    int sleepOffsetSec,
+    double hrMax,
+  ) {
+    final samples = <ana.HrSample>[];
+    final n = math.min(s.tsSec.length, s.hr.length);
+    for (var i = 0; i < n; i++) {
+      final ts = s.tsSec[i];
+      if (sleepOnsetSec > 0 &&
+          sleepOffsetSec > sleepOnsetSec &&
+          ts >= sleepOnsetSec &&
+          ts < sleepOffsetSec) {
+        continue;
       }
+      samples.add(ana.HrSample(ts * 1000.0, s.hr[i].toDouble()));
     }
-    return z;
+    final zoneSet = ana.HeartRateZones.zonesFromMaxHr(hrMax);
+    return ana.HeartRateZones.timeInZone(samples, zoneSet).toRoundedMinuteMap();
   }
 
   double _keytelCaloriesWake(
@@ -1604,7 +1607,7 @@ class DerivationEngine {
           if (score.present) strain = score.value;
         }
       }
-      zones = _hrZonesWake(perMin, hrMax);
+      zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
       if (age != null && sex != null && weightKg != null) {
         calories = _keytelCaloriesWake(perMin, age, weightKg, hrMax, sex == 'f');
       }

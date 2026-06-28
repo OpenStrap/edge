@@ -333,7 +333,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final weightKg = (prof['weight_kg'] as num?)?.toDouble();
   // Wake-span per-minute mean HR = the day minus the sleep window (shared by
   // TRIMP, HR zones, and calories so all three see the same wake series).
-  final perMin = _perMinuteMeanWake(d);
+  final wakeHr = _perMinuteWakeSeries(d);
+  final perMin = [for (final p in wakeHr) p.hr];
   Metric<double> trimp = const Metric<double>.absent(
     tier: Tier.estimate,
     inputs_used: ['hr_1hz', 'profile'],
@@ -349,8 +350,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
         sex: sex == 'f' ? Sex.female : Sex.male,
       );
     }
-    // HR zones by %HRmax — Z1–Z5 at 50/60/70/80/90% (one minute per perMin point).
-    hrZones = _hrZones(perMin, hrMax);
+    hrZones = _wakeZoneMinutesFromSeries(wakeHr, hrMax);
     // Keytel 2005 HR→kcal over the wake span (needs age + weight + sex).
     if (age != null && sex != null && weightKg != null) {
       caloriesKcal = _keytelCalories(perMin, age, weightKg, hrMax, sex == 'f');
@@ -365,6 +365,15 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final hrCurve = _downsampleHr(d.dayTsSec, d.dayHr);
   final hypnogram = _hypnogramSegments(d);
   final hrvTimeline = _hrvTimeline(nn, nnTimes);
+  final strainCurve = _strainCurve(
+    wakeHr,
+    restingHr: rhrForTrimp,
+    maxHr: hrMax,
+    sex: sex,
+  );
+  final zoneTimeline = hrMax == null
+      ? const <Map<String, num>>[]
+      : _zoneTimeline(wakeHr, hrMax);
 
   // ── ASSEMBLE the bundle (envelopes are plain JSON) ─────────────────────────
   // ── HRV stability (CV = SDNN/meanNN) + Poincaré irregular-beat screen ──────
@@ -643,6 +652,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'baselines': baselines,
     'sleep': sleep,
     'zones': hrZones,
+    'max_hr_used': hrMax,
     'hr_stats': ?hrStats,
     'calories': caloriesKcal == null ? null : _round(caloriesKcal, 0),
     'respiration': respiration,
@@ -651,6 +661,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'spo2': spo2Block,
     'series': {
       'hr_curve': hrCurve,
+      'strain_curve': strainCurve,
+      'zone_timeline': zoneTimeline,
       'hrv_timeline': hrvTimeline,
       'hypnogram': hypnogram,
     },
@@ -671,6 +683,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       // Headline 0–21 strain (the screens already expect a 0–21 scale); raw
       // Banister TRIMP stays under `trimp` as the secondary "training load".
       'strain': strainScalar,
+      'max_hr_used': hrMax,
       'ln_rmssd': lnToday,
       'resp_rate': respToday,
       'skin_temp_z': skinTempZ,
@@ -783,7 +796,13 @@ List<double> _dayHrOutsideSleep(DayBundleInput d) {
 }
 
 /// Per-minute mean HR over the WAKE span (day minus sleep window), valid only.
-List<double> _perMinuteMeanWake(DayBundleInput d) {
+class _WakeMinuteHr {
+  final int tsSec;
+  final double hr;
+  const _WakeMinuteHr(this.tsSec, this.hr);
+}
+
+List<_WakeMinuteHr> _perMinuteWakeSeries(DayBundleInput d) {
   final buckets = <int, List<double>>{};
   for (var i = 0; i < d.dayHr.length; i++) {
     if (d.dayHr[i] <= 0) continue;
@@ -792,28 +811,49 @@ List<double> _perMinuteMeanWake(DayBundleInput d) {
     (buckets[t ~/ 60] ??= []).add(d.dayHr[i].toDouble());
   }
   final keys = buckets.keys.toList()..sort();
-  return [for (final k in keys) _mean(buckets[k]!)!];
+  return [for (final k in keys) _WakeMinuteHr(k * 60, _mean(buckets[k]!)!)];
 }
 
-/// HR zones by %HRmax — Z1–Z5 at 50/60/70/80/90%. [perMin] is per-minute mean
-/// wake HR, so each entry contributes one minute. Returns minutes per zone.
-Map<String, int> _hrZones(List<double> perMin, double hrMax) {
-  final z = {'z1': 0, 'z2': 0, 'z3': 0, 'z4': 0, 'z5': 0};
-  for (final hr in perMin) {
-    final pct = hr / hrMax;
-    if (pct >= 0.90) {
-      z['z5'] = z['z5']! + 1;
-    } else if (pct >= 0.80) {
-      z['z4'] = z['z4']! + 1;
-    } else if (pct >= 0.70) {
-      z['z3'] = z['z3']! + 1;
-    } else if (pct >= 0.60) {
-      z['z2'] = z['z2']! + 1;
-    } else if (pct >= 0.50) {
-      z['z1'] = z['z1']! + 1;
-    }
+Map<String, int> _wakeZoneMinutesFromSeries(List<_WakeMinuteHr> wakeHr, double hrMax) {
+  final samples = <HrSample>[
+    for (final p in wakeHr) HrSample(p.tsSec * 1000.0, p.hr),
+  ];
+  final zoneSet = HeartRateZones.zonesFromMaxHr(hrMax);
+  return HeartRateZones.timeInZone(samples, zoneSet).toRoundedMinuteMap();
+}
+
+List<Map<String, num>> _zoneTimeline(List<_WakeMinuteHr> wakeHr, double hrMax) {
+  final zoneSet = HeartRateZones.zonesFromMaxHr(hrMax);
+  return [
+    for (final p in wakeHr) {'t': p.tsSec, 'z': zoneSet.zoneNumber(p.hr)},
+  ];
+}
+
+List<Map<String, num>> _strainCurve(
+  List<_WakeMinuteHr> wakeHr, {
+  required double? restingHr,
+  required double? maxHr,
+  required String? sex,
+}) {
+  if (wakeHr.isEmpty ||
+      restingHr == null ||
+      maxHr == null ||
+      maxHr <= restingHr ||
+      sex == null) {
+    return const [];
   }
-  return z;
+  final b = sex == 'f' ? 1.67 : 1.92;
+  final reserve = maxHr - restingHr;
+  var trimp = 0.0;
+  final out = <Map<String, num>>[];
+  for (final p in wakeHr) {
+    var hrr = (p.hr - restingHr) / reserve;
+    if (hrr < 0) hrr = 0;
+    if (hrr > 1) hrr = 1;
+    trimp += hrr * math.exp(b * hrr);
+    out.add({'t': p.tsSec, 'v': _round(strainScore(trimp), 2)});
+  }
+  return out;
 }
 
 /// Active calories (kcal) over the wake span via Keytel et al. 2005 HR→energy,
