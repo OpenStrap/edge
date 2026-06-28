@@ -685,12 +685,12 @@ class _TodayScreenState extends State<TodayScreen>
   }
 
   Widget _statRow(Widget a, [Widget? b]) => Row(
-        children: [
-          Expanded(child: a),
-          const SizedBox(width: Sp.x3),
-          Expanded(child: b ?? const SizedBox.shrink()),
-        ],
-      );
+    children: [
+      Expanded(child: a),
+      const SizedBox(width: Sp.x3),
+      Expanded(child: b ?? const SizedBox.shrink()),
+    ],
+  );
 
   /// Entry point to the "Your body over time" records/streaks screen.
   Widget _bodyOverTimeTile() => ConstrainedBox(
@@ -739,8 +739,14 @@ class _TodayScreenState extends State<TodayScreen>
   );
 
   Widget _hrCard() {
-    final values = _hr.points.map((p) => p.v).toList();
-    final hasData = values.length >= 2;
+    final points = [
+      for (final p in _hr.points) TimeSeriesPoint(p.t.toDouble(), p.v),
+    ];
+    final hasData = points.length >= 2;
+    final nowSec = DateTime.now().millisecondsSinceEpoch / 1000.0;
+    final latest = hasData ? points.last : null;
+    final peak = hasData ? points.reduce((a, b) => a.y >= b.y ? a : b) : null;
+    final low = hasData ? points.reduce((a, b) => a.y <= b.y ? a : b) : null;
     return ProCard(
       onTap: () => _push(() => JourneyScreen(date: _todayStr())),
       child: Column(
@@ -761,10 +767,23 @@ class _TodayScreenState extends State<TodayScreen>
           ),
           const SizedBox(height: Sp.x4),
           if (hasData)
-            AreaSpark(values, color: AppColors.coral, height: 96)
+            TimeSeriesChart(
+              points: points,
+              color: AppColors.coral,
+              height: 210,
+              maxX: nowSec,
+              yUnit: ' bpm',
+              tooltip: (p) {
+                final dt = DateTime.fromMillisecondsSinceEpoch(
+                  (p.x * 1000).round(),
+                ).toLocal();
+                final mm = dt.minute.toString().padLeft(2, '0');
+                return '${dt.hour}:$mm\n${p.y.round()} bpm';
+              },
+            )
           else
             SizedBox(
-              height: 96,
+              height: 210,
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -779,6 +798,37 @@ class _TodayScreenState extends State<TodayScreen>
                 ),
               ),
             ),
+          if (hasData) ...[
+            const SizedBox(height: Sp.x4),
+            Row(
+              children: [
+                Expanded(child: _hrMetaCell('Latest', '${latest!.y.round()}')),
+                const SizedBox(width: Sp.x2),
+                Expanded(child: _hrMetaCell('Peak', '${peak!.y.round()}')),
+                const SizedBox(width: Sp.x2),
+                Expanded(child: _hrMetaCell('Low', '${low!.y.round()}')),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _hrMetaCell(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x3, vertical: Sp.x3),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppColors.divider),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label.toUpperCase(), style: AppText.overline),
+          const SizedBox(height: 2),
+          Text('$value bpm', style: AppText.label),
         ],
       ),
     );
@@ -916,12 +966,7 @@ class _TodayScreenState extends State<TodayScreen>
         children: [
           AppIcon(Ic.info, size: 18, color: AppColors.coralDeep),
           const SizedBox(width: Sp.x3),
-          Expanded(
-            child: Text(
-              '$label$extra',
-              style: AppText.bodySoft,
-            ),
-          ),
+          Expanded(child: Text('$label$extra', style: AppText.bodySoft)),
         ],
       ),
     );

@@ -57,8 +57,13 @@ class _RingPainter extends CustomPainter {
       ..strokeWidth = stroke
       ..strokeCap = StrokeCap.round
       ..color = AppColors.surfaceAlt;
-    canvas.drawArc(Rect.fromCircle(center: c, radius: r), 0, math.pi * 2, false,
-        track);
+    canvas.drawArc(
+      Rect.fromCircle(center: c, radius: r),
+      0,
+      math.pi * 2,
+      false,
+      track,
+    );
     if (t <= 0) return;
     final arc = Paint()
       ..style = PaintingStyle.stroke
@@ -69,8 +74,13 @@ class _RingPainter extends CustomPainter {
         endAngle: math.pi * 1.5,
         colors: [color.withValues(alpha: 0.85), color],
       ).createShader(Rect.fromCircle(center: c, radius: r));
-    canvas.drawArc(Rect.fromCircle(center: c, radius: r), -math.pi / 2,
-        math.pi * 2 * t, false, arc);
+    canvas.drawArc(
+      Rect.fromCircle(center: c, radius: r),
+      -math.pi / 2,
+      math.pi * 2 * t,
+      false,
+      arc,
+    );
   }
 
   @override
@@ -84,8 +94,13 @@ class MiniBars extends StatelessWidget {
   final Color? color;
   final double height;
   final double gap;
-  const MiniBars(this.values,
-      {super.key, this.color, this.height = 40, this.gap = 3});
+  const MiniBars(
+    this.values, {
+    super.key,
+    this.color,
+    this.height = 40,
+    this.gap = 3,
+  });
   @override
   Widget build(BuildContext context) {
     final color = this.color ?? AppColors.coral;
@@ -101,15 +116,15 @@ class MiniBars extends StatelessWidget {
               child: TweenAnimationBuilder<double>(
                 duration: Motion.med,
                 curve: Motion.curve,
-                tween: Tween(
-                    begin: 0, end: maxV == 0 ? 0 : (values[i] / maxV)),
+                tween: Tween(begin: 0, end: maxV == 0 ? 0 : (values[i] / maxV)),
                 builder: (_, v, _) => Align(
                   alignment: Alignment.bottomCenter,
                   child: Container(
                     height: math.max(3, v * height),
                     decoration: BoxDecoration(
                       color: color.withValues(
-                          alpha: 0.4 + 0.6 * (maxV == 0 ? 0 : values[i] / maxV)),
+                        alpha: 0.4 + 0.6 * (maxV == 0 ? 0 : values[i] / maxV),
+                      ),
                       borderRadius: BorderRadius.circular(R.pill),
                     ),
                   ),
@@ -117,7 +132,7 @@ class MiniBars extends StatelessWidget {
               ),
             ),
             if (i != values.length - 1) SizedBox(width: gap),
-          ]
+          ],
         ],
       ),
     );
@@ -175,15 +190,17 @@ class LabeledBars extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       if (showValues)
-                        Text(_fmt(values[i]),
-                            style: AppText.caption.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: (highlight == null || highlight == i)
-                                  ? AppColors.ink
-                                  : AppColors.inkMuted,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.visible),
+                        Text(
+                          _fmt(values[i]),
+                          style: AppText.caption.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: (highlight == null || highlight == i)
+                                ? AppColors.ink
+                                : AppColors.inkMuted,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.visible,
+                        ),
                       if (showValues) const SizedBox(height: 2),
                       Expanded(
                         child: TweenAnimationBuilder<double>(
@@ -205,8 +222,10 @@ class LabeledBars extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: Sp.x2),
-                      Text(labels.length > i ? labels[i] : '',
-                          style: AppText.caption),
+                      Text(
+                        labels.length > i ? labels[i] : '',
+                        style: AppText.caption,
+                      ),
                     ],
                   ),
                 ),
@@ -229,12 +248,14 @@ class AreaSpark extends StatelessWidget {
     final color = this.color ?? AppColors.coral;
     if (values.length < 2) {
       return SizedBox(
-          height: height,
-          child: Center(
-              child: Text('Not enough data yet', style: AppText.captionMuted)));
+        height: height,
+        child: Center(
+          child: Text('Not enough data yet', style: AppText.captionMuted),
+        ),
+      );
     }
     final spots = [
-      for (int i = 0; i < values.length; i++) FlSpot(i.toDouble(), values[i])
+      for (int i = 0; i < values.length; i++) FlSpot(i.toDouble(), values[i]),
     ];
     final minY = values.reduce(math.min);
     final maxY = values.reduce(math.max);
@@ -272,6 +293,271 @@ class AreaSpark extends StatelessWidget {
   }
 }
 
+class TimeSeriesPoint {
+  final double x;
+  final double y;
+  const TimeSeriesPoint(this.x, this.y);
+}
+
+class TimeSeriesChart extends StatelessWidget {
+  final List<TimeSeriesPoint> points;
+  final Color? color;
+  final double height;
+  final double? minX;
+  final double? maxX;
+  final String? yUnit;
+  final String Function(double value)? yLabel;
+  final String Function(double value)? xLabel;
+  final String Function(TimeSeriesPoint point)? tooltip;
+  final bool fill;
+  final double gapThresholdSec;
+  final double lineWidth;
+
+  const TimeSeriesChart({
+    super.key,
+    required this.points,
+    this.color,
+    this.height = 220,
+    this.minX,
+    this.maxX,
+    this.yUnit,
+    this.yLabel,
+    this.xLabel,
+    this.tooltip,
+    this.fill = true,
+    this.gapThresholdSec = 900,
+    this.lineWidth = 2.6,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = this.color ?? AppColors.coral;
+    if (points.length < 2) {
+      return SizedBox(
+        height: height,
+        child: Center(
+          child: Text('Not enough data yet', style: AppText.captionMuted),
+        ),
+      );
+    }
+    final sorted = [...points]..sort((a, b) => a.x.compareTo(b.x));
+    final loX = minX ?? sorted.first.x;
+    final hiX = math.max(maxX ?? sorted.last.x, loX + 1);
+    final ys = [for (final p in sorted) p.y];
+    final minYRaw = ys.reduce(math.min);
+    final maxYRaw = ys.reduce(math.max);
+    final yPad = math.max(2.0, (maxYRaw - minYRaw) * 0.12);
+    final loY = minYRaw - yPad;
+    final hiY = maxYRaw + yPad;
+    final xInterval = _axisInterval(hiX - loX, targetTicks: 4);
+    final yInterval = _axisInterval(hiY - loY, targetTicks: 5);
+    final bars = _buildBars(sorted, color, loY);
+
+    return SizedBox(
+      height: height,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragStart: (_) {},
+        onHorizontalDragUpdate: (_) {},
+        onHorizontalDragEnd: (_) {},
+        child: ExcludeSemantics(
+          child: LineChart(
+            LineChartData(
+              minX: loX,
+              maxX: hiX,
+              minY: loY,
+              maxY: hiY,
+              gridData: FlGridData(
+                show: true,
+                drawVerticalLine: true,
+                horizontalInterval: yInterval,
+                verticalInterval: xInterval,
+                getDrawingHorizontalLine: (_) => FlLine(
+                  color: AppColors.divider.withValues(alpha: 0.45),
+                  strokeWidth: 1,
+                ),
+                getDrawingVerticalLine: (_) => FlLine(
+                  color: AppColors.divider.withValues(alpha: 0.24),
+                  strokeWidth: 1,
+                ),
+              ),
+              titlesData: FlTitlesData(
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 52,
+                    interval: yInterval,
+                    minIncluded: false,
+                    maxIncluded: false,
+                    getTitlesWidget: (value, meta) {
+                      return Padding(
+                        padding: const EdgeInsets.only(right: Sp.x2),
+                        child: Text(
+                          yLabel?.call(value) ?? _defaultYLabel(value, yUnit),
+                          style: AppText.captionMuted.copyWith(fontSize: 10),
+                          textAlign: TextAlign.right,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 30,
+                    interval: xInterval,
+                    minIncluded: false,
+                    maxIncluded: false,
+                    getTitlesWidget: (value, meta) {
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          xLabel?.call(value) ?? _defaultXLabel(value),
+                          style: AppText.captionMuted.copyWith(fontSize: 10),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              borderData: FlBorderData(
+                show: true,
+                border: Border(
+                  left: BorderSide(
+                    color: AppColors.divider.withValues(alpha: 0.7),
+                  ),
+                  bottom: BorderSide(
+                    color: AppColors.divider.withValues(alpha: 0.7),
+                  ),
+                  right: BorderSide.none,
+                  top: BorderSide.none,
+                ),
+              ),
+              lineTouchData: LineTouchData(
+                enabled: true,
+                handleBuiltInTouches: true,
+                touchTooltipData: LineTouchTooltipData(
+                  fitInsideHorizontally: true,
+                  fitInsideVertically: true,
+                  getTooltipColor: (_) => AppColors.night,
+                  tooltipRoundedRadius: 12,
+                  tooltipPadding: const EdgeInsets.symmetric(
+                    horizontal: Sp.x3,
+                    vertical: Sp.x2,
+                  ),
+                  getTooltipItems: (spots) => spots.map((spot) {
+                    final point = TimeSeriesPoint(spot.x, spot.y);
+                    return LineTooltipItem(
+                      tooltip?.call(point) ?? _defaultTooltip(point, yUnit),
+                      AppText.caption.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    );
+                  }).toList(),
+                ),
+                getTouchedSpotIndicator: (barData, spotIndexes) => [
+                  for (final _ in spotIndexes)
+                    TouchedSpotIndicatorData(
+                      FlLine(
+                        color: color.withValues(alpha: 0.32),
+                        strokeWidth: 1.5,
+                      ),
+                      FlDotData(
+                        show: true,
+                        getDotPainter: (_, _, _, _) => FlDotCirclePainter(
+                          radius: 4,
+                          color: color,
+                          strokeWidth: 2,
+                          strokeColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              lineBarsData: bars,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<LineChartBarData> _buildBars(
+    List<TimeSeriesPoint> sorted,
+    Color color,
+    double floorY,
+  ) {
+    final segments = <List<FlSpot>>[];
+    var current = <FlSpot>[];
+    for (final p in sorted) {
+      if (current.isNotEmpty && p.x - current.last.x > gapThresholdSec) {
+        if (current.length >= 2) segments.add(current);
+        current = <FlSpot>[];
+      }
+      current.add(FlSpot(p.x, p.y));
+    }
+    if (current.length >= 2) segments.add(current);
+    return [
+      for (final seg in segments)
+        LineChartBarData(
+          spots: seg,
+          isCurved: false,
+          color: color,
+          barWidth: lineWidth,
+          isStrokeCapRound: true,
+          dotData: const FlDotData(show: false),
+          belowBarData: BarAreaData(
+            show: fill,
+            cutOffY: floorY,
+            applyCutOffY: true,
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                color.withValues(alpha: 0.22),
+                color.withValues(alpha: 0.02),
+              ],
+            ),
+          ),
+        ),
+    ];
+  }
+
+  static double _axisInterval(double span, {required int targetTicks}) {
+    if (span <= 0) return 1;
+    return span / math.max(1, targetTicks - 1);
+  }
+
+  static String _defaultXLabel(double value) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(
+      (value * 1000).round(),
+    ).toLocal();
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '${dt.hour}:$mm';
+  }
+
+  static String _defaultYLabel(double value, String? unit) {
+    final rounded = value.round();
+    return unit == null || unit.isEmpty ? '$rounded' : '$rounded$unit';
+  }
+
+  static String _defaultTooltip(TimeSeriesPoint point, String? unit) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(
+      (point.x * 1000).round(),
+    ).toLocal();
+    final mm = dt.minute.toString().padLeft(2, '0');
+    final v = point.y.round();
+    return '${dt.hour}:$mm\n$v${unit == null || unit.isEmpty ? '' : ' $unit'}';
+  }
+}
+
 /// Coral dot-matrix column chart (ref #2 Stats). Each column is a stack of
 /// rounded squares; filled count ∝ value. Great for week/month step-like data.
 class DotMatrix extends StatelessWidget {
@@ -279,45 +565,53 @@ class DotMatrix extends StatelessWidget {
   final int rows;
   final Color? color;
   final double cell;
-  const DotMatrix(this.values,
-      {super.key, this.rows = 12, this.color, this.cell = 12});
+  const DotMatrix(
+    this.values, {
+    super.key,
+    this.rows = 12,
+    this.color,
+    this.cell = 12,
+  });
   @override
   Widget build(BuildContext context) {
     final color = this.color ?? AppColors.coral;
     if (values.isEmpty) return const SizedBox.shrink();
     final maxV = math.max(1.0, values.reduce(math.max));
-    return LayoutBuilder(builder: (context, c) {
-      return SizedBox(
-        height: rows * (cell + 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            for (final v in values)
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    for (int r = rows - 1; r >= 0; r--)
-                      Padding(
-                        padding: const EdgeInsets.all(2),
-                        child: Container(
-                          height: cell,
-                          decoration: BoxDecoration(
-                            color: ((v / maxV) * rows) > r
-                                ? color.withValues(
-                                    alpha: 0.45 + 0.55 * (r / rows))
-                                : color.withValues(alpha: 0.10),
-                            borderRadius: BorderRadius.circular(4),
+    return LayoutBuilder(
+      builder: (context, c) {
+        return SizedBox(
+          height: rows * (cell + 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (final v in values)
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      for (int r = rows - 1; r >= 0; r--)
+                        Padding(
+                          padding: const EdgeInsets.all(2),
+                          child: Container(
+                            height: cell,
+                            decoration: BoxDecoration(
+                              color: ((v / maxV) * rows) > r
+                                  ? color.withValues(
+                                      alpha: 0.45 + 0.55 * (r / rows),
+                                    )
+                                  : color.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-          ],
-        ),
-      );
-    });
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -334,8 +628,9 @@ class SegmentBar extends StatelessWidget {
       return Container(
         height: height,
         decoration: BoxDecoration(
-            color: AppColors.surfaceAlt,
-            borderRadius: BorderRadius.circular(R.pill)),
+          color: AppColors.surfaceAlt,
+          borderRadius: BorderRadius.circular(R.pill),
+        ),
       );
     }
     return ClipRRect(
@@ -349,8 +644,9 @@ class SegmentBar extends StatelessWidget {
                 Expanded(
                   flex: math.max(1, (values[i] / total * 1000).round()),
                   child: Container(
-                      color: colors[i % colors.length],
-                      margin: const EdgeInsets.symmetric(horizontal: 0.5)),
+                    color: colors[i % colors.length],
+                    margin: const EdgeInsets.symmetric(horizontal: 0.5),
+                  ),
                 ),
           ],
         ),
@@ -403,24 +699,28 @@ class StatTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: accent.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(R.chip),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(R.chip),
+                      ),
+                      child: AppIcon(icon, size: 16, color: accent),
                     ),
-                    child: AppIcon(icon, size: 16, color: accent),
-                  ),
-                  const SizedBox(width: Sp.x2),
-                  Expanded(
-                    child: Text(label,
+                    const SizedBox(width: Sp.x2),
+                    Expanded(
+                      child: Text(
+                        label,
                         style: AppText.label,
                         maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                  ),
-                  if (confidence != null) ConfDot(confidence!),
-                ]),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (confidence != null) ConfDot(confidence!),
+                  ],
+                ),
                 const SizedBox(height: Sp.x3),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -430,17 +730,23 @@ class StatTile extends StatelessWidget {
                       metricDash(24)
                     else
                       Flexible(
-                        child: Text(value!,
-                            style: AppText.metric.copyWith(fontSize: 22),
-                            overflow: TextOverflow.ellipsis),
+                        child: Text(
+                          value!,
+                          style: AppText.metric.copyWith(fontSize: 22),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     if (unit != null && value != null) ...[
                       const SizedBox(width: 4),
                       Padding(
                         padding: const EdgeInsets.only(bottom: 2),
-                        child: Text(unit!,
-                            style: AppText.caption.copyWith(
-                                color: AppColors.inkMuted, fontSize: 11)),
+                        child: Text(
+                          unit!,
+                          style: AppText.caption.copyWith(
+                            color: AppColors.inkMuted,
+                            fontSize: 11,
+                          ),
+                        ),
                       ),
                     ],
                   ],
@@ -458,8 +764,8 @@ class StatTile extends StatelessWidget {
                       children: [
                         if (deltaPct != null)
                           Flexible(
-                              child: DeltaChip(deltaPct,
-                                  goodIsUp: deltaGoodIsUp)),
+                            child: DeltaChip(deltaPct, goodIsUp: deltaGoodIsUp),
+                          ),
                         if (tag != null) ...[
                           if (deltaPct != null) const SizedBox(width: Sp.x2),
                           Flexible(child: tag!),
@@ -471,8 +777,9 @@ class StatTile extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.only(left: Sp.x2),
                       child: SizedBox(
-                          width: 48,
-                          child: MiniBars(spark!, color: accent, height: 22)),
+                        width: 48,
+                        child: MiniBars(spark!, color: accent, height: 22),
+                      ),
                     ),
                 ],
               ),
@@ -490,7 +797,12 @@ class FormChart extends StatelessWidget {
   final List<double?> fitness;
   final List<double?> fatigue;
   final double height;
-  const FormChart({super.key, required this.fitness, required this.fatigue, this.height = 130});
+  const FormChart({
+    super.key,
+    required this.fitness,
+    required this.fatigue,
+    this.height = 130,
+  });
   @override
   Widget build(BuildContext context) {
     final fit = <FlSpot>[];
@@ -504,30 +816,50 @@ class FormChart extends StatelessWidget {
       if (v != null) fat.add(FlSpot(i.toDouble(), v));
     }
     if (fit.length < 2 && fat.length < 2) {
-      return SizedBox(height: height, child: Center(child: Text('Not enough data yet', style: AppText.captionMuted)));
+      return SizedBox(
+        height: height,
+        child: Center(
+          child: Text('Not enough data yet', style: AppText.captionMuted),
+        ),
+      );
     }
     final all = [...fit, ...fat].map((s) => s.y);
     final minY = all.reduce(math.min), maxY = all.reduce(math.max);
-    LineChartBarData bar(List<FlSpot> s, Color c, {bool fill = false}) => LineChartBarData(
-          spots: s, isCurved: true, curveSmoothness: 0.3, color: c, barWidth: 2.5,
+    LineChartBarData bar(List<FlSpot> s, Color c, {bool fill = false}) =>
+        LineChartBarData(
+          spots: s,
+          isCurved: true,
+          curveSmoothness: 0.3,
+          color: c,
+          barWidth: 2.5,
           dotData: const FlDotData(show: false),
           belowBarData: fill
-              ? BarAreaData(show: true, gradient: LinearGradient(
-                  begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                  colors: [c.withValues(alpha: 0.18), Colors.transparent]))
+              ? BarAreaData(
+                  show: true,
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [c.withValues(alpha: 0.18), Colors.transparent],
+                  ),
+                )
               : BarAreaData(show: false),
         );
     return SizedBox(
       height: height,
-      child: LineChart(LineChartData(
-        minY: minY - (maxY - minY) * 0.15 - 0.5,
-        maxY: maxY + (maxY - minY) * 0.15 + 0.5,
-        gridData: const FlGridData(show: false),
-        titlesData: const FlTitlesData(show: false),
-        borderData: FlBorderData(show: false),
-        lineTouchData: const LineTouchData(enabled: false),
-        lineBarsData: [bar(fit, AppColors.coral, fill: true), bar(fat, AppColors.loadDetraining)],
-      )),
+      child: LineChart(
+        LineChartData(
+          minY: minY - (maxY - minY) * 0.15 - 0.5,
+          maxY: maxY + (maxY - minY) * 0.15 + 0.5,
+          gridData: const FlGridData(show: false),
+          titlesData: const FlTitlesData(show: false),
+          borderData: FlBorderData(show: false),
+          lineTouchData: const LineTouchData(enabled: false),
+          lineBarsData: [
+            bar(fit, AppColors.coral, fill: true),
+            bar(fat, AppColors.loadDetraining),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -538,7 +870,12 @@ class CalendarHeatmap extends StatelessWidget {
   final List<({DateTime date, double? t})> days;
   final Color? color;
   final double cell;
-  const CalendarHeatmap({super.key, required this.days, this.color, this.cell = 16});
+  const CalendarHeatmap({
+    super.key,
+    required this.days,
+    this.color,
+    this.cell = 16,
+  });
   @override
   Widget build(BuildContext context) {
     final color = this.color ?? AppColors.good;
@@ -551,24 +888,45 @@ class CalendarHeatmap extends StatelessWidget {
       for (int i = 0; i < lead; i++) (date: null, t: null),
       for (final d in days) (date: d.date, t: d.t),
     ];
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        for (final l in wd)
-          SizedBox(width: cell + 4, child: Text(l, textAlign: TextAlign.center, style: AppText.captionMuted)),
-      ]),
-      const SizedBox(height: 4),
-      Wrap(spacing: 4, runSpacing: 4, children: [
-        for (final c in cells)
-          Container(
-            width: cell, height: cell,
-            decoration: BoxDecoration(
-              color: c.date == null
-                  ? Colors.transparent
-                  : (c.t == null ? AppColors.surfaceSunk : color.withValues(alpha: (0.18 + 0.82 * c.t!.clamp(0, 1)))),
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-      ]),
-    ]);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            for (final l in wd)
+              SizedBox(
+                width: cell + 4,
+                child: Text(
+                  l,
+                  textAlign: TextAlign.center,
+                  style: AppText.captionMuted,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 4,
+          runSpacing: 4,
+          children: [
+            for (final c in cells)
+              Container(
+                width: cell,
+                height: cell,
+                decoration: BoxDecoration(
+                  color: c.date == null
+                      ? Colors.transparent
+                      : (c.t == null
+                            ? AppColors.surfaceSunk
+                            : color.withValues(
+                                alpha: (0.18 + 0.82 * c.t!.clamp(0, 1)),
+                              )),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
   }
 }
