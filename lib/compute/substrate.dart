@@ -378,6 +378,7 @@ List<PhysioDay> calendarDays(Substrate sub) {
   final dataEnd = sub.tsSec.last + 1;
 
   final days = <PhysioDay>[];
+  final sleepHistory = <({int startSec, int endSec, String dayKey})>[];
   var dayStart = _localMidnight(dataStart);
   var guard = 0;
   while (dayStart < dataEnd && guard++ < 400) {
@@ -403,6 +404,10 @@ List<PhysioDay> calendarDays(Substrate sub) {
     var seg = ana.SleepSegmentation.absent;
     var sleepLo = 0, sleepHi = 0;
     if (hiS - loS >= 600) {
+      final habitualMidsleepSec = ana.habitualMidsleepSecFromHistory(
+        sleepHistory,
+        tzOffsetSeconds: DateTime.now().timeZoneOffset.inSeconds,
+      );
       // Daytime HR baseline = valid HR before the nocturnal search window.
       final base = <double>[for (var i = 0; i < loS; i++) if (hr[i] > 0) hr[i]];
       final hrBaseline = base.length >= 60 ? base : null;
@@ -424,6 +429,7 @@ List<PhysioDay> calendarDays(Substrate sub) {
         hrBaseline: hrBaseline,
         rrMs: rrMsSeg,
         rrTsMs: rrTsSeg,
+        habitualMidsleepSec: habitualMidsleepSec,
       );
       // Attribute ONLY if the sleep's wake (offset) falls within this day.
       if (s.present && s.window != null) {
@@ -432,6 +438,16 @@ List<PhysioDay> calendarDays(Substrate sub) {
           seg = s;
           sleepLo = loS + s.window!.onsetIdx;
           sleepHi = loS + s.window!.offsetIdx;
+          final onsetSec = s.window!.onsetMs == null
+              ? 0
+              : (s.window!.onsetMs! / 1000).round();
+          if (onsetSec > 0 && offSec > onsetSec) {
+            sleepHistory.add((
+              startSec: onsetSec,
+              endSec: offSec,
+              dayKey: localDateLabel(dayStart),
+            ));
+          }
         }
       }
     }

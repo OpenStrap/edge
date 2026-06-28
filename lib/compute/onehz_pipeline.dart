@@ -205,16 +205,20 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final sleepConf = (d.sleepJson['confidence'] as num?)?.toDouble() ?? 0;
 
   // ── CLINICAL (sleep-windowed) ──────────────────────────────────────────────
-  // Whole-window time-domain HRV (kept for the SDNN scalar + a detail row); its
-  // single-night RMSSD is inflated by REM/arousal bursts, so it is NO LONGER the
-  // headline RMSSD — see `robustRmssd` below.
+  // Whole-window time-domain HRV is kept for SDNN / detail rows only. NOOP's
+  // nightly HRV is the mean of 5-min cleaned-window RMSSDs across the detected
+  // sleep session, not one RMSSD over the whole night's NN stream.
   final hrvT = hrvTime(nn, nnTimesMs: nnTimes);
-  // THE headline nocturnal RMSSD: robust median of consecutive 5-min-window
-  // RMSSDs over the SLEEP NN, restricted to NREM seconds. Aligned to nnTimes.first
-  // (the window the estimator is t0-relative to). This brings the displayed RMSSD
-  // back to physiological tens-of-ms instead of the whole-night ~129 ms value.
+  // Keep the robust estimator as a secondary detail only; the canonical nightly
+  // RMSSD now follows NOOP's avgHrv computation.
   final nremMask = _nremMaskAlignedToNn(d, nnTimes, d.sleepRrTsMs);
   final robustRmssd = nocturnalRmssd(nn, nnTimes, stageMaskPerSec: nremMask);
+  final noopRmssd = _noopSessionAvgHrv(
+    d.sleepOnsetSec,
+    d.sleepOffsetSec,
+    d.sleepRrTsMs,
+    d.sleepRrMs,
+  );
   final hrvF = nn.length >= 20
       ? hrvFreq(nn, nnTimes, artifactFraction: artifactFraction)
       : const Metric<HrvFreq>.absent(
@@ -287,9 +291,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   }
 
   // ── READINESS (the canonical composite, baseline-dependent) ───────────────
-  final lnToday =
-      (hrvT.present && hrvT.value!.rmssd != null && hrvT.value!.rmssd! > 0)
-      ? math.log(hrvT.value!.rmssd!)
+  final lnToday = (noopRmssd != null && noopRmssd > 0)
+      ? math.log(noopRmssd)
       : null;
   final rhrToday = rhr.present ? rhr.value!.low30Mean : null;
   final respToday = resp.present ? resp.value!.brpm : null;
@@ -390,8 +393,17 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'flag': irregularFlag,
       'confidence': irregularConf,
     },
-    // The headline nocturnal RMSSD envelope (robust, NREM, median-of-5min). Carry
-    // its honesty note so detail screens can surface it.
+    // Canonical nightly HRV, matching NOOP's avgHrv aggregation over the chosen
+    // sleep session. The robust estimator is retained alongside it as a secondary
+    // detail for comparison/debugging.
+    'rmssd_noop': {
+      'value': noopRmssd == null ? '—' : _round(noopRmssd, 1),
+      'confidence': noopRmssd == null ? 0 : 0.8,
+      'tier': Tier.high,
+      'inputs_used': const ['rr_sleep_window'],
+      'note':
+          'NOOP-style nightly HRV: mean RMSSD over cleaned 5-min sleep-session windows.',
+    },
     'rmssd_nocturnal': robustRmssd.toJson(),
     'hrv_freq': hrvF.toJson((v) => v.toJson()),
     'resting_hr': rhr.toJson((v) => v.toJson()),
@@ -477,13 +489,15 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
 
   // Indexed scalars (also surfaced to metric_series by the engine).
   final rhrScalar = rhr.present ? rhr.value!.low30Mean : null;
-  // HEADLINE RMSSD = robust nocturnal (NREM, median-of-5min). Fall back to the
-  // whole-window time-domain RMSSD only if the robust estimator can't compute.
-  final rmssdScalar = robustRmssd.present
-      ? robustRmssd.value
-      : ((hrvT.present && hrvT.value!.rmssd != null)
-            ? hrvT.value!.rmssd
-            : null);
+  // HEADLINE RMSSD = NOOP's nightly avgHrv: mean of 5-min cleaned-window RMSSDs
+  // across the detected sleep session. Fall back to the robust estimator, then
+  // the whole-window RMSSD only when the canonical noop-style value is absent.
+  final rmssdScalar = noopRmssd ??
+      (robustRmssd.present
+          ? robustRmssd.value
+          : ((hrvT.present && hrvT.value!.rmssd != null)
+                ? hrvT.value!.rmssd
+                : null));
   // Whole-window RMSSD kept available as a secondary detail (NOT the headline).
   final rmssdWholeScalar = (hrvT.present && hrvT.value!.rmssd != null)
       ? hrvT.value!.rmssd
@@ -796,6 +810,15 @@ double? _mean(List<double> xs) {
   return s / xs.length;
 }
 
+double? _median(List<double> xs) {
+  if (xs.isEmpty) return null;
+  final sorted = [...xs]..sort();
+  final mid = sorted.length ~/ 2;
+  return sorted.length.isOdd
+      ? sorted[mid]
+      : (sorted[mid - 1] + sorted[mid]) / 2.0;
+}
+
 double? _stddev(List<double> xs) {
   if (xs.length < 2) return null;
   final m = _mean(xs)!;
@@ -809,6 +832,78 @@ double? _stddev(List<double> xs) {
 double _round(double v, int dp) {
   final p = math.pow(10, dp);
   return (v * p).round() / p;
+}
+
+/// NOOP nightly HRV: mean RMSSD over 5-minute tumbling windows across the
+/// detected sleep session after simple cleanRR.
+double? _noopSessionAvgHrv(
+  int startSec,
+  int endSec,
+  List<double> rrTsMs,
+  List<double> rrMs,
+) {
+  if (startSec <= 0 || endSec <= startSec) return null;
+  const windowS = 300;
+  final vals = <double>[];
+  var t = startSec;
+  while (t < endSec) {
+    final bucket = <double>[];
+    for (var i = 0; i < math.min(rrTsMs.length, rrMs.length); i++) {
+      final tsSec = (rrTsMs[i] / 1000.0).round();
+      if (tsSec >= t && tsSec < t + windowS) {
+        bucket.add(rrMs[i]);
+      }
+    }
+    final cleaned = _noopCleanRr(bucket);
+    if (cleaned.length >= 2) {
+      final r = _rmssdRaw(cleaned);
+      if (r != null) vals.add(r);
+    }
+    t += windowS;
+  }
+  if (vals.isEmpty) return null;
+  return vals.reduce((a, b) => a + b) / vals.length;
+}
+
+List<double> _noopCleanRr(List<double> rr) => _noopRejectEctopic(
+  [for (final v in rr) if (v >= 300 && v <= 2000) v],
+);
+
+List<double> _noopRejectEctopic(List<double> nn) {
+  const radius = 2;
+  const threshold = 0.20;
+  if (nn.length <= radius) return nn;
+  final kept = <double>[];
+  for (var i = 0; i < nn.length; i++) {
+    final lo = math.max(0, i - radius);
+    final hi = math.min(nn.length - 1, i + radius);
+    final neighbors = <double>[];
+    for (var j = lo; j <= hi; j++) {
+      if (j != i) neighbors.add(nn[j]);
+    }
+    if (neighbors.length < 2) {
+      kept.add(nn[i]);
+      continue;
+    }
+    final med = _median(neighbors);
+    if (med == null || med <= 0) {
+      kept.add(nn[i]);
+      continue;
+    }
+    final deviation = (nn[i] - med).abs() / med;
+    if (deviation <= threshold) kept.add(nn[i]);
+  }
+  return kept;
+}
+
+double? _rmssdRaw(List<double> nn) {
+  if (nn.length < 2) return null;
+  var sumSq = 0.0;
+  for (var i = 1; i < nn.length; i++) {
+    final d = nn[i] - nn[i - 1];
+    sumSq += d * d;
+  }
+  return math.sqrt(sumSq / (nn.length - 1));
 }
 
 /// HR curve downsampled to ~per-minute {t: epochSec, v: bpm} (valid only).
