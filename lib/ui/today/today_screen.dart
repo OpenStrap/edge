@@ -332,17 +332,22 @@ class _TodayScreenState extends State<TodayScreen>
         ),
       ),
       const SizedBox(height: Sp.x3),
+      // Steps = real 100 Hz count (streamed time) + 1 Hz walking estimate for the
+      // rest, from the derivation — plus the in-flight live session not yet folded
+      // in. 1 Hz can't peak-count steps, so the uncovered part is an estimate.
       _statRow(
-        StatTile(
-          icon: Ic.run,
-          label: 'Steps',
-          value: t.steps.isEmpty ? null : '${t.steps.value!.round()}',
-          accent: AppColors.good,
-          confidence: t.steps.isEmpty ? null : t.steps.confidence,
-          tag: Tag.forMetric(t.steps),
-          // 24/7 step ESTIMATE trend + active-minutes + step-goal setter inside.
-          onTap: () => _push(() => const ActivityScreen()),
-        ),
+        () {
+          final base = t.steps.isEmpty ? 0 : t.steps.value!.round();
+          final steps = base + context.read<AppState>().liveSteps;
+          return StatTile(
+            icon: Ic.run,
+            label: 'Steps',
+            value: steps > 0 ? '$steps' : null,
+            accent: AppColors.good,
+            tag: Tag('est.', color: AppColors.coral),
+            onTap: () => _push(() => const ActivityScreen()),
+          );
+        }(),
         StatTile(
           icon: Ic.watch,
           label: 'Wear time',
@@ -679,13 +684,13 @@ class _TodayScreenState extends State<TodayScreen>
     );
   }
 
-  Widget _statRow(Widget a, Widget b) => Row(
-    children: [
-      Expanded(child: a),
-      const SizedBox(width: Sp.x3),
-      Expanded(child: b),
-    ],
-  );
+  Widget _statRow(Widget a, [Widget? b]) => Row(
+        children: [
+          Expanded(child: a),
+          const SizedBox(width: Sp.x3),
+          Expanded(child: b ?? const SizedBox.shrink()),
+        ],
+      );
 
   /// Entry point to the "Your body over time" records/streaks screen.
   Widget _bodyOverTimeTile() => ConstrainedBox(

@@ -147,9 +147,14 @@ private final class Impl {
     // mismatch.)
     descriptor.bluetoothServiceUUID = CBUUID(string: AccessorySetup.whoopServiceUUID)
 
+    // Show the actual strap render in the ASK pairing sheet (asset catalog →
+    // StrapProduct.imageset). Fall back to an SF Symbol if the asset is missing.
+    let productImage = UIImage(named: "StrapProduct")
+      ?? UIImage(systemName: "sensor.tag.radiowave.forward")
+      ?? UIImage()
     let item = ASPickerDisplayItem(
       name: "WHOOP band",
-      productImage: UIImage(systemName: "applewatch") ?? UIImage(),
+      productImage: productImage,
       descriptor: descriptor
     )
 

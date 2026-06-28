@@ -4,6 +4,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../data/db.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
@@ -15,6 +16,7 @@ import '../cycle/cycle_screen.dart';
 import '../spotcheck/spot_check_screen.dart';
 import '../coach/ai_coach_screen.dart';
 import '../today/step_goal_screen.dart';
+import '../today/step_calibration_screen.dart';
 import 'metric_screen.dart';
 import 'detail_cards.dart';
 
@@ -121,23 +123,67 @@ class ActivityScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MetricScreen(
         title: 'Steps',
-        metric: 'steps', // → steps series (24/7 estimate)
+        // Steps = real 100 Hz count + 1 Hz walking estimate (per day, no
+        // double-count). The bars track the daily total.
+        metric: 'steps',
         icon: Ic.run,
         accent: AppColors.good,
-        valueFmt: (v) => v == 0 ? '' : v.toStringAsFixed(0), // steps on bars
+        valueFmt: (v) => v == 0 ? '' : v.toStringAsFixed(0),
         todayDetail: (ctx) => const _ActivityDetail(),
-        dayDetail: (ctx, date) => const _ActivityDetail(),
+        dayDetail: (ctx, date) => _ActivityDetail(date: date),
       );
 }
 
 /// Detail under the Steps trend: explains the estimate honestly (24/7 estimate,
 /// real counts during live workouts that personalize your cadence) + a tappable
 /// row to set the daily step goal.
-class _ActivityDetail extends StatelessWidget {
-  const _ActivityDetail();
+class _ActivityDetail extends StatefulWidget {
+  final String? date; // null → today
+  const _ActivityDetail({this.date});
+  @override
+  State<_ActivityDetail> createState() => _ActivityDetailState();
+}
+
+class _ActivityDetailState extends State<_ActivityDetail> {
+  double? _steps;
+
+  bool get _isToday => widget.date == null;
+  String get _day {
+    if (widget.date != null) return widget.date!;
+    final d = DateTime.now();
+    return '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final s = await LocalDb.metricValueOn(_day, 'steps');
+    if (!mounted) return;
+    setState(() => _steps = s);
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Live steps from the in-flight session count toward TODAY only.
+    final live = _isToday ? context.select<AppState, int>((a) => a.liveSteps) : 0;
+    final steps = (_steps?.round() ?? 0) + live;
+    final app = context.watch<AppState>();
+    final goal = (app.user?['step_goal'] as num?)?.toInt();
+
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _ActivityStat(
+        icon: Ic.run,
+        label: 'Steps',
+        value: steps > 0 ? '$steps' : '—',
+        badge: 'est.',
+      ),
+      const SizedBox(height: Sp.x4),
       ProCard(
         child: Row(children: [
           Container(
@@ -150,21 +196,20 @@ class _ActivityDetail extends StatelessWidget {
           const SizedBox(width: Sp.x3),
           Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Steps (estimated)', style: AppText.label),
+            Text('How steps are counted', style: AppText.label),
             const SizedBox(height: 2),
             Text(
-                'Your all-day step count is estimated from walking minutes — the '
-                'band\'s background sensor samples too slowly to count each step. '
-                'Walk with the app open and it counts real steps and learns your '
-                'cadence, so the daily estimate keeps getting more accurate.',
+                'While the band streams live (a workout or with the app open) we '
+                'count REAL steps from its 100 Hz motion sensor. The rest of the '
+                'day the sensor samples too slowly to count each step, so those '
+                'hours are ESTIMATED from your walking minutes and cadence. Walk '
+                'with the app open to sharpen the estimate.',
                 style: AppText.captionMuted),
           ])),
         ]),
       ),
       const SizedBox(height: Sp.x4),
       Builder(builder: (ctx) {
-        final app = ctx.watch<AppState>();
-        final goal = (app.user?['step_goal'] as num?)?.toInt();
         return ProCard(
           onTap: () => Navigator.of(ctx).push(MaterialPageRoute(
               builder: (_) => StepGoalScreen(goal: goal))),
@@ -179,8 +224,57 @@ class _ActivityDetail extends StatelessWidget {
           ]),
         );
       }),
+      const SizedBox(height: Sp.x3),
+      // Calibration walk — anchors the off-workout estimate to the user's stride.
+      ProCard(
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const StepCalibrationScreen())),
+        child: Row(children: [
+          AppIcon(Ic.run, size: 18, color: AppColors.good),
+          const SizedBox(width: Sp.x3),
+          Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Calibrate steps', style: AppText.label),
+            const SizedBox(height: 1),
+            Text('Walk ~250 steps with the app open to sharpen the estimate',
+                style: AppText.captionMuted),
+          ])),
+          const SizedBox(width: Sp.x2),
+          AppIcon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
+        ]),
+      ),
     ]);
   }
+}
+
+/// Compact stat card for the activity detail (one big number + label).
+class _ActivityStat extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? badge;
+  const _ActivityStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.badge,
+  });
+  @override
+  Widget build(BuildContext context) => ProCard(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            AppIcon(icon, size: 16, color: AppColors.good),
+            const SizedBox(width: Sp.x2),
+            Text(label, style: AppText.overline),
+            if (badge != null) ...[
+              const Spacer(),
+              Tag(badge!, color: AppColors.coral),
+            ],
+          ]),
+          const SizedBox(height: Sp.x2),
+          Text(value, style: AppText.metricSm.copyWith(fontSize: 28)),
+        ]),
+      );
 }
 
 /// Tappable entry to the live HRV spot-check.

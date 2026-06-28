@@ -28,6 +28,8 @@ import 'package:flutter/foundation.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import '../data/db.dart';
+import '../notify/notification_center.dart';
+import '../notify/notification_event.dart';
 import 'crossday_pipeline.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
@@ -92,7 +94,7 @@ import 'substrate.dart';
 /// `calories_total` → metric_series; `steps`/`calories_total` bundle blocks. 1 Hz
 /// still can't COUNT steps (Nyquist) — real counts come from live streaming, which
 /// also tunes this estimate. Bumping re-derives non-finalized days so they fill.
-const int kAlgoVersion = 17;
+const int kAlgoVersion = 19;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 14;
@@ -943,6 +945,25 @@ class DerivationEngine {
     );
     _applyWakeDayFeatures(bundle, scMap, wake);
 
+    // ── STEPS (real 100 Hz + 1 Hz estimate) + TOTAL DAILY ENERGY (TDEE) ───────
+    // Pull the day's 100 Hz coverage windows (device-time sec) + their real step
+    // count so _stepsAndEnergy can prefer them and estimate only the rest.
+    final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
+    final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
+    final coverageWindows =
+        await LocalDb.coverageWindowsOverlapping(dayLo, dayHi);
+    final liveStepsReal = await LocalDb.liveStepsForDay(day.date);
+    final stepCalib = await LocalDb.getStepCalibration();
+    _stepsAndEnergy(
+      bundle,
+      scMap,
+      daySub,
+      profile,
+      coverageWindows,
+      liveStepsReal,
+      stepCalib,
+    );
+
     // ── More substrate-derived detail blocks (computed here, where the full
     //    sliced substrate lives — same pattern as activeMin; these are fresh
     //    <String,dynamic> blocks so ints are safe, unlike the double? scalars). ─
@@ -1027,9 +1048,9 @@ class DerivationEngine {
         // New metrics → trends (day/week/month/3M).
         'stress': sc('stress'),
         'spo2': sc('spo2'),
-        'active_min': sc('active_min'),
         'calories': sc('calories'),
-        // 24/7 step ESTIMATE (ambulatory-min × cadence) + total daily energy.
+        // Steps = real 100 Hz count + 1 Hz estimate over uncovered minutes
+        // (computed in _stepsAndEnergy; never double-counted).
         'steps': sc('steps'),
         'calories_total': sc('calories_total'),
         // Sleep-stage minutes + HRV freq/stability trends.
@@ -1177,45 +1198,75 @@ class DerivationEngine {
       date ??=
           (illness?['date'] ?? anomaly?['date'] ?? temp?['date']) as String?;
       if (date == null) return;
-      final now = DateTime.now().millisecondsSinceEpoch;
-      Future<void> emit(String kind, String title, String body) =>
-          LocalDb.putNotification({
-            'id': '$date:$kind',
-            'kind': kind,
-            'title': title,
-            'body': body,
-            'date': date,
-            'created_at': now,
-            'read': 0,
-          });
+      // Single emitter: writes the in-app feed AND (per user prefs) fires the OS
+      // notification. Health signals are critical (may override quiet hours);
+      // recovery/insight signals are normal (respect quiet hours).
+      Future<void> emit(
+        String kind,
+        String title,
+        String body, {
+        NotifCategory category = NotifCategory.health,
+        NotifPriority priority = NotifPriority.critical,
+        String route = '/today',
+      }) =>
+          NotificationCenter.instance.emit(NotificationEvent(
+            dedupeKey: '$date:$kind',
+            category: category,
+            priority: priority,
+            title: title,
+            body: body,
+            date: date!,
+            route: route,
+          ));
       if (illness != null && illness['state'] == 'red') {
-        await emit(
-          'illness',
-          'Possible illness onset',
-          'Elevated resting HR + suppressed HRV over recent nights.',
-        );
+        await emit('illness', 'Possible illness onset',
+            'Elevated resting HR + suppressed HRV over recent nights.',
+            route: '/heart');
       }
       if (anomaly != null && anomaly['flagged'] == true) {
-        await emit(
-          'anomaly',
-          'Unusual overnight physiology',
-          'Your nightly signals deviate from your personal baseline.',
-        );
+        await emit('anomaly', 'Unusual overnight physiology',
+            'Your nightly signals deviate from your personal baseline.',
+            route: '/heart');
       }
       if (temp != null && temp['flag'] == 'elevated') {
-        await emit(
-          'temp',
-          'Skin temperature elevated',
-          'Sustained rise vs your baseline — a possible illness signal.',
-        );
+        await emit('temp', 'Skin temperature elevated',
+            'Sustained rise vs your baseline — a possible illness signal.',
+            route: '/body');
       }
       final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
       if (score is num && score < 34) {
-        await emit(
-          'readiness',
-          'Low readiness today',
-          'Your recovery markers are below your usual range — ease off.',
-        );
+        await emit('readiness', 'Low readiness today',
+            'Your recovery markers are below your usual range — ease off.',
+            category: NotifCategory.recovery,
+            priority: NotifPriority.normal,
+            route: '/today');
+      }
+
+      // "Something changed" — online CUSUM on the recent resting-HR series. Fire
+      // only when the shift lands on the LATEST day (a fresh change, not old
+      // history we'd re-announce every pass). Dedupe key includes the date so it
+      // surfaces at most once per day.
+      final rhrSeries = <double>[];
+      if (recent is List) {
+        for (final r in recent) {
+          if (r is Map && r['rhr'] is num) {
+            rhrSeries.add((r['rhr'] as num).toDouble());
+          }
+        }
+      }
+      if (rhrSeries.length >= 10) {
+        final dets = ana.cusumChangePoints(rhrSeries, h: 5.0);
+        if (dets.isNotEmpty && dets.last.index == rhrSeries.length - 1) {
+          final dir = dets.last.direction > 0 ? 'risen' : 'fallen';
+          await emit(
+            'changed',
+            'Your resting heart-rate trend shifted',
+            'Your resting HR has $dir noticeably versus your recent baseline.',
+            category: NotifCategory.recovery,
+            priority: NotifPriority.normal,
+            route: '/heart',
+          );
+        }
       }
     } catch (e) {
       _log('notifications FAILED/skipped: $e');
@@ -1308,44 +1359,6 @@ class DerivationEngine {
     if (deleted > 0) _log('pruned $deleted raw rows with rec_ts < $cutoffSec');
   }
 
-  /// Active minutes over the WAKE span — a COARSE 1 Hz movement proxy. At 1 Hz
-  /// the dynamic-acceleration (ENMO) component of movement aliases away (Nyquist,
-  /// same limit that bars step counting), so magnitude stays pinned near 1 g.
-  /// What 1 Hz DOES resolve is wrist ORIENTATION change (van Hees z-angle) — so
-  /// movement = seconds where the arm angle shifts. A minute is "active" if a
-  /// meaningful fraction of its seconds show orientation change ≥5°. Transparent,
-  /// no ML; honest ESTIMATE (a "minutes you were moving" proxy, not step-grade).
-  int _activeMinutes(Substrate s, int sleepOnsetSec, int sleepOffsetSec) {
-    final n = s.length;
-    if (n < 60) return 0;
-    final ang = List<double>.filled(n, 0);
-    for (var i = 0; i < n; i++) {
-      ang[i] = ana.zAngle(s.ax[i], s.ay[i], s.az[i]);
-    }
-    const moveDeg = 5.0; // per-second orientation change = movement (van Hees)
-    const activeFrac = 0.20; // ≥20% of the minute's seconds moving → active
-    final moveSec = <int, int>{};
-    final totSec = <int, int>{};
-    for (var i = 1; i < n; i++) {
-      final t = s.tsSec[i];
-      if (sleepOffsetSec > sleepOnsetSec &&
-          t >= sleepOnsetSec &&
-          t < sleepOffsetSec) {
-        continue;
-      }
-      final m = t ~/ 60;
-      totSec[m] = (totSec[m] ?? 0) + 1;
-      if ((ang[i] - ang[i - 1]).abs() > moveDeg) {
-        moveSec[m] = (moveSec[m] ?? 0) + 1;
-      }
-    }
-    var active = 0;
-    totSec.forEach((m, tot) {
-      if (tot > 0 && (moveSec[m] ?? 0) / tot >= activeFrac) active++;
-    });
-    return active;
-  }
-
   List<double> _perMinuteMeanWake(
     Substrate s,
     int sleepOnsetSec,
@@ -1432,6 +1445,109 @@ class DerivationEngine {
     bundle['zones'] = wake['zones'];
     bundle['hr_stats'] = wake['hr_stats'];
     bundle['wear'] = wake['wear'];
+  }
+
+  /// STEPS (hybrid: real 100 Hz count + bounded 1 Hz estimate) + total daily
+  /// energy (TDEE), written into the bundle's `steps` block + `scalars`.
+  ///
+  /// Steps = [liveStepsReal] (AN-2554 over the band's 100 Hz windows — the real
+  /// count, always preferred) + a 1 Hz estimate over the minutes those windows do
+  /// NOT cover ([coverageWindows], device-time sec). So a minute is counted by
+  /// 100 Hz OR estimated by 1 Hz, never both. TDEE = HR-flex (Mifflin BMR floor +
+  /// active Keytel surplus). Best-effort.
+  void _stepsAndEnergy(
+    Map<String, dynamic> bundle,
+    Map<String, dynamic>? scMap,
+    Substrate daySub,
+    Profile profile,
+    List<List<int>> coverageWindows,
+    int liveStepsReal,
+    ana.StepCalibration? stepCalib,
+  ) {
+    try {
+      if (daySub.length < 60) return;
+      final motion = _motionMinutes(daySub);
+      if (motion.isEmpty) return;
+      final hrPerMin = _hrPerMinuteAligned(motion, daySub);
+
+      // STEPS — hybrid, no double-count. Drop any minute already covered by a
+      // 100 Hz window (real count wins), estimate steps for the rest from 1 Hz.
+      bool covered(double tsMinStartMs) {
+        final s = (tsMinStartMs / 1000).round();
+        for (final w in coverageWindows) {
+          if (s + 60 > w[0] && s < w[1]) return true;
+        }
+        return false;
+      }
+
+      final motionUn = <ana.MotionMinute>[];
+      final hrUn = <double>[];
+      for (var i = 0; i < motion.length; i++) {
+        if (covered(motion[i].tsMinStartMs)) continue;
+        motionUn.add(motion[i]);
+        hrUn.add(hrPerMin[i]);
+      }
+
+      final rhr = (scMap?['rhr'] as num?)?.toDouble();
+      final est = ana.dailyStepEstimate(
+        motionUn,
+        hrPerMin: hrUn,
+        restingHr: rhr,
+        calib: stepCalib,
+      );
+      final estSteps = est.present ? est.value!.steps : 0;
+      final daySteps = liveStepsReal + estSteps;
+      scMap?['steps'] = daySteps.toDouble();
+      bundle['steps'] = <String, dynamic>{
+        'value': daySteps,
+        'real_100hz': liveStepsReal, // AN-2554 over live windows (real count)
+        'estimated_1hz': estSteps, // walking-min × cadence for uncovered minutes
+        'ambulatory_min': est.present ? est.value!.ambulatoryMinutes : 0,
+        'cadence_used_spm': est.present ? est.value!.cadenceUsed : 0,
+        'confidence':
+            liveStepsReal > 0 ? 0.7 : (est.present ? est.confidence : 0.2),
+        'tier': liveStepsReal > 0 && estSteps == 0 ? 'HIGH' : 'ESTIMATE',
+        'inputs_used': const ['live_100hz_pedometer', 'enmo_1hz', 'hr_1hz'],
+        'note':
+            'real 100 Hz count for streamed time + 1 Hz walking estimate for '
+            'the rest (1 Hz cannot count steps directly)',
+      };
+      if (profile.isComplete) {
+        final perMinFull = <double>[
+          for (final h in hrPerMin)
+            if (h > 0) h,
+        ];
+        if (perMinFull.isNotEmpty) {
+          final sexStr = profile.sex == 'm'
+              ? 'male'
+              : (profile.sex == 'f' ? 'female' : 'nonbinary');
+          final e = ana.Calories.dailyEnergy(
+            perMinFull,
+            profile: ana.WorkoutUserProfile(
+              weightKg: profile.weightKg!,
+              heightCm: profile.heightCm!,
+              age: profile.ageYears!.toDouble(),
+              sex: sexStr,
+            ),
+            hrmax: profile.hrMaxTanaka,
+          );
+          scMap?['calories_total'] = e.total.roundToDouble();
+          bundle['calories_total'] = <String, dynamic>{
+            'value': e.total.round(),
+            'active': e.active.round(),
+            'basal': e.basal.round(),
+            'confidence': 0.5,
+            'tier': 'ESTIMATE',
+            'inputs_used': const ['hr_1hz', 'profile'],
+            'note':
+                'total daily energy: Mifflin BMR floor + active Keytel surplus '
+                '(HR-flex)',
+          };
+        }
+      }
+    } catch (e) {
+      _log('steps/energy skipped: $e');
+    }
   }
 
   Future<void> _persistWakeDayFeatures({
@@ -1547,6 +1663,38 @@ class DerivationEngine {
       'hr_stats': hrStats,
       'wear': wear,
     };
+  }
+
+  /// Active minutes over the WAKE span — a coarse 1 Hz movement proxy.
+  int _activeMinutes(Substrate s, int sleepOnsetSec, int sleepOffsetSec) {
+    final n = s.length;
+    if (n < 60) return 0;
+    final ang = List<double>.filled(n, 0);
+    for (var i = 0; i < n; i++) {
+      ang[i] = ana.zAngle(s.ax[i], s.ay[i], s.az[i]);
+    }
+    const moveDeg = 5.0;
+    const activeFrac = 0.20;
+    final moveSec = <int, int>{};
+    final totSec = <int, int>{};
+    for (var i = 1; i < n; i++) {
+      final t = s.tsSec[i];
+      if (sleepOffsetSec > sleepOnsetSec &&
+          t >= sleepOnsetSec &&
+          t < sleepOffsetSec) {
+        continue;
+      }
+      final m = t ~/ 60;
+      totSec[m] = (totSec[m] ?? 0) + 1;
+      if ((ang[i] - ang[i - 1]).abs() > moveDeg) {
+        moveSec[m] = (moveSec[m] ?? 0) + 1;
+      }
+    }
+    var active = 0;
+    totSec.forEach((m, tot) {
+      if (tot > 0 && (moveSec[m] ?? 0) / tot >= activeFrac) active++;
+    });
+    return active;
   }
 
   List<ana.MotionMinute> _motionMinutes(Substrate s) {

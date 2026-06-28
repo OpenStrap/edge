@@ -279,6 +279,8 @@ class _ScanStepState extends State<_ScanStep> {
       _error = null;
     });
     try {
+      // Provisional label from the advertised name; the real serial arrives from
+      // the HELLO body (fixed offset) once connected and overwrites it.
       await context.read<AppState>().pairWith(d, serial: _name(d));
       // On success the gate rebuilds to the main shell.
     } catch (e) {

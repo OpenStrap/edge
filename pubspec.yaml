@@ -1,7 +1,7 @@
 name: openstrap_edge
 description: "OpenStrap — open-source WHOOP 4.0 companion. BLE drain → raw-first local store → cloud sync."
 publish_to: 'none'
-version: 0.5.2+14
+version: 0.5.4+15
 
 environment:
   sdk: ^3.11.4
@@ -17,9 +17,13 @@ dependencies:
   # lib/compute/derivation_engine.dart). The analytics package now points at the
   # 1 Hz-native family (import via `package:openstrap_analytics/onehz.dart`).
   openstrap_protocol:
-    path: ../openstrap-protocol-dart
+    git:
+      url: https://github.com/OpenStrap/protocol.git
+      ref: main
   openstrap_analytics:
-    path: ../openstrap-analytics-onehz
+    git:
+      url: https://github.com/OpenStrap/analytics.git
+      ref: main
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
@@ -66,9 +70,14 @@ dependencies:
   # Home/lock-screen widget bridge (writes a snapshot to the App Group → WidgetKit).
   home_widget: ^0.6.0
 
-  # OS-level notifications (band battery low / charging). The single display layer;
-  # a future FCM/server-push integration reuses NotificationService (see lib/notify/).
+  # OS-level notifications (band battery low / charging, health alerts, recovery,
+  # scheduled reminders). The single display layer; see lib/notify/. Local +
+  # scheduled only (no FCM — the app is cloud-free).
   flutter_local_notifications: ^18.0.1
+  # zonedSchedule needs an initialized tz database + the device's IANA zone, so
+  # wind-down / weekly-recap nudges fire at the right wall-clock time.
+  timezone: ^0.9.4
+  flutter_timezone: ^3.0.1
 
   # OTA self-update (Android sideload): read our own version, download + install the
   # signed APK from the backend's update pointer, with a browser fallback.

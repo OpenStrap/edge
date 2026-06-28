@@ -93,6 +93,7 @@ class LocalRepositoryImpl extends LocalRepository {
   bool _isTodayLabel(String date) =>
       date == DateTime.now().toUtc().toIso8601String().substring(0, 10);
 
+
   /// The bundle for a requested date: the exact day's row, or — only for the
   /// Today request — the latest complete day. A historical date with no row
   /// returns null (→ the caller's honest empty shape), not the latest.
@@ -232,14 +233,6 @@ class LocalRepositoryImpl extends LocalRepository {
         : null;
     final readinessMetric =
         _scalarMetric(readinessScalar, 'HIGH', note: readinessNote);
-    // Active minutes (1 Hz movement proxy) — the honest stand-in for the steps
-    // tile, since 1 Hz can't count steps (Nyquist). Real step counts come from
-    // live workout streaming only.
-    final activeMin = activityBundle == null
-        ? null
-        : (activityBundle['activity'] is Map)
-        ? ((activityBundle['activity'] as Map)['active_min'] as num?)?.round()
-        : _scalar(activityBundle, 'active_min')?.round();
     final daily = <String, dynamic>{
       'readiness': readinessMetric,
       'recovery': readinessMetric,
@@ -279,20 +272,14 @@ class LocalRepositoryImpl extends LocalRepository {
             'ESTIMATE',
             unit: 'kcal',
           ),
-      // STEPS — 24/7 ESTIMATE (ambulatory-minutes × cadence; 1 Hz can't COUNT
-      // steps, the live pedometer personalizes the cadence). `active_min` is the
-      // separate raw movement-minutes metric.
+      // STEPS — real 100 Hz count (streamed time) + 1 Hz walking estimate for the
+      // rest; the derivation combines them and avoids double-counting.
       'steps': _scalarMetric(
         activityBundle == null
             ? (wakeFeatures?['steps'] as num?)?.round()
             : _scalar(activityBundle, 'steps')?.round(),
         'ESTIMATE',
         unit: 'steps',
-      ),
-      'active_min': _scalarMetric(
-        activeMin ?? (wakeFeatures?['active_min'] as num?)?.round(),
-        'ESTIMATE',
-        unit: 'min',
       ),
     };
 

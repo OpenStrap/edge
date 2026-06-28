@@ -26,8 +26,15 @@ void main() {
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    LocalDb.dbName = 'openstrap_rescan_test.db';
     final dir = await databaseFactory.getDatabasesPath();
-    await databaseFactory.deleteDatabase(p.join(dir, 'openstrap.db'));
+    await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+  });
+
+  tearDownAll(() async {
+    await LocalDb.close();
+    final dir = await databaseFactory.getDatabasesPath();
+    await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
   // Seed N derived days with the given per-day scalars (writes the indexed

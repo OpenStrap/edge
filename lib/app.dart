@@ -120,6 +120,28 @@ class _ShellState extends State<_Shell> {
       Prefs.getInt(Prefs.shellTab, 0).clamp(0, _nav.length - 1);
   late final _controller = PageController(initialPage: _index);
 
+  AppState? _app;
+
+  @override
+  void initState() {
+    super.initState();
+    // A tapped notification asks for a tab via AppState.navRequest. Jump there,
+    // then clear the request so it isn't replayed on rebuild.
+    _app = context.read<AppState>();
+    _app!.navRequest.addListener(_onNavRequest);
+    // Cold launch from a tapped notification: the route may already be set before
+    // this shell mounted (so the listener never fired). Consume it once attached.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onNavRequest());
+  }
+
+  void _onNavRequest() {
+    final i = _app?.navRequest.value ?? -1;
+    if (i < 0 || i >= _nav.length) return;
+    _app!.navRequest.value = -1;
+    if (!mounted) return;
+    _go(i);
+  }
+
   // Built fresh on every build (not const) so a theme flip re-colours every tab,
   // even the kept-alive ones the user isn't currently looking at.
   // ignore: prefer_const_constructors — must be fresh instances so the
@@ -142,6 +164,7 @@ class _ShellState extends State<_Shell> {
 
   @override
   void dispose() {
+    _app?.navRequest.removeListener(_onNavRequest);
     _controller.dispose();
     super.dispose();
   }

@@ -43,6 +43,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 import '../data/db.dart';
 import '../data/models.dart';
+import '../sync/paired_device.dart' show cleanDeviceLabel;
 import '../sync/sync_policy.dart';
 import 'ble_state.dart';
 
@@ -1011,8 +1012,13 @@ class BleEngine {
       onState(state);
     }
     if (f.containsKey('strap_name')) {
-      state.strapName = f['strap_name'] as String;
-      onState(state);
+      // Guard with cleanDeviceLabel: a garbled name read never overwrites the
+      // last good one (keeps "?*" off the UI).
+      final nm = cleanDeviceLabel(f['strap_name'] as String?);
+      if (nm != null) {
+        state.strapName = nm;
+        onState(state);
+      }
     }
     if (f.containsKey('battery_pct')) {
       state.batteryPct = (f['battery_pct'] as num).toDouble();
@@ -1046,7 +1052,12 @@ class BleEngine {
     }
     if (d.kind == 'cmd_response' && f['hello'] is HelloInfo) {
       final h = f['hello'] as HelloInfo;
-      state.serial = h.serial ?? state.serial;
+      // Serial now comes from the fixed offset in the HELLO body (see
+      // parseHello) — the band's true factory serial, correct even when the user
+      // renamed the strap (the advertised name carries no serial then). Guarded
+      // by cleanDeviceLabel as a belt-and-braces against any junk ever reaching
+      // the UI (the "?*" symptom).
+      state.serial = cleanDeviceLabel(h.serial) ?? state.serial;
       state.batteryPct = h.batteryPct ?? state.batteryPct;
       state.wristOn = h.wristOn ?? state.wristOn;
       onState(state);
@@ -1333,7 +1344,10 @@ class BleEngine {
 
   /// Rename the strap. Payload: [0x01][name length u8][ASCII name bytes][u32 0].
   Future<void> setStrapName(String name) async {
-    final ascii = name.codeUnits.where((c) => c >= 0x20 && c < 0x7f).toList();
+    // Cap at 20 ASCII chars (matches the reference + the GET decoder's length
+    // assumption); the length byte then always stays < 0x20.
+    final ascii =
+        name.codeUnits.where((c) => c >= 0x20 && c < 0x7f).take(20).toList();
     final payload = <int>[0x01, ascii.length, ...ascii, 0, 0, 0, 0];
     await _send(Cmd.setAdvertisingNameHarvard, payload);
     _log('SET_ADVERTISING_NAME → "$name"');

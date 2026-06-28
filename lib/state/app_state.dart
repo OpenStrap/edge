@@ -17,6 +17,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:openstrap_analytics/onehz.dart' as ana;
+import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -31,6 +33,9 @@ import '../compute/profile.dart';
 import '../data/db.dart';
 import '../data/local_repository.dart';
 import '../data/local_repository_impl.dart';
+import '../notify/notification_center.dart';
+import '../notify/notification_event.dart';
+import '../notify/notification_prefs.dart';
 import '../gestures/gesture_settings.dart';
 import '../health/health_export.dart';
 import '../import/noop_import.dart';
@@ -416,6 +421,23 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A tapped notification asks the shell to switch to this tab index. The shell
+  /// listens; it resets to -1 after consuming. Kept off the ChangeNotifier path so
+  /// a deep-link doesn't repaint the whole tree.
+  final ValueNotifier<int> navRequest = ValueNotifier<int>(-1);
+  StreamSubscription<String>? _tapSub;
+
+  static const Map<String, int> _routeToTab = {
+    '/today': 0,
+    '/sleep': 1,
+    '/heart': 2,
+    '/body': 3,
+    '/workouts': 4,
+  };
+  void _handleTapRoute(String route) {
+    navRequest.value = _routeToTab[route] ?? 0; // unknown (e.g. /recap) → Today
+  }
+
   AppState() {
     _gestureDispatcher = GestureDispatcher(
       settings: gestureSettings,
@@ -447,6 +469,18 @@ class AppState extends ChangeNotifier {
     );
     repo = LocalRepositoryImpl(getProfileMap: () => user);
     _init();
+    // Notification taps → request a tab switch (the shell listens to navRequest).
+    _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
+    unawaited(NotificationService.instance.consumeLaunchRoute());
+  }
+
+  @override
+  void dispose() {
+    _tapSub?.cancel();
+    navRequest.dispose();
+    _stopBackfillTimer();
+    _deriveScheduler.dispose();
+    super.dispose();
   }
 
   /// Compute trigger: kick the DerivationEngine after data is persisted.
@@ -549,73 +583,94 @@ class AppState extends ChangeNotifier {
       }
 
       await prefs.setString(_kLastRecoveryNotifDay, dayId);
-      await NotificationService.instance.showInsight(
-        id: NotificationService.idRecoveryReady,
+      await NotificationCenter.instance.emit(NotificationEvent(
+        dedupeKey: '$dayId:recovery_ready',
+        category: NotifCategory.recovery,
+        priority: NotifPriority.normal,
         title: 'Your recovery is ready',
         body: 'Recovery $score$slept. Tap to see today.',
-      );
+        date: dayId,
+        route: '/today',
+      ));
       _log('[notify] recovery-ready fired for $dayId (score=$score)');
     } catch (e) {
       _log('[notify] recovery-ready skipped: $e');
     }
   }
 
-  /// Time-of-day cadence nudges (evening wind-down, weekly recap). Simple checks
-  /// run on app foreground: each fires at most once per its period, gated by a
-  /// persisted "last fired" stamp. Honest about platform limits — these fire when
-  /// the app is alive around the target time, not via a guaranteed OS timer.
-  /// Each notification carries its "why" in the body.
-  static const String _kLastWindDownDay = 'last_winddown_day';
-  static const String _kLastRecapWeek = 'last_weekly_recap_week';
+  /// Foreground cadence pass. Wind-down + weekly recap are now REAL OS-scheduled
+  /// notifications (see _ensureRemindersScheduled) so they fire even when the app
+  /// is closed — we just re-assert that schedule here (cheap, idempotent, picks up
+  /// any prefs change), then run the data-driven foreground nudges.
   Future<void> runCadenceChecks() async {
     try {
       if (!isPaired) return;
-      final now = DateTime.now();
-      final prefs = await SharedPreferences.getInstance();
-      final today = '${now.year}-${now.month}-${now.day}';
-
-      // Evening wind-down — once/day, in the 20:00–23:00 window.
-      if (now.hour >= 20 &&
-          now.hour < 23 &&
-          prefs.getString(_kLastWindDownDay) != today) {
-        await prefs.setString(_kLastWindDownDay, today);
-        await NotificationService.instance.showInsight(
-          id: NotificationService.idWindDown,
-          title: 'Time to wind down',
-          body:
-              'A consistent bedtime steadies your recovery — start easing off '
-              'screens and lights now.',
-        );
-      }
-
-      // Weekly recap — once/week (ISO week key), Sunday evening onward.
-      final week = '${now.year}-w${_isoWeek(now)}';
-      if (now.weekday == DateTime.sunday &&
-          now.hour >= 18 &&
-          prefs.getString(_kLastRecapWeek) != week) {
-        await prefs.setString(_kLastRecapWeek, week);
-        await NotificationService.instance.showInsight(
-          id: NotificationService.idWeeklyRecap,
-          title: 'Your week in review',
-          body:
-              'A new weekly recap is ready — see how your sleep, strain and '
-              'recovery trended.',
-        );
-      }
+      await _ensureRemindersScheduled();
+      await _maybeNotifyStepGoal();
+      await _maybeNotifyInactivity();
     } catch (e) {
       _log('[notify] cadence checks skipped: $e');
     }
   }
 
-  static int _isoWeek(DateTime d) {
-    final dayOfYear =
-        DateTime(
-          d.year,
-          d.month,
-          d.day,
-        ).difference(DateTime(d.year, 1, 1)).inDays +
-        1;
-    return (dayOfYear - d.weekday + 10) ~/ 7;
+  /// Fire once per day when the daily step ESTIMATE crosses the user's goal.
+  /// Reads the latest derived `steps` series (an estimate — same tier as the
+  /// Steps tile), so it never claims a precise count.
+  static const String _kLastStepGoalDay = 'last_stepgoal_day';
+  Future<void> _maybeNotifyStepGoal() async {
+    try {
+      final goal = (user?['step_goal'] as num?)?.toInt();
+      if (goal == null || goal <= 0) return;
+      final rows = await LocalDb.metricSeries('steps');
+      if (rows.isEmpty) return;
+      final last = rows.last;
+      final date = last['date'] as String?;
+      final steps = (last['value'] as num?)?.toInt();
+      if (date == null || steps == null || steps < goal) return;
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString(_kLastStepGoalDay) == date) return; // already fired
+      await prefs.setString(_kLastStepGoalDay, date);
+      await NotificationCenter.instance.emit(NotificationEvent(
+        dedupeKey: '$date:step_goal',
+        category: NotifCategory.reminders,
+        priority: NotifPriority.low,
+        title: 'Step goal reached',
+        body: 'You hit about $steps steps — at or above your $goal goal. Nice work.',
+        date: date,
+        route: '/today',
+      ));
+    } catch (_) {/* best-effort */}
+  }
+
+  /// Opportunistic "time to move" nudge. HONEST LIMIT: movement is only visible
+  /// while the band is streaming live IMU, so this can only fire when we've seen
+  /// recent live data and then a daytime gap with no ambulatory movement. Silent
+  /// when we have no movement data at all (never nudges on missing data).
+  static const String _kLastInactivityMs = 'last_inactivity_ms';
+  Future<void> _maybeNotifyInactivity() async {
+    try {
+      if (_lastMovementMs == 0) return; // no live movement data → stay silent
+      final now = DateTime.now();
+      if (now.hour < 9 || now.hour >= 21) return; // daytime only
+      final nowMs = now.millisecondsSinceEpoch;
+      final idleMs = nowMs - _lastMovementMs;
+      if (idleMs < 2 * 60 * 60 * 1000) return; // < 2h idle → no nudge
+      final prefs = await SharedPreferences.getInstance();
+      final lastFired = prefs.getInt(_kLastInactivityMs) ?? 0;
+      if (nowMs - lastFired < 2 * 60 * 60 * 1000) return; // rate-limit to /2h
+      await prefs.setInt(_kLastInactivityMs, nowMs);
+      final today = '${now.year}-${now.month}-${now.day}';
+      await NotificationCenter.instance.emit(NotificationEvent(
+        dedupeKey: '$today:move:${nowMs ~/ (2 * 60 * 60 * 1000)}',
+        category: NotifCategory.reminders,
+        priority: NotifPriority.low,
+        title: 'Time to move',
+        body: "You've been still for a couple of hours — a short walk keeps your "
+            'energy and circulation up.',
+        date: today,
+        route: '/today',
+      ));
+    } catch (_) {/* best-effort */}
   }
 
   /// True while a user-initiated full re-analysis is running (drives the button's
@@ -699,7 +754,21 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.
     unawaited(_loadAppStatus());
+    // Register the recurring wall-clock nudges as real OS-scheduled notifications
+    // (wind-down, weekly recap) so they fire even when the app is closed.
+    if (isPaired) unawaited(_ensureRemindersScheduled());
     if (isPaired) openSession();
+  }
+
+  /// (Re)register standing scheduled reminders per the user's prefs. Idempotent;
+  /// safe to call repeatedly (cancels + re-schedules). Best-effort.
+  Future<void> _ensureRemindersScheduled() async {
+    try {
+      final prefs = await NotificationPrefs.load();
+      await NotificationCenter.instance.scheduleStandingReminders(prefs);
+    } catch (e) {
+      _log('[notify] schedule reminders skipped: $e');
+    }
   }
 
   void _log(String line) {
@@ -774,17 +843,157 @@ class AppState extends ChangeNotifier {
     if (spotActive && (pt == 0x28 || pt == 0x2B)) {
       if (_spotFrames.length < 8000) _spotFrames.add(hex);
     }
+    // LIVE STEP COUNTER. The dedicated 0x33 IMU stream is the high-rate live
+    // accel — it arrives ~10 frames/s (10 samples each), so it drives a smooth,
+    // responsive count. Full R10 (0x2B) is only a fallback when the IMU stream
+    // isn't flowing (and live 0x2B is often R10-LITE, which carries no accel).
+    // `frameAccel` returns |a|(g) samples for both; once 0x33 is seen we ignore
+    // 0x2B to avoid double-counting the same motion from two stream formats.
+    if (pt == 0x33) {
+      _imuStreamSeen = true;
+      final f = _safeFrameAccel(hex);
+      if (f != null) {
+        _ingestLiveMags(f.mags);
+        _trackCoverage(recTs);
+      }
+    } else if (pt == 0x2B && !_imuStreamSeen) {
+      final f = _safeFrameAccel(hex);
+      if (f != null) {
+        _ingestLiveMags(f.mags);
+        _trackCoverage(recTs);
+      }
+    }
   }
 
-  // Live workout-step support is temporarily disabled on this branch until the
-  // sibling analytics package exposes the calibrated pedometer API again.
-  int get liveSteps => 0;
+  proto.ImuFrame? _safeFrameAccel(String hex) {
+    try {
+      return proto.frameAccel(hex);
+    } catch (_) {
+      return null;
+    }
+  }
 
-  int get workoutSteps => 0;
+  // ── live pedometer (foreground 100 Hz R10 accel) ────────────────────────────
+  // Real step counting via the LOCKED AN-2554 pedometer (analytics `pedometer`),
+  // the same algorithm + ×1.11 gain the backend calibrated on a 100-step walk.
+  // AN-2554's gain was calibrated on PER-MINUTE contiguous signals, so we count
+  // in 60 s chunks: each full minute is committed into `_committedRaw`, and the
+  // still-filling partial minute is re-counted each frame for a live readout.
+  // AN-2554's CONFIRM=8 regularity gate reads 0 at rest (rejects fidgeting).
+  final List<double> _magMin = []; // current minute's magnitude signal
+  int _committedRaw = 0; // raw (pre-gain) steps from completed minutes
+  int _liveSamples = 0; // total 100 Hz samples streamed this session
+  double _liveEnmoSum = 0; // 1 Hz-equivalent ENMO accumulator (for calibration)
+  int _liveEnmoN = 0;
+  bool _imuStreamSeen = false; // prefer the 0x33 IMU stream once it appears
+  static const int _minuteSamples = 6000; // 60 s @ 100 Hz — calibration chunk
+  int _lastMovementMs = 0; // wall-clock of the last live frame showing real motion
+  // DEVICE-time window (epoch sec) the live pedometer covered this session — so
+  // the 1 Hz estimate can EXCLUDE these minutes (100 Hz real count wins).
+  int? _liveCoverStartTs;
+  int _liveCoverEndTs = 0;
+  void _trackCoverage(int? recTs) {
+    if (recTs == null || recTs <= 0) return;
+    _liveCoverStartTs ??= recTs;
+    if (recTs > _liveCoverEndTs) _liveCoverEndTs = recTs;
+  }
 
-  void _resetLivePedometer() {}
+  /// Steps counted on the live 100 Hz stream this connected session (real,
+  /// gain-applied). Used for cadence calibration. 0 when not streaming.
+  int get _liveRaw =>
+      _committedRaw + (_magMin.isEmpty ? 0 : ana.pedometer(_magMin));
+  int get liveSteps => (_liveRaw * ana.StepParams.gain).round();
 
-  Future<void> _finalizeLivePedometer() async {}
+  // Snapshot of the RAW session total at the moment a manual workout started, so
+  // the live-session screen shows steps FOR THIS WORKOUT (not since connection).
+  int? _workoutRawBase;
+
+  /// Steps taken since the active workout started (real, live, gain-applied).
+  /// 0 when no workout is running. This is what the workout screen shows.
+  int get workoutSteps {
+    if (activeWorkout == null || _workoutRawBase == null) return 0;
+    final raw = _liveRaw - _workoutRawBase!;
+    return raw > 0 ? (raw * ana.StepParams.gain).round() : 0;
+  }
+
+  void _ingestLiveMags(List<double> mags) {
+    if (mags.isEmpty) return;
+    // Append this frame's |a|(g) samples (gravity INCLUDED — AN-2554's dynamic
+    // threshold rides the ~1 g baseline). Also accumulate a 1 Hz-equivalent ENMO
+    // sample (mean |a| − 1 g) for cadence calibration.
+    var magSum = 0.0;
+    for (final m in mags) {
+      _magMin.add(m);
+      magSum += m;
+    }
+    _liveSamples += mags.length;
+    final e = (magSum / mags.length) - 1.0;
+    _liveEnmoSum += e > 0 ? e : 0.0;
+    _liveEnmoN++;
+    // Stamp last real motion (for the inactivity nudge). 0.02 g over baseline is
+    // clearly dynamic movement, not resting jitter.
+    if (e > 0.02) _lastMovementMs = DateTime.now().millisecondsSinceEpoch;
+
+    // Commit each completed minute into the raw total (matches the gain's
+    // per-minute calibration), then keep counting the next partial minute.
+    while (_magMin.length >= _minuteSamples) {
+      final minute = _magMin.sublist(0, _minuteSamples);
+      _magMin.removeRange(0, _minuteSamples);
+      _committedRaw += ana.pedometer(minute);
+    }
+    notifyListeners(); // live readout re-counts the partial minute on read
+  }
+
+  /// Reset the live step counter for a fresh connected session.
+  void _resetLivePedometer() {
+    _magMin.clear();
+    _committedRaw = 0;
+    _liveSamples = 0;
+    _liveEnmoSum = 0;
+    _liveEnmoN = 0;
+    _imuStreamSeen = false;
+    _liveCoverStartTs = null;
+    _liveCoverEndTs = 0;
+  }
+
+  /// End-of-session: if the bout is credible walking, fold it into the personal
+  /// cadence calibration (persisted) so the 24/7 estimate gets more accurate.
+  Future<void> _finalizeLivePedometer() async {
+    final steps = liveSteps; // gain-applied
+    final durS = _liveSamples / 100.0;
+    final enmo = _liveEnmoN > 0 ? _liveEnmoSum / _liveEnmoN : 0.0;
+    // Capture the device-time coverage window BEFORE resetting.
+    final coverStart = _liveCoverStartTs;
+    final coverEnd = _liveCoverEndTs;
+    _resetLivePedometer();
+    // Record the REAL 100 Hz step window (device time). The derivation pass adds
+    // it to the day's steps AND excludes those minutes from the 1 Hz estimate, so
+    // 100 Hz always wins and a minute is never counted twice.
+    if (steps > 0 && coverStart != null && coverEnd >= coverStart) {
+      final d = DateTime.fromMillisecondsSinceEpoch(coverStart * 1000);
+      final day = '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-'
+          '${d.day.toString().padLeft(2, '0')}';
+      unawaited(LocalDb.addLiveCoverage(coverStart, coverEnd, steps, day));
+    }
+    if (steps <= 0 || durS < 20) return;
+    final cadence = steps / (durS / 60.0);
+    // Any nonzero AN-2554 count is CONFIRM-gated gait; confidence is high when
+    // the cadence lands in a walking band (else let calibrateCadence reject it).
+    final conf = (cadence >= 60 && cadence <= 200) ? 0.85 : 0.4;
+    final result = ana.PedometerResult(steps, durS, cadence, 0.0, conf);
+    try {
+      final prior = await LocalDb.getStepCalibration();
+      final next = ana.calibrateCadence(prior, result, enmo);
+      if (next != null && !identical(next, prior)) {
+        await LocalDb.putStepCalibration(next);
+        _log('[steps] cadence calibrated → '
+            '${next.cadenceSpm.toStringAsFixed(0)} spm (n=${next.n})');
+      }
+    } catch (e) {
+      _log('[steps] calibration skipped: $e');
+    }
+  }
 
   void _onEngineState(DeviceState s) {
     // Battery-low / charging OS notifications (edge-triggered + de-duped inside).
@@ -806,6 +1015,17 @@ class AppState extends ChangeNotifier {
           source: 'device_state',
         ),
       );
+    }
+    // Heal a stale/garbled persisted serial: once the band reports a clean serial
+    // (HELLO body, fixed offset), persist it so the disconnected display stops
+    // showing any old "?*" junk left by a previous build.
+    final cleanSn = cleanDeviceLabel(s.serial);
+    if (cleanSn != null && cleanSn != paired?.serial) {
+      final rid = paired?.remoteId ?? s.address;
+      if (rid != null && rid.isNotEmpty) {
+        paired = PairedDevice(rid, cleanSn);
+        unawaited(PairedDevice.save(rid, cleanSn));
+      }
     }
     // Keep the lock-screen Band Battery widget current — only when it changed.
     final battPct = roundedPct ?? -1;
@@ -1297,6 +1517,69 @@ class AppState extends ChangeNotifier {
     _spotEnabledStreams = false;
   }
 
+  // ── guided step calibration (open-road walk) ────────────────────────────────
+  // A short live 100 Hz walk teaches the user's real walking signature (refEnmo)
+  // + cadence, which anchors the 1 Hz daily estimate. Target a step count with a
+  // buffer so the AN-2554 confirm-gate has settled.
+  static const int stepCalTargetSteps = 200; // steps to learn a stable cadence
+  static const int stepCalBuffer = 50; // ask the user to walk a bit more
+  bool _stepCalEnabledStreams = false;
+
+  /// Begin a calibration walk: turn on the live IMU stream and count from zero.
+  Future<void> startStepCalibration() async {
+    if (!isConnected) throw Exception('Connect to your strap first');
+    if (activeWorkout == null) {
+      await engine.enableLiveStreams();
+      _stepCalEnabledStreams = true;
+    }
+    _resetLivePedometer(); // count this walk from 0
+    notifyListeners();
+  }
+
+  /// Finish the calibration walk: fold the live bout into the personal cadence
+  /// model (refEnmo + cadence). Returns the learned cadence (spm), or null if the
+  /// walk wasn't credible. Stops the stream we turned on.
+  Future<double?> finishStepCalibration() async {
+    final steps = liveSteps;
+    final durS = _liveSamples / 100.0;
+    final enmo = _liveEnmoN > 0 ? _liveEnmoSum / _liveEnmoN : 0.0;
+    double? learned;
+    if (steps > 0 && durS >= 20) {
+      final cadence = steps / (durS / 60.0);
+      final conf = (cadence >= 60 && cadence <= 200) ? 0.9 : 0.4;
+      final result = ana.PedometerResult(steps, durS, cadence, 0.0, conf);
+      try {
+        final prior = await LocalDb.getStepCalibration();
+        final next = ana.calibrateCadence(prior, result, enmo);
+        if (next != null) {
+          await LocalDb.putStepCalibration(next);
+          learned = next.cadenceSpm;
+          _log('[steps] CALIBRATED → ${next.cadenceSpm.toStringAsFixed(0)} spm '
+              '(refEnmo=${next.refEnmo.toStringAsFixed(3)}, n=${next.n})');
+        }
+      } catch (e) {
+        _log('[steps] calibration failed: $e');
+      }
+    }
+    if (_stepCalEnabledStreams && activeWorkout == null) {
+      unawaited(engine.disableLiveStreams());
+    }
+    _stepCalEnabledStreams = false;
+    _resetLivePedometer();
+    notifyListeners();
+    return learned;
+  }
+
+  /// Cancel a calibration walk without saving.
+  void cancelStepCalibration() {
+    if (_stepCalEnabledStreams && activeWorkout == null) {
+      unawaited(engine.disableLiveStreams());
+    }
+    _stepCalEnabledStreams = false;
+    _resetLivePedometer();
+    notifyListeners();
+  }
+
   // ── live session coach ───────────────────────────────────────────────────────
   LiveWorkoutState? activeWorkout;
   Timer? _workoutTimer;
@@ -1540,13 +1823,6 @@ class AppState extends ChangeNotifier {
       );
     }
     notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    _stopBackfillTimer();
-    _deriveScheduler.dispose();
-    super.dispose();
   }
 }
 
