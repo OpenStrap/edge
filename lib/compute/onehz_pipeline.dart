@@ -213,21 +213,22 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final sleepConf = (d.sleepJson['confidence'] as num?)?.toDouble() ?? 0;
 
   // ── CLINICAL (sleep-windowed) ──────────────────────────────────────────────
-  // Whole-window time-domain HRV is kept for SDNN / detail rows only. NOOP's
-  // nightly HRV is the mean of 5-min cleaned-window RMSSDs across the detected
-  // sleep session, not one RMSSD over the whole night's NN stream.
+  // Whole-window time-domain HRV is kept for SDNN / detail rows only. The
+  // nightly headline HRV is the mean of 5-min cleaned-window RMSSDs across the
+  // detected sleep session, not one RMSSD over the whole night's NN stream.
   final hrvT = hrvTime(nn, nnTimesMs: nnTimes);
   // Keep the robust estimator as a secondary detail only; the canonical nightly
-  // RMSSD now follows NOOP's avgHrv computation.
+  // RMSSD follows the sleep-session windowed formulation.
   final nremMask = _nremMaskAlignedToNn(d, nnTimes, d.sleepRrTsMs);
   final robustRmssd = nocturnalRmssd(nn, nnTimes, stageMaskPerSec: nremMask);
-  final noopRmssdMetric = noopNightlyRmssd(
+  final sleepSessionRmssdMetric = sleepSessionWindowedRmssd(
     d.sleepRrMs,
     d.sleepRrTsMs,
     startSec: d.sleepOnsetSec,
     endSec: d.sleepOffsetSec,
   );
-  final noopRmssd = noopRmssdMetric.present ? noopRmssdMetric.value : null;
+  final sleepSessionRmssd =
+      sleepSessionRmssdMetric.present ? sleepSessionRmssdMetric.value : null;
   final hrvF = nn.length >= 20
       ? hrvFreq(nn, nnTimes, artifactFraction: artifactFraction)
       : const Metric<HrvFreq>.absent(
@@ -300,8 +301,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   }
 
   // ── READINESS (the canonical composite, baseline-dependent) ───────────────
-  final lnToday = (noopRmssd != null && noopRmssd > 0)
-      ? math.log(noopRmssd)
+  final lnToday = (sleepSessionRmssd != null && sleepSessionRmssd > 0)
+      ? math.log(sleepSessionRmssd)
       : null;
   final rhrToday = rhr.present ? rhr.value!.low30Mean : null;
   final respToday = resp.present ? resp.value!.brpm : null;
@@ -402,15 +403,17 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'flag': irregularFlag,
       'confidence': irregularConf,
     },
-    // Canonical nightly HRV, matching NOOP's avgHrv aggregation over the chosen
-    // sleep session. The robust estimator is retained alongside it as a secondary
-    // detail for comparison/debugging.
-    'rmssd_noop': {
-      'value': noopRmssd == null ? '—' : _round(noopRmssd, 1),
-      'confidence': noopRmssdMetric.present ? _round(noopRmssdMetric.confidence, 4) : 0,
+    // Canonical nightly HRV, matching the sleep-session windowed RMSSD
+    // aggregation over the chosen sleep session. The robust estimator is
+    // retained alongside it as a secondary detail for comparison/debugging.
+    'rmssd_sleep_session': {
+      'value': sleepSessionRmssd == null ? '—' : _round(sleepSessionRmssd, 1),
+      'confidence': sleepSessionRmssdMetric.present
+          ? _round(sleepSessionRmssdMetric.confidence, 4)
+          : 0,
       'tier': Tier.high,
       'inputs_used': const ['rr_sleep_window'],
-      'note': noopRmssdMetric.note,
+      'note': sleepSessionRmssdMetric.note,
     },
     'rmssd_nocturnal': robustRmssd.toJson(),
     'hrv_freq': hrvF.toJson((v) => v.toJson()),
@@ -497,10 +500,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
 
   // Indexed scalars (also surfaced to metric_series by the engine).
   final rhrScalar = rhr.present ? rhr.value!.low30Mean : null;
-  // HEADLINE RMSSD = NOOP's nightly avgHrv: mean of 5-min cleaned-window RMSSDs
-  // across the detected sleep session. Fall back to the robust estimator, then
-  // the whole-window RMSSD only when the canonical noop-style value is absent.
-  final rmssdScalar = noopRmssd ??
+  // HEADLINE RMSSD = mean of 5-min cleaned-window RMSSDs across the detected
+  // sleep session. Fall back to the robust estimator, then the whole-window
+  // RMSSD only when the canonical sleep-session value is absent.
+  final rmssdScalar = sleepSessionRmssd ??
       (robustRmssd.present
           ? robustRmssd.value
           : ((hrvT.present && hrvT.value!.rmssd != null)
