@@ -16,17 +16,14 @@ dependencies:
   # local re-layer computes metrics here (see lib/data/local_repository.dart +
   # lib/compute/derivation_engine.dart). The analytics package now points at the
   # 1 Hz-native family (import via `package:openstrap_analytics/onehz.dart`).
-  # NOTE: pinned to the feature branches that carry the matching serial-offset
-  # (protocol) and step-hybrid (analytics) changes this PR depends on. Flip both
-  # refs back to `main` once OpenStrap/protocol#3 and OpenStrap/analytics#9 merge.
   openstrap_protocol:
     git:
       url: https://github.com/OpenStrap/protocol.git
-      ref: fix/hello-serial-offset
+      ref: main
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
-      ref: feat/step-estimate-rework
+      ref: main
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.35.5
