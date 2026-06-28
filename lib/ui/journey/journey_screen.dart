@@ -242,7 +242,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
     final peak = _map(highs['peak_hr']);
     final low = _map(highs['low_hr']);
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           child: _highCard(

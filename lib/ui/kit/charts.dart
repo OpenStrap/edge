@@ -299,7 +299,7 @@ class TimeSeriesPoint {
   const TimeSeriesPoint(this.x, this.y);
 }
 
-class TimeSeriesChart extends StatelessWidget {
+class TimeSeriesChart extends StatefulWidget {
   final List<TimeSeriesPoint> points;
   final Color? color;
   final double height;
@@ -330,19 +330,26 @@ class TimeSeriesChart extends StatelessWidget {
   });
 
   @override
+  State<TimeSeriesChart> createState() => _TimeSeriesChartState();
+}
+
+class _TimeSeriesChartState extends State<TimeSeriesChart> {
+  TimeSeriesPoint? _active;
+
+  @override
   Widget build(BuildContext context) {
-    final color = this.color ?? AppColors.coral;
-    if (points.length < 2) {
+    final color = widget.color ?? AppColors.coral;
+    if (widget.points.length < 2) {
       return SizedBox(
-        height: height,
+        height: widget.height,
         child: Center(
           child: Text('Not enough data yet', style: AppText.captionMuted),
         ),
       );
     }
-    final sorted = [...points]..sort((a, b) => a.x.compareTo(b.x));
-    final loX = minX ?? sorted.first.x;
-    final hiX = math.max(maxX ?? sorted.last.x, loX + 1);
+    final sorted = [...widget.points]..sort((a, b) => a.x.compareTo(b.x));
+    final loX = widget.minX ?? sorted.first.x;
+    final hiX = math.max(widget.maxX ?? sorted.last.x, loX + 1);
     final ys = [for (final p in sorted) p.y];
     final minYRaw = ys.reduce(math.min);
     final maxYRaw = ys.reduce(math.max);
@@ -351,148 +358,224 @@ class TimeSeriesChart extends StatelessWidget {
     final hiY = maxYRaw + yPad;
     final xInterval = _axisInterval(hiX - loX, targetTicks: 4);
     final yInterval = _axisInterval(hiY - loY, targetTicks: 5);
-    final bars = _buildBars(sorted, color, loY);
+    final bars = _buildBars(
+      sorted,
+      color,
+      loY,
+      widget.fill,
+      widget.gapThresholdSec,
+      widget.lineWidth,
+    );
+    const leftPad = 52.0;
+    const bottomPad = 30.0;
 
     return SizedBox(
-      height: height,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: (_) {},
-        onHorizontalDragUpdate: (_) {},
-        onHorizontalDragEnd: (_) {},
-        child: ExcludeSemantics(
-          child: LineChart(
-            LineChartData(
-              minX: loX,
-              maxX: hiX,
-              minY: loY,
-              maxY: hiY,
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: true,
-                horizontalInterval: yInterval,
-                verticalInterval: xInterval,
-                getDrawingHorizontalLine: (_) => FlLine(
-                  color: AppColors.divider.withValues(alpha: 0.45),
-                  strokeWidth: 1,
-                ),
-                getDrawingVerticalLine: (_) => FlLine(
-                  color: AppColors.divider.withValues(alpha: 0.24),
-                  strokeWidth: 1,
-                ),
-              ),
-              titlesData: FlTitlesData(
-                topTitles: const AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-                rightTitles: const AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 52,
-                    interval: yInterval,
-                    minIncluded: false,
-                    maxIncluded: false,
-                    getTitlesWidget: (value, meta) {
-                      return Padding(
-                        padding: const EdgeInsets.only(right: Sp.x2),
-                        child: Text(
-                          yLabel?.call(value) ?? _defaultYLabel(value, yUnit),
-                          style: AppText.captionMuted.copyWith(fontSize: 10),
-                          textAlign: TextAlign.right,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 30,
-                    interval: xInterval,
-                    minIncluded: false,
-                    maxIncluded: false,
-                    getTitlesWidget: (value, meta) {
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          xLabel?.call(value) ?? _defaultXLabel(value),
-                          style: AppText.captionMuted.copyWith(fontSize: 10),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              borderData: FlBorderData(
-                show: true,
-                border: Border(
-                  left: BorderSide(
-                    color: AppColors.divider.withValues(alpha: 0.7),
-                  ),
-                  bottom: BorderSide(
-                    color: AppColors.divider.withValues(alpha: 0.7),
-                  ),
-                  right: BorderSide.none,
-                  top: BorderSide.none,
-                ),
-              ),
-              lineTouchData: LineTouchData(
-                enabled: true,
-                handleBuiltInTouches: true,
-                touchTooltipData: LineTouchTooltipData(
-                  fitInsideHorizontally: true,
-                  fitInsideVertically: true,
-                  getTooltipColor: (_) => AppColors.night,
-                  tooltipRoundedRadius: 12,
-                  tooltipPadding: const EdgeInsets.symmetric(
-                    horizontal: Sp.x3,
-                    vertical: Sp.x2,
-                  ),
-                  getTooltipItems: (spots) => spots.map((spot) {
-                    final point = TimeSeriesPoint(spot.x, spot.y);
-                    return LineTooltipItem(
-                      tooltip?.call(point) ?? _defaultTooltip(point, yUnit),
-                      AppText.caption.copyWith(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    );
-                  }).toList(),
-                ),
-                getTouchedSpotIndicator: (barData, spotIndexes) => [
-                  for (final _ in spotIndexes)
-                    TouchedSpotIndicatorData(
-                      FlLine(
-                        color: color.withValues(alpha: 0.32),
-                        strokeWidth: 1.5,
-                      ),
-                      FlDotData(
+      height: widget.height,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final chartW = math.max(1.0, constraints.maxWidth - leftPad);
+          final chartH = math.max(1.0, widget.height - bottomPad);
+
+          void updateSelection(Offset local) {
+            final dx = (local.dx - leftPad).clamp(0.0, chartW);
+            final x = loX + (dx / chartW) * (hiX - loX);
+            final nearest = _nearest(sorted, x);
+            if (nearest != _active) {
+              setState(() => _active = nearest);
+            }
+          }
+
+          final active = _active;
+          final activeDx = active == null
+              ? null
+              : leftPad + ((active.x - loX) / (hiX - loX)) * chartW;
+          final activeDy = active == null
+              ? null
+              : chartH - ((active.y - loY) / (hiY - loY)) * chartH;
+
+          return Listener(
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: (e) => updateSelection(e.localPosition),
+            onPointerMove: (e) => updateSelection(e.localPosition),
+            onPointerUp: (_) => setState(() => _active = null),
+            onPointerCancel: (_) => setState(() => _active = null),
+            child: Stack(
+              children: [
+                ExcludeSemantics(
+                  child: LineChart(
+                    LineChartData(
+                      minX: loX,
+                      maxX: hiX,
+                      minY: loY,
+                      maxY: hiY,
+                      gridData: FlGridData(
                         show: true,
-                        getDotPainter: (_, _, _, _) => FlDotCirclePainter(
-                          radius: 4,
+                        drawVerticalLine: true,
+                        horizontalInterval: yInterval,
+                        verticalInterval: xInterval,
+                        getDrawingHorizontalLine: (_) => FlLine(
+                          color: AppColors.divider.withValues(alpha: 0.45),
+                          strokeWidth: 1,
+                        ),
+                        getDrawingVerticalLine: (_) => FlLine(
+                          color: AppColors.divider.withValues(alpha: 0.24),
+                          strokeWidth: 1,
+                        ),
+                      ),
+                      titlesData: FlTitlesData(
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: leftPad,
+                            interval: yInterval,
+                            minIncluded: false,
+                            maxIncluded: false,
+                            getTitlesWidget: (value, meta) {
+                              return Padding(
+                                padding: const EdgeInsets.only(right: Sp.x2),
+                                child: Text(
+                                  widget.yLabel?.call(value) ??
+                                      _defaultYLabel(value, widget.yUnit),
+                                  style: AppText.captionMuted.copyWith(
+                                    fontSize: 10,
+                                  ),
+                                  textAlign: TextAlign.right,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: bottomPad,
+                            interval: xInterval,
+                            minIncluded: false,
+                            maxIncluded: false,
+                            getTitlesWidget: (value, meta) {
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  widget.xLabel?.call(value) ??
+                                      _defaultXLabel(value),
+                                  style: AppText.captionMuted.copyWith(
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      borderData: FlBorderData(
+                        show: true,
+                        border: Border(
+                          left: BorderSide(
+                            color: AppColors.divider.withValues(alpha: 0.7),
+                          ),
+                          bottom: BorderSide(
+                            color: AppColors.divider.withValues(alpha: 0.7),
+                          ),
+                          right: BorderSide.none,
+                          top: BorderSide.none,
+                        ),
+                      ),
+                      lineTouchData: const LineTouchData(enabled: false),
+                      lineBarsData: bars,
+                    ),
+                  ),
+                ),
+                if (active != null && activeDx != null && activeDy != null) ...[
+                  Positioned(
+                    left: activeDx,
+                    top: 0,
+                    bottom: bottomPad,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: 1.5,
+                        color: color.withValues(alpha: 0.32),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: activeDx - 5,
+                    top: activeDy - 5,
+                    child: IgnorePointer(
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
                           color: color,
-                          strokeWidth: 2,
-                          strokeColor: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
                         ),
                       ),
                     ),
+                  ),
+                  Positioned(
+                    left: (activeDx + 8).clamp(
+                      leftPad,
+                      constraints.maxWidth - 120,
+                    ),
+                    top: 8,
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: AppColors.night,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: Sp.x3,
+                            vertical: Sp.x2,
+                          ),
+                          child: Text(
+                            widget.tooltip?.call(active) ??
+                                _defaultTooltip(active, widget.yUnit),
+                            style: AppText.caption.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
-              ),
-              lineBarsData: bars,
+              ],
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
 
-  List<LineChartBarData> _buildBars(
+  static TimeSeriesPoint _nearest(List<TimeSeriesPoint> points, double x) {
+    var best = points.first;
+    var bestDist = (best.x - x).abs();
+    for (final p in points.skip(1)) {
+      final d = (p.x - x).abs();
+      if (d < bestDist) {
+        best = p;
+        bestDist = d;
+      }
+    }
+    return best;
+  }
+
+  static List<LineChartBarData> _buildBars(
     List<TimeSeriesPoint> sorted,
     Color color,
     double floorY,
+    bool fill,
+    double gapThresholdSec,
+    double lineWidth,
   ) {
     final segments = <List<FlSpot>>[];
     var current = <FlSpot>[];
