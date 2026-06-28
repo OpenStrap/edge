@@ -477,7 +477,6 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _tapSub?.cancel();
-    navRequest.dispose();
     _stopBackfillTimer();
     _deriveScheduler.dispose();
     super.dispose();
