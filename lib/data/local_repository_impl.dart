@@ -15,6 +15,7 @@
 
 import 'dart:convert';
 
+import '../compute/derivation_engine.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
@@ -71,6 +72,18 @@ class LocalRepositoryImpl extends LocalRepository {
     final r = await LocalDb.baseline('crossday');
     return _decode(r?['payload_json']);
   }
+
+  Future<Map<String, dynamic>?> _freshness(String key) async {
+    final row = await LocalDb.computeFreshness(key);
+    return _decode(row?['payload_json']);
+  }
+
+  Future<Map<String, dynamic>?> _wakeFeatures(String dayId) async {
+    final row = await LocalDb.wakeDayFeatures(dayId, kAlgoVersion);
+    return _decode(row?['payload_json']);
+  }
+
+  String _todayLocalLabel() => LocalDb.localDayLabelNow();
 
   /// True when [date] is today's (UTC) label — the only case where a missing
   /// derived row should fall back to the latest complete day. The screens pass
@@ -162,12 +175,44 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getToday() async {
-    final b = await _latestBundle();
-    if (b == null) {
-      return {'daily': const {}, 'sleep': const {}, 'step_goal': await _stepGoal()};
+    var todayFresh = await _freshness('today');
+    if (todayFresh == null) {
+      await LocalDb.refreshComputeFreshness();
+      todayFresh = await _freshness('today');
     }
-    final clinical = _sub(b, 'clinical') ?? const {};
-    final resp = _sub(b, 'respiration') ?? const {};
+    final todayDay = todayFresh?['today_day']?.toString() ?? _todayLocalLabel();
+    final todayBundle = await _bundle(todayDay);
+    final overnightBundle = await _latestBundle();
+    final overnightState = todayFresh?['overnight_state']?.toString() ?? 'missing';
+    final activityState = todayFresh?['activity_state']?.toString() ?? 'missing';
+    final showingPriorOvernight =
+        todayFresh?['showing_prior_overnight'] == true;
+    final showOvernight =
+        overnightState == 'ready' || showingPriorOvernight;
+    final sleepBundle = showOvernight ? overnightBundle : null;
+    final activityBundle = activityState == 'ready' ? todayBundle : null;
+    final wakeFeatures = activityState == 'ready'
+        ? null
+        : await _wakeFeatures(todayDay);
+    final b = sleepBundle ?? activityBundle;
+    if (b == null && wakeFeatures == null) {
+      return {
+        'daily': const {},
+        'sleep': const {},
+        'status': {
+          'today_day': todayDay,
+          'overnight_state': overnightState,
+          'activity_state': activityState,
+        },
+        'step_goal': await _stepGoal(),
+      };
+    }
+    final clinical = sleepBundle == null
+        ? const <String, dynamic>{}
+        : (_sub(sleepBundle, 'clinical') ?? const <String, dynamic>{});
+    final resp = sleepBundle == null
+        ? const <String, dynamic>{}
+        : (_sub(sleepBundle, 'respiration') ?? const <String, dynamic>{});
     final cd = await _crossDay();
 
     final hrvTime = clinical['hrv_time'] is Map
@@ -177,38 +222,78 @@ class LocalRepositoryImpl extends LocalRepository {
         ? (clinical['resting_hr'] as Map).cast<String, dynamic>()
         : null;
 
-    final rmssd = _scalar(b, 'rmssd');
+    final rmssd = showOvernight ? _scalar(sleepBundle, 'rmssd') : null;
     // Readiness/recovery: when the composite abstains for lack of baseline, the
     // envelope carries a `need_baseline:have=H,need=N` note. Pass that note
     // through so the hero can render "Need N more nights" instead of a number.
-    final readinessScalar = _scalar(b, 'readiness');
-    final readinessNote =
-        readinessScalar == null ? _needNote(b, 'clinical.readiness_composite') : null;
+    final readinessScalar = showOvernight ? _scalar(sleepBundle, 'readiness') : null;
+    final readinessNote = readinessScalar == null && showOvernight
+        ? _needNote(sleepBundle, 'clinical.readiness_composite')
+        : null;
     final readinessMetric =
         _scalarMetric(readinessScalar, 'HIGH', note: readinessNote);
     // Active minutes (1 Hz movement proxy) — the honest stand-in for the steps
     // tile, since 1 Hz can't count steps (Nyquist). Real step counts come from
     // live workout streaming only.
-    final activeMin = (b['activity'] is Map)
-        ? ((b['activity'] as Map)['active_min'] as num?)?.round()
-        : _scalar(b, 'active_min')?.round();
+    final activeMin = activityBundle == null
+        ? null
+        : (activityBundle['activity'] is Map)
+        ? ((activityBundle['activity'] as Map)['active_min'] as num?)?.round()
+        : _scalar(activityBundle, 'active_min')?.round();
     final daily = <String, dynamic>{
       'readiness': readinessMetric,
       'recovery': readinessMetric,
-      'resting_hr': _scalarMetric(_scalar(b, 'rhr')?.round(), 'HIGH', unit: 'bpm'),
+      'resting_hr': _scalarMetric(
+        showOvernight ? _scalar(sleepBundle, 'rhr')?.round() : null,
+        'HIGH',
+        unit: 'bpm',
+      ),
       // Headline 0–21 strain (the strain gauge already expects a 0–21 scale).
-      'strain': _scalarMetric(_scalar(b, 'strain'), 'ESTIMATE'),
-      'wear_min': _scalarMetric(_wearMin(b), 'HIGH', unit: 'min'),
+      'strain': _scalarMetric(
+        activityBundle == null
+            ? (wakeFeatures?['strain'] as num?)?.toDouble()
+            : _scalar(activityBundle, 'strain'),
+        'ESTIMATE',
+      ),
+      'wear_min': _scalarMetric(
+        activityBundle == null
+            ? (wakeFeatures?['wear_min'] as num?)?.toDouble()
+            : _wearMin(activityBundle),
+        'HIGH',
+        unit: 'min',
+      ),
       // Active calories (Keytel HR→kcal over the wake span) + total daily energy
       // (TDEE: Mifflin BMR floor + active surplus).
-      'calories': _scalarMetric(_scalar(b, 'calories')?.round(), 'ESTIMATE', unit: 'kcal'),
+      'calories': _scalarMetric(
+        activityBundle == null
+            ? (wakeFeatures?['calories'] as num?)?.round()
+            : _scalar(activityBundle, 'calories')?.round(),
+        'ESTIMATE',
+        unit: 'kcal',
+      ),
       'calories_total':
-          _scalarMetric(_scalar(b, 'calories_total')?.round(), 'ESTIMATE', unit: 'kcal'),
+          _scalarMetric(
+            activityBundle == null
+                ? (wakeFeatures?['calories_total'] as num?)?.round()
+                : _scalar(activityBundle, 'calories_total')?.round(),
+            'ESTIMATE',
+            unit: 'kcal',
+          ),
       // STEPS — 24/7 ESTIMATE (ambulatory-minutes × cadence; 1 Hz can't COUNT
       // steps, the live pedometer personalizes the cadence). `active_min` is the
       // separate raw movement-minutes metric.
-      'steps': _scalarMetric(_scalar(b, 'steps')?.round(), 'ESTIMATE', unit: 'steps'),
-      'active_min': _scalarMetric(activeMin, 'ESTIMATE', unit: 'min'),
+      'steps': _scalarMetric(
+        activityBundle == null
+            ? (wakeFeatures?['steps'] as num?)?.round()
+            : _scalar(activityBundle, 'steps')?.round(),
+        'ESTIMATE',
+        unit: 'steps',
+      ),
+      'active_min': _scalarMetric(
+        activeMin ?? (wakeFeatures?['active_min'] as num?)?.round(),
+        'ESTIMATE',
+        unit: 'min',
+      ),
     };
 
     final hrv = rmssd == null
@@ -221,22 +306,38 @@ class LocalRepositoryImpl extends LocalRepository {
 
     return {
       'daily': daily,
-      'sleep': _sleepSummary(b),
-      if (rhrEnv != null) 'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
-      if (resp['rsa'] is Map) 'resp': _respObj(b),
-      'hrv': ?hrv,
-      'skin_temp': await _skinTempBlock(b),
+      'sleep': sleepBundle == null ? const {} : _sleepSummary(sleepBundle),
+      if (sleepBundle != null && rhrEnv != null)
+        'nocturnal': _nocturnal(sleepBundle, baselineRhr: await _seriesMean('rhr')),
+      if (sleepBundle != null && resp['rsa'] is Map) 'resp': _respObj(sleepBundle),
+      'hrv': hrv,
+      'skin_temp': sleepBundle != null
+          ? await _skinTempBlock(sleepBundle)
+          : const {'value': null},
       // Stress (Baevsky SI → 0–100 score block) + relative SpO₂ (desat index),
       // both emitted by the pipeline. The Today tiles + stress screen read these.
-      if (b['stress'] is Map) 'stress': b['stress'],
-      if (b['spo2'] is Map) 'spo2': b['spo2'],
-      if (b['activity'] is Map) 'activity': b['activity'],
+      if (sleepBundle != null && sleepBundle['stress'] is Map) 'stress': sleepBundle['stress'],
+      if (sleepBundle != null && sleepBundle['spo2'] is Map) 'spo2': sleepBundle['spo2'],
+      if (activityBundle != null && activityBundle['activity'] is Map)
+        'activity': activityBundle['activity'],
+      if (activityBundle == null && wakeFeatures?['activity'] is Map)
+        'activity': (wakeFeatures!['activity'] as Map).cast<String, dynamic>(),
       // Cross-day rollup surfaced on Today (present only when computed).
-      'illness': ?cd?['illness'],
-      'anomaly': ?cd?['anomaly'],
-      'load': ?cd?['load'],
-      'readiness_breakdown': ?cd?['readiness_glassbox'],
-      'regularity': ?cd?['regularity'],
+      'illness': cd?['illness'],
+      'anomaly': cd?['anomaly'],
+      'load': cd?['load'],
+      'readiness_breakdown': cd?['readiness_glassbox'],
+      'regularity': cd?['regularity'],
+      'status': {
+        'today_day': todayDay,
+        'activity_state': activityState,
+        'activity_day': todayFresh?['activity_day'],
+        'activity_computed_at': todayFresh?['activity_computed_at'],
+        'overnight_state': overnightState,
+        'overnight_day': todayFresh?['overnight_day'],
+        'overnight_computed_at': todayFresh?['overnight_computed_at'],
+        'showing_prior_overnight': todayFresh?['showing_prior_overnight'] == true,
+      },
       'step_goal': await _stepGoal(),
     };
   }
@@ -349,7 +450,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'resp': _respObj(b),
       // Illness watch (CUSUM/NightSignal) — carries `note` (need_baseline) while
       // baseline is short, so the card can say "Need N more nights".
-      'illness': ?cd?['illness'],
+      'illness': cd?['illness'],
       'skin_temp': await _skinTempBlock(b),
     };
   }
@@ -580,7 +681,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'training_load': _scalar(b, 'trimp'),
       // Secondary 0–100 Edwards "effort" strain (zone-weighted, per-second wake HR).
       'effort': _scalar(b, 'strain_effort'),
-      'load': ?cd?['load'], // {acwr, acute, chronic, band} when ≥ history exists
+      'load': cd?['load'], // {acwr, acute, chronic, band} when ≥ history exists
       // HR-zone minutes (Z1–Z5 by %HRmax) — the strain detail's zone bars.
       'zones': {
         'z1': (zones?['z1'] as num?)?.toInt() ?? 0,

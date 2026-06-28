@@ -3,19 +3,21 @@
 // Current flow (per trigger):
 //   1. Decide WHICH calendar days need compute (force / pending span / latest
 //      day + context).
-//   2. For EACH target day, load only that day's bounded overlapping raw window
-//      (previous evening through that day) and decode it off-main-isolate.
-//   3. Inside that bounded window, segment calendar days and keep ONLY the
-//      requested day's prepared payload. Cross-midnight sleep still works
-//      because the input window overlaps the prior evening.
-//   4. Run the pure day pipeline off-isolate, persist the day row/series, and
-//      update in-memory baseline history for the next day in the same run.
-//   5. Refresh rolling baselines once, then cross-day rollup / notifications.
-//   6. Prune raw only after a force/full-history sweep, never before derived.
+//   2. Build / refresh the first primitive, `sleep_session_candidates`, from a
+//      bounded overlap window only when needed.
+//   3. Load the exact calendar-day substrate + exact sleep-window substrate for
+//      the target day, then build one PreparedDerivationDay from those pieces.
+//   4. Run the pure day pipeline off-isolate, then compute the second
+//      primitive, `wake_day_features`, directly from the local-day substrate.
+//   5. Persist day_result as the materialized UI surface, plus compact baseline
+//      artifacts (`rolling_artifact`, `crossday_input`) for downstream reuse.
+//   6. Run cross-day / notifications from those compact artifacts and prune raw
+//      only after a force/full-history sweep, never before derived.
 //
 // Finalized-day rescans are still allowed for baseline-dependent scalars
-// (readiness/recovery, illness/anomaly, stress), but they re-use the SAME
-// bounded per-day prepare path instead of decoding the whole raw ledger at once.
+// (readiness/recovery, illness/anomaly, stress), but they now gate off the
+// rolling baseline artifact instead of recomputing the signature ad hoc from
+// metric_series each time.
 
 import 'dart:async';
 import 'dart:convert';
@@ -121,6 +123,35 @@ class _BaselineHistoryCache {
   final Map<String, List<double>> _series;
 
   static Future<_BaselineHistoryCache> load() async {
+    final artifact = await LocalDb.baseline('rolling_artifact');
+    final raw = artifact?['payload_json'];
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          List<double> histFromMap(Map<String, dynamic> map, String key) {
+            final rows = map[key];
+            if (rows is! List) return const [];
+            return [
+              for (final row in rows)
+                if (row is num) row.toDouble(),
+            ];
+          }
+          final map = decoded.cast<String, dynamic>();
+          final series = ((map['series'] as Map?) ?? const {}).cast<String, dynamic>();
+          return _BaselineHistoryCache({
+            'ln_rmssd': histFromMap(series, 'ln_rmssd'),
+            'rmssd': histFromMap(series, 'rmssd'),
+            'rhr': histFromMap(series, 'rhr'),
+            'resp_rate': histFromMap(series, 'resp_rate'),
+            'skin_temp_adc': histFromMap(series, 'skin_temp_adc'),
+            'readiness': histFromMap(series, 'readiness'),
+          });
+        }
+      } catch (_) {
+        // Fall back to metric_series rebuild.
+      }
+    }
     Future<List<double>> hist(String key) async {
       final rows = await LocalDb.metricSeries(key, limit: _baselineWindowDays);
       return [for (final r in rows) (r['value'] as num).toDouble()];
@@ -132,6 +163,7 @@ class _BaselineHistoryCache {
       hist('rhr'),
       hist('resp_rate'),
       hist('skin_temp_adc'),
+      hist('readiness'),
     ]);
     return _BaselineHistoryCache({
       'ln_rmssd': loaded[0],
@@ -139,6 +171,7 @@ class _BaselineHistoryCache {
       'rhr': loaded[2],
       'resp_rate': loaded[3],
       'skin_temp_adc': loaded[4],
+      'readiness': loaded[5],
     });
   }
 
@@ -161,6 +194,42 @@ class _BaselineHistoryCache {
     add('rhr', 'rhr');
     add('resp_rate', 'resp_rate');
     add('skin_temp_adc', 'skin_temp_adc');
+    add('readiness', 'readiness');
+  }
+
+  Map<String, dynamic> toArtifactJson() {
+    double? avg(List<double> xs) {
+      if (xs.isEmpty) return null;
+      return xs.reduce((a, b) => a + b) / xs.length;
+    }
+
+    String fmt(double? v) => v == null ? 'na' : (v * 100).round().toString();
+    final rhr = values('rhr');
+    final rmssd = values('rmssd');
+    final temp = values('skin_temp_adc');
+    final resp = values('resp_rate');
+    final readiness = values('readiness');
+    final signature =
+        'v$kAlgoVersion|n${rhr.length}|rhr${fmt(_median(rhr))}|rmssd${fmt(_median(rmssd))}'
+        '|temp${fmt(_median(temp))}|resp${fmt(_median(resp))}';
+    return {
+      'algo_version': kAlgoVersion,
+      'signature': signature,
+      'series': {
+        'ln_rmssd': values('ln_rmssd'),
+        'rmssd': rmssd,
+        'rhr': rhr,
+        'resp_rate': resp,
+        'skin_temp_adc': temp,
+        'readiness': readiness,
+      },
+      'rolling': {
+        'rhr': avg(rhr),
+        'rmssd': avg(rmssd),
+        'readiness': avg(readiness),
+        'n': rhr.length,
+      },
+    };
   }
 }
 
@@ -319,7 +388,7 @@ class DerivationEngine {
       // 4. Cross-day rollup + notifications (best-effort).
       if (done > 0) {
         _diag['stage'] = 'baselines';
-        await _refreshBaselines();
+        await _refreshBaselines(history);
         _diag['stage'] = 'cross_day';
         await _runCrossDay(profile);
         _diag['stage'] = 'notifications';
@@ -352,11 +421,75 @@ class DerivationEngine {
   static const int _maxDayRawPages = 300;
 
   Future<PreparedDerivationDay?> _prepareTargetDay(String dayId) async {
+    _diag
+      ..['day_raw_pages'] = 0
+      ..['day_raw_rows'] = 0;
+    _diag['stage'] = 'sleep_candidate';
+    final candidate = await _sleepCandidateForDay(dayId);
+    final dayStart = _localDayLabelToSec(dayId);
+    final dayEnd = dayStart + 86400;
+    _diag['stage'] = 'day_sub';
+    final daySub = await _loadSubstrateRange(
+      dayStart,
+      dayEnd - 1,
+      dayId: dayId,
+    );
+    Substrate sleepSub = Substrate.empty;
+    if (candidate.present &&
+        candidate.sleepOffsetSec > candidate.sleepOnsetSec) {
+      _diag['stage'] = 'sleep_sub';
+      sleepSub = await _loadSubstrateRange(
+        candidate.sleepOnsetSec,
+        candidate.sleepOffsetSec - 1,
+        dayId: dayId,
+      );
+    }
+    return candidate.toPreparedDay(daySub: daySub, sleepSub: sleepSub);
+  }
+
+  Future<SleepSessionCandidate> _sleepCandidateForDay(String dayId) async {
+    final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
+    if (finalized.contains(dayId)) {
+      final cached = await LocalDb.sleepSessionCandidate(dayId, kAlgoVersion);
+      final raw = cached?['payload_json'];
+      if (raw is String && raw.isNotEmpty) {
+        try {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map) {
+            return SleepSessionCandidate.fromJson(
+              decoded.cast<String, dynamic>(),
+            );
+          }
+        } catch (_) {
+          // Fall through to rebuild the artifact.
+        }
+      }
+    }
     final range = _targetDayWindow(dayId);
+    final searchSub = await _loadSubstrateRange(
+      range.$1,
+      range.$2,
+      dayId: dayId,
+    );
+    final candidate = prepareSleepSessionCandidate(searchSub, targetDay: dayId);
+    await LocalDb.putSleepSessionCandidate(
+      dayId: dayId,
+      algoVersion: kAlgoVersion,
+      payloadJson: jsonEncode(candidate.toJson()),
+    );
+    return candidate;
+  }
+
+  Future<Substrate> _loadSubstrateRange(
+    int fromRecTs,
+    int toRecTs, {
+    required String dayId,
+  }) async {
+    if (toRecTs < fromRecTs) return Substrate.empty;
     final port = ReceivePort();
     final isolate = await Isolate.spawn(derivationPrepareWorker, port.sendPort);
     final ready = Completer<SendPort>();
-    final result = Completer<PreparedDerivationDay?>();
+    final result = Completer<Substrate>();
     late final StreamSubscription<dynamic> sub;
     sub = port.listen((message) async {
       if (message is SendPort) {
@@ -364,13 +497,15 @@ class DerivationEngine {
         return;
       }
       if (message is Map && message['type'] == 'result') {
-        final payload = PreparedDerivationPayload.fromJson(
-          ((message['payload'] as Map?) ?? const {}).cast<String, dynamic>(),
-        );
-        await sub.cancel();
-        port.close();
-        isolate.kill(priority: Isolate.immediate);
-        result.complete(payload.days.isEmpty ? null : payload.days.first);
+        final kind = message['kind']?.toString();
+        if (kind == 'substrate') {
+          final payload =
+              ((message['payload'] as Map?) ?? const {}).cast<String, dynamic>();
+          await sub.cancel();
+          port.close();
+          isolate.kill(priority: Isolate.immediate);
+          result.complete(Substrate.fromJson(payload));
+        }
         return;
       }
       if (message is Map && message['type'] == 'error') {
@@ -381,107 +516,115 @@ class DerivationEngine {
       }
     });
     final worker = await ready.future;
-    worker.send({'type': 'config', 'target_day': dayId});
-    _diag
-      ..['day_raw_pages'] = 0
-      ..['day_raw_rows'] = 0;
-    int? afterRecTs;
-    int? afterCursor;
-    _diag
-      ..['range_from_rec_ts'] = range.$1
-      ..['range_to_rec_ts'] = range.$2;
-    var usedDecoded = false;
-    while (true) {
-      final decodedRows = await LocalDb.decodedOneHzBatchByRecTsRange(
-        limit: _rawDecodeBatchSize,
-        fromRecTs: range.$1,
-        toRecTs: range.$2,
-        afterRecTs: afterRecTs,
-        afterCounter: afterCursor,
-      );
-      if (decodedRows.isNotEmpty) {
-        usedDecoded = true;
-        _diag['raw_pages'] = (_diag['raw_pages'] as int) + 1;
-        _diag['raw_rows'] = (_diag['raw_rows'] as int) + decodedRows.length;
-        _diag['day_raw_pages'] = (_diag['day_raw_pages'] as int) + 1;
-        _diag['day_raw_rows'] =
-            (_diag['day_raw_rows'] as int) + decodedRows.length;
-        if ((_diag['day_raw_pages'] as int) >
-            (_diag['max_day_raw_pages'] as int)) {
-          _diag['max_day_raw_pages'] = _diag['day_raw_pages'];
-        }
-        if ((_diag['day_raw_rows'] as int) >
-            (_diag['max_day_raw_rows'] as int)) {
-          _diag['max_day_raw_rows'] = _diag['day_raw_rows'];
-        }
-        if ((_diag['day_raw_rows'] as int) > _maxDayRawRows ||
-            (_diag['day_raw_pages'] as int) > _maxDayRawPages) {
-          await sub.cancel();
-          port.close();
-          isolate.kill(priority: Isolate.immediate);
-          throw Exception(
-            'day_prepare_budget_exceeded day=$dayId rows=${_diag['day_raw_rows']} '
-            'pages=${_diag['day_raw_pages']} range=${range.$1}-${range.$2}',
-          );
-        }
-        final firstCounter = (decodedRows.first['counter'] as num?)?.toInt();
-        final lastCounter = (decodedRows.last['counter'] as num?)?.toInt();
-        final rrRows = firstCounter == null || lastCounter == null
-            ? const <Map<String, dynamic>>[]
-            : await LocalDb.decodedRrByCounterRange(
-                fromCounter: firstCounter,
-                toCounter: lastCounter,
-              );
-        worker.send({'type': 'page', 'frames': decodedRows, 'rr': rrRows});
-        final last = decodedRows.last;
-        afterRecTs = (last['rec_ts'] as num?)?.toInt() ?? afterRecTs;
-        afterCursor = (last['counter'] as num?)?.toInt() ?? afterCursor;
-        if (decodedRows.length < _rawDecodeBatchSize) break;
-        continue;
-      }
-      if (usedDecoded) break;
-      final rows = await LocalDb.rawHexBatchByRecTsRange(
-        limit: _rawDecodeBatchSize,
-        fromRecTs: range.$1,
-        toRecTs: range.$2,
-        afterRecTs: afterRecTs,
-        afterRowId: afterCursor,
-      );
-      if (rows.isEmpty) break;
-      _diag['raw_pages'] = (_diag['raw_pages'] as int) + 1;
-      _diag['raw_rows'] = (_diag['raw_rows'] as int) + rows.length;
-      _diag['day_raw_pages'] = (_diag['day_raw_pages'] as int) + 1;
-      _diag['day_raw_rows'] = (_diag['day_raw_rows'] as int) + rows.length;
-      if ((_diag['day_raw_pages'] as int) >
-          (_diag['max_day_raw_pages'] as int)) {
-        _diag['max_day_raw_pages'] = _diag['day_raw_pages'];
-      }
-      if ((_diag['day_raw_rows'] as int) > (_diag['max_day_raw_rows'] as int)) {
-        _diag['max_day_raw_rows'] = _diag['day_raw_rows'];
-      }
-      if ((_diag['day_raw_rows'] as int) > _maxDayRawRows ||
-          (_diag['day_raw_pages'] as int) > _maxDayRawPages) {
-        await sub.cancel();
-        port.close();
-        isolate.kill(priority: Isolate.immediate);
-        throw Exception(
-          'day_prepare_budget_exceeded day=$dayId rows=${_diag['day_raw_rows']} '
-          'pages=${_diag['day_raw_pages']} range=${range.$1}-${range.$2}',
+    worker.send(const {'type': 'config', 'mode': 'substrate'});
+    try {
+      int? afterRecTs;
+      int? afterCursor;
+      var rangePages = 0;
+      var rangeRows = 0;
+      _diag
+        ..['range_from_rec_ts'] = fromRecTs
+        ..['range_to_rec_ts'] = toRecTs;
+      var usedDecoded = false;
+      while (true) {
+        final decodedRows = await LocalDb.decodedOneHzBatchByRecTsRange(
+          limit: _rawDecodeBatchSize,
+          fromRecTs: fromRecTs,
+          toRecTs: toRecTs,
+          afterRecTs: afterRecTs,
+          afterCounter: afterCursor,
         );
+        if (decodedRows.isNotEmpty) {
+          usedDecoded = true;
+          _trackPrepareBatch(decodedRows.length);
+          rangePages += 1;
+          rangeRows += decodedRows.length;
+          _enforcePrepareBudget(
+            dayId: dayId,
+            fromRecTs: fromRecTs,
+            toRecTs: toRecTs,
+            rangePages: rangePages,
+            rangeRows: rangeRows,
+          );
+          final firstCounter = (decodedRows.first['counter'] as num?)?.toInt();
+          final lastCounter = (decodedRows.last['counter'] as num?)?.toInt();
+          final rrRows = firstCounter == null || lastCounter == null
+              ? const <Map<String, dynamic>>[]
+              : await LocalDb.decodedRrByCounterRange(
+                  fromCounter: firstCounter,
+                  toCounter: lastCounter,
+                );
+          worker.send({'type': 'page', 'frames': decodedRows, 'rr': rrRows});
+          final last = decodedRows.last;
+          afterRecTs = (last['rec_ts'] as num?)?.toInt() ?? afterRecTs;
+          afterCursor = (last['counter'] as num?)?.toInt() ?? afterCursor;
+          if (decodedRows.length < _rawDecodeBatchSize) break;
+          continue;
+        }
+        if (usedDecoded) break;
+        final rows = await LocalDb.rawHexBatchByRecTsRange(
+          limit: _rawDecodeBatchSize,
+          fromRecTs: fromRecTs,
+          toRecTs: toRecTs,
+          afterRecTs: afterRecTs,
+          afterRowId: afterCursor,
+        );
+        if (rows.isEmpty) break;
+        _trackPrepareBatch(rows.length);
+        rangePages += 1;
+        rangeRows += rows.length;
+        _enforcePrepareBudget(
+          dayId: dayId,
+          fromRecTs: fromRecTs,
+          toRecTs: toRecTs,
+          rangePages: rangePages,
+          rangeRows: rangeRows,
+        );
+        worker.send({
+          'type': 'page',
+          'hexes': [for (final row in rows) row['hex'] as String],
+        });
+        final last = rows.last;
+        afterRecTs = (last['rec_ts'] as num?)?.toInt() ?? afterRecTs;
+        afterCursor = (last['rowid'] as num?)?.toInt() ?? afterCursor;
+        if (rows.length < _rawDecodeBatchSize) break;
       }
-
-      worker.send({
-        'type': 'page',
-        'hexes': [for (final row in rows) row['hex'] as String],
-      });
-
-      final last = rows.last;
-      afterRecTs = (last['rec_ts'] as num?)?.toInt() ?? afterRecTs;
-      afterCursor = (last['rowid'] as num?)?.toInt() ?? afterCursor;
-      if (rows.length < _rawDecodeBatchSize) break;
+      worker.send(const {'type': 'finish'});
+      return result.future;
+    } catch (_) {
+      await sub.cancel();
+      port.close();
+      isolate.kill(priority: Isolate.immediate);
+      rethrow;
     }
-    worker.send(const {'type': 'finish'});
-    return result.future;
+  }
+
+  void _trackPrepareBatch(int rows) {
+    _diag['raw_pages'] = (_diag['raw_pages'] as int) + 1;
+    _diag['raw_rows'] = (_diag['raw_rows'] as int) + rows;
+    _diag['day_raw_pages'] = (_diag['day_raw_pages'] as int) + 1;
+    _diag['day_raw_rows'] = (_diag['day_raw_rows'] as int) + rows;
+    if ((_diag['day_raw_pages'] as int) > (_diag['max_day_raw_pages'] as int)) {
+      _diag['max_day_raw_pages'] = _diag['day_raw_pages'];
+    }
+    if ((_diag['day_raw_rows'] as int) > (_diag['max_day_raw_rows'] as int)) {
+      _diag['max_day_raw_rows'] = _diag['day_raw_rows'];
+    }
+  }
+
+  void _enforcePrepareBudget({
+    required String dayId,
+    required int fromRecTs,
+    required int toRecTs,
+    required int rangePages,
+    required int rangeRows,
+  }) {
+    if (rangeRows > _maxDayRawRows || rangePages > _maxDayRawPages) {
+      throw Exception(
+        'day_prepare_budget_exceeded day=$dayId rows=$rangeRows '
+        'pages=$rangePages range=$fromRecTs-$toRecTs',
+      );
+    }
   }
 
   Future<_DeriveScope> _deriveScope({
@@ -611,11 +754,12 @@ class DerivationEngine {
         onDayDone?.call(dayId, i + 1, todoDays.length);
       }
 
+      await _refreshBaselines(history);
       // Cross-day rollup + notifications reflect the refreshed scalars.
       await _runCrossDay(profile);
       await _runNotifications();
       // Store the new signature so the next tick is a cheap no-op until it moves.
-      await LocalDb.setCursor('baseline_sig', sig);
+      await LocalDb.setCursor('baseline_sig', await _baselineSignature());
       return done;
     } catch (e, st) {
       _log('rescan ERROR: $e\n$st');
@@ -633,26 +777,22 @@ class DerivationEngine {
   /// re-derived) these medians shift and the signature changes → a rescan fires;
   /// when nothing moved the signature is byte-identical → the rescan is skipped.
   Future<String> _baselineSignature() async {
-    Future<double?> med(String key) async {
-      final rows = await LocalDb.metricSeries(key, limit: _baselineWindowDays);
-      final vs = <double>[for (final r in rows) (r['value'] as num).toDouble()]
-        ..sort();
-      if (vs.isEmpty) return null;
-      final mid = vs.length ~/ 2;
-      return vs.length.isOdd ? vs[mid] : (vs[mid - 1] + vs[mid]) / 2;
+    final artifact = await LocalDb.baseline('rolling_artifact');
+    final raw = artifact?['payload_json'];
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final sig = decoded['signature']?.toString();
+          if (sig != null && sig.isNotEmpty) return sig;
+        }
+      } catch (_) {
+        // Fall back to rebuilding the signature.
+      }
     }
-
-    String fmt(double? v) => v == null ? 'na' : (v * 100).round().toString();
-    // metricSeries returns the OLDEST `limit` rows for the key; we only need a
-    // stable function of the baseline window's distribution, so the median over
-    // whatever rows exist is sufficient and deterministic.
-    final rhr = await med('rhr');
-    final rmssd = await med('rmssd');
-    final temp = await med('skin_temp_adc');
-    final resp = await med('resp_rate');
-    final n = (await LocalDb.recentDayResults(_baselineWindowDays)).length;
-    return 'v$kAlgoVersion|n$n|rhr${fmt(rhr)}|rmssd${fmt(rmssd)}'
-        '|temp${fmt(temp)}|resp${fmt(resp)}';
+    final history = await _BaselineHistoryCache.load();
+    return history.toArtifactJson()['signature']?.toString() ??
+        'v$kAlgoVersion|na';
   }
 
   /// Max wall-clock for ONE day's off-isolate compute. On timeout the day is
@@ -697,6 +837,7 @@ class DerivationEngine {
   /// Run the cross-day rollup + notifications + baseline refresh once after an
   /// import completes (reflects the freshly imported day history).
   Future<void> finalizeImport(Profile profile) async {
+    await _refreshBaselines(await _BaselineHistoryCache.load());
     await _runCrossDay(profile);
     await _runNotifications();
   }
@@ -792,45 +933,19 @@ class DerivationEngine {
       () => deriveDayBundle(withHistory),
     ).timeout(_perDayTimeout);
 
-    // ── ACTIVITY-MINUTES (1 Hz ENMO over the WAKE span) ───────────────────────
-    // Steps can't be counted from 1 Hz (Nyquist) — only from live 100 Hz IMU. So
-    // the always-on movement metric is "active minutes": minutes of the waking
-    // day whose mean ENMO (van Hees amplitude) clears a light-activity threshold.
-    // Computed on THIS isolate (accel lives in `daySub`, not the bundle input).
-    final activeMin = _activeMinutes(
-      daySub,
-      day.sleepOnsetSec,
-      day.sleepOffsetSec,
-    );
-    // NOTE: deriveDayBundle's `scalars` literal is all-double? → Dart infers it
-    // as Map<String, double?>. Writing a bare int here throws "int is not a
-    // subtype of double?". Store as a double (sc() reads it via toDouble anyway).
     final scMap = (bundle['scalars'] as Map?)?.cast<String, dynamic>();
-    scMap?['active_min'] = activeMin.toDouble();
-    bundle['activity'] = <String, dynamic>{
-      'value': activeMin,
-      'active_min': activeMin,
-      'confidence': 0.6,
-      'tier': 'ESTIMATE',
-      'inputs_used': const ['accel_1hz'],
-      'note':
-          'active minutes (1 Hz ENMO over wake); 1 Hz cannot count steps — '
-          'true step counts come from live workout streaming',
-    };
-
-    // ── STEPS (24/7 ESTIMATE) + TOTAL DAILY ENERGY (TDEE) ─────────────────────
-    // 1 Hz cannot COUNT steps (Nyquist) — but it can detect ambulatory MINUTES
-    // and multiply by a cadence (steps/min) for an honest 24/7 ESTIMATE. The
-    // live 100 Hz pedometer (app_state) counts real steps AND personalizes the
-    // cadence this estimate uses (stepCalib). TDEE = HR-flex (BMR floor + active
-    // Keytel surplus). Both need accel/HR from daySub + the profile, so they run
-    // here on the main isolate (like activeMin), not in the pure bundle pipeline.
-    _stepsAndEnergy(bundle, scMap, daySub, profile);
+    final wake = _buildWakeDayFeatures(
+      daySub,
+      profile,
+      sleepOnsetSec: day.sleepOnsetSec,
+      sleepOffsetSec: day.sleepOffsetSec,
+      restingHr: (scMap?['rhr'] as num?)?.toDouble(),
+    );
+    _applyWakeDayFeatures(bundle, scMap, wake);
 
     // ── More substrate-derived detail blocks (computed here, where the full
     //    sliced substrate lives — same pattern as activeMin; these are fresh
     //    <String,dynamic> blocks so ints are safe, unlike the double? scalars). ─
-    bundle['wear'] = _wearBlock(daySub); // on/off-wrist segments
     bundle['daytime_hrv'] = _daytimeHrv(
       daySub,
       day.sleepOnsetSec,
@@ -862,6 +977,11 @@ class DerivationEngine {
     // `sleep` block (from segmentSleep) is the headline; this is a parallel
     // ESTIMATE detail. Best-effort — never throws.
     bundle['advanced_sleep'] = await _advancedSleep(daySub);
+
+    await _persistWakeDayFeatures(
+      dayId: day.date,
+      wake: wake,
+    );
 
     // Finalize once the DATA EDGE has moved >48 h past the day's wake — i.e. we
     // have continuous drained data well beyond it, so no more flash can land for
@@ -977,15 +1097,7 @@ class DerivationEngine {
 
   Future<void> _runCrossDay(Profile profile) async {
     try {
-      final rows = await LocalDb.recentDayResults(_crossDayWindow);
-      final days = <Map<String, dynamic>>[];
-      for (final row in rows.reversed) {
-        final payload = _decodeBundle(row['payload_json']);
-        if (payload == null) continue;
-        if (payload['skipped'] == true) continue;
-        final rec = _crossDayRecord(row, payload);
-        if (rec != null) days.add(rec);
-      }
+      final days = await _crossDayInputDays();
       if (days.length < 3) {
         _log('crossday: only ${days.length} usable day(s) — skip');
         return;
@@ -999,6 +1111,48 @@ class DerivationEngine {
     } catch (e) {
       _log('crossday FAILED/skipped: $e');
     }
+  }
+
+  Future<List<Map<String, dynamic>>> _crossDayInputDays() async {
+    final artifact = await LocalDb.baseline('crossday_input');
+    final raw = artifact?['payload_json'];
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          final rows = decoded['days'];
+          if (rows is List) {
+            return [
+              for (final row in rows)
+                if (row is Map) row.cast<String, dynamic>(),
+            ];
+          }
+        }
+      } catch (_) {
+        // Fall through to rebuild from day_result.
+      }
+    }
+    return _refreshCrossDayInputArtifact();
+  }
+
+  Future<List<Map<String, dynamic>>> _refreshCrossDayInputArtifact() async {
+    final rows = await LocalDb.recentDayResults(_crossDayWindow);
+    final days = <Map<String, dynamic>>[];
+    for (final row in rows.reversed) {
+      final payload = _decodeBundle(row['payload_json']);
+      if (payload == null) continue;
+      if (payload['skipped'] == true) continue;
+      final rec = _crossDayRecord(row, payload);
+      if (rec != null) days.add(rec);
+    }
+    await LocalDb.putBaseline(
+      'crossday_input',
+      jsonEncode({
+        'algo_version': kAlgoVersion,
+        'days': days,
+      }),
+    );
+    return days;
   }
 
   // ── notifications generator ─────────────────────────────────────────────────
@@ -1123,26 +1277,13 @@ class DerivationEngine {
   }
 
   /// Refresh rolling baselines from the latest day_result rows (cheap: columns).
-  Future<void> _refreshBaselines() async {
-    final recent = await LocalDb.recentDayResults(_baselineWindowDays);
-    double? avg(String col) {
-      final vs = [
-        for (final r in recent)
-          if (r[col] != null) (r[col] as num).toDouble(),
-      ];
-      if (vs.isEmpty) return null;
-      return vs.reduce((a, b) => a + b) / vs.length;
-    }
-
-    await LocalDb.putBaseline(
-      'rolling',
-      jsonEncode({
-        'rhr': avg('rhr'),
-        'rmssd': avg('rmssd'),
-        'readiness': avg('readiness'),
-        'n': recent.length,
-      }),
-    );
+  Future<void> _refreshBaselines(_BaselineHistoryCache history) async {
+    final artifact = history.toArtifactJson();
+    final rolling = ((artifact['rolling'] as Map?) ?? const {})
+        .cast<String, dynamic>();
+    await LocalDb.putBaseline('rolling_artifact', jsonEncode(artifact));
+    await LocalDb.putBaseline('rolling', jsonEncode(rolling));
+    await _refreshCrossDayInputArtifact();
   }
 
   // ── raw pruning (raw-first invariant) ──────────────────────────────────────
@@ -1205,17 +1346,248 @@ class DerivationEngine {
     return active;
   }
 
-  /// 24/7 step ESTIMATE (Tier B) + total daily energy (TDEE), written into the
-  /// bundle's `steps` block + `scalars` (steps, calories_total). 1 Hz can't COUNT
-  /// steps (Nyquist) — this is ambulatory-minutes × cadence, personalized by the
-  /// live pedometer's [stepCalib]. TDEE is the HR-flex method (Mifflin BMR floor +
-  /// active Keytel surplus). Best-effort; leaves scalars null on missing data.
-  void _stepsAndEnergy(
+  List<double> _perMinuteMeanWake(
+    Substrate s,
+    int sleepOnsetSec,
+    int sleepOffsetSec,
+  ) {
+    final buckets = <int, List<double>>{};
+    for (var i = 0; i < s.hr.length && i < s.tsSec.length; i++) {
+      if (s.hr[i] <= 0) continue;
+      final t = s.tsSec[i];
+      if (sleepOffsetSec > sleepOnsetSec &&
+          t >= sleepOnsetSec &&
+          t < sleepOffsetSec) {
+        continue;
+      }
+      (buckets[t ~/ 60] ??= []).add(s.hr[i].toDouble());
+    }
+    final keys = buckets.keys.toList()..sort();
+    return [for (final k in keys) _meanWake(buckets[k]!)!];
+  }
+
+  Map<String, int> _hrZonesWake(List<double> perMin, double hrMax) {
+    final z = {'z1': 0, 'z2': 0, 'z3': 0, 'z4': 0, 'z5': 0};
+    for (final hr in perMin) {
+      final pct = hr / hrMax;
+      if (pct >= 0.90) {
+        z['z5'] = z['z5']! + 1;
+      } else if (pct >= 0.80) {
+        z['z4'] = z['z4']! + 1;
+      } else if (pct >= 0.70) {
+        z['z3'] = z['z3']! + 1;
+      } else if (pct >= 0.60) {
+        z['z2'] = z['z2']! + 1;
+      } else if (pct >= 0.50) {
+        z['z1'] = z['z1']! + 1;
+      }
+    }
+    return z;
+  }
+
+  double _keytelCaloriesWake(
+    List<double> perMin,
+    double age,
+    double weight,
+    double hrMax,
+    bool female,
+  ) {
+    var kcal = 0.0;
+    for (final hr in perMin) {
+      if (hr < 0.50 * hrMax) continue;
+      final kjMin = female
+          ? (-20.4022 + 0.4472 * hr - 0.1263 * weight + 0.074 * age) / 4.184
+          : (-55.0969 + 0.6309 * hr + 0.1988 * weight + 0.2017 * age) / 4.184;
+      if (kjMin > 0) kcal += kjMin;
+    }
+    return kcal;
+  }
+
+  double? _meanWake(List<double> xs) {
+    if (xs.isEmpty) return null;
+    var s = 0.0;
+    for (final x in xs) {
+      s += x;
+    }
+    return s / xs.length;
+  }
+
+  void _applyWakeDayFeatures(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
+    Map<String, dynamic> wake,
+  ) {
+    final activeMin = (wake['active_min'] as num?)?.toDouble();
+    if (activeMin != null) scMap?['active_min'] = activeMin;
+    final strain = (wake['strain'] as num?)?.toDouble();
+    if (strain != null) scMap?['strain'] = strain;
+    final calories = (wake['calories'] as num?)?.toDouble();
+    if (calories != null) scMap?['calories'] = calories;
+    final steps = (wake['steps'] as num?)?.toDouble();
+    if (steps != null) scMap?['steps'] = steps;
+    final caloriesTotal = (wake['calories_total'] as num?)?.toDouble();
+    if (caloriesTotal != null) scMap?['calories_total'] = caloriesTotal;
+    bundle['activity'] = wake['activity'];
+    bundle['activity_curve'] = wake['activity_curve'];
+    bundle['zones'] = wake['zones'];
+    bundle['hr_stats'] = wake['hr_stats'];
+    bundle['wear'] = wake['wear'];
+  }
+
+  Future<void> _persistWakeDayFeatures({
+    required String dayId,
+    required Map<String, dynamic> wake,
+  }) async {
+    final payload = <String, dynamic>{
+      'day_id': dayId,
+      ...wake,
+    };
+    await LocalDb.putWakeDayFeatures(
+      dayId: dayId,
+      algoVersion: kAlgoVersion,
+      payloadJson: jsonEncode(payload),
+    );
+  }
+
+  Map<String, dynamic> _buildWakeDayFeatures(
     Substrate daySub,
-    Profile profile,
-  ) {}
+    Profile profile, {
+    required int sleepOnsetSec,
+    required int sleepOffsetSec,
+    double? restingHr,
+  }) {
+    final activeMin = _activeMinutes(daySub, sleepOnsetSec, sleepOffsetSec);
+    final wear = _wearBlock(daySub);
+    final perMin = _perMinuteMeanWake(daySub, sleepOnsetSec, sleepOffsetSec);
+    final motion = _motionMinutes(daySub);
+    final hrPerMinAll = _hrPerMinuteAligned(motion, daySub);
+    final dayHrValid = <double>[
+      for (final h in daySub.hr)
+        if (h > 0) h.toDouble(),
+    ];
+    final age = profile.ageYears?.toDouble();
+    final weightKg = profile.weightKg;
+    final sex = profile.sex?.toLowerCase();
+    final hrMax = age == null ? null : 208 - 0.7 * age;
+    final rhrForTrimp = restingHr ?? profile.restingHrManual?.toDouble();
+    double? strain;
+    double? calories;
+    double? steps;
+    double? caloriesTotal;
+    Map<String, int> zones = const {};
+    if (hrMax != null && perMin.isNotEmpty) {
+      if (rhrForTrimp != null && sex != null && dayHrValid.isNotEmpty) {
+        final trimp = ana.banisterTrimp(
+          perMin,
+          restingHr: rhrForTrimp,
+          maxHr: hrMax,
+          sex: sex == 'f' ? ana.Sex.female : ana.Sex.male,
+        );
+        if (trimp.present && trimp.value != null) {
+          final score = ana.strainScoreMetric(trimp.value);
+          if (score.present) strain = score.value;
+        }
+      }
+      zones = _hrZonesWake(perMin, hrMax);
+      if (age != null && sex != null && weightKg != null) {
+        calories = _keytelCaloriesWake(perMin, age, weightKg, hrMax, sex == 'f');
+      }
+    }
+    if (motion.isNotEmpty) {
+      final stepMetric = ana.dailyStepEstimate(
+        motion,
+        hrPerMin: hrPerMinAll,
+        restingHr: rhrForTrimp,
+      );
+      if (stepMetric.present && stepMetric.value != null) {
+        steps = stepMetric.value!.steps.toDouble();
+      }
+      if (age != null && weightKg != null && profile.heightCm != null) {
+        final energy = ana.Calories.dailyEnergy(
+          hrPerMinAll,
+          profile: ana.WorkoutUserProfile(
+            weightKg: weightKg,
+            heightCm: profile.heightCm!,
+            age: age,
+            sex: _workoutSex(profile.sex),
+          ),
+          hrmax: hrMax,
+          dayMinutes: motion.length,
+        );
+        caloriesTotal = energy.total;
+        calories ??= energy.active;
+      }
+    }
+    final hrStats = dayHrValid.isEmpty
+        ? null
+        : {
+            'max': dayHrValid.reduce(math.max).round(),
+            'min': dayHrValid.reduce(math.min).round(),
+            'avg': _meanWake(dayHrValid)?.round(),
+          };
+    return {
+      'active_min': activeMin,
+      'strain': strain,
+      'calories': calories,
+      'steps': steps,
+      'calories_total': caloriesTotal,
+      'wear_min': (wear['worn_min'] as num?)?.toDouble(),
+      'activity': {
+        'value': activeMin,
+        'active_min': activeMin,
+        'confidence': 0.6,
+        'tier': 'ESTIMATE',
+        'inputs_used': const ['accel_1hz'],
+        'note':
+            'active minutes (1 Hz ENMO over wake); 1 Hz cannot count steps — '
+            'true step counts come from live workout streaming',
+      },
+      'activity_curve': _activityCurve(daySub),
+      'zones': zones,
+      'hr_stats': hrStats,
+      'wear': wear,
+    };
+  }
+
+  List<ana.MotionMinute> _motionMinutes(Substrate s) {
+    final samples = <ana.AccelSample>[
+      for (var i = 0; i < s.length; i++)
+        ana.AccelSample(
+          s.tsSec[i] * 1000.0,
+          s.ax[i],
+          s.ay[i],
+          s.az[i],
+          valid: s.hr[i] > 0,
+        ),
+    ];
+    return ana.enmoSeries(samples).minutes;
+  }
+
+  List<double> _hrPerMinuteAligned(List<ana.MotionMinute> motion, Substrate s) {
+    final buckets = <int, List<double>>{};
+    for (var i = 0; i < s.hr.length && i < s.tsSec.length; i++) {
+      if (s.hr[i] <= 0) continue;
+      final minuteStartMs = (s.tsSec[i] ~/ 60) * 60000.0;
+      (buckets[minuteStartMs.toInt()] ??= <double>[]).add(s.hr[i].toDouble());
+    }
+    return [
+      for (final mm in motion)
+        _meanWake(buckets[mm.tsMinStartMs.toInt()] ?? const <double>[]) ?? 0.0,
+    ];
+  }
+
+  String _workoutSex(String? sex) {
+    switch ((sex ?? '').toLowerCase()) {
+      case 'm':
+      case 'male':
+        return 'male';
+      case 'f':
+      case 'female':
+        return 'female';
+      default:
+        return 'nonbinary';
+    }
+  }
 
   /// Auto-detected workouts for the day via [ana.WorkoutDetector] over the
   /// day's 1 Hz HR + gravity. Returns a list of per-bout maps (each bout's
@@ -1508,4 +1880,11 @@ class DerivationEngine {
     if (kDebugMode) debugPrint('[derive] $m');
     log?.call('[derive] $m');
   }
+}
+
+double? _median(List<double> xs) {
+  if (xs.isEmpty) return null;
+  final vs = List<double>.from(xs)..sort();
+  final mid = vs.length ~/ 2;
+  return vs.length.isOdd ? vs[mid] : (vs[mid - 1] + vs[mid]) / 2;
 }

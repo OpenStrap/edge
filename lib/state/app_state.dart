@@ -68,8 +68,10 @@ class AppState extends ChangeNotifier {
   /// via WorkManager (Android) — see lib/compute/background_derivation.dart.
   late final DerivationEngine _derive = DerivationEngine(log: _log);
   late final DeriveScheduler _deriveScheduler = DeriveScheduler(
-    run: ({required bool heavy}) => _afterDrain(heavy: heavy),
+    run: ({required DeriveJobKind kind}) =>
+        _afterDrain(heavy: kind == DeriveJobKind.heavy),
     log: _log,
+    onChanged: notifyListeners,
   );
 
   /// Profile fed to the analytics (HRmax/calories/TRIMP personalization).
@@ -466,6 +468,7 @@ class AppState extends ChangeNotifier {
           }
         },
       );
+      await LocalDb.refreshComputeFreshness();
       notifyListeners(); // screens re-fetch from the derived store
       // A heavy finalize is where a freshly-closed sleep window + recovery for a
       // new physiological day lands — fire the "recovery ready" push off it.
@@ -646,6 +649,7 @@ class AppState extends ChangeNotifier {
           }
         },
       );
+      await LocalDb.refreshComputeFreshness();
       dbCounts = await LocalDb.counts();
       return n;
     } catch (e) {
@@ -680,9 +684,11 @@ class AppState extends ChangeNotifier {
   Future<void> _init() async {
     paired = await PairedDevice.load();
     await _loadProfile();
+    await _deriveScheduler.init();
     lastSynced = await LocalDb.latestSample();
     _lastRecTs = await LocalDb.lastRawRecTs() ?? lastSynced?.tsEpoch;
     dbCounts = await LocalDb.counts();
+    await LocalDb.refreshComputeFreshness();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
     // Band-gesture mapping: load the saved action + query native capabilities so the
     // settings UI knows what this platform supports. Best-effort, non-blocking.

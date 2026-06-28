@@ -282,10 +282,17 @@ class _TodayScreenState extends State<TodayScreen>
   List<Widget> _content(TodayData t) {
     final alert = t.bodyAlert;
     final coach = t.coach;
-    final date = _todayStr();
+    final status = t.status;
 
     return [
       if (alert != null) ...[_bodyAlert(alert), const SizedBox(height: Sp.x4)],
+      if (status != null &&
+          (status.overnightBuilding ||
+              status.activityBuilding ||
+              status.showingPriorOvernight)) ...[
+        _todayStatusCard(status),
+        const SizedBox(height: Sp.x4),
+      ],
       // Composite Readiness headline. Shows the score when present, or a
       // "Need N more nights" baseline-building state when the composite abstains
       // for lack of baseline (need_baseline note). Hidden only when there is
@@ -354,7 +361,7 @@ class _TodayScreenState extends State<TodayScreen>
           unit: '/100',
           accent: AppColors.warn,
           tag: Tag('est.', color: AppColors.coral),
-          onTap: () => _push(() => StressScreen(date: date)),
+          onTap: () => _push(() => StressScreen(date: _todayStr())),
         ),
         // HRV (measured, beat-to-beat). The real one now that we decode R-R intervals.
         StatTile(
@@ -496,6 +503,7 @@ class _TodayScreenState extends State<TodayScreen>
   /// Composite Readiness hero — the day's headline. Ring + score + what it blends.
   Widget _readinessHero(TodayData t) {
     final r = t.readiness;
+    final status = t.status;
     final score = r.isEmpty ? null : r.value!.round();
     // Baseline-building state: the composite abstains until it has enough nights.
     final needNights = score == null ? r.needMoreNights : null;
@@ -513,7 +521,9 @@ class _TodayScreenState extends State<TodayScreen>
         : (needNights != null
               ? '$needNights night${needNights == 1 ? '' : 's'}'
               : '—');
-    final subtitle = score != null
+    final subtitle = status?.overnightBuilding == true
+        ? 'Today\'s overnight metrics are still settling after your wake-up'
+        : score != null
         ? 'HRV recovery + sleep, blended'
         : (needNights != null
               ? 'more overnight wear to unlock your readiness baseline'
@@ -564,6 +574,7 @@ class _TodayScreenState extends State<TodayScreen>
 
   /// Three small gauges under the hero — the at-a-glance trio.
   Widget _dashboard(TodayData t) {
+    final status = t.status;
     final strainT = t.strain.isEmpty ? double.nan : t.strain.normalized(21);
     final need = t.sleepNeed.isEmpty ? 480.0 : t.sleepNeed.value!;
     final sleepT = t.sleepDuration.isEmpty
@@ -574,34 +585,53 @@ class _TodayScreenState extends State<TodayScreen>
         ? double.nan
         : (hrv.rmssd / 150).clamp(0.0, 1.0).toDouble();
     return ProCard(
-      child: Row(
+      child: Column(
         children: [
-          _gauge(
-            'STRAIN',
-            t.strain.isEmpty ? null : t.strain.value!.toStringAsFixed(1),
-            null,
-            strainT,
-            AppColors.coral,
-            onTap: () => _push(() => const BodyScreen()),
+          Row(
+            children: [
+              _gauge(
+                'STRAIN',
+                t.strain.isEmpty ? null : t.strain.value!.toStringAsFixed(1),
+                null,
+                strainT,
+                AppColors.coral,
+                onTap: () => _push(() => const BodyScreen()),
+              ),
+              _gauge(
+                'SLEEP',
+                t.sleepDuration.isEmpty
+                    ? null
+                    : (t.sleepDuration.value! / 60).toStringAsFixed(1),
+                'h',
+                sleepT,
+                AppColors.loadDetraining,
+                onTap: () => _push(() => const SleepScreen()),
+              ),
+              _gauge(
+                'HRV',
+                hrv?.rmssd.toStringAsFixed(0),
+                'ms',
+                hrvT,
+                AppColors.good,
+                onTap: () => _push(() => const HeartScreen()),
+              ),
+            ],
           ),
-          _gauge(
-            'SLEEP',
-            t.sleepDuration.isEmpty
-                ? null
-                : (t.sleepDuration.value! / 60).toStringAsFixed(1),
-            'h',
-            sleepT,
-            AppColors.loadDetraining,
-            onTap: () => _push(() => const SleepScreen()),
-          ),
-          _gauge(
-            'HRV',
-            hrv?.rmssd.toStringAsFixed(0),
-            'ms',
-            hrvT,
-            AppColors.good,
-            onTap: () => _push(() => const HeartScreen()),
-          ),
+          if (status != null &&
+              (status.activityBuilding ||
+                  status.overnightBuilding ||
+                  status.showingPriorOvernight)) ...[
+            const SizedBox(height: Sp.x3),
+            Text(
+              status.overnightBuilding
+                  ? 'Sleep and recovery update after the overnight settle finishes.'
+                  : status.activityBuilding
+                  ? 'Day strain and steps are still building from today\'s fresh data.'
+                  : 'Showing your last settled overnight while today\'s night lands.',
+              style: AppText.captionMuted,
+              textAlign: TextAlign.center,
+            ),
+          ],
         ],
       ),
     );
@@ -850,6 +880,43 @@ class _TodayScreenState extends State<TodayScreen>
           Text(title, style: AppText.h2, textAlign: TextAlign.center),
           const SizedBox(height: Sp.x2),
           Text(message, style: AppText.bodySoft, textAlign: TextAlign.center),
+        ],
+      ),
+    );
+  }
+
+  Widget _todayStatusCard(TodayStatus status) {
+    String label;
+    if (status.overnightBuilding && status.activityBuilding) {
+      label =
+          'Today\'s activity is landing and the overnight metrics are still settling.';
+    } else if (status.overnightBuilding) {
+      label =
+          'Today\'s overnight metrics are still computing. Sleep and readiness will fill when that pass finishes.';
+    } else if (status.activityBuilding) {
+      label =
+          'Fresh data is in for today, but the day metrics are still catching up.';
+    } else {
+      label =
+          'Showing the last settled overnight while today\'s overnight metrics have not landed yet.';
+    }
+    final overnight = status.overnightDay;
+    final extra = status.showingPriorOvernight && overnight != null
+        ? ' Last settled night: $overnight.'
+        : '';
+    return ProCard(
+      padding: const EdgeInsets.all(Sp.x4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppIcon(Ic.info, size: 18, color: AppColors.coralDeep),
+          const SizedBox(width: Sp.x3),
+          Expanded(
+            child: Text(
+              '$label$extra',
+              style: AppText.bodySoft,
+            ),
+          ),
         ],
       ),
     );

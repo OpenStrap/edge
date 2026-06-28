@@ -22,7 +22,7 @@ dependencies:
     path: ../openstrap-analytics-onehz
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
-  flutter_blue_plus: ^1.35.5
+  flutter_blue_plus: ^1.36.8
 
   # Local raw-first storage.
   sqflite: ^2.4.1

@@ -94,10 +94,83 @@ class PreparedDerivationPayload {
   }
 }
 
+class SleepSessionCandidate {
+  final String dayId;
+  final double confidence;
+  final List<String> flags;
+  final Map<String, dynamic> sleepJson;
+  final List<String> hypnoStages;
+  final int sleepOnsetSec;
+  final int sleepOffsetSec;
+
+  const SleepSessionCandidate({
+    required this.dayId,
+    required this.confidence,
+    required this.flags,
+    required this.sleepJson,
+    required this.hypnoStages,
+    required this.sleepOnsetSec,
+    required this.sleepOffsetSec,
+  });
+
+  bool get present => sleepJson['tst_sec'] != null;
+
+  Map<String, dynamic> toJson() => {
+    'day_id': dayId,
+    'confidence': confidence,
+    'flags': flags,
+    'sleep_json': sleepJson,
+    'hypno_stages': hypnoStages,
+    'sleep_onset_sec': sleepOnsetSec,
+    'sleep_offset_sec': sleepOffsetSec,
+  };
+
+  static SleepSessionCandidate fromJson(Map<String, dynamic> m) {
+    List<String> strs(String k) =>
+        ((m[k] as List?) ?? const []).map((e) => e.toString()).toList();
+    return SleepSessionCandidate(
+      dayId: m['day_id']?.toString() ?? '',
+      confidence: (m['confidence'] as num?)?.toDouble() ?? 0,
+      flags: strs('flags'),
+      sleepJson: ((m['sleep_json'] as Map?) ?? const {}).cast<String, dynamic>(),
+      hypnoStages: strs('hypno_stages'),
+      sleepOnsetSec: (m['sleep_onset_sec'] as num?)?.toInt() ?? 0,
+      sleepOffsetSec: (m['sleep_offset_sec'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  static SleepSessionCandidate absent(String dayId) => SleepSessionCandidate(
+    dayId: dayId,
+    confidence: 0,
+    flags: const ['NO_SLEEP_DETECTED'],
+    sleepJson: const {},
+    hypnoStages: const [],
+    sleepOnsetSec: 0,
+    sleepOffsetSec: 0,
+  );
+
+  PreparedDerivationDay toPreparedDay({
+    required Substrate daySub,
+    required Substrate sleepSub,
+  }) => PreparedDerivationDay(
+    date: dayId,
+    endSec: daySub.lastTs == null ? 0 : daySub.lastTs! + 1,
+    confidence: confidence,
+    flags: flags,
+    sleepJson: sleepJson,
+    hypnoStages: hypnoStages,
+    sleepOnsetSec: sleepOnsetSec,
+    sleepOffsetSec: sleepOffsetSec,
+    daySub: daySub,
+    sleepSub: sleepSub,
+  );
+}
+
 void derivationPrepareWorker(SendPort mainSendPort) {
   final port = ReceivePort();
   final state = _PrepareAccumulator();
   String? targetDay;
+  var mode = 'prepared_day';
   mainSendPort.send(port.sendPort);
   port.listen((message) {
     if (message is! Map) return;
@@ -123,15 +196,30 @@ void derivationPrepareWorker(SendPort mainSendPort) {
     }
     if (type == 'config') {
       targetDay = message['target_day']?.toString();
+      final cfgMode = message['mode']?.toString();
+      if (cfgMode != null && cfgMode.isNotEmpty) mode = cfgMode;
       return;
     }
     if (type == 'finish') {
       try {
-        final payload = prepareDerivationPayload(
-          state.buildSubstrate(),
-          targetDay: targetDay,
-        );
-        mainSendPort.send({'type': 'result', 'payload': payload.toJson()});
+        final substrate = state.buildSubstrate();
+        if (mode == 'substrate') {
+          mainSendPort.send({
+            'type': 'result',
+            'kind': 'substrate',
+            'payload': substrate.toJson(),
+          });
+        } else {
+          final payload = prepareDerivationPayload(
+            substrate,
+            targetDay: targetDay,
+          );
+          mainSendPort.send({
+            'type': 'result',
+            'kind': 'prepared_day',
+            'payload': payload.toJson(),
+          });
+        }
       } catch (e, st) {
         mainSendPort.send({'type': 'error', 'error': '$e\n$st'});
       } finally {
@@ -191,6 +279,24 @@ PreparedDerivationPayload prepareDerivationPayload(
     );
   }
   return PreparedDerivationPayload(dataNowSec: sub.lastTs!, days: days);
+}
+
+SleepSessionCandidate prepareSleepSessionCandidate(
+  Substrate sub, {
+  required String targetDay,
+}) {
+  final payload = prepareDerivationPayload(sub, targetDay: targetDay);
+  if (payload.days.isEmpty) return SleepSessionCandidate.absent(targetDay);
+  final day = payload.days.first;
+  return SleepSessionCandidate(
+    dayId: day.date,
+    confidence: day.confidence,
+    flags: day.flags,
+    sleepJson: day.sleepJson,
+    hypnoStages: day.hypnoStages,
+    sleepOnsetSec: day.sleepOnsetSec,
+    sleepOffsetSec: day.sleepOffsetSec,
+  );
 }
 
 class _PrepareAccumulator {

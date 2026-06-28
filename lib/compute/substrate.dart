@@ -389,10 +389,14 @@ List<PhysioDay> calendarDays(Substrate sub) {
       continue;
     }
 
-    // The main sleep that ENDS in this calendar day: search ~prev 18:00 → this
-    // noon (covers a sleep begun the prior evening that ends this morning).
-    final searchStart = math.max(dataStart, dayStart - 6 * 3600);
-    final searchEnd = math.min(dataEnd, dayStart + 12 * 3600);
+    // The main sleep that ENDS in this calendar day: search from the previous
+    // local noon through this local midnight, then let the sleep selector pick
+    // the overnight main block from any naps / split fragments it sees. The old
+    // prev-18:00 → noon window missed late wakes and forced the detector to act
+    // like there was only one candidate sleep. The richer selector needs the
+    // full set of sessions that can legitimately end today.
+    final searchStart = math.max(dataStart, dayStart - 12 * 3600);
+    final searchEnd = math.min(dataEnd, dayEnd);
     final loS = _lowerBound(sub.tsSec, searchStart);
     final hiS = _lowerBound(sub.tsSec, searchEnd);
 

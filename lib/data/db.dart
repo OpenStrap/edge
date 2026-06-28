@@ -2,12 +2,13 @@
 //
 // Durable storage layers:
 //   raw_records   — the band's bytes verbatim, keyed by counter. Replay/debug ledger.
-//   decoded_onehz — canonical per-frame decoded substrate, keyed by counter.
-//   decoded_rr    — sparse RR beats keyed by (counter, beat_index).
+//   decoded_onehz — canonical per-second decoded substrate, deduped by rec_ts.
+//   decoded_rr    — sparse RR beats for that substrate, deduped by (rr_ts_ms, beat_index).
 //   samples       — legacy header cache kept only for backward-compat fallback.
 //
-// `counter` (u32 @[3:7]) is the band's per-record id and our natural idempotency
-// key — re-draining the same flash region inserts nothing new (INSERT OR IGNORE).
+// `counter` (u32 @[3:7]) is still kept as the strap's record id, but analytics
+// read from canonical decoded tables keyed by physiological time so replayed or
+// duplicated historical seconds cannot bloat compute.
 
 import 'dart:convert';
 import 'dart:io';
@@ -43,6 +44,8 @@ class LocalDb {
         await _createUserTables(db);
         await _createSyncState(db);
         await _createSyncCursor(db);
+        await _createComputeState(db);
+        await _createPrimitiveArtifacts(db);
       },
       onUpgrade: (db, oldV, newV) async {
         if (oldV < 2) await _createEvents(db);
@@ -151,11 +154,23 @@ class LocalDb {
         if (oldV < 13) {
           await _ensureSyncStateSchema(db);
         }
+        if (oldV < 14) {
+          await _createComputeState(db);
+        }
+        if (oldV < 15) {
+          await _createPrimitiveArtifacts(db);
+        }
+        if (oldV < 16) {
+          await _createPrimitiveArtifacts(db);
+        }
+        if (oldV < 17) {
+          await _rebuildCanonicalDecodedStore(db);
+        }
       },
       onOpen: (db) async {
         await _ensureSyncStateSchema(db);
       },
-      version: 13,
+      version: 17,
     );
   }
 
@@ -262,6 +277,7 @@ class LocalDb {
             ...sample.toDbMap(),
           }, conflictAlgorithm: ConflictAlgorithm.ignore);
         }
+        _queueDecodedOneHz(batch, raw, sample);
         if (raw.counter > maxCounter) maxCounter = raw.counter;
         if (recTs > maxRecTs) maxRecTs = recTs;
       }
@@ -275,6 +291,7 @@ class LocalDb {
         }
       }
     });
+    await _writeCaptureFreshness(raws);
   }
 
   // ── DERIVED STORE (permanent, rich) ────────────────────────────────────────
@@ -429,6 +446,58 @@ class LocalDb {
     );
   }
 
+  static Future<void> _createComputeState(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS compute_freshness (
+        key TEXT PRIMARY KEY,
+        payload_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS compute_jobs (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 0,
+        state TEXT NOT NULL,
+        reason TEXT,
+        depends_on TEXT,
+        input_from_ts INTEGER,
+        input_to_ts INTEGER,
+        algo_version INTEGER,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_run_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_compute_jobs_state_pri ON compute_jobs(state, priority DESC, updated_at ASC)',
+    );
+  }
+
+  static Future<void> _createPrimitiveArtifacts(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sleep_session_candidates (
+        day_id TEXT NOT NULL,
+        algo_version INTEGER NOT NULL,
+        payload_json TEXT NOT NULL,
+        computed_at INTEGER NOT NULL,
+        PRIMARY KEY(day_id, algo_version)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS wake_day_features (
+        day_id TEXT NOT NULL,
+        algo_version INTEGER NOT NULL,
+        payload_json TEXT NOT NULL,
+        computed_at INTEGER NOT NULL,
+        PRIMARY KEY(day_id, algo_version)
+      )
+    ''');
+  }
+
   static Future<void> _ensureSyncStateSchema(Database db) async {
     await _ensureSyncCursorSchema(db);
     await _ensureSyncLedgerSchema(db);
@@ -568,10 +637,10 @@ class LocalDb {
     ''');
   }
 
-  // decoded_onehz / decoded_rr — durable decoded substrate, additive beside
-  // raw_records. This is the canonical query surface for on-device analytics:
-  // one row per 1 Hz historical frame plus sparse RR beats keyed back to that
-  // frame. raw_records stays as the replay/debug ledger and upgrade fallback.
+  // decoded_onehz / decoded_rr — durable canonical decoded substrate, additive
+  // beside raw_records. This is the canonical query surface for on-device
+  // analytics: one row per real second (`rec_ts`) plus sparse RR beats for that
+  // second. raw_records stays as the replay/debug ledger and upgrade fallback.
   static Future<void> _createDecodedStore(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS decoded_onehz (
@@ -589,6 +658,10 @@ class LocalDb {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_decoded_onehz_rects ON decoded_onehz(rec_ts, counter)',
     );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_decoded_onehz_rec_ts_unique '
+      'ON decoded_onehz(rec_ts)',
+    );
     await db.execute('''
       CREATE TABLE IF NOT EXISTS decoded_rr (
         counter INTEGER NOT NULL,
@@ -604,6 +677,82 @@ class LocalDb {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_decoded_rr_ts ON decoded_rr(rr_ts_ms)',
     );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_decoded_rr_ts_beat_unique '
+      'ON decoded_rr(rr_ts_ms, beat_index)',
+    );
+  }
+
+  /// Rebuild the decoded substrate into noop-style canonical time-keyed rows:
+  /// keep exactly one decoded row per record second and one RR beat per
+  /// (second, beat_index). Older duplicate counters remain in raw_records for
+  /// forensics, but analytics no longer sees them.
+  static Future<void> _rebuildCanonicalDecodedStore(Database db) async {
+    await db.execute('DROP TABLE IF EXISTS _decoded_onehz_new');
+    await db.execute('DROP TABLE IF EXISTS _decoded_rr_new');
+    await db.execute('''
+      CREATE TABLE _decoded_onehz_new (
+        counter INTEGER PRIMARY KEY,
+        rec_ts INTEGER NOT NULL,
+        hr INTEGER NOT NULL,
+        ax REAL NOT NULL,
+        ay REAL NOT NULL,
+        az REAL NOT NULL,
+        spo2_red_raw INTEGER NOT NULL,
+        spo2_ir_raw INTEGER NOT NULL,
+        skin_temp_raw INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX idx_decoded_onehz_new_rects ON _decoded_onehz_new(rec_ts, counter)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX idx_decoded_onehz_new_rec_ts_unique '
+      'ON _decoded_onehz_new(rec_ts)',
+    );
+    await db.execute('''
+      CREATE TABLE _decoded_rr_new (
+        counter INTEGER NOT NULL,
+        beat_index INTEGER NOT NULL,
+        rr_ts_ms INTEGER NOT NULL,
+        rr_ms INTEGER NOT NULL,
+        PRIMARY KEY (counter, beat_index)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX idx_decoded_rr_new_counter ON _decoded_rr_new(counter, beat_index)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_decoded_rr_new_ts ON _decoded_rr_new(rr_ts_ms)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX idx_decoded_rr_new_ts_beat_unique '
+      'ON _decoded_rr_new(rr_ts_ms, beat_index)',
+    );
+    await db.execute(
+      'INSERT OR IGNORE INTO _decoded_onehz_new '
+      '(counter, rec_ts, hr, ax, ay, az, spo2_red_raw, spo2_ir_raw, skin_temp_raw) '
+      'SELECT d.counter, d.rec_ts, d.hr, d.ax, d.ay, d.az, '
+      'd.spo2_red_raw, d.spo2_ir_raw, d.skin_temp_raw '
+      'FROM decoded_onehz d '
+      'JOIN ('
+      '  SELECT rec_ts, MIN(counter) AS keep_counter '
+      '  FROM decoded_onehz GROUP BY rec_ts'
+      ') k '
+      'ON k.rec_ts = d.rec_ts AND k.keep_counter = d.counter '
+      'ORDER BY d.rec_ts ASC, d.counter ASC',
+    );
+    await db.execute(
+      'INSERT OR IGNORE INTO _decoded_rr_new(counter, beat_index, rr_ts_ms, rr_ms) '
+      'SELECT rr.counter, rr.beat_index, rr.rr_ts_ms, rr.rr_ms '
+      'FROM decoded_rr rr '
+      'JOIN _decoded_onehz_new onehz ON onehz.counter = rr.counter '
+      'ORDER BY rr.rr_ts_ms ASC, rr.beat_index ASC, rr.counter ASC',
+    );
+    await db.execute('DROP TABLE IF EXISTS decoded_rr');
+    await db.execute('DROP TABLE IF EXISTS decoded_onehz');
+    await db.execute('ALTER TABLE _decoded_onehz_new RENAME TO decoded_onehz');
+    await db.execute('ALTER TABLE _decoded_rr_new RENAME TO decoded_rr');
   }
 
   // raw_records — keyed by the band's per-record u32 `counter` (the natural
@@ -687,6 +836,41 @@ class LocalDb {
     return fallbackSec;
   }
 
+  static Future<void> _writeCaptureFreshness(List<RawRecord> raws) async {
+    if (raws.isEmpty) return;
+    var latest = 0;
+    for (final raw in raws) {
+      final recTs = _recTsFor(raw);
+      if (recTs > latest) latest = recTs;
+    }
+    if (latest <= 0) return;
+    final prev = await computeFreshness('capture');
+    Map<String, dynamic> payload = const {};
+    final rawJson = prev?['payload_json'];
+    if (rawJson is String && rawJson.isNotEmpty) {
+      try {
+        final d = jsonDecode(rawJson);
+        if (d is Map) payload = d.cast<String, dynamic>();
+      } catch (_) {
+        payload = const {};
+      }
+    }
+    payload = {
+      ...payload,
+      'latest_raw_rec_ts': latest,
+      'latest_raw_day': _localDayLabelFromEpoch(latest),
+    };
+    await putComputeFreshness('capture', jsonEncode(payload));
+  }
+
+  static String _localDayLabel(DateTime dt) {
+    String two(int x) => x.toString().padLeft(2, '0');
+    return '${dt.year.toString().padLeft(4, '0')}-${two(dt.month)}-${two(dt.day)}';
+  }
+
+  static String _localDayLabelFromEpoch(int epochSec) =>
+      _localDayLabel(DateTime.fromMillisecondsSinceEpoch(epochSec * 1000));
+
   static Sample? _decodeOneHzSample(RawRecord raw, {Sample? preferred}) {
     if (preferred != null && preferred.hasDecodedOneHz) return preferred;
     try {
@@ -712,9 +896,10 @@ class LocalDb {
   static void _queueDecodedOneHz(Batch batch, RawRecord raw, Sample? sample) {
     final decoded = _decodeOneHzSample(raw, preferred: sample);
     if (decoded == null) return;
+    final recTs = raw.recTs ?? decoded.tsEpoch;
     batch.insert('decoded_onehz', {
       'counter': raw.counter,
-      'rec_ts': raw.recTs ?? decoded.tsEpoch,
+      'rec_ts': recTs,
       'hr': decoded.hr,
       'ax': decoded.ax ?? 0,
       'ay': decoded.ay ?? 0,
@@ -729,7 +914,7 @@ class LocalDb {
       batch.insert('decoded_rr', {
         'counter': raw.counter,
         'beat_index': i,
-        'rr_ts_ms': (raw.recTs ?? decoded.tsEpoch) * 1000,
+        'rr_ts_ms': recTs * 1000,
         'rr_ms': rr,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
@@ -1732,6 +1917,299 @@ class LocalDb {
       'key': key,
       'payload_json': payloadJson,
       'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<Map<String, dynamic>?> computeFreshness(String key) async {
+    final db = await instance;
+    final rows = await db.query(
+      'compute_freshness',
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  static Future<void> putComputeFreshness(String key, String payloadJson) async {
+    final db = await instance;
+    await db.insert('compute_freshness', {
+      'key': key,
+      'payload_json': payloadJson,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static String localDayLabelNow() {
+    final now = DateTime.now();
+    return _localDayLabel(now);
+  }
+
+  static Future<void> refreshComputeFreshness() async {
+    final raw = await rawStats();
+    final recent = await recentDayResults(30);
+    final rolling = await baseline('rolling');
+    final cross = await baseline('crossday');
+    final today = localDayLabelNow();
+    final latestRawTs = (raw['max_rec_ts'] as num?)?.toInt();
+    final todayWake = await wakeDayFeatures(today);
+    String? latestOvernightDay;
+    int? latestOvernightComputedAt;
+    String? latestRecoveryDay;
+    int? latestRecoveryComputedAt;
+    Map<String, dynamic>? todayRow;
+    for (final row in recent) {
+      final dayId = row['day_id']?.toString();
+      if (dayId == null || dayId.isEmpty) continue;
+      if (dayId == today && todayRow == null) todayRow = row;
+      final payload = row['payload_json'] as String?;
+      Map<String, dynamic> decoded = const {};
+      if (payload != null && payload.isNotEmpty) {
+        try {
+          final d = jsonDecode(payload);
+          if (d is Map) decoded = d.cast<String, dynamic>();
+        } catch (_) {
+          decoded = const {};
+        }
+      }
+      if (decoded['skipped'] == true) continue;
+      final scalars = ((decoded['scalars'] as Map?) ?? const {})
+          .cast<String, dynamic>();
+      if (latestOvernightDay == null) {
+        final sleep = ((decoded['sleep'] as Map?)?['accounting'] as Map?)?['value'];
+        if (sleep is Map && sleep['tst_sec'] != null) {
+          latestOvernightDay = dayId;
+          latestOvernightComputedAt = (row['computed_at'] as num?)?.toInt();
+        }
+      }
+      if (latestRecoveryDay == null &&
+          ((row['readiness'] as num?) != null || scalars['readiness'] is num)) {
+        latestRecoveryDay = dayId;
+        latestRecoveryComputedAt = (row['computed_at'] as num?)?.toInt();
+      }
+      if (latestOvernightDay != null && latestRecoveryDay != null && todayRow != null) {
+        break;
+      }
+    }
+    final todayComputedAt = (todayRow?['computed_at'] as num?)?.toInt();
+    final wakeComputedAt = (todayWake?['computed_at'] as num?)?.toInt();
+    final activityReady = todayRow != null || todayWake != null;
+    final overnightReady = latestOvernightDay == today;
+    final rawReachedToday = latestRawTs != null && _localDayLabelFromEpoch(latestRawTs) == today;
+    final activityState = activityReady
+        ? 'ready'
+        : (rawReachedToday ? 'building' : 'missing');
+    final overnightState = overnightReady
+        ? 'ready'
+        : (rawReachedToday ? 'building' : 'missing');
+    await putComputeFreshness(
+      'capture',
+      jsonEncode({
+        'latest_raw_rec_ts': latestRawTs,
+        'latest_raw_day': latestRawTs == null ? null : _localDayLabelFromEpoch(latestRawTs),
+        'decoded_onehz': raw['decoded_onehz'],
+        'decoded_rr': raw['decoded_rr'],
+      }),
+    );
+    await putComputeFreshness(
+      'today',
+      jsonEncode({
+        'today_day': today,
+        'activity_day': activityReady ? today : null,
+        'activity_state': activityState,
+        'activity_computed_at': todayComputedAt ?? wakeComputedAt,
+        'overnight_day': latestOvernightDay,
+        'overnight_state': overnightState,
+        'overnight_computed_at': latestOvernightComputedAt,
+        'recovery_day': latestRecoveryDay,
+        'recovery_computed_at': latestRecoveryComputedAt,
+        'showing_prior_overnight':
+            latestOvernightDay != null && latestOvernightDay != today,
+      }),
+    );
+    await putComputeFreshness(
+      'crossday',
+      jsonEncode({
+        'present': cross != null,
+        'updated_at': rolling?['updated_at'],
+      }),
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> computeJobs({
+    String? state,
+    int limit = 50,
+  }) async {
+    final db = await instance;
+    return db.query(
+      'compute_jobs',
+      where: state == null ? null : 'state = ?',
+      whereArgs: state == null ? null : [state],
+      orderBy: 'priority DESC, updated_at ASC',
+      limit: limit,
+    );
+  }
+
+  static Future<void> recoverComputeJobs() async {
+    final db = await instance;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.update(
+      'compute_jobs',
+      {
+        'state': 'queued',
+        'updated_at': now,
+      },
+      where: 'state = ?',
+      whereArgs: ['running'],
+    );
+  }
+
+  static Future<void> enqueueDeriveJob({
+    required String type,
+    required String reason,
+  }) async {
+    final db = await instance;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      final active = await txn.query(
+        'compute_jobs',
+        columns: ['id', 'type', 'state'],
+        where: 'scope = ? AND state IN (?, ?)',
+        whereArgs: ['derive', 'queued', 'running'],
+      );
+      bool hasType(String t) =>
+          active.any((row) => row['type']?.toString() == t);
+      if (type == 'derive_light') {
+        if (hasType('derive_light') || hasType('derive_heavy')) return;
+      } else if (type == 'derive_heavy') {
+        if (hasType('derive_heavy')) return;
+        await txn.delete(
+          'compute_jobs',
+          where: 'scope = ? AND state = ? AND type = ?',
+          whereArgs: ['derive', 'queued', 'derive_light'],
+        );
+      }
+      await txn.insert('compute_jobs', {
+        'id': 'derive_${type}_$now',
+        'type': type,
+        'scope': 'derive',
+        'priority': type == 'derive_heavy' ? 200 : 100,
+        'state': 'queued',
+        'reason': reason,
+        'depends_on': null,
+        'input_from_ts': null,
+        'input_to_ts': null,
+        'algo_version': null,
+        'attempts': 0,
+        'next_run_at': null,
+        'created_at': now,
+        'updated_at': now,
+      });
+    });
+  }
+
+  static Future<Map<String, dynamic>?> takeNextComputeJob() async {
+    final db = await instance;
+    return db.transaction((txn) async {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final rows = await txn.rawQuery(
+        'SELECT * FROM compute_jobs '
+        'WHERE state = ? AND (next_run_at IS NULL OR next_run_at <= ?) '
+        'ORDER BY priority DESC, updated_at ASC, created_at ASC '
+        'LIMIT 1',
+        ['queued', now],
+      );
+      if (rows.isEmpty) return null;
+      final row = rows.first;
+      await txn.update(
+        'compute_jobs',
+        {
+          'state': 'running',
+          'attempts': ((row['attempts'] as num?)?.toInt() ?? 0) + 1,
+          'updated_at': now,
+        },
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+      return {...row, 'state': 'running', 'updated_at': now};
+    });
+  }
+
+  static Future<void> completeComputeJob(String id) async {
+    final db = await instance;
+    await db.delete('compute_jobs', where: 'id = ?', whereArgs: [id]);
+  }
+
+  static Future<void> failComputeJob(String id, String error) async {
+    final db = await instance;
+    await db.update(
+      'compute_jobs',
+      {
+        'state': 'failed',
+        'reason': error,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  static Future<Map<String, dynamic>?> sleepSessionCandidate(
+    String dayId,
+    int algoVersion,
+  ) async {
+    final db = await instance;
+    final rows = await db.query(
+      'sleep_session_candidates',
+      where: 'day_id = ? AND algo_version = ?',
+      whereArgs: [dayId, algoVersion],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  static Future<void> putSleepSessionCandidate({
+    required String dayId,
+    required int algoVersion,
+    required String payloadJson,
+  }) async {
+    final db = await instance;
+    await db.insert('sleep_session_candidates', {
+      'day_id': dayId,
+      'algo_version': algoVersion,
+      'payload_json': payloadJson,
+      'computed_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<Map<String, dynamic>?> wakeDayFeatures(
+    String dayId, [
+    int? algoVersion,
+  ]) async {
+    final db = await instance;
+    final rows = await db.query(
+      'wake_day_features',
+      where: algoVersion == null
+          ? 'day_id = ?'
+          : 'day_id = ? AND algo_version = ?',
+      whereArgs: algoVersion == null ? [dayId] : [dayId, algoVersion],
+      orderBy: algoVersion == null ? 'algo_version DESC' : null,
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  static Future<void> putWakeDayFeatures({
+    required String dayId,
+    required int algoVersion,
+    required String payloadJson,
+  }) async {
+    final db = await instance;
+    await db.insert('wake_day_features', {
+      'day_id': dayId,
+      'algo_version': algoVersion,
+      'payload_json': payloadJson,
+      'computed_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
