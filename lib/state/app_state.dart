@@ -26,7 +26,6 @@ import '../models/app_status.dart';
 import '../ble/accessory_setup.dart';
 import '../ble/ble_engine.dart';
 import '../ble/ios_ble_restore.dart';
-import '../cloud/backend_client.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
@@ -47,6 +46,7 @@ import '../live/live_activity.dart';
 import '../notify/device_alerts.dart';
 import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
+import '../notify/water_buzzer.dart';
 import '../sync/edge_tracking.dart';
 import '../sync/paired_device.dart';
 import '../sync/update_service.dart';
@@ -96,6 +96,13 @@ class AppState extends ChangeNotifier {
   /// Relay selected phone-app notifications to the strap as a buzz (Android only).
   /// Exposed for the settings UI; buzzes via the live BLE engine when connected.
   late final NotificationRelay notificationRelay = NotificationRelay(
+    buzz: () => engine.buzz(),
+    isConnected: () => engine.isConnected,
+  );
+
+  /// Fires a strap haptic at each hydration-reminder slot (best-effort, only when
+  /// the band is connected). Armed at launch + whenever notification prefs change.
+  late final WaterBuzzer _waterBuzzer = WaterBuzzer(
     buzz: () => engine.buzz(),
     isConnected: () => engine.isConnected,
   );
@@ -162,35 +169,34 @@ class AppState extends ChangeNotifier {
       }
     }
     _onboardChoice = prefs.getString(_kOnboard);
-    // Load the user's backend-URL override (if any) so the cloud client resolves
-    // it ahead of the build-time BACKEND_URL.
-    BackendClient.overrideUrl = prefs.getString(_kBackendUrl);
+    // The companion-URL override is loaded in _initCompanion (single source of
+    // truth for every network call — announcements, OTA, telemetry, import).
     healthSyncEnabled = prefs.getBool(_kHealthSync) ?? false;
     // Best-effort, no prompt: learn the current health-permission state so the
     // Profile toggle reflects reality on open.
     if (healthSyncEnabled) unawaited(checkHealth());
   }
 
-  // ── backend URL (cloud import / existing-user login) ────────────────────────
-  // Resolved by BackendClient as: this override → build-time BACKEND_URL → empty.
-  static const String _kBackendUrl = 'backend_url';
+  // ── companion URL (the ONE backend: announcements, OTA, telemetry, import) ──
+  // Resolved by CompanionClient as: this override → build-time COMPANION_URL →
+  // empty. Loaded into CompanionClient.overrideUrl in _initCompanion.
 
-  /// The effective backend base URL (override or build-time), '' if unconfigured.
-  String get backendUrl => BackendClient.effectiveBase;
+  /// The effective companion base URL (override or build-time), '' if unconfigured.
+  String get companionUrl => CompanionClient.effectiveBase;
 
-  /// True when no backend is configured (no override + no build-time URL).
-  bool get backendConfigured => BackendClient.effectiveBase.trim().isNotEmpty;
+  /// True when a companion URL is configured (override or build-time).
+  bool get companionConfigured => CompanionClient.effectiveBase.trim().isNotEmpty;
 
-  /// Set (or clear, with '') the runtime backend-URL override.
-  Future<void> setBackendUrl(String url) async {
+  /// Set (or clear, with '') the runtime companion-URL override.
+  Future<void> setCompanionUrl(String url) async {
     final v = url.trim();
     final prefs = await SharedPreferences.getInstance();
     if (v.isEmpty) {
-      await prefs.remove(_kBackendUrl);
-      BackendClient.overrideUrl = null;
+      await prefs.remove(_kCompanionUrl);
+      CompanionClient.overrideUrl = null;
     } else {
-      await prefs.setString(_kBackendUrl, v);
-      BackendClient.overrideUrl = v;
+      await prefs.setString(_kCompanionUrl, v);
+      CompanionClient.overrideUrl = v;
     }
     notifyListeners();
   }
@@ -588,7 +594,20 @@ class AppState extends ChangeNotifier {
     _tapSub?.cancel();
     _stopBackfillTimer();
     _deriveScheduler.dispose();
+    _waterBuzzer.dispose();
     super.dispose();
+  }
+
+  /// (Re)arm the strap-buzz timer for the hydration reminder from the current
+  /// notification prefs. Call at launch and whenever the prefs change (the
+  /// Notifications screen passes [prefs] so we skip a reload). Slot times come
+  /// from the same NotificationCenter helper the OS scheduler uses.
+  Future<void> armWaterReminder([NotificationPrefs? prefs]) async {
+    final p = prefs ?? await NotificationPrefs.load();
+    _waterBuzzer.configure(
+      enabled: p.waterEnabled && p.remindersEnabled,
+      slotMinutes: NotificationCenter.waterSlotMinutes(p),
+    );
   }
 
   /// Compute trigger: kick the DerivationEngine after data is persisted.
@@ -870,6 +889,7 @@ class AppState extends ChangeNotifier {
     // Companion (anonymous telemetry + health-data contribution) — best-effort,
     // OFF the critical path so it can never block/break boot. Guarded internally.
     unawaited(_initCompanion());
+    unawaited(armWaterReminder()); // arm the hydration strap-buzz (timers don't persist)
     // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.
     unawaited(_loadAppStatus());
     // Register the recurring wall-clock nudges as real OS-scheduled notifications

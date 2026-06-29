@@ -25,6 +25,20 @@ class NotificationPrefs {
   /// When true, NotifPriority.critical events fire even inside quiet hours.
   final bool criticalOverridesQuiet;
 
+  /// Hydration reminder: a recurring "drink water" nudge fired every
+  /// [waterIntervalMin] minutes across the user's waking window (i.e. outside
+  /// quiet hours). Opt-in; lives under the Reminders category, so it also obeys
+  /// the master reminders toggle.
+  final bool waterEnabled;
+
+  /// How often the water reminder fires, in minutes. User-modifiable; clamped to
+  /// [waterIntervalMinAllowed]..[waterIntervalMaxAllowed] when scheduling.
+  final int waterIntervalMin;
+
+  /// Allowed bounds for the hydration interval (30 min .. 6 h).
+  static const int waterIntervalMinAllowed = 30;
+  static const int waterIntervalMaxAllowed = 360;
+
   const NotificationPrefs({
     this.healthEnabled = true,
     this.recoveryEnabled = true,
@@ -33,6 +47,8 @@ class NotificationPrefs {
     this.quietStartMin = 22 * 60, // 22:00
     this.quietEndMin = 7 * 60, // 07:00
     this.criticalOverridesQuiet = true,
+    this.waterEnabled = false,
+    this.waterIntervalMin = 120, // every 2 hours
   });
 
   static const _kHealth = 'notif_health';
@@ -42,6 +58,8 @@ class NotificationPrefs {
   static const _kQuietStart = 'notif_quiet_start';
   static const _kQuietEnd = 'notif_quiet_end';
   static const _kCriticalOverride = 'notif_critical_override';
+  static const _kWater = 'notif_water';
+  static const _kWaterInterval = 'notif_water_interval';
 
   static Future<NotificationPrefs> load() async {
     final p = await SharedPreferences.getInstance();
@@ -53,6 +71,8 @@ class NotificationPrefs {
       quietStartMin: p.getInt(_kQuietStart) ?? 22 * 60,
       quietEndMin: p.getInt(_kQuietEnd) ?? 7 * 60,
       criticalOverridesQuiet: p.getBool(_kCriticalOverride) ?? true,
+      waterEnabled: p.getBool(_kWater) ?? false,
+      waterIntervalMin: p.getInt(_kWaterInterval) ?? 120,
     );
   }
 
@@ -65,6 +85,8 @@ class NotificationPrefs {
     await p.setInt(_kQuietStart, quietStartMin);
     await p.setInt(_kQuietEnd, quietEndMin);
     await p.setBool(_kCriticalOverride, criticalOverridesQuiet);
+    await p.setBool(_kWater, waterEnabled);
+    await p.setInt(_kWaterInterval, waterIntervalMin);
   }
 
   NotificationPrefs copyWith({
@@ -75,6 +97,8 @@ class NotificationPrefs {
     int? quietStartMin,
     int? quietEndMin,
     bool? criticalOverridesQuiet,
+    bool? waterEnabled,
+    int? waterIntervalMin,
   }) =>
       NotificationPrefs(
         healthEnabled: healthEnabled ?? this.healthEnabled,
@@ -85,6 +109,8 @@ class NotificationPrefs {
         quietEndMin: quietEndMin ?? this.quietEndMin,
         criticalOverridesQuiet:
             criticalOverridesQuiet ?? this.criticalOverridesQuiet,
+        waterEnabled: waterEnabled ?? this.waterEnabled,
+        waterIntervalMin: waterIntervalMin ?? this.waterIntervalMin,
       );
 
   bool categoryEnabled(NotifCategory c) => switch (c) {

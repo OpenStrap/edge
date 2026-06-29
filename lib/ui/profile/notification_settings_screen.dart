@@ -6,10 +6,12 @@
 // can override quiet hours; recovery + reminders stay silent during the window.
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../notify/notification_center.dart';
 import '../../notify/notification_prefs.dart';
 import '../../notify/notification_service.dart';
+import '../../state/app_state.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
@@ -51,6 +53,8 @@ class _NotificationSettingsScreenState
     await next.save();
     if (reschedule) {
       await NotificationCenter.instance.scheduleStandingReminders(next);
+      // Re-arm the in-app strap-buzz timer to match the new schedule.
+      if (mounted) await context.read<AppState>().armWaterReminder(next);
     }
   }
 
@@ -59,6 +63,38 @@ class _NotificationSettingsScreenState
     final m = min % 60;
     final t = TimeOfDay(hour: h, minute: m);
     return t.format(context);
+  }
+
+  // Selectable hydration intervals (minutes). Modifiable — the user picks one.
+  static const List<int> _waterPresets = [30, 60, 90, 120, 180, 240];
+
+  String _fmtInterval(int min) {
+    if (min < 60) return '$min min';
+    final h = min / 60;
+    final label = h == h.roundToDouble() ? '${h.toInt()}' : h.toString();
+    return '$label hr${h == 1 ? '' : 's'}';
+  }
+
+  Widget _intervalChip(int min) {
+    final selected = _p.waterIntervalMin == min;
+    return GestureDetector(
+      onTap: () =>
+          _update(_p.copyWith(waterIntervalMin: min), reschedule: true),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.coral : AppColors.inkSoft.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          _fmtInterval(min),
+          style: AppText.caption.copyWith(
+            color: selected ? Colors.white : AppColors.ink,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _pickTime(bool start) async {
@@ -123,6 +159,45 @@ class _NotificationSettingsScreenState
                         _p.copyWith(remindersEnabled: v),
                         reschedule: true),
                   ),
+                ]),
+              ),
+              const SizedBox(height: Sp.x7),
+              const SectionHeader('Hydration'),
+              ProCard(
+                child: Column(children: [
+                  _toggle(
+                    title: 'Water reminder',
+                    subtitle:
+                        'A gentle nudge to drink water across your waking hours, '
+                        'and a buzz on your strap when it\'s connected. Stays '
+                        'silent during quiet hours.',
+                    value: _p.waterEnabled,
+                    onChanged: (v) => _update(_p.copyWith(waterEnabled: v),
+                        reschedule: true),
+                  ),
+                  if (_p.waterEnabled) ...[
+                    const _HairLine(),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: Sp.x2),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('How often', style: AppText.title),
+                          const SizedBox(height: 2),
+                          Text('Every ${_fmtInterval(_p.waterIntervalMin)}.',
+                              style: AppText.captionMuted),
+                          const SizedBox(height: Sp.x3),
+                          Wrap(
+                            spacing: Sp.x2,
+                            runSpacing: Sp.x2,
+                            children: _waterPresets
+                                .map((m) => _intervalChip(m))
+                                .toList(),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ]),
               ),
               const SizedBox(height: Sp.x7),

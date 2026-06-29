@@ -76,6 +76,12 @@ class NotificationService {
   static const int idWeeklyRecap = 2003; // scheduled weekly
   static const int idJournalLog = 2004; // scheduled daily ("log your day")
 
+  /// Hydration reminders occupy a contiguous slot band [idWaterBase ..
+  /// idWaterBase + maxWaterSlots) — one daily-repeating slot per fire time across
+  /// the waking window. Still inside the disjoint <3000 scheduled-reminder band.
+  static const int idWaterBase = 2100;
+  static const int maxWaterSlots = 24;
+
   /// Reserved for a future server/push layer (unused — app is cloud-free).
   static const int kServerIdBase = 2000;
 

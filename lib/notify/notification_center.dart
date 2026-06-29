@@ -56,6 +56,11 @@ class NotificationCenter {
     await svc.cancel(NotificationService.idWindDown);
     await svc.cancel(NotificationService.idWeeklyRecap);
     await svc.cancel(NotificationService.idJournalLog);
+    // Always clear the hydration band first so a disabled/retuned reminder never
+    // leaves stale OS-scheduled slots behind.
+    for (var i = 0; i < NotificationService.maxWaterSlots; i++) {
+      await svc.cancel(NotificationService.idWaterBase + i);
+    }
     if (!prefs.remindersEnabled) return;
 
     // "Time to sleep" — at the Sleep Coach's recommended bedtime when known
@@ -101,5 +106,67 @@ class NotificationCenter {
       minute: recapMinute,
       route: '/recap',
     );
+
+    // Hydration nudges — one daily-repeating slot every `waterIntervalMin`
+    // across the waking window.
+    await _scheduleWaterReminders(prefs, svc);
+  }
+
+  // Default waking window when quiet hours are off (so we never ping at 3am).
+  static const int _waterDayStartMin = 8 * 60; // 08:00
+  static const int _waterDayEndMin = 22 * 60; // 22:00
+
+  /// The wall-clock fire times (minutes-from-midnight, ascending) for the
+  /// hydration reminder — one per slot across the waking window, spaced by the
+  /// (clamped) interval, capped at [NotificationService.maxWaterSlots]. Returns
+  /// empty when hydration is off. PURE — single source of truth shared by the OS
+  /// scheduler here and the strap-buzz timer in AppState.
+  static List<int> waterSlotMinutes(NotificationPrefs prefs) {
+    if (!prefs.remindersEnabled || !prefs.waterEnabled) return const [];
+
+    final interval = prefs.waterIntervalMin.clamp(
+        NotificationPrefs.waterIntervalMinAllowed,
+        NotificationPrefs.waterIntervalMaxAllowed);
+
+    // Waking window = outside quiet hours when enabled, else the daytime default.
+    // quietEnd is wake-up; quietStart is bedtime. Fall back to 08:00–22:00 if the
+    // window is degenerate (start <= end, or quiet hours disabled).
+    var startMin = _waterDayStartMin, endMin = _waterDayEndMin;
+    if (prefs.quietEnabled && prefs.quietStartMin > prefs.quietEndMin) {
+      startMin = prefs.quietEndMin; // wake
+      endMin = prefs.quietStartMin; // bed
+    }
+    if (endMin - startMin < interval) {
+      // Window too short for even one spaced slot — fire once mid-window.
+      startMin = (startMin + endMin) ~/ 2;
+      endMin = startMin + 1;
+    }
+
+    final slots = <int>[];
+    for (var t = startMin;
+        t < endMin && slots.length < NotificationService.maxWaterSlots;
+        t += interval) {
+      slots.add(t);
+    }
+    return slots;
+  }
+
+  /// Schedule the hydration reminders as a band of daily-repeating OS slots, one
+  /// per [waterSlotMinutes] entry.
+  Future<void> _scheduleWaterReminders(
+      NotificationPrefs prefs, NotificationService svc) async {
+    final slots = waterSlotMinutes(prefs);
+    for (var i = 0; i < slots.length; i++) {
+      final t = slots[i];
+      await svc.scheduleDaily(
+        id: NotificationService.idWaterBase + i,
+        category: NotifCategory.reminders,
+        title: 'Time to hydrate',
+        body: 'A quick glass of water keeps your recovery and focus steady.',
+        hour: (t ~/ 60) % 24,
+        minute: t % 60,
+        route: '/today',
+      );
+    }
   }
 }

@@ -22,9 +22,10 @@ jobs:
         with:
           channel: stable
 
-      # Backend URL comes from a repo secret, written into .env at build time.
+      # The single companion URL (announcements, OTA, telemetry, import) comes
+      # from a repo secret, written into .env and baked in via --dart-define.
       - name: Write .env
-        run: echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" > .env
+        run: echo "COMPANION_URL=${{ secrets.COMPANION_URL }}" > .env
 
       # Decode the release keystore from a secret. The gradle config picks these
       # env vars up (ANDROID_KEYSTORE_PATH etc.) and signs the release build.

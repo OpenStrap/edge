@@ -172,11 +172,11 @@ class ProfileScreen extends StatelessWidget {
             ),
             child: DetailRow(
               icon: Ic.cloud,
-              label: 'Backend URL',
-              value: app.backendConfigured
-                  ? _shortUrl(app.backendUrl)
+              label: 'Companion URL',
+              value: app.companionConfigured
+                  ? _shortUrl(app.companionUrl)
                   : 'Not set',
-              onTap: () => _editBackendUrl(context, app),
+              onTap: () => _editCompanionUrl(context, app),
             ),
           ),
           const SizedBox(height: Sp.x3),
@@ -614,22 +614,24 @@ class ProfileScreen extends StatelessWidget {
     return u;
   }
 
-  /// Edit the cloud backend URL (used by existing-user login / cloud import).
-  /// Blank clears the override → falls back to the build-time BACKEND_URL.
-  Future<void> _editBackendUrl(BuildContext context, AppState app) async {
-    final ctrl = TextEditingController(text: app.backendUrl);
+  /// Edit the companion URL — the single backend the app talks to (announcements,
+  /// OTA, telemetry, and existing-user import). Blank clears the override → falls
+  /// back to the build-time COMPANION_URL.
+  Future<void> _editCompanionUrl(BuildContext context, AppState app) async {
+    final ctrl = TextEditingController(text: app.companionUrl);
     final messenger = ScaffoldMessenger.of(context);
     final url = await showDialog<String>(
       context: context,
       builder: (dctx) => AlertDialog(
-        title: const Text('Backend URL'),
+        title: const Text('Companion URL'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Where existing-user login + cloud import connect. Leave blank to '
-              'use the build default.',
+              'The one backend the app connects to — app updates, announcements, '
+              'opt-in diagnostics and existing-user import. Leave blank to use '
+              'the build default.',
               style: AppText.captionMuted,
             ),
             const SizedBox(height: Sp.x3),
@@ -657,13 +659,13 @@ class ProfileScreen extends StatelessWidget {
       ),
     );
     if (url == null) return; // cancelled
-    await app.setBackendUrl(url);
+    await app.setCompanionUrl(url);
     messenger.showSnackBar(
       SnackBar(
         content: Text(
           url.isEmpty
-              ? 'Backend URL cleared — using the build default.'
-              : 'Backend URL saved.',
+              ? 'Companion URL cleared — using the build default.'
+              : 'Companion URL saved.',
         ),
       ),
     );
