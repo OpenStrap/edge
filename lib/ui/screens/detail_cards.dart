@@ -539,13 +539,15 @@ class HeartDayCard extends StatelessWidget {
                     unit: 'brpm',
                   ),
                 if (spo2 != null)
-                  MetricRow(
+                  TrendMetricRow(
                     icon: Ic.droplet,
                     accent: AppColors.coralDeep,
-                    label: 'Blood-oxygen',
+                    label: 'Oxygen dips',
                     info: infoFor('spo2'),
-                    value: '${spo2['value']}',
-                    unit: 'Δ',
+                    value: '${spo2['odi_per_hour'] ?? spo2['value']}',
+                    unit: '/h',
+                    metric: 'spo2',
+                    trendTitle: 'Overnight oxygen dips',
                   ),
                 // Overnight desaturation screen (RELATIVE, not diagnostic) — clustered dips
                 // in the red/IR ratio vs your baseline. An apnea-style screening signal only.
@@ -638,6 +640,867 @@ class HeartDayCard extends StatelessWidget {
   }
 }
 
+class OxygenDayCard extends StatelessWidget {
+  final String date;
+  const OxygenDayCard({super.key, required this.date});
+
+  List<TimeSeriesPoint> _series(Map<String, dynamic>? spo2) {
+    final raw = (spo2?['series'] as List?) ?? const [];
+    final out = <TimeSeriesPoint>[];
+    for (final e in raw) {
+      if (e is! Map) continue;
+      final t = (e['t'] as num?)?.toDouble();
+      final v = (e['rise_pct'] as num?)?.toDouble();
+      if (t != null && v != null) out.add(TimeSeriesPoint(t, v));
+    }
+    return out;
+  }
+
+  String _hm(int? ts) {
+    if (ts == null) return '—';
+    final dt = DateTime.fromMillisecondsSinceEpoch(ts * 1000).toLocal();
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '${dt.hour}:$mm';
+  }
+
+  Map<String, dynamic>? _eventAt(
+    List<Map<String, dynamic>> events,
+    double tsSec,
+  ) {
+    for (final e in events) {
+      final start = (e['start'] as num?)?.toDouble();
+      final end = (e['end'] as num?)?.toDouble();
+      if (start == null || end == null) continue;
+      if (tsSec >= start && tsSec <= end) return e;
+    }
+    return null;
+  }
+
+  String _tooltipForPoint(
+    TimeSeriesPoint p,
+    List<Map<String, dynamic>> events, {
+    double? sleepStart,
+    double? sleepEnd,
+  }) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(
+      (p.x * 1000).round(),
+    ).toLocal();
+    final mm = dt.minute.toString().padLeft(2, '0');
+    final inSleep =
+        sleepStart != null &&
+        sleepEnd != null &&
+        p.x >= sleepStart &&
+        p.x <= sleepEnd;
+    final event = _eventAt(events, p.x);
+    final lines = <String>[
+      '${dt.hour}:$mm',
+      '${p.y.toStringAsFixed(1)}% above baseline',
+      inSleep ? 'Sleep window' : 'Outside sleep window',
+    ];
+    if (event != null) {
+      final peak = ((event['peak_rise_pct'] as num?)?.toDouble() ?? 0)
+          .toStringAsFixed(1);
+      final dur = (event['duration_sec'] as num?)?.toInt() ?? 0;
+      lines.add('Dip event · ${dur}s · peak $peak%');
+    }
+    return lines.join('\n');
+  }
+
+  List<VerticalSpan> _eventSpans(List<Map<String, dynamic>> events) {
+    return [
+      for (final e in events)
+        if ((e['start'] as num?) != null && (e['end'] as num?) != null)
+          VerticalSpan(
+            ((e['start'] as num).toDouble()),
+            ((e['end'] as num).toDouble()),
+            AppColors.warn.withValues(alpha: 0.12),
+          ),
+    ];
+  }
+
+  List<VerticalMarker> _eventMarkers(List<Map<String, dynamic>> events) {
+    return [
+      for (final e in events)
+        if ((e['start'] as num?) != null)
+          VerticalMarker(
+            ((e['start'] as num).toDouble()),
+            AppColors.warn.withValues(alpha: 0.65),
+          ),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Fetch(
+      load: (api) => api.getDayLungs(date),
+      build: (d) {
+        final spo2 = (d['spo2'] as Map?)?.cast<String, dynamic>();
+        final resp = (d['resp'] as Map?)?.cast<String, dynamic>();
+        final points = _series(spo2);
+        final events = ((spo2?['events'] as List?) ?? const [])
+            .whereType<Map>()
+            .cast<Map<String, dynamic>>()
+            .toList();
+        final latestEvent = events.isEmpty ? null : events.last;
+        final signalCoverage = (spo2?['signal_coverage'] as num?)?.toDouble();
+        final trustedCoverage = (spo2?['trusted_coverage'] as num?)?.toDouble();
+        final analyzedHours = (spo2?['analyzed_hours'] as num?)?.toDouble();
+        final burdenPct = (spo2?['burden_pct'] as num?)?.toDouble();
+        final meanDipPct = (spo2?['mean_dip_pct'] as num?)?.toDouble();
+        final maxDipPct = (spo2?['max_dip_pct'] as num?)?.toDouble();
+        final longestDipSec = (spo2?['longest_dip_sec'] as num?)?.toInt();
+        final rejectCounts = (spo2?['reject_counts'] as Map?)
+            ?.cast<String, dynamic>();
+        final severityCounts = (spo2?['severity_counts'] as Map?)
+            ?.cast<String, dynamic>();
+        final rejectTotal =
+            rejectCounts?.values.whereType<num>().fold<int>(
+              0,
+              (sum, v) => sum + v.toInt(),
+            ) ??
+            0;
+        final sleepWindow = (d['sleep_window'] as Map?)
+            ?.cast<String, dynamic>();
+        final sleepStart = (sleepWindow?['start'] as num?)?.toDouble();
+        final sleepEnd = (sleepWindow?['end'] as num?)?.toDouble();
+        final odiPerHour = (spo2?['odi_per_hour'] as num?)?.toDouble();
+        final verdict = _oxygenVerdict({
+          'trusted_coverage': trustedCoverage,
+          'signal_coverage': signalCoverage,
+          'reject_total': rejectTotal,
+          'dip_count': (spo2?['dip_count'] as num?)?.toInt() ?? events.length,
+        });
+        final severity = _oxygenSeverity(
+          odiPerHour: odiPerHour,
+          maxDipPct: maxDipPct,
+          burdenPct: burdenPct,
+          trustedCoverage: trustedCoverage,
+        );
+
+        if (spo2 == null) {
+          return ProCard(
+            child: Padding(
+              padding: const EdgeInsets.all(Sp.x4),
+              child: Text(
+                'No overnight red/IR oxygen signal yet.',
+                style: AppText.captionMuted,
+              ),
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GlowCard(
+              padding: const EdgeInsets.all(Sp.x6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            AppIcon(
+                              Ic.droplet,
+                              size: 16,
+                              color: AppColors.coralDeep,
+                            ),
+                            const SizedBox(width: Sp.x2),
+                            Text('OVERNIGHT OXYGEN', style: AppText.overline),
+                          ],
+                        ),
+                        const SizedBox(height: Sp.x3),
+                        Text(
+                          (spo2['odi_per_hour'] as num?)?.toStringAsFixed(1) ??
+                              '—',
+                          style: AppText.display,
+                        ),
+                        const SizedBox(height: Sp.x1),
+                        Text(
+                          '${(spo2['dip_count'] as num?)?.toInt() ?? 0} dips · '
+                          '${analyzedHours?.toStringAsFixed(1) ?? '—'} h analyzed',
+                          style: AppText.bodySoft,
+                        ),
+                      ],
+                    ),
+                  ),
+                  RingStat(
+                    t: (((signalCoverage ?? 0) * 100) / 100).clamp(0.0, 1.0),
+                    color: AppColors.coralDeep,
+                    size: 96,
+                    stroke: 11,
+                    center: Text(
+                      signalCoverage == null
+                          ? '—'
+                          : '${(signalCoverage * 100).round()}%',
+                      style: AppText.metricSm,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: Sp.x6),
+            SectionHeader('Tonight at a glance'),
+            ProCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text('Verdict', style: AppText.label),
+                      const Spacer(),
+                      Tag(verdict.label, color: verdict.color),
+                    ],
+                  ),
+                  const SizedBox(height: Sp.x2),
+                  Text(verdict.reason, style: AppText.bodySoft),
+                  const SizedBox(height: Sp.x4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _MiniMetricCell(
+                          'ODI',
+                          '${(spo2['odi_per_hour'] as num?)?.toStringAsFixed(1) ?? '—'} /h',
+                        ),
+                      ),
+                      const SizedBox(width: Sp.x3),
+                      Expanded(
+                        child: _MiniMetricCell(
+                          'Signal',
+                          signalCoverage == null
+                              ? '—'
+                              : '${(signalCoverage * 100).round()}%',
+                        ),
+                      ),
+                      const SizedBox(width: Sp.x3),
+                      Expanded(
+                        child: _MiniMetricCell(
+                          'Night',
+                          _nightSpan(analyzedHours),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: Sp.x6),
+            SectionHeader('Overnight severity'),
+            ProCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text('Assessment', style: AppText.label),
+                      const Spacer(),
+                      Tag(severity.label, color: severity.color),
+                    ],
+                  ),
+                  const SizedBox(height: Sp.x2),
+                  Text(severity.reason, style: AppText.bodySoft),
+                  const SizedBox(height: Sp.x4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _MiniMetricCell(
+                          'Strongest dip',
+                          maxDipPct == null
+                              ? '—'
+                              : '${maxDipPct.toStringAsFixed(1)}%',
+                        ),
+                      ),
+                      const SizedBox(width: Sp.x3),
+                      Expanded(
+                        child: _MiniMetricCell(
+                          'Burden',
+                          burdenPct == null
+                              ? '—'
+                              : '${burdenPct.toStringAsFixed(1)}%',
+                        ),
+                      ),
+                      const SizedBox(width: Sp.x3),
+                      Expanded(
+                        child: _MiniMetricCell(
+                          'Longest',
+                          longestDipSec == null ? '—' : '${longestDipSec}s',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: Sp.x6),
+            if (severityCounts != null) ...[
+              SectionHeader('Dip severity mix'),
+              ProCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SegmentBar(
+                      [
+                        (severityCounts['mild'] as num?)?.toDouble() ?? 0,
+                        (severityCounts['moderate'] as num?)?.toDouble() ?? 0,
+                        (severityCounts['severe'] as num?)?.toDouble() ?? 0,
+                      ],
+                      [AppColors.good, AppColors.coral, AppColors.warn],
+                      height: 14,
+                    ),
+                    const SizedBox(height: Sp.x3),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _MiniMetricCell(
+                            'Mild',
+                            '${(severityCounts['mild'] as num?)?.toInt() ?? 0}',
+                          ),
+                        ),
+                        const SizedBox(width: Sp.x3),
+                        Expanded(
+                          child: _MiniMetricCell(
+                            'Moderate',
+                            '${(severityCounts['moderate'] as num?)?.toInt() ?? 0}',
+                          ),
+                        ),
+                        const SizedBox(width: Sp.x3),
+                        Expanded(
+                          child: _MiniMetricCell(
+                            'Severe',
+                            '${(severityCounts['severe'] as num?)?.toInt() ?? 0}',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: Sp.x6),
+            ],
+            _OxygenRecentStrip(date: date),
+            const SizedBox(height: Sp.x6),
+            SectionHeader('Overnight dip signal'),
+            ProCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (points.length > 1)
+                    TimeSeriesChart(
+                      points: points,
+                      color: AppColors.coralDeep,
+                      height: 220,
+                      yUnit: '%',
+                      minY: -1,
+                      spans: [
+                        if (sleepStart != null && sleepEnd != null)
+                          VerticalSpan(
+                            sleepStart,
+                            sleepEnd,
+                            AppColors.cool.withValues(alpha: 0.08),
+                          ),
+                        ..._eventSpans(events),
+                      ],
+                      markers: _eventMarkers(events),
+                      bands: const [
+                        HorizontalBand(0, 3, Color(0x1426A69A)),
+                        HorizontalBand(3, 6, Color(0x14F4B942)),
+                        HorizontalBand(6, 100, Color(0x14E57373)),
+                      ],
+                      tooltip: (p) => _tooltipForPoint(
+                        p,
+                        events,
+                        sleepStart: sleepStart,
+                        sleepEnd: sleepEnd,
+                      ),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: Sp.x4),
+                      child: Text(
+                        'Not enough stable overnight signal for a dip trace yet.',
+                        style: AppText.captionMuted,
+                      ),
+                    ),
+                  const SizedBox(height: Sp.x3),
+                  Text(
+                    'Tracks overnight oxygen dips from the red/IR channel pair against your own nightly baseline. This is a screening signal, not an absolute saturation %. ',
+                    style: AppText.captionMuted,
+                  ),
+                  const SizedBox(height: Sp.x2),
+                  Wrap(
+                    spacing: Sp.x4,
+                    runSpacing: Sp.x2,
+                    children: [
+                      _legendPill(
+                        'Sleep window',
+                        AppColors.cool.withValues(alpha: 0.28),
+                      ),
+                      _legendPill(
+                        'Detected dips',
+                        AppColors.warn.withValues(alpha: 0.45),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: Sp.x6),
+            SectionHeader('Summary'),
+            MetricGroup([
+              MetricRow(
+                icon: Ic.droplet,
+                accent: AppColors.coralDeep,
+                label: 'Oxygen dips',
+                info: infoFor('spo2'),
+                value:
+                    (spo2['odi_per_hour'] as num?)?.toStringAsFixed(1) ?? '—',
+                unit: '/h',
+              ),
+              MetricRow(
+                icon: Ic.chart,
+                accent: AppColors.warn,
+                label: 'Dip burden',
+                info:
+                    'Share of the analyzed overnight signal spent in dip events.',
+                value: burdenPct?.toStringAsFixed(1) ?? '—',
+                unit: '%',
+              ),
+              MetricRow(
+                icon: Ic.activity,
+                accent: AppColors.good,
+                label: 'Mean dip depth',
+                info:
+                    'Average size of the accepted relative dips versus the rolling baseline.',
+                value: meanDipPct?.toStringAsFixed(1) ?? '—',
+                unit: '%',
+              ),
+              MetricRow(
+                icon: Ic.chart,
+                accent: AppColors.coralDeep,
+                label: 'Strongest dip',
+                info:
+                    'Largest accepted relative dip versus the rolling nightly baseline.',
+                value: maxDipPct?.toStringAsFixed(1) ?? '—',
+                unit: '%',
+              ),
+              MetricRow(
+                icon: Ic.watch,
+                accent: AppColors.warn,
+                label: 'Longest dip',
+                info:
+                    'Longest accepted dip event duration in the overnight signal.',
+                value: longestDipSec == null ? '—' : '$longestDipSec',
+                unit: 's',
+              ),
+              MetricRow(
+                icon: Ic.watch,
+                accent: AppColors.inkSoft,
+                label: 'Signal coverage',
+                info:
+                    'Share of the overnight red/IR signal that was usable after contact and stability checks.',
+                value: signalCoverage == null
+                    ? '—'
+                    : (signalCoverage * 100).toStringAsFixed(0),
+                unit: '%',
+              ),
+              MetricRow(
+                icon: Ic.watch,
+                accent: AppColors.inkMuted,
+                label: 'Trusted coverage',
+                info:
+                    'Share of the overnight red/IR signal that survived the stricter artifact gate used for dip detection.',
+                value: trustedCoverage == null
+                    ? '—'
+                    : (trustedCoverage * 100).toStringAsFixed(0),
+                unit: '%',
+              ),
+              if (resp?['value'] != null)
+                MetricRow(
+                  icon: Ic.activity,
+                  accent: AppColors.good,
+                  label: 'Respiratory rate',
+                  info: infoFor('resp'),
+                  value: '${resp!['value']}',
+                  unit: 'brpm',
+                ),
+            ]),
+            if (rejectCounts != null) ...[
+              const SizedBox(height: Sp.x6),
+              SectionHeader('Signal quality'),
+              ProCard(
+                child: Column(
+                  children: [
+                    DetailRow(
+                      label: 'Rejected: non-positive',
+                      value: '${rejectCounts['non_positive'] ?? 0}',
+                    ),
+                    DetailRow(
+                      label: 'Rejected: flatline',
+                      value: '${rejectCounts['flatline'] ?? 0}',
+                    ),
+                    DetailRow(
+                      label: 'Rejected: jump',
+                      value: '${rejectCounts['jump'] ?? 0}',
+                    ),
+                    DetailRow(
+                      label: 'Rejected: ratio outlier',
+                      value: '${rejectCounts['ratio_outlier'] ?? 0}',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (latestEvent != null) ...[
+              const SizedBox(height: Sp.x6),
+              SectionHeader('Latest dip'),
+              ProCard(
+                child: Column(
+                  children: [
+                    DetailRow(
+                      label: 'Window',
+                      value:
+                          '${_hm((latestEvent['start'] as num?)?.toInt())} → ${_hm((latestEvent['end'] as num?)?.toInt())}',
+                    ),
+                    DetailRow(
+                      label: 'Duration',
+                      value:
+                          '${(latestEvent['duration_sec'] as num?)?.toInt() ?? 0}s',
+                    ),
+                    DetailRow(
+                      label: 'Peak rise',
+                      value:
+                          '${((latestEvent['peak_rise_pct'] as num?)?.toDouble() ?? 0).toStringAsFixed(1)}%',
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (events.isNotEmpty) ...[
+              const SizedBox(height: Sp.x6),
+              SectionHeader('Detected dips'),
+              ProCard(
+                child: Column(
+                  children: [
+                    for (final e in events) ...[
+                      DetailRow(
+                        label:
+                            '${_hm((e['start'] as num?)?.toInt())} → ${_hm((e['end'] as num?)?.toInt())}',
+                        value:
+                            '${(e['duration_sec'] as num?)?.toInt() ?? 0}s · ${((e['peak_rise_pct'] as num?)?.toDouble() ?? 0).toStringAsFixed(1)}%',
+                      ),
+                      if (e != events.last)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: Sp.x1),
+                          child: Divider(height: 1),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+Widget _legendPill(String label, Color color) {
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+      const SizedBox(width: Sp.x2),
+      Text(label, style: AppText.caption),
+    ],
+  );
+}
+
+({String label, Color color, String reason}) _oxygenVerdict(
+  Map<String, dynamic> night,
+) {
+  final trusted = (night['trusted_coverage'] as num?)?.toDouble() ?? 0;
+  final coverage = (night['signal_coverage'] as num?)?.toDouble() ?? 0;
+  final rejects = (night['reject_total'] as num?)?.toInt() ?? 0;
+  final dips = (night['dip_count'] as num?)?.toInt() ?? 0;
+
+  if (trusted < 0.35 || (coverage < 0.5 && rejects > 100)) {
+    return (
+      label: 'noisy',
+      color: AppColors.warn,
+      reason: 'Low trusted coverage or too many rejected samples.',
+    );
+  }
+  if (trusted < 0.65 || coverage < 0.75 || rejects > 500) {
+    return (
+      label: 'questionable',
+      color: AppColors.coral,
+      reason: 'Usable, but signal quality is not stable enough to fully trust.',
+    );
+  }
+  return (
+    label: dips > 0 ? 'usable' : 'clean',
+    color: AppColors.good,
+    reason: dips > 0
+        ? 'Signal quality looks good enough to inspect the detected dips.'
+        : 'Signal quality looks good and no dips were detected.',
+  );
+}
+
+({String label, Color color, String reason}) _oxygenSeverity({
+  required double? odiPerHour,
+  required double? maxDipPct,
+  required double? burdenPct,
+  required double? trustedCoverage,
+}) {
+  final trusted = trustedCoverage ?? 0;
+  if (trusted < 0.6) {
+    return (
+      label: 'uncertain',
+      color: AppColors.inkSoft,
+      reason:
+          'Signal trust is too low to grade tonight’s oxygen burden confidently.',
+    );
+  }
+
+  final odi = odiPerHour ?? 0;
+  final maxDip = maxDipPct ?? 0;
+  final burden = burdenPct ?? 0;
+
+  if (odi >= 12 || maxDip >= 8 || burden >= 6) {
+    return (
+      label: 'high',
+      color: AppColors.warn,
+      reason:
+          'Tonight shows frequent or pronounced oxygen dips for this relative overnight screen.',
+    );
+  }
+  if (odi >= 5 || maxDip >= 5 || burden >= 2) {
+    return (
+      label: 'elevated',
+      color: AppColors.coral,
+      reason:
+          'Tonight has a noticeable oxygen-dip load, but not an extreme one.',
+    );
+  }
+  if (odi > 0 || maxDip > 0 || burden > 0) {
+    return (
+      label: 'mild',
+      color: AppColors.good,
+      reason:
+          'Some dips were detected, but the overall overnight burden looks limited.',
+    );
+  }
+  return (
+    label: 'quiet',
+    color: AppColors.good,
+    reason: 'No meaningful overnight oxygen dips were detected in this signal.',
+  );
+}
+
+String _nightSpan(double? hours) {
+  if (hours == null || hours <= 0) return '—';
+  if (hours < 1) return '${(hours * 60).round()} min analyzed';
+  return '${hours.toStringAsFixed(1)} h analyzed';
+}
+
+class _OxygenRecentStrip extends StatefulWidget {
+  final String date;
+  const _OxygenRecentStrip({required this.date});
+
+  @override
+  State<_OxygenRecentStrip> createState() => _OxygenRecentStripState();
+}
+
+class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
+  Map<String, dynamic>? _trend;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final api = context.read<AppState>().repo;
+    if (api == null) return;
+    try {
+      final trend = await api.getTrend(
+        'spo2',
+        scale: 'week',
+        anchor: widget.date,
+      );
+      if (!mounted) return;
+      setState(() {
+        _trend = trend;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  String _label(int ts) {
+    const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final d = DateTime.fromMillisecondsSinceEpoch(ts * 1000, isUtc: true);
+    return wd[(d.weekday - 1) % 7];
+  }
+
+  ({String label, Color color, String reason}) _patternVerdict(
+    List<double> values,
+  ) {
+    if (values.length < 2) {
+      return (
+        label: 'early',
+        color: AppColors.inkSoft,
+        reason: 'Need a few more nights before a pattern is meaningful.',
+      );
+    }
+    final latest = values.last;
+    final avg = values.reduce((a, b) => a + b) / values.length;
+    final recentCount = values.length >= 3 ? 3 : values.length;
+    final recent =
+        values.sublist(values.length - recentCount).reduce((a, b) => a + b) /
+        recentCount;
+    final olderValues = values.length > recentCount
+        ? values.sublist(0, values.length - recentCount)
+        : <double>[];
+    final older = olderValues.isEmpty
+        ? avg
+        : olderValues.reduce((a, b) => a + b) / olderValues.length;
+    final drift = recent - older;
+    final outlier = avg > 0 && latest >= avg * 1.5 && latest - avg >= 1.5;
+
+    if (outlier) {
+      return (
+        label: 'spike',
+        color: AppColors.warn,
+        reason: 'Tonight stands well above your recent oxygen-dip pattern.',
+      );
+    }
+    if (drift >= 1.0) {
+      return (
+        label: 'rising',
+        color: AppColors.coral,
+        reason:
+            'Recent nights are trending higher than the earlier part of the week.',
+      );
+    }
+    if (drift <= -1.0) {
+      return (
+        label: 'settling',
+        color: AppColors.good,
+        reason:
+            'Recent nights are trending lower than the earlier part of the week.',
+      );
+    }
+    return (
+      label: 'steady',
+      color: AppColors.good,
+      reason:
+          'This week looks fairly stable rather than clearly rising or falling.',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const ProCard(
+        child: Padding(
+          padding: EdgeInsets.all(Sp.x4),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    final buckets = ((_trend?['buckets'] as List?) ?? const [])
+        .whereType<Map>()
+        .cast<Map>()
+        .toList();
+    final present = buckets.where((b) => b['has'] == true).toList();
+    if (present.isEmpty) {
+      return ProCard(
+        child: Padding(
+          padding: const EdgeInsets.all(Sp.x4),
+          child: Text(
+            'No recent overnight oxygen trend yet.',
+            style: AppText.captionMuted,
+          ),
+        ),
+      );
+    }
+    final values = [
+      for (final b in present) ((b['value'] as num?)?.toDouble() ?? 0),
+    ];
+    final labels = [
+      for (final b in present) _label((b['t_start'] as num?)?.toInt() ?? 0),
+    ];
+    final avg = values.reduce((a, b) => a + b) / values.length;
+    final latest = values.last;
+    final pattern = _patternVerdict(values);
+    return ProCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('Last 7 nights', style: AppText.label),
+              const Spacer(),
+              Tag(pattern.label, color: pattern.color),
+            ],
+          ),
+          const SizedBox(height: Sp.x2),
+          Text(pattern.reason, style: AppText.captionMuted),
+          const SizedBox(height: Sp.x4),
+          SizedBox(
+            height: 180,
+            child: LabeledBars(
+              values: values,
+              labels: labels,
+              color: AppColors.coralDeep,
+              highlight: values.length - 1,
+              valueFmt: (v) => v == 0 ? '' : v.toStringAsFixed(1),
+            ),
+          ),
+          const SizedBox(height: Sp.x4),
+          Row(
+            children: [
+              Expanded(
+                child: _MiniMetricCell(
+                  'Latest',
+                  '${latest.toStringAsFixed(1)} /h',
+                ),
+              ),
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                child: _MiniMetricCell(
+                  'Week avg',
+                  '${avg.toStringAsFixed(1)} /h',
+                ),
+              ),
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                child: _MiniMetricCell(
+                  'Delta',
+                  '${(latest - avg >= 0 ? '+' : '')}${(latest - avg).toStringAsFixed(1)} /h',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _HeartMetricCell extends StatelessWidget {
   final String label;
   final String value;
@@ -658,6 +1521,32 @@ class _HeartMetricCell extends StatelessWidget {
           Text(label.toUpperCase(), style: AppText.overline),
           const SizedBox(height: 2),
           Text('$value bpm', style: AppText.label),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniMetricCell extends StatelessWidget {
+  final String label;
+  final String value;
+  const _MiniMetricCell(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x3, vertical: Sp.x3),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppColors.divider),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label.toUpperCase(), style: AppText.overline),
+          const SizedBox(height: 2),
+          Text(value, style: AppText.label, textAlign: TextAlign.center),
         ],
       ),
     );

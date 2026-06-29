@@ -1,6 +1,8 @@
 // Strain detail for one day — total, the accumulation curve, HR zones, HR stats,
 // and workouts. Backed by /day/strain.
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -17,7 +19,11 @@ class StrainDetailScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
   // Embedded (no Scaffold/back bar) for use inside the Body screen.
   final bool embedded;
-  const StrainDetailScreen({super.key, required this.date, this.embedded = false});
+  const StrainDetailScreen({
+    super.key,
+    required this.date,
+    this.embedded = false,
+  });
   @override
   State<StrainDetailScreen> createState() => _StrainDetailScreenState();
 }
@@ -25,6 +31,7 @@ class StrainDetailScreen extends StatefulWidget {
 enum _Phase { loading, ready, empty, error }
 
 class _StrainDetailScreenState extends State<StrainDetailScreen> {
+  static const double _strainChartLeftPad = 18;
   _Phase _phase = _Phase.loading;
   String? _error;
   Map<String, dynamic> _data = const {};
@@ -112,20 +119,49 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     final z = _map(_data['zones']);
     return [
       for (final k in const ['z1', 'z2', 'z3', 'z4', 'z5'])
-        (_num(z[k])?.toDouble() ?? 0)
+        (_num(z[k])?.toDouble() ?? 0),
     ];
   }
 
   Map<String, dynamic> _hr() => _map(_data['hr']);
 
-  List<Map<String, dynamic>> _sessions() =>
-      [for (final s in _list(_data['sessions'])) _map(s)];
+  List<Map<String, dynamic>> _sessions() => [
+    for (final s in _list(_data['sessions'])) _map(s),
+  ];
+
+  List<_SessionRange> _sessionRanges() {
+    final out = <_SessionRange>[];
+    for (final s in _sessions()) {
+      final start = _num(s['start_ts'])?.toDouble();
+      final end = _num(s['end_ts'])?.toDouble();
+      if (start == null || end == null || end <= start) continue;
+      out.add(
+        _SessionRange(
+          start,
+          end,
+          (s['type'] as String?) ?? 'Autodetected workout',
+          (s['source'] as String?) ?? 'auto',
+        ),
+      );
+    }
+    return out;
+  }
 
   // ── formatting (no intl) ─────────────────────────────────────────────────────
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   /// 'YYYY-MM-DD' → 'Mon 12, 2026' (falls back to the raw string).
@@ -143,7 +179,41 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
 
   String _mins(num? minutes) {
     final m = (minutes ?? 0).round();
-    return '${m}m';
+    final h = m ~/ 60;
+    final min = m % 60;
+    if (h > 0 && min > 0) return '${h}h ${min}m';
+    if (h > 0) return '${h}h';
+    return '${min}m';
+  }
+
+  int _zoneAt(double ts, List<TimeSeriesPoint> timeline) {
+    if (timeline.isEmpty) return 0;
+    var zone = timeline.first.y.round().clamp(0, 5);
+    for (final p in timeline) {
+      if (p.x > ts) break;
+      zone = p.y.round().clamp(0, 5);
+    }
+    return zone;
+  }
+
+  bool _hasWorkoutAt(double ts, List<_SessionRange> sessions) {
+    for (final s in sessions) {
+      if (ts >= s.start && ts <= s.end) return true;
+    }
+    return false;
+  }
+
+  String _timeRange(num? startSec, num? endSec) {
+    if (startSec == null || endSec == null) return '—';
+    String fmt(num sec) {
+      final dt = DateTime.fromMillisecondsSinceEpoch(
+        (sec * 1000).round(),
+      ).toLocal();
+      final mm = dt.minute.toString().padLeft(2, '0');
+      return '${dt.hour}:$mm';
+    }
+
+    return '${fmt(startSec)}–${fmt(endSec)}';
   }
 
   String _bpmRange(int zone, int? maxHr) {
@@ -160,12 +230,23 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
   List<Widget> _sections() {
     if (_phase == _Phase.loading) return [_loading()];
     if (_phase == _Phase.empty) {
-      return [_stateCard(Ic.strain, 'No strain for this day',
+      return [
+        _stateCard(
+          Ic.strain,
+          'No strain for this day',
           'Wear your strap and sync to capture all-day heart rate. Strain '
-              'appears once there is data to score.')];
+              'appears once there is data to score.',
+        ),
+      ];
     }
     if (_phase == _Phase.error) {
-      return [_stateCard(Ic.cloud, "Couldn't load strain", _error ?? 'Please try again.')];
+      return [
+        _stateCard(
+          Ic.cloud,
+          "Couldn't load strain",
+          _error ?? 'Please try again.',
+        ),
+      ];
     }
     return _content();
   }
@@ -173,7 +254,10 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
   @override
   Widget build(BuildContext context) {
     if (widget.embedded) {
-      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: _sections());
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: _sections(),
+      );
     }
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -196,8 +280,10 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
   Widget _topBar() {
     return Row(
       children: [
-        RoundIconButton(Ic.arrowLeft,
-            onTap: () => Navigator.of(context).maybePop()),
+        RoundIconButton(
+          Ic.arrowLeft,
+          onTap: () => Navigator.of(context).maybePop(),
+        ),
         const SizedBox(width: Sp.x3),
         Expanded(
           child: Column(
@@ -220,13 +306,15 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     final cals = _num(_data['calories']);
     final steps = _num(_data['steps']);
     final effort = _num(_data['effort']);
-    final hasLoad = load.isNotEmpty ||
+    final hasLoad =
+        load.isNotEmpty ||
         fitness != null ||
         cals != null ||
         steps != null ||
         effort != null;
-    final drivers = [for (final dr in _list(_map(_data['drivers'])['strain'])) _map(dr)]
-        .where((dr) => (dr['label']?.toString() ?? '').isNotEmpty).toList();
+    final drivers = [
+      for (final dr in _list(_map(_data['drivers'])['strain'])) _map(dr),
+    ].where((dr) => (dr['label']?.toString() ?? '').isNotEmpty).toList();
     return [
       _hero(),
       const SizedBox(height: Sp.x4),
@@ -247,10 +335,17 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
         const SizedBox(height: Sp.x4),
         const SectionHeader('What affected this'),
         // Display-only (no navigation): default card padding gives proper inset.
-        ProCard(child: Column(children: [
-          for (final dr in drivers)
-            DetailRow(label: dr['label']?.toString() ?? '', value: dr['detail']?.toString() ?? ''),
-        ])),
+        ProCard(
+          child: Column(
+            children: [
+              for (final dr in drivers)
+                DetailRow(
+                  label: dr['label']?.toString() ?? '',
+                  value: dr['detail']?.toString() ?? '',
+                ),
+            ],
+          ),
+        ),
       ],
     ];
   }
@@ -263,21 +358,47 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     final acwr = _num(_map(_data['load'])['acwr']);
     final rows = <Widget>[];
     if (vo2 != null) {
-      rows.add(TrendMetricRow(icon: Ic.pulse, accent: AppColors.good, label: 'VO₂max',
-          info: infoFor('vo2max'), value: vo2.toStringAsFixed(1), unit: 'ml/kg/min',
-          metric: 'vo2max', trendTitle: 'VO₂max'));
+      rows.add(
+        TrendMetricRow(
+          icon: Ic.pulse,
+          accent: AppColors.good,
+          label: 'VO₂max',
+          info: infoFor('vo2max'),
+          value: vo2.toStringAsFixed(1),
+          unit: 'ml/kg/min',
+          metric: 'vo2max',
+          trendTitle: 'VO₂max',
+        ),
+      );
     }
     if (acwr != null) {
-      rows.add(TrendMetricRow(icon: Ic.strain, accent: AppColors.coral, label: 'Training load (ACWR)',
-          info: infoFor('load'), value: acwr.toStringAsFixed(2),
-          metric: 'acwr', trendTitle: 'Training load (ACWR)'));
+      rows.add(
+        TrendMetricRow(
+          icon: Ic.strain,
+          accent: AppColors.coral,
+          label: 'Training load (ACWR)',
+          info: infoFor('load'),
+          value: acwr.toStringAsFixed(2),
+          metric: 'acwr',
+          trendTitle: 'Training load (ACWR)',
+        ),
+      );
     }
     if (monotony != null) {
-      rows.add(TrendMetricRow(icon: Ic.chart, accent: AppColors.warn, label: 'Monotony',
-          info: infoFor('monotony'), value: monotony.toStringAsFixed(2),
-          metric: 'monotony', trendTitle: 'Training monotony'));
+      rows.add(
+        TrendMetricRow(
+          icon: Ic.chart,
+          accent: AppColors.warn,
+          label: 'Monotony',
+          info: infoFor('monotony'),
+          value: monotony.toStringAsFixed(2),
+          metric: 'monotony',
+          trendTitle: 'Training monotony',
+        ),
+      );
     }
-    final hasModel = fm['fitness'] != null || fm['fatigue'] != null || fm['form'] != null;
+    final hasModel =
+        fm['fitness'] != null || fm['fatigue'] != null || fm['form'] != null;
     // Nothing computed yet → an HONEST unlock card (not a hidden section / bare
     // "—"): VO₂max needs a hard effort; the Banister model needs weeks of data.
     if (rows.isEmpty && !hasModel) {
@@ -286,30 +407,37 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
         ProCard(
           child: Padding(
             padding: const EdgeInsets.all(Sp.x4),
-            child: Row(children: [
-              Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(9),
+                  decoration: BoxDecoration(
                     color: AppColors.surfaceSunk,
-                    borderRadius: BorderRadius.circular(R.chip)),
-                child: AppIcon(Ic.pulse, size: 17, color: AppColors.inkMuted),
-              ),
-              const SizedBox(width: Sp.x3),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Building your fitness picture', style: AppText.label),
-                    const SizedBox(height: 2),
-                    Text(
+                    borderRadius: BorderRadius.circular(R.chip),
+                  ),
+                  child: AppIcon(Ic.pulse, size: 17, color: AppColors.inkMuted),
+                ),
+                const SizedBox(width: Sp.x3),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Building your fitness picture',
+                        style: AppText.label,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
                         'VO₂max needs a hard, near-max effort to estimate; '
                         'fitness, fatigue & form build over ~2–3 weeks of '
                         'training. Keep wearing it and training as usual.',
-                        style: AppText.captionMuted),
-                  ],
+                        style: AppText.captionMuted,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ]),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: Sp.x4),
@@ -318,7 +446,11 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     return [
       const SectionHeader('Fitness'),
       if (hasModel) ...[
-        _FitnessModelCard(fitness: _num(fm['fitness']), fatigue: _num(fm['fatigue']), form: _num(fm['form'])),
+        _FitnessModelCard(
+          fitness: _num(fm['fitness']),
+          fatigue: _num(fm['fatigue']),
+          form: _num(fm['form']),
+        ),
         const SizedBox(height: Sp.x3),
       ],
       if (rows.isNotEmpty) MetricGroup(rows),
@@ -326,44 +458,67 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     ];
   }
 
-  Widget _loadCard(Map<String, dynamic> load, String? fitness, num? cals,
-      num? steps, num? effort) {
+  Widget _loadCard(
+    Map<String, dynamic> load,
+    String? fitness,
+    num? cals,
+    num? steps,
+    num? effort,
+  ) {
     final acwr = _num(load['acwr']);
     final band = load['band']?.toString();
     Color bandColor() {
       switch (band) {
-        case 'optimal': return AppColors.good;
-        case 'caution': return AppColors.warn;
-        case 'high-risk': return AppColors.bad;
-        default: return AppColors.loadDetraining;
+        case 'optimal':
+          return AppColors.good;
+        case 'caution':
+          return AppColors.warn;
+        case 'high-risk':
+          return AppColors.bad;
+        default:
+          return AppColors.loadDetraining;
       }
     }
+
     return ProCard(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (acwr != null) ...[
-          Row(children: [
-            AppIcon(Ic.strain, size: 18, color: AppColors.coralDeep),
-            const SizedBox(width: Sp.x2),
-            Text('Acute:chronic load', style: AppText.label),
-            const Spacer(),
-            Text(acwr.toStringAsFixed(2), style: AppText.metricSm.copyWith(fontSize: 18)),
-            const SizedBox(width: Sp.x2),
-            if (band != null) Tag(band, color: bandColor()),
-          ]),
-          if (fitness != null || cals != null || steps != null)
-            const SizedBox(height: Sp.x3),
-        ],
-        if (fitness != null) DetailRow(label: 'Fitness trend', value: fitness),
-        if (cals != null) DetailRow(label: 'Active calories', value: '${cals.round()} kcal'),
-        if (_num(_data['calories_total']) != null)
-          DetailRow(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (acwr != null) ...[
+            Row(
+              children: [
+                AppIcon(Ic.strain, size: 18, color: AppColors.coralDeep),
+                const SizedBox(width: Sp.x2),
+                Text('Acute:chronic load', style: AppText.label),
+                const Spacer(),
+                Text(
+                  acwr.toStringAsFixed(2),
+                  style: AppText.metricSm.copyWith(fontSize: 18),
+                ),
+                const SizedBox(width: Sp.x2),
+                if (band != null) Tag(band, color: bandColor()),
+              ],
+            ),
+            if (fitness != null || cals != null || steps != null)
+              const SizedBox(height: Sp.x3),
+          ],
+          if (fitness != null)
+            DetailRow(label: 'Fitness trend', value: fitness),
+          if (cals != null)
+            DetailRow(label: 'Active calories', value: '${cals.round()} kcal'),
+          if (_num(_data['calories_total']) != null)
+            DetailRow(
               label: 'Total calories',
-              value: '${_num(_data['calories_total'])!.round()} kcal'),
-        if (steps != null) DetailRow(label: 'Steps (est.)', value: '${steps.round()}'),
-        // Edwards zone-weighted "effort" (0–100) — finer-grained intensity read
-        // than the 0–21 headline, over the per-second wake HR.
-        if (effort != null) DetailRow(label: 'Effort (0–100)', value: '${effort.round()}'),
-      ]),
+              value: '${_num(_data['calories_total'])!.round()} kcal',
+            ),
+          if (steps != null)
+            DetailRow(label: 'Steps (est.)', value: '${steps.round()}'),
+          // Edwards zone-weighted "effort" (0–100) — finer-grained intensity read
+          // than the 0–21 headline, over the per-second wake HR.
+          if (effort != null)
+            DetailRow(label: 'Effort (0–100)', value: '${effort.round()}'),
+        ],
+      ),
     );
   }
 
@@ -379,26 +534,33 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Row(children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: AppColors.coralSoft,
-                      borderRadius: BorderRadius.circular(R.chip),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: AppColors.coralSoft,
+                        borderRadius: BorderRadius.circular(R.chip),
+                      ),
+                      child: AppIcon(
+                        Ic.strain,
+                        size: 16,
+                        color: AppColors.coralDeep,
+                      ),
                     ),
-                    child: AppIcon(Ic.strain,
-                        size: 16, color: AppColors.coralDeep),
-                  ),
-                  const SizedBox(width: Sp.x2),
-                  Text('DAY STRAIN', style: AppText.overline),
-                ]),
+                    const SizedBox(width: Sp.x2),
+                    Text('DAY STRAIN', style: AppText.overline),
+                  ],
+                ),
                 const SizedBox(height: Sp.x4),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                    Text(strain.toStringAsFixed(1),
-                        style: AppText.display.copyWith(color: AppColors.coral)),
+                    Text(
+                      strain.toStringAsFixed(1),
+                      style: AppText.display.copyWith(color: AppColors.coral),
+                    ),
                     const SizedBox(width: Sp.x2),
                     Padding(
                       padding: const EdgeInsets.only(bottom: 4),
@@ -415,8 +577,10 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
             color: AppColors.coral,
             size: 92,
             stroke: 10,
-            center: Text(strain.toStringAsFixed(1),
-                style: AppText.metricSm.copyWith(color: AppColors.coral)),
+            center: Text(
+              strain.toStringAsFixed(1),
+              style: AppText.metricSm.copyWith(color: AppColors.coral),
+            ),
           ),
         ],
       ),
@@ -428,6 +592,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
   Widget _curveCard() {
     final curve = _curve();
     final timeline = _zoneTimeline();
+    final sessions = _sessionRanges();
     final loX = curve.isEmpty ? null : curve.first.x;
     final hiX = curve.isEmpty ? null : curve.last.x;
     final zoneColors = [
@@ -447,6 +612,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
             points: curve,
             color: AppColors.coral,
             height: 220,
+            leftPad: _strainChartLeftPad,
             minY: 0,
             maxY: 21,
             yLabel: (v) => v.round().toString(),
@@ -455,7 +621,12 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
                 (p.x * 1000).round(),
               ).toLocal();
               final mm = dt.minute.toString().padLeft(2, '0');
-              return '${dt.hour}:$mm\nstrain ${p.y.toStringAsFixed(1)}';
+              final zone = _zoneAt(p.x, timeline);
+              final workout = _hasWorkoutAt(p.x, sessions) ? 'yes' : 'no';
+              return '${dt.hour}:$mm\n'
+                  'strain ${p.y.toStringAsFixed(1)}\n'
+                  'zone Z$zone\n'
+                  'workout $workout';
             },
             bands: const [
               HorizontalBand(0, 5, Color(0x102B3C50)),
@@ -473,12 +644,17 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
               minX: loX,
               maxX: hiX,
               height: 12,
+              leftPad: _strainChartLeftPad,
             ),
-          const SizedBox(height: Sp.x3),
-          Text(
-            'Cumulative strain across the day.',
-            style: AppText.captionMuted,
-          ),
+          if (loX != null && hiX != null && sessions.isNotEmpty) ...[
+            const SizedBox(height: Sp.x2),
+            _WorkoutTimelineBar(
+              sessions: sessions,
+              minX: loX,
+              maxX: hiX,
+              leftInset: _strainChartLeftPad,
+            ),
+          ],
         ],
       ),
     );
@@ -505,37 +681,45 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
           const SizedBox(height: Sp.x4),
           for (int i = 0; i < zones.length; i++) ...[
             if (i != 0) const SizedBox(height: Sp.x2),
-            Row(children: [
-              Container(
-                width: 10,
-                height: 10,
-                decoration: BoxDecoration(
-                  color: palette[i],
-                  borderRadius: BorderRadius.circular(3),
+            Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: palette[i],
+                    borderRadius: BorderRadius.circular(3),
+                  ),
                 ),
-              ),
-              const SizedBox(width: Sp.x3),
-              SizedBox(
-                width: 28,
-                child: Text('Z${i + 1}', style: AppText.label),
-              ),
-              Expanded(
-                child: Text(
-                  _bpmRange(i + 1, maxHr),
-                  style: AppText.captionMuted,
-                  overflow: TextOverflow.ellipsis,
+                const SizedBox(width: Sp.x3),
+                SizedBox(
+                  width: 28,
+                  child: Text('Z${i + 1}', style: AppText.label),
                 ),
-              ),
-              const SizedBox(width: Sp.x3),
-              SizedBox(
-                width: 42,
-                child: Text(
-                  _mins(zones[i]),
-                  textAlign: TextAlign.right,
-                  style: AppText.body.copyWith(color: AppColors.inkSoft),
+                Expanded(
+                  child: Text(
+                    _bpmRange(i + 1, maxHr),
+                    style: AppText.captionMuted,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-            ]),
+                const SizedBox(width: Sp.x3),
+                SizedBox(
+                  width: 64,
+                  child: Text(
+                    _mins(zones[i]),
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.visible,
+                    softWrap: false,
+                    style: AppText.body.copyWith(
+                      color: AppColors.inkSoft,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ],
         ],
       ),
@@ -574,16 +758,20 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
               textBaseline: TextBaseline.alphabetic,
               children: [
                 Flexible(
-                  child: Text('${bpm.round()}',
-                      style: AppText.metricSm,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
+                  child: Text(
+                    '${bpm.round()}',
+                    style: AppText.metricSm,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 const SizedBox(width: 3),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 2),
-                  child: Text('bpm',
-                      style: AppText.captionMuted.copyWith(fontSize: 10)),
+                  child: Text(
+                    'bpm',
+                    style: AppText.captionMuted.copyWith(fontSize: 10),
+                  ),
                 ),
               ],
             ),
@@ -599,24 +787,26 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     if (sessions.isEmpty) {
       return [
         ProCard(
-          child: Row(children: [
-            Container(
-              padding: const EdgeInsets.all(Sp.x3),
-              decoration: BoxDecoration(
-                color: AppColors.coralSoft,
-                shape: BoxShape.circle,
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(Sp.x3),
+                decoration: BoxDecoration(
+                  color: AppColors.coralSoft,
+                  shape: BoxShape.circle,
+                ),
+                child: AppIcon(Ic.run, size: 20, color: AppColors.coralDeep),
               ),
-              child: AppIcon(Ic.run, size: 20, color: AppColors.coralDeep),
-            ),
-            const SizedBox(width: Sp.x4),
-            Expanded(
-              child: Text(
-                'No workouts auto-detected — strain still accrues from all-day '
-                'heart rate.',
-                style: AppText.bodySoft,
+              const SizedBox(width: Sp.x4),
+              Expanded(
+                child: Text(
+                  'No workouts auto-detected — strain still accrues from all-day '
+                  'heart rate.',
+                  style: AppText.bodySoft,
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
         ),
       ];
     }
@@ -634,42 +824,57 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
         ? s['type'] as String
         : 'Workout';
     final dur = _num(s['duration_min']);
+    final start = _num(s['start_ts']);
+    final end = _num(s['end_ts']);
     final avgHr = _num(s['avg_hr']);
     final maxHr = _num(s['max_hr']);
-    final strain = _num(s['strain']);
+    final calories = _num(s['calories']);
     return ProCard(
       padding: const EdgeInsets.all(Sp.x4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(Sp.x3),
-              decoration: BoxDecoration(
-                color: AppColors.coralSoft,
-                shape: BoxShape.circle,
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(Sp.x3),
+                decoration: BoxDecoration(
+                  color: AppColors.coralSoft,
+                  shape: BoxShape.circle,
+                ),
+                child: AppIcon(Ic.run, size: 18, color: AppColors.coralDeep),
               ),
-              child: AppIcon(Ic.run, size: 18, color: AppColors.coralDeep),
-            ),
-            const SizedBox(width: Sp.x3),
-            Expanded(
-              child: Text(type,
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                child: Text(
+                  type,
                   style: AppText.title,
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-            ),
-            if (dur != null) ...[
-              const SizedBox(width: Sp.x2),
-              Text(_mins(dur), style: AppText.caption),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (dur != null) ...[
+                const SizedBox(width: Sp.x2),
+                Text(
+                  _mins(dur),
+                  style: AppText.caption.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ],
             ],
-          ]),
+          ),
+          const SizedBox(height: Sp.x1),
+          Text(_timeRange(start, end), style: AppText.captionMuted),
           const SizedBox(height: Sp.x4),
-          Row(children: [
-            _sessionStat('STRAIN',
-                strain == null ? '—' : strain.toStringAsFixed(1)),
-            _sessionStat('AVG HR', avgHr == null ? '—' : '${avgHr.round()}'),
-            _sessionStat('MAX HR', maxHr == null ? '—' : '${maxHr.round()}'),
-          ]),
+          Row(
+            children: [
+              _sessionStat(
+                'Calories',
+                calories == null ? '—' : '${calories.round()}',
+              ),
+              _sessionStat('AVG HR', avgHr == null ? '—' : '${avgHr.round()}'),
+              _sessionStat('MAX HR', maxHr == null ? '—' : '${maxHr.round()}'),
+            ],
+          ),
         ],
       ),
     );
@@ -692,12 +897,12 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
   // ── states ─────────────────────────────────────────────────────────────────
 
   Widget _loading() => ProCard(
-        padding: const EdgeInsets.all(Sp.x6),
-        child: SizedBox(
-          height: 320,
-          child: Center(child: CircularProgressIndicator(color: AppColors.coral)),
-        ),
-      );
+    padding: const EdgeInsets.all(Sp.x6),
+    child: SizedBox(
+      height: 320,
+      child: Center(child: CircularProgressIndicator(color: AppColors.coral)),
+    ),
+  );
 
   Widget _stateCard(IconData icon, String title, String message) {
     return ProCard(
@@ -724,6 +929,100 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
   }
 }
 
+class _SessionRange {
+  final double start;
+  final double end;
+  final String label;
+  final String source;
+  const _SessionRange(this.start, this.end, this.label, this.source);
+}
+
+class _WorkoutTimelineBar extends StatelessWidget {
+  final List<_SessionRange> sessions;
+  final double minX;
+  final double maxX;
+  final double leftInset;
+  const _WorkoutTimelineBar({
+    required this.sessions,
+    required this.minX,
+    required this.maxX,
+    this.leftInset = 0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final span = (maxX - minX).abs() < 1 ? 1.0 : (maxX - minX);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final width = math.max(1.0, constraints.maxWidth - leftInset);
+            return SizedBox(
+              height: 10,
+              child: Padding(
+                padding: EdgeInsets.only(left: leftInset),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(R.pill),
+                  child: Stack(
+                    children: [
+                      Container(color: AppColors.surfaceAlt),
+                      for (final s in sessions)
+                        Positioned(
+                          left:
+                              ((s.start - minX) / span).clamp(0.0, 1.0) * width,
+                          width: math.max(
+                            4,
+                            ((s.end - s.start) / span).clamp(0.0, 1.0) * width,
+                          ),
+                          top: 0,
+                          bottom: 0,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: s.source == 'auto'
+                                  ? AppColors.coralDeep
+                                  : AppColors.good,
+                              borderRadius: BorderRadius.circular(R.pill),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: Sp.x2),
+        Wrap(
+          spacing: Sp.x3,
+          runSpacing: Sp.x2,
+          children: [
+            for (final s in sessions)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: s.source == 'auto'
+                          ? AppColors.coralDeep
+                          : AppColors.good,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(width: Sp.x2),
+                  Text(s.label, style: AppText.captionMuted),
+                ],
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 /// Banister Fitness/Fatigue/Form — today's values + a dual-line trend (fetched
 /// from /trend/fitness & /trend/fatigue). The Body tab's fitness centerpiece.
 class _FitnessModelCard extends StatefulWidget {
@@ -740,53 +1039,98 @@ class _FitnessModelCardState extends State<_FitnessModelCard> {
   List<double?> _fat = const [];
   bool _loading = true;
   @override
-  void initState() { super.initState(); _go(); }
+  void initState() {
+    super.initState();
+    _go();
+  }
+
   Future<void> _go() async {
     final api = context.read<AppState>().repo;
-    if (api == null) { setState(() => _loading = false); return; }
+    if (api == null) {
+      setState(() => _loading = false);
+      return;
+    }
     try {
       final f = await api.getTrend('fitness', scale: 'quarter');
       final g = await api.getTrend('fatigue', scale: 'quarter');
       List<double?> vals(Map<String, dynamic> d) => [
-            for (final b in ((d['buckets'] as List?) ?? const []))
-              ((b as Map)['value'] as num?)?.toDouble()
-          ];
-      if (mounted) setState(() { _fit = vals(f); _fat = vals(g); _loading = false; });
-    } catch (_) { if (mounted) setState(() => _loading = false); }
+        for (final b in ((d['buckets'] as List?) ?? const []))
+          ((b as Map)['value'] as num?)?.toDouble(),
+      ];
+      if (mounted) {
+        setState(() {
+          _fit = vals(f);
+          _fat = vals(g);
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Widget _stat(String label, num? v, Color c) => Expanded(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(v == null ? '—' : v.toStringAsFixed(1), style: AppText.metricSm.copyWith(fontSize: 20, color: c)),
-          Text(label, style: AppText.captionMuted),
-        ]),
-      );
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          v == null ? '—' : v.toStringAsFixed(1),
+          style: AppText.metricSm.copyWith(fontSize: 20, color: c),
+        ),
+        Text(label, style: AppText.captionMuted),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
-    return ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Fitness · Fatigue · Form', style: AppText.label),
-      const SizedBox(height: Sp.x1),
-      Text('Built-up fitness vs recent fatigue. Form = fitness − fatigue (freshness).',
-          style: AppText.captionMuted),
-      const SizedBox(height: Sp.x3),
-      Row(children: [
-        _stat('FITNESS', widget.fitness, AppColors.coral),
-        _stat('FATIGUE', widget.fatigue, AppColors.loadDetraining),
-        _stat('FORM', widget.form, widget.form != null && widget.form! >= 0 ? AppColors.good : AppColors.warn),
-      ]),
-      if (!_loading && (_fit.where((v) => v != null).length > 1 || _fat.where((v) => v != null).length > 1)) ...[
-        const SizedBox(height: Sp.x4),
-        FormChart(fitness: _fit, fatigue: _fat),
-        const SizedBox(height: Sp.x2),
-        Row(children: [
-          _legendDot(AppColors.coral), Text(' Fitness   ', style: AppText.caption),
-          _legendDot(AppColors.loadDetraining), Text(' Fatigue', style: AppText.caption),
-        ]),
-      ],
-    ]));
+    return ProCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Fitness · Fatigue · Form', style: AppText.label),
+          const SizedBox(height: Sp.x1),
+          Text(
+            'Built-up fitness vs recent fatigue. Form = fitness − fatigue (freshness).',
+            style: AppText.captionMuted,
+          ),
+          const SizedBox(height: Sp.x3),
+          Row(
+            children: [
+              _stat('FITNESS', widget.fitness, AppColors.coral),
+              _stat('FATIGUE', widget.fatigue, AppColors.loadDetraining),
+              _stat(
+                'FORM',
+                widget.form,
+                widget.form != null && widget.form! >= 0
+                    ? AppColors.good
+                    : AppColors.warn,
+              ),
+            ],
+          ),
+          if (!_loading &&
+              (_fit.where((v) => v != null).length > 1 ||
+                  _fat.where((v) => v != null).length > 1)) ...[
+            const SizedBox(height: Sp.x4),
+            FormChart(fitness: _fit, fatigue: _fat),
+            const SizedBox(height: Sp.x2),
+            Row(
+              children: [
+                _legendDot(AppColors.coral),
+                Text(' Fitness   ', style: AppText.caption),
+                _legendDot(AppColors.loadDetraining),
+                Text(' Fatigue', style: AppText.caption),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
-  Widget _legendDot(Color c) => Container(width: 9, height: 9,
-      decoration: BoxDecoration(color: c, shape: BoxShape.circle));
+  Widget _legendDot(Color c) => Container(
+    width: 9,
+    height: 9,
+    decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+  );
 }

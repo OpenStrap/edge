@@ -58,6 +58,7 @@ class Ic {
   static const chart = HugeIcons.strokeRoundedChartLineData01;
   static const droplet = HugeIcons.strokeRoundedDroplet;
   static const run = HugeIcons.strokeRoundedRunningShoes;
+  static const weights = HugeIcons.strokeRoundedDumbbell01;
   static const bell = HugeIcons.strokeRoundedNotification03;
   static const thermometer = HugeIcons.strokeRoundedTemperature;
   static const ai = HugeIcons.strokeRoundedAiMagic;
@@ -99,9 +100,7 @@ class ProCard extends StatelessWidget {
         color: fill,
         borderRadius: BorderRadius.circular(R.card),
         boxShadow: resolvedShadow,
-        border: dark
-            ? Border.all(color: AppColors.divider, width: 1)
-            : null,
+        border: dark ? Border.all(color: AppColors.divider, width: 1) : null,
       ),
       child: child,
     );
@@ -150,7 +149,7 @@ class GlowCard extends StatelessWidget {
                   radius: 0.9,
                   colors: [
                     glowColor.withValues(alpha: glowAlpha),
-                    Colors.transparent
+                    Colors.transparent,
                   ],
                 ),
               ),
@@ -160,11 +159,7 @@ class GlowCard extends StatelessWidget {
         ],
       ),
     );
-    return ProCard(
-      padding: EdgeInsets.zero,
-      onTap: onTap,
-      child: body,
-    );
+    return ProCard(padding: EdgeInsets.zero, onTap: onTap, child: body);
   }
 }
 
@@ -181,12 +176,12 @@ class NightCard extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => ProCard(
-        padding: padding,
-        onTap: onTap,
-        color: AppColors.night,
-        shadow: Shadows.lift,
-        child: child,
-      );
+    padding: padding,
+    onTap: onTap,
+    color: AppColors.night,
+    shadow: Shadows.lift,
+    child: child,
+  );
 }
 
 /// Section header — overline/title + optional trailing action.
@@ -205,13 +200,16 @@ class SectionHeader extends StatelessWidget {
           if (trailing != null)
             GestureDetector(
               onTap: onTrailing,
-              child: Row(children: [
-                Text(trailing!,
-                    style: AppText.label.copyWith(color: AppColors.coralDeep)),
-                const SizedBox(width: 2),
-                AppIcon(Ic.arrowRight,
-                    size: 16, color: AppColors.coralDeep),
-              ]),
+              child: Row(
+                children: [
+                  Text(
+                    trailing!,
+                    style: AppText.label.copyWith(color: AppColors.coralDeep),
+                  ),
+                  const SizedBox(width: 2),
+                  AppIcon(Ic.arrowRight, size: 16, color: AppColors.coralDeep),
+                ],
+              ),
             ),
         ],
       ),
@@ -224,11 +222,12 @@ class SegToggle extends StatelessWidget {
   final List<String> options;
   final int index;
   final ValueChanged<int> onChanged;
-  const SegToggle(
-      {super.key,
-      required this.options,
-      required this.index,
-      required this.onChanged});
+  const SegToggle({
+    super.key,
+    required this.options,
+    required this.index,
+    required this.onChanged,
+  });
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -246,20 +245,24 @@ class SegToggle extends StatelessWidget {
             child: AnimatedContainer(
               duration: Motion.fast,
               curve: Motion.curve,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+              padding: const EdgeInsets.symmetric(
+                horizontal: Sp.x4,
+                vertical: Sp.x2,
+              ),
               decoration: BoxDecoration(
                 color: sel ? AppColors.ink : Colors.transparent,
                 borderRadius: BorderRadius.circular(R.pill),
               ),
-              child: Text(options[i],
-                  style: AppText.label.copyWith(
-                    // The selected pill is AppColors.ink (dark in light mode,
-                    // light in dark mode). The label must contrast with it:
-                    // AppColors.surface inverts correctly in both modes.
-                    color: sel ? AppColors.surface : AppColors.inkSoft,
-                    fontWeight: FontWeight.w700,
-                  )),
+              child: Text(
+                options[i],
+                style: AppText.label.copyWith(
+                  // The selected pill is AppColors.ink (dark in light mode,
+                  // light in dark mode). The label must contrast with it:
+                  // AppColors.surface inverts correctly in both modes.
+                  color: sel ? AppColors.surface : AppColors.inkSoft,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           );
         }),
@@ -273,7 +276,12 @@ class DeltaChip extends StatelessWidget {
   final num? pct;
   final String suffix;
   final bool goodIsUp; // for RHR, down is good → flip the color meaning
-  const DeltaChip(this.pct, {super.key, this.suffix = '', this.goodIsUp = true});
+  const DeltaChip(
+    this.pct, {
+    super.key,
+    this.suffix = '',
+    this.goodIsUp = true,
+  });
   @override
   Widget build(BuildContext context) {
     if (pct == null) return const SizedBox.shrink();
@@ -289,16 +297,23 @@ class DeltaChip extends StatelessWidget {
         color: c.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(R.pill),
       ),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        AppIcon(up ? Ic.up : Ic.down, size: 13, color: c),
-        const SizedBox(width: 2),
-        Flexible(
-          child: Text('${v.abs().toStringAsFixed(1)}%$suffix',
-              style: AppText.caption
-                  .copyWith(color: c, fontWeight: FontWeight.w700),
-              overflow: TextOverflow.ellipsis),
-        ),
-      ]),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AppIcon(up ? Ic.up : Ic.down, size: 13, color: c),
+          const SizedBox(width: 2),
+          Flexible(
+            child: Text(
+              '${v.abs().toStringAsFixed(1)}%$suffix',
+              style: AppText.caption.copyWith(
+                color: c,
+                fontWeight: FontWeight.w700,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -307,11 +322,17 @@ class DeltaChip extends StatelessWidget {
 /// colored by whether the move is good. Used on tiles + trend cards to show how
 /// today compares to the user's own baseline.
 class BaselineDeltaChip extends StatelessWidget {
-  final num? delta;       // signed, in the metric's unit
-  final String unit;      // e.g. 'bpm', 'ms', ''
-  final bool goodIsUp;    // RHR: down is good → false
+  final num? delta; // signed, in the metric's unit
+  final String unit; // e.g. 'bpm', 'ms', ''
+  final bool goodIsUp; // RHR: down is good → false
   final bool showVsNormal;
-  const BaselineDeltaChip(this.delta, {super.key, this.unit = '', this.goodIsUp = true, this.showVsNormal = true});
+  const BaselineDeltaChip(
+    this.delta, {
+    super.key,
+    this.unit = '',
+    this.goodIsUp = true,
+    this.showVsNormal = true,
+  });
   @override
   Widget build(BuildContext context) {
     if (delta == null) return const SizedBox.shrink();
@@ -323,10 +344,15 @@ class BaselineDeltaChip extends StatelessWidget {
         : (positive ? AppColors.good : AppColors.bad);
     final sign = up ? '+' : '−';
     final mag = v.abs();
-    final num shownMag = mag == mag.roundToDouble() ? mag.round() : (mag * 10).round() / 10;
+    final num shownMag = mag == mag.roundToDouble()
+        ? mag.round()
+        : (mag * 10).round() / 10;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: Sp.x2, vertical: 3),
-      decoration: BoxDecoration(color: c.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(R.pill)),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(R.pill),
+      ),
       child: Text(
         '$sign$shownMag${unit.isNotEmpty ? ' $unit' : ''}${showVsNormal ? ' vs normal' : ''}',
         style: AppText.caption.copyWith(color: c, fontWeight: FontWeight.w700),
@@ -394,13 +420,13 @@ class ConfDot extends StatelessWidget {
   const ConfDot(this.confidence, {super.key, this.size = 7});
   @override
   Widget build(BuildContext context) => Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: AppColors.confidenceColor(confidence),
-          shape: BoxShape.circle,
-        ),
-      );
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      color: AppColors.confidenceColor(confidence),
+      shape: BoxShape.circle,
+    ),
+  );
 }
 
 /// Small honesty label pill (EST. / BETA / REL.).
@@ -417,9 +443,14 @@ class Tag extends StatelessWidget {
         color: c.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(R.pill),
       ),
-      child: Text(text.toUpperCase(),
-          style: AppText.overline
-              .copyWith(color: c, fontSize: 9.5, letterSpacing: 0.8)),
+      child: Text(
+        text.toUpperCase(),
+        style: AppText.overline.copyWith(
+          color: c,
+          fontSize: 9.5,
+          letterSpacing: 0.8,
+        ),
+      ),
     );
   }
 
@@ -452,18 +483,18 @@ class RoundIconButton extends StatelessWidget {
   const RoundIconButton(this.icon, {super.key, this.onTap, this.bg, this.fg});
   @override
   Widget build(BuildContext context) => Material(
-        color: bg ?? AppColors.surface,
-        shape: const CircleBorder(),
-        elevation: 0,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(Sp.x3),
-            child: AppIcon(icon, size: 20, color: fg ?? AppColors.ink),
-          ),
-        ),
-      );
+    color: bg ?? AppColors.surface,
+    shape: const CircleBorder(),
+    elevation: 0,
+    child: InkWell(
+      customBorder: const CircleBorder(),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(Sp.x3),
+        child: AppIcon(icon, size: 20, color: fg ?? AppColors.ink),
+      ),
+    ),
+  );
 }
 
 /// A label/value list row used in detail sheets and profile sections.
@@ -473,13 +504,14 @@ class DetailRow extends StatelessWidget {
   final String value;
   final VoidCallback? onTap;
   final Widget? trailing;
-  const DetailRow(
-      {super.key,
-      this.icon,
-      required this.label,
-      required this.value,
-      this.onTap,
-      this.trailing});
+  const DetailRow({
+    super.key,
+    this.icon,
+    required this.label,
+    required this.value,
+    this.onTap,
+    this.trailing,
+  });
   @override
   Widget build(BuildContext context) {
     return InkWell(
@@ -487,28 +519,34 @@ class DetailRow extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: Sp.x3),
-        child: Row(children: [
-          if (icon != null) ...[
-            AppIcon(icon!, size: 19, color: AppColors.inkSoft),
-            const SizedBox(width: Sp.x3),
+        child: Row(
+          children: [
+            if (icon != null) ...[
+              AppIcon(icon!, size: 19, color: AppColors.inkSoft),
+              const SizedBox(width: Sp.x3),
+            ],
+            Text(label, style: AppText.body),
+            const Spacer(),
+            Text(value, style: AppText.body.copyWith(color: AppColors.inkSoft)),
+            if (trailing != null) ...[
+              const SizedBox(width: Sp.x2),
+              trailing!,
+            ] else if (onTap != null) ...[
+              const SizedBox(width: Sp.x2),
+              AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
+            ],
           ],
-          Text(label, style: AppText.body),
-          const Spacer(),
-          Text(value, style: AppText.body.copyWith(color: AppColors.inkSoft)),
-          if (trailing != null) ...[const SizedBox(width: Sp.x2), trailing!]
-          else if (onTap != null) ...[
-            const SizedBox(width: Sp.x2),
-            AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
-          ],
-        ]),
+        ),
       ),
     );
   }
 }
 
 /// Empty/placeholder line shown when a metric has no confident value.
-Widget metricDash([double size = 30]) => Text('—',
-    style: AppText.metric.copyWith(color: AppColors.inkMuted, fontSize: size));
+Widget metricDash([double size = 30]) => Text(
+  '—',
+  style: AppText.metric.copyWith(color: AppColors.inkMuted, fontSize: size),
+);
 
 /// Minute-level detail (hypnogram, 24h timelines, wear histogram) is retained for
 /// this many days; older days show the daily summary only. Keep in sync with the
@@ -533,16 +571,18 @@ class DetailRetentionNote extends StatelessWidget {
   const DetailRetentionNote({super.key, this.what = 'minute-by-minute detail'});
   @override
   Widget build(BuildContext context) => ProCard(
-        child: Row(children: [
-          AppIcon(Ic.clock, size: 20, color: AppColors.inkMuted),
-          const SizedBox(width: Sp.x3),
-          Expanded(
-            child: Text(
-              'Detailed $what is kept for the last $kDetailWindowDays days. '
-              'For older dates we show your daily summary.',
-              style: AppText.caption.copyWith(color: AppColors.inkSoft),
-            ),
+    child: Row(
+      children: [
+        AppIcon(Ic.clock, size: 20, color: AppColors.inkMuted),
+        const SizedBox(width: Sp.x3),
+        Expanded(
+          child: Text(
+            'Detailed $what is kept for the last $kDetailWindowDays days. '
+            'For older dates we show your daily summary.',
+            style: AppText.caption.copyWith(color: AppColors.inkSoft),
           ),
-        ]),
-      );
+        ),
+      ],
+    ),
+  );
 }

@@ -93,12 +93,12 @@ class LocalRepositoryImpl extends LocalRepository {
   bool _isTodayLabel(String date) =>
       date == DateTime.now().toUtc().toIso8601String().substring(0, 10);
 
-
   /// The bundle for a requested date: the exact day's row, or — only for the
   /// Today request — the latest complete day. A historical date with no row
   /// returns null (→ the caller's honest empty shape), not the latest.
   Future<Map<String, dynamic>?> _bundleForDate(String date) async =>
-      await _bundle(date) ?? (_isTodayLabel(date) ? await _latestBundle() : null);
+      await _bundle(date) ??
+      (_isTodayLabel(date) ? await _latestBundle() : null);
 
   static Map<String, dynamic>? _decode(Object? json) {
     if (json is! String) return null;
@@ -130,16 +130,19 @@ class LocalRepositoryImpl extends LocalRepository {
   /// A bare metric from a scalar (used where a screen reads a number directly).
   /// An optional [note] (e.g. a `need_baseline:…` string) is carried through so
   /// the UI can render "Need N more nights" for baseline-gated abstentions.
-  Map<String, dynamic> _scalarMetric(num? v, String tier,
-          {String? unit, String? note}) =>
-      {
-        'value': v ?? '—',
-        'confidence': v == null ? 0 : 0.8,
-        'tier': tier,
-        'inputs_used': const [],
-        'unit': ?unit,
-        'note': ?note,
-      };
+  Map<String, dynamic> _scalarMetric(
+    num? v,
+    String tier, {
+    String? unit,
+    String? note,
+  }) => {
+    'value': v ?? '—',
+    'confidence': v == null ? 0 : 0.8,
+    'tier': tier,
+    'inputs_used': const [],
+    'unit': ?unit,
+    'note': ?note,
+  };
 
   /// The `note` string of a metric envelope at [path] (e.g.
   /// 'clinical.readiness_composite'), or null. Used to surface the
@@ -167,8 +170,10 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> setStepGoal(int goal) async =>
-      {...?getProfileMap(), 'step_goal': goal};
+  Future<Map<String, dynamic>> setStepGoal(int goal) async => {
+    ...?getProfileMap(),
+    'step_goal': goal,
+  };
 
   // ── today ─────────────────────────────────────────────────────────────────
   // Shape per lib/models/payloads.dart TodayData: {daily:{…}, sleep:{…},
@@ -184,12 +189,13 @@ class LocalRepositoryImpl extends LocalRepository {
     final todayDay = todayFresh?['today_day']?.toString() ?? _todayLocalLabel();
     final todayBundle = await _bundle(todayDay);
     final overnightBundle = await _latestBundle();
-    final overnightState = todayFresh?['overnight_state']?.toString() ?? 'missing';
-    final activityState = todayFresh?['activity_state']?.toString() ?? 'missing';
+    final overnightState =
+        todayFresh?['overnight_state']?.toString() ?? 'missing';
+    final activityState =
+        todayFresh?['activity_state']?.toString() ?? 'missing';
     final showingPriorOvernight =
         todayFresh?['showing_prior_overnight'] == true;
-    final showOvernight =
-        overnightState == 'ready' || showingPriorOvernight;
+    final showOvernight = overnightState == 'ready' || showingPriorOvernight;
     final sleepBundle = showOvernight ? overnightBundle : null;
     final activityBundle = activityState == 'ready' ? todayBundle : null;
     final wakeFeatures = activityState == 'ready'
@@ -227,12 +233,17 @@ class LocalRepositoryImpl extends LocalRepository {
     // Readiness/recovery: when the composite abstains for lack of baseline, the
     // envelope carries a `need_baseline:have=H,need=N` note. Pass that note
     // through so the hero can render "Need N more nights" instead of a number.
-    final readinessScalar = showOvernight ? _scalar(sleepBundle, 'readiness') : null;
+    final readinessScalar = showOvernight
+        ? _scalar(sleepBundle, 'readiness')
+        : null;
     final readinessNote = readinessScalar == null && showOvernight
         ? _needNote(sleepBundle, 'clinical.readiness_composite')
         : null;
-    final readinessMetric =
-        _scalarMetric(readinessScalar, 'HIGH', note: readinessNote);
+    final readinessMetric = _scalarMetric(
+      readinessScalar,
+      'HIGH',
+      note: readinessNote,
+    );
     final daily = <String, dynamic>{
       'readiness': readinessMetric,
       'recovery': readinessMetric,
@@ -264,14 +275,13 @@ class LocalRepositoryImpl extends LocalRepository {
         'ESTIMATE',
         unit: 'kcal',
       ),
-      'calories_total':
-          _scalarMetric(
-            activityBundle == null
-                ? (wakeFeatures?['calories_total'] as num?)?.round()
-                : _scalar(activityBundle, 'calories_total')?.round(),
-            'ESTIMATE',
-            unit: 'kcal',
-          ),
+      'calories_total': _scalarMetric(
+        activityBundle == null
+            ? (wakeFeatures?['calories_total'] as num?)?.round()
+            : _scalar(activityBundle, 'calories_total')?.round(),
+        'ESTIMATE',
+        unit: 'kcal',
+      ),
       // STEPS — real 100 Hz count (streamed time) + 1 Hz walking estimate for the
       // rest; the derivation combines them and avoids double-counting.
       'steps': _scalarMetric(
@@ -295,16 +305,22 @@ class LocalRepositoryImpl extends LocalRepository {
       'daily': daily,
       'sleep': sleepBundle == null ? const {} : _sleepSummary(sleepBundle),
       if (sleepBundle != null && rhrEnv != null)
-        'nocturnal': _nocturnal(sleepBundle, baselineRhr: await _seriesMean('rhr')),
-      if (sleepBundle != null && resp['rsa'] is Map) 'resp': _respObj(sleepBundle),
+        'nocturnal': _nocturnal(
+          sleepBundle,
+          baselineRhr: await _seriesMean('rhr'),
+        ),
+      if (sleepBundle != null && resp['rsa'] is Map)
+        'resp': _respObj(sleepBundle),
       'hrv': hrv,
       'skin_temp': sleepBundle != null
           ? await _skinTempBlock(sleepBundle)
           : const {'value': null},
       // Stress (Baevsky SI → 0–100 score block) + relative SpO₂ (desat index),
       // both emitted by the pipeline. The Today tiles + stress screen read these.
-      if (sleepBundle != null && sleepBundle['stress'] is Map) 'stress': sleepBundle['stress'],
-      if (sleepBundle != null && sleepBundle['spo2'] is Map) 'spo2': sleepBundle['spo2'],
+      if (sleepBundle != null && sleepBundle['stress'] is Map)
+        'stress': sleepBundle['stress'],
+      if (sleepBundle != null && sleepBundle['spo2'] is Map)
+        'spo2': sleepBundle['spo2'],
       if (activityBundle != null && activityBundle['activity'] is Map)
         'activity': activityBundle['activity'],
       if (activityBundle == null && wakeFeatures?['activity'] is Map)
@@ -323,7 +339,8 @@ class LocalRepositoryImpl extends LocalRepository {
         'overnight_state': overnightState,
         'overnight_day': todayFresh?['overnight_day'],
         'overnight_computed_at': todayFresh?['overnight_computed_at'],
-        'showing_prior_overnight': todayFresh?['showing_prior_overnight'] == true,
+        'showing_prior_overnight':
+            todayFresh?['showing_prior_overnight'] == true,
       },
       'step_goal': await _stepGoal(),
     };
@@ -339,7 +356,9 @@ class LocalRepositoryImpl extends LocalRepository {
   num? _wearMin(Map<String, dynamic> b) {
     final cov = _sub(b, 'coverage');
     final hr = (cov?['hr_valid'] as num?)?.toInt();
-    return hr == null ? null : (hr / 60).round(); // 1 Hz valid samples → minutes
+    return hr == null
+        ? null
+        : (hr / 60).round(); // 1 Hz valid samples → minutes
   }
 
   Map<String, dynamic> _sleepSummary(Map<String, dynamic> b) {
@@ -350,7 +369,11 @@ class LocalRepositoryImpl extends LocalRepository {
     final eff = (acct?['efficiency_pct'] as num?);
     if (tst == null) return const {};
     return {
-      'duration_min': _scalarMetric((tst / 60).round(), 'ESTIMATE', unit: 'min'),
+      'duration_min': _scalarMetric(
+        (tst / 60).round(),
+        'ESTIMATE',
+        unit: 'min',
+      ),
       'efficiency': _scalarMetric(eff, 'ESTIMATE', unit: '%'),
     };
   }
@@ -362,8 +385,9 @@ class LocalRepositoryImpl extends LocalRepository {
     final waking = _scalar(b, 'waking_hr'); // waking-span mean HR
     // vs baseline: tonight's sleeping HR minus the personal rhr baseline. Null
     // (→ "Need N nights") until a baseline exists; never fabricated.
-    final vsBase =
-        (rhr != null && baselineRhr != null) ? (rhr - baselineRhr) : null;
+    final vsBase = (rhr != null && baselineRhr != null)
+        ? (rhr - baselineRhr)
+        : null;
     // Elevated sleeping HR = ≥ baseline + 4 bpm (calcNocturnalHeart rule); false
     // until a baseline exists.
     final elevated =
@@ -374,8 +398,9 @@ class LocalRepositoryImpl extends LocalRepository {
       'sleeping_hr_avg': rhr?.round(),
       'sleeping_hr_min': nadir?.round(),
       'day_hr_avg': waking?.round(),
-      'vs_baseline_bpm':
-          vsBase == null ? null : double.parse(vsBase.toStringAsFixed(1)),
+      'vs_baseline_bpm': vsBase == null
+          ? null
+          : double.parse(vsBase.toStringAsFixed(1)),
       'dip_pct': dip == null ? null : dip / 100.0,
       'nadir_ts': _scalar(b, 'sleeping_hr_nadir_ts')?.toInt(),
       'elevated': elevated,
@@ -435,6 +460,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'daytime_hrv': b['daytime_hrv'],
       'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
       'resp': _respObj(b),
+      'spo2': _sub(b, 'respiration.odi'),
       // Illness watch (CUSUM/NightSignal) — carries `note` (need_baseline) while
       // baseline is short, so the card can say "Need N more nights".
       'illness': cd?['illness'],
@@ -484,6 +510,7 @@ class LocalRepositoryImpl extends LocalRepository {
       final v = acct?[k] as num?;
       return v == null ? null : (v / 60).round();
     }
+
     final sleepConf = _sub(b, 'sleep.accounting')?['confidence'] as num?;
     return {
       // Shape matches sleep_detail_screen's contract exactly.
@@ -511,7 +538,8 @@ class LocalRepositoryImpl extends LocalRepository {
       // exists. Debt = need − actual TST (≥0). Never null so the gauge always reads.
       'need_min': 480,
       'debt_min': ((480 - (tst / 60)).clamp(0, 480)).round(),
-      'regularity': null, // needs ≥several nights (honest null → "Need N nights")
+      'regularity':
+          null, // needs ≥several nights (honest null → "Need N nights")
       // Sleep periods (main + naps) for the periods screen.
       'periods': (b['sleep_periods'] as Map?)?['periods'] ?? const [],
       'total_asleep_min': (b['sleep_periods'] as Map?)?['total_asleep_min'],
@@ -562,10 +590,22 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> getDayLungs(String date) async {
     final b = await _bundleForDate(date);
     if (b == null) return const {};
+    final sleepWin = _sub(b, 'sleep.window.value');
     return {
       'resp': _respObj(b),
       'cvhr': _sub(b, 'respiration.cvhr_apnea'),
-      'spo2': _sub(b, 'respiration.odi'), // relative desaturation screen; never an absolute %
+      'spo2': _sub(
+        b,
+        'respiration.odi',
+      ), // relative desaturation screen; never an absolute %
+      'sleep_window': {
+        'start': (sleepWin?['onset_ms'] as num?) == null
+            ? null
+            : ((sleepWin!['onset_ms'] as num) / 1000).round(),
+        'end': (sleepWin?['offset_ms'] as num?) == null
+            ? null
+            : ((sleepWin!['offset_ms'] as num) / 1000).round(),
+      },
     };
   }
 
@@ -578,10 +618,13 @@ class LocalRepositoryImpl extends LocalRepository {
     final total = (cov?['hr_samples'] as num?)?.toInt() ?? 0;
     // Wear block (on/off segments, first/last on, longest off) computed in the
     // engine; fall back to the coverage counts when absent.
-    final w = b['wear'] is Map ? (b['wear'] as Map).cast<String, dynamic>() : null;
+    final w = b['wear'] is Map
+        ? (b['wear'] as Map).cast<String, dynamic>()
+        : null;
     return {
       'worn_min': (w?['worn_min'] as num?)?.toInt() ?? (valid / 60).round(),
-      'coverage_pct': (w?['coverage_pct'] as num?)?.toInt() ??
+      'coverage_pct':
+          (w?['coverage_pct'] as num?)?.toInt() ??
           (total == 0 ? 0 : (100 * valid / total).round()),
       'segments': w?['segments'] ?? const [],
       'first_on': w?['first_on'],
@@ -600,8 +643,9 @@ class LocalRepositoryImpl extends LocalRepository {
     final b = await _bundleForDate(date);
     if (b == null) return const {};
 
-    final stressBlk =
-        b['stress'] is Map ? (b['stress'] as Map).cast<String, dynamic>() : null;
+    final stressBlk = b['stress'] is Map
+        ? (b['stress'] as Map).cast<String, dynamic>()
+        : null;
     num? score = (stressBlk?['score'] as num?);
     String? level = stressBlk?['level'] as String?;
     final si = (stressBlk?['si'] as num?);
@@ -614,7 +658,8 @@ class LocalRepositoryImpl extends LocalRepository {
       }
     }
 
-    final lfHf = (stressBlk?['lf_hf'] as num?) ??
+    final lfHf =
+        (stressBlk?['lf_hf'] as num?) ??
         (_sub(b, 'clinical.hrv_freq.value')?['lf_hf'] as num?);
     final rmssd = (stressBlk?['rmssd'] as num?) ?? _scalar(b, 'rmssd');
     final hrCurve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
@@ -629,7 +674,10 @@ class LocalRepositoryImpl extends LocalRepository {
         if (d is Map) {
           final label = (d['label'] ?? '').toString();
           if (label.isEmpty) continue;
-          drivers.add({'label': label, 'detail': (d['detail'] ?? '').toString()});
+          drivers.add({
+            'label': label,
+            'detail': (d['detail'] ?? '').toString(),
+          });
         }
       }
     }
@@ -680,8 +728,7 @@ class LocalRepositoryImpl extends LocalRepository {
         'z5': (zones?['z5'] as num?)?.toInt() ?? 0,
       },
       'curve': [
-        for (final p in curve.whereType<Map>())
-          {'t': p['t'], 'v': p['v']},
+        for (final p in curve.whereType<Map>()) {'t': p['t'], 'v': p['v']},
       ],
       'zone_timeline': [
         for (final p in zoneTimeline.whereType<Map>())
@@ -754,7 +801,10 @@ class LocalRepositoryImpl extends LocalRepository {
       for (final e in allEvents)
         if (((e['ts'] as num?)?.toInt() ?? -1) >= dayStart &&
             ((e['ts'] as num?)?.toInt() ?? -1) < dayEnd)
-          {'event_id': (e['event_id'] as num?)?.toInt(), 'ts': (e['ts'] as num?)?.toInt()},
+          {
+            'event_id': (e['event_id'] as num?)?.toInt(),
+            'ts': (e['ts'] as num?)?.toInt(),
+          },
     ];
 
     // Daytime naps (principled detectNaps) as their own bands on the timeline.
@@ -767,7 +817,7 @@ class LocalRepositoryImpl extends LocalRepository {
               'start': (nMap['start'] as num).toInt(),
               'end': (nMap['end'] as num).toInt(),
               'duration_min': (nMap['duration_min'] as num?)?.toInt(),
-            }
+            },
     ];
 
     // HRV line. Prefer the ALL-DAY series (`series.hrv_day`, already epoch-
@@ -798,7 +848,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // window can't flatten the whole line. Covers old data + the sleep fallback.
     hrvLine = [
       for (final e in hrvLine)
-        if ((e['v'] as num) >= 5 && (e['v'] as num) <= 220) e
+        if ((e['v'] as num) >= 5 && (e['v'] as num) <= 220) e,
     ];
 
     // Day HR average (from the curve) for the overview stats.
@@ -838,7 +888,9 @@ class LocalRepositoryImpl extends LocalRepository {
   int _localMidnightSec(String ymd) {
     final p = ymd.split('-');
     if (p.length != 3) return 0;
-    final y = int.tryParse(p[0]), m = int.tryParse(p[1]), d = int.tryParse(p[2]);
+    final y = int.tryParse(p[0]),
+        m = int.tryParse(p[1]),
+        d = int.tryParse(p[2]);
     if (y == null || m == null || d == null) return 0;
     return DateTime(y, m, d).millisecondsSinceEpoch ~/ 1000;
   }
@@ -860,7 +912,7 @@ class LocalRepositoryImpl extends LocalRepository {
         'duration_min': (tst / 60).round(),
         'efficiency': acct?['efficiency_pct'],
         'flags': {
-          'duration': {'c': 0.6, 'tier': 'ESTIMATE', 'beta': true}
+          'duration': {'c': 0.6, 'tier': 'ESTIMATE', 'beta': true},
         },
       });
     }
@@ -880,7 +932,7 @@ class LocalRepositoryImpl extends LocalRepository {
             return _scalar(b, 'strain');
           })(),
           'flags': const {},
-        }
+        },
     ];
   }
 
@@ -893,7 +945,8 @@ class LocalRepositoryImpl extends LocalRepository {
     // for sessions saved after the day was derived).
     final now = DateTime.now();
     final nowSec = now.millisecondsSinceEpoch ~/ 1000;
-    final fromSec = from ??
+    final fromSec =
+        from ??
         now.subtract(const Duration(days: 31)).millisecondsSinceEpoch ~/ 1000;
     final toSec = to ?? nowSec;
 
@@ -929,8 +982,11 @@ class LocalRepositoryImpl extends LocalRepository {
     }
 
     final all = [...manual, ...detected];
-    all.sort((a, b) => ((b['start_ts'] as num?) ?? 0)
-        .compareTo((a['start_ts'] as num?) ?? 0));
+    all.sort(
+      (a, b) => ((b['start_ts'] as num?) ?? 0).compareTo(
+        (a['start_ts'] as num?) ?? 0,
+      ),
+    );
     return all;
   }
 
@@ -939,7 +995,8 @@ class LocalRepositoryImpl extends LocalRepository {
   Map<String, dynamic> _detectedWorkoutOf(Map dw, String? date) {
     final start = (dw['start'] as num?)?.toInt();
     final end = (dw['end'] as num?)?.toInt();
-    final durS = (dw['duration_s'] as num?)?.toDouble() ??
+    final durS =
+        (dw['duration_s'] as num?)?.toDouble() ??
         ((start != null && end != null) ? (end - start).toDouble() : null);
     final sport = (dw['sport'] as String?) ?? 'detected';
     return {
@@ -970,16 +1027,19 @@ class LocalRepositoryImpl extends LocalRepository {
             'readiness': r['readiness'],
             'resting_hr': r['rhr'],
             'rmssd': r['rmssd'],
-          }
-      ]
+          },
+      ],
     };
   }
 
   // ── trends + records + charts ──────────────────────────────────────────────
 
   @override
-  Future<Map<String, dynamic>> getTrend(String metric,
-      {String scale = 'week', String? anchor}) async {
+  Future<Map<String, dynamic>> getTrend(
+    String metric, {
+    String scale = 'week',
+    String? anchor,
+  }) async {
     final key = _trendKey(metric);
     final rows = await LocalDb.metricSeries(key); // ascending by date
     final byDate = <String, double>{};
@@ -988,7 +1048,9 @@ class LocalRepositoryImpl extends LocalRepository {
       if (v != null) byDate[r['date'] as String] = v;
     }
     final (unit, label) = _unitLabel(metric);
-    final base = {'baseline': {'resting_hr': await _seriesMean('rhr')}};
+    final base = {
+      'baseline': {'resting_hr': await _seriesMean('rhr')},
+    };
     if (byDate.isEmpty) {
       return {'buckets': const [], 'unit': unit, 'label': label, ...base};
     }
@@ -997,15 +1059,19 @@ class LocalRepositoryImpl extends LocalRepository {
       final p = s.split('-');
       return DateTime.utc(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
     }
+
     int secOf(DateTime d) => d.millisecondsSinceEpoch ~/ 1000;
-    String ymd(DateTime d) => '${d.year.toString().padLeft(4, '0')}-'
+    String ymd(DateTime d) =>
+        '${d.year.toString().padLeft(4, '0')}-'
         '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
     double? meanOf(Iterable<double> xs) {
       final l = xs.toList();
       return l.isEmpty ? null : l.reduce((a, b) => a + b) / l.length;
     }
 
-    final anchorDay = anchor != null ? parseD(anchor) : parseD(rows.last['date'] as String);
+    final anchorDay = anchor != null
+        ? parseD(anchor)
+        : parseD(rows.last['date'] as String);
 
     // Mean of the metric over [start, endInclusive] calendar days.
     double? windowMean(DateTime start, DateTime endIncl) {
@@ -1048,9 +1114,20 @@ class LocalRepositoryImpl extends LocalRepository {
     } else {
       // quarter → 3 monthly buckets (mean of each calendar month).
       for (var mo = 2; mo >= 0; mo--) {
-        final monthStart = DateTime.utc(anchorDay.year, anchorDay.month - mo, 1);
-        final nextMonth = DateTime.utc(monthStart.year, monthStart.month + 1, 1);
-        final m = windowMean(monthStart, nextMonth.subtract(const Duration(days: 1)));
+        final monthStart = DateTime.utc(
+          anchorDay.year,
+          anchorDay.month - mo,
+          1,
+        );
+        final nextMonth = DateTime.utc(
+          monthStart.year,
+          monthStart.month + 1,
+          1,
+        );
+        final m = windowMean(
+          monthStart,
+          nextMonth.subtract(const Duration(days: 1)),
+        );
         buckets.add({
           'value': m ?? 0.0,
           'has': m != null,
@@ -1061,11 +1138,17 @@ class LocalRepositoryImpl extends LocalRepository {
     }
 
     // Summary: avg over present buckets + delta vs the immediately-prior window.
-    final present = [for (final b in buckets) if (b['has'] == true) b['value'] as double];
+    final present = [
+      for (final b in buckets)
+        if (b['has'] == true) b['value'] as double,
+    ];
     final avg = meanOf(present);
     final spanDays = scale == 'week' ? 7 : (scale == 'month' ? 28 : 90);
     final prevEnd = anchorDay.subtract(Duration(days: spanDays));
-    final prevAvg = windowMean(prevEnd.subtract(Duration(days: spanDays - 1)), prevEnd);
+    final prevAvg = windowMean(
+      prevEnd.subtract(Duration(days: spanDays - 1)),
+      prevEnd,
+    );
     final delta = (avg != null && prevAvg != null) ? avg - prevAvg : null;
 
     return {
@@ -1074,7 +1157,9 @@ class LocalRepositoryImpl extends LocalRepository {
       'label': label,
       'summary': {
         'avg': avg == null ? null : double.parse(avg.toStringAsFixed(1)),
-        'delta_vs_prev': delta == null ? null : double.parse(delta.toStringAsFixed(1)),
+        'delta_vs_prev': delta == null
+            ? null
+            : double.parse(delta.toStringAsFixed(1)),
         'total': present.length,
       },
       ...base,
@@ -1095,7 +1180,7 @@ class LocalRepositoryImpl extends LocalRepository {
       case 'stress':
         return ('', 'stress');
       case 'spo2':
-        return ('dips/h', 'blood O₂');
+        return ('dips/h', 'oxygen dips');
       case 'sleep':
         return ('h', 'sleep');
       case 'active_min':
@@ -1167,7 +1252,11 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
-  Future<Map<String, dynamic>> getChart(String metric, {int? from, int? to}) async {
+  Future<Map<String, dynamic>> getChart(
+    String metric, {
+    int? from,
+    int? to,
+  }) async {
     if (metric == 'hr') {
       final b = await _latestBundle();
       return {'points': (_sub(b, 'series')?['hr_curve'] as List?) ?? const []};
@@ -1176,13 +1265,14 @@ class LocalRepositoryImpl extends LocalRepository {
     return {
       'points': [
         for (final r in rows)
-          {'t': _dateToEpoch(r['date'] as String), 'v': r['value']}
-      ]
+          {'t': _dateToEpoch(r['date'] as String), 'v': r['value']},
+      ],
     };
   }
 
   int _dateToEpoch(String date) =>
-      (DateTime.tryParse('$date 12:00:00')?.millisecondsSinceEpoch ?? 0) ~/ 1000;
+      (DateTime.tryParse('$date 12:00:00')?.millisecondsSinceEpoch ?? 0) ~/
+      1000;
 
   @override
   Future<Map<String, dynamic>> getRecords() async {
@@ -1277,13 +1367,16 @@ class LocalRepositoryImpl extends LocalRepository {
       case 'all':
         return 0;
       case 'week':
-        return now.subtract(const Duration(days: 7)).millisecondsSinceEpoch ~/ 1000;
+        return now.subtract(const Duration(days: 7)).millisecondsSinceEpoch ~/
+            1000;
       case 'quarter':
       case '3m':
-        return now.subtract(const Duration(days: 90)).millisecondsSinceEpoch ~/ 1000;
+        return now.subtract(const Duration(days: 90)).millisecondsSinceEpoch ~/
+            1000;
       case 'month':
       default:
-        return now.subtract(const Duration(days: 31)).millisecondsSinceEpoch ~/ 1000;
+        return now.subtract(const Duration(days: 31)).millisecondsSinceEpoch ~/
+            1000;
     }
   }
 
@@ -1297,7 +1390,10 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<void> deleteWorkout(String id) async => LocalDb.deleteSession(id);
 
   @override
-  Future<Map<String, dynamic>> startWorkout(String type, {String? title}) async {
+  Future<Map<String, dynamic>> startWorkout(
+    String type, {
+    String? title,
+  }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     final id = 'w$nowMs';
     await LocalDb.putSession({
@@ -1345,7 +1441,7 @@ class LocalRepositoryImpl extends LocalRepository {
           'date': r['date'],
           'tags': _decodeStrList(r['tags_json']),
           'note': (r['note'] as String?) ?? '',
-        }
+        },
     ];
   }
 
@@ -1357,7 +1453,9 @@ class LocalRepositoryImpl extends LocalRepository {
   /// For each distinct tag in the window, compare mean readiness on tagged days
   /// vs the window mean and emit a metric-delta card (only when n_with >= 2).
   @override
-  Future<Map<String, dynamic>> getJournalInsights({String range = '90d'}) async {
+  Future<Map<String, dynamic>> getJournalInsights({
+    String range = '90d',
+  }) async {
     final since = _rangeSinceLabel(range);
     final journal = await LocalDb.journalRows(sinceDaysEpoch: since);
     if (journal.isEmpty) return const {'insights': []};
@@ -1366,10 +1464,25 @@ class LocalRepositoryImpl extends LocalRepository {
     // metric_series and indexed by date. Direction (does HIGHER help?) is encoded
     // per outcome so the UI can phrase "+/− your recovery".
     const outcomeDefs = <Map<String, dynamic>>[
-      {'key': 'readiness', 'label': 'Recovery', 'higherBetter': true, 'unit': ''},
+      {
+        'key': 'readiness',
+        'label': 'Recovery',
+        'higherBetter': true,
+        'unit': '',
+      },
       {'key': 'rmssd', 'label': 'HRV', 'higherBetter': true, 'unit': 'ms'},
-      {'key': 'rhr', 'label': 'Resting HR', 'higherBetter': false, 'unit': 'bpm'},
-      {'key': 'efficiency', 'label': 'Sleep efficiency', 'higherBetter': true, 'unit': '%'},
+      {
+        'key': 'rhr',
+        'label': 'Resting HR',
+        'higherBetter': false,
+        'unit': 'bpm',
+      },
+      {
+        'key': 'efficiency',
+        'label': 'Sleep efficiency',
+        'higherBetter': true,
+        'unit': '%',
+      },
     ];
 
     // date → value maps for each outcome.
@@ -1388,9 +1501,8 @@ class LocalRepositoryImpl extends LocalRepository {
     // sorted oldest-first — the shared index for journal + outcome arrays.
     final dates = <String>{
       for (final j in journal)
-        if (j['date'] is String) j['date'] as String
-    }.toList()
-      ..sort();
+        if (j['date'] is String) j['date'] as String,
+    }.toList()..sort();
     if (dates.length < 4) return const {'insights': []};
 
     final tagsByDate = <String, Set<String>>{};
@@ -1400,11 +1512,11 @@ class LocalRepositoryImpl extends LocalRepository {
       (tagsByDate[d] ??= <String>{}).addAll(_decodeStrList(j['tags_json']));
     }
     final jdays = <ana.JournalDay>[
-      for (final d in dates) ana.JournalDay(d, tagsByDate[d] ?? const {})
+      for (final d in dates) ana.JournalDay(d, tagsByDate[d] ?? const {}),
     ];
     final outcomes = <String, List<double?>>{
       for (final od in outcomeDefs)
-        (od['key'] as String): [for (final d in dates) maps[od['key']]![d]]
+        (od['key'] as String): [for (final d in dates) maps[od['key']]![d]],
     };
 
     final corr = ana.journalCorrelations(
@@ -1415,12 +1527,15 @@ class LocalRepositoryImpl extends LocalRepository {
 
     // Flatten to UI rows: one row per (tag, outcome) that is meaningful, phrased
     // by the outcome's direction. Sorted by absolute effect, strongest first.
-    final unitOf = {for (final od in outcomeDefs) od['key'] as String: od['unit']};
+    final unitOf = {
+      for (final od in outcomeDefs) od['key'] as String: od['unit'],
+    };
     final betterOf = {
-      for (final od in outcomeDefs) od['key'] as String: od['higherBetter'] as bool
+      for (final od in outcomeDefs)
+        od['key'] as String: od['higherBetter'] as bool,
     };
     final labelOf = {
-      for (final od in outcomeDefs) od['key'] as String: od['label'] as String
+      for (final od in outcomeDefs) od['key'] as String: od['label'] as String,
     };
     final insights = <Map<String, dynamic>>[];
     for (final tc in corr) {
@@ -1443,13 +1558,17 @@ class LocalRepositoryImpl extends LocalRepository {
         });
       }
     }
-    insights.sort((a, b) =>
-        (b['delta_pct'] as double).abs().compareTo((a['delta_pct'] as double).abs()));
+    insights.sort(
+      (a, b) => (b['delta_pct'] as double).abs().compareTo(
+        (a['delta_pct'] as double).abs(),
+      ),
+    );
     return {'insights': insights};
   }
 
-  List<String> _decodeStrList(Object? json) =>
-      [for (final e in _decodeList(json)) e.toString()];
+  List<String> _decodeStrList(Object? json) => [
+    for (final e in _decodeList(json)) e.toString(),
+  ];
 
   /// A YYYY-MM-DD lower-bound label for a '30d'/'90d'/'7d'-style range, or null
   /// (no bound) for 'all'.
@@ -1469,15 +1588,18 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> getCycle() async {
     final enabled = getProfileMap()?['track_cycle'] == true;
     if (!enabled) {
-      return {'enabled': false, 'note': 'Enable cycle tracking in your profile.'};
+      return {
+        'enabled': false,
+        'note': 'Enable cycle tracking in your profile.',
+      };
     }
     final rows = await LocalDb.cycleLogs(); // oldest first
     final logs = [
-      for (final r in rows) {'date': r['date'], 'kind': r['kind']}
+      for (final r in rows) {'date': r['date'], 'kind': r['kind']},
     ];
     final startDates = [
       for (final r in rows)
-        if (r['kind'] == 'start') r['date'] as String
+        if (r['kind'] == 'start') r['date'] as String,
     ];
 
     // Mean cycle length = mean of gaps (days) between consecutive starts.
@@ -1495,7 +1617,9 @@ class LocalRepositoryImpl extends LocalRepository {
     }
 
     final lastStartStr = startDates.isEmpty ? null : startDates.last;
-    final lastStart = lastStartStr == null ? null : DateTime.tryParse(lastStartStr);
+    final lastStart = lastStartStr == null
+        ? null
+        : DateTime.tryParse(lastStartStr);
     final today = DateTime.now();
     int? cycleDay;
     if (lastStart != null) {
@@ -1510,8 +1634,11 @@ class LocalRepositoryImpl extends LocalRepository {
       final next = lastStart.add(Duration(days: meanLength.round()));
       predictedNext = _ymd(next);
       final t0 = DateTime(today.year, today.month, today.day);
-      daysUntilNext =
-          DateTime(next.year, next.month, next.day).difference(t0).inDays;
+      daysUntilNext = DateTime(
+        next.year,
+        next.month,
+        next.day,
+      ).difference(t0).inDays;
     }
 
     // Phase + fertile window — only when meanLength is known (else honest unknown).
@@ -1556,9 +1683,11 @@ class LocalRepositoryImpl extends LocalRepository {
         if (lastStart != null) {
           final d = DateTime.tryParse(dt);
           if (d != null) {
-            cd = DateTime(d.year, d.month, d.day)
-                    .difference(DateTime(
-                        lastStart.year, lastStart.month, lastStart.day))
+            cd =
+                DateTime(d.year, d.month, d.day)
+                    .difference(
+                      DateTime(lastStart.year, lastStart.month, lastStart.day),
+                    )
                     .inDays +
                 1;
           }
@@ -1603,17 +1732,24 @@ class LocalRepositoryImpl extends LocalRepository {
       '${d.day.toString().padLeft(2, '0')}';
 
   @override
-  Future<void> postCycleLog(String date, {String kind = 'start', String? note}) async {
+  Future<void> postCycleLog(
+    String date, {
+    String kind = 'start',
+    String? note,
+  }) async {
     await LocalDb.putCycleLog(date, kind, note: note);
   }
 
   @override
-  Future<void> deleteCycleLog(String date) async => LocalDb.deleteCycleLog(date);
+  Future<void> deleteCycleLog(String date) async =>
+      LocalDb.deleteCycleLog(date);
 
   @override
-  Future<void> postCycleSymptoms(String date, List<String> symptoms,
-          {String? note}) async =>
-      LocalDb.putCycleSymptoms(date, symptoms, note: note);
+  Future<void> postCycleSymptoms(
+    String date,
+    List<String> symptoms, {
+    String? note,
+  }) async => LocalDb.putCycleSymptoms(date, symptoms, note: note);
 
   @override
   Future<Map<String, List<String>>> getCycleSymptoms() async {
@@ -1648,7 +1784,7 @@ class LocalRepositoryImpl extends LocalRepository {
             'date': r['date'],
             'created_at': r['created_at'],
             'read': (r['read'] as num?) == 1,
-          }
+          },
       ],
     };
   }
@@ -1742,7 +1878,7 @@ class LocalRepositoryImpl extends LocalRepository {
   num? _avgHr(List hrCurve) {
     final vs = [
       for (final e in hrCurve)
-        if (e is Map && e['v'] is num && (e['v'] as num) > 0) (e['v'] as num)
+        if (e is Map && e['v'] is num && (e['v'] as num) > 0) (e['v'] as num),
     ];
     if (vs.isEmpty) return null;
     return (vs.reduce((a, b) => a + b) / vs.length).round();
