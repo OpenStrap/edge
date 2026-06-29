@@ -72,8 +72,9 @@ class NotificationService {
   // ── Fixed ids: device alerts + scheduled reminders (disjoint low band) ───────
   static const int idLowBattery = 1001;
   static const int idCharging = 1002;
-  static const int idWindDown = 2002; // scheduled daily
+  static const int idWindDown = 2002; // scheduled daily ("time to sleep")
   static const int idWeeklyRecap = 2003; // scheduled weekly
+  static const int idJournalLog = 2004; // scheduled daily ("log your day")
 
   /// Reserved for a future server/push layer (unused — app is cloud-free).
   static const int kServerIdBase = 2000;

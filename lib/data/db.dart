@@ -159,9 +159,53 @@ class LocalDb {
           await db.execute("DELETE FROM metric_series WHERE key = 'active_min'");
           await db.execute("DELETE FROM metric_series WHERE key = 'steps'");
         }
+        if (oldV < 14) {
+          // Menstrual symptom log (full cycle screen) — one row per date, a JSON
+          // list of symptom tags + optional note. Separate from cycle_log (whose
+          // `date` PK is a period-start marker) so a date can carry both.
+          await _createCycleSymptom(db);
+        }
       },
-      version: 13,
+      version: 14,
     );
+  }
+
+  // ── MENSTRUAL SYMPTOM LOG ──────────────────────────────────────────────────
+  static Future<void> _createCycleSymptom(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cycle_symptom (
+        date TEXT PRIMARY KEY,
+        symptoms_json TEXT NOT NULL,
+        note TEXT,
+        updated_at INTEGER
+      )
+    ''');
+  }
+
+  /// Upsert the symptom set for [date] (empty list clears the row).
+  static Future<void> putCycleSymptoms(
+      String date, List<String> symptoms, {String? note}) async {
+    final db = await instance;
+    if (symptoms.isEmpty && (note == null || note.isEmpty)) {
+      await db.delete('cycle_symptom', where: 'date = ?', whereArgs: [date]);
+      return;
+    }
+    await db.insert(
+      'cycle_symptom',
+      {
+        'date': date,
+        'symptoms_json': jsonEncode(symptoms),
+        'note': note,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// All symptom rows (newest first): {date, symptoms_json, note}.
+  static Future<List<Map<String, dynamic>>> cycleSymptoms() async {
+    final db = await instance;
+    return db.query('cycle_symptom', orderBy: 'date DESC');
   }
 
   // ── RESUMABLE-SYNC CURSOR (durable KV) ──────────────────────────────────────

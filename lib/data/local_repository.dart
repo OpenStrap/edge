@@ -109,6 +109,11 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: postCycleLog');
   Future<void> deleteCycleLog(String date) =>
       throw UnimplementedError('re-layer: deleteCycleLog');
+  Future<void> postCycleSymptoms(String date, List<String> symptoms,
+          {String? note}) =>
+      throw UnimplementedError('re-layer: postCycleSymptoms');
+  Future<Map<String, List<String>>> getCycleSymptoms() =>
+      throw UnimplementedError('re-layer: getCycleSymptoms');
 
   // ── notifications feed ──────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getNotifications() =>

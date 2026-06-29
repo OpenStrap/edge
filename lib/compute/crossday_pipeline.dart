@@ -92,7 +92,10 @@ Map<String, dynamic> buildCrossDayBundle(
     if (dur != null) allDurH.add(dur);
     if (onset == null || wake == null) continue;
     final midSec = (onset + wake) / 2.0;
-    final midH = (midSec % 86400.0) / 3600.0; // local clock-hours [0,24)
+    // LOCAL clock-hours [0,24). onset/wake are epoch SECONDS (UTC); `% 86400`
+    // would give the UTC time-of-day, not the user's wall clock — convert via a
+    // local DateTime so a UTC+5:30 user's 08:00 wake reads as 08:00, not 02:30.
+    final midH = _localTodMin(midSec.round()) / 60.0;
     final free = _isFreeDay(d['date'] as String?);
     if (free) {
       freeMidH.add(midH);
@@ -147,6 +150,98 @@ Map<String, dynamic> buildCrossDayBundle(
   // ── true Phillips SRI across days on a 1440-epoch (1-min) clock grid ───────
   final sri = _crossDaySri(days);
 
+  // ── SLEEP COACH: need (baseline + debt + strain − naps) + performance +
+  //    recommended bedtime + cycle-aligned wake (all forward-looking for tonight).
+  // baseline need = the personal OSD (from sleepDebt) when known, else 8 h.
+  final osdH = sleepDebt.present ? sleepDebt.value!.osdHours : null;
+  // Personal optimal sleep duration, but floored/capped to a physiological band:
+  // the OSD estimate is noisy with few nights and can read implausibly low
+  // (e.g. 5.6 h), which would push the recommended bedtime far too late. Adults
+  // need ~7–9.5 h; clamp into that range (default 8 h when no estimate).
+  final baselineNeedSec = ((osdH ?? 8.0).clamp(7.0, 9.5)) * 3600.0;
+  final debtSec =
+      (sleepDebt.present ? (sleepDebt.value!.debtHours ?? 0.0) : 0.0) * 3600.0;
+  final todayStrain = _lastNum(days, 'strain') ?? 0.0;
+  final todayNapSec = (_lastNum(days, 'nap_min') ?? 0.0) * 60.0;
+  final need = ana.sleepNeed(
+    baselineNeedSec: baselineNeedSec,
+    sleepDebtSec: debtSec < 0 ? 0.0 : debtSec,
+    dayStrain: todayStrain,
+    napCreditSec: todayNapSec,
+  );
+  // last night's TST (sec) for performance.
+  final lastTstMin = _lastNum(days, 'tst_min');
+  final perf = (need.present && lastTstMin != null)
+      ? ana.sleepPerformance(lastTstMin * 60.0, need.value!.needSec)
+      : const ana.Metric<ana.SleepPerformance>.absent(
+          tier: ana.Tier.estimate, inputs_used: ['tst', 'sleep_need']);
+  // typical wake clock-minute + efficiency from recent days (medians).
+  final wakeMins = <double>[
+    for (final d in days)
+      if (d['wake_sec'] != null)
+        _localTodMin((d['wake_sec'] as num).toInt())
+  ];
+  final effs = <double>[for (final d in days) ?_numOrNull(d['efficiency'])];
+  final typicalWakeMin = _median(wakeMins);
+  final typicalEff = _median(effs) ?? 88.0;
+  final bedtime = (need.present && typicalWakeMin != null)
+      ? ana.recommendedBedtime(
+          needSec: need.value!.needSec,
+          typicalWakeMinOfDay: typicalWakeMin,
+          typicalEfficiencyPct: typicalEff)
+      : const ana.Metric<ana.BedtimeRec>.absent(
+          tier: ana.Tier.estimate, inputs_used: ['sleep_need', 'wake_time']);
+  final wakeRec = (need.present && bedtime.present)
+      ? ana.recommendedWake(
+          bedtimeMinOfDay: bedtime.value!.bedtimeMinOfDay,
+          needSec: need.value!.needSec)
+      : const ana.Metric<ana.WakeRec>.absent(
+          tier: ana.Tier.estimate, inputs_used: ['sleep_need', 'bedtime']);
+
+  // ── STRAIN COACH: recovery-gated target for today (uses today's recovery +
+  //    the CTL/ATL/TSB load). Absent until we have a recovery value today.
+  final recToday = readyList.isEmpty ? null : readyList.last;
+  final ls = load.present ? load.value : null;
+  final strainTgt = ana.strainTarget(
+    recovery0to100: recToday,
+    ctl: ls?.ctl,
+    atl: ls?.atl,
+    tsb: ls?.tsb,
+  );
+
+  // ── VO₂max + WHOOP-Age (physiological age). Resting VO₂max (Uth HRmax:RHR)
+  //    over the baseline RHR; WHOOP-Age composites VO₂max + RHR + HRV + sleep +
+  //    steps vs age-norms. All ESTIMATE, absent on missing inputs.
+  final age = _numOrNull(profile['age']);
+  final sexStr = (profile['sex'] as String?)?.toLowerCase();
+  final sex = sexStr == 'f' || sexStr == 'female' ? ana.Sex.female : ana.Sex.male;
+  final maxHr = age == null ? null : 208 - 0.7 * age; // Tanaka
+  final baseRhr = _median(<double>[for (final v in rhrList) ?v]);
+  final baseRmssd = _median(<double>[for (final v in rmssdList) ?v]);
+  final vo2 = ana.vo2maxEstimate(
+    restingHr: baseRhr,
+    maxHr: maxHr,
+    sex: sex,
+    age: age,
+  );
+  final medTstMin = _median(<double>[
+    for (final d in days) ?_numOrNull(d['tst_min'])
+  ]);
+  final medSteps = _median(<double>[for (final d in days) ?_numOrNull(d['steps'])]);
+  final physAge = age == null
+      ? const ana.Metric<ana.PhysioAge>.absent(
+          tier: ana.Tier.estimate, inputs_used: ['profile'])
+      : ana.physiologicalAge(
+          chronologicalAge: age,
+          sex: sex,
+          vo2max: vo2.present ? vo2.value : null,
+          restingHr: baseRhr,
+          rmssd: baseRmssd,
+          sleepDurationH: medTstMin == null ? null : medTstMin / 60.0,
+          sleepEfficiency: _median(effs),
+          dailySteps: medSteps,
+        );
+
   // ── latest per-family flags + JSON-safe assembly ───────────────────────────
   final latestIllness = illness.isEmpty ? null : illness.last;
   final latestAnomaly = anomaly.isEmpty ? null : anomaly.last;
@@ -178,6 +273,16 @@ Map<String, dynamic> buildCrossDayBundle(
     'sleep_debt': sleepDebt.toJson((v) => v.toJson()),
     'readiness_glassbox': glassBox.toJson((v) => v.toJson()),
     'brv': brv.toJson((v) => v.toJson()),
+    // ── Coaching + fitness (forward-looking, today) ──
+    'sleep_coach': <String, dynamic>{
+      'need': need.toJson((v) => v.toJson()),
+      'performance': perf.toJson((v) => v.toJson()),
+      'bedtime': bedtime.toJson((v) => v.toJson()),
+      'wake': wakeRec.toJson((v) => v.toJson()),
+    },
+    'strain_coach': strainTgt.toJson((v) => v.toJson()),
+    'vo2max': vo2.toJson(),
+    'whoop_age': physAge.toJson((v) => v.toJson()),
     'percentiles': percentiles,
     'recent': recent,
   };
@@ -187,6 +292,15 @@ Map<String, dynamic> buildCrossDayBundle(
 
 double? _numOrNull(Object? v) => v is num ? v.toDouble() : null;
 
+/// Local wall-clock minute-of-day [0,1440) for an epoch SECOND. Uses a local
+/// DateTime (the isolate inherits the device timezone) so clock times match what
+/// the user sees — NOT the UTC `% 86400` time-of-day. Deterministic given the
+/// system zone (same property the file's existing DateTime.parse(date) relies on).
+double _localTodMin(int epochSec) {
+  final t = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000);
+  return t.hour * 60.0 + t.minute + t.second / 60.0;
+}
+
 double? _mean(List<double> xs) {
   if (xs.isEmpty) return null;
   var s = 0.0;
@@ -194,6 +308,23 @@ double? _mean(List<double> xs) {
     s += x;
   }
   return s / xs.length;
+}
+
+/// Median of present values (null when empty). Pure.
+double? _median(List<double> xs) {
+  if (xs.isEmpty) return null;
+  final s = [...xs]..sort();
+  final mid = s.length ~/ 2;
+  return s.length.isOdd ? s[mid] : (s[mid - 1] + s[mid]) / 2.0;
+}
+
+/// The last non-null value of [key] across the (oldest-first) day records.
+double? _lastNum(List<Map<String, dynamic>> days, String key) {
+  for (var i = days.length - 1; i >= 0; i--) {
+    final v = _numOrNull(days[i][key]);
+    if (v != null) return v;
+  }
+  return null;
 }
 
 /// Sat/Sun => free day. We lack a real work/free calendar; the weekday split is

@@ -89,6 +89,16 @@ dependencies:
   flutter_secure_storage: ^10.3.1
   gpt_markdown: ^1.1.7
 
+# LOCAL DEV OVERRIDE: build against the in-tree protocol + analytics packages
+# (the new coaching/insights work) instead of the pinned git refs above. Revert
+# (or bump the git refs) before merge — mirrors how feat/steps pointed deps back
+# to main for release.
+dependency_overrides:
+  openstrap_protocol:
+    path: ../openstrap-protocol-dart
+  openstrap_analytics:
+    path: ../openstrap-analytics-onehz
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

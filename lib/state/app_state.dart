@@ -707,7 +707,22 @@ class AppState extends ChangeNotifier {
   Future<void> _ensureRemindersScheduled() async {
     try {
       final prefs = await NotificationPrefs.load();
-      await NotificationCenter.instance.scheduleStandingReminders(prefs);
+      // Fire the "time to sleep" nudge at the Sleep Coach's recommended bedtime
+      // when we have one (from the crossday rollup), else the fixed default.
+      double? bedtimeMin;
+      try {
+        final cd = await LocalDb.baseline('crossday');
+        final m = cd?['payload_json'];
+        if (m is String) {
+          final j = jsonDecode(m);
+          final bt = j is Map ? ((j['sleep_coach'] as Map?)?['bedtime']) : null;
+          final v = bt is Map ? bt['value'] : null;
+          final b = v is Map ? (v['bedtime_min_of_day'] as num?) : null;
+          bedtimeMin = b?.toDouble();
+        }
+      } catch (_) {/* fall back to default bedtime */}
+      await NotificationCenter.instance
+          .scheduleStandingReminders(prefs, bedtimeMinOfDay: bedtimeMin);
     } catch (e) {
       _log('[notify] schedule reminders skipped: $e');
     }

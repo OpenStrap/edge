@@ -43,25 +43,51 @@ class NotificationCenter {
   static const int recapWeekday = DateTime.sunday;
   static const int recapHour = 18; // Sunday 18:00
   static const int recapMinute = 0;
+  static const int journalHour = 20; // 20:00 "log your day"
+  static const int journalMinute = 0;
 
   /// (Re)register the recurring wall-clock nudges as real OS-scheduled
   /// notifications, so they fire even when the app is closed. Idempotent: cancels
   /// then re-schedules per the current prefs. Call after pairing and whenever the
   /// user changes notification prefs.
-  Future<void> scheduleStandingReminders(NotificationPrefs prefs) async {
+  Future<void> scheduleStandingReminders(NotificationPrefs prefs,
+      {double? bedtimeMinOfDay}) async {
     final svc = NotificationService.instance;
     await svc.cancel(NotificationService.idWindDown);
     await svc.cancel(NotificationService.idWeeklyRecap);
+    await svc.cancel(NotificationService.idJournalLog);
     if (!prefs.remindersEnabled) return;
 
+    // "Time to sleep" — at the Sleep Coach's recommended bedtime when known
+    // (tracks the user's schedule + sleep need), else the fixed default.
+    var bedHour = windDownHour, bedMin = windDownMinute;
+    if (bedtimeMinOfDay != null && bedtimeMinOfDay >= 0) {
+      final m = bedtimeMinOfDay.round() % 1440;
+      bedHour = m ~/ 60;
+      bedMin = m % 60;
+    }
     await svc.scheduleDaily(
       id: NotificationService.idWindDown,
       category: NotifCategory.reminders,
-      title: 'Time to wind down',
-      body: 'A consistent bedtime steadies your recovery — start easing off '
-          'screens and lights now.',
-      hour: windDownHour,
-      minute: windDownMinute,
+      title: 'Time to sleep',
+      body: bedtimeMinOfDay != null
+          ? 'To meet your sleep need, aim to be in bed around now — a consistent '
+              'bedtime steadies your recovery.'
+          : 'A consistent bedtime steadies your recovery — start easing off '
+              'screens and lights now.',
+      hour: bedHour,
+      minute: bedMin,
+      route: '/sleep',
+    );
+    // "Log your day" — the journal nudge that powers the correlation engine.
+    await svc.scheduleDaily(
+      id: NotificationService.idJournalLog,
+      category: NotifCategory.reminders,
+      title: 'Time to log your day',
+      body: 'A few taps — sleep, alcohol, stress, training — teaches OpenStrap '
+          'what actually moves your recovery.',
+      hour: journalHour,
+      minute: journalMinute,
       route: '/today',
     );
     await svc.scheduleWeekly(
