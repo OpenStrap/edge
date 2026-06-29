@@ -34,7 +34,11 @@ void main() {
 
   test('journal upsert + read (idempotent on date)', () async {
     const date = '2026-06-20';
-    await LocalDb.putJournal(date, jsonEncode(['caffeine', 'late meal']), 'felt wired');
+    await LocalDb.putJournal(
+      date,
+      jsonEncode(['caffeine', 'late meal']),
+      'felt wired',
+    );
     var rows = await LocalDb.journalRows();
     final row = rows.firstWhere((r) => r['date'] == date);
     expect(jsonDecode(row['tags_json'] as String), ['caffeine', 'late meal']);
@@ -101,28 +105,32 @@ void main() {
     expect(await LocalDb.session(id), isNull);
   });
 
-  test('notification idempotency (INSERT OR IGNORE by id) + unread/mark', () async {
-    final row = {
-      'id': '2026-06-20:illness',
-      'kind': 'illness',
-      'title': 'Possible illness onset',
-      'body': 'Elevated resting HR + suppressed HRV.',
-      'date': '2026-06-20',
-      'created_at': 1700000000000,
-      'read': 0,
-    };
-    await LocalDb.putNotification(row);
-    await LocalDb.putNotification(row); // re-run pass: must NOT duplicate
-    final all = await LocalDb.notifications();
-    final mine = all.where((r) => r['id'] == '2026-06-20:illness').toList();
-    expect(mine.length, 1);
+  test(
+    'notification idempotency (INSERT OR IGNORE by id) + unread/mark',
+    () async {
+      final row = {
+        'id': '2026-06-20:illness',
+        'kind': 'illness',
+        'title': 'Possible illness onset',
+        'body': 'Elevated resting HR + suppressed HRV.',
+        'date': '2026-06-20',
+        'created_at': 1700000000000,
+        'read': 0,
+      };
+      await LocalDb.putNotification(row);
+      await LocalDb.putNotification(row); // re-run pass: must NOT duplicate
+      final all = await LocalDb.notifications();
+      final mine = all.where((r) => r['id'] == '2026-06-20:illness').toList();
+      expect(mine.length, 1);
 
-    expect(await LocalDb.unreadCount(), greaterThanOrEqualTo(1));
-    await LocalDb.markNotificationsRead(ids: ['2026-06-20:illness']);
-    final after = (await LocalDb.notifications())
-        .firstWhere((r) => r['id'] == '2026-06-20:illness');
-    expect(after['read'], 1);
-  });
+      expect(await LocalDb.unreadCount(), greaterThanOrEqualTo(1));
+      await LocalDb.markNotificationsRead(ids: ['2026-06-20:illness']);
+      final after = (await LocalDb.notifications()).firstWhere(
+        (r) => r['id'] == '2026-06-20:illness',
+      );
+      expect(after['read'], 1);
+    },
+  );
 
   test('cycle log round-trip (ordered asc, delete)', () async {
     await LocalDb.putCycleLog('2026-05-01', 'start');
@@ -135,6 +143,168 @@ void main() {
     expect(logs.any((r) => r['date'] == '2026-05-01'), isFalse);
   });
 
+  test(
+    'metrics diagnostics helpers surface recent derived day and series counts',
+    () async {
+      const dayId = '2099-12-31';
+      final rawTs = DateTime(2099, 12, 31, 12).millisecondsSinceEpoch ~/ 1000;
+      final db = await LocalDb.instance;
+      await db.insert('raw_records', {
+        'counter': 900001,
+        'hex': 'deadbeef',
+        'packet_type': 47,
+        'captured_at': rawTs * 1000,
+        'rec_ts': rawTs,
+        'uploaded': 0,
+      });
+
+      await LocalDb.putDayResult(
+        dayId: dayId,
+        algoVersion: 15,
+        payloadJson: jsonEncode({
+          'scalars': {
+            'rhr': 52.0,
+            'rmssd': 48.0,
+            'readiness': 87.0,
+            'strain': 11.3,
+            'tst_min': 445.0,
+            'resp_rate': 14.1,
+          },
+        }),
+        windowJson: '{}',
+        finalized: false,
+        rhr: 52.0,
+        rmssd: 48.0,
+        readiness: 87.0,
+        series: const {'rhr': 52.0, 'tst_min': 445.0, 'readiness': 87.0},
+      );
+
+      final recent = await LocalDb.recentDayDiagnostics(1);
+      expect(recent, isNotEmpty);
+      expect(recent.first['day_id'], dayId);
+      expect(recent.first['raw_max_rec_ts'], rawTs);
+      expect(recent.first['rhr'], 52.0);
+      expect(recent.first['readiness'], 87.0);
+      expect(recent.first['strain'], 11.3);
+      expect(recent.first['tst_min'], 445.0);
+
+      final counts = await LocalDb.metricSeriesCounts([
+        'rhr',
+        'tst_min',
+        'readiness',
+      ]);
+      expect(counts['rhr'], greaterThanOrEqualTo(1));
+      expect(counts['tst_min'], greaterThanOrEqualTo(1));
+      expect(counts['readiness'], greaterThanOrEqualTo(1));
+    },
+  );
+
+  test(
+    'metrics diagnostics surfaces persisted skip reasons for derived days',
+    () async {
+      const dayId = '2099-12-30';
+      await LocalDb.putDayResult(
+        dayId: dayId,
+        algoVersion: 15,
+        payloadJson: jsonEncode({
+          'skipped': true,
+          'reason': 'day_prepare_budget_exceeded',
+        }),
+        windowJson: '{}',
+        finalized: false,
+      );
+
+      final recent = await LocalDb.recentDayDiagnostics(10);
+      final row = recent.firstWhere((r) => r['day_id'] == dayId);
+      expect(row['skipped'], isTrue);
+      expect(row['skip_reason'], 'day_prepare_budget_exceeded');
+    },
+  );
+
+  test(
+    'decoded substrate tables persist and query 1 Hz frames + RR beats',
+    () async {
+      final startSec =
+          DateTime(2026, 6, 27, 10, 0).millisecondsSinceEpoch ~/ 1000;
+      await LocalDb.insertRecord(
+        RawRecord(
+          counter: 424242,
+          packetType: 47,
+          hex: 'ignored-by-decoded-test',
+          capturedAt: startSec * 1000,
+          recTs: startSec,
+        ),
+        Sample(
+          tsEpoch: startSec,
+          counter: 424242,
+          hr: 61,
+          rrIntervalsMs: const [980, 1005],
+          ax: 0.1,
+          ay: -0.2,
+          az: 0.97,
+          spo2RedRaw: 1234,
+          spo2IrRaw: 2345,
+          skinTempRaw: 3456,
+        ),
+      );
+
+      final frames = await LocalDb.decodedOneHzBatchByRecTsRange(
+        limit: 10,
+        fromRecTs: startSec - 1,
+        toRecTs: startSec + 1,
+      );
+      expect(frames, hasLength(1));
+      expect(frames.first['counter'], 424242);
+      expect(frames.first['hr'], 61);
+      expect(frames.first['spo2_red_raw'], 1234);
+
+      final rr = await LocalDb.decodedRrByCounterRange(
+        fromCounter: 424242,
+        toCounter: 424242,
+      );
+      expect(rr, hasLength(2));
+      expect(rr.first['rr_ms'], 980);
+      expect(rr.last['rr_ms'], 1005);
+
+      final latest = await LocalDb.latestSample();
+      expect(latest, isNotNull);
+      expect(latest!.counter, 424242);
+      expect(latest.tsEpoch, startSec);
+
+      final ranged = await LocalDb.samplesInRange(startSec - 1, startSec + 1);
+      expect(ranged, hasLength(1));
+      expect(ranged.first.counter, 424242);
+
+      final stats = await LocalDb.rawStats();
+      expect(stats['decoded_onehz'], greaterThanOrEqualTo(1));
+      expect(stats['decoded_rr'], greaterThanOrEqualTo(2));
+    },
+  );
+
+  test(
+    'structured band signals persist event history and battery samples',
+    () async {
+      const eventHex = '3000070000105e5f';
+      await LocalDb.insertEvent(7, 1600000000, eventHex);
+      await LocalDb.insertBandBatterySample(
+        ts: 1600000100,
+        batteryPct: 77.0,
+        charging: true,
+        wristOn: true,
+        source: 'device_state',
+      );
+
+      final stats = await LocalDb.bandSignalsStats();
+      expect(stats['event_count'], greaterThanOrEqualTo(1));
+      expect(stats['battery_count'], greaterThanOrEqualTo(1));
+      final latestBattery = await LocalDb.latestBandBatterySample();
+      expect(latestBattery, isNotNull);
+      expect(latestBattery!['battery_pct'], 77.0);
+      expect(latestBattery['charging'], 1);
+      final kinds = (stats['event_kinds'] as Map).cast<String, dynamic>();
+      expect(kinds['CHARGING_ON'], greaterThanOrEqualTo(1));
+    },
+  );
   // ── resumable-sync cursor ──────────────────────────────────────────────────────
   // Kept in THIS file (not a separate suite) so it shares the single DB-test
   // isolate — two test files both opening LocalDb's fixed openstrap.db path race
@@ -150,45 +320,54 @@ void main() {
     expect(await LocalDb.getCursorInt('missing'), isNull);
   });
 
-  test('commitSyncBatch persists raw + advances high-water + stores trim token',
-      () async {
-    RawRecord raw(int counter, int recTs) => RawRecord(
+  test(
+    'commitSyncBatch persists raw + advances high-water + stores trim token',
+    () async {
+      RawRecord raw(int counter, int recTs) => RawRecord(
         counter: counter,
         packetType: 47,
         hex: 'aa$counter',
         capturedAt: 1750000000000,
-        recTs: recTs);
-    await LocalDb.commitSyncBatch(
-      [raw(10, 1750000100), raw(11, 1750000200)],
-      [
-        Sample(tsEpoch: 1750000100, counter: 10, hr: 60),
-        Sample(tsEpoch: 1750000200, counter: 11, hr: 61),
-      ],
-      trimToken: 'aa00bb11cc22dd33',
-    );
-    final counts = await LocalDb.counts();
-    expect(counts['raw'], greaterThanOrEqualTo(2));
-    expect(await LocalDb.getCursorInt('counter_hw'), 11);
-    expect(await LocalDb.getCursorInt('rec_ts_hw'), 1750000200);
-    expect(await LocalDb.getCursor('strap_trim'), 'aa00bb11cc22dd33');
-  });
+        recTs: recTs,
+      );
+      await LocalDb.commitSyncBatch(
+        [raw(10, 1750000100), raw(11, 1750000200)],
+        [
+          Sample(tsEpoch: 1750000100, counter: 10, hr: 60),
+          Sample(tsEpoch: 1750000200, counter: 11, hr: 61),
+        ],
+        trimToken: 'aa00bb11cc22dd33',
+      );
+      final counts = await LocalDb.counts();
+      expect(counts['raw'], greaterThanOrEqualTo(2));
+      expect(await LocalDb.getCursorInt('counter_hw'), 11);
+      expect(await LocalDb.getCursorInt('rec_ts_hw'), 1750000200);
+      expect(await LocalDb.getCursor('strap_trim'), 'aa00bb11cc22dd33');
+    },
+  );
 
-  test('high-water only advances (a re-delivered older batch never regresses it)',
-      () async {
-    await LocalDb.commitSyncBatch(
-      [
-        RawRecord(
+  test(
+    'high-water only advances (a re-delivered older batch never regresses it)',
+    () async {
+      await LocalDb.commitSyncBatch(
+        [
+          RawRecord(
             counter: 5,
             packetType: 47,
             hex: 'aa5',
             capturedAt: 1750000000000,
-            recTs: 1750000050)
-      ],
-      [Sample(tsEpoch: 1750000050, counter: 5, hr: 59)],
-      trimToken: 'beef',
-    );
-    expect(await LocalDb.getCursorInt('counter_hw'), 11); // unchanged
-    expect(await LocalDb.getCursorInt('rec_ts_hw'), 1750000200); // unchanged
-    expect(await LocalDb.getCursor('strap_trim'), 'beef'); // always latest ACK
-  });
+            recTs: 1750000050,
+          ),
+        ],
+        [Sample(tsEpoch: 1750000050, counter: 5, hr: 59)],
+        trimToken: 'beef',
+      );
+      expect(await LocalDb.getCursorInt('counter_hw'), 11); // unchanged
+      expect(await LocalDb.getCursorInt('rec_ts_hw'), 1750000200); // unchanged
+      expect(
+        await LocalDb.getCursor('strap_trim'),
+        'beef',
+      ); // always latest ACK
+    },
+  );
 }

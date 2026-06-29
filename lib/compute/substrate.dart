@@ -162,6 +162,38 @@ class Substrate {
     }
     return (ts, rr);
   }
+
+  Map<String, dynamic> toJson() => {
+        'ts_sec': tsSec,
+        'hr': hr,
+        'rr_ts_ms': rrTsMs,
+        'rr_ms': rrMs,
+        'ax': ax,
+        'ay': ay,
+        'az': az,
+        'spo2_red': spo2Red,
+        'spo2_ir': spo2Ir,
+        'skin_temp': skinTemp,
+      };
+
+  static Substrate fromJson(Map<String, dynamic> m) {
+    List<int> ints(String k) =>
+        ((m[k] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
+    List<double> dbls(String k) =>
+        ((m[k] as List?) ?? const []).map((e) => (e as num).toDouble()).toList();
+    return Substrate(
+      tsSec: ints('ts_sec'),
+      hr: ints('hr'),
+      rrTsMs: dbls('rr_ts_ms'),
+      rrMs: dbls('rr_ms'),
+      ax: dbls('ax'),
+      ay: dbls('ay'),
+      az: dbls('az'),
+      spo2Red: ints('spo2_red'),
+      spo2Ir: ints('spo2_ir'),
+      skinTemp: ints('skin_temp'),
+    );
+  }
 }
 
 /// Decode the WHOLE retained raw ledger into one continuous, time-sorted
@@ -346,6 +378,7 @@ List<PhysioDay> calendarDays(Substrate sub) {
   final dataEnd = sub.tsSec.last + 1;
 
   final days = <PhysioDay>[];
+  final sleepHistory = <({int startSec, int endSec, String dayKey})>[];
   var dayStart = _localMidnight(dataStart);
   var guard = 0;
   while (dayStart < dataEnd && guard++ < 400) {
@@ -357,16 +390,24 @@ List<PhysioDay> calendarDays(Substrate sub) {
       continue;
     }
 
-    // The main sleep that ENDS in this calendar day: search ~prev 18:00 → this
-    // noon (covers a sleep begun the prior evening that ends this morning).
-    final searchStart = math.max(dataStart, dayStart - 6 * 3600);
-    final searchEnd = math.min(dataEnd, dayStart + 12 * 3600);
+    // The main sleep that ENDS in this calendar day: search from the previous
+    // local noon through this local midnight, then let the sleep selector pick
+    // the overnight main block from any naps / split fragments it sees. The old
+    // prev-18:00 → noon window missed late wakes and forced the detector to act
+    // like there was only one candidate sleep. The richer selector needs the
+    // full set of sessions that can legitimately end today.
+    final searchStart = math.max(dataStart, dayStart - 12 * 3600);
+    final searchEnd = math.min(dataEnd, dayEnd);
     final loS = _lowerBound(sub.tsSec, searchStart);
     final hiS = _lowerBound(sub.tsSec, searchEnd);
 
     var seg = ana.SleepSegmentation.absent;
     var sleepLo = 0, sleepHi = 0;
     if (hiS - loS >= 600) {
+      final habitualMidsleepSec = ana.habitualMidsleepSecFromHistory(
+        sleepHistory,
+        tzOffsetSeconds: DateTime.now().timeZoneOffset.inSeconds,
+      );
       // Daytime HR baseline = valid HR before the nocturnal search window.
       final base = <double>[for (var i = 0; i < loS; i++) if (hr[i] > 0) hr[i]];
       final hrBaseline = base.length >= 60 ? base : null;
@@ -388,6 +429,7 @@ List<PhysioDay> calendarDays(Substrate sub) {
         hrBaseline: hrBaseline,
         rrMs: rrMsSeg,
         rrTsMs: rrTsSeg,
+        habitualMidsleepSec: habitualMidsleepSec,
       );
       // Attribute ONLY if the sleep's wake (offset) falls within this day.
       if (s.present && s.window != null) {
@@ -396,6 +438,16 @@ List<PhysioDay> calendarDays(Substrate sub) {
           seg = s;
           sleepLo = loS + s.window!.onsetIdx;
           sleepHi = loS + s.window!.offsetIdx;
+          final onsetSec = s.window!.onsetMs == null
+              ? 0
+              : (s.window!.onsetMs! / 1000).round();
+          if (onsetSec > 0 && offSec > onsetSec) {
+            sleepHistory.add((
+              startSec: onsetSec,
+              endSec: offSec,
+              dayKey: localDateLabel(dayStart),
+            ));
+          }
         }
       }
     }

@@ -84,12 +84,25 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
 
   double _strain() => (_num(_data['strain'])?.toDouble() ?? 0).clamp(0.0, 21.0);
 
-  /// Cumulative strain curve → ordered list of v values.
-  List<double> _curve() {
-    final out = <double>[];
+  /// Cumulative strain curve with timestamps.
+  List<TimeSeriesPoint> _curve() {
+    final out = <TimeSeriesPoint>[];
     for (final p in _list(_data['curve'])) {
-      final v = _num(_map(p)['v']);
-      if (v != null) out.add(v.toDouble());
+      final m = _map(p);
+      final t = _num(m['t'])?.toDouble();
+      final v = _num(m['v'])?.toDouble();
+      if (t != null && v != null) out.add(TimeSeriesPoint(t, v));
+    }
+    return out;
+  }
+
+  List<TimeSeriesPoint> _zoneTimeline() {
+    final out = <TimeSeriesPoint>[];
+    for (final p in _list(_data['zone_timeline'])) {
+      final m = _map(p);
+      final t = _num(m['t'])?.toDouble();
+      final z = _num(m['z'])?.toDouble();
+      if (t != null && z != null) out.add(TimeSeriesPoint(t, z));
     }
     return out;
   }
@@ -131,6 +144,15 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
   String _mins(num? minutes) {
     final m = (minutes ?? 0).round();
     return '${m}m';
+  }
+
+  String _bpmRange(int zone, int? maxHr) {
+    if (maxHr == null || maxHr <= 0) return '—';
+    final lowerPct = 0.5 + (zone - 1) * 0.1;
+    final upperPct = zone == 5 ? 1.0 : lowerPct + 0.1;
+    final lo = (maxHr * lowerPct).round();
+    final hi = (maxHr * upperPct).round();
+    return '$lo–$hi bpm';
   }
 
   // ── build ────────────────────────────────────────────────────────────────────
@@ -405,14 +427,58 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
 
   Widget _curveCard() {
     final curve = _curve();
+    final timeline = _zoneTimeline();
+    final loX = curve.isEmpty ? null : curve.first.x;
+    final hiX = curve.isEmpty ? null : curve.last.x;
+    final zoneColors = [
+      AppColors.surfaceAlt,
+      AppColors.loadDetraining,
+      AppColors.good,
+      AppColors.warn,
+      AppColors.coral,
+      AppColors.coralDeep,
+    ];
     return ProCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SectionHeader('Strain curve'),
-          AreaSpark(curve, color: AppColors.coral, height: 120),
+          const SectionHeader('Strain build'),
+          TimeSeriesChart(
+            points: curve,
+            color: AppColors.coral,
+            height: 220,
+            minY: 0,
+            maxY: 21,
+            yLabel: (v) => v.round().toString(),
+            tooltip: (p) {
+              final dt = DateTime.fromMillisecondsSinceEpoch(
+                (p.x * 1000).round(),
+              ).toLocal();
+              final mm = dt.minute.toString().padLeft(2, '0');
+              return '${dt.hour}:$mm\nstrain ${p.y.toStringAsFixed(1)}';
+            },
+            bands: const [
+              HorizontalBand(0, 5, Color(0x102B3C50)),
+              HorizontalBand(5, 10, Color(0x102EA66B)),
+              HorizontalBand(10, 15, Color(0x10F2B544)),
+              HorizontalBand(15, 18, Color(0x10F08A4B)),
+              HorizontalBand(18, 21, Color(0x10C95B5B)),
+            ],
+          ),
           const SizedBox(height: Sp.x3),
-          Text('How strain built through the day', style: AppText.captionMuted),
+          if (loX != null && hiX != null)
+            ZoneTimelineBar(
+              points: timeline,
+              colors: zoneColors,
+              minX: loX,
+              maxX: hiX,
+              height: 12,
+            ),
+          const SizedBox(height: Sp.x3),
+          Text(
+            'Cumulative strain across the day.',
+            style: AppText.captionMuted,
+          ),
         ],
       ),
     );
@@ -434,8 +500,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionHeader('HR zones',
-              trailing: maxHr == null ? null : 'max HR $maxHr'),
+          const SectionHeader('HR zones'),
           SegmentBar(zones, palette, height: 14),
           const SizedBox(height: Sp.x4),
           for (int i = 0; i < zones.length; i++) ...[
@@ -450,10 +515,26 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
                 ),
               ),
               const SizedBox(width: Sp.x3),
-              Text('Z${i + 1}', style: AppText.label),
-              const Spacer(),
-              Text(_mins(zones[i]),
-                  style: AppText.body.copyWith(color: AppColors.inkSoft)),
+              SizedBox(
+                width: 28,
+                child: Text('Z${i + 1}', style: AppText.label),
+              ),
+              Expanded(
+                child: Text(
+                  _bpmRange(i + 1, maxHr),
+                  style: AppText.captionMuted,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: Sp.x3),
+              SizedBox(
+                width: 42,
+                child: Text(
+                  _mins(zones[i]),
+                  textAlign: TextAlign.right,
+                  style: AppText.body.copyWith(color: AppColors.inkSoft),
+                ),
+              ),
             ]),
           ],
         ],

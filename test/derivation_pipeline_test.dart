@@ -17,16 +17,25 @@ import 'package:openstrap_edge/compute/substrate.dart';
 import 'package:openstrap_edge/data/db.dart';
 
 void main() {
+  File? fixtureFile() {
+    final candidates = [
+      '../whoop_hist.jsonl',
+      '../../whoop_hist.jsonl',
+      'whoop_hist.jsonl',
+    ];
+    for (final c in candidates) {
+      final file = File(c);
+      if (file.existsSync()) return file;
+    }
+    return null;
+  }
+
   // The backfill/insert fix: rec_ts must come from the frame's REAL device time,
   // never from receive time. decodeRecTs is the pure resolver used at insert AND
   // in the v6 migration backfill — if it returned the fallback (≈now) the whole
   // multi-day backfill would collapse into one "today" bucket and hang derivation.
   test('decodeRecTs reads the frame\'s real ts, not the fallback', () {
-    final candidates = ['../whoop_hist.jsonl', '../../whoop_hist.jsonl', 'whoop_hist.jsonl'];
-    File? f;
-    for (final c in candidates) {
-      if (File(c).existsSync()) { f = File(c); break; }
-    }
+    final f = fixtureFile();
     expect(f, isNotNull, reason: 'whoop_hist.jsonl fixture not found');
 
     const sentinelFallback = 111; // a value the real ts can never equal
@@ -39,7 +48,11 @@ void main() {
       final ts = LocalDb.decodeRecTs(hex, fallbackSec: sentinelFallback);
       if (ts == sentinelFallback) continue; // undecodable frame (events etc.)
       decodedCount++;
-      expect(ts, greaterThan(1600000000), reason: 'a real 2020+ epoch, not fallback');
+      expect(
+        ts,
+        greaterThan(1600000000),
+        reason: 'a real 2020+ epoch, not fallback',
+      );
       final d = DateTime.fromMillisecondsSinceEpoch(ts * 1000, isUtc: false);
       dayLabels.add('${d.year}-${d.month}-${d.day}');
     }
@@ -49,20 +62,7 @@ void main() {
   });
 
   test('V2 path: decodeSubstrate → segmentation → deriveDayBundle is sane', () {
-    // The fixture sits next to the worktree: whoop-master/whoop_hist.jsonl.
-    final candidates = [
-      '../whoop_hist.jsonl',
-      '../../whoop_hist.jsonl',
-      'whoop_hist.jsonl',
-    ];
-    File? f;
-    for (final c in candidates) {
-      final file = File(c);
-      if (file.existsSync()) {
-        f = file;
-        break;
-      }
-    }
+    final f = fixtureFile();
     expect(f, isNotNull, reason: 'whoop_hist.jsonl fixture not found');
 
     final hexes = <String>[];
@@ -77,8 +77,11 @@ void main() {
     // ── ONE decode point: raw hex → Substrate ────────────────────────────────
     final sub = decodeSubstrate(hexes);
     expect(sub.length, greaterThan(50), reason: 'decoded 1 Hz substrate');
-    expect(sub.hr.where((h) => h > 0).length, greaterThan(50),
-        reason: 'valid HR samples');
+    expect(
+      sub.hr.where((h) => h > 0).length,
+      greaterThan(50),
+      reason: 'valid HR samples',
+    );
     expect(sub.rrMs.length, greaterThan(50), reason: 'decoded RR beats');
 
     // ── calendar-day segmentation: a day always exists when there's data ──────
@@ -120,7 +123,7 @@ void main() {
       for (final s in day.sleep.stages)
         s == ana.SleepStage.wake
             ? 'wake'
-            : (s == ana.SleepStage.rem ? 'rem' : 'nrem')
+            : (s == ana.SleepStage.rem ? 'rem' : 'nrem'),
     ];
     final input = DayBundleInput(
       date: day.date,
@@ -166,16 +169,8 @@ void main() {
     final cov = (bundle['coverage'] as Map).cast<String, dynamic>();
     expect(cov['nn_clean'] as num, greaterThan(0));
 
-    // ── v16 additive blocks: Edwards "effort" strain + EWMA baselines ─────────
-    // Secondary 0–100 Edwards strain envelope present + honest-shaped. With
-    // profile age/sex set and dense HR over a 30-min wake span it should compute
-    // (gate: ≥600 samples or ≥600 s span, HRmax>RHR).
-    final effort = (clinical['strain_effort'] as Map).cast<String, dynamic>();
-    expect(effort.containsKey('tier'), isTrue);
-    final effortVal = scalars['strain_effort'];
-    if (effortVal != null) {
-      expect(effortVal as num, inInclusiveRange(0, 100));
-    }
+    // (The secondary Edwards "effort" strain block was removed in the PR#25
+    // pipeline refactor; the headline 0–21 strain remains via scalars['strain'].)
 
     // Winsorized-EWMA personal baselines for rhr/hrv/resp, each carrying the
     // BaselineState fields + a cold-start status (calibrating on a single night).
@@ -207,11 +202,11 @@ Map<String, dynamic> _shapeToday(Map<String, dynamic> b) {
   final scalars = (b['scalars'] as Map).cast<String, dynamic>();
   num? sc(String k) => scalars[k] as num?;
   Map<String, dynamic> m(num? v, String tier) => {
-        'value': v ?? '—',
-        'confidence': v == null ? 0 : 0.8,
-        'tier': tier,
-        'inputs_used': const [],
-      };
+    'value': v ?? '—',
+    'confidence': v == null ? 0 : 0.8,
+    'tier': tier,
+    'inputs_used': const [],
+  };
   return {
     'daily': {
       'readiness': m(sc('readiness'), 'HIGH'),

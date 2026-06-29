@@ -1,7 +1,7 @@
 name: openstrap_edge
 description: "OpenStrap — open-source WHOOP 4.0 companion. BLE drain → raw-first local store → cloud sync."
 publish_to: 'none'
-version: 0.5.2+14
+version: 0.5.4+15
 
 environment:
   sdk: ^3.11.4
@@ -26,7 +26,7 @@ dependencies:
       ref: main
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
-  flutter_blue_plus: ^1.35.5
+  flutter_blue_plus: ^1.36.8
 
   # Local raw-first storage.
   sqflite: ^2.4.1

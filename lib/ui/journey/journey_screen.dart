@@ -69,7 +69,10 @@ class _JourneyScreenState extends State<JourneyScreen> {
       v is Map ? v.cast<String, dynamic>() : const {};
 
   List<Map<String, dynamic>> _list(Object? v) => v is List
-      ? [for (final e in v) if (e is Map) e.cast<String, dynamic>()]
+      ? [
+          for (final e in v)
+            if (e is Map) e.cast<String, dynamic>(),
+        ]
       : const [];
 
   num? _num(Object? v) {
@@ -95,17 +98,24 @@ class _JourneyScreenState extends State<JourneyScreen> {
 
   List<Map<String, dynamic>> _sessions() => _list(_data['sessions']);
   List<Map<String, dynamic>> _sleep() => _list(_data['sleep']);
-  List<Map<String, dynamic>> _events() => _list(_data['events']);
 
   // ── formatting (no intl) ─────────────────────────────────────────────────────
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
-  static const _weekdays = [
-    'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
-  ];
+  static const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   /// 'YYYY-MM-DD' → 'Wed, Jun 12'. Falls back to the raw string on parse fail.
   String _prettyDate(String iso) {
@@ -138,17 +148,12 @@ class _JourneyScreenState extends State<JourneyScreen> {
         .join(' ');
   }
 
-  static const _eventLabels = <int, String>{
-    7: 'Charging on',
-    8: 'Charging off',
-    9: 'Wrist on',
-    10: 'Wrist off',
-    14: 'Double tap',
-    23: 'Paired',
-  };
-
-  String _eventLabel(int? id) =>
-      id == null ? 'Event' : (_eventLabels[id] ?? 'Event $id');
+  bool get _isToday {
+    final now = DateTime.now();
+    final local =
+        '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    return widget.date == local;
+  }
 
   // ── build ────────────────────────────────────────────────────────────────────
 
@@ -191,8 +196,10 @@ class _JourneyScreenState extends State<JourneyScreen> {
   Widget _topBar() {
     return Row(
       children: [
-        RoundIconButton(Ic.arrowLeft,
-            onTap: () => Navigator.of(context).maybePop()),
+        RoundIconButton(
+          Ic.arrowLeft,
+          onTap: () => Navigator.of(context).maybePop(),
+        ),
         const SizedBox(width: Sp.x3),
         Expanded(
           child: Column(
@@ -212,20 +219,19 @@ class _JourneyScreenState extends State<JourneyScreen> {
   List<Widget> _story() {
     final detailed = detailedAvailable(widget.date);
     return [
-      _highsStrip(),
-      const SizedBox(height: Sp.x6),
       // Minute-level 24h timeline + movement only for recent days; workouts and
       // events below come from permanent tables and always show.
       if (detailed) ...[
         const SectionHeader('The timeline'),
         _timelineCard(),
         const SizedBox(height: Sp.x6),
+        _highsStrip(),
+        const SizedBox(height: Sp.x6),
         const SectionHeader('Movement'),
         _movementCard(),
       ] else
         const DetailRetentionNote(what: '24-hour timeline'),
       ..._workoutsSection(),
-      ..._eventsSection(),
     ];
   }
 
@@ -236,7 +242,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
     final peak = _map(highs['peak_hr']);
     final low = _map(highs['low_hr']);
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           child: _highCard(
@@ -262,30 +268,39 @@ class _JourneyScreenState extends State<JourneyScreen> {
   }
 
   Widget _highCard(
-      IconData icon, String label, int? bpm, int? ts, Color accent) {
+    IconData icon,
+    String label,
+    int? bpm,
+    int? ts,
+    Color accent,
+  ) {
     return ProCard(
       padding: const EdgeInsets.all(Sp.x4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(R.chip),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(R.chip),
+                ),
+                child: AppIcon(icon, size: 16, color: accent),
               ),
-              child: AppIcon(icon, size: 16, color: accent),
-            ),
-            const SizedBox(width: Sp.x2),
-            Expanded(
-              child: Text(label,
+              const SizedBox(width: Sp.x2),
+              Expanded(
+                child: Text(
+                  label,
                   style: AppText.overline,
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-            ),
-          ]),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: Sp.x3),
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -294,21 +309,26 @@ class _JourneyScreenState extends State<JourneyScreen> {
               if (bpm == null)
                 metricDash(22)
               else ...[
-                Text('$bpm',
-                    style: AppText.metric.copyWith(fontSize: 26)),
+                Text('$bpm', style: AppText.metric.copyWith(fontSize: 26)),
                 const SizedBox(width: 4),
                 Padding(
                   padding: const EdgeInsets.only(bottom: 3),
-                  child: Text('bpm',
-                      style: AppText.caption.copyWith(
-                          color: AppColors.inkMuted, fontSize: 11)),
+                  child: Text(
+                    'bpm',
+                    style: AppText.caption.copyWith(
+                      color: AppColors.inkMuted,
+                      fontSize: 11,
+                    ),
+                  ),
                 ),
               ],
             ],
           ),
           const SizedBox(height: Sp.x1),
-          Text(bpm == null ? 'No reading' : 'at ${_hm(ts)}',
-              style: AppText.captionMuted),
+          Text(
+            bpm == null ? 'No reading' : 'at ${_hm(ts)}',
+            style: AppText.captionMuted,
+          ),
         ],
       ),
     );
@@ -318,28 +338,62 @@ class _JourneyScreenState extends State<JourneyScreen> {
 
   Widget _timelineCard() {
     final hr = _points(_data['hr']);
-    final values = [for (final p in hr) p.v];
+    final points = [for (final p in hr) TimeSeriesPoint(p.t.toDouble(), p.v)];
+    final endSec = _isToday
+        ? DateTime.now().millisecondsSinceEpoch / 1000.0
+        : _dayStart + 86400.0;
+    final first = hr.isEmpty ? null : hr.first;
+    final last = hr.isEmpty ? null : hr.last;
     return ProCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AreaSpark(values, color: AppColors.coral, height: 120),
+          TimeSeriesChart(
+            points: points,
+            color: AppColors.coral,
+            height: 260,
+            minX: _dayStart.toDouble(),
+            maxX: endSec,
+            yUnit: ' bpm',
+            tooltip: (p) {
+              final dt = DateTime.fromMillisecondsSinceEpoch(
+                (p.x * 1000).round(),
+              ).toLocal();
+              final mm = dt.minute.toString().padLeft(2, '0');
+              return '${dt.hour}:$mm\n${p.y.round()} bpm';
+            },
+          ),
           const SizedBox(height: Sp.x4),
           _contextBand(),
-          const SizedBox(height: Sp.x2),
-          _hourTicks(),
-          const SizedBox(height: Sp.x3),
-          Text('Heart rate across the day', style: AppText.caption),
+          if (first != null && last != null) ...[
+            const SizedBox(height: Sp.x3),
+            Row(
+              children: [
+                Expanded(child: _metaCell('Start', '${first.v.round()} bpm')),
+                const SizedBox(width: Sp.x2),
+                Expanded(child: _metaCell('Latest', '${last.v.round()} bpm')),
+                const SizedBox(width: Sp.x2),
+                Expanded(
+                  child: _metaCell(
+                    'Span',
+                    '${((last.t - first.t) / 3600).toStringAsFixed(1)} h',
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (_sleep().isNotEmpty || _sessions().isNotEmpty) ...[
             const SizedBox(height: Sp.x3),
-            Row(children: [
-              if (_sleep().isNotEmpty)
-                _legendDot(AppColors.loadDetraining, 'Sleep'),
-              if (_sleep().isNotEmpty && _sessions().isNotEmpty)
-                const SizedBox(width: Sp.x4),
-              if (_sessions().isNotEmpty)
-                _legendDot(AppColors.coral, 'Workout'),
-            ]),
+            Row(
+              children: [
+                if (_sleep().isNotEmpty)
+                  _legendDot(AppColors.loadDetraining, 'Sleep'),
+                if (_sleep().isNotEmpty && _sessions().isNotEmpty)
+                  const SizedBox(width: Sp.x4),
+                if (_sessions().isNotEmpty)
+                  _legendDot(AppColors.coral, 'Workout'),
+              ],
+            ),
           ],
         ],
       ),
@@ -347,18 +401,39 @@ class _JourneyScreenState extends State<JourneyScreen> {
   }
 
   Widget _legendDot(Color c, String label) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(
+          color: c,
+          borderRadius: BorderRadius.circular(3),
+        ),
+      ),
+      const SizedBox(width: 6),
+      Text(label, style: AppText.captionMuted),
+    ],
+  );
+
+  Widget _metaCell(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x3, vertical: Sp.x3),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppColors.divider),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-                color: c, borderRadius: BorderRadius.circular(3)),
-          ),
-          const SizedBox(width: 6),
-          Text(label, style: AppText.captionMuted),
+          Text(label.toUpperCase(), style: AppText.overline),
+          const SizedBox(height: 2),
+          Text(value, style: AppText.label),
         ],
-      );
+      ),
+    );
+  }
 
   /// 0..1 fraction of where an epoch falls in the day's 24h window.
   double _frac(int ts) {
@@ -374,34 +449,48 @@ class _JourneyScreenState extends State<JourneyScreen> {
     final segments = <Widget>[];
 
     void addSeg(int? start, int? end, Color color, double opacity) {
-      if (start == null || end == null || end <= start || _dayStart <= 0) return;
+      if (start == null || end == null || end <= start || _dayStart <= 0) {
+        return;
+      }
       final left = _frac(start);
       final right = _frac(end);
       final width = (right - left).clamp(0.0, 1.0);
-      if (width <= 0) return;
-      segments.add(Align(
-        alignment: Alignment(left * 2 - 1, 0),
-        child: FractionallySizedBox(
-          widthFactor: width,
-          alignment: Alignment.centerLeft,
-          child: Container(
-            height: h,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: opacity),
-              borderRadius: BorderRadius.circular(R.pill),
+      if (width <= 0) {
+        return;
+      }
+      segments.add(
+        Align(
+          alignment: Alignment(left * 2 - 1, 0),
+          child: FractionallySizedBox(
+            widthFactor: width,
+            alignment: Alignment.centerLeft,
+            child: Container(
+              height: h,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: opacity),
+                borderRadius: BorderRadius.circular(R.pill),
+              ),
             ),
           ),
         ),
-      ));
+      );
     }
 
     for (final s in _sleep()) {
-      addSeg(_num(s['onset_ts'])?.toInt(), _num(s['wake_ts'])?.toInt(),
-          AppColors.loadDetraining, 0.7);
+      addSeg(
+        _num(s['onset_ts'])?.toInt(),
+        _num(s['wake_ts'])?.toInt(),
+        AppColors.loadDetraining,
+        0.7,
+      );
     }
     for (final s in _sessions()) {
-      addSeg(_num(s['start_ts'])?.toInt(), _num(s['end_ts'])?.toInt(),
-          AppColors.coral, 0.85);
+      addSeg(
+        _num(s['start_ts'])?.toInt(),
+        _num(s['end_ts'])?.toInt(),
+        AppColors.coral,
+        0.85,
+      );
     }
 
     return ClipRRect(
@@ -414,22 +503,8 @@ class _JourneyScreenState extends State<JourneyScreen> {
         ),
         // The track is full width; segments are positioned within it. Align uses
         // the parent's full width so left/width fractions map to the 24h span.
-        child: Stack(
-          alignment: Alignment.centerLeft,
-          children: segments,
-        ),
+        child: Stack(alignment: Alignment.centerLeft, children: segments),
       ),
-    );
-  }
-
-  Widget _hourTicks() {
-    const labels = ['0', '6', '12', '18', '24'];
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        for (final l in labels)
-          Text(l, style: AppText.captionMuted.copyWith(fontSize: 10)),
-      ],
     );
   }
 
@@ -437,14 +512,39 @@ class _JourneyScreenState extends State<JourneyScreen> {
 
   Widget _movementCard() {
     final act = _points(_data['activity']);
-    final values = [for (final p in act) p.v];
+    final points = [
+      for (final p in act) TimeSeriesPoint(p.t.toDouble(), p.v * 100.0),
+    ];
+    final endSec = _isToday
+        ? DateTime.now().millisecondsSinceEpoch / 1000.0
+        : _dayStart + 86400.0;
     return ProCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AreaSpark(values, color: AppColors.coralDeep, height: 90),
+          TimeSeriesChart(
+            points: points,
+            color: AppColors.coralDeep,
+            height: 180,
+            minX: _dayStart.toDouble(),
+            maxX: endSec,
+            fill: false,
+            gapThresholdSec: 1800,
+            yLabel: (v) => '${v.round()}%',
+            tooltip: (p) {
+              final dt = DateTime.fromMillisecondsSinceEpoch(
+                (p.x * 1000).round(),
+              ).toLocal();
+              final mm = dt.minute.toString().padLeft(2, '0');
+              return '${dt.hour}:$mm\n${p.y.round()}% movement';
+            },
+          ),
           const SizedBox(height: Sp.x3),
-          Text('Movement across the day', style: AppText.caption),
+          Text(
+            'Movement is the fraction of each 5-minute block that looked physically active. '
+            'It is a motion signal, not steps.',
+            style: AppText.caption,
+          ),
         ],
       ),
     );
@@ -477,49 +577,59 @@ class _JourneyScreenState extends State<JourneyScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppColors.coralSoft,
-                borderRadius: BorderRadius.circular(R.chip),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.coralSoft,
+                  borderRadius: BorderRadius.circular(R.chip),
+                ),
+                child: AppIcon(Ic.run, size: 18, color: AppColors.coralDeep),
               ),
-              child: AppIcon(Ic.run, size: 18, color: AppColors.coralDeep),
-            ),
-            const SizedBox(width: Sp.x3),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(type.isEmpty ? 'Workout' : _titleCase(type),
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      type.isEmpty ? 'Workout' : _titleCase(type),
                       style: AppText.title,
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 2),
-                  Text('${_hm(start)} – ${_hm(end)}',
-                      style: AppText.captionMuted),
-                ],
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${_hm(start)} – ${_hm(end)}',
+                      style: AppText.captionMuted,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            if (strain != null)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(strain.toStringAsFixed(1),
-                      style: AppText.metricSm.copyWith(color: AppColors.coral)),
-                  Text('strain', style: AppText.captionMuted),
-                ],
-              ),
-          ]),
+              if (strain != null)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      strain.toStringAsFixed(1),
+                      style: AppText.metricSm.copyWith(color: AppColors.coral),
+                    ),
+                    Text('strain', style: AppText.captionMuted),
+                  ],
+                ),
+            ],
+          ),
           if (avg != null || max != null) ...[
             const SizedBox(height: Sp.x3),
-            Row(children: [
-              if (avg != null) _miniStat('AVG HR', '$avg bpm'),
-              if (avg != null && max != null) const SizedBox(width: Sp.x6),
-              if (max != null) _miniStat('MAX HR', '$max bpm'),
-            ]),
+            Row(
+              children: [
+                if (avg != null) _miniStat('AVG HR', '$avg bpm'),
+                if (avg != null && max != null) const SizedBox(width: Sp.x6),
+                if (max != null) _miniStat('MAX HR', '$max bpm'),
+              ],
+            ),
           ],
         ],
       ),
@@ -527,75 +637,24 @@ class _JourneyScreenState extends State<JourneyScreen> {
   }
 
   Widget _miniStat(String label, String value) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: AppText.overline),
-          const SizedBox(height: 2),
-          Text(value, style: AppText.body),
-        ],
-      );
-
-  // ── 6. events ──────────────────────────────────────────────────────────────────
-
-  List<Widget> _eventsSection() {
-    final events = _events();
-    if (events.isEmpty) return const [];
-    const cap = 12;
-    final shown = events.take(cap).toList();
-    final extra = events.length - shown.length;
-    return [
-      const SizedBox(height: Sp.x6),
-      SectionHeader('Events · ${events.length}'),
-      ProCard(
-        padding: const EdgeInsets.symmetric(
-            horizontal: Sp.x4, vertical: Sp.x2),
-        child: Column(
-          children: [
-            for (int i = 0; i < shown.length; i++) ...[
-              if (i > 0)
-                Divider(height: 1, color: AppColors.divider),
-              _eventRow(shown[i]),
-            ],
-            if (extra > 0) ...[
-              Divider(height: 1, color: AppColors.divider),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: Sp.x3),
-                child: Text('+$extra more events',
-                    style: AppText.captionMuted),
-              ),
-            ],
-          ],
-        ),
-      ),
-    ];
-  }
-
-  Widget _eventRow(Map<String, dynamic> e) {
-    final id = _num(e['event_id'])?.toInt();
-    final ts = _num(e['ts'])?.toInt();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: Sp.x3),
-      child: Row(children: [
-        AppIcon(Ic.info, size: 16, color: AppColors.inkMuted),
-        const SizedBox(width: Sp.x3),
-        Expanded(child: Text(_eventLabel(id), style: AppText.body)),
-        Text(_hm(ts),
-            style: AppText.caption.copyWith(color: AppColors.inkSoft)),
-      ]),
-    );
-  }
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(label, style: AppText.overline),
+      const SizedBox(height: 2),
+      Text(value, style: AppText.body),
+    ],
+  );
 
   // ── states ─────────────────────────────────────────────────────────────────────
 
   Widget _loading() => ProCard(
-        padding: const EdgeInsets.all(Sp.x6),
-        child: SizedBox(
-          height: 360,
-          child:
-              Center(child: CircularProgressIndicator(color: AppColors.coral)),
-        ),
-      );
+    padding: const EdgeInsets.all(Sp.x6),
+    child: SizedBox(
+      height: 360,
+      child: Center(child: CircularProgressIndicator(color: AppColors.coral)),
+    ),
+  );
 
   Widget _stateCard(IconData icon, String title, String message) {
     return ProCard(

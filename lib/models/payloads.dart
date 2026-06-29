@@ -41,12 +41,13 @@ class TodayData {
   final Map<String, dynamic>? _hrv;
   final Map<String, dynamic>? _skinTemp;
   final Map<String, dynamic>? _spo2;
+  final Map<String, dynamic>? _status;
 
   /// User's daily step goal (null → use the client default). Top-level on /today.
   final int? stepGoal;
 
   TodayData._(this._daily, this._sleep, this._coach, this._stress,
-      this._nocturnal, this._resp, this._hrv, this._skinTemp, this._spo2,
+      this._nocturnal, this._resp, this._hrv, this._skinTemp, this._spo2, this._status,
       this.stepGoal);
 
   factory TodayData.fromJson(Object? json) {
@@ -57,9 +58,11 @@ class TodayData {
     final sleep = sub('sleep') ?? const <String, dynamic>{};
     final goal = (row['step_goal'] as num?)?.toInt();
     return TodayData._(daily, sleep, sub('coach'), sub('stress'),
-        sub('nocturnal'), sub('resp'), sub('hrv'), sub('skin_temp'), sub('spo2'),
+        sub('nocturnal'), sub('resp'), sub('hrv'), sub('skin_temp'), sub('spo2'), sub('status'),
         goal);
   }
+
+  TodayStatus? get status => _status == null ? null : TodayStatus(_status);
 
   /// Nocturnal HRV (RMSSD, ms) — measured from beat-to-beat intervals. Null until
   /// a night's worth of RR has been captured.
@@ -126,6 +129,25 @@ class TodayData {
   Metric get sleepEfficiency => metricOf(_sleep, 'efficiency');
 
   bool get isEmpty => _daily.isEmpty && _sleep.isEmpty;
+}
+
+class TodayStatus {
+  final Map<String, dynamic> _s;
+  TodayStatus(this._s);
+
+  String? get todayDay => _s['today_day']?.toString();
+  String get activityState => (_s['activity_state'] ?? 'missing').toString();
+  String? get activityDay => _s['activity_day']?.toString();
+  int? get activityComputedAt => (_s['activity_computed_at'] as num?)?.toInt();
+  String get overnightState => (_s['overnight_state'] ?? 'missing').toString();
+  String? get overnightDay => _s['overnight_day']?.toString();
+  int? get overnightComputedAt => (_s['overnight_computed_at'] as num?)?.toInt();
+  bool get showingPriorOvernight => _s['showing_prior_overnight'] == true;
+
+  bool get overnightBuilding => overnightState == 'building';
+  bool get activityBuilding => activityState == 'building';
+  bool get overnightReady => overnightState == 'ready';
+  bool get activityReady => activityState == 'ready';
 }
 
 /// ── coach (from /today.coach) — deterministic plan, strain target, contributors ─
