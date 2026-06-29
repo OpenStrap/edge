@@ -27,16 +27,28 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   final _height = TextEditingController();
   String? _sex; // 'm' | 'f'
   bool _saving = false;
+  // Companion consents — PRE-ENABLED at first enrollment (the user can switch
+  // either off here). Recorded + sent on Continue. When re-editing an existing
+  // profile we reflect the saved choice instead (see initState).
+  bool _telemetry = true;
+  bool _healthShare = true;
 
   @override
   void initState() {
     super.initState();
-    final u = context.read<AppState>().user;
+    final app = context.read<AppState>();
+    final u = app.user;
     if (u != null) {
       if (u['age'] != null) _age.text = '${u['age']}';
       if (u['weight_kg'] != null) _weight.text = '${u['weight_kg']}';
       if (u['height_cm'] != null) _height.text = '${u['height_cm']}';
       _sex = (u['sex'] as String?)?.toLowerCase();
+    }
+    // Fresh enrollment → keep the pre-enabled defaults above. Returning user
+    // editing their profile → reflect whatever they previously chose.
+    if (app.consentChosen) {
+      _telemetry = app.telemetryConsent;
+      _healthShare = app.healthShareConsent;
     }
   }
 
@@ -62,7 +74,11 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     if (!_valid || _saving) return;
     setState(() => _saving = true);
     try {
-      await context.read<AppState>().updateProfile({
+      final app = context.read<AppState>();
+      // Record the consent choices (persist + server consent ledger) first.
+      await app.setTelemetryConsent(_telemetry);
+      await app.setHealthShareConsent(_healthShare);
+      await app.updateProfile({
         'age': int.parse(_age.text.trim()),
         'weight_kg': double.parse(_weight.text.trim()),
         'height_cm': double.parse(_height.text.trim()),
@@ -105,6 +121,35 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             const SizedBox(height: Sp.x4),
             _field(_height, 'Height', 'cm', const TextInputType.numberWithOptions(decimal: true)),
             const SizedBox(height: Sp.x8),
+
+            // ── Privacy / consent (pre-enabled here; user can switch off) ────
+            _label('Help improve OpenStrap'),
+            const SizedBox(height: Sp.x3),
+            _consentTile(
+              'Send anonymous diagnostics',
+              'Crash and error reports plus basic device info (model, OS, '
+                  'battery, connection). No health data. Helps us fix bugs.',
+              _telemetry,
+              (v) => setState(() => _telemetry = v),
+            ),
+            const SizedBox(height: Sp.x3),
+            _consentTile(
+              'Contribute my health data',
+              'Periodically upload your full on-device database (over Wi-Fi, while '
+                  'charging) so we can improve the algorithms. You can turn this '
+                  'off anytime in Settings.',
+              _healthShare,
+              (v) => setState(() => _healthShare = v),
+            ),
+            const SizedBox(height: Sp.x4),
+            Text(
+              'Both are on to help improve OpenStrap — switch either off here or '
+              'anytime in Settings. Health data only uploads over Wi-Fi while '
+              'charging.',
+              style: AppText.caption.copyWith(color: AppColors.inkMuted),
+            ),
+            const SizedBox(height: Sp.x8),
+
             SizedBox(
               height: 54,
               child: FilledButton(
@@ -132,6 +177,42 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
 
   Widget _label(String t) =>
       Text(t.toUpperCase(), style: AppText.overline.copyWith(color: AppColors.inkMuted));
+
+  Widget _consentTile(
+      String title, String subtitle, bool value, ValueChanged<bool> onChanged) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x3),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(R.cardSm),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: AppText.title),
+                const SizedBox(height: Sp.x1),
+                Text(subtitle,
+                    style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+              ],
+            ),
+          ),
+          const SizedBox(width: Sp.x3),
+          Switch(
+            value: value,
+            activeThumbColor: AppColors.coral,
+            onChanged: (v) {
+              HapticFeedback.selectionClick();
+              onChanged(v);
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _sexChip(String label, String value) {
     final sel = _sex == value;

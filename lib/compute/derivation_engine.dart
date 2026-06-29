@@ -94,7 +94,20 @@ import 'substrate.dart';
 /// `calories_total` → metric_series; `steps`/`calories_total` bundle blocks. 1 Hz
 /// still can't COUNT steps (Nyquist) — real counts come from live streaming, which
 /// also tunes this estimate. Bumping re-derives non-finalized days so they fill.
-const int kAlgoVersion = 19;
+// v20: principled nap detection (van Hees immobility + HR-dip) → `naps` block +
+// `nap_min` scalar; cross-day Sleep Coach (need/bedtime/cycle-wake/performance),
+// Strain Coach (recovery-gated target), VO₂max + WHOOP-Age, all in the crossday
+// bundle.
+// v21: all-day HRV line (`series.hrv_day`, epoch rolling RMSSD over 24/7 RR).
+// v22: all-day RESP line (`series.resp_day`, rolling RSA br/min) + relative
+// SKIN-TEMP trend (`series.skin_temp_day`) for the Timeline graph.
+// v23: all-day HRV (`series.hrv_day`) now rejects ectopic/missed-beat pairs
+// (Malik 20% rule) + clips to ≤220 ms, killing the non-physiological 400+ ms
+// spikes.
+// v24: picks up the analytics sleep-algorithm rewrite (multi-session detection +
+// bridging + main-session pick via AdvancedSleepStager). Bumping re-derives
+// non-finalized days so past nights restage; "Re-analyze data" restages all.
+const int kAlgoVersion = 24;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 14;
@@ -972,12 +985,24 @@ class DerivationEngine {
       day.sleepOnsetSec,
       day.sleepOffsetSec,
     ); // waking RMSSD
+    // ALL-DAY HRV / resp / skin-temp lines for the Timeline graph. Epoch-stamped
+    // (rolling RMSSD, rolling RSA, relative skin-temp) over the day-wide 24/7
+    // substrate RR/ADC — context lines, movement-confounded, not the recovery
+    // values. Computed here where the day substrate lives.
+    final sersMap = (bundle['series'] as Map?)?.cast<String, dynamic>();
+    sersMap?['hrv_day'] = _dayHrvCurve(daySub);
+    sersMap?['resp_day'] = _dayRespCurve(daySub);
+    sersMap?['skin_temp_day'] = _daySkinTempCurve(daySub);
     bundle['restlessness'] = _restlessness(sleepSub); // nocturnal movement
     bundle['sleep_periods'] = _sleepPeriods(
       daySub,
       day.sleepOnsetSec,
       day.sleepOffsetSec,
     ); // naps
+    // Principled daytime NAPS (van Hees immobility + HR-dip): rich per-nap block
+    // + a `nap_min` scalar feeding the Sleep Coach's nap credit + the Timeline.
+    _attachNaps(bundle, scMap, daySub, day.sleepOnsetSec, day.sleepOffsetSec);
+
     // Per-5-min movement-level curve for the "Your day" Movement view ([{t,v}],
     // v = fraction of moving seconds 0..1). Fresh top-level list — no typed-map.
     bundle['activity_curve'] = _activityCurve(daySub);
@@ -1053,6 +1078,8 @@ class DerivationEngine {
         // (computed in _stepsAndEnergy; never double-counted).
         'steps': sc('steps'),
         'calories_total': sc('calories_total'),
+        // Daytime nap minutes (principled van Hees + HR-dip) → trend + Sleep Coach.
+        'nap_min': sc('nap_min'),
         // Sleep-stage minutes + HRV freq/stability trends.
         'rem_min': sc('rem_min'),
         'deep_min': sc('deep_min'),
@@ -1320,6 +1347,12 @@ class DerivationEngine {
       'resp_rate': sc('resp_rate'),
       'skin_temp_z': sc('skin_temp_z'),
       'trimp': sc('trimp'),
+      // Headline 0–21 strain, daily steps, nap minutes — feed Sleep/Strain Coach
+      // + VO₂max/WHOOP-Age in the cross-day rollup.
+      'strain': sc('strain'),
+      'steps': sc('steps'),
+      'nap_min': sc('nap_min'),
+      'efficiency': sc('efficiency'),
       'onset_sec': onsetMs == null ? null : (onsetMs / 1000).round(),
       'wake_sec': offsetMs == null ? null : (offsetMs / 1000).round(),
       'tst_min': tstSec == null ? null : (tstSec / 60).round(),
@@ -1751,6 +1784,9 @@ class DerivationEngine {
     PreparedDerivationDay day,
     Profile profile,
   ) async => const [];
+  // NOTE: sport typing (ana.RuleSportClassifier) lived here, attached to detected
+  // workouts. PR#25 relocated workout detection out of _deriveDay, so the per-bout
+  // classifier was removed; re-home it where the new flow surfaces bouts.
 
   /// Advanced 4-class sleep over the day substrate via [ana.AdvancedSleepStager]
   /// (Cole–Kripke sleep/wake spine + DoG HR-variability + percentile-band
@@ -1845,6 +1881,118 @@ class DerivationEngine {
 
   /// Waking ultradian HRV: RMSSD over 5-min buckets of the DAY's RR that falls
   /// OUTSIDE the sleep window (the daytime autonomic rhythm). Timeline + mean.
+  /// All-day rolling-RMSSD curve over the 24/7 RR (epoch-stamped {t,v}), for the
+  /// Timeline graph. 5-min sliding window, emitted ~each minute. Inline artifact
+  /// gate (plausible RR 300–2000 ms) — daytime RR is noisier/motion-confounded,
+  /// so this is a context line, not the nocturnal recovery RMSSD.
+  List<Map<String, num>> _dayHrvCurve(Substrate s) {
+    final ts = <double>[], rr = <double>[];
+    for (var i = 0; i < s.rrMs.length; i++) {
+      final v = s.rrMs[i];
+      if (v >= 300 && v <= 2000) {
+        ts.add(s.rrTsMs[i]);
+        rr.add(v);
+      }
+    }
+    if (rr.length < 10) return const [];
+    const winMs = 300000.0; // 5 min
+    final out = <Map<String, num>>[];
+    var lo = 0;
+    var lastEmit = -1e18;
+    for (var i = 0; i < rr.length; i++) {
+      while (ts[i] - ts[lo] > winMs) {
+        lo++;
+      }
+      if (i - lo >= 10) {
+        var ssd = 0.0;
+        var nd = 0;
+        for (var k = lo + 1; k <= i; k++) {
+          final d = rr[k] - rr[k - 1];
+          // Malik 20% rule: a real beat-to-beat change is small; a successive
+          // jump >20% (or >200 ms) is an ectopic/missed beat — skip that pair so
+          // one artifact doesn't blow RMSSD up to non-physiological 400+ ms.
+          if (d.abs() > 0.20 * rr[k - 1] || d.abs() > 200) continue;
+          ssd += d * d;
+          nd++;
+        }
+        if (nd >= 8 && ts[i] - lastEmit > 60000) {
+          final rmssd = math.sqrt(ssd / nd);
+          if (rmssd <= 220) {
+            out.add({
+              't': (ts[i] / 1000).round(),
+              'v': double.parse(rmssd.toStringAsFixed(1)),
+            });
+            lastEmit = ts[i];
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  /// All-day respiratory-rate curve (epoch {t,v} br/min) via rolling RSA on the
+  /// 24/7 RR. 3-min window emitted ~every 5 min; absent windows (too few/too
+  /// noisy beats) are skipped — never fabricated. Daytime RSA is movement-
+  /// confounded, so it's a context line.
+  List<Map<String, num>> _dayRespCurve(Substrate s) {
+    final ts = <double>[], rr = <double>[];
+    for (var i = 0; i < s.rrMs.length; i++) {
+      final v = s.rrMs[i];
+      if (v >= 300 && v <= 2000) {
+        ts.add(s.rrTsMs[i]);
+        rr.add(v);
+      }
+    }
+    if (rr.length < 60) return const [];
+    const winMs = 180000.0; // 3 min
+    final out = <Map<String, num>>[];
+    var lo = 0;
+    var lastEmit = -1e18;
+    for (var i = 0; i < rr.length; i++) {
+      while (ts[i] - ts[lo] > winMs) {
+        lo++;
+      }
+      if (i - lo >= 30 && ts[i] - lastEmit > 300000) {
+        // 5-min cadence
+        final nn = rr.sublist(lo, i + 1);
+        final t0 = ts[lo];
+        final nnt = [for (var k = lo; k <= i; k++) ts[k] - t0];
+        final est = ana.rsaRespRate(nn, nnt, artifactFraction: 0.15);
+        final brpm = est.present ? est.value!.brpm : null;
+        if (brpm != null) {
+          out.add({
+            't': (ts[i] / 1000).round(),
+            'v': double.parse(brpm.toStringAsFixed(1)),
+          });
+          lastEmit = ts[i];
+        }
+      }
+    }
+    return out;
+  }
+
+  /// All-day RELATIVE skin-temperature trend (epoch {t,v}). Per-5-min mean ADC
+  /// expressed as a delta from the day's median — RELATIVE only, no absolute °C
+  /// (the band has no calibrated temperature). A slow context line.
+  List<Map<String, num>> _daySkinTempCurve(Substrate s) {
+    final bins = <int, List<double>>{};
+    for (var i = 0; i < s.skinTemp.length && i < s.tsSec.length; i++) {
+      final v = s.skinTemp[i];
+      if (v > 0) (bins[s.tsSec[i] ~/ 300] ??= []).add(v.toDouble());
+    }
+    if (bins.length < 3) return const [];
+    final keys = bins.keys.toList()..sort();
+    final means = {
+      for (final k in keys) k: bins[k]!.reduce((a, b) => a + b) / bins[k]!.length
+    };
+    final sorted = means.values.toList()..sort();
+    final med = sorted[sorted.length ~/ 2];
+    return [
+      for (final k in keys)
+        {'t': k * 300, 'v': double.parse((means[k]! - med).toStringAsFixed(1))}
+    ];
+  }
+
   Map<String, dynamic> _daytimeHrv(Substrate s, int onsetSec, int offsetSec) {
     const binSec = 300;
     final bins = <int, List<double>>{};
@@ -1996,6 +2144,57 @@ class DerivationEngine {
       }
     }
     return {'periods': periods, 'total_asleep_min': totalAsleep};
+  }
+
+  /// Principled daytime naps via the analytics `detectNaps` (van Hees immobility
+  /// + HR-dip over the WAKE span, the main nocturnal window carved out). Writes a
+  /// rich `naps` block (per-nap start/end epoch-sec + duration + confidence) and a
+  /// `nap_min` scalar (total nap minutes) used by the Sleep Coach + Timeline.
+  void _attachNaps(Map<String, dynamic> bundle, Map<String, dynamic>? scMap,
+      Substrate s, int onsetSec, int offsetSec) {
+    try {
+      final n = s.length;
+      if (n < 60) return;
+      final accel = <ana.AccelSample>[
+        for (var i = 0; i < n; i++)
+          ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i])
+      ];
+      final hr = [for (final h in s.hr) h.toDouble()];
+      // Map the main-sleep epoch-second window to indices into the day arrays.
+      ana.SleepWindowSpan? main;
+      if (offsetSec > onsetSec) {
+        var lo = -1, hi = -1;
+        for (var i = 0; i < n; i++) {
+          if (lo < 0 && s.tsSec[i] >= onsetSec) lo = i;
+          if (s.tsSec[i] < offsetSec) hi = i + 1;
+        }
+        if (lo >= 0 && hi > lo) main = ana.SleepWindowSpan(lo, hi);
+      }
+      final m = ana.detectNaps(accel, hr, mainSleep: main);
+      final naps = m.value ?? const [];
+      final t0 = s.tsSec.first;
+      bundle['naps'] = <String, dynamic>{
+        'value': [
+          for (final nap in naps)
+            {
+              'start': t0 + nap.startSec,
+              'end': t0 + nap.endSec,
+              'duration_min': (nap.durationSec / 60).round(),
+              'confidence': nap.confidence,
+            }
+        ],
+        'count': naps.length,
+        'confidence': m.confidence,
+        'tier': m.tier,
+        'inputs_used': m.inputs_used,
+        'note': m.note,
+      };
+      final napMin =
+          naps.fold<int>(0, (a, nap) => a + (nap.durationSec ~/ 60));
+      scMap?['nap_min'] = napMin.toDouble();
+    } catch (e) {
+      _log('naps FAILED/skipped: $e');
+    }
   }
 
   int _localDayLabelToSec(String day) {

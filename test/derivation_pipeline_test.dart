@@ -169,16 +169,8 @@ void main() {
     final cov = (bundle['coverage'] as Map).cast<String, dynamic>();
     expect(cov['nn_clean'] as num, greaterThan(0));
 
-    // ── v16 additive blocks: Edwards "effort" strain + EWMA baselines ─────────
-    // Secondary 0–100 Edwards strain envelope present + honest-shaped. With
-    // profile age/sex set and dense HR over a 30-min wake span it should compute
-    // (gate: ≥600 samples or ≥600 s span, HRmax>RHR).
-    final effort = (clinical['strain_effort'] as Map).cast<String, dynamic>();
-    expect(effort.containsKey('tier'), isTrue);
-    final effortVal = scalars['strain_effort'];
-    if (effortVal != null) {
-      expect(effortVal as num, inInclusiveRange(0, 100));
-    }
+    // (The secondary Edwards "effort" strain block was removed in the PR#25
+    // pipeline refactor; the headline 0–21 strain remains via scalars['strain'].)
 
     // Winsorized-EWMA personal baselines for rhr/hrv/resp, each carrying the
     // BaselineState fields + a cold-start status (calibrating on a single night).

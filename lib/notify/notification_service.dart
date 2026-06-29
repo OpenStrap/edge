@@ -72,8 +72,15 @@ class NotificationService {
   // ── Fixed ids: device alerts + scheduled reminders (disjoint low band) ───────
   static const int idLowBattery = 1001;
   static const int idCharging = 1002;
-  static const int idWindDown = 2002; // scheduled daily
+  static const int idWindDown = 2002; // scheduled daily ("time to sleep")
   static const int idWeeklyRecap = 2003; // scheduled weekly
+  static const int idJournalLog = 2004; // scheduled daily ("log your day")
+
+  /// Hydration reminders occupy a contiguous slot band [idWaterBase ..
+  /// idWaterBase + maxWaterSlots) — one daily-repeating slot per fire time across
+  /// the waking window. Still inside the disjoint <3000 scheduled-reminder band.
+  static const int idWaterBase = 2100;
+  static const int maxWaterSlots = 24;
 
   /// Reserved for a future server/push layer (unused — app is cloud-free).
   static const int kServerIdBase = 2000;

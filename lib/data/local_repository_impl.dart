@@ -757,15 +757,78 @@ class LocalRepositoryImpl extends LocalRepository {
           {'event_id': (e['event_id'] as num?)?.toInt(), 'ts': (e['ts'] as num?)?.toInt()},
     ];
 
+    // Daytime naps (principled detectNaps) as their own bands on the timeline.
+    final napsVal = _sub(b, 'naps')?['value'];
+    final naps = <Map<String, dynamic>>[
+      if (napsVal is List)
+        for (final nMap in napsVal)
+          if (nMap is Map && nMap['start'] != null && nMap['end'] != null)
+            {
+              'start': (nMap['start'] as num).toInt(),
+              'end': (nMap['end'] as num).toInt(),
+              'duration_min': (nMap['duration_min'] as num?)?.toInt(),
+            }
+    ];
+
+    // HRV line. Prefer the ALL-DAY series (`series.hrv_day`, already epoch-
+    // stamped, 24/7). Fall back to the sleep-only `hrv_timeline` whose `t` is
+    // SECONDS-FROM-WINDOW-START (re-based nnTimes) — rebase that to epoch via the
+    // sleep onset, or it lands on a wildly different axis and won't render.
+    final series = _sub(b, 'series');
+    final dayHrv = (series?['hrv_day'] as List?) ?? const [];
+    List<Map<String, dynamic>> hrvLine;
+    if (dayHrv.isNotEmpty) {
+      hrvLine = [
+        for (final e in dayHrv)
+          if (e is Map && e['t'] is num && e['v'] is num)
+            {'t': (e['t'] as num).toInt(), 'v': e['v']},
+      ];
+    } else {
+      final rawHrv = (series?['hrv_timeline'] as List?) ?? const [];
+      final hrvOnsetSec = onMs == null ? null : (onMs / 1000).round();
+      hrvLine = [
+        if (hrvOnsetSec != null)
+          for (final e in rawHrv)
+            if (e is Map && e['t'] is num && e['v'] is num)
+              {'t': hrvOnsetSec + (e['t'] as num).toInt(), 'v': e['v']},
+      ];
+    }
+    // Plausibility clip: RMSSD physiologically sits ~5–220 ms; values above are
+    // ectopic/missed-beat artifacts (the 400+ ms spikes). Drop them so one bad
+    // window can't flatten the whole line. Covers old data + the sleep fallback.
+    hrvLine = [
+      for (final e in hrvLine)
+        if ((e['v'] as num) >= 5 && (e['v'] as num) <= 220) e
+    ];
+
+    // Day HR average (from the curve) for the overview stats.
+    num avgHr = 0;
+    var nHr = 0;
+    for (final e in hrCurve) {
+      if (e is Map && e['v'] is num && (e['v'] as num) > 0) {
+        avgHr += e['v'] as num;
+        nHr++;
+      }
+    }
+
+    // Respiratory rate (br/min) + relative skin-temp trend — all-day lines.
+    final respLine = (series?['resp_day'] as List?) ?? const [];
+    final tempLine = (series?['skin_temp_day'] as List?) ?? const [];
+
     return {
       'hr': hrCurve,
+      'hrv': hrvLine,
+      'resp': respLine,
+      'skin_temp': tempLine,
       'activity': b['activity_curve'] ?? const [],
       'day_start': dayStart,
       'highs': {
         if (peakV != null) 'peak_hr': {'v': peakV, 't': peakT},
         if (lowV != null) 'low_hr': {'v': lowV, 't': lowT},
+        if (nHr > 0) 'avg_hr': {'v': (avgHr / nHr).round()},
       },
       'sleep': sleep,
+      'naps': naps,
       'sessions': [for (final r in sess) _workoutOf(r)],
       'events': events,
     };
@@ -1299,40 +1362,86 @@ class LocalRepositoryImpl extends LocalRepository {
     final journal = await LocalDb.journalRows(sinceDaysEpoch: since);
     if (journal.isEmpty) return const {'insights': []};
 
-    // readiness by date over the window.
-    final series = await LocalDb.metricSeries('readiness');
-    final byDate = <String, double>{};
-    for (final r in series) {
-      final v = (r['value'] as num?)?.toDouble();
-      if (v != null) byDate[r['date'] as String] = v;
-    }
-    if (byDate.isEmpty) return const {'insights': []};
-    final windowMean =
-        byDate.values.reduce((a, b) => a + b) / byDate.length;
+    // Outcome series we correlate behaviours against. Each is read from
+    // metric_series and indexed by date. Direction (does HIGHER help?) is encoded
+    // per outcome so the UI can phrase "+/− your recovery".
+    const outcomeDefs = <Map<String, dynamic>>[
+      {'key': 'readiness', 'label': 'Recovery', 'higherBetter': true, 'unit': ''},
+      {'key': 'rmssd', 'label': 'HRV', 'higherBetter': true, 'unit': 'ms'},
+      {'key': 'rhr', 'label': 'Resting HR', 'higherBetter': false, 'unit': 'bpm'},
+      {'key': 'efficiency', 'label': 'Sleep efficiency', 'higherBetter': true, 'unit': '%'},
+    ];
 
-    // tag -> readiness values on days carrying that tag (that also have a metric).
-    final byTag = <String, List<double>>{};
-    for (final j in journal) {
-      final date = j['date'] as String?;
-      final v = date == null ? null : byDate[date];
-      if (v == null) continue;
-      for (final t in _decodeStrList(j['tags_json'])) {
-        (byTag[t] ??= <double>[]).add(v);
+    // date → value maps for each outcome.
+    final maps = <String, Map<String, double>>{};
+    for (final od in outcomeDefs) {
+      final key = od['key'] as String;
+      final m = <String, double>{};
+      for (final r in await LocalDb.metricSeries(key)) {
+        final v = (r['value'] as num?)?.toDouble();
+        if (v != null) m[r['date'] as String] = v;
       }
+      maps[key] = m;
     }
 
+    // The union of journal dates (the days we can attribute behaviours on),
+    // sorted oldest-first — the shared index for journal + outcome arrays.
+    final dates = <String>{
+      for (final j in journal)
+        if (j['date'] is String) j['date'] as String
+    }.toList()
+      ..sort();
+    if (dates.length < 4) return const {'insights': []};
+
+    final tagsByDate = <String, Set<String>>{};
+    for (final j in journal) {
+      final d = j['date'] as String?;
+      if (d == null) continue;
+      (tagsByDate[d] ??= <String>{}).addAll(_decodeStrList(j['tags_json']));
+    }
+    final jdays = <ana.JournalDay>[
+      for (final d in dates) ana.JournalDay(d, tagsByDate[d] ?? const {})
+    ];
+    final outcomes = <String, List<double?>>{
+      for (final od in outcomeDefs)
+        (od['key'] as String): [for (final d in dates) maps[od['key']]![d]]
+    };
+
+    final corr = ana.journalCorrelations(
+      journal: jdays,
+      dates: dates,
+      outcomes: outcomes,
+    );
+
+    // Flatten to UI rows: one row per (tag, outcome) that is meaningful, phrased
+    // by the outcome's direction. Sorted by absolute effect, strongest first.
+    final unitOf = {for (final od in outcomeDefs) od['key'] as String: od['unit']};
+    final betterOf = {
+      for (final od in outcomeDefs) od['key'] as String: od['higherBetter'] as bool
+    };
+    final labelOf = {
+      for (final od in outcomeDefs) od['key'] as String: od['label'] as String
+    };
     final insights = <Map<String, dynamic>>[];
-    for (final e in byTag.entries) {
-      if (e.value.length < 2) continue;
-      final mean = e.value.reduce((a, b) => a + b) / e.value.length;
-      if (windowMean == 0) continue;
-      final deltaPct = (mean - windowMean) / windowMean * 100.0;
-      insights.add({
-        'label': e.key,
-        'delta_pct': deltaPct,
-        'better': mean >= windowMean,
-        'n_with': e.value.length,
-      });
+    for (final tc in corr) {
+      for (final e in tc.effects) {
+        if (e.insufficient || !e.meaningful || e.pctChange == null) continue;
+        final higherOnTag = e.higherSide == 'tagged';
+        final betterWhenHigher = betterOf[e.outcome] ?? true;
+        // "helped" = the change moved the outcome in the good direction.
+        final helped = higherOnTag == betterWhenHigher;
+        insights.add({
+          'tag': tc.tag,
+          'outcome': e.outcome,
+          'outcome_label': labelOf[e.outcome],
+          'delta': e.delta,
+          'delta_pct': e.pctChange,
+          'unit': unitOf[e.outcome],
+          'helped': helped,
+          'n_with': e.nTagged,
+          'n_without': e.nUntagged,
+        });
+      }
     }
     insights.sort((a, b) =>
         (b['delta_pct'] as double).abs().compareTo((a['delta_pct'] as double).abs()));
@@ -1427,6 +1536,9 @@ class LocalRepositoryImpl extends LocalRepository {
     // Retrospective ovulation confirmation via 3-over-6 coverline on recent
     // nightly RELATIVE skin-temp z (derived). Honest: confirmation only.
     String? ovulationEst;
+    // Biometric overlay across the cycle — how resting HR / HRV / skin-temp shift
+    // (descriptive context; the prediction is from logged periods, not these).
+    final overlay = <Map<String, dynamic>>[];
     final derived = await LocalDb.recentDayResults(120);
     if (derived.isNotEmpty) {
       // recentDerivedDays is newest-first; coverline wants oldest-first.
@@ -1435,8 +1547,29 @@ class LocalRepositoryImpl extends LocalRepository {
       final temps = <double?>[];
       for (final r in ordered) {
         final b = _decode(r['payload_json']);
-        dates.add(r['date'] as String);
-        temps.add(_scalar(b, 'skin_temp_z')?.toDouble());
+        final dt = r['date'] as String;
+        dates.add(dt);
+        final z = _scalar(b, 'skin_temp_z')?.toDouble();
+        temps.add(z);
+        // cycle day for this overlay row (relative to the last logged start).
+        int? cd;
+        if (lastStart != null) {
+          final d = DateTime.tryParse(dt);
+          if (d != null) {
+            cd = DateTime(d.year, d.month, d.day)
+                    .difference(DateTime(
+                        lastStart.year, lastStart.month, lastStart.day))
+                    .inDays +
+                1;
+          }
+        }
+        overlay.add({
+          'date': dt,
+          'cycle_day': ?cd,
+          'resting_hr': _scalar(b, 'rhr')?.toDouble(),
+          'hrv_rmssd': _scalar(b, 'rmssd')?.toDouble(),
+          'skin_temp_idx': z,
+        });
       }
       final ov = ana.menstrualCoverline(dates, temps);
       final events = ov.value;
@@ -1460,7 +1593,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'note': null,
       'confidence': confidence,
       'logs': logs,
-      'overlay': const [],
+      'overlay': overlay,
     };
   }
 
@@ -1476,6 +1609,23 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<void> deleteCycleLog(String date) async => LocalDb.deleteCycleLog(date);
+
+  @override
+  Future<void> postCycleSymptoms(String date, List<String> symptoms,
+          {String? note}) async =>
+      LocalDb.putCycleSymptoms(date, symptoms, note: note);
+
+  @override
+  Future<Map<String, List<String>>> getCycleSymptoms() async {
+    final rows = await LocalDb.cycleSymptoms();
+    final out = <String, List<String>>{};
+    for (final r in rows) {
+      final d = r['date'] as String?;
+      if (d == null) continue;
+      out[d] = _decodeStrList(r['symptoms_json']);
+    }
+    return out;
+  }
 
   // ── notifications — locally-generated feed (written by DerivationEngine) ─────
 

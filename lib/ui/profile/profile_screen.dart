@@ -15,8 +15,6 @@ import '../../state/units_controller.dart';
 import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
-import '../debug/diagnostics_screen.dart';
-import '../debug/metrics_diagnostics_screen.dart';
 import '../import/import_screen.dart';
 import '../kit/kit.dart';
 import '../today/step_goal_screen.dart';
@@ -174,11 +172,11 @@ class ProfileScreen extends StatelessWidget {
             ),
             child: DetailRow(
               icon: Ic.cloud,
-              label: 'Backend URL',
-              value: app.backendConfigured
-                  ? _shortUrl(app.backendUrl)
+              label: 'Companion URL',
+              value: app.companionConfigured
+                  ? _shortUrl(app.companionUrl)
                   : 'Not set',
-              onTap: () => _editBackendUrl(context, app),
+              onTap: () => _editCompanionUrl(context, app),
             ),
           ),
           const SizedBox(height: Sp.x3),
@@ -243,38 +241,6 @@ class ProfileScreen extends StatelessWidget {
                     );
                   }
                 },
-              ),
-            ),
-          ),
-          const SizedBox(height: Sp.x3),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x2,
-            ),
-            child: DetailRow(
-              icon: Ic.info,
-              label: 'Data diagnostics',
-              value: 'View',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const DiagnosticsScreen()),
-              ),
-            ),
-          ),
-          const SizedBox(height: Sp.x3),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x2,
-            ),
-            child: DetailRow(
-              icon: Ic.activity,
-              label: 'Metrics diagnostics',
-              value: 'View',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const MetricsDiagnosticsScreen(),
-                ),
               ),
             ),
           ),
@@ -370,6 +336,76 @@ class ProfileScreen extends StatelessWidget {
                       await app.updateProfile({'track_cycle': v ? 1 : 0});
                     } catch (_) {}
                   },
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: Sp.x7),
+
+          // ── Privacy (opt-in companion data — also offered at onboarding) ──
+          const SectionHeader('Privacy'),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x5,
+              vertical: Sp.x3,
+            ),
+            child: Row(
+              children: [
+                AppIcon(Ic.info, size: 18, color: AppColors.coral),
+                const SizedBox(width: Sp.x4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Send anonymous diagnostics', style: AppText.title),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Crash/error reports plus basic device info (model, OS, '
+                        'battery, connection). No health data. On by default — '
+                        'switch off anytime.',
+                        style: AppText.captionMuted,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Sp.x3),
+                Switch(
+                  value: app.telemetryConsent,
+                  onChanged: (v) => app.setTelemetryConsent(v),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: Sp.x3),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x5,
+              vertical: Sp.x3,
+            ),
+            child: Row(
+              children: [
+                AppIcon(Ic.activity, size: 18, color: AppColors.coral),
+                const SizedBox(width: Sp.x4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Contribute my health data', style: AppText.title),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Periodically upload your full on-device database (over '
+                        'Wi-Fi, while charging) to improve the algorithms. On by '
+                        'default — switch off anytime.',
+                        style: AppText.captionMuted,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Sp.x3),
+                Switch(
+                  value: app.healthShareConsent,
+                  onChanged: (v) => app.setHealthShareConsent(v),
                 ),
               ],
             ),
@@ -578,22 +614,24 @@ class ProfileScreen extends StatelessWidget {
     return u;
   }
 
-  /// Edit the cloud backend URL (used by existing-user login / cloud import).
-  /// Blank clears the override → falls back to the build-time BACKEND_URL.
-  Future<void> _editBackendUrl(BuildContext context, AppState app) async {
-    final ctrl = TextEditingController(text: app.backendUrl);
+  /// Edit the companion URL — the single backend the app talks to (announcements,
+  /// OTA, telemetry, and existing-user import). Blank clears the override → falls
+  /// back to the build-time COMPANION_URL.
+  Future<void> _editCompanionUrl(BuildContext context, AppState app) async {
+    final ctrl = TextEditingController(text: app.companionUrl);
     final messenger = ScaffoldMessenger.of(context);
     final url = await showDialog<String>(
       context: context,
       builder: (dctx) => AlertDialog(
-        title: const Text('Backend URL'),
+        title: const Text('Companion URL'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Where existing-user login + cloud import connect. Leave blank to '
-              'use the build default.',
+              'The one backend the app connects to — app updates, announcements, '
+              'opt-in diagnostics and existing-user import. Leave blank to use '
+              'the build default.',
               style: AppText.captionMuted,
             ),
             const SizedBox(height: Sp.x3),
@@ -621,13 +659,13 @@ class ProfileScreen extends StatelessWidget {
       ),
     );
     if (url == null) return; // cancelled
-    await app.setBackendUrl(url);
+    await app.setCompanionUrl(url);
     messenger.showSnackBar(
       SnackBar(
         content: Text(
           url.isEmpty
-              ? 'Backend URL cleared — using the build default.'
-              : 'Backend URL saved.',
+              ? 'Companion URL cleared — using the build default.'
+              : 'Companion URL saved.',
         ),
       ),
     );

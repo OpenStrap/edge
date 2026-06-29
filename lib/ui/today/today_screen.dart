@@ -19,7 +19,7 @@ import '../recap/recap_screen.dart';
 import '../coach/coach_screen.dart';
 import '../profile/profile_screen.dart';
 import '../screens/screens.dart';
-import '../journey/journey_screen.dart';
+import '../timeline/timeline_screen.dart';
 import '../stress/stress_screen.dart';
 import '../records/records_screen.dart';
 import '../notifications/notifications_screen.dart';
@@ -397,6 +397,10 @@ class _TodayScreenState extends State<TodayScreen>
 
       // Heart rate spark.
       _hrCard(),
+
+      // Cycle entry (only when the user tracks their menstrual cycle) — promoted
+      // to Today so it isn't buried under the Body tab.
+      const CycleEntryCard(),
     ];
   }
 
@@ -747,8 +751,9 @@ class _TodayScreenState extends State<TodayScreen>
     final latest = hasData ? points.last : null;
     final peak = hasData ? points.reduce((a, b) => a.y >= b.y ? a : b) : null;
     final low = hasData ? points.reduce((a, b) => a.y <= b.y ? a : b) : null;
+    final liveHr = context.select<AppState, int?>((a) => a.device.liveHr);
     return ProCard(
-      onTap: () => _push(() => JourneyScreen(date: _todayStr())),
+      onTap: () => _push(() => TimelineScreen(date: _todayStr())),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -756,13 +761,19 @@ class _TodayScreenState extends State<TodayScreen>
             children: [
               AppIcon(Ic.pulse, size: 19, color: AppColors.coral),
               const SizedBox(width: Sp.x2),
-              Expanded(child: Text("Today's heart rate", style: AppText.h2)),
-              Text(
-                'Your day',
-                style: AppText.label.copyWith(color: AppColors.coralDeep),
+              Expanded(
+                child: Row(crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic, children: [
+                  Text('Timeline', style: AppText.h2),
+                  if (liveHr != null && liveHr > 0) ...[
+                    const SizedBox(width: Sp.x3),
+                    Text('$liveHr', style: AppText.h2.copyWith(color: AppColors.coral)),
+                    const SizedBox(width: 2),
+                    Text('bpm now', style: AppText.captionMuted),
+                  ],
+                ]),
               ),
-              const SizedBox(width: 2),
-              AppIcon(Ic.arrowRight, size: 15, color: AppColors.coralDeep),
+              AppIcon(Ic.arrowRight, size: 16, color: AppColors.coralDeep),
             ],
           ),
           const SizedBox(height: Sp.x4),

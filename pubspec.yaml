@@ -67,6 +67,16 @@ dependencies:
   # manually (the reliable path when its in-app request dialog is locked out).
   android_intent_plus: ^5.1.0
 
+  # Opt-in, consent-gated companion telemetry + health-data contribution:
+  #   • device_info_plus  — OEM / model / OS for crash-report context
+  #   • battery_plus       — phone battery + charging state (upload gate)
+  #   • connectivity_plus  — Wi-Fi check (only upload the heavy .db on unmetered)
+  #   • uuid               — stable anonymous install id (the device_id anchor)
+  device_info_plus: ^10.1.2   # capped <11 by `health`
+  battery_plus: ^6.1.0
+  connectivity_plus: ^6.1.0
+  uuid: ^4.5.1
+
   # Home/lock-screen widget bridge (writes a snapshot to the App Group → WidgetKit).
   home_widget: ^0.6.0
 
@@ -89,6 +99,16 @@ dependencies:
   flutter_secure_storage: ^10.3.1
   gpt_markdown: ^1.1.7
 
+# LOCAL DEV OVERRIDE: build against the in-tree protocol + analytics packages
+# (the new coaching/insights work) instead of the pinned git refs above. Revert
+# (or bump the git refs) before merge — mirrors how feat/steps pointed deps back
+# to main for release.
+dependency_overrides:
+  openstrap_protocol:
+    path: ../openstrap-protocol-dart
+  openstrap_analytics:
+    path: ../openstrap-analytics-onehz
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -96,12 +116,6 @@ dev_dependencies:
   test: ^1.25.8
   flutter_launcher_icons: ^0.13.1
   sqflite_common_ffi: ^2.4.0+3
-
-dependency_overrides:
-  openstrap_protocol:
-    path: ../openstrap-protocol-dart
-  openstrap_analytics:
-    path: ../openstrap-analytics-onehz
 
 flutter_launcher_icons:
   android: "launcher_icon"

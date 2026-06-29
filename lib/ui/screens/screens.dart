@@ -17,6 +17,7 @@ import '../spotcheck/spot_check_screen.dart';
 import '../coach/ai_coach_screen.dart';
 import '../today/step_goal_screen.dart';
 import '../today/step_calibration_screen.dart';
+import '../insights/coach_cards.dart';
 import 'metric_screen.dart';
 import 'detail_cards.dart';
 
@@ -35,6 +36,8 @@ class SleepScreen extends StatelessWidget {
         // The exact rich Sleep screen you love, embedded under the time toggle,
         // plus sleep records + journal patterns on Today.
         todayDetail: (ctx) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const SleepCoachCard(),
+          const SizedBox(height: Sp.x4),
           SleepDetailScreen(date: todayUtc(), embedded: true),
           const SectionExtras(section: 'sleep'),
         ]),
@@ -105,7 +108,13 @@ class BodyScreen extends StatelessWidget {
               ),
             )),
         todayDetail: (ctx) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const StrainCoachCard(),
+          const SizedBox(height: Sp.x4),
           StrainDetailScreen(date: todayUtc(), embedded: true),
+          const SizedBox(height: Sp.x4),
+          const WhoopAgeCard(),
+          const SizedBox(height: Sp.x4),
+          const PerformanceAssessmentCard(),
           const CycleEntryCard(),
           const SectionExtras(section: 'body'),
         ]),

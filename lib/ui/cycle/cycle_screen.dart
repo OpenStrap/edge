@@ -24,6 +24,14 @@ class _CycleScreenState extends State<CycleScreen> {
   bool _loading = true;
   bool _noApi = false;
   String? _error;
+  final Set<String> _symptoms = {}; // today's logged symptoms
+
+  // Common menstrual symptoms the user can tap to log for today.
+  static const _symptomOptions = <String>[
+    'cramps', 'headache', 'bloating', 'fatigue', 'mood swings',
+    'tender breasts', 'acne', 'back pain', 'nausea', 'cravings',
+    'insomnia', 'spotting',
+  ];
 
   LocalRepository? get _api => context.read<AppState>().repo;
 
@@ -42,8 +50,15 @@ class _CycleScreenState extends State<CycleScreen> {
     setState(() { _loading = true; _error = null; _noApi = false; });
     try {
       final d = await api.getCycle();
+      final sym = await api.getCycleSymptoms();
       if (!mounted) return;
-      setState(() { _data = d; _loading = false; });
+      setState(() {
+        _data = d;
+        _symptoms
+          ..clear()
+          ..addAll(sym[_fmt(DateTime.now())] ?? const []);
+        _loading = false;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() { _loading = false; _error = e is RepositoryException ? e.body : e.toString(); });
@@ -89,9 +104,20 @@ class _CycleScreenState extends State<CycleScreen> {
     } catch (_) {}
   }
 
+  Future<void> _toggleSymptom(String s) async {
+    setState(() {
+      if (!_symptoms.add(s)) _symptoms.remove(s);
+    });
+    final api = _api;
+    if (api == null) return;
+    try {
+      await api.postCycleSymptoms(_fmt(DateTime.now()), _symptoms.toList());
+    } catch (_) {/* best-effort */}
+  }
+
   // ── phase presentation ──────────────────────────────────────────────────────
   static const _phaseLabel = {
-    'menstruation': 'Menstruation',
+    'menstrual': 'Menstruation',
     'follicular': 'Follicular phase',
     'ovulation': 'Ovulation window',
     'luteal': 'Luteal phase',
@@ -99,7 +125,7 @@ class _CycleScreenState extends State<CycleScreen> {
   };
   Color _phaseColor(String p) {
     switch (p) {
-      case 'menstruation': return AppColors.coral;
+      case 'menstrual': return AppColors.coral;
       case 'follicular': return AppColors.good;
       case 'ovulation': return AppColors.coralDeep;
       case 'luteal': return AppColors.warn;
@@ -229,6 +255,39 @@ class _CycleScreenState extends State<CycleScreen> {
             'Shown for context — the prediction is based on your logged periods, not these.',
             style: AppText.captionMuted),
       ],
+
+      // SYMPTOMS — tap to log how you feel today (feeds the cycle picture).
+      const SizedBox(height: Sp.x6),
+      SectionHeader('Symptoms today'),
+      ProCard(
+        child: Wrap(
+          spacing: Sp.x2,
+          runSpacing: Sp.x2,
+          children: [
+            for (final s in _symptomOptions)
+              FilterChip(
+                label: Text(s),
+                selected: _symptoms.contains(s),
+                onSelected: (_) => _toggleSymptom(s),
+                showCheckmark: false,
+                selectedColor: AppColors.coral.withValues(alpha: 0.18),
+                labelStyle: AppText.caption.copyWith(
+                    color: _symptoms.contains(s)
+                        ? AppColors.coralDeep
+                        : AppColors.inkSoft),
+                backgroundColor: AppColors.surface,
+                shape: StadiumBorder(
+                    side: BorderSide(
+                        color: _symptoms.contains(s)
+                            ? AppColors.coral
+                            : AppColors.divider)),
+              ),
+          ],
+        ),
+      ),
+      const SizedBox(height: Sp.x2),
+      Text('Logged symptoms ride along with your phase + recovery — over time '
+          'they sharpen the picture.', style: AppText.captionMuted),
 
       // LOG actions.
       const SizedBox(height: Sp.x6),

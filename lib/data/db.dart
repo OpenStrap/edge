@@ -189,11 +189,17 @@ class LocalDb {
         if (oldV < 17) {
           await _rebuildCanonicalDecodedStore(db);
         }
+        if (oldV < 18) {
+          // Menstrual symptom log (full cycle screen) — one row per date, a JSON
+          // list of symptom tags + optional note. Separate from cycle_log (whose
+          // `date` PK is a period-start marker) so a date can carry both.
+          await _createCycleSymptom(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
       },
-      version: 17,
+      version: 18,
     );
   }
 
@@ -214,9 +220,48 @@ class LocalDb {
     await _createPrimitiveArtifacts(db);
     await _createDecodedStore(db);
     await _createLiveCoverage(db);
+    await _createCycleSymptom(db);
     await _ensureRawRecordSchema(db);
     await _ensureSessionSchema(db);
     await _ensureSyncStateSchema(db);
+  }
+
+  // ── MENSTRUAL SYMPTOM LOG ──────────────────────────────────────────────────
+  static Future<void> _createCycleSymptom(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS cycle_symptom (
+        date TEXT PRIMARY KEY,
+        symptoms_json TEXT NOT NULL,
+        note TEXT,
+        updated_at INTEGER
+      )
+    ''');
+  }
+
+  /// Upsert the symptom set for [date] (empty list clears the row).
+  static Future<void> putCycleSymptoms(
+      String date, List<String> symptoms, {String? note}) async {
+    final db = await instance;
+    if (symptoms.isEmpty && (note == null || note.isEmpty)) {
+      await db.delete('cycle_symptom', where: 'date = ?', whereArgs: [date]);
+      return;
+    }
+    await db.insert(
+      'cycle_symptom',
+      {
+        'date': date,
+        'symptoms_json': jsonEncode(symptoms),
+        'note': note,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// All symptom rows (newest first): {date, symptoms_json, note}.
+  static Future<List<Map<String, dynamic>>> cycleSymptoms() async {
+    final db = await instance;
+    return db.query('cycle_symptom', orderBy: 'date DESC');
   }
 
   // ── RESUMABLE-SYNC CURSOR (durable KV) ──────────────────────────────────────
@@ -810,8 +855,31 @@ class LocalDb {
   /// (second, beat_index). Older duplicate counters remain in raw_records for
   /// forensics, but analytics no longer sees them.
   static Future<void> _rebuildCanonicalDecodedStore(Database db) async {
+    // Guarantee the source tables exist before we SELECT from them. On upgrade
+    // paths from before the decoded store landed, decoded_onehz/decoded_rr were
+    // never created in the migration chain, so this rebuild threw "no such table:
+    // decoded_onehz" — failing openDatabase on every launch (stuck at loading).
+    // Creating them (empty) here makes the dedup/rebuild a safe no-op in that case.
+    await _createDecodedStore(db);
     await db.execute('DROP TABLE IF EXISTS _decoded_onehz_new');
     await db.execute('DROP TABLE IF EXISTS _decoded_rr_new');
+    // Drop any leftover temp-named indexes BEFORE recreating them. SQLite index
+    // names are database-GLOBAL, and a prior rebuild's `ALTER TABLE _decoded_*_new
+    // RENAME TO decoded_*` leaks these `_new` index names onto the FINAL tables
+    // (a renamed table keeps its indexes, names and all). On a re-run the plain
+    // `CREATE INDEX idx_decoded_onehz_new_rects ...` then throws "index already
+    // exists", which fails openDatabase → the upgrade never commits → the rebuild
+    // re-runs every launch → app stuck on the loading screen. Dropping the names
+    // first makes this rebuild fully idempotent and breaks that loop.
+    for (final ix in const [
+      'idx_decoded_onehz_new_rects',
+      'idx_decoded_onehz_new_rec_ts_unique',
+      'idx_decoded_rr_new_counter',
+      'idx_decoded_rr_new_ts',
+      'idx_decoded_rr_new_ts_beat_unique',
+    ]) {
+      await db.execute('DROP INDEX IF EXISTS $ix');
+    }
     await db.execute('''
       CREATE TABLE _decoded_onehz_new (
         counter INTEGER PRIMARY KEY,
