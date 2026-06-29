@@ -863,6 +863,23 @@ class LocalDb {
     await _createDecodedStore(db);
     await db.execute('DROP TABLE IF EXISTS _decoded_onehz_new');
     await db.execute('DROP TABLE IF EXISTS _decoded_rr_new');
+    // Drop any leftover temp-named indexes BEFORE recreating them. SQLite index
+    // names are database-GLOBAL, and a prior rebuild's `ALTER TABLE _decoded_*_new
+    // RENAME TO decoded_*` leaks these `_new` index names onto the FINAL tables
+    // (a renamed table keeps its indexes, names and all). On a re-run the plain
+    // `CREATE INDEX idx_decoded_onehz_new_rects ...` then throws "index already
+    // exists", which fails openDatabase → the upgrade never commits → the rebuild
+    // re-runs every launch → app stuck on the loading screen. Dropping the names
+    // first makes this rebuild fully idempotent and breaks that loop.
+    for (final ix in const [
+      'idx_decoded_onehz_new_rects',
+      'idx_decoded_onehz_new_rec_ts_unique',
+      'idx_decoded_rr_new_counter',
+      'idx_decoded_rr_new_ts',
+      'idx_decoded_rr_new_ts_beat_unique',
+    ]) {
+      await db.execute('DROP INDEX IF EXISTS $ix');
+    }
     await db.execute('''
       CREATE TABLE _decoded_onehz_new (
         counter INTEGER PRIMARY KEY,

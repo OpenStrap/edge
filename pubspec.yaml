@@ -67,6 +67,16 @@ dependencies:
   # manually (the reliable path when its in-app request dialog is locked out).
   android_intent_plus: ^5.1.0
 
+  # Opt-in, consent-gated companion telemetry + health-data contribution:
+  #   • device_info_plus  — OEM / model / OS for crash-report context
+  #   • battery_plus       — phone battery + charging state (upload gate)
+  #   • connectivity_plus  — Wi-Fi check (only upload the heavy .db on unmetered)
+  #   • uuid               — stable anonymous install id (the device_id anchor)
+  device_info_plus: ^10.1.2   # capped <11 by `health`
+  battery_plus: ^6.1.0
+  connectivity_plus: ^6.1.0
+  uuid: ^4.5.1
+
   # Home/lock-screen widget bridge (writes a snapshot to the App Group → WidgetKit).
   home_widget: ^0.6.0
 

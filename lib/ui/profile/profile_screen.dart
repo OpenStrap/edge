@@ -15,8 +15,6 @@ import '../../state/units_controller.dart';
 import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
-import '../debug/diagnostics_screen.dart';
-import '../debug/metrics_diagnostics_screen.dart';
 import '../import/import_screen.dart';
 import '../kit/kit.dart';
 import '../today/step_goal_screen.dart';
@@ -246,38 +244,6 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: Sp.x3),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x2,
-            ),
-            child: DetailRow(
-              icon: Ic.info,
-              label: 'Data diagnostics',
-              value: 'View',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const DiagnosticsScreen()),
-              ),
-            ),
-          ),
-          const SizedBox(height: Sp.x3),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x2,
-            ),
-            child: DetailRow(
-              icon: Ic.activity,
-              label: 'Metrics diagnostics',
-              value: 'View',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const MetricsDiagnosticsScreen(),
-                ),
-              ),
-            ),
-          ),
 
           const SizedBox(height: Sp.x7),
 
@@ -370,6 +336,76 @@ class ProfileScreen extends StatelessWidget {
                       await app.updateProfile({'track_cycle': v ? 1 : 0});
                     } catch (_) {}
                   },
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: Sp.x7),
+
+          // ── Privacy (opt-in companion data — also offered at onboarding) ──
+          const SectionHeader('Privacy'),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x5,
+              vertical: Sp.x3,
+            ),
+            child: Row(
+              children: [
+                AppIcon(Ic.info, size: 18, color: AppColors.coral),
+                const SizedBox(width: Sp.x4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Send anonymous diagnostics', style: AppText.title),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Crash/error reports plus basic device info (model, OS, '
+                        'battery, connection). No health data. On by default — '
+                        'switch off anytime.',
+                        style: AppText.captionMuted,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Sp.x3),
+                Switch(
+                  value: app.telemetryConsent,
+                  onChanged: (v) => app.setTelemetryConsent(v),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: Sp.x3),
+          ProCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x5,
+              vertical: Sp.x3,
+            ),
+            child: Row(
+              children: [
+                AppIcon(Ic.activity, size: 18, color: AppColors.coral),
+                const SizedBox(width: Sp.x4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Contribute my health data', style: AppText.title),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Periodically upload your full on-device database (over '
+                        'Wi-Fi, while charging) to improve the algorithms. On by '
+                        'default — switch off anytime.',
+                        style: AppText.captionMuted,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: Sp.x3),
+                Switch(
+                  value: app.healthShareConsent,
+                  onChanged: (v) => app.setHealthShareConsent(v),
                 ),
               ],
             ),

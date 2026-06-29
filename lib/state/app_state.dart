@@ -27,6 +27,7 @@ import '../ble/accessory_setup.dart';
 import '../ble/ble_engine.dart';
 import '../ble/ios_ble_restore.dart';
 import '../cloud/backend_client.dart';
+import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
 import '../compute/profile.dart';
@@ -49,8 +50,11 @@ import '../notify/notification_service.dart';
 import '../sync/edge_tracking.dart';
 import '../sync/paired_device.dart';
 import '../sync/update_service.dart';
+import '../telemetry/telemetry_service.dart';
+import '../telemetry/health_uploader.dart';
 import '../widget/widget_service.dart';
 import '../sync/file_log.dart';
+import 'package:uuid/uuid.dart';
 
 /// The onboarding/app gate states, in order. See [AppState.route].
 /// Flow: loading → pairing → profile (only if incomplete) → shell. The profile
@@ -322,6 +326,111 @@ class AppState extends ChangeNotifier {
     return n;
   }
 
+  // ── companion: anonymous telemetry + health-data contribution ────────────────
+  // All anchored to a stable anonymous install id (no account). Two SEPARATE
+  // consent scopes, both PRE-ENABLED at enrollment (shown on the onboarding
+  // name/age screen, where the user can switch either off before continuing).
+  // `consentChosen` records that the user has passed that screen at least once,
+  // so we never retroactively flip a returning install that predates the screen.
+  static const String _kDeviceId = 'install_device_id';
+  static const String _kTelemetryConsent = 'consent_telemetry';
+  static const String _kHealthShareConsent = 'consent_health_data';
+  static const String _kConsentChosen = 'consent_chosen';
+  static const String _kCompanionUrl = 'companion_url';
+
+  /// Stable anonymous install id — the device_id every companion call is keyed on.
+  String deviceId = '';
+  bool telemetryConsent = false;
+  bool healthShareConsent = false;
+  /// Whether the user has been through the enrollment consent screen. Until then
+  /// the toggles default ON there; an install that never saw the screen keeps the
+  /// safe OFF default (we do NOT silently enable for someone who never chose).
+  bool consentChosen = false;
+  int termsVersion = 1; // current Terms version (refreshed from /app/status)
+
+  /// One-time wiring of the companion layer: install id, consent flags, the band
+  /// snapshot hook, and the persisted-outbox replay. Runs OFF the startup critical
+  /// path (fire-and-forget, after `initialized`) and is fully guarded — it must
+  /// NEVER block or break app boot.
+  Future<void> _initCompanion() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      deviceId = prefs.getString(_kDeviceId) ?? '';
+      if (deviceId.isEmpty) {
+        deviceId = const Uuid().v4();
+        await prefs.setString(_kDeviceId, deviceId);
+      }
+      telemetryConsent = prefs.getBool(_kTelemetryConsent) ?? false;
+      healthShareConsent = prefs.getBool(_kHealthShareConsent) ?? false;
+      consentChosen = prefs.getBool(_kConsentChosen) ?? false;
+      CompanionClient.overrideUrl = prefs.getString(_kCompanionUrl);
+
+      final t = TelemetryService.instance;
+      t.deviceId = deviceId;
+      t.enabled = telemetryConsent;
+      t.consentVersion = termsVersion;
+      t.bandSnapshot = _bandSnapshot;
+      HealthUploader.instance.deviceId = deviceId;
+      HealthUploader.instance.consentVersion = termsVersion;
+      notifyListeners(); // reflect loaded consent flags in the UI
+
+      await t.load();
+      if (telemetryConsent) unawaited(t.flush()); // ship last session's records
+
+      // Learn the live Terms version (and OTA/banner) — best-effort.
+      final status = await CompanionClient.getStatus();
+      final v = status?['terms']?['version'];
+      if (v is int && v > 0) {
+        termsVersion = v;
+        t.consentVersion = v;
+        HealthUploader.instance.consentVersion = v;
+      }
+    } catch (e) {
+      _log('[companion] init failed (non-fatal): $e');
+    }
+  }
+
+  /// The live band fields folded into each telemetry batch's device snapshot.
+  Map<String, dynamic> _bandSnapshot() {
+    final s = engine.state;
+    return {
+      if (s.serial != null) 'band_serial': s.serial,
+      if (s.batteryPct != null) 'band_battery_pct': s.batteryPct!.round(),
+      'ble_state': s.connection,
+    };
+  }
+
+  /// Toggle anonymous diagnostics (telemetry). Persists, records the consent on the
+  /// server, and flips the transmission gate.
+  Future<void> setTelemetryConsent(bool on) async {
+    telemetryConsent = on;
+    consentChosen = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kTelemetryConsent, on);
+    await prefs.setBool(_kConsentChosen, true);
+    TelemetryService.instance.enabled = on;
+    notifyListeners();
+    unawaited(CompanionClient.postConsent(
+      deviceId: deviceId, scope: 'telemetry', granted: on,
+      termsVersion: termsVersion,
+    ));
+    if (on) unawaited(TelemetryService.instance.flush());
+  }
+
+  /// Toggle full-.db health-data contribution. Persists + records server consent.
+  Future<void> setHealthShareConsent(bool on) async {
+    healthShareConsent = on;
+    consentChosen = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kHealthShareConsent, on);
+    await prefs.setBool(_kConsentChosen, true);
+    notifyListeners();
+    unawaited(CompanionClient.postConsent(
+      deviceId: deviceId, scope: 'health_data', granted: on,
+      termsVersion: termsVersion,
+    ));
+  }
+
   /// Merge + persist local profile fields. Returns the updated map. Replaces the
   /// old cloud PATCH /profile (no network).
   Future<Map<String, dynamic>> updateProfile(
@@ -535,6 +644,13 @@ class AppState extends ChangeNotifier {
             _log('[health] export failed: $e');
           }
         }());
+      }
+      // Companion (opt-in): flush any queued telemetry now that we're doing network
+      // work anyway, and — on a heavy (finalize) pass — consider the once/day full
+      // .db upload (itself gated on Wi-Fi + charging + >24h). Both best-effort.
+      if (telemetryConsent) unawaited(TelemetryService.instance.flush());
+      if (heavy && healthShareConsent) {
+        unawaited(HealthUploader.instance.maybeUpload(consented: true));
       }
     } catch (e) {
       _log('[derive] post-drain failed: $e');
@@ -751,6 +867,9 @@ class AppState extends ChangeNotifier {
     unawaited(notificationRelay.bootstrap());
     initialized = true;
     notifyListeners();
+    // Companion (anonymous telemetry + health-data contribution) — best-effort,
+    // OFF the critical path so it can never block/break boot. Guarded internally.
+    unawaited(_initCompanion());
     // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.
     unawaited(_loadAppStatus());
     // Register the recurring wall-clock nudges as real OS-scheduled notifications

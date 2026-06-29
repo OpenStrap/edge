@@ -3,6 +3,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
 
 import 'app.dart';
+import 'telemetry/telemetry_service.dart';
 import 'ble/ios_ble_restore.dart';
 import 'compute/background_derivation.dart';
 import 'notify/notification_service.dart';
@@ -17,6 +18,12 @@ import 'widget/widget_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Install crash/error hooks (FlutterError.onError + PlatformDispatcher.onError)
+  // BEFORE anything else. Capture is always-on and LOCAL; nothing transmits until
+  // the user opts in (TelemetryService.enabled). No custom zone — these two hooks
+  // catch framework + uncaught async errors on their own, and a custom root zone
+  // is a known source of release-startup fragility.
+  TelemetryService.instance.installErrorHandlers();
 
   // iOS CoreBluetooth State Preservation & Restoration: opt the flutter_blue_plus
   // central (the one that actually subscribes to the band's HR/event characteristics)
