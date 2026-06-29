@@ -855,6 +855,12 @@ class LocalDb {
   /// (second, beat_index). Older duplicate counters remain in raw_records for
   /// forensics, but analytics no longer sees them.
   static Future<void> _rebuildCanonicalDecodedStore(Database db) async {
+    // Guarantee the source tables exist before we SELECT from them. On upgrade
+    // paths from before the decoded store landed, decoded_onehz/decoded_rr were
+    // never created in the migration chain, so this rebuild threw "no such table:
+    // decoded_onehz" — failing openDatabase on every launch (stuck at loading).
+    // Creating them (empty) here makes the dedup/rebuild a safe no-op in that case.
+    await _createDecodedStore(db);
     await db.execute('DROP TABLE IF EXISTS _decoded_onehz_new');
     await db.execute('DROP TABLE IF EXISTS _decoded_rr_new');
     await db.execute('''
