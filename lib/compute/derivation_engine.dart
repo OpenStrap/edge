@@ -139,8 +139,10 @@ class _BaselineHistoryCache {
                 if (row is num) row.toDouble(),
             ];
           }
+
           final map = decoded.cast<String, dynamic>();
-          final series = ((map['series'] as Map?) ?? const {}).cast<String, dynamic>();
+          final series = ((map['series'] as Map?) ?? const {})
+              .cast<String, dynamic>();
           return _BaselineHistoryCache({
             'ln_rmssd': histFromMap(series, 'ln_rmssd'),
             'rmssd': histFromMap(series, 'rmssd'),
@@ -501,8 +503,8 @@ class DerivationEngine {
       if (message is Map && message['type'] == 'result') {
         final kind = message['kind']?.toString();
         if (kind == 'substrate') {
-          final payload =
-              ((message['payload'] as Map?) ?? const {}).cast<String, dynamic>();
+          final payload = ((message['payload'] as Map?) ?? const {})
+              .cast<String, dynamic>();
           await sub.cancel();
           port.close();
           isolate.kill(priority: Isolate.immediate);
@@ -950,8 +952,10 @@ class DerivationEngine {
     // count so _stepsAndEnergy can prefer them and estimate only the rest.
     final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
     final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
-    final coverageWindows =
-        await LocalDb.coverageWindowsOverlapping(dayLo, dayHi);
+    final coverageWindows = await LocalDb.coverageWindowsOverlapping(
+      dayLo,
+      dayHi,
+    );
     final liveStepsReal = await LocalDb.liveStepsForDay(day.date);
     final stepCalib = await LocalDb.getStepCalibration();
     _stepsAndEnergy(
@@ -999,10 +1003,7 @@ class DerivationEngine {
     // ESTIMATE detail. Best-effort — never throws.
     bundle['advanced_sleep'] = await _advancedSleep(daySub);
 
-    await _persistWakeDayFeatures(
-      dayId: day.date,
-      wake: wake,
-    );
+    await _persistWakeDayFeatures(dayId: day.date, wake: wake);
 
     // Finalize once the DATA EDGE has moved >48 h past the day's wake — i.e. we
     // have continuous drained data well beyond it, so no more flash can land for
@@ -1168,10 +1169,7 @@ class DerivationEngine {
     }
     await LocalDb.putBaseline(
       'crossday_input',
-      jsonEncode({
-        'algo_version': kAlgoVersion,
-        'days': days,
-      }),
+      jsonEncode({'algo_version': kAlgoVersion, 'days': days}),
     );
     return days;
   }
@@ -1208,38 +1206,51 @@ class DerivationEngine {
         NotifCategory category = NotifCategory.health,
         NotifPriority priority = NotifPriority.critical,
         String route = '/today',
-      }) =>
-          NotificationCenter.instance.emit(NotificationEvent(
-            dedupeKey: '$date:$kind',
-            category: category,
-            priority: priority,
-            title: title,
-            body: body,
-            date: date!,
-            route: route,
-          ));
+      }) => NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: '$date:$kind',
+          category: category,
+          priority: priority,
+          title: title,
+          body: body,
+          date: date!,
+          route: route,
+        ),
+      );
       if (illness != null && illness['state'] == 'red') {
-        await emit('illness', 'Possible illness onset',
-            'Elevated resting HR + suppressed HRV over recent nights.',
-            route: '/heart');
+        await emit(
+          'illness',
+          'Possible illness onset',
+          'Elevated resting HR + suppressed HRV over recent nights.',
+          route: '/heart',
+        );
       }
       if (anomaly != null && anomaly['flagged'] == true) {
-        await emit('anomaly', 'Unusual overnight physiology',
-            'Your nightly signals deviate from your personal baseline.',
-            route: '/heart');
+        await emit(
+          'anomaly',
+          'Unusual overnight physiology',
+          'Your nightly signals deviate from your personal baseline.',
+          route: '/heart',
+        );
       }
       if (temp != null && temp['flag'] == 'elevated') {
-        await emit('temp', 'Skin temperature elevated',
-            'Sustained rise vs your baseline — a possible illness signal.',
-            route: '/body');
+        await emit(
+          'temp',
+          'Skin temperature elevated',
+          'Sustained rise vs your baseline — a possible illness signal.',
+          route: '/body',
+        );
       }
       final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
       if (score is num && score < 34) {
-        await emit('readiness', 'Low readiness today',
-            'Your recovery markers are below your usual range — ease off.',
-            category: NotifCategory.recovery,
-            priority: NotifPriority.normal,
-            route: '/today');
+        await emit(
+          'readiness',
+          'Low readiness today',
+          'Your recovery markers are below your usual range — ease off.',
+          category: NotifCategory.recovery,
+          priority: NotifPriority.normal,
+          route: '/today',
+        );
       }
 
       // "Something changed" — online CUSUM on the recent resting-HR series. Fire
@@ -1401,24 +1412,6 @@ class DerivationEngine {
     return ana.HeartRateZones.timeInZone(samples, zoneSet).toRoundedMinuteMap();
   }
 
-  double _keytelCaloriesWake(
-    List<double> perMin,
-    double age,
-    double weight,
-    double hrMax,
-    bool female,
-  ) {
-    var kcal = 0.0;
-    for (final hr in perMin) {
-      if (hr < 0.50 * hrMax) continue;
-      final kjMin = female
-          ? (-20.4022 + 0.4472 * hr - 0.1263 * weight + 0.074 * age) / 4.184
-          : (-55.0969 + 0.6309 * hr + 0.1988 * weight + 0.2017 * age) / 4.184;
-      if (kjMin > 0) kcal += kjMin;
-    }
-    return kcal;
-  }
-
   double? _meanWake(List<double> xs) {
     if (xs.isEmpty) return null;
     var s = 0.0;
@@ -1504,11 +1497,13 @@ class DerivationEngine {
       bundle['steps'] = <String, dynamic>{
         'value': daySteps,
         'real_100hz': liveStepsReal, // AN-2554 over live windows (real count)
-        'estimated_1hz': estSteps, // walking-min × cadence for uncovered minutes
+        'estimated_1hz':
+            estSteps, // walking-min × cadence for uncovered minutes
         'ambulatory_min': est.present ? est.value!.ambulatoryMinutes : 0,
         'cadence_used_spm': est.present ? est.value!.cadenceUsed : 0,
-        'confidence':
-            liveStepsReal > 0 ? 0.7 : (est.present ? est.confidence : 0.2),
+        'confidence': liveStepsReal > 0
+            ? 0.7
+            : (est.present ? est.confidence : 0.2),
         'tier': liveStepsReal > 0 && estSteps == 0 ? 'HIGH' : 'ESTIMATE',
         'inputs_used': const ['live_100hz_pedometer', 'enmo_1hz', 'hr_1hz'],
         'note':
@@ -1557,10 +1552,7 @@ class DerivationEngine {
     required String dayId,
     required Map<String, dynamic> wake,
   }) async {
-    final payload = <String, dynamic>{
-      'day_id': dayId,
-      ...wake,
-    };
+    final payload = <String, dynamic>{'day_id': dayId, ...wake};
     await LocalDb.putWakeDayFeatures(
       dayId: dayId,
       algoVersion: kAlgoVersion,
@@ -1586,6 +1578,7 @@ class DerivationEngine {
     ];
     final age = profile.ageYears?.toDouble();
     final weightKg = profile.weightKg;
+    final heightCm = profile.heightCm;
     final sex = profile.sex?.toLowerCase();
     final hrMax = age == null ? null : 208 - 0.7 * age;
     final rhrForTrimp = restingHr ?? profile.restingHrManual?.toDouble();
@@ -1593,6 +1586,15 @@ class DerivationEngine {
     double? calories;
     double? steps;
     double? caloriesTotal;
+    ana.WorkoutUserProfile? workoutProfile;
+    if (age != null && weightKg != null && heightCm != null) {
+      workoutProfile = ana.WorkoutUserProfile(
+        weightKg: weightKg,
+        heightCm: heightCm,
+        age: age,
+        sex: _workoutSex(profile.sex),
+      );
+    }
     Map<String, int> zones = const {};
     if (hrMax != null && perMin.isNotEmpty) {
       if (rhrForTrimp != null && sex != null && dayHrValid.isNotEmpty) {
@@ -1609,7 +1611,16 @@ class DerivationEngine {
       }
       zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
       if (age != null && sex != null && weightKg != null) {
-        calories = _keytelCaloriesWake(perMin, age, weightKg, hrMax, sex == 'f');
+        calories = ana.Calories.activeEnergy(
+          perMin,
+          profile: ana.WorkoutUserProfile(
+            weightKg: weightKg,
+            heightCm: heightCm ?? 170.0,
+            age: age,
+            sex: _workoutSex(profile.sex),
+          ),
+          hrmax: hrMax,
+        );
       }
     }
     if (motion.isNotEmpty) {
@@ -1621,20 +1632,15 @@ class DerivationEngine {
       if (stepMetric.present && stepMetric.value != null) {
         steps = stepMetric.value!.steps.toDouble();
       }
-      if (age != null && weightKg != null && profile.heightCm != null) {
+      if (workoutProfile != null) {
         final energy = ana.Calories.dailyEnergy(
           hrPerMinAll,
-          profile: ana.WorkoutUserProfile(
-            weightKg: weightKg,
-            heightCm: profile.heightCm!,
-            age: age,
-            sex: _workoutSex(profile.sex),
-          ),
+          profile: workoutProfile,
           hrmax: hrMax,
           dayMinutes: motion.length,
         );
         caloriesTotal = energy.total;
-        calories ??= energy.active;
+        calories = energy.active;
       }
     }
     final hrStats = dayHrValid.isEmpty
@@ -1750,7 +1756,84 @@ class DerivationEngine {
     Substrate s,
     PreparedDerivationDay day,
     Profile profile,
-  ) async => const [];
+  ) async {
+    try {
+      if (s.length == 0) return const [];
+      final startSec = s.firstTs ?? _localDayLabelToSec(day.date);
+      final endSec = (s.lastTs ?? day.endSec) + 1;
+      if (endSec <= startSec) return const [];
+
+      final savedRows = await LocalDb.sessionsOverlapping(startSec, endSec);
+      final savedSpans = <ana.SavedWorkoutSpan>[
+        for (final row in savedRows)
+          if ((row['start_ts'] as num?) != null)
+            ana.SavedWorkoutSpan(
+              (row['start_ts'] as num).toInt(),
+              ((row['end_ts'] as num?) ?? row['start_ts'] as num).toInt(),
+            ),
+      ];
+
+      ana.WorkoutUserProfile? workoutProfile;
+      if (profile.ageYears != null &&
+          profile.weightKg != null &&
+          profile.heightCm != null) {
+        workoutProfile = ana.WorkoutUserProfile(
+          weightKg: profile.weightKg!,
+          heightCm: profile.heightCm!,
+          age: profile.ageYears!.toDouble(),
+          sex: _workoutSex(profile.sex),
+        );
+      }
+
+      double? workoutRestingHr;
+      if (day.sleepOffsetSec > day.sleepOnsetSec &&
+          day.sleepSub.hr.isNotEmpty) {
+        final nightlyRhr = ana.nocturnalRhr([
+          for (final h in day.sleepSub.hr) h.toDouble(),
+        ]);
+        if (nightlyRhr.present && nightlyRhr.value != null) {
+          workoutRestingHr = nightlyRhr.value!.low30Mean;
+        }
+      }
+
+      final detected = ana.WorkoutDetector.detectWithDiagnostics(
+        hrTs: s.tsSec,
+        hrBpm: [for (final h in s.hr) h.toDouble()],
+        gravTs: s.tsSec,
+        gx: s.ax,
+        gy: s.ay,
+        gz: s.az,
+        restingHR: workoutRestingHr,
+        maxHR: profile.hrMaxTanaka,
+        age: profile.ageYears?.toDouble(),
+        profile: workoutProfile,
+        savedSpans: savedSpans,
+      );
+      _log(
+        'workout detect ${day.date}: ${jsonEncode(detected.diagnostics.toJson())}',
+      );
+      if (day.date == '2026-06-28') {
+        const focusStart = 1782660000; // 2026-06-28 17:20 Europe/Madrid
+        const focusEnd = 1782664800; // 2026-06-28 18:40 Europe/Madrid
+        final runs = detected.diagnostics.runs.where((r) {
+          final start = (r['start'] as num?)?.toInt();
+          final end = (r['end'] as num?)?.toInt();
+          if (start == null || end == null) return false;
+          return start <= focusEnd && end >= focusStart;
+        }).toList();
+        final focusPayload = <String, dynamic>{
+          'focus_start': focusStart,
+          'focus_end': focusEnd,
+          'runs': runs,
+        };
+        _log('workout focus ${day.date}: ${jsonEncode(focusPayload)}');
+      }
+      return [for (final bout in detected.sessions) bout.toJson()];
+    } catch (e) {
+      _log('detected workouts skipped for ${day.date}: $e');
+      return const [];
+    }
+  }
 
   /// Advanced 4-class sleep over the day substrate via [ana.AdvancedSleepStager]
   /// (Cole–Kripke sleep/wake spine + DoG HR-variability + percentile-band

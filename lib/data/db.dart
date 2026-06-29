@@ -174,7 +174,9 @@ class LocalDb {
           await _createBandSignals(db);
           await _ensureSyncStateSchema(db);
           await _createLiveCoverage(db);
-          await db.execute("DELETE FROM metric_series WHERE key = 'active_min'");
+          await db.execute(
+            "DELETE FROM metric_series WHERE key = 'active_min'",
+          );
           await db.execute("DELETE FROM metric_series WHERE key = 'steps'");
         }
         if (oldV < 14) {
@@ -202,7 +204,9 @@ class LocalDb {
     // existing install. Keep this idempotent and cheap: create missing tables,
     // indexes, and additive columns the current code assumes are present.
     await _createSamples(db);
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts)',
+    );
     await _createEvents(db);
     await _createBandSignals(db);
     await _createDerived(db);
@@ -257,36 +261,52 @@ class LocalDb {
       )
     ''');
     await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)');
+      'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)',
+    );
   }
 
   /// Record a real 100 Hz step window (device-time seconds) + its step count.
   static Future<void> addLiveCoverage(
-      int startTs, int endTs, int steps, String day) async {
+    int startTs,
+    int endTs,
+    int steps,
+    String day,
+  ) async {
     if (steps <= 0 || endTs < startTs) return;
     final db = await instance;
-    await db.insert('live_coverage',
-        {'start_ts': startTs, 'end_ts': endTs, 'steps': steps, 'day': day});
+    await db.insert('live_coverage', {
+      'start_ts': startTs,
+      'end_ts': endTs,
+      'steps': steps,
+      'day': day,
+    });
   }
 
   /// Real (100 Hz) steps attributed to [day].
   static Future<int> liveStepsForDay(String day) async {
     final db = await instance;
     final r = await db.rawQuery(
-        'SELECT COALESCE(SUM(steps),0) s FROM live_coverage WHERE day = ?', [day]);
+      'SELECT COALESCE(SUM(steps),0) s FROM live_coverage WHERE day = ?',
+      [day],
+    );
     return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
   /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec) — used to
   /// exclude already-counted minutes from the 1 Hz estimate.
   static Future<List<List<int>>> coverageWindowsOverlapping(
-      int loSec, int hiSec) async {
+    int loSec,
+    int hiSec,
+  ) async {
     final db = await instance;
-    final rows = await db.query('live_coverage',
-        where: 'end_ts >= ? AND start_ts < ?', whereArgs: [loSec, hiSec]);
+    final rows = await db.query(
+      'live_coverage',
+      where: 'end_ts >= ? AND start_ts < ?',
+      whereArgs: [loSec, hiSec],
+    );
     return [
       for (final r in rows)
-        [(r['start_ts'] as num).toInt(), (r['end_ts'] as num).toInt()]
+        [(r['start_ts'] as num).toInt(), (r['end_ts'] as num).toInt()],
     ];
   }
 
@@ -1931,26 +1951,38 @@ class LocalDb {
       if (!await hasTable(table)) missingTables.add(table);
     }
 
-    final rawCols =
-        await hasTable('raw_records') ? await cols('raw_records') : <String>{};
-    final sessionCols =
-        await hasTable('sessions') ? await cols('sessions') : <String>{};
-    final syncLedgerCols =
-        await hasTable('sync_ledger') ? await cols('sync_ledger') : <String>{};
+    final rawCols = await hasTable('raw_records')
+        ? await cols('raw_records')
+        : <String>{};
+    final sessionCols = await hasTable('sessions')
+        ? await cols('sessions')
+        : <String>{};
+    final syncLedgerCols = await hasTable('sync_ledger')
+        ? await cols('sync_ledger')
+        : <String>{};
 
     final missingColumns = <String, List<String>>{};
     void expect(String table, Set<String> present, List<String> required) {
-      final miss = [for (final c in required) if (!present.contains(c)) c];
+      final miss = [
+        for (final c in required)
+          if (!present.contains(c)) c,
+      ];
       if (miss.isNotEmpty) missingColumns[table] = miss;
     }
 
     expect('raw_records', rawCols, ['counter', 'hex', 'captured_at', 'rec_ts']);
     expect('sessions', sessionCols, ['id', 'start_ts', 'status', 'steps']);
-    expect('sync_ledger', syncLedgerCols,
-        ['chunk_id', 'kind', 'status', 'updated_at', 'meta_json']);
+    expect('sync_ledger', syncLedgerCols, [
+      'chunk_id',
+      'kind',
+      'status',
+      'updated_at',
+      'meta_json',
+    ]);
 
     final integrity = await db.rawQuery('PRAGMA integrity_check');
-    final integrityOk = integrity.isNotEmpty && integrity.first.values.first == 'ok';
+    final integrityOk =
+        integrity.isNotEmpty && integrity.first.values.first == 'ok';
 
     return {
       'ok': missingTables.isEmpty && missingColumns.isEmpty && integrityOk,
@@ -2087,8 +2119,12 @@ class LocalDb {
   /// Single metric_series value for one (date, key), or null.
   static Future<double?> metricValueOn(String date, String key) async {
     final db = await instance;
-    final rows = await db.query('metric_series',
-        where: 'date = ? AND key = ?', whereArgs: [date, key], limit: 1);
+    final rows = await db.query(
+      'metric_series',
+      where: 'date = ? AND key = ?',
+      whereArgs: [date, key],
+      limit: 1,
+    );
     if (rows.isEmpty) return null;
     return (rows.first['value'] as num?)?.toDouble();
   }
@@ -2156,7 +2192,10 @@ class LocalDb {
     return rows.isEmpty ? null : rows.first;
   }
 
-  static Future<void> putComputeFreshness(String key, String payloadJson) async {
+  static Future<void> putComputeFreshness(
+    String key,
+    String payloadJson,
+  ) async {
     final db = await instance;
     await db.insert('compute_freshness', {
       'key': key,
@@ -2201,7 +2240,8 @@ class LocalDb {
       final scalars = ((decoded['scalars'] as Map?) ?? const {})
           .cast<String, dynamic>();
       if (latestOvernightDay == null) {
-        final sleep = ((decoded['sleep'] as Map?)?['accounting'] as Map?)?['value'];
+        final sleep =
+            ((decoded['sleep'] as Map?)?['accounting'] as Map?)?['value'];
         if (sleep is Map && sleep['tst_sec'] != null) {
           latestOvernightDay = dayId;
           latestOvernightComputedAt = (row['computed_at'] as num?)?.toInt();
@@ -2212,7 +2252,9 @@ class LocalDb {
         latestRecoveryDay = dayId;
         latestRecoveryComputedAt = (row['computed_at'] as num?)?.toInt();
       }
-      if (latestOvernightDay != null && latestRecoveryDay != null && todayRow != null) {
+      if (latestOvernightDay != null &&
+          latestRecoveryDay != null &&
+          todayRow != null) {
         break;
       }
     }
@@ -2220,7 +2262,8 @@ class LocalDb {
     final wakeComputedAt = (todayWake?['computed_at'] as num?)?.toInt();
     final activityReady = todayRow != null || todayWake != null;
     final overnightReady = latestOvernightDay == today;
-    final rawReachedToday = latestRawTs != null && _localDayLabelFromEpoch(latestRawTs) == today;
+    final rawReachedToday =
+        latestRawTs != null && _localDayLabelFromEpoch(latestRawTs) == today;
     final activityState = activityReady
         ? 'ready'
         : (rawReachedToday ? 'building' : 'missing');
@@ -2231,7 +2274,9 @@ class LocalDb {
       'capture',
       jsonEncode({
         'latest_raw_rec_ts': latestRawTs,
-        'latest_raw_day': latestRawTs == null ? null : _localDayLabelFromEpoch(latestRawTs),
+        'latest_raw_day': latestRawTs == null
+            ? null
+            : _localDayLabelFromEpoch(latestRawTs),
         'decoded_onehz': raw['decoded_onehz'],
         'decoded_rr': raw['decoded_rr'],
       }),
@@ -2280,10 +2325,7 @@ class LocalDb {
     final now = DateTime.now().millisecondsSinceEpoch;
     await db.update(
       'compute_jobs',
-      {
-        'state': 'queued',
-        'updated_at': now,
-      },
+      {'state': 'queued', 'updated_at': now},
       where: 'state = ?',
       whereArgs: ['running'],
     );
@@ -2531,6 +2573,24 @@ class LocalDb {
       'sessions',
       where: 'start_ts >= ? AND start_ts <= ?',
       whereArgs: [fromTs, toTs],
+      orderBy: 'start_ts DESC',
+    );
+  }
+
+  /// Sessions whose wall-time window overlaps [startTs, endTs], newest first.
+  ///
+  /// This is the correct shape for overlap-dedup during derived auto-workout
+  /// detection: a saved workout should block a detected bout even when the saved
+  /// session started before the derived day and ends inside it.
+  static Future<List<Map<String, dynamic>>> sessionsOverlapping(
+    int startTs,
+    int endTs,
+  ) async {
+    final db = await instance;
+    return db.query(
+      'sessions',
+      where: 'start_ts <= ? AND COALESCE(end_ts, start_ts) >= ?',
+      whereArgs: [endTs, startTs],
       orderBy: 'start_ts DESC',
     );
   }

@@ -110,6 +110,18 @@ class _TodayScreenState extends State<TodayScreen>
   /// Round a metric's value to an int string, or null when empty.
   String? _int(Metric m) => m.isEmpty ? null : m.value!.round().toString();
 
+  Widget _oxygenQualityTag(Spo2Data? spo2) {
+    if (spo2 == null) return Tag('beta', color: AppColors.coral);
+    final trusted = spo2.trustedCoverage ?? spo2.signalCoverage ?? 0;
+    if (trusted >= 0.85) {
+      return Tag('clean', color: AppColors.good);
+    }
+    if (trusted >= 0.60) {
+      return Tag('usable', color: AppColors.warn);
+    }
+    return Tag('low signal', color: AppColors.coral);
+  }
+
   /// Today as 'YYYY-MM-DD' (UTC, matching the backend's day keys).
   String _todayStr() {
     final n = DateTime.now().toUtc();
@@ -383,13 +395,13 @@ class _TodayScreenState extends State<TodayScreen>
       _statRow(
         StatTile(
           icon: Ic.heart,
-          label: 'Blood O₂ (rel.)',
-          value: t.spo2Idx == null
-              ? null
-              : (t.spo2Idx! >= 0 ? '+' : '') + t.spo2Idx!.toStringAsFixed(0),
-          unit: 'Δ',
+          label: 'Oxygen dips',
+          value: t.spo2?.odiPerHour?.toStringAsFixed(1),
+          unit: '/h',
           accent: AppColors.coralDeep,
-          tag: Tag('beta', color: AppColors.coral),
+          tag: _oxygenQualityTag(t.spo2),
+          confidence: t.spo2?.confidence,
+          onTap: () => _push(() => const OxygenScreen()),
         ),
         _bodyOverTimeTile(),
       ),

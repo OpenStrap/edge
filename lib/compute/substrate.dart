@@ -12,6 +12,9 @@
 // offset), with a noon-to-noon fallback so a day always exists when there's data.
 
 import 'dart:math' as math;
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
@@ -75,9 +78,9 @@ class Substrate {
 
   /// 1 Hz accel samples (one gravity vector per second) for the analytics family.
   List<ana.AccelSample> accelSamples() => <ana.AccelSample>[
-        for (var i = 0; i < tsSec.length; i++)
-          ana.AccelSample(tsSec[i] * 1000.0, ax[i], ay[i], az[i])
-      ];
+    for (var i = 0; i < tsSec.length; i++)
+      ana.AccelSample(tsSec[i] * 1000.0, ax[i], ay[i], az[i]),
+  ];
 
   /// 1 Hz HR as doubles (0 = off-skin). Parallel to [tsSec] / [accelSamples].
   List<double> hr1hz() => [for (final h in hr) h.toDouble()];
@@ -164,23 +167,24 @@ class Substrate {
   }
 
   Map<String, dynamic> toJson() => {
-        'ts_sec': tsSec,
-        'hr': hr,
-        'rr_ts_ms': rrTsMs,
-        'rr_ms': rrMs,
-        'ax': ax,
-        'ay': ay,
-        'az': az,
-        'spo2_red': spo2Red,
-        'spo2_ir': spo2Ir,
-        'skin_temp': skinTemp,
-      };
+    'ts_sec': tsSec,
+    'hr': hr,
+    'rr_ts_ms': rrTsMs,
+    'rr_ms': rrMs,
+    'ax': ax,
+    'ay': ay,
+    'az': az,
+    'spo2_red': spo2Red,
+    'spo2_ir': spo2Ir,
+    'skin_temp': skinTemp,
+  };
 
   static Substrate fromJson(Map<String, dynamic> m) {
     List<int> ints(String k) =>
         ((m[k] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
-    List<double> dbls(String k) =>
-        ((m[k] as List?) ?? const []).map((e) => (e as num).toDouble()).toList();
+    List<double> dbls(String k) => ((m[k] as List?) ?? const [])
+        .map((e) => (e as num).toDouble())
+        .toList();
     return Substrate(
       tsSec: ints('ts_sec'),
       hr: ints('hr'),
@@ -409,7 +413,10 @@ List<PhysioDay> calendarDays(Substrate sub) {
         tzOffsetSeconds: DateTime.now().timeZoneOffset.inSeconds,
       );
       // Daytime HR baseline = valid HR before the nocturnal search window.
-      final base = <double>[for (var i = 0; i < loS; i++) if (hr[i] > 0) hr[i]];
+      final base = <double>[
+        for (var i = 0; i < loS; i++)
+          if (hr[i] > 0) hr[i],
+      ];
       final hrBaseline = base.length >= 60 ? base : null;
       // RR beats within the search slice (absolute ms) for RMSSD-based staging.
       final s0 = sub.tsSec[loS] * 1000;
@@ -433,6 +440,14 @@ List<PhysioDay> calendarDays(Substrate sub) {
       );
       // Attribute ONLY if the sleep's wake (offset) falls within this day.
       if (s.present && s.window != null) {
+        final diag = {
+          'day': localDateLabel(dayStart),
+          'search_start': searchStart,
+          'search_end': searchEnd,
+          'search_points': hiS - loS,
+          'sleep': s.toJson(),
+        };
+        debugPrint('[sleep-seg] ${jsonEncode(diag)}');
         final offSec = s.window!.offsetMs! ~/ 1000;
         if (offSec >= dayStart && offSec < dayEnd) {
           seg = s;
@@ -452,17 +467,20 @@ List<PhysioDay> calendarDays(Substrate sub) {
       }
     }
 
-    days.add(PhysioDay(
-      date: localDateLabel(dayStart),
-      startSec: cs,
-      endSec: ce,
-      sleep: seg,
-      sleepLoIdx: sleepLo,
-      sleepHiIdx: sleepHi,
-      confidence: seg.present ? seg.confidence : 0.0,
-      flags:
-          seg.present ? const <String>[] : const <String>['NO_SLEEP_DETECTED'],
-    ));
+    days.add(
+      PhysioDay(
+        date: localDateLabel(dayStart),
+        startSec: cs,
+        endSec: ce,
+        sleep: seg,
+        sleepLoIdx: sleepLo,
+        sleepHiIdx: sleepHi,
+        confidence: seg.present ? seg.confidence : 0.0,
+        flags: seg.present
+            ? const <String>[]
+            : const <String>['NO_SLEEP_DETECTED'],
+      ),
+    );
     dayStart = dayEnd;
   }
   return days;

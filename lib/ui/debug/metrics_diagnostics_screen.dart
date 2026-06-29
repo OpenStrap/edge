@@ -22,6 +22,7 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
   bool _loading = true;
   Map<String, dynamic>? _raw;
   Map<String, dynamic>? _latestDay;
+  Map<String, dynamic>? _latestPayload;
   Map<String, dynamic>? _cross;
   Map<String, dynamic>? _rolling;
   Map<String, dynamic>? _captureFreshness;
@@ -32,6 +33,7 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
   Map<String, dynamic>? _rollingArtifact;
   Map<String, dynamic>? _crossdayInput;
   List<Map<String, dynamic>> _recentDays = const [];
+  List<Map<String, dynamic>> _recentOxygen = const [];
   List<Map<String, dynamic>> _jobs = const [];
   Map<String, int> _seriesCounts = const {};
 
@@ -69,6 +71,7 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
     );
     final wakeFeatures = await LocalDb.wakeDayFeatures(todayKey, kAlgoVersion);
     final recentDays = await LocalDb.recentDayDiagnostics(10);
+    final recentRows = await LocalDb.recentDayResults(10);
     final jobs = await LocalDb.computeJobs(limit: 10);
     final seriesCounts = await LocalDb.metricSeriesCounts(_baselineKeys);
     Map<String, dynamic>? decodeFresh(Map<String, dynamic>? row) {
@@ -81,10 +84,63 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
         return null;
       }
     }
+
     if (!mounted) return;
+    Map<String, dynamic>? latestPayload;
+    final latestRaw = latestDay?['payload_json'];
+    if (latestRaw is String && latestRaw.isNotEmpty) {
+      try {
+        final d = jsonDecode(latestRaw);
+        if (d is Map) latestPayload = d.cast<String, dynamic>();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    final recentOxygen = <Map<String, dynamic>>[];
+    for (final row in recentRows) {
+      final payloadRaw = row['payload_json'];
+      if (payloadRaw is! String || payloadRaw.isEmpty) continue;
+      try {
+        final d = jsonDecode(payloadRaw);
+        if (d is! Map) continue;
+        final payload = d.cast<String, dynamic>();
+        final spo2 = (payload['spo2'] as Map?)?.cast<String, dynamic>();
+        if (spo2 == null || spo2.isEmpty) continue;
+        final events = ((spo2['events'] as List?) ?? const [])
+            .whereType<Map>()
+            .toList();
+        final rejectCounts =
+            (spo2['reject_counts'] as Map?)?.cast<String, dynamic>() ??
+            const {};
+        recentOxygen.add({
+          'day_id': row['day_id'],
+          'computed_at': row['computed_at'],
+          'odi_per_hour': spo2['odi_per_hour'] ?? spo2['value'],
+          'dip_count': spo2['dip_count'] ?? events.length,
+          'mean_dip_pct': spo2['mean_dip_pct'],
+          'max_dip_pct': spo2['max_dip_pct'],
+          'longest_dip_sec': spo2['longest_dip_sec'],
+          'burden_pct': spo2['burden_pct'],
+          'signal_coverage': spo2['signal_coverage'],
+          'trusted_coverage': spo2['trusted_coverage'],
+          'confidence': spo2['confidence'],
+          'event_count': events.length,
+          'reject_total': rejectCounts.values.whereType<num>().fold<int>(
+            0,
+            (s, v) => s + v.toInt(),
+          ),
+          'flatline': rejectCounts['flatline'] ?? 0,
+          'jump': rejectCounts['jump'] ?? 0,
+          'ratio_outlier': rejectCounts['ratio_outlier'] ?? 0,
+        });
+      } catch (_) {
+        /* ignore */
+      }
+    }
     setState(() {
       _raw = raw;
       _latestDay = latestDay;
+      _latestPayload = latestPayload;
       _cross = cross;
       _rolling = rolling;
       _rollingArtifact = decodeFresh(rollingArtifact);
@@ -95,6 +151,7 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
       _sleepCandidate = decodeFresh(sleepCandidate);
       _wakeFeatures = decodeFresh(wakeFeatures);
       _recentDays = recentDays;
+      _recentOxygen = recentOxygen;
       _jobs = jobs;
       _seriesCounts = seriesCounts;
       _loading = false;
@@ -135,6 +192,38 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
     if (sec < 3600) return '${(sec / 60).toStringAsFixed(1)} min';
     if (sec < 86400) return '${(sec / 3600).toStringAsFixed(1)} h';
     return '${(sec / 86400).toStringAsFixed(1)} d';
+  }
+
+  ({String label, Color color, String reason}) _oxygenVerdict(
+    Map<String, dynamic> night,
+  ) {
+    final trusted = (night['trusted_coverage'] as num?)?.toDouble() ?? 0;
+    final coverage = (night['signal_coverage'] as num?)?.toDouble() ?? 0;
+    final rejects = (night['reject_total'] as num?)?.toInt() ?? 0;
+    final dips = (night['dip_count'] as num?)?.toInt() ?? 0;
+
+    if (trusted < 0.35 || (coverage < 0.5 && rejects > 100)) {
+      return (
+        label: 'noisy',
+        color: AppColors.warn,
+        reason: 'Low trusted coverage or too many rejected samples.',
+      );
+    }
+    if (trusted < 0.65 || coverage < 0.75 || rejects > 500) {
+      return (
+        label: 'questionable',
+        color: AppColors.coral,
+        reason:
+            'Usable, but signal quality is not stable enough to fully trust.',
+      );
+    }
+    return (
+      label: dips > 0 ? 'usable' : 'clean',
+      color: AppColors.good,
+      reason: dips > 0
+          ? 'Signal quality looks good enough to inspect the detected dips.'
+          : 'Signal quality looks good and no dips were detected.',
+    );
   }
 
   Widget _kv(String k, String v, {Color? valueColor}) => Padding(
@@ -182,6 +271,10 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
                 const SizedBox(height: Sp.x6),
                 _recentDaysSection(),
                 const SizedBox(height: Sp.x6),
+                _oxygenSection(),
+                const SizedBox(height: Sp.x6),
+                _oxygenCalibrationSection(),
+                const SizedBox(height: Sp.x6),
                 _baselinesSection(),
               ],
             ),
@@ -211,14 +304,8 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
             children: [
               _kv('Latest raw edge', _ts(raw['max_rec_ts'])),
               _kv('Latest raw day', _dayLabelFromSec(raw['max_rec_ts'])),
-              _kv(
-                'Freshness raw edge',
-                _ts(capture['latest_raw_rec_ts']),
-              ),
-              _kv(
-                'Freshness raw day',
-                '${capture['latest_raw_day'] ?? '—'}',
-              ),
+              _kv('Freshness raw edge', _ts(capture['latest_raw_rec_ts'])),
+              _kv('Freshness raw day', '${capture['latest_raw_day'] ?? '—'}'),
               _kv('Decoded 1 Hz rows', '${raw['decoded_onehz'] ?? 0}'),
               _kv('Decoded RR beats', '${raw['decoded_rr'] ?? 0}'),
               _kv(
@@ -230,16 +317,19 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
               _kv('Latest derived compute', _ageMs(latest?['computed_at'])),
               _kv('Today key', '${today['today_day'] ?? '—'}'),
               _kv('Today activity state', '${today['activity_state'] ?? '—'}'),
-              _kv('Today overnight state', '${today['overnight_state'] ?? '—'}'),
+              _kv(
+                'Today overnight state',
+                '${today['overnight_state'] ?? '—'}',
+              ),
               _kv('Overnight source day', '${today['overnight_day'] ?? '—'}'),
               _kv(
                 'Sleep candidate',
                 sleepCandidate.isEmpty
                     ? 'missing'
                     : (sleepCandidate['sleep_offset_sec'] == null ||
-                            (sleepCandidate['sleep_offset_sec'] as num?) == 0)
-                        ? 'present (no sleep)'
-                        : 'present',
+                          (sleepCandidate['sleep_offset_sec'] as num?) == 0)
+                    ? 'present (no sleep)'
+                    : 'present',
               ),
               _kv(
                 'Wake features',
@@ -477,6 +567,185 @@ class _MetricsDiagnosticsScreenState extends State<MetricsDiagnosticsScreen> {
                 _kv('$key series', '${_seriesCounts[key] ?? 0} points'),
             ],
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _oxygenSection() {
+    final latest = _latestDay ?? const {};
+    final payload = _latestPayload ?? const {};
+    final spo2 = (payload['spo2'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final resp =
+        (payload['respiration'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final odi = (resp['odi'] as Map?)?.cast<String, dynamic>() ?? spo2;
+    final events = ((odi['events'] as List?) ?? const [])
+        .whereType<Map>()
+        .toList();
+    final rejectCounts =
+        (odi['reject_counts'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final series = ((odi['series'] as List?) ?? const [])
+        .whereType<Map>()
+        .toList();
+    if (odi.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionHeader('Oxygen diagnostics'),
+          ProCard(
+            padding: const EdgeInsets.all(Sp.x4),
+            child: Text(
+              'No SpO₂/oxygen block in the latest derived payload yet.',
+              style: AppText.body.copyWith(color: AppColors.inkMuted),
+            ),
+          ),
+        ],
+      );
+    }
+    final latestEvent = events.isEmpty
+        ? null
+        : events.last.cast<String, dynamic>();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader('Oxygen diagnostics'),
+        ProCard(
+          padding: const EdgeInsets.all(Sp.x4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _kv('Source day', '${latest['day_id'] ?? '—'}'),
+              _kv('Computed', _ageMs(latest['computed_at'])),
+              _kv('ODI', '${odi['odi_per_hour'] ?? odi['value'] ?? '—'} /h'),
+              _kv('Dip count', '${odi['dip_count'] ?? events.length}'),
+              _kv('Mean dip depth', '${odi['mean_dip_pct'] ?? '—'} %'),
+              _kv('Strongest dip', '${odi['max_dip_pct'] ?? '—'} %'),
+              _kv('Longest dip', '${odi['longest_dip_sec'] ?? '—'} s'),
+              _kv('Dip burden', '${odi['burden_pct'] ?? '—'} %'),
+              _kv(
+                'Signal coverage',
+                odi['signal_coverage'] == null
+                    ? '—'
+                    : '${(((odi['signal_coverage'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%',
+              ),
+              _kv(
+                'Trusted coverage',
+                odi['trusted_coverage'] == null
+                    ? '—'
+                    : '${(((odi['trusted_coverage'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%',
+              ),
+              _kv('Confidence', '${odi['confidence'] ?? '—'}'),
+              _kv('Series buckets', '${series.length}'),
+              _kv('Event rows', '${events.length}'),
+              if (latestEvent != null) ...[
+                const Divider(height: Sp.x5),
+                _kv('Latest dip start', _ts(latestEvent['start'])),
+                _kv('Latest dip end', _ts(latestEvent['end'])),
+                _kv(
+                  'Latest dip duration',
+                  '${latestEvent['duration_sec'] ?? '—'} s',
+                ),
+                _kv(
+                  'Latest dip peak',
+                  '${latestEvent['peak_rise_pct'] ?? '—'} %',
+                ),
+              ],
+              if (rejectCounts.isNotEmpty) ...[
+                const Divider(height: Sp.x5),
+                Text('Reject counts', style: AppText.label),
+                const SizedBox(height: Sp.x2),
+                _kv('Non-positive', '${rejectCounts['non_positive'] ?? 0}'),
+                _kv('Flatline', '${rejectCounts['flatline'] ?? 0}'),
+                _kv('Jump', '${rejectCounts['jump'] ?? 0}'),
+                _kv('Ratio outlier', '${rejectCounts['ratio_outlier'] ?? 0}'),
+              ],
+              const Divider(height: Sp.x5),
+              Text(
+                'Reads the exact oxygen block persisted in the latest derived payload. If this looks wrong while raw sync is healthy, the problem is in oxygen derivation rather than capture.',
+                style: AppText.captionMuted,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _oxygenCalibrationSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader('Oxygen calibration'),
+        ProCard(
+          padding: const EdgeInsets.all(Sp.x4),
+          child: _recentOxygen.isEmpty
+              ? Text(
+                  'No recent oxygen payloads found.',
+                  style: AppText.body.copyWith(color: AppColors.inkMuted),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Use this to compare nights side by side. High ODI with low trusted coverage or high rejects usually points to signal-quality problems, not physiology.',
+                      style: AppText.captionMuted,
+                    ),
+                    const SizedBox(height: Sp.x4),
+                    for (final night in _recentOxygen) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              night['day_id']?.toString() ?? '—',
+                              style: AppText.label,
+                            ),
+                          ),
+                          Builder(
+                            builder: (context) {
+                              final verdict = _oxygenVerdict(night);
+                              return Tag(verdict.label, color: verdict.color);
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: Sp.x1),
+                      _kv('Computed', _ageMs(night['computed_at'])),
+                      _kv(
+                        'Verdict',
+                        _oxygenVerdict(night).reason,
+                        valueColor: AppColors.inkSoft,
+                      ),
+                      _kv('ODI', '${night['odi_per_hour'] ?? '—'} /h'),
+                      _kv('Dips', '${night['dip_count'] ?? '—'}'),
+                      _kv('Mean depth', '${night['mean_dip_pct'] ?? '—'} %'),
+                      _kv('Strongest', '${night['max_dip_pct'] ?? '—'} %'),
+                      _kv('Longest', '${night['longest_dip_sec'] ?? '—'} s'),
+                      _kv('Burden', '${night['burden_pct'] ?? '—'} %'),
+                      _kv(
+                        'Coverage',
+                        night['signal_coverage'] == null
+                            ? '—'
+                            : '${(((night['signal_coverage'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%',
+                      ),
+                      _kv(
+                        'Trusted',
+                        night['trusted_coverage'] == null
+                            ? '—'
+                            : '${(((night['trusted_coverage'] as num?)?.toDouble() ?? 0) * 100).toStringAsFixed(0)}%',
+                      ),
+                      _kv('Reject total', '${night['reject_total'] ?? 0}'),
+                      _kv('Flatline', '${night['flatline'] ?? 0}'),
+                      _kv('Jump', '${night['jump'] ?? 0}'),
+                      _kv('Ratio outlier', '${night['ratio_outlier'] ?? 0}'),
+                      _kv('Confidence', '${night['confidence'] ?? '—'}'),
+                      if (night != _recentOxygen.last)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: Sp.x2),
+                          child: Divider(height: 1),
+                        ),
+                    ],
+                  ],
+                ),
         ),
       ],
     );

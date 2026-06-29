@@ -22,44 +22,64 @@ import 'detail_cards.dart';
 
 String todayUtc() => DateTime.now().toUtc().toIso8601String().substring(0, 10);
 
-
 class SleepScreen extends StatelessWidget {
   const SleepScreen({super.key});
   @override
   Widget build(BuildContext context) => MetricScreen(
-        title: 'Sleep',
-        metric: 'sleep',
-        icon: Ic.moon,
-        accent: AppColors.loadDetraining,
-        valueFmt: (v) => v == 0 ? '' : (v / 60).toStringAsFixed(1), // minutes → hours on bars
-        // The exact rich Sleep screen you love, embedded under the time toggle,
-        // plus sleep records + journal patterns on Today.
-        todayDetail: (ctx) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SleepDetailScreen(date: todayUtc(), embedded: true),
-          const SectionExtras(section: 'sleep'),
-        ]),
-        dayDetail: (ctx, date) => SleepDetailScreen(date: date, embedded: true),
-      );
+    title: 'Sleep',
+    metric: 'sleep',
+    icon: Ic.moon,
+    accent: AppColors.loadDetraining,
+    valueFmt: (v) =>
+        v == 0 ? '' : (v / 60).toStringAsFixed(1), // minutes → hours on bars
+    // The exact rich Sleep screen you love, embedded under the time toggle,
+    // plus sleep records + journal patterns on Today.
+    todayDetail: (ctx) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SleepDetailScreen(date: todayUtc(), embedded: true),
+        const SectionExtras(section: 'sleep'),
+      ],
+    ),
+    dayDetail: (ctx, date) => SleepDetailScreen(date: date, embedded: true),
+  );
 }
 
 class HeartScreen extends StatelessWidget {
   const HeartScreen({super.key});
   @override
   Widget build(BuildContext context) => MetricScreen(
-        title: 'Heart',
-        metric: 'resting_hr', // stable daily series for the bars
-        icon: Ic.heart,
-        accent: AppColors.coral,
-        todayDetail: (ctx) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const LiveHrTile(),
-          const SizedBox(height: Sp.x4),
-          const SpotCheckEntryCard(),
-          const SizedBox(height: Sp.x4),
-          HeartDayCard(date: todayUtc()),
-          const SectionExtras(section: 'heart'),
-        ]),
-        dayDetail: (ctx, date) => HeartDayCard(date: date),
-      );
+    title: 'Heart',
+    metric: 'resting_hr', // stable daily series for the bars
+    icon: Ic.heart,
+    accent: AppColors.coral,
+    todayDetail: (ctx) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const LiveHrTile(),
+        const SizedBox(height: Sp.x4),
+        const SpotCheckEntryCard(),
+        const SizedBox(height: Sp.x4),
+        HeartDayCard(date: todayUtc()),
+        const SectionExtras(section: 'heart'),
+      ],
+    ),
+    dayDetail: (ctx, date) => HeartDayCard(date: date),
+  );
+}
+
+class OxygenScreen extends StatelessWidget {
+  const OxygenScreen({super.key});
+  @override
+  Widget build(BuildContext context) => MetricScreen(
+    title: 'Overnight oxygen',
+    metric: 'spo2',
+    icon: Ic.droplet,
+    accent: AppColors.coralDeep,
+    valueFmt: (v) => v == 0 ? '0' : v.toStringAsFixed(1),
+    todayDetail: (ctx) => OxygenDayCard(date: todayUtc()),
+    dayDetail: (ctx, date) => OxygenDayCard(date: date),
+  );
 }
 
 /// Wear time — how long the strap was actually on the wrist. Bars track daily
@@ -69,14 +89,15 @@ class WearScreen extends StatelessWidget {
   const WearScreen({super.key});
   @override
   Widget build(BuildContext context) => MetricScreen(
-        title: 'Wear time',
-        metric: 'wear',
-        icon: Ic.watch,
-        accent: AppColors.coralDeep,
-        valueFmt: (v) => v == 0 ? '' : (v / 60).toStringAsFixed(1), // minutes → hours on bars
-        todayDetail: (ctx) => WearDayCard(date: todayUtc()),
-        dayDetail: (ctx, date) => WearDayCard(date: date),
-      );
+    title: 'Wear time',
+    metric: 'wear',
+    icon: Ic.watch,
+    accent: AppColors.coralDeep,
+    valueFmt: (v) =>
+        v == 0 ? '' : (v / 60).toStringAsFixed(1), // minutes → hours on bars
+    todayDetail: (ctx) => WearDayCard(date: todayUtc()),
+    dayDetail: (ctx, date) => WearDayCard(date: date),
+  );
 }
 
 /// Body — strain / training load / calories / steps / activity. Bars track daily
@@ -86,31 +107,45 @@ class BodyScreen extends StatelessWidget {
   const BodyScreen({super.key});
   @override
   Widget build(BuildContext context) => MetricScreen(
-        title: 'Body',
-        metric: 'strain',
-        icon: Ic.strain,
-        accent: AppColors.coral,
-        action: Builder(builder: (ctx) => GestureDetector(
-              onTap: () => Navigator.of(ctx).push(
-                  MaterialPageRoute(builder: (_) => const AiCoachScreen())),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: Sp.x3, vertical: 8),
-                decoration: BoxDecoration(
-                    color: AppColors.coral, borderRadius: BorderRadius.circular(R.pill)),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const AppIcon(Ic.ai, size: 16, color: Colors.white),
-                  const SizedBox(width: 6),
-                  Text('AI Coach', style: AppText.label.copyWith(color: Colors.white)),
-                ]),
+    title: 'Body',
+    metric: 'strain',
+    icon: Ic.strain,
+    accent: AppColors.coral,
+    action: Builder(
+      builder: (ctx) => GestureDetector(
+        onTap: () => Navigator.of(
+          ctx,
+        ).push(MaterialPageRoute(builder: (_) => const AiCoachScreen())),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: Sp.x3, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.coral,
+            borderRadius: BorderRadius.circular(R.pill),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const AppIcon(Ic.ai, size: 16, color: Colors.white),
+              const SizedBox(width: 6),
+              Text(
+                'AI Coach',
+                style: AppText.label.copyWith(color: Colors.white),
               ),
-            )),
-        todayDetail: (ctx) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          StrainDetailScreen(date: todayUtc(), embedded: true),
-          const CycleEntryCard(),
-          const SectionExtras(section: 'body'),
-        ]),
-        dayDetail: (ctx, date) => StrainDetailScreen(date: date, embedded: true),
-      );
+            ],
+          ),
+        ),
+      ),
+    ),
+    todayDetail: (ctx) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        StrainDetailScreen(date: todayUtc(), embedded: true),
+        const CycleEntryCard(),
+        const SectionExtras(section: 'body'),
+      ],
+    ),
+    dayDetail: (ctx, date) => StrainDetailScreen(date: date, embedded: true),
+  );
 }
 
 /// Steps — daily step ESTIMATE. The band's always-on 1 Hz stream can't COUNT
@@ -122,16 +157,16 @@ class ActivityScreen extends StatelessWidget {
   const ActivityScreen({super.key});
   @override
   Widget build(BuildContext context) => MetricScreen(
-        title: 'Steps',
-        // Steps = real 100 Hz count + 1 Hz walking estimate (per day, no
-        // double-count). The bars track the daily total.
-        metric: 'steps',
-        icon: Ic.run,
-        accent: AppColors.good,
-        valueFmt: (v) => v == 0 ? '' : v.toStringAsFixed(0),
-        todayDetail: (ctx) => const _ActivityDetail(),
-        dayDetail: (ctx, date) => _ActivityDetail(date: date),
-      );
+    title: 'Steps',
+    // Steps = real 100 Hz count + 1 Hz walking estimate (per day, no
+    // double-count). The bars track the daily total.
+    metric: 'steps',
+    icon: Ic.run,
+    accent: AppColors.good,
+    valueFmt: (v) => v == 0 ? '' : v.toStringAsFixed(0),
+    todayDetail: (ctx) => const _ActivityDetail(),
+    dayDetail: (ctx, date) => _ActivityDetail(date: date),
+  );
 }
 
 /// Detail under the Steps trend: explains the estimate honestly (24/7 estimate,
@@ -171,79 +206,110 @@ class _ActivityDetailState extends State<_ActivityDetail> {
   @override
   Widget build(BuildContext context) {
     // Live steps from the in-flight session count toward TODAY only.
-    final live = _isToday ? context.select<AppState, int>((a) => a.liveSteps) : 0;
+    final live = _isToday
+        ? context.select<AppState, int>((a) => a.liveSteps)
+        : 0;
     final steps = (_steps?.round() ?? 0) + live;
     final app = context.watch<AppState>();
     final goal = (app.user?['step_goal'] as num?)?.toInt();
 
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _ActivityStat(
-        icon: Ic.run,
-        label: 'Steps',
-        value: steps > 0 ? '$steps' : '—',
-        badge: 'est.',
-      ),
-      const SizedBox(height: Sp.x4),
-      ProCard(
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(9),
-            decoration: BoxDecoration(
-                color: AppColors.good.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(R.chip)),
-            child: AppIcon(Ic.run, size: 18, color: AppColors.good),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _ActivityStat(
+          icon: Ic.run,
+          label: 'Steps',
+          value: steps > 0 ? '$steps' : '—',
+          badge: 'est.',
+        ),
+        const SizedBox(height: Sp.x4),
+        ProCard(
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: AppColors.good.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(R.chip),
+                ),
+                child: AppIcon(Ic.run, size: 18, color: AppColors.good),
+              ),
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('How steps are counted', style: AppText.label),
+                    const SizedBox(height: 2),
+                    Text(
+                      'While the band streams live (a workout or with the app open) we '
+                      'count REAL steps from its 100 Hz motion sensor. The rest of the '
+                      'day the sensor samples too slowly to count each step, so those '
+                      'hours are ESTIMATED from your walking minutes and cadence. Walk '
+                      'with the app open to sharpen the estimate.',
+                      style: AppText.captionMuted,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: Sp.x3),
-          Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('How steps are counted', style: AppText.label),
-            const SizedBox(height: 2),
-            Text(
-                'While the band streams live (a workout or with the app open) we '
-                'count REAL steps from its 100 Hz motion sensor. The rest of the '
-                'day the sensor samples too slowly to count each step, so those '
-                'hours are ESTIMATED from your walking minutes and cadence. Walk '
-                'with the app open to sharpen the estimate.',
-                style: AppText.captionMuted),
-          ])),
-        ]),
-      ),
-      const SizedBox(height: Sp.x4),
-      Builder(builder: (ctx) {
-        return ProCard(
-          onTap: () => Navigator.of(ctx).push(MaterialPageRoute(
-              builder: (_) => StepGoalScreen(goal: goal))),
-          child: Row(children: [
-            AppIcon(Ic.strain, size: 18, color: AppColors.inkMuted),
-            const SizedBox(width: Sp.x3),
-            Expanded(child: Text('Daily step goal', style: AppText.label)),
-            Text(goal == null ? 'Set' : '$goal',
-                style: AppText.label.copyWith(color: AppColors.inkMuted)),
-            const SizedBox(width: Sp.x2),
-            AppIcon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
-          ]),
-        );
-      }),
-      const SizedBox(height: Sp.x3),
-      // Calibration walk — anchors the off-workout estimate to the user's stride.
-      ProCard(
-        onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => const StepCalibrationScreen())),
-        child: Row(children: [
-          AppIcon(Ic.run, size: 18, color: AppColors.good),
-          const SizedBox(width: Sp.x3),
-          Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Calibrate steps', style: AppText.label),
-            const SizedBox(height: 1),
-            Text('Walk ~250 steps with the app open to sharpen the estimate',
-                style: AppText.captionMuted),
-          ])),
-          const SizedBox(width: Sp.x2),
-          AppIcon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
-        ]),
-      ),
-    ]);
+        ),
+        const SizedBox(height: Sp.x4),
+        Builder(
+          builder: (ctx) {
+            return ProCard(
+              onTap: () => Navigator.of(ctx).push(
+                MaterialPageRoute(builder: (_) => StepGoalScreen(goal: goal)),
+              ),
+              child: Row(
+                children: [
+                  AppIcon(Ic.strain, size: 18, color: AppColors.inkMuted),
+                  const SizedBox(width: Sp.x3),
+                  Expanded(
+                    child: Text('Daily step goal', style: AppText.label),
+                  ),
+                  Text(
+                    goal == null ? 'Set' : '$goal',
+                    style: AppText.label.copyWith(color: AppColors.inkMuted),
+                  ),
+                  const SizedBox(width: Sp.x2),
+                  AppIcon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
+                ],
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: Sp.x3),
+        // Calibration walk — anchors the off-workout estimate to the user's stride.
+        ProCard(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const StepCalibrationScreen()),
+          ),
+          child: Row(
+            children: [
+              AppIcon(Ic.run, size: 18, color: AppColors.good),
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Calibrate steps', style: AppText.label),
+                    const SizedBox(height: 1),
+                    Text(
+                      'Walk ~250 steps with the app open to sharpen the estimate',
+                      style: AppText.captionMuted,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: Sp.x2),
+              AppIcon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -261,8 +327,11 @@ class _ActivityStat extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => ProCard(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
             AppIcon(icon, size: 16, color: AppColors.good),
             const SizedBox(width: Sp.x2),
             Text(label, style: AppText.overline),
@@ -270,11 +339,13 @@ class _ActivityStat extends StatelessWidget {
               const Spacer(),
               Tag(badge!, color: AppColors.coral),
             ],
-          ]),
-          const SizedBox(height: Sp.x2),
-          Text(value, style: AppText.metricSm.copyWith(fontSize: 28)),
-        ]),
-      );
+          ],
+        ),
+        const SizedBox(height: Sp.x2),
+        Text(value, style: AppText.metricSm.copyWith(fontSize: 28)),
+      ],
+    ),
+  );
 }
 
 /// Tappable entry to the live HRV spot-check.
@@ -283,24 +354,36 @@ class SpotCheckEntryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ProCard(
-      onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const SpotCheckScreen())),
-      child: Row(children: [
-        Container(
-          padding: const EdgeInsets.all(9),
-          decoration: BoxDecoration(
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const SpotCheckScreen())),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
               color: AppColors.good.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(R.chip)),
-          child: AppIcon(Ic.pulse, size: 18, color: AppColors.good),
-        ),
-        const SizedBox(width: Sp.x3),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Live HRV spot check', style: AppText.label),
-          const SizedBox(height: 2),
-          Text('A quick 60-second reading, any time', style: AppText.captionMuted),
-        ])),
-        AppIcon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
-      ]),
+              borderRadius: BorderRadius.circular(R.chip),
+            ),
+            child: AppIcon(Ic.pulse, size: 18, color: AppColors.good),
+          ),
+          const SizedBox(width: Sp.x3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Live HRV spot check', style: AppText.label),
+                const SizedBox(height: 2),
+                Text(
+                  'A quick 60-second reading, any time',
+                  style: AppText.captionMuted,
+                ),
+              ],
+            ),
+          ),
+          AppIcon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
+        ],
+      ),
     );
   }
 }
@@ -319,24 +402,36 @@ class CycleEntryCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: Sp.x6),
       child: ProCard(
-        onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const CycleScreen())),
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(9),
-            decoration: BoxDecoration(
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const CycleScreen())),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(9),
+              decoration: BoxDecoration(
                 color: AppColors.coral.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(R.chip)),
-            child: AppIcon(Ic.calendar, size: 18, color: AppColors.coral),
-          ),
-          const SizedBox(width: Sp.x3),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Cycle tracking', style: AppText.label),
-            const SizedBox(height: 2),
-            Text('Phase, next period & fertile window', style: AppText.captionMuted),
-          ])),
-          AppIcon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
-        ]),
+                borderRadius: BorderRadius.circular(R.chip),
+              ),
+              child: AppIcon(Ic.calendar, size: 18, color: AppColors.coral),
+            ),
+            const SizedBox(width: Sp.x3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Cycle tracking', style: AppText.label),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Phase, next period & fertile window',
+                    style: AppText.captionMuted,
+                  ),
+                ],
+              ),
+            ),
+            AppIcon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
+          ],
+        ),
       ),
     );
   }
