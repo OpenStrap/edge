@@ -14,7 +14,7 @@
 // which is a deterministic function of the input string. Safe for Isolate.run
 // and directly unit-testable.
 
-import 'package:openstrap_analytics/onehz.dart' as ana;
+import 'analytics_bridge.dart' as ana;
 
 /// Build the cross-day analytics bundle from a time-ordered (OLDEST FIRST) list
 /// of per-day records and the user profile.
@@ -41,7 +41,9 @@ Map<String, dynamic> buildCrossDayBundle(
   final rmssdList = <double?>[for (final d in days) _numOrNull(d['rmssd'])];
   final readyList = <double?>[for (final d in days) _numOrNull(d['readiness'])];
   final respList = <double?>[for (final d in days) _numOrNull(d['resp_rate'])];
-  final tempList = <double?>[for (final d in days) _numOrNull(d['skin_temp_z'])];
+  final tempList = <double?>[
+    for (final d in days) _numOrNull(d['skin_temp_z']),
+  ];
 
   // ── illness CUSUM (NightSignal) on nightly RHR ─────────────────────────────
   final illness = ana.illnessCusum(dates, rhrList);
@@ -57,7 +59,7 @@ Map<String, dynamic> buildCrossDayBundle(
         hrv: _numOrNull(d['rmssd']),
         temp: _numOrNull(d['skin_temp_z']),
         resp: _numOrNull(d['resp_rate']),
-      )
+      ),
   ];
   final anomaly = ana.multivariateAnomaly(dates, feats);
 
@@ -68,7 +70,7 @@ Map<String, dynamic> buildCrossDayBundle(
   // it does see as decay over the series it receives).
   final dailyTrimp = <double>[
     for (final d in days)
-      if (d['trimp'] != null) (_numOrNull(d['trimp']) ?? 0.0)
+      if (d['trimp'] != null) (_numOrNull(d['trimp']) ?? 0.0),
   ];
   final load = ana.ctlAtlTsb(dailyTrimp);
 
@@ -138,8 +140,12 @@ Map<String, dynamic> buildCrossDayBundle(
   final gbResp = _glassInput('resp', respList, ana.wResp, lowerIsBetter: true);
   if (gbResp != null) gbInputs.add(gbResp);
   // temp: use absolute z so "further from your baseline" is worse.
-  final gbTemp = _glassInput('temp', _absList(tempList), ana.wTemp,
-      lowerIsBetter: true);
+  final gbTemp = _glassInput(
+    'temp',
+    _absList(tempList),
+    ana.wTemp,
+    lowerIsBetter: true,
+  );
   if (gbTemp != null) gbInputs.add(gbTemp);
   final glassBox = ana.glassBoxReadiness(gbInputs);
 
@@ -174,12 +180,13 @@ Map<String, dynamic> buildCrossDayBundle(
   final perf = (need.present && lastTstMin != null)
       ? ana.sleepPerformance(lastTstMin * 60.0, need.value!.needSec)
       : const ana.Metric<ana.SleepPerformance>.absent(
-          tier: ana.Tier.estimate, inputs_used: ['tst', 'sleep_need']);
+          tier: ana.Tier.estimate,
+          inputs_used: ['tst', 'sleep_need'],
+        );
   // typical wake clock-minute + efficiency from recent days (medians).
   final wakeMins = <double>[
     for (final d in days)
-      if (d['wake_sec'] != null)
-        _localTodMin((d['wake_sec'] as num).toInt())
+      if (d['wake_sec'] != null) _localTodMin((d['wake_sec'] as num).toInt()),
   ];
   final effs = <double>[for (final d in days) ?_numOrNull(d['efficiency'])];
   final typicalWakeMin = _median(wakeMins);
@@ -188,15 +195,21 @@ Map<String, dynamic> buildCrossDayBundle(
       ? ana.recommendedBedtime(
           needSec: need.value!.needSec,
           typicalWakeMinOfDay: typicalWakeMin,
-          typicalEfficiencyPct: typicalEff)
+          typicalEfficiencyPct: typicalEff,
+        )
       : const ana.Metric<ana.BedtimeRec>.absent(
-          tier: ana.Tier.estimate, inputs_used: ['sleep_need', 'wake_time']);
+          tier: ana.Tier.estimate,
+          inputs_used: ['sleep_need', 'wake_time'],
+        );
   final wakeRec = (need.present && bedtime.present)
       ? ana.recommendedWake(
           bedtimeMinOfDay: bedtime.value!.bedtimeMinOfDay,
-          needSec: need.value!.needSec)
+          needSec: need.value!.needSec,
+        )
       : const ana.Metric<ana.WakeRec>.absent(
-          tier: ana.Tier.estimate, inputs_used: ['sleep_need', 'bedtime']);
+          tier: ana.Tier.estimate,
+          inputs_used: ['sleep_need', 'bedtime'],
+        );
 
   // ── STRAIN COACH: recovery-gated target for today (uses today's recovery +
   //    the CTL/ATL/TSB load). Absent until we have a recovery value today.
@@ -214,7 +227,9 @@ Map<String, dynamic> buildCrossDayBundle(
   //    steps vs age-norms. All ESTIMATE, absent on missing inputs.
   final age = _numOrNull(profile['age']);
   final sexStr = (profile['sex'] as String?)?.toLowerCase();
-  final sex = sexStr == 'f' || sexStr == 'female' ? ana.Sex.female : ana.Sex.male;
+  final sex = sexStr == 'f' || sexStr == 'female'
+      ? ana.Sex.female
+      : ana.Sex.male;
   final maxHr = age == null ? null : 208 - 0.7 * age; // Tanaka
   final baseRhr = _median(<double>[for (final v in rhrList) ?v]);
   final baseRmssd = _median(<double>[for (final v in rmssdList) ?v]);
@@ -225,12 +240,16 @@ Map<String, dynamic> buildCrossDayBundle(
     age: age,
   );
   final medTstMin = _median(<double>[
-    for (final d in days) ?_numOrNull(d['tst_min'])
+    for (final d in days) ?_numOrNull(d['tst_min']),
   ]);
-  final medSteps = _median(<double>[for (final d in days) ?_numOrNull(d['steps'])]);
+  final medSteps = _median(<double>[
+    for (final d in days) ?_numOrNull(d['steps']),
+  ]);
   final physAge = age == null
       ? const ana.Metric<ana.PhysioAge>.absent(
-          tier: ana.Tier.estimate, inputs_used: ['profile'])
+          tier: ana.Tier.estimate,
+          inputs_used: ['profile'],
+        )
       : ana.physiologicalAge(
           chronologicalAge: age,
           sex: sex,
@@ -252,10 +271,10 @@ Map<String, dynamic> buildCrossDayBundle(
   for (var i = 0; i < n; i++) {
     recent.add({
       'date': dates[i],
-      'illness': i < illness.length &&
-          illness[i].state == ana.IllnessState.red,
+      'illness': i < illness.length && illness[i].state == ana.IllnessState.red,
       'anomaly': i < anomaly.length && anomaly[i].flagged,
-      'temp': i < tempIllness.length &&
+      'temp':
+          i < tempIllness.length &&
           tempIllness[i].flag == ana.TempFlag.elevated,
     });
   }
@@ -337,8 +356,7 @@ bool _isFreeDay(String? date) {
 }
 
 /// Absolute value of each present element (used to orient skin-temp by |z|).
-List<double?> _absList(List<double?> xs) =>
-    [for (final v in xs) v?.abs()];
+List<double?> _absList(List<double?> xs) => [for (final v in xs) v?.abs()];
 
 /// percentile-of-you JSON for the LAST value vs the all-but-last history.
 /// Returns the honest absent envelope when there is no last value / no history.
@@ -352,7 +370,7 @@ Map<String, dynamic> _pctOfYou(List<double?> series) {
   final value = series.last!;
   final history = <double>[
     for (var i = 0; i < series.length - 1; i++)
-      if (series[i] != null) series[i]!
+      if (series[i] != null) series[i]!,
   ];
   return ana.percentileOfYou(value, history).toJson((v) => v.toJson());
 }
@@ -369,7 +387,7 @@ ana.GlassBoxInput? _glassInput(
   if (series.isEmpty || series.last == null) return null;
   final history = <double>[
     for (var i = 0; i < series.length - 1; i++)
-      if (series[i] != null) series[i]!
+      if (series[i] != null) series[i]!,
   ];
   return ana.GlassBoxInput(
     label: label,

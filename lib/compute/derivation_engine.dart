@@ -25,7 +25,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
-import 'package:openstrap_analytics/onehz.dart' as ana;
+import 'analytics_bridge.dart' as ana;
 
 import '../data/db.dart';
 import '../notify/notification_center.dart';
@@ -152,8 +152,10 @@ class _BaselineHistoryCache {
                 if (row is num) row.toDouble(),
             ];
           }
+
           final map = decoded.cast<String, dynamic>();
-          final series = ((map['series'] as Map?) ?? const {}).cast<String, dynamic>();
+          final series = ((map['series'] as Map?) ?? const {})
+              .cast<String, dynamic>();
           return _BaselineHistoryCache({
             'ln_rmssd': histFromMap(series, 'ln_rmssd'),
             'rmssd': histFromMap(series, 'rmssd'),
@@ -514,8 +516,8 @@ class DerivationEngine {
       if (message is Map && message['type'] == 'result') {
         final kind = message['kind']?.toString();
         if (kind == 'substrate') {
-          final payload =
-              ((message['payload'] as Map?) ?? const {}).cast<String, dynamic>();
+          final payload = ((message['payload'] as Map?) ?? const {})
+              .cast<String, dynamic>();
           await sub.cancel();
           port.close();
           isolate.kill(priority: Isolate.immediate);
@@ -963,8 +965,10 @@ class DerivationEngine {
     // count so _stepsAndEnergy can prefer them and estimate only the rest.
     final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
     final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
-    final coverageWindows =
-        await LocalDb.coverageWindowsOverlapping(dayLo, dayHi);
+    final coverageWindows = await LocalDb.coverageWindowsOverlapping(
+      dayLo,
+      dayHi,
+    );
     final liveStepsReal = await LocalDb.liveStepsForDay(day.date);
     final stepCalib = await LocalDb.getStepCalibration();
     _stepsAndEnergy(
@@ -1024,10 +1028,7 @@ class DerivationEngine {
     // ESTIMATE detail. Best-effort — never throws.
     bundle['advanced_sleep'] = await _advancedSleep(daySub);
 
-    await _persistWakeDayFeatures(
-      dayId: day.date,
-      wake: wake,
-    );
+    await _persistWakeDayFeatures(dayId: day.date, wake: wake);
 
     // Finalize once the DATA EDGE has moved >48 h past the day's wake — i.e. we
     // have continuous drained data well beyond it, so no more flash can land for
@@ -1195,10 +1196,7 @@ class DerivationEngine {
     }
     await LocalDb.putBaseline(
       'crossday_input',
-      jsonEncode({
-        'algo_version': kAlgoVersion,
-        'days': days,
-      }),
+      jsonEncode({'algo_version': kAlgoVersion, 'days': days}),
     );
     return days;
   }
@@ -1235,38 +1233,51 @@ class DerivationEngine {
         NotifCategory category = NotifCategory.health,
         NotifPriority priority = NotifPriority.critical,
         String route = '/today',
-      }) =>
-          NotificationCenter.instance.emit(NotificationEvent(
-            dedupeKey: '$date:$kind',
-            category: category,
-            priority: priority,
-            title: title,
-            body: body,
-            date: date!,
-            route: route,
-          ));
+      }) => NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: '$date:$kind',
+          category: category,
+          priority: priority,
+          title: title,
+          body: body,
+          date: date!,
+          route: route,
+        ),
+      );
       if (illness != null && illness['state'] == 'red') {
-        await emit('illness', 'Possible illness onset',
-            'Elevated resting HR + suppressed HRV over recent nights.',
-            route: '/heart');
+        await emit(
+          'illness',
+          'Possible illness onset',
+          'Elevated resting HR + suppressed HRV over recent nights.',
+          route: '/heart',
+        );
       }
       if (anomaly != null && anomaly['flagged'] == true) {
-        await emit('anomaly', 'Unusual overnight physiology',
-            'Your nightly signals deviate from your personal baseline.',
-            route: '/heart');
+        await emit(
+          'anomaly',
+          'Unusual overnight physiology',
+          'Your nightly signals deviate from your personal baseline.',
+          route: '/heart',
+        );
       }
       if (temp != null && temp['flag'] == 'elevated') {
-        await emit('temp', 'Skin temperature elevated',
-            'Sustained rise vs your baseline — a possible illness signal.',
-            route: '/body');
+        await emit(
+          'temp',
+          'Skin temperature elevated',
+          'Sustained rise vs your baseline — a possible illness signal.',
+          route: '/body',
+        );
       }
       final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
       if (score is num && score < 34) {
-        await emit('readiness', 'Low readiness today',
-            'Your recovery markers are below your usual range — ease off.',
-            category: NotifCategory.recovery,
-            priority: NotifPriority.normal,
-            route: '/today');
+        await emit(
+          'readiness',
+          'Low readiness today',
+          'Your recovery markers are below your usual range — ease off.',
+          category: NotifCategory.recovery,
+          priority: NotifPriority.normal,
+          route: '/today',
+        );
       }
 
       // "Something changed" — online CUSUM on the recent resting-HR series. Fire
@@ -1537,11 +1548,13 @@ class DerivationEngine {
       bundle['steps'] = <String, dynamic>{
         'value': daySteps,
         'real_100hz': liveStepsReal, // AN-2554 over live windows (real count)
-        'estimated_1hz': estSteps, // walking-min × cadence for uncovered minutes
+        'estimated_1hz':
+            estSteps, // walking-min × cadence for uncovered minutes
         'ambulatory_min': est.present ? est.value!.ambulatoryMinutes : 0,
         'cadence_used_spm': est.present ? est.value!.cadenceUsed : 0,
-        'confidence':
-            liveStepsReal > 0 ? 0.7 : (est.present ? est.confidence : 0.2),
+        'confidence': liveStepsReal > 0
+            ? 0.7
+            : (est.present ? est.confidence : 0.2),
         'tier': liveStepsReal > 0 && estSteps == 0 ? 'HIGH' : 'ESTIMATE',
         'inputs_used': const ['live_100hz_pedometer', 'enmo_1hz', 'hr_1hz'],
         'note':
@@ -1590,10 +1603,7 @@ class DerivationEngine {
     required String dayId,
     required Map<String, dynamic> wake,
   }) async {
-    final payload = <String, dynamic>{
-      'day_id': dayId,
-      ...wake,
-    };
+    final payload = <String, dynamic>{'day_id': dayId, ...wake};
     await LocalDb.putWakeDayFeatures(
       dayId: dayId,
       algoVersion: kAlgoVersion,
@@ -1642,7 +1652,13 @@ class DerivationEngine {
       }
       zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
       if (age != null && sex != null && weightKg != null) {
-        calories = _keytelCaloriesWake(perMin, age, weightKg, hrMax, sex == 'f');
+        calories = _keytelCaloriesWake(
+          perMin,
+          age,
+          weightKg,
+          hrMax,
+          sex == 'f',
+        );
       }
     }
     if (motion.isNotEmpty) {
@@ -1983,13 +1999,14 @@ class DerivationEngine {
     if (bins.length < 3) return const [];
     final keys = bins.keys.toList()..sort();
     final means = {
-      for (final k in keys) k: bins[k]!.reduce((a, b) => a + b) / bins[k]!.length
+      for (final k in keys)
+        k: bins[k]!.reduce((a, b) => a + b) / bins[k]!.length,
     };
     final sorted = means.values.toList()..sort();
     final med = sorted[sorted.length ~/ 2];
     return [
       for (final k in keys)
-        {'t': k * 300, 'v': double.parse((means[k]! - med).toStringAsFixed(1))}
+        {'t': k * 300, 'v': double.parse((means[k]! - med).toStringAsFixed(1))},
     ];
   }
 
@@ -2150,14 +2167,19 @@ class DerivationEngine {
   /// + HR-dip over the WAKE span, the main nocturnal window carved out). Writes a
   /// rich `naps` block (per-nap start/end epoch-sec + duration + confidence) and a
   /// `nap_min` scalar (total nap minutes) used by the Sleep Coach + Timeline.
-  void _attachNaps(Map<String, dynamic> bundle, Map<String, dynamic>? scMap,
-      Substrate s, int onsetSec, int offsetSec) {
+  void _attachNaps(
+    Map<String, dynamic> bundle,
+    Map<String, dynamic>? scMap,
+    Substrate s,
+    int onsetSec,
+    int offsetSec,
+  ) {
     try {
       final n = s.length;
       if (n < 60) return;
       final accel = <ana.AccelSample>[
         for (var i = 0; i < n; i++)
-          ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i])
+          ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i]),
       ];
       final hr = [for (final h in s.hr) h.toDouble()];
       // Map the main-sleep epoch-second window to indices into the day arrays.
@@ -2181,7 +2203,7 @@ class DerivationEngine {
               'end': t0 + nap.endSec,
               'duration_min': (nap.durationSec / 60).round(),
               'confidence': nap.confidence,
-            }
+            },
         ],
         'count': naps.length,
         'confidence': m.confidence,
@@ -2189,8 +2211,7 @@ class DerivationEngine {
         'inputs_used': m.inputs_used,
         'note': m.note,
       };
-      final napMin =
-          naps.fold<int>(0, (a, nap) => a + (nap.durationSec ~/ 60));
+      final napMin = naps.fold<int>(0, (a, nap) => a + (nap.durationSec ~/ 60));
       scMap?['nap_min'] = napMin.toDouble();
     } catch (e) {
       _log('naps FAILED/skipped: $e');
