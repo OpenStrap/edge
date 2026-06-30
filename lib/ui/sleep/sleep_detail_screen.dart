@@ -151,6 +151,11 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   Map<String, dynamic> get _advanced => _map(_data['advanced']);
   bool get _hasAdvanced => _advanced['present'] == true;
 
+  // Low-confidence WRIST orientation (gravity-tilt) during sleep. A body-position
+  // PROXY only — the wrist moves independently of the torso, so this is NOT the
+  // sleeper's supine/side/prone body position.
+  Map<String, dynamic> get _wristOri => _map(_data['wrist_orientation']);
+
   /// Compressed hypnogram: consecutive same-stage points merged into segments.
   List<_Seg> _segments() {
     final raw = _data['hypnogram'];
@@ -327,6 +332,11 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         const SizedBox(height: Sp.x6),
         SectionHeader('Nocturnal heart'),
         _nocturnalCard(),
+      ],
+      if (_wristOri['dominant'] is String) ...[
+        const SizedBox(height: Sp.x6),
+        const SectionHeader('Wrist orientation (low confidence)'),
+        _wristOrientationCard(),
       ],
       // Tap any of these into its Week/Month/3M trend.
       const SizedBox(height: Sp.x6),
@@ -924,6 +934,66 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   }
 
   // ── 8. NOCTURNAL HEART ──────────────────────────────────────────────────────
+
+  String _prettyOrientation(String pos) {
+    switch (pos) {
+      case 'supine':
+        return 'Wrist facing up';
+      case 'prone':
+        return 'Wrist facing down';
+      case 'lateral_left':
+        return 'Wrist tilted left';
+      case 'lateral_right':
+        return 'Wrist tilted right';
+      case 'upright':
+        return 'Arm raised';
+      default:
+        return 'Mixed / unknown';
+    }
+  }
+
+  Widget _wristOrientationCard() {
+    final dominant = _wristOri['dominant']?.toString() ?? 'unknown';
+    final changes = _num(_wristOri['changes'])?.toInt() ?? 0;
+    final minsRaw = _map(_wristOri['minutes']);
+    final entries = <MapEntry<String, double>>[
+      for (final e in minsRaw.entries)
+        MapEntry(e.key, (_num(e.value) ?? 0).toDouble())
+    ]..sort((a, b) => b.value.compareTo(a.value));
+    return ProCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          AppIcon(Ic.watch, size: 18, color: AppColors.inkMuted),
+          const SizedBox(width: Sp.x3),
+          Expanded(
+              child: Text(_prettyOrientation(dominant),
+                  style: AppText.label)),
+          Tag('proxy', color: AppColors.inkSoft),
+        ]),
+        const SizedBox(height: Sp.x3),
+        Text(
+          'Wrist tilt from the band\'s motion sensor — a position PROXY, NOT your '
+          'body position. Your arm moves independently of your torso, so this '
+          'can\'t tell back from side sleeping.',
+          style: AppText.captionMuted,
+        ),
+        if (entries.isNotEmpty) ...[
+          const SizedBox(height: Sp.x3),
+          for (final e in entries.take(4))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(children: [
+                Expanded(child: Text(_prettyOrientation(e.key),
+                    style: AppText.captionMuted)),
+                Text(_hm(e.value.round()), style: AppText.captionMuted),
+              ]),
+            ),
+        ],
+        const SizedBox(height: 2),
+        Text('$changes orientation changes', style: AppText.captionMuted),
+      ]),
+    );
+  }
 
   Widget _nocturnalCard() {
     final avg = _num(_nocturnal['sleeping_hr_avg'])?.round();

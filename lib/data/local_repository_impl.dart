@@ -453,6 +453,12 @@ class LocalRepositoryImpl extends LocalRepository {
       },
       // Poincaré irregular-beat screen (sd1/sd2/flag/confidence).
       'irregular': _sub(b, 'clinical')?['irregular'],
+      // 24/7 irregular-rhythm SCREEN over whole-day RR (the headline screen).
+      'irregular_24h': _sub(b, 'clinical')?['irregular_24h'],
+      // Breathing-rate variability (within-user trend).
+      'brv': _sub(b, 'clinical')?['brv'],
+      // Mean heart-rate recovery across the day's detected/saved bouts (bpm/60s).
+      'hrr': _scalar(b, 'hrr_bpm'),
       // Winsorized-EWMA personal baselines (rhr/hrv/resp/skin_temp) — robust
       // center + spread + z + cold-start status for each.
       'baselines': b['baselines'],
@@ -554,6 +560,9 @@ class LocalRepositoryImpl extends LocalRepository {
       // disturbances + stage minutes + hypnogram. ESTIMATE; the headline stages
       // above stay the single source. {present:false} when none qualifies.
       'advanced': b['advanced_sleep'],
+      // Low-confidence WRIST orientation (gravity-tilt) during sleep — a body-
+      // position PROXY, NOT supine/side/prone body position.
+      'wrist_orientation': b['wrist_orientation'],
     };
   }
 
@@ -1213,6 +1222,10 @@ class LocalRepositoryImpl extends LocalRepository {
         return ('', 'wear'); // minutes; the screen formats as Hh Mm
       case 'skin_temp':
         return ('', 'skin temp'); // relative z vs baseline
+      case 'hrr':
+        return ('bpm', 'HR recovery'); // 60-s post-exercise drop; higher = fitter
+      case 'brv':
+        return ('', 'breathing variability'); // CV of per-window respiratory rate
       default:
         return ('', metric);
     }
@@ -1245,6 +1258,10 @@ class LocalRepositoryImpl extends LocalRepository {
         return 'tst_min';
       case 'dip':
         return 'dip_pct';
+      case 'hrr':
+        return 'hrr_bpm';
+      case 'brv':
+        return 'brv_cv';
       // lf_hf, hrv_cv map to themselves (series keys match).
       default:
         return metric;
@@ -1310,6 +1327,9 @@ class LocalRepositoryImpl extends LocalRepository {
       'calories': (r['calories'] as num?)?.round(),
       'duration_min': (r['duration_min'] as num?)?.toInt(),
       'steps': (r['steps'] as num?)?.toInt(),
+      'max_hr': (r['max_hr'] as num?)?.toInt(),
+      // Heart-rate recovery (bpm drop in 60 s) backfilled during derivation.
+      'hrr60': (r['hrr_bpm'] as num?)?.round(),
       'zone_min': zoneMin,
     };
   }

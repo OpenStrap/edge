@@ -47,6 +47,10 @@ class DayBundleInput {
   // ── DAY span (wake → next wake) 1 Hz substrate ────────────────────────────
   final List<int> dayTsSec;
   final List<int> dayHr; // 0 = off-skin
+  // Day-span RR (beat-end epoch ms + interval ms) for the 24/7 irregular-rhythm
+  // screen. Sparse (0–4 beats/s); empty when no RR was captured.
+  final List<double> dayRrTsMs;
+  final List<double> dayRrMs;
 
   // ── SLEEP window 1 Hz substrate (the window from segmentSleep) ────────────
   final List<int> sleepTsSec;
@@ -90,6 +94,8 @@ class DayBundleInput {
     required this.date,
     required this.dayTsSec,
     required this.dayHr,
+    this.dayRrTsMs = const [],
+    this.dayRrMs = const [],
     required this.sleepTsSec,
     required this.sleepHr,
     required this.sleepRrTsMs,
@@ -115,6 +121,8 @@ class DayBundleInput {
     'date': date,
     'day_ts': dayTsSec,
     'day_hr': dayHr,
+    'day_rr_ts_ms': dayRrTsMs,
+    'day_rr_ms': dayRrMs,
     'sleep_ts': sleepTsSec,
     'sleep_hr': sleepHr,
     'sleep_rr_ts_ms': sleepRrTsMs,
@@ -148,6 +156,8 @@ class DayBundleInput {
       date: m['date'] as String,
       dayTsSec: ints('day_ts'),
       dayHr: ints('day_hr'),
+      dayRrTsMs: dbls('day_rr_ts_ms'),
+      dayRrMs: dbls('day_rr_ms'),
       sleepTsSec: ints('sleep_ts'),
       sleepHr: ints('sleep_hr'),
       sleepRrTsMs: dbls('sleep_rr_ts_ms'),
@@ -265,6 +275,27 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       : const Metric<CpcResult>.absent(
           tier: Tier.high,
           inputs_used: ['rr_cleaned'],
+        );
+
+  // ── 24/7 IRREGULAR-RHYTHM SCREEN (day-span RR; not a diagnosis) ────────────
+  // Runs over the WHOLE-DAY cleaned RR (not just sleep) so an arrhythmia screen
+  // isn't limited to the sleep window. Hard-gated on beat count + artifact inside
+  // irregularBeatScreen; returns absent on a thin/noisy day.
+  final dayCorrected = correctRr(d.dayRrMs);
+  final irregular24h = irregularBeatScreen(
+    dayCorrected.nn,
+    artifactFraction: (1.0 - dayCorrected.cleanFraction).clamp(0.0, 1.0),
+  );
+
+  // ── BREATHING-RATE VARIABILITY (per-window RSA over the sleep NN) ──────────
+  // Window the cleaned sleep NN into ~30-min bins, take each bin's RSA resp rate,
+  // then BRV = dispersion + Theil-Sen trend of those per-window rates.
+  final respWindows = _respPerWindow(nn, nnTimes);
+  final brv = respWindows.length >= 3
+      ? breathingRateVariability(respWindows)
+      : const Metric<BrvResult>.absent(
+          tier: Tier.estimate,
+          inputs_used: ['resp_rate_series'],
         );
 
   // Relative ODI over the SLEEP window's spo2 channels (desaturation screen).
@@ -422,6 +453,11 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'flag': irregularFlag,
       'confidence': irregularConf,
     },
+    // 24/7 irregular-rhythm SCREEN over the whole-day RR (the headline screen
+    // that drives the opt-in notification). Sleep-only `irregular` kept above.
+    'irregular_24h': irregular24h.toJson((v) => v.toJson()),
+    // Breathing-rate variability trend (within-user only).
+    'brv': brv.toJson((v) => v.toJson()),
     // Canonical nightly HRV, matching the sleep-session windowed RMSSD
     // aggregation over the chosen sleep session. The robust estimator is
     // retained alongside it as a secondary detail for comparison/debugging.
@@ -751,6 +787,14 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'tst_min': tstSec == null ? null : (tstSec / 60).roundToDouble(),
       'lf_hf': lfhf == null ? null : _round(lfhf, 3),
       'hrv_cv': hrvCv == null ? null : _round(hrvCv, 1),
+      // 24/7 irregular-rhythm screen flag (1/0) → drives trend + notification.
+      'irregular_rhythm_flag':
+          irregular24h.present ? (irregular24h.value!.flag ? 1.0 : 0.0) : null,
+      // Breathing-rate variability (CV) + Theil-Sen trend slope.
+      'brv_cv': brv.present ? _round(brv.value!.cv, 4) : null,
+      'brv_slope': brv.present && brv.value!.trendSlope != null
+          ? _round(brv.value!.trendSlope!, 4)
+          : null,
       // Sleep efficiency % + worn minutes → their own day/week/month/3M trends.
       'efficiency': effPct == null ? null : _round(effPct, 1),
       'worn_min': dayHrValid.isEmpty
@@ -761,6 +805,37 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
 }
 
 // ── helpers (pure) ───────────────────────────────────────────────────────────
+
+/// Per-window RSA respiratory rates (br/min) for the BRV estimator. Buckets the
+/// cleaned NN into [windowMs] (~30-min) bins by beat time and runs [rsaRespRate]
+/// on each bin with ≥[minBeats] beats; keeps only resolved windows.
+List<double> _respPerWindow(
+  List<double> nn,
+  List<double> nnTimes, {
+  double windowMs = 1800000.0,
+  int minBeats = 60,
+}) {
+  if (nn.isEmpty || nn.length != nnTimes.length) return const [];
+  final t0 = nnTimes.first;
+  final binsNn = <int, List<double>>{};
+  final binsTs = <int, List<double>>{};
+  for (var i = 0; i < nn.length; i++) {
+    final idx = ((nnTimes[i] - t0) / windowMs).floor();
+    (binsNn[idx] ??= <double>[]).add(nn[i]);
+    (binsTs[idx] ??= <double>[]).add(nnTimes[i]);
+  }
+  final out = <double>[];
+  final idxs = binsNn.keys.toList()..sort();
+  for (final idx in idxs) {
+    final segNn = binsNn[idx]!;
+    if (segNn.length < minBeats) continue;
+    // NN is already artifact-corrected upstream → artifactFraction 0.
+    final r = rsaRespRate(segNn, binsTs[idx]!, artifactFraction: 0.0);
+    final b = r.present ? r.value!.brpm : null;
+    if (b != null) out.add(b);
+  }
+  return out;
+}
 
 /// Wrap a value sub-map in the {value,confidence,tier,inputs_used} envelope the
 /// serve seam reads via `.value`. Null inner → honest "—".

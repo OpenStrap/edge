@@ -13,6 +13,7 @@ import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart';
 import 'coach_chart.dart';
+import 'coach_render.dart';
 import 'coach_settings_screen.dart';
 
 class AiCoachScreen extends StatefulWidget {
@@ -325,6 +326,11 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
         return Padding(
           padding: const EdgeInsets.only(bottom: Sp.x4),
           child: CoachChart(spec: it.chart!),
+        );
+      case CoachItemKind.render:
+        return Padding(
+          padding: const EdgeInsets.only(bottom: Sp.x4),
+          child: CoachRender(spec: it.render!),
         );
       case CoachItemKind.error:
         return Padding(

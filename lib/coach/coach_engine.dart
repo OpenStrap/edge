@@ -19,6 +19,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../data/local_repository.dart';
 import 'coach_config.dart';
+import 'coach_db.dart';
 import 'coach_prompt.dart';
 
 // ── value types ──────────────────────────────────────────────────────────────
@@ -107,24 +108,31 @@ class ActionRequest {
 }
 
 /// One rendered chat item.
-enum CoachItemKind { user, assistant, chart, error }
+enum CoachItemKind { user, assistant, chart, render, error }
 
 class CoachItem {
   final CoachItemKind kind;
   final String? text;
   final ChartSpec? chart;
-  CoachItem.user(this.text) : kind = CoachItemKind.user, chart = null;
-  CoachItem.assistant(this.text) : kind = CoachItemKind.assistant, chart = null;
-  CoachItem.error(this.text) : kind = CoachItemKind.error, chart = null;
-  CoachItem.chart(this.chart) : kind = CoachItemKind.chart, text = null;
+  /// Generic render spec ({type, title?, ...payload}) drawn by [CoachRender].
+  final Map<String, dynamic>? render;
+  CoachItem.user(this.text) : kind = CoachItemKind.user, chart = null, render = null;
+  CoachItem.assistant(this.text) : kind = CoachItemKind.assistant, chart = null, render = null;
+  CoachItem.error(this.text) : kind = CoachItemKind.error, chart = null, render = null;
+  CoachItem.chart(this.chart) : kind = CoachItemKind.chart, text = null, render = null;
+  CoachItem.render(this.render) : kind = CoachItemKind.render, text = null, chart = null;
 
-  Map<String, dynamic> toJson() => {'kind': kind.name, 'text': text, 'chart': chart?.toJson()};
+  Map<String, dynamic> toJson() =>
+      {'kind': kind.name, 'text': text, 'chart': chart?.toJson(), 'render': render};
 
   static CoachItem fromJson(Map<String, dynamic> j) {
     final k = j['kind'];
     if (k == 'chart' && j['chart'] is Map) {
       final c = ChartSpec.tryParse((j['chart'] as Map).cast<String, dynamic>());
       if (c != null) return CoachItem.chart(c);
+    }
+    if (k == 'render' && j['render'] is Map) {
+      return CoachItem.render((j['render'] as Map).cast<String, dynamic>());
     }
     final t = j['text']?.toString();
     if (k == 'user') return CoachItem.user(t);
@@ -442,40 +450,22 @@ class CoachEngine {
   }) async {
     try {
       switch (name) {
-        // reads
-        case 'get_today':
-          return _enc(await api.getToday());
-        case 'get_trend':
-          return _enc(await api.getTrend('${args['metric']}', scale: '${args['scale'] ?? 'week'}'));
-        case 'get_day':
-          return _enc(await _day('${args['kind']}', '${args['date']}'));
-        case 'get_sleep_history':
-          return _enc(await api.getSleep());
-        case 'get_strain_history':
-          return _enc(await api.getStrain());
-        case 'get_sessions':
-          return _enc(await api.getSessions());
-        case 'get_workouts':
-          return _enc(await api.getWorkouts(range: '${args['range'] ?? 'month'}'));
-        case 'get_cycle':
-          return _enc(await api.getCycle());
-        case 'get_journal':
-          return _enc(await api.getJournal(range: '${args['range'] ?? '30d'}'));
-        case 'get_journal_insights':
-          return _enc(await api.getJournalInsights(range: '${args['range'] ?? '90d'}'));
-        case 'get_profile':
-          return _enc(await api.getProfile());
-        case 'get_records':
-          return _enc(await api.getRecords());
-        case 'get_history':
-          return _enc(await api.getHistory(range: '${args['range'] ?? '30d'}'));
+        // data — one read-only SQL tool over the derived views
+        case 'run_sql':
+          return await CoachDb.runCoachSql('${args['sql'] ?? ''}');
 
-        // plot
+        // plot — legacy bar/line/area figure
         case 'plot_chart':
           final spec = ChartSpec.tryParse(args);
           if (spec == null) return 'Could not parse figure; check the schema.';
           onItem(CoachItem.chart(spec));
           return 'Chart rendered for the user.';
+
+        // render — rich typed widget spec ({type, title?, ...payload})
+        case 'render':
+          if (args['type'] == null) return 'render needs a "type" field.';
+          onItem(CoachItem.render(Map<String, dynamic>.from(args)));
+          return 'Rendered "${args['type']}" for the user.';
 
         // actions (confirmed)
         case 'log_journal':
@@ -527,19 +517,6 @@ class CoachEngine {
     return await run();
   }
 
-  Future<Map<String, dynamic>> _day(String kind, String date) {
-    switch (kind) {
-      case 'sleep': return api.getDaySleep(date);
-      case 'strain': return api.getDayStrain(date);
-      case 'stress': return api.getDayStress(date);
-      case 'wear': return api.getDayWear(date);
-      case 'timeline': return api.getDayTimeline(date);
-      case 'lungs': return api.getDayLungs(date);
-      case 'heart':
-      default: return api.getDayHeart(date);
-    }
-  }
-
   String _enc(Object? data) {
     final s = jsonEncode(data);
     return s.length > 16000 ? '${s.substring(0, 16000)}…(truncated)' : s;
@@ -547,17 +524,9 @@ class CoachEngine {
 
   String _statusFor(String name, Map<String, dynamic> args) {
     switch (name) {
-      case 'get_today': return 'Reading today…';
-      case 'get_trend': return 'Pulling ${args['metric']} trend…';
-      case 'get_day': return 'Reading ${args['kind']} for ${args['date']}…';
-      case 'get_sleep_history': return 'Reading sleep history…';
-      case 'get_strain_history': return 'Reading strain history…';
-      case 'get_sessions': return 'Reading workouts…';
-      case 'get_workouts': return 'Reading workouts…';
-      case 'get_cycle': return 'Reading cycle…';
-      case 'get_journal': case 'get_journal_insights': return 'Reading journal…';
-      case 'get_records': return 'Checking your records…';
+      case 'run_sql': return 'Querying your data…';
       case 'plot_chart': return 'Plotting…';
+      case 'render': return 'Rendering ${args['type'] ?? 'figure'}…';
       default: return 'Working…';
     }
   }
@@ -575,26 +544,28 @@ class CoachEngine {
       };
 
   static final List<Map<String, dynamic>> _toolDefs = [
-    _fn('get_today', 'Today\'s snapshot: recovery, strain, sleep, resting HR, steps, readiness, skin-temp/SpO₂ deviations.', {}),
-    _fn('get_trend', 'A metric over time (server-aggregated buckets). Use for "trend/last week/month".', {
-      'metric': {'type': 'string', 'description': 'one of: strain, recovery, resting_hr, hrv, sdnn, lf_hf, hrv_cv, calories, steps, wear, readiness, vo2max, fitness, fatigue, form, monotony, acwr, dip, efficiency, deep, rem, light, regularity, resp, sleep, stress, skin_temp, spo2'},
-      'scale': {'type': 'string', 'enum': ['week', 'month', 'quarter']},
-    }, ['metric']),
-    _fn('get_day', 'Detailed data for one day & domain.', {
-      'kind': {'type': 'string', 'enum': ['heart', 'sleep', 'strain', 'stress', 'wear', 'timeline', 'lungs']},
-      'date': {'type': 'string', 'description': 'YYYY-MM-DD'},
-    }, ['kind', 'date']),
-    _fn('get_sleep_history', 'Recent nightly sleep rows.', {}),
-    _fn('get_strain_history', 'Recent daily strain rows.', {}),
-    _fn('get_sessions', 'Recent detected/auto workouts.', {}),
-    _fn('get_workouts', 'Workouts over a range.', {'range': {'type': 'string', 'enum': ['week', 'month', 'quarter']}}),
-    _fn('get_cycle', 'Menstrual cycle status + prediction (if the user enabled tracking).', {}),
-    _fn('get_journal', 'Behavior-tag journal entries.', {'range': {'type': 'string'}}),
-    _fn('get_journal_insights', 'How tags correlate with the user\'s own metrics.', {'range': {'type': 'string'}}),
-    _fn('get_profile', 'Profile: age, sex, height, weight, step goal.', {}),
-    _fn('get_records', 'Personal records & streaks.', {}),
-    _fn('get_history', 'Compact multi-metric history.', {'range': {'type': 'string'}}),
-    _fn('plot_chart', 'Render a chart for the user from data you fetched. Build the figure yourself.', {
+    _fn('run_sql',
+        'Read your health data by running ONE read-only SQLite SELECT over the '
+        'derived views. Views & columns: '
+        'v_metric(date,key,value); '
+        'v_daily(date,resting_hr,hrv,sdnn,readiness,strain,resp_rate,stress,'
+        'sleep_efficiency,sleep_min,deep_min,rem_min,light_min,nap_min,steps,'
+        'active_calories,total_calories,skin_temp_z,lf_hf,hrv_cv,dip_pct,'
+        'odi_per_hour,worn_min,hrr_bpm,brv_cv,irregular_flag); '
+        'v_series(date,series,t,v) — series ∈ hr_curve,strain_curve,hrv_timeline,'
+        'hrv_day,resp_day,skin_temp_day,zone_timeline,activity_curve; ALWAYS filter '
+        'WHERE date=\'YYYY-MM-DD\' AND series=\'…\'; '
+        'v_hypnogram(date,start_ts,end_ts,stage); '
+        'v_sessions(id,start_ts,end_ts,type,status,calories,strain,max_hr,'
+        'duration_min,steps,hrr_bpm,source,zone_min_json); '
+        'v_baselines(key,value,mean,z,delta,ratio,n,updated_at); '
+        'v_insights(id,kind,title,body,date,created_at,read). '
+        'Read-only, derived only — no other tables. Dates are \'YYYY-MM-DD\'; '
+        'timestamps are epoch seconds. Prefer aggregates (AVG/MIN/MAX/COUNT) over '
+        'SELECT *. Results are capped at 200 rows.',
+        {'sql': {'type': 'string', 'description': 'a single SELECT statement'}},
+        ['sql']),
+    _fn('plot_chart', 'Render a simple chart from data you fetched (bar/line/area). Build the figure yourself.', {
       'type': {'type': 'string', 'enum': ['bar', 'line', 'area']},
       'title': {'type': 'string'},
       'x_labels': {'type': 'array', 'items': {'type': 'string'}},
@@ -605,6 +576,22 @@ class CoachEngine {
       'unit': {'type': 'string'},
       'note': {'type': 'string'},
     }, ['type', 'x_labels', 'series']),
+    _fn('render',
+        'Render a RICH figure from data you fetched. Pick a "type" and provide its '
+        'payload. Types: line/area/bar/multi_series {x_labels,series:[{name,values}],unit}; '
+        'scatter {points:[{x,y,label?}],x_label,y_label}; '
+        'dual_axis {x_labels,left:{name,values,unit},right:{name,values,unit}}; '
+        'stacked_zone_bar {x_labels,zones:[{name,values}]}; '
+        'hypnogram {segments:[{start,end,stage}]} (stage∈wake|light|deep|rem, epoch sec); '
+        'kpi_grid {cards:[{label,value,unit?,delta?,baseline?,spark?:[n]}]}; '
+        'gauge {value,min?,max?,label?,unit?}; '
+        'heatmap {rows:[label],cols:[label],values:[[n]],unit?}; '
+        'range_band {label,value,min,max,unit?}; '
+        'table {columns:[..],rows:[[..]]}. Always include a "title".',
+        {
+          'type': {'type': 'string'},
+          'title': {'type': 'string'},
+        }, ['type']),
     _fn('log_journal', 'Log a journal entry (asks the user to confirm).', {
       'date': {'type': 'string'}, 'tags': {'type': 'array', 'items': {'type': 'string'}}, 'note': {'type': 'string'},
     }, ['date']),

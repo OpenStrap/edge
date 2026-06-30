@@ -56,6 +56,8 @@ class LocalDb {
         await _createComputeState(db);
         await _createPrimitiveArtifacts(db);
         await _createLiveCoverage(db);
+        await _createWorkoutSuggestions(db);
+        await _ensureCoachViews(db);
       },
       onUpgrade: (db, oldV, newV) async {
         if (oldV < 2) await _createEvents(db);
@@ -195,11 +197,18 @@ class LocalDb {
           // `date` PK is a period-start marker) so a date can carry both.
           await _createCycleSymptom(db);
         }
+        if (oldV < 19) {
+          // v25 features: HRR per session, opt-in auto-workout suggestions, and
+          // the coach's read-only SQL views over derived data. `hrr_bpm` column +
+          // suggestions table are additive; views are (re)built in _repairOpenSchema.
+          await _ensureSessionSchema(db); // adds hrr_bpm
+          await _createWorkoutSuggestions(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
       },
-      version: 18,
+      version: 19,
     );
   }
 
@@ -224,6 +233,10 @@ class LocalDb {
     await _ensureRawRecordSchema(db);
     await _ensureSessionSchema(db);
     await _ensureSyncStateSchema(db);
+    await _createWorkoutSuggestions(db);
+    // Views LAST — they depend on metric_series / day_result / baselines / sessions
+    // / notifications all existing. DROP+CREATE so a shape change takes effect.
+    await _ensureCoachViews(db);
   }
 
   // ── MENSTRUAL SYMPTOM LOG ──────────────────────────────────────────────────
@@ -542,7 +555,24 @@ class LocalDb {
         duration_min INTEGER,
         zone_min_json TEXT,
         steps INTEGER,
+        hrr_bpm REAL,
         source TEXT NOT NULL DEFAULT 'manual',
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    // workout_suggestions — opt-in "did you work out?" auto-detections. Never a
+    // real session until the user confirms; `dismissed` hides a rejected one.
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS workout_suggestions (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        start_ts INTEGER NOT NULL,
+        end_ts INTEGER NOT NULL,
+        avg_bpm INTEGER,
+        peak_bpm INTEGER,
+        duration_min INTEGER,
+        sport TEXT,
+        dismissed INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
       )
     ''');
@@ -669,6 +699,169 @@ class LocalDb {
     if (!names.contains('steps')) {
       await db.execute('ALTER TABLE sessions ADD COLUMN steps INTEGER');
     }
+    if (!names.contains('hrr_bpm')) {
+      await db.execute('ALTER TABLE sessions ADD COLUMN hrr_bpm REAL');
+    }
+  }
+
+  // ── WORKOUT SUGGESTIONS (opt-in auto-detect) ───────────────────────────────
+  static Future<void> _createWorkoutSuggestions(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS workout_suggestions (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        start_ts INTEGER NOT NULL,
+        end_ts INTEGER NOT NULL,
+        avg_bpm INTEGER,
+        peak_bpm INTEGER,
+        duration_min INTEGER,
+        sport TEXT,
+        dismissed INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  /// Upsert an auto-detected workout suggestion (id = "$date:$startSec").
+  static Future<void> putWorkoutSuggestion(Map<String, dynamic> row) async {
+    final db = await instance;
+    await db.insert('workout_suggestions', row,
+        conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  /// Active (not-yet-dismissed, not-yet-confirmed) suggestions, newest first.
+  static Future<List<Map<String, dynamic>>> activeWorkoutSuggestions() async {
+    final db = await instance;
+    return db.query('workout_suggestions',
+        where: 'dismissed = 0', orderBy: 'start_ts DESC');
+  }
+
+  static Future<void> dismissWorkoutSuggestion(String id) async {
+    final db = await instance;
+    await db.update('workout_suggestions', {'dismissed': 1},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ── COACH READ-ONLY SQL VIEWS (derived-only) ───────────────────────────────
+  // Re-created on every open (DROP+CREATE) so a view-shape change takes effect on
+  // upgrade. These flatten DERIVED data only; the coach's read-only SQL layer is
+  // allow-listed to these views and can never reach raw_records / decoded_*.
+  // Every view over day_result selects the LATEST algo_version per day_id.
+  static Future<void> _ensureCoachViews(Database db) async {
+    const views = [
+      'v_metric',
+      'v_daily',
+      'v_series',
+      'v_hypnogram',
+      'v_sessions',
+      'v_baselines',
+      'v_insights',
+    ];
+    for (final v in views) {
+      await db.execute('DROP VIEW IF EXISTS $v');
+    }
+    // Long-form scalar trends — the natural per-metric time series.
+    await db.execute('''
+      CREATE VIEW v_metric AS
+      SELECT date, key, value FROM metric_series
+    ''');
+    // One row per day, common scalars pivoted from metric_series (no JSON path
+    // drift; metric_series is the canonical scalar store).
+    await db.execute('''
+      CREATE VIEW v_daily AS
+      SELECT date,
+        MAX(CASE WHEN key='rhr' THEN value END)            AS resting_hr,
+        MAX(CASE WHEN key='rmssd' THEN value END)          AS hrv,
+        MAX(CASE WHEN key='sdnn' THEN value END)           AS sdnn,
+        MAX(CASE WHEN key='readiness' THEN value END)      AS readiness,
+        MAX(CASE WHEN key='strain' THEN value END)         AS strain,
+        MAX(CASE WHEN key='resp_rate' THEN value END)      AS resp_rate,
+        MAX(CASE WHEN key='stress' THEN value END)         AS stress,
+        MAX(CASE WHEN key='efficiency' THEN value END)     AS sleep_efficiency,
+        MAX(CASE WHEN key='tst_min' THEN value END)        AS sleep_min,
+        MAX(CASE WHEN key='deep_min' THEN value END)       AS deep_min,
+        MAX(CASE WHEN key='rem_min' THEN value END)        AS rem_min,
+        MAX(CASE WHEN key='light_min' THEN value END)      AS light_min,
+        MAX(CASE WHEN key='nap_min' THEN value END)        AS nap_min,
+        MAX(CASE WHEN key='steps' THEN value END)          AS steps,
+        MAX(CASE WHEN key='calories' THEN value END)       AS active_calories,
+        MAX(CASE WHEN key='calories_total' THEN value END) AS total_calories,
+        MAX(CASE WHEN key='skin_temp_z' THEN value END)    AS skin_temp_z,
+        MAX(CASE WHEN key='lf_hf' THEN value END)          AS lf_hf,
+        MAX(CASE WHEN key='hrv_cv' THEN value END)         AS hrv_cv,
+        MAX(CASE WHEN key='dip_pct' THEN value END)        AS dip_pct,
+        MAX(CASE WHEN key='odi_per_hour' THEN value END)   AS odi_per_hour,
+        MAX(CASE WHEN key='worn_min' THEN value END)       AS worn_min,
+        MAX(CASE WHEN key='hrr_bpm' THEN value END)        AS hrr_bpm,
+        MAX(CASE WHEN key='brv_cv' THEN value END)         AS brv_cv,
+        MAX(CASE WHEN key='irregular_rhythm_flag' THEN value END) AS irregular_flag
+      FROM metric_series GROUP BY date
+    ''');
+    // Intra-day curves UNNESTED from the latest day_result bundle. HEAVY — always
+    // filter by date AND series. zone_timeline uses 'z'; activity_curve is root.
+    await db.execute('''
+      CREATE VIEW v_series AS
+      WITH latest AS (
+        SELECT r.day_id, r.payload_json FROM day_result r
+        JOIN (SELECT day_id, MAX(algo_version) v FROM day_result GROUP BY day_id) m
+          ON r.day_id = m.day_id AND r.algo_version = m.v
+      )
+      SELECT l.day_id AS date, s.sk AS series,
+             json_extract(e.value,'\$.t') AS t,
+             json_extract(e.value,'\$.v') AS v
+      FROM latest l
+      JOIN (SELECT 'hr_curve' sk UNION ALL SELECT 'strain_curve'
+            UNION ALL SELECT 'hrv_timeline' UNION ALL SELECT 'hrv_day'
+            UNION ALL SELECT 'resp_day' UNION ALL SELECT 'skin_temp_day') s
+      JOIN json_each(json_extract(l.payload_json,'\$.series.'||s.sk)) e
+      UNION ALL
+      SELECT l.day_id, 'zone_timeline',
+             json_extract(e.value,'\$.t'), json_extract(e.value,'\$.z')
+      FROM latest l, json_each(json_extract(l.payload_json,'\$.series.zone_timeline')) e
+      UNION ALL
+      SELECT l.day_id, 'activity_curve',
+             json_extract(e.value,'\$.t'), json_extract(e.value,'\$.v')
+      FROM latest l, json_each(json_extract(l.payload_json,'\$.activity_curve')) e
+    ''');
+    // Sleep stage segments (different element shape from the {t,v} curves).
+    await db.execute('''
+      CREATE VIEW v_hypnogram AS
+      WITH latest AS (
+        SELECT r.day_id, r.payload_json FROM day_result r
+        JOIN (SELECT day_id, MAX(algo_version) v FROM day_result GROUP BY day_id) m
+          ON r.day_id = m.day_id AND r.algo_version = m.v
+      )
+      SELECT l.day_id AS date,
+             json_extract(e.value,'\$.start') AS start_ts,
+             json_extract(e.value,'\$.end')   AS end_ts,
+             json_extract(e.value,'\$.stage') AS stage
+      FROM latest l, json_each(json_extract(l.payload_json,'\$.series.hypnogram')) e
+    ''');
+    // Workouts (incl. HRR + steps). Passthrough.
+    await db.execute('''
+      CREATE VIEW v_sessions AS
+      SELECT id, start_ts, end_ts, type, status, calories, strain, max_hr,
+             duration_min, steps, hrr_bpm, source, zone_min_json
+      FROM sessions
+    ''');
+    // Rolling personal baselines (json_extract; missing paths return NULL safely).
+    await db.execute('''
+      CREATE VIEW v_baselines AS
+      SELECT key,
+             json_extract(payload_json,'\$.value')           AS value,
+             json_extract(payload_json,'\$.mean')            AS mean,
+             json_extract(payload_json,'\$.z')               AS z,
+             json_extract(payload_json,'\$.delta')           AS delta,
+             json_extract(payload_json,'\$.ratio')           AS ratio,
+             json_extract(payload_json,'\$.n')               AS n,
+             updated_at
+      FROM baselines
+    ''');
+    // Locally-generated insight / notification feed.
+    await db.execute('''
+      CREATE VIEW v_insights AS
+      SELECT id, kind, title, body, date, created_at, read FROM notifications
+    ''');
   }
 
   static Future<void> _ensureSyncCursorSchema(Database db) async {
@@ -2606,6 +2799,14 @@ class LocalDb {
   static Future<void> deleteSession(String id) async {
     final db = await instance;
     await db.delete('sessions', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Backfill a session's heart-rate-recovery (bpm), computed retrospectively
+  /// from the 1 Hz substrate around the session's end during derivation.
+  static Future<void> setSessionHrr(String id, double hrrBpm) async {
+    final db = await instance;
+    await db.update('sessions', {'hrr_bpm': hrrBpm},
+        where: 'id = ?', whereArgs: [id]);
   }
 
   static Future<void> setSessionType(String id, String type) async {

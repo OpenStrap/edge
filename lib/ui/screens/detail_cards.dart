@@ -163,6 +163,12 @@ class HeartDayCard extends StatelessWidget {
         final illness = (d['illness'] as Map?);
         final resp = (d['resp'] as Map?);
         final spo2 = (d['spo2'] as Map?);
+        final irr24 = (d['irregular_24h'] as Map?);
+        final irr24v = (irr24?['value'] is Map)
+            ? (irr24!['value'] as Map).cast<String, dynamic>()
+            : null;
+        final hrr = _n(d['hrr']);
+        final brvHas = (d['brv'] is Map) && ((d['brv'] as Map)['value'] is Map);
         final baselines = (d['baselines'] as Map?);
         final dmap = (d['drivers'] as Map?) ?? const {};
         final heartDrivers =
@@ -370,6 +376,102 @@ class HeartDayCard extends StatelessWidget {
                         'Your typical RMSSD — recovery is measured against this.',
                     value: '${(_n(hrv['baseline']) ?? 0).round()}',
                     unit: 'ms',
+                  ),
+              ]),
+            ],
+
+            // ── 24/7 irregular-rhythm SCREEN (not a diagnosis) ──────────────
+            const SizedBox(height: Sp.x6),
+            const SectionHeader('Rhythm screen'),
+            Builder(builder: (_) {
+              if (irr24v == null) {
+                return ProCard(
+                  child: Text(
+                    'Not enough clean beats today to screen your heart rhythm.',
+                    style: AppText.captionMuted,
+                  ),
+                );
+              }
+              final flag = irr24v['flag'] == true;
+              final ratio = _n(irr24v['sd1_sd2']);
+              final pnn = _n(irr24v['pnn_pct']);
+              final accent = flag ? AppColors.coral : AppColors.good;
+              return ProCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      AppIcon(flag ? Ic.heart : Ic.pulse,
+                          size: 18, color: accent),
+                      const SizedBox(width: Sp.x3),
+                      Expanded(
+                        child: Text(
+                          flag
+                              ? 'Irregular pattern detected today'
+                              : 'Rhythm screen: normal',
+                          style: AppText.label.copyWith(color: accent),
+                        ),
+                      ),
+                      Tag('SCREEN', color: accent),
+                    ]),
+                    const SizedBox(height: Sp.x3),
+                    Text(
+                      "A screen, not a diagnosis — wrist pulse can't see the "
+                      "heart's electrical signal. See a clinician if you have "
+                      'symptoms (palpitations, dizziness, breathlessness).',
+                      style: AppText.captionMuted,
+                    ),
+                    const SizedBox(height: Sp.x3),
+                    Row(children: [
+                      Expanded(
+                        child: Text(
+                          'SD1/SD2 ${ratio == null ? '—' : ratio.toStringAsFixed(2)}',
+                          style: AppText.captionMuted,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          'pNN ${pnn == null ? '—' : '${pnn.toStringAsFixed(0)}%'}',
+                          style: AppText.captionMuted,
+                        ),
+                      ),
+                    ]),
+                  ],
+                ),
+              );
+            }),
+
+            // ── Heart-rate recovery + breathing-rate variability trends ─────
+            if (hrr != null || brvHas) ...[
+              const SizedBox(height: Sp.x6),
+              const SectionHeader('Fitness & breathing'),
+              MetricGroup([
+                if (hrr != null)
+                  TrendMetricRow(
+                    icon: Ic.recovery,
+                    accent: AppColors.good,
+                    label: 'HR recovery',
+                    info: 'Drop in heart rate 60 s after exercise. Faster '
+                        'recovery means a fitter, better-regulated heart.',
+                    value: hrr.toStringAsFixed(0),
+                    unit: 'bpm',
+                    metric: 'hrr',
+                    trendTitle: 'Heart-rate recovery',
+                  ),
+                if (brvHas)
+                  TrendMetricRow(
+                    icon: Ic.chart,
+                    accent: AppColors.good,
+                    label: 'Breathing variability',
+                    info: 'How much your breathing rate varied overnight '
+                        '(within-user trend), tracked against your own history.',
+                    value: () {
+                      final cv =
+                          _n((((d['brv'] as Map)['value']) as Map)['cv']);
+                      return cv == null ? '—' : cv.toStringAsFixed(2);
+                    }(),
+                    metric: 'brv',
+                    trendTitle: 'Breathing-rate variability',
                   ),
               ]),
             ],

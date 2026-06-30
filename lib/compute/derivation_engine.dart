@@ -107,7 +107,13 @@ import 'substrate.dart';
 // v24: picks up the analytics sleep-algorithm rewrite (multi-session detection +
 // bridging + main-session pick via AdvancedSleepStager). Bumping re-derives
 // non-finalized days so past nights restage; "Re-analyze data" restages all.
-const int kAlgoVersion = 24;
+// v25: 24/7 irregular-rhythm SCREEN (day-span RR → `irregular_rhythm_flag` +
+// notification), heart-rate recovery (HRR) per auto-detected bout → `hrr_bpm`,
+// breathing-rate variability (`brv_cv`/`brv_slope`), opt-in auto-workout
+// SUGGESTIONS (workout_suggestions table + notification), and low-confidence
+// WRIST ORIENTATION during sleep (NOT body position). Bumping re-derives
+// non-finalized days; "Re-analyze data" restages all.
+const int kAlgoVersion = 25;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 14;
@@ -929,6 +935,8 @@ class DerivationEngine {
       date: day.date,
       dayTsSec: daySub.tsSec,
       dayHr: daySub.hr,
+      dayRrTsMs: daySub.rrTsMs,
+      dayRrMs: daySub.rrMs,
       sleepTsSec: sleepSub.tsSec,
       sleepHr: sleepSub.hr,
       sleepRrTsMs: sleepSub.rrTsMs,
@@ -1020,6 +1028,17 @@ class DerivationEngine {
     // in once high-rate accel features exist.
     bundle['detected_workouts'] = await _detectedWorkouts(daySub, day, profile);
 
+    // ── AUTO-WORKOUT SUGGESTIONS + HRR (opt-in detector over day HR+motion) ──
+    // One pass of the opt-in detector serves two features: (1) persisted "did you
+    // work out?" suggestions + a recent-day notification, and (2) heart-rate
+    // recovery (HRR) per bout → `hrr_bpm` scalar. scMap writes through to
+    // bundle['scalars'] (CastMap view), so hrr_bpm reaches the series block below.
+    await _attachWorkoutSuggestionsAndHrr(bundle, scMap, daySub, day, dataNowSec);
+
+    // ── WRIST ORIENTATION during sleep (low-confidence; NOT body position) ───
+    _attachWristOrientation(
+        bundle, daySub, day.sleepOnsetSec, day.sleepOffsetSec);
+
     // ── ADVANCED SLEEP (4-class Cole–Kripke + DoG/percentile stager) ─────────
     // A richer, AASM-style sleep read (SOL / REM-latency / disturbances + a
     // 4-class hypnogram) computed over the day substrate (needs accel, which
@@ -1090,6 +1109,11 @@ class DerivationEngine {
         'hrv_cv': sc('hrv_cv'),
         'efficiency': sc('efficiency'),
         'worn_min': sc('worn_min'),
+        // v25: 24/7 irregular-rhythm screen flag, breathing-rate variability,
+        // and mean heart-rate recovery across the day's detected bouts.
+        'irregular_rhythm_flag': sc('irregular_rhythm_flag'),
+        'brv_cv': sc('brv_cv'),
+        'hrr_bpm': sc('hrr_bpm'),
       },
     );
     history.appendScalars(scalars);
@@ -1267,6 +1291,14 @@ class DerivationEngine {
           'Sustained rise vs your baseline — a possible illness signal.',
           route: '/body',
         );
+      }
+      // 24/7 irregular-rhythm SCREEN (not a diagnosis). Fires at most once/day.
+      final irregFlag = await LocalDb.metricValueOn(date, 'irregular_rhythm_flag');
+      if (irregFlag == 1.0) {
+        await emit('irregular', 'Irregular heart rhythm — screen',
+            'Your beat-to-beat pattern looked irregular today. This is a screen, '
+            'not a diagnosis — see a clinician if you have symptoms.',
+            route: '/heart');
       }
       final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
       if (score is num && score < 34) {
@@ -2215,6 +2247,198 @@ class DerivationEngine {
       scMap?['nap_min'] = napMin.toDouble();
     } catch (e) {
       _log('naps FAILED/skipped: $e');
+    }
+  }
+
+  /// Opt-in workout SUGGESTIONS (`autoDetectWorkouts`) + HEART-RATE RECOVERY.
+  ///
+  /// One detector pass over the day's 1 Hz HR (+ gravity motion) serves both: the
+  /// detected bouts become persisted "did you work out?" suggestions (excluding
+  /// any already-saved manual/live session), and each bout's HR tail yields an
+  /// HRR-60s drop whose daily mean → `hrr_bpm`. Suggestions + the notification are
+  /// gated to RECENT days so a re-analyze / import never spams. Best-effort.
+  Future<void> _attachWorkoutSuggestionsAndHrr(
+    Map<String, dynamic> bundle,
+    Map<String, dynamic>? scMap,
+    Substrate s,
+    PreparedDerivationDay day,
+    int dataNowSec,
+  ) async {
+    try {
+      final n = s.length;
+      if (n < 60) return;
+      final hrTs = <int>[];
+      final hrBpm = <int>[];
+      for (var i = 0; i < n; i++) {
+        if (s.hr[i] > 0) {
+          hrTs.add(s.tsSec[i]);
+          hrBpm.add(s.hr[i]);
+        }
+      }
+      if (hrBpm.length < 60) return;
+      final motion =
+          ana.AutoWorkoutDetector.motionPoints(s.tsSec, s.ax, s.ay, s.az);
+      // Exclude windows the user has already logged (manual/live wins).
+      final dayLo = s.tsSec.first;
+      final dayHi = s.tsSec.last + 60;
+      final saved = await LocalDb.sessionsInRange(dayLo, dayHi);
+      final savedSpans = <ana.SavedWorkoutSpan>[
+        for (final r in saved)
+          if (r['start_ts'] is int && r['end_ts'] is int)
+            ana.SavedWorkoutSpan(r['start_ts'] as int, r['end_ts'] as int),
+      ];
+      final rhr = (scMap?['rhr'] as num?)?.round();
+      final detected = ana.autoDetectWorkouts(
+        hrTs: hrTs,
+        hrBpm: hrBpm,
+        restingBpm: rhr,
+        motion: motion,
+        savedSpans: savedSpans,
+      );
+      final bouts = detected.value ?? const [];
+
+      // HRR per bout from the per-second HR tail bracketing each bout end.
+      final drops = <double>[];
+      final boutJson = <Map<String, dynamic>>[];
+      for (final b in bouts) {
+        final m = _hrrForBout(s, b.endSec);
+        if (m != null) drops.add(m);
+        boutJson.add({
+          'start': b.startSec,
+          'end': b.endSec,
+          'avg_bpm': b.avgBpm,
+          'peak_bpm': b.peakBpm,
+          'duration_min': b.durationMin,
+          'sport': b.sport,
+          if (m != null) 'hrr_bpm': double.parse(m.toStringAsFixed(1)),
+        });
+      }
+      // Also fill HRR for already-saved sessions (manual/live) retrospectively
+      // from the substrate around each session's end — so the workout detail
+      // screen shows HRR without buffering 60 s after a live stop.
+      for (final r in saved) {
+        final id = r['id'];
+        final endTs = r['end_ts'];
+        if (id is! String || endTs is! int) continue;
+        final m = _hrrForBout(s, endTs);
+        if (m != null) {
+          drops.add(m);
+          await LocalDb.setSessionHrr(id, double.parse(m.toStringAsFixed(1)));
+        }
+      }
+      if (drops.isNotEmpty) {
+        final mean = drops.reduce((a, c) => a + c) / drops.length;
+        scMap?['hrr_bpm'] = double.parse(mean.toStringAsFixed(1));
+      }
+      bundle['workout_suggestions'] = boutJson;
+
+      // Persist + notify only for RECENT days (≤ ~36 h old) so imports/re-analyze
+      // don't resurface 90 days of prompts.
+      final recent = (dataNowSec - day.endSec) < 36 * 3600;
+      if (recent && bouts.isNotEmpty) {
+        for (final b in bouts) {
+          await LocalDb.putWorkoutSuggestion({
+            'id': '${day.date}:${b.startSec}',
+            'date': day.date,
+            'start_ts': b.startSec,
+            'end_ts': b.endSec,
+            'avg_bpm': b.avgBpm,
+            'peak_bpm': b.peakBpm,
+            'duration_min': b.durationMin,
+            'sport': b.sport,
+            'dismissed': 0,
+            'created_at': DateTime.now().millisecondsSinceEpoch,
+          });
+        }
+        final first = bouts.first;
+        await NotificationCenter.instance.emit(NotificationEvent(
+          dedupeKey: '${day.date}:auto_workout',
+          category: NotifCategory.recovery,
+          priority: NotifPriority.normal,
+          title: 'Did you work out?',
+          body: 'We spotted ~${first.durationMin} min of elevated activity. '
+              'Tap to log it.',
+          date: day.date,
+          route: '/workouts',
+        ));
+      }
+    } catch (e) {
+      _log('auto-workout/HRR FAILED/skipped: $e');
+    }
+  }
+
+  /// HRR-60s for a bout ending at [endSec]: build the per-second HR tail around
+  /// the end index and delegate to [ana.hrRecovery]. Returns the drop (bpm) or null.
+  double? _hrrForBout(Substrate s, int endSec) {
+    final n = s.length;
+    if (n == 0) return null;
+    // Find the index nearest the bout end.
+    var endIdx = -1;
+    for (var i = 0; i < n; i++) {
+      if (s.tsSec[i] >= endSec) {
+        endIdx = i;
+        break;
+      }
+    }
+    if (endIdx < 0) endIdx = n - 1;
+    const pre = 30, post = 75;
+    final lo = (endIdx - pre).clamp(0, n - 1);
+    final hi = (endIdx + post).clamp(0, n - 1);
+    final tail = <int>[for (var i = lo; i <= hi; i++) s.hr[i]];
+    final m = ana.hrRecovery(tail, endIndex: endIdx - lo, recoverySec: 60);
+    return m.present ? m.value!.dropBpm : null;
+  }
+
+  /// Low-confidence WRIST ORIENTATION during the sleep window (`positionSeries`).
+  /// Explicitly a WRIST measure (body-position PROXY), never claimed as the
+  /// sleeper's supine/side/prone body position. Emits a dominant-orientation
+  /// summary + per-position minutes + an orientation-change count. Best-effort.
+  void _attachWristOrientation(
+    Map<String, dynamic> bundle,
+    Substrate s,
+    int onsetSec,
+    int offsetSec,
+  ) {
+    try {
+      if (offsetSec <= onsetSec) return;
+      final epoch = <ana.AccelSample>[
+        for (var i = 0; i < s.length; i++)
+          if (s.tsSec[i] >= onsetSec && s.tsSec[i] < offsetSec)
+            ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i])
+      ];
+      if (epoch.length < 60) return;
+      final tilts = ana.positionSeries(epoch, epochSec: 30);
+      if (tilts.isEmpty) return;
+      // Per-position minutes (each epoch ≈ 30 s) + orientation-change count.
+      final mins = <String, double>{};
+      var changes = 0;
+      String? prev;
+      for (final t in tilts) {
+        mins[t.position] = (mins[t.position] ?? 0) + 0.5; // 30 s
+        if (prev != null && prev != t.position) changes++;
+        prev = t.position;
+      }
+      String dominant = 'unknown';
+      var best = -1.0;
+      mins.forEach((k, v) {
+        if (v > best) {
+          best = v;
+          dominant = k;
+        }
+      });
+      bundle['wrist_orientation'] = <String, dynamic>{
+        'dominant': dominant,
+        'minutes': mins,
+        'changes': changes,
+        'epochs': tilts.length,
+        'confidence': 'low',
+        'tier': ana.Tier.relative,
+        'note': 'WRIST orientation during sleep (gravity-tilt). A body-position '
+            'PROXY, NOT supine/side/prone body position — the wrist moves '
+            'independently of the torso.',
+      };
+    } catch (e) {
+      _log('wrist-orientation FAILED/skipped: $e');
     }
   }
 

@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../state/app_state.dart';
 import '../../state/prefs.dart';
+import '../../data/db.dart';
 import '../activity/live_session_screen.dart';
 import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
@@ -252,6 +253,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
     0,
   ).clamp(0, _ranges.length - 1);
   Map<String, dynamic>? _data;
+  List<Map<String, dynamic>> _suggestions = const [];
   bool _loading = true;
 
   @override
@@ -266,9 +268,14 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
     setState(() => _loading = true);
     try {
       final d = await api.getWorkouts(range: _rangeKey[_range]);
+      List<Map<String, dynamic>> sug = const [];
+      try {
+        sug = await LocalDb.activeWorkoutSuggestions();
+      } catch (_) {}
       if (mounted) {
         setState(() {
           _data = d;
+          _suggestions = sug;
           _loading = false;
         });
       }
@@ -277,6 +284,30 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  /// Confirm an auto-detected suggestion → create a completed session, then
+  /// drop the suggestion and refresh.
+  Future<void> _confirmSuggestion(Map<String, dynamic> s) async {
+    final start = (s['start_ts'] as num?)?.toInt() ?? 0;
+    await LocalDb.putSession({
+      'id': 'auto:$start',
+      'start_ts': start,
+      'end_ts': (s['end_ts'] as num?)?.toInt(),
+      'type': (s['sport'] as String?) ?? 'cardio',
+      'status': 'done',
+      'duration_min': (s['duration_min'] as num?)?.toInt(),
+      'max_hr': (s['peak_bpm'] as num?)?.toInt(),
+      'source': 'auto',
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    });
+    await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
+    await _load();
+  }
+
+  Future<void> _dismissSuggestion(Map<String, dynamic> s) async {
+    await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
+    await _load();
   }
 
   bool _isToday(int startTs) {
@@ -332,6 +363,20 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
                 ),
               ),
               const SizedBox(height: Sp.x4),
+              if (!_loading && _suggestions.isNotEmpty) ...[
+                const SectionHeader('Suggested workouts'),
+                const SizedBox(height: Sp.x2),
+                for (final s in _suggestions)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: Sp.x3),
+                    child: _SuggestionCard(
+                      s: s,
+                      onConfirm: () => _confirmSuggestion(s),
+                      onDismiss: () => _dismissSuggestion(s),
+                    ),
+                  ),
+                const SizedBox(height: Sp.x4),
+              ],
               if (_loading)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: Sp.x6),
@@ -496,6 +541,79 @@ class _StartButton extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// An opt-in auto-detected workout the user can confirm (→ logs a session) or
+/// dismiss. We never auto-log: this is "did you work out?", not a silent write.
+class _SuggestionCard extends StatelessWidget {
+  final Map<String, dynamic> s;
+  final VoidCallback onConfirm;
+  final VoidCallback onDismiss;
+  const _SuggestionCard(
+      {required this.s, required this.onConfirm, required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    final start = (s['start_ts'] as num?)?.toInt();
+    final dur = (s['duration_min'] as num?)?.toInt();
+    final avg = (s['avg_bpm'] as num?)?.toInt();
+    final peak = (s['peak_bpm'] as num?)?.toInt();
+    final sport = (s['sport'] as String?) ?? 'cardio';
+    return ProCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          AppIcon(_typeIcon(sport), size: 18, color: AppColors.coral),
+          const SizedBox(width: Sp.x3),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Did you work out?', style: AppText.label),
+              const SizedBox(height: 1),
+              Text(
+                '${_whenLabel(start)} · ${dur ?? '—'} min'
+                '${avg != null ? ' · avg $avg' : ''}'
+                '${peak != null ? ' · peak $peak bpm' : ''}',
+                style: AppText.captionMuted,
+              ),
+            ]),
+          ),
+        ]),
+        const SizedBox(height: Sp.x2),
+        Text('We spotted elevated activity from your heart rate.',
+            style: AppText.captionMuted),
+        const SizedBox(height: Sp.x3),
+        Row(children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: onConfirm,
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: Sp.x3),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                    color: AppColors.coral,
+                    borderRadius: BorderRadius.circular(R.pill)),
+                child: Text('Log it',
+                    style: AppText.label.copyWith(color: Colors.white)),
+              ),
+            ),
+          ),
+          const SizedBox(width: Sp.x3),
+          GestureDetector(
+            onTap: onDismiss,
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: Sp.x5, vertical: Sp.x3),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                  color: AppColors.surfaceAlt,
+                  borderRadius: BorderRadius.circular(R.pill)),
+              child: Text('Dismiss',
+                  style: AppText.label.copyWith(color: AppColors.inkMuted)),
+            ),
+          ),
+        ]),
+      ]),
     );
   }
 }
