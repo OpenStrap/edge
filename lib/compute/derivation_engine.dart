@@ -113,7 +113,11 @@ import 'substrate.dart';
 // SUGGESTIONS (workout_suggestions table + notification), and low-confidence
 // WRIST ORIENTATION during sleep (NOT body position). Bumping re-derives
 // non-finalized days; "Re-analyze data" restages all.
-const int kAlgoVersion = 25;
+// v26: integration bump — the oxygen/workout PR externalized active-calorie
+// compute to `Calories.activeEnergy` (Keytel + height term) without a version
+// bump; combined with the v25 features above, bump so finalized days recompute
+// onto the new calorie formula instead of silently carrying the old values.
+const int kAlgoVersion = 26;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 14;

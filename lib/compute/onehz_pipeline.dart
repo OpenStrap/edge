@@ -385,7 +385,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     }
     hrZones = _wakeZoneMinutesFromSeries(wakeHr, hrMax);
     if (age != null && sex != null && weightKg != null) {
-      caloriesKcal = Calories.activeEnergy(
+      caloriesKcal = Calories.dailyEnergy(
         perMin,
         profile: WorkoutUserProfile(
           weightKg: weightKg,
@@ -394,7 +394,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           sex: sex == 'f' ? 'female' : (sex == 'm' ? 'male' : 'nonbinary'),
         ),
         hrmax: hrMax,
-      );
+      ).active; // active-energy component (Keytel surplus over basal)
     }
   }
 
