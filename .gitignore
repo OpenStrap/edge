@@ -63,3 +63,6 @@ android/key.properties
 # build outputs / release artifacts
 dist/
 *.apk
+
+# Local-only dependency overrides (sibling path linking); never commit.
+pubspec_overrides.yaml
