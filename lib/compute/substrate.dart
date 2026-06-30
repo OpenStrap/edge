@@ -335,6 +335,15 @@ class PhysioDay {
   /// Honest flags (e.g. LOW_CONFIDENCE_RECOVERY for fallback days).
   final List<String> flags;
 
+  /// Where this day's sleep WINDOW came from:
+  ///   'auto'          — accel-led van Hees detection (the normal path)
+  ///   'auto_fallback' — HR-led fallback (van Hees found nothing); LOW confidence,
+  ///                     surface a "is this right?" prompt
+  ///   'manual'        — user typed the window (Approach 1)
+  ///   'confirmed'     — user accepted the fallback's proposal
+  ///   'none'          — no sleep at all
+  final String sleepSource;
+
   const PhysioDay({
     required this.date,
     required this.startSec,
@@ -344,9 +353,27 @@ class PhysioDay {
     required this.sleepHiIdx,
     required this.confidence,
     required this.flags,
+    this.sleepSource = 'auto',
   });
 
   bool get hasSleep => sleep.present;
+}
+
+/// A user-asserted sleep window for one day — manual entry (Approach 1) or a
+/// confirmation of the HR-led fallback (Approach 2). Passed into [calendarDays]
+/// so it overrides auto detection for the matching [dayId].
+class SleepWindowOverride {
+  final String dayId;
+  final int onsetSec;
+  final int offsetSec;
+  final String source; // 'manual' | 'confirmed'
+
+  const SleepWindowOverride({
+    required this.dayId,
+    required this.onsetSec,
+    required this.offsetSec,
+    required this.source,
+  });
 }
 
 /// Local YYYY-MM-DD label for an epoch-second instant.
@@ -370,7 +397,7 @@ String localDateLabel(int epochSec) {
 /// A sleep that crosses midnight is attributed to the day it ENDS; its window
 /// indices (sleepLoIdx/Hi) point into the full substrate, so the coordinator
 /// still slices the whole window for HRV/RHR/recovery regardless of the boundary.
-List<PhysioDay> calendarDays(Substrate sub) {
+List<PhysioDay> calendarDays(Substrate sub, {SleepWindowOverride? override}) {
   if (sub.isEmpty) return const [];
   final accel = sub.accelSamples();
   final hr = sub.hr1hz();
@@ -403,7 +430,12 @@ List<PhysioDay> calendarDays(Substrate sub) {
 
     var seg = ana.SleepSegmentation.absent;
     var sleepLo = 0, sleepHi = 0;
-    if (hiS - loS >= 600) {
+    var sleepSource = 'none';
+    final dayLabel = localDateLabel(dayStart);
+    // Does the user have an override (manual / confirmed) for THIS day?
+    final ov =
+        (override != null && override.dayId == dayLabel) ? override : null;
+    if (hiS - loS >= 600 || ov != null) {
       final habitualMidsleepSec = ana.habitualMidsleepSecFromHistory(
         sleepHistory,
         tzOffsetSeconds: DateTime.now().timeZoneOffset.inSeconds,
@@ -411,8 +443,10 @@ List<PhysioDay> calendarDays(Substrate sub) {
       // Daytime HR baseline = valid HR before the nocturnal search window.
       final base = <double>[for (var i = 0; i < loS; i++) if (hr[i] > 0) hr[i]];
       final hrBaseline = base.length >= 60 ? base : null;
+      final accelSlice = accel.sublist(loS, hiS);
+      final hrSlice = hr.sublist(loS, hiS);
       // RR beats within the search slice (absolute ms) for RMSSD-based staging.
-      final s0 = sub.tsSec[loS] * 1000;
+      final s0 = sub.tsSec[loS.clamp(0, sub.length - 1)] * 1000;
       final s1 = sub.tsSec[(hiS - 1).clamp(0, sub.length - 1)] * 1000;
       final rrMsSeg = <double>[];
       final rrTsSeg = <double>[];
@@ -423,21 +457,65 @@ List<PhysioDay> calendarDays(Substrate sub) {
           rrTsSeg.add(t);
         }
       }
-      final s = ana.segmentSleep(
-        accel.sublist(loS, hiS),
-        hr.sublist(loS, hiS),
-        hrBaseline: hrBaseline,
-        rrMs: rrMsSeg,
-        rrTsMs: rrTsSeg,
-        habitualMidsleepSec: habitualMidsleepSec,
-      );
-      // Attribute ONLY if the sleep's wake (offset) falls within this day.
+
+      ana.SleepSegmentation s;
+      String src;
+      if (ov != null) {
+        // The user's word — force the window, skip detection entirely.
+        s = ana.segmentSleep(
+          accelSlice,
+          hrSlice,
+          hrBaseline: hrBaseline,
+          rrMs: rrMsSeg,
+          rrTsMs: rrTsSeg,
+          forcedWindow: (onsetSec: ov.onsetSec, offsetSec: ov.offsetSec),
+        );
+        src = ov.source; // 'manual' | 'confirmed'
+      } else {
+        s = ana.segmentSleep(
+          accelSlice,
+          hrSlice,
+          hrBaseline: hrBaseline,
+          rrMs: rrMsSeg,
+          rrTsMs: rrTsSeg,
+          habitualMidsleepSec: habitualMidsleepSec,
+        );
+        src = 'auto';
+        if (!s.present) {
+          // Approach 2: accel-led detection found nothing → HR-led fallback.
+          // Propose the longest sustained nocturnal HR dip, then STAGE it via the
+          // forced-window path. Marked low-confidence for a "is this right?" prompt.
+          final tsSlice = [for (var i = loS; i < hiS; i++) sub.tsSec[i]];
+          final cand =
+              ana.hrLedSleepWindow(hrSlice, tsSlice, hrBaseline: hrBaseline);
+          if (cand != null) {
+            final s2 = ana.segmentSleep(
+              accelSlice,
+              hrSlice,
+              hrBaseline: hrBaseline,
+              rrMs: rrMsSeg,
+              rrTsMs: rrTsSeg,
+              forcedWindow:
+                  (onsetSec: cand.onsetSec, offsetSec: cand.offsetSec),
+            );
+            if (s2.present) {
+              s = s2;
+              src = 'auto_fallback';
+            }
+          }
+        }
+      }
+
       if (s.present && s.window != null) {
         final offSec = s.window!.offsetMs! ~/ 1000;
-        if (offSec >= dayStart && offSec < dayEnd) {
+        // Auto/fallback: attribute only if the wake lands in this calendar day.
+        // Manual/confirmed: trust the user — attribute to the day they set it on.
+        final userSet = ov != null;
+        if (userSet || (offSec >= dayStart && offSec < dayEnd)) {
           seg = s;
           sleepLo = loS + s.window!.onsetIdx;
           sleepHi = loS + s.window!.offsetIdx;
+          sleepSource = src;
           final onsetSec = s.window!.onsetMs == null
               ? 0
               : (s.window!.onsetMs! / 1000).round();
@@ -445,7 +523,7 @@ List<PhysioDay> calendarDays(Substrate sub) {
             sleepHistory.add((
               startSec: onsetSec,
               endSec: offSec,
-              dayKey: localDateLabel(dayStart),
+              dayKey: dayLabel,
             ));
           }
         }
@@ -453,15 +531,21 @@ List<PhysioDay> calendarDays(Substrate sub) {
     }
 
     days.add(PhysioDay(
-      date: localDateLabel(dayStart),
+      date: dayLabel,
       startSec: cs,
       endSec: ce,
       sleep: seg,
       sleepLoIdx: sleepLo,
       sleepHiIdx: sleepHi,
       confidence: seg.present ? seg.confidence : 0.0,
-      flags:
-          seg.present ? const <String>[] : const <String>['NO_SLEEP_DETECTED'],
+      sleepSource: sleepSource,
+      flags: seg.present
+          ? (sleepSource == 'auto_fallback'
+              ? const <String>['SLEEP_FALLBACK']
+              : (sleepSource == 'manual' || sleepSource == 'confirmed'
+                  ? const <String>['SLEEP_MANUAL']
+                  : const <String>[]))
+          : const <String>['NO_SLEEP_DETECTED'],
     ));
     dayStart = dayEnd;
   }

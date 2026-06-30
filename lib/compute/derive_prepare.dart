@@ -14,6 +14,7 @@ class PreparedDerivationDay {
   final List<String> hypnoStages;
   final int sleepOnsetSec;
   final int sleepOffsetSec;
+  final String sleepSource;
   final Substrate daySub;
   final Substrate sleepSub;
 
@@ -28,6 +29,7 @@ class PreparedDerivationDay {
     required this.sleepOffsetSec,
     required this.daySub,
     required this.sleepSub,
+    this.sleepSource = 'auto',
   });
 
   Map<String, dynamic> toJson() => {
@@ -39,6 +41,7 @@ class PreparedDerivationDay {
     'hypno_stages': hypnoStages,
     'sleep_onset_sec': sleepOnsetSec,
     'sleep_offset_sec': sleepOffsetSec,
+    'sleep_source': sleepSource,
     'day_sub': daySub.toJson(),
     'sleep_sub': sleepSub.toJson(),
   };
@@ -56,6 +59,7 @@ class PreparedDerivationDay {
       hypnoStages: strs('hypno_stages'),
       sleepOnsetSec: (m['sleep_onset_sec'] as num?)?.toInt() ?? 0,
       sleepOffsetSec: (m['sleep_offset_sec'] as num?)?.toInt() ?? 0,
+      sleepSource: m['sleep_source'] as String? ?? 'auto',
       daySub: Substrate.fromJson(
         ((m['day_sub'] as Map?) ?? const {}).cast<String, dynamic>(),
       ),
@@ -102,6 +106,7 @@ class SleepSessionCandidate {
   final List<String> hypnoStages;
   final int sleepOnsetSec;
   final int sleepOffsetSec;
+  final String sleepSource;
 
   const SleepSessionCandidate({
     required this.dayId,
@@ -111,6 +116,7 @@ class SleepSessionCandidate {
     required this.hypnoStages,
     required this.sleepOnsetSec,
     required this.sleepOffsetSec,
+    this.sleepSource = 'auto',
   });
 
   bool get present => sleepJson['tst_sec'] != null;
@@ -123,6 +129,7 @@ class SleepSessionCandidate {
     'hypno_stages': hypnoStages,
     'sleep_onset_sec': sleepOnsetSec,
     'sleep_offset_sec': sleepOffsetSec,
+    'sleep_source': sleepSource,
   };
 
   static SleepSessionCandidate fromJson(Map<String, dynamic> m) {
@@ -136,6 +143,7 @@ class SleepSessionCandidate {
       hypnoStages: strs('hypno_stages'),
       sleepOnsetSec: (m['sleep_onset_sec'] as num?)?.toInt() ?? 0,
       sleepOffsetSec: (m['sleep_offset_sec'] as num?)?.toInt() ?? 0,
+      sleepSource: m['sleep_source'] as String? ?? 'auto',
     );
   }
 
@@ -147,6 +155,7 @@ class SleepSessionCandidate {
     hypnoStages: const [],
     sleepOnsetSec: 0,
     sleepOffsetSec: 0,
+    sleepSource: 'none',
   );
 
   PreparedDerivationDay toPreparedDay({
@@ -161,6 +170,7 @@ class SleepSessionCandidate {
     hypnoStages: hypnoStages,
     sleepOnsetSec: sleepOnsetSec,
     sleepOffsetSec: sleepOffsetSec,
+    sleepSource: sleepSource,
     daySub: daySub,
     sleepSub: sleepSub,
   );
@@ -233,12 +243,13 @@ void derivationPrepareWorker(SendPort mainSendPort) {
 PreparedDerivationPayload prepareDerivationPayload(
   Substrate sub, {
   String? targetDay,
+  SleepWindowOverride? override,
 }) {
   if (sub.isEmpty || sub.lastTs == null) {
     return const PreparedDerivationPayload(dataNowSec: 0, days: []);
   }
   final days = <PreparedDerivationDay>[];
-  for (final day in calendarDays(sub)) {
+  for (final day in calendarDays(sub, override: override)) {
     if (targetDay != null && day.date != targetDay) continue;
     final daySub = sub.slice(day.startSec, day.endSec);
     final sleepSub = day.hasSleep
@@ -273,6 +284,7 @@ PreparedDerivationPayload prepareDerivationPayload(
         hypnoStages: hypno,
         sleepOnsetSec: onsetSec,
         sleepOffsetSec: offsetSec,
+        sleepSource: day.sleepSource,
         daySub: daySub,
         sleepSub: sleepSub,
       ),
@@ -284,8 +296,10 @@ PreparedDerivationPayload prepareDerivationPayload(
 SleepSessionCandidate prepareSleepSessionCandidate(
   Substrate sub, {
   required String targetDay,
+  SleepWindowOverride? override,
 }) {
-  final payload = prepareDerivationPayload(sub, targetDay: targetDay);
+  final payload =
+      prepareDerivationPayload(sub, targetDay: targetDay, override: override);
   if (payload.days.isEmpty) return SleepSessionCandidate.absent(targetDay);
   final day = payload.days.first;
   return SleepSessionCandidate(
@@ -296,6 +310,7 @@ SleepSessionCandidate prepareSleepSessionCandidate(
     hypnoStages: day.hypnoStages,
     sleepOnsetSec: day.sleepOnsetSec,
     sleepOffsetSec: day.sleepOffsetSec,
+    sleepSource: day.sleepSource,
   );
 }
 

@@ -112,6 +112,10 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
   num? get _regularity => _num(_data['regularity']); // 0..100
   bool get _stagesBeta => _bool(_data['stages_beta']) ?? false;
 
+  // Where this night's window came from: auto / auto_fallback / manual / confirmed
+  // / none. Drives the confirm prompt + the manual-edit affordance.
+  String get _sleepSource => (_data['sleep_source'] as String?) ?? 'auto';
+
   // 4-class wrist stager: Awake / Light / Deep / REM. Light+Deep is the legacy
   // combined "Core" (nrem_min). Deep is a LOW-CONFIDENCE overlay; the whole stage
   // block is badged as an estimate. All values come from the day-sleep payload.
@@ -284,12 +288,24 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         _stateCard(Ic.moon, 'No sleep recorded for this night',
             'Wear your strap overnight and sync. Your sleep breakdown will '
                 'appear here once a night has been recorded.'),
+        const SizedBox(height: Sp.x4),
+        // Approach 1: let the user enter the window so we can still stage it.
+        _manualEntryCard(),
       ];
     }
     if (_phase == _Phase.error) {
       return [_stateCard(Ic.cloud, "Couldn't load this night", _error ?? 'Please try again.')];
     }
     return [
+      // Provenance: when this night was rescued by the HR-led fallback, ask the
+      // user to confirm/correct it; for any night, allow an edit.
+      if (_sleepSource == 'auto_fallback') ...[
+        _fallbackConfirmBanner(),
+        const SizedBox(height: Sp.x4),
+      ] else if (_sleepSource == 'manual' || _sleepSource == 'confirmed') ...[
+        _manualBadge(),
+        const SizedBox(height: Sp.x4),
+      ],
       // ── TRUSTWORTHY BLOCK FIRST ──────────────────────────────────────────
       // Lead with the figures we stand behind: duration, efficiency, and the
       // onset/wake timing. These come straight from the van Hees window +
@@ -367,7 +383,181 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
           MetricRow(icon: Ic.calendar, accent: AppColors.inkSoft, label: 'Consistency',
               info: infoFor('regularity'), value: 'Need a few more nights'),
       ]),
+      // Any night can be corrected by hand.
+      const SizedBox(height: Sp.x6),
+      _editTimesFooter(),
     ];
+  }
+
+  // ── manual sleep entry + fallback confirm (Approaches 1 & 2) ────────────────
+
+  /// Small pill action used by the sleep-source widgets.
+  Widget _pill(String label, Color bg, Color fg, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: Sp.x5, vertical: Sp.x3),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(R.pill),
+        ),
+        child: Text(label, style: AppText.label.copyWith(color: fg)),
+      ),
+    );
+  }
+
+  /// No-sleep night → offer to enter the window manually so we can still stage it.
+  Widget _manualEntryCard() {
+    return ProCard(
+      child: Padding(
+        padding: const EdgeInsets.all(Sp.x5),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Slept but nothing showed up?', style: AppText.title),
+            const SizedBox(height: Sp.x2),
+            Text(
+              'A restless night or a loose band can hide sleep from auto-detection. '
+              'Enter when you slept and we’ll work out the rest from your data.',
+              style: AppText.captionMuted,
+            ),
+            const SizedBox(height: Sp.x4),
+            _pill('Add sleep times', AppColors.coral, Colors.white,
+                _editSleepTimes),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Fallback night → "estimated from heart rate, is this right?"
+  Widget _fallbackConfirmBanner() {
+    return ProCard(
+      child: Padding(
+        padding: const EdgeInsets.all(Sp.x5),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Estimated from your heart rate', style: AppText.title),
+            const SizedBox(height: Sp.x2),
+            Text(
+              'We couldn’t detect this night from movement, so we estimated it from '
+              'your heart-rate dip. Does the timing look right?',
+              style: AppText.captionMuted,
+            ),
+            const SizedBox(height: Sp.x4),
+            Row(children: [
+              _pill('Looks right', AppColors.coral, Colors.white,
+                  _confirmFallback),
+              const SizedBox(width: Sp.x3),
+              _pill('Edit', AppColors.surfaceAlt, AppColors.inkMuted,
+                  _editSleepTimes),
+            ]),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Manual / confirmed night → small badge + edit / revert.
+  Widget _manualBadge() {
+    final confirmed = _sleepSource == 'confirmed';
+    return ProCard(
+      child: Padding(
+        padding: const EdgeInsets.all(Sp.x4),
+        child: Row(children: [
+          AppIcon(Ic.check, size: 16, color: AppColors.good),
+          const SizedBox(width: Sp.x3),
+          Expanded(
+            child: Text(
+              confirmed ? 'You confirmed these times' : 'You set these times',
+              style: AppText.caption,
+            ),
+          ),
+          _pill('Edit', AppColors.surfaceAlt, AppColors.inkMuted,
+              _editSleepTimes),
+          const SizedBox(width: Sp.x2),
+          _pill('Use auto', AppColors.surfaceAlt, AppColors.inkMuted,
+              _clearOverride),
+        ]),
+      ),
+    );
+  }
+
+  /// Subtle "fix it" affordance shown under an auto-detected night.
+  Widget _editTimesFooter() {
+    if (_sleepSource != 'auto') return const SizedBox.shrink();
+    return Center(
+      child: TextButton(
+        onPressed: _editSleepTimes,
+        child: Text('Sleep times look off? Fix them',
+            style: AppText.caption.copyWith(color: AppColors.inkMuted)),
+      ),
+    );
+  }
+
+  /// Two time pickers (onset, wake) → store the window + restage the day.
+  Future<void> _editSleepTimes() async {
+    final existingOnset = _num(_data['onset_ts']);
+    final existingWake = _num(_data['wake_ts']);
+    TimeOfDay todFrom(num? sec, TimeOfDay fallback) => sec == null
+        ? fallback
+        : TimeOfDay.fromDateTime(
+            DateTime.fromMillisecondsSinceEpoch(sec.toInt() * 1000).toLocal());
+
+    final onset = await showTimePicker(
+      context: context,
+      initialTime: todFrom(existingOnset, const TimeOfDay(hour: 23, minute: 0)),
+      helpText: 'When did you fall asleep?',
+    );
+    if (onset == null || !mounted) return;
+    final wake = await showTimePicker(
+      context: context,
+      initialTime: todFrom(existingWake, const TimeOfDay(hour: 7, minute: 0)),
+      helpText: 'When did you wake up?',
+    );
+    if (wake == null || !mounted) return;
+
+    final parts = widget.date.split('-').map(int.tryParse).toList();
+    if (parts.length != 3 || parts.any((e) => e == null)) return;
+    final wakeDay = DateTime(parts[0]!, parts[1]!, parts[2]!);
+    // An evening onset (≥ noon) belongs to the PREVIOUS calendar day.
+    final onsetDay = onset.hour >= 12
+        ? wakeDay.subtract(const Duration(days: 1))
+        : wakeDay;
+    var onsetDt = DateTime(
+        onsetDay.year, onsetDay.month, onsetDay.day, onset.hour, onset.minute);
+    var wakeDt = DateTime(
+        wakeDay.year, wakeDay.month, wakeDay.day, wake.hour, wake.minute);
+    if (!wakeDt.isAfter(onsetDt)) {
+      wakeDt = wakeDt.add(const Duration(days: 1));
+    }
+
+    final app = context.read<AppState>();
+    await _runOverride(() => app.setSleepOverride(widget.date, onsetDt, wakeDt));
+  }
+
+  Future<void> _confirmFallback() async {
+    final app = context.read<AppState>();
+    await _runOverride(() => app.confirmSleep(widget.date));
+  }
+
+  Future<void> _clearOverride() async {
+    final app = context.read<AppState>();
+    await _runOverride(() => app.clearSleepOverride(widget.date));
+  }
+
+  /// Run a sleep-override change with a busy overlay, then reload this night.
+  Future<void> _runOverride(Future<void> Function() action) async {
+    setState(() => _phase = _Phase.loading);
+    try {
+      await action();
+    } catch (_) {
+      // fall through to reload; _load surfaces any real error
+    }
+    if (!mounted) return;
+    await _load();
   }
 
   @override

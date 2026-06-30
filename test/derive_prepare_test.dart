@@ -66,4 +66,52 @@ void main() {
     final none = prepareDerivationPayload(sub, targetDay: '2026-06-28');
     expect(none.days, isEmpty);
   });
+
+  test('a sleep override forces + stages the user window (Approach 1)', () {
+    // 5 h of still wrist + low HR on the target day.
+    final start = DateTime(2026, 6, 27, 0, 0).millisecondsSinceEpoch ~/ 1000;
+    final end = DateTime(2026, 6, 27, 5, 0).millisecondsSinceEpoch ~/ 1000;
+    final ts = <int>[];
+    final hr = <int>[];
+    for (var t = start; t <= end; t++) {
+      ts.add(t);
+      hr.add(50); // low sleeping HR
+    }
+    final sub = Substrate(
+      tsSec: ts,
+      hr: hr,
+      rrTsMs: const [],
+      rrMs: const [],
+      ax: List<double>.filled(ts.length, 0.02),
+      ay: List<double>.filled(ts.length, 0.02),
+      az: List<double>.filled(ts.length, 1.0),
+      spo2Red: List<int>.filled(ts.length, 0),
+      spo2Ir: List<int>.filled(ts.length, 0),
+      skinTemp: List<int>.filled(ts.length, 0),
+    );
+
+    final onsetSec = DateTime(2026, 6, 27, 0, 30).millisecondsSinceEpoch ~/ 1000;
+    final offsetSec =
+        DateTime(2026, 6, 27, 4, 30).millisecondsSinceEpoch ~/ 1000;
+
+    final out = prepareDerivationPayload(
+      sub,
+      targetDay: '2026-06-27',
+      override: SleepWindowOverride(
+        dayId: '2026-06-27',
+        onsetSec: onsetSec,
+        offsetSec: offsetSec,
+        source: 'manual',
+      ),
+    );
+    expect(out.days, hasLength(1));
+    final day = out.days.first;
+    expect(day.sleepSource, 'manual');
+    // The forced window was staged → sleep is present (not absent).
+    expect(day.sleepJson['tst_sec'], isNotNull);
+    // In-bed window ≈ the user's 4 h (allow boundary rounding).
+    final inBed = (day.sleepJson['in_bed_sec'] as num).toInt();
+    expect(inBed, greaterThan(3 * 3600));
+    expect(inBed, lessThanOrEqualTo(4 * 3600 + 60));
+  });
 }

@@ -57,6 +57,7 @@ class LocalDb {
         await _createPrimitiveArtifacts(db);
         await _createLiveCoverage(db);
         await _createWorkoutSuggestions(db);
+        await _createSleepOverride(db);
         await _ensureCoachViews(db);
       },
       onUpgrade: (db, oldV, newV) async {
@@ -204,11 +205,16 @@ class LocalDb {
           await _ensureSessionSchema(db); // adds hrr_bpm
           await _createWorkoutSuggestions(db);
         }
+        if (oldV < 20) {
+          // Manual / confirmed sleep windows (Approach 1 + the fallback's
+          // "is this right?" confirm). Additive table; survives algo bumps.
+          await _createSleepOverride(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
       },
-      version: 19,
+      version: 20,
     );
   }
 
@@ -234,6 +240,7 @@ class LocalDb {
     await _ensureSessionSchema(db);
     await _ensureSyncStateSchema(db);
     await _createWorkoutSuggestions(db);
+    await _createSleepOverride(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
@@ -295,6 +302,70 @@ class LocalDb {
         updated_at INTEGER NOT NULL
       )
     ''');
+  }
+
+  // ── SLEEP OVERRIDE (manual / confirmed sleep windows) ───────────────────────
+  // The user's word on when they slept — either typed in manually (Approach 1)
+  // or a confirmation of the HR-led fallback's proposal (Approach 2). Stored
+  // SEPARATELY from the derived day_result so it survives finalization AND any
+  // kAlgoVersion bump: the engine re-applies it on every derive of that day.
+  //   source: 'manual'    — user typed the times
+  //           'confirmed' — user accepted the fallback's proposed window
+  // Times are epoch SECONDS (phone clock; raw rec_ts is SET_CLOCK'd to match).
+  static Future<void> _createSleepOverride(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sleep_override (
+        day_id TEXT PRIMARY KEY,
+        onset_ts INTEGER NOT NULL,
+        offset_ts INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  /// Upsert the user's sleep window for [dayId] (local date label). [source] is
+  /// 'manual' or 'confirmed'. Replaces any prior override for that day.
+  static Future<void> putSleepOverride({
+    required String dayId,
+    required int onsetTs,
+    required int offsetTs,
+    required String source,
+  }) async {
+    final db = await instance;
+    await db.insert(
+      'sleep_override',
+      {
+        'day_id': dayId,
+        'onset_ts': onsetTs,
+        'offset_ts': offsetTs,
+        'source': source,
+        'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// The user's sleep window for [dayId], or null if none.
+  static Future<Map<String, dynamic>?> getSleepOverride(String dayId) async {
+    final db = await instance;
+    final rows = await db.query('sleep_override',
+        where: 'day_id = ?', whereArgs: [dayId], limit: 1);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// Remove the override for [dayId] (revert to auto detection).
+  static Future<void> deleteSleepOverride(String dayId) async {
+    final db = await instance;
+    await db.delete('sleep_override', where: 'day_id = ?', whereArgs: [dayId]);
+  }
+
+  /// Every day that currently has a user override — these must be force-derived
+  /// even when finalized, so an edit to a locked day actually takes effect.
+  static Future<Set<String>> sleepOverrideDays() async {
+    final db = await instance;
+    final rows = await db.query('sleep_override', columns: ['day_id']);
+    return {for (final r in rows) r['day_id'] as String};
   }
 
   // ── 100 Hz STEP COVERAGE ────────────────────────────────────────────────────
