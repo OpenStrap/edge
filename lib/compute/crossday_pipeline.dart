@@ -14,7 +14,7 @@
 // which is a deterministic function of the input string. Safe for Isolate.run
 // and directly unit-testable.
 
-import 'analytics_bridge.dart' as ana;
+import 'package:openstrap_analytics/onehz.dart' as ana;
 
 /// Build the cross-day analytics bundle from a time-ordered (OLDEST FIRST) list
 /// of per-day records and the user profile.

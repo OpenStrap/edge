@@ -25,7 +25,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
-import 'analytics_bridge.dart' as ana;
+import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import '../data/db.dart';
 import '../notify/notification_center.dart';

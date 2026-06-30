@@ -17,7 +17,7 @@ import 'dart:convert';
 
 import '../compute/derivation_engine.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
-import '../compute/analytics_bridge.dart' as ana;
+import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'db.dart';
 import 'local_repository.dart';
