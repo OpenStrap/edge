@@ -117,7 +117,17 @@ import 'substrate.dart';
 // compute to `Calories.activeEnergy` (Keytel + height term) without a version
 // bump; combined with the v25 features above, bump so finalized days recompute
 // onto the new calorie formula instead of silently carrying the old values.
-const int kAlgoVersion = 26;
+// v27: WEAR fix — worn-time / coverage / on-off segments were defined as hr>0,
+// which misreads daytime PPG drop-out as off-wrist and collapsed a 24 h-worn day
+// to ~the sleep window (~7-8 h). Wear is now RECORD presence (gap-detected), in
+// both the `worn_min` scalar (onehz_pipeline) and the `_wearBlock` detail. Bump
+// so finalized days recompute the corrected wear ("Re-analyze data" restages all).
+// v28: SLEEP rescue — manual sleep entry + HR-led fallback. When accel-led
+// detection finds nothing, an HR-dip fallback now proposes a window (source
+// 'auto_fallback', low confidence); a user can type/confirm a window
+// (sleep_override table → source 'manual'/'confirmed') which force-derives even
+// a finalized day. Bump so fallback-eligible days restage.
+const int kAlgoVersion = 28;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 14;
@@ -348,9 +358,14 @@ class DerivationEngine {
         return 0;
       }
       final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
+      // A user sleep override (manual / confirmed) must take effect even on a
+      // FINALIZED (locked) day — it's the user's word. Force those back into the
+      // todo set. (No-raw days are guarded in the per-day loop so we never
+      // clobber a good manual result with an empty re-derive once raw is pruned.)
+      final overrideDays = await LocalDb.sleepOverrideDays();
       final todoDays = [
         for (final day in scope.targetDays)
-          if (!finalized.contains(day)) day,
+          if (!finalized.contains(day) || overrideDays.contains(day)) day,
       ];
       if (todoDays.isEmpty) {
         _log('derive: all days finalized — nothing to do');
@@ -380,6 +395,16 @@ class DerivationEngine {
         try {
           _diag['stage'] = 'prepare';
           final prepared = await _prepareTargetDay(dayId);
+          // Override day whose raw has been pruned (≥14 d): re-deriving would
+          // produce an empty/absent result and clobber the user's manual sleep.
+          // Keep the existing locked result instead.
+          if (prepared != null &&
+              prepared.daySub.isEmpty &&
+              overrideDays.contains(dayId)) {
+            _log('derive day $dayId skipped: override day, raw pruned — kept');
+            onDayDone?.call(dayId, i + 1, todoDays.length);
+            continue;
+          }
           if (prepared != null) {
             _diag['prepared_days'] = (_diag['prepared_days'] as int) + 1;
             _diag['stage'] = 'per_day';
@@ -475,20 +500,35 @@ class DerivationEngine {
   }
 
   Future<SleepSessionCandidate> _sleepCandidateForDay(String dayId) async {
-    final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
-    if (finalized.contains(dayId)) {
-      final cached = await LocalDb.sleepSessionCandidate(dayId, kAlgoVersion);
-      final raw = cached?['payload_json'];
-      if (raw is String && raw.isNotEmpty) {
-        try {
-          final decoded = jsonDecode(raw);
-          if (decoded is Map) {
-            return SleepSessionCandidate.fromJson(
-              decoded.cast<String, dynamic>(),
-            );
+    // A user sleep override is the source of truth — never serve the cached auto
+    // candidate, and don't cache the override result (so a later edit / clear is
+    // not shadowed by a stale artifact). The auto path keeps its finalized cache.
+    final overrideRow = await LocalDb.getSleepOverride(dayId);
+    final override = overrideRow == null
+        ? null
+        : SleepWindowOverride(
+            dayId: dayId,
+            onsetSec: (overrideRow['onset_ts'] as num).toInt(),
+            offsetSec: (overrideRow['offset_ts'] as num).toInt(),
+            source: overrideRow['source'] as String? ?? 'manual',
+          );
+
+    if (override == null) {
+      final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
+      if (finalized.contains(dayId)) {
+        final cached = await LocalDb.sleepSessionCandidate(dayId, kAlgoVersion);
+        final raw = cached?['payload_json'];
+        if (raw is String && raw.isNotEmpty) {
+          try {
+            final decoded = jsonDecode(raw);
+            if (decoded is Map) {
+              return SleepSessionCandidate.fromJson(
+                decoded.cast<String, dynamic>(),
+              );
+            }
+          } catch (_) {
+            // Fall through to rebuild the artifact.
           }
-        } catch (_) {
-          // Fall through to rebuild the artifact.
         }
       }
     }
@@ -498,12 +538,18 @@ class DerivationEngine {
       range.$2,
       dayId: dayId,
     );
-    final candidate = prepareSleepSessionCandidate(searchSub, targetDay: dayId);
-    await LocalDb.putSleepSessionCandidate(
-      dayId: dayId,
-      algoVersion: kAlgoVersion,
-      payloadJson: jsonEncode(candidate.toJson()),
+    final candidate = prepareSleepSessionCandidate(
+      searchSub,
+      targetDay: dayId,
+      override: override,
     );
+    if (override == null) {
+      await LocalDb.putSleepSessionCandidate(
+        dayId: dayId,
+        algoVersion: kAlgoVersion,
+        payloadJson: jsonEncode(candidate.toJson()),
+      );
+    }
     return candidate;
   }
 
@@ -961,6 +1007,11 @@ class DerivationEngine {
     final bundle = await Isolate.run(
       () => deriveDayBundle(withHistory),
     ).timeout(_perDayTimeout);
+
+    // Where this day's sleep window came from (auto / auto_fallback / manual /
+    // confirmed) — drives the Sleep screen's "is this right?" prompt + the
+    // manual-edit affordance. Carried verbatim from the segmentation candidate.
+    bundle['sleep_source'] = day.sleepSource;
 
     final scMap = (bundle['scalars'] as Map?)?.cast<String, dynamic>();
     final wake = _buildWakeDayFeatures(
@@ -1880,8 +1931,19 @@ class DerivationEngine {
     return out;
   }
 
-  /// On/off-wrist segments over the day (on = hr>0): the runs, first/last on,
-  /// longest off gap, worn minutes + time-coverage. All from the day HR.
+  /// On/off-wrist segments over the day from RECORD PRESENCE — the runs,
+  /// first/last on, longest off gap, worn minutes + time-coverage.
+  ///
+  /// Wear is whether a 1 Hz record EXISTS, not whether HR locked. The band logs
+  /// to flash only while on-wrist (off-wrist it stops and emits WRIST_OFF), so a
+  /// record means worn. The old `hr>0` rule misread normal daytime PPG drop-out
+  /// (HR only locks on a still wrist with good optical contact — mostly SLEEP)
+  /// as off-wrist, collapsing a 24 h-worn day to ~the sleep window (~7-8 h). Off
+  /// periods are now GAPS in the record stream longer than [offGapSec].
+  ///
+  /// CAVEAT: this assumes the band does NOT keep logging while off-wrist. If a
+  /// future firmware streams off-wrist records, add a skin-temp/motion on-body
+  /// gate here (the substrate carries accel + skinTemp).
   Map<String, dynamic> _wearBlock(Substrate s) {
     final n = s.length;
     if (n == 0) {
@@ -1894,32 +1956,42 @@ class DerivationEngine {
         'coverage_pct': 0,
       };
     }
+    const offGapSec = 120; // a >2-min hole in the 1 Hz stream = off / not worn
     final segments = <Map<String, dynamic>>[];
-    int? firstOn, lastOn;
+    final firstOn = s.tsSec.first;
+    final lastOn = s.tsSec.last + 1;
     var longestOff = 0, wornSec = 0;
-    var i = 0;
-    while (i < n) {
-      final on = s.hr[i] > 0;
-      var j = i;
-      while (j < n && (s.hr[j] > 0) == on) {
-        j++;
-      }
-      final startTs = s.tsSec[i], endTs = s.tsSec[j - 1] + 1;
+    var runStart = s.tsSec.first;
+    var prev = s.tsSec.first;
+
+    void closeOnRun(int endTs) {
       segments.add({
-        'on': on,
-        'start': startTs,
+        'on': true,
+        'start': runStart,
         'end': endTs,
-        'len_min': ((endTs - startTs) / 60).round(),
+        'len_min': ((endTs - runStart) / 60).round(),
       });
-      if (on) {
-        firstOn ??= startTs;
-        lastOn = endTs;
-        wornSec += endTs - startTs;
-      } else if (endTs - startTs > longestOff) {
-        longestOff = endTs - startTs;
-      }
-      i = j;
+      wornSec += endTs - runStart;
     }
+
+    for (var i = 1; i < n; i++) {
+      final ts = s.tsSec[i];
+      final gap = ts - prev;
+      if (gap > offGapSec) {
+        closeOnRun(prev + 1);
+        segments.add({
+          'on': false,
+          'start': prev + 1,
+          'end': ts,
+          'len_min': (gap / 60).round(),
+        });
+        if (gap > longestOff) longestOff = gap;
+        runStart = ts;
+      }
+      prev = ts;
+    }
+    closeOnRun(prev + 1);
+
     final totalSec = s.tsSec.last - s.tsSec.first + 1;
     return {
       'segments': segments,

@@ -194,6 +194,20 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final dayHr = [for (final h in d.dayHr) h.toDouble()];
   final dayHrValid = dayHr.where((h) => h > 0).toList();
 
+  // ── WORN minutes — distinct wall-clock minutes that have ANY record ────────
+  // Wear is RECORD presence, NOT valid HR. The band logs 1 Hz to flash only
+  // while on-wrist (off-wrist it stops and emits WRIST_OFF), so a record in a
+  // minute means the band was worn that minute. We deliberately do NOT gate on
+  // HR>0: a valid HR needs a still wrist + good optical contact, which happens
+  // mostly during SLEEP, so an HR-valid count collapses "worn" to ~the sleep
+  // duration (the 24 h-worn-shows-7 h bug). Bucketing by real epoch-second
+  // timestamp (not array index) is also gap-safe.
+  final wornMinuteBuckets = <int>{};
+  for (final ts in d.dayTsSec) {
+    wornMinuteBuckets.add(ts ~/ 60);
+  }
+  final wornMin = wornMinuteBuckets.length;
+
   // ── HR over the SLEEP WINDOW (RHR / dip night-side) ────────────────────────
   final sleepHr = [for (final h in d.sleepHr) h.toDouble()];
 
@@ -797,9 +811,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           : null,
       // Sleep efficiency % + worn minutes → their own day/week/month/3M trends.
       'efficiency': effPct == null ? null : _round(effPct, 1),
-      'worn_min': dayHrValid.isEmpty
-          ? null
-          : (dayHrValid.length / 60).roundToDouble(),
+      'worn_min': wornMin == 0 ? null : wornMin.toDouble(),
     },
   };
 }

@@ -504,7 +504,12 @@ class LocalRepositoryImpl extends LocalRepository {
     final acct = _sub(b, 'sleep.accounting.value');
     final win = _sub(b, 'sleep.window.value');
     final tst = (acct?['tst_sec'] as num?);
-    if (tst == null) return const {'has_sleep': false};
+    // Provenance of this day's sleep window: auto / auto_fallback / manual /
+    // confirmed / none — drives the Sleep screen's confirm prompt + edit affordance.
+    final sleepSource = (b['sleep_source'] as String?) ?? 'auto';
+    if (tst == null) {
+      return {'has_sleep': false, 'sleep_source': sleepSource};
+    }
     final spt = (win?['spt_sec'] as num?);
     final waso = (acct?['waso_sec'] as num?);
     final effPct = (acct?['efficiency_pct'] as num?);
@@ -521,6 +526,7 @@ class LocalRepositoryImpl extends LocalRepository {
     return {
       // Shape matches sleep_detail_screen's contract exactly.
       'has_sleep': true,
+      'sleep_source': sleepSource,
       'duration_min': (tst / 60).round(),
       'in_bed_min': spt == null ? null : (spt / 60).round(),
       'awake_min': waso == null ? null : (waso / 60).round(),
@@ -623,7 +629,6 @@ class LocalRepositoryImpl extends LocalRepository {
     final b = await _bundleForDate(date);
     if (b == null) return const {};
     final cov = _sub(b, 'coverage');
-    final valid = (cov?['hr_valid'] as num?)?.toInt() ?? 0;
     final total = (cov?['hr_samples'] as num?)?.toInt() ?? 0;
     // Wear block (on/off segments, first/last on, longest off) computed in the
     // engine; fall back to the coverage counts when absent.
@@ -631,10 +636,11 @@ class LocalRepositoryImpl extends LocalRepository {
         ? (b['wear'] as Map).cast<String, dynamic>()
         : null;
     return {
-      'worn_min': (w?['worn_min'] as num?)?.toInt() ?? (valid / 60).round(),
+      // Wear = RECORD presence, not valid HR (HR drops out during daytime
+      // motion). Fall back to the total record count, never hr_valid.
+      'worn_min': (w?['worn_min'] as num?)?.toInt() ?? (total / 60).round(),
       'coverage_pct':
-          (w?['coverage_pct'] as num?)?.toInt() ??
-          (total == 0 ? 0 : (100 * valid / total).round()),
+          (w?['coverage_pct'] as num?)?.toInt() ?? (total > 0 ? 100 : 0),
       'segments': w?['segments'] ?? const [],
       'first_on': w?['first_on'],
       'last_on': w?['last_on'],

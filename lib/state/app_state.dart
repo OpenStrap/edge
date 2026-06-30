@@ -851,6 +851,71 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ── SLEEP OVERRIDE (manual entry + fallback confirm) ────────────────────────
+
+  /// Manual sleep entry (Approach 1): the user gives the in-bed window for [date]
+  /// (local YYYY-MM-DD). Stored as the source of truth, then a force re-derive
+  /// restages that day FROM the window — even if it was finalized/locked.
+  Future<void> setSleepOverride(
+    String date,
+    DateTime onset,
+    DateTime offset, {
+    String source = 'manual',
+  }) async {
+    final onsetSec = onset.millisecondsSinceEpoch ~/ 1000;
+    final offsetSec = offset.millisecondsSinceEpoch ~/ 1000;
+    if (offsetSec <= onsetSec) return;
+    await LocalDb.putSleepOverride(
+      dayId: date,
+      onsetTs: onsetSec,
+      offsetTs: offsetSec,
+      source: source,
+    );
+    await _reanalyzeForOverride();
+  }
+
+  /// Confirm the HR-led fallback's proposal for [date] (Approach 2): accept the
+  /// window it already computed, promoting 'auto_fallback' → 'confirmed' so the
+  /// prompt stops showing. Reads the current window from the derived day.
+  Future<void> confirmSleep(String date) async {
+    if (repo == null) return;
+    final sleep = await repo!.getDaySleep(date);
+    final onset = (sleep['onset_ts'] as num?)?.toInt();
+    final offset = (sleep['wake_ts'] as num?)?.toInt();
+    if (onset == null || offset == null || offset <= onset) return;
+    await LocalDb.putSleepOverride(
+      dayId: date,
+      onsetTs: onset,
+      offsetTs: offset,
+      source: 'confirmed',
+    );
+    await _reanalyzeForOverride();
+  }
+
+  /// Remove a manual/confirmed override for [date] — revert to auto/fallback.
+  Future<void> clearSleepOverride(String date) async {
+    await LocalDb.deleteSleepOverride(date);
+    await _reanalyzeForOverride();
+  }
+
+  /// Force-derive after a sleep-override change so the affected day restages from
+  /// the user's window (the engine force-includes override days even if locked).
+  Future<void> _reanalyzeForOverride() async {
+    if (reanalyzing) return;
+    reanalyzing = true;
+    notifyListeners();
+    try {
+      await _derive.run(_profile, force: true);
+      await LocalDb.refreshComputeFreshness();
+      dbCounts = await LocalDb.counts();
+    } catch (e) {
+      _log('[derive] sleep-override re-derive failed: $e');
+    } finally {
+      reanalyzing = false;
+      notifyListeners();
+    }
+  }
+
   /// Debounced "new data stored" callback from the engine (continuous listening has
   /// no discrete sync end). The engine already coalesced the burst; we run a single
   /// LIGHT derive over the affected day(s) and refresh DB counts for the UI.
