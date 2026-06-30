@@ -306,6 +306,20 @@ class HorizontalBand {
   const HorizontalBand(this.fromY, this.toY, this.color);
 }
 
+class VerticalSpan {
+  final double fromX;
+  final double toX;
+  final Color color;
+  const VerticalSpan(this.fromX, this.toX, this.color);
+}
+
+class VerticalMarker {
+  final double x;
+  final Color color;
+  final double strokeWidth;
+  const VerticalMarker(this.x, this.color, {this.strokeWidth = 1.5});
+}
+
 class TimeSeriesChart extends StatefulWidget {
   final List<TimeSeriesPoint> points;
   final Color? color;
@@ -322,7 +336,9 @@ class TimeSeriesChart extends StatefulWidget {
   final double? minY;
   final double? maxY;
   final List<HorizontalBand> bands;
-
+  final List<VerticalSpan> spans;
+  final List<VerticalMarker> markers;
+  final double leftPad;
   const TimeSeriesChart({
     super.key,
     required this.points,
@@ -340,6 +356,9 @@ class TimeSeriesChart extends StatefulWidget {
     this.minY,
     this.maxY,
     this.bands = const [],
+    this.spans = const [],
+    this.markers = const [],
+    this.leftPad = 52,
   });
 
   @override
@@ -380,7 +399,7 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
       widget.gapThresholdSec,
       widget.lineWidth,
     );
-    const leftPad = 52.0;
+    final leftPad = widget.leftPad;
     const bottomPad = 30.0;
 
     return SizedBox(
@@ -432,6 +451,14 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
                               color: band.color,
                             ),
                         ],
+                        verticalRangeAnnotations: [
+                          for (final span in widget.spans)
+                            VerticalRangeAnnotation(
+                              x1: span.fromX,
+                              x2: span.toX,
+                              color: span.color,
+                            ),
+                        ],
                       ),
                       gridData: FlGridData(
                         show: true,
@@ -463,7 +490,7 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
                             maxIncluded: false,
                             getTitlesWidget: (value, meta) {
                               return Padding(
-                                padding: const EdgeInsets.only(right: Sp.x2),
+                                padding: const EdgeInsets.only(right: 4),
                                 child: Text(
                                   widget.yLabel?.call(value) ??
                                       _defaultYLabel(value, widget.yUnit),
@@ -510,6 +537,17 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
                           right: BorderSide.none,
                           top: BorderSide.none,
                         ),
+                      ),
+                      extraLinesData: ExtraLinesData(
+                        verticalLines: [
+                          for (final marker in widget.markers)
+                            VerticalLine(
+                              x: marker.x,
+                              color: marker.color,
+                              strokeWidth: marker.strokeWidth,
+                              dashArray: const [5, 4],
+                            ),
+                        ],
                       ),
                       lineTouchData: const LineTouchData(enabled: false),
                       lineBarsData: bars,
@@ -746,9 +784,7 @@ class ZoneTimelineBar extends StatelessWidget {
                           1,
                           (((seg.end - seg.start) / total) * 1000).round(),
                         ),
-                        child: Container(
-                          color: colors[seg.zone],
-                        ),
+                        child: Container(color: colors[seg.zone]),
                       ),
                 ],
               ),

@@ -12,8 +12,10 @@ import '../kit/kit.dart';
 /// learn what they're looking at without leaving the screen.
 const Map<String, String> kMetricInfo = {
   'recovery': "How recovered you are — tonight's HRV vs your own baseline.",
-  'hrv': 'Beat-to-beat variability in sleep. Higher usually means better recovery.',
-  'rmssd': 'Beat-to-beat variability in sleep. Higher usually means better recovery.',
+  'hrv':
+      'Beat-to-beat variability in sleep. Higher usually means better recovery.',
+  'rmssd':
+      'Beat-to-beat variability in sleep. Higher usually means better recovery.',
   'sdnn': 'Overall heart-rate variability across the night.',
   'lf_hf': 'Balance of stress-related (LF) vs rest (HF) activity.',
   'resting_hr': 'Your lowest heart rate while asleep — a core fitness marker.',
@@ -29,17 +31,23 @@ const Map<String, String> kMetricInfo = {
   // 4-class wrist staging (estimate): Awake / Light / Deep / REM. Light & Deep
   // split NREM via heart rate + motion (no EEG); Deep is a low-confidence overlay.
   'light': 'Lighter non-REM sleep — the bulk of the night.',
-  'deep': 'Deep (slow-wave) non-REM — the body’s most restorative sleep. '
+  'deep':
+      'Deep (slow-wave) non-REM — the body’s most restorative sleep. '
       'A low-confidence wrist estimate.',
   'nrem': 'Core (NREM) — non-REM sleep (Light + Deep combined).',
   'rem': 'Dreaming sleep — mental restoration and memory.',
-  'nocturnal_dip': 'How far your heart rate falls in sleep — a bigger dip is better.',
+  'nocturnal_dip':
+      'How far your heart rate falls in sleep — a bigger dip is better.',
   'sleeping_hr': 'Average heart rate while you slept.',
   'resp': 'Breaths per minute, derived from heart-rate variability.',
-  'spo2': 'Blood-oxygen relative to your own baseline.',
-  'skin_temp': 'Skin temperature vs your personal overnight baseline. Relative (Δ), not an absolute thermometer.',
-  'hrr60': 'How fast your HR drops a minute after peak effort — fitness marker.',
-  'illness': 'A combined resting-HR / HRV / temperature signal that can flag early illness.',
+  'spo2':
+      'Overnight red/IR oxygen screen. Dips are relative to your own nightly baseline, not an absolute SpO₂%.',
+  'skin_temp':
+      'Skin temperature vs your personal overnight baseline. Relative (Δ), not an absolute thermometer.',
+  'hrr60':
+      'How fast your HR drops a minute after peak effort — fitness marker.',
+  'illness':
+      'A combined resting-HR / HRV / temperature signal that can flag early illness.',
   'debt': 'Sleep you owe from falling short of your need on recent nights.',
   'hrv_cv': 'How steady your nightly HRV is — lower, stable is better.',
   'readiness': 'A blend of HRV recovery and sleep — your day-ahead capacity.',
@@ -94,25 +102,52 @@ class MetricRow extends StatelessWidget {
                 child: AppIcon(icon, size: 17, color: accent),
               ),
               const SizedBox(width: Sp.x3),
-              Expanded(child: Text(label, style: AppText.label)),
-              const SizedBox(width: Sp.x3),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(value, style: AppText.metricSm.copyWith(fontSize: 19)),
-                  if (unit != null) ...[
-                    const SizedBox(width: 3),
-                    Text(unit!, style: AppText.caption),
-                  ],
-                ],
+
+              Expanded(
+                child: Text(
+                  label,
+                  style: AppText.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              if (valueTag != null) ...[const SizedBox(width: Sp.x2), valueTag!],
-              if (onTap != null) ...[
-                const SizedBox(width: Sp.x2),
-                AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
-              ],
+
+              const SizedBox(width: Sp.x3),
+
+              Flexible(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        value,
+                        style: AppText.metricSm.copyWith(fontSize: 19),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+                    if (unit != null) ...[
+                      const SizedBox(width: 3),
+                      Text(unit!, style: AppText.caption),
+                    ],
+                    if (valueTag != null) ...[
+                      const SizedBox(width: Sp.x2),
+                      valueTag!,
+                    ],
+                    if (onTap != null) ...[
+                      const SizedBox(width: Sp.x2),
+                      AppIcon(
+                        Ic.arrowRight,
+                        size: 16,
+                        color: AppColors.inkMuted,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ],
           ),
           // Description on its OWN full-width line (indented under the chip) so it
@@ -128,7 +163,11 @@ class MetricRow extends StatelessWidget {
       ),
     );
     if (onTap == null) return row;
-    return InkWell(borderRadius: BorderRadius.circular(R.cardSm), onTap: onTap, child: row);
+    return InkWell(
+      borderRadius: BorderRadius.circular(R.cardSm),
+      onTap: onTap,
+      child: row,
+    );
   }
 }
 
@@ -142,7 +181,9 @@ class MetricGroup extends StatelessWidget {
     for (int i = 0; i < rows.length; i++) {
       children.add(rows[i]);
       if (i < rows.length - 1) {
-        children.add(Divider(height: 1, thickness: 1, color: AppColors.divider));
+        children.add(
+          Divider(height: 1, thickness: 1, color: AppColors.divider),
+        );
       }
     }
     return ProCard(child: Column(children: children));

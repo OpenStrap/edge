@@ -17,12 +17,14 @@ Map<String, dynamic> decodeFlags(Object? flags) {
   return const {};
 }
 
-num? _num(Object? v) =>
-    v is num ? v : (v is String ? num.tryParse(v) : null);
+num? _num(Object? v) => v is num ? v : (v is String ? num.tryParse(v) : null);
 
 /// A metric resolved either from an object field or a scalar+flags pair.
-Metric metricOf(Map<String, dynamic> row, String key,
-    {Map<String, dynamic>? flags}) {
+Metric metricOf(
+  Map<String, dynamic> row,
+  String key, {
+  Map<String, dynamic>? flags,
+}) {
   final raw = row[key];
   if (raw is Map) return Metric.parse(raw);
   return Metric.parse(raw, flag: flagFor(flags, key));
@@ -46,9 +48,19 @@ class TodayData {
   /// User's daily step goal (null → use the client default). Top-level on /today.
   final int? stepGoal;
 
-  TodayData._(this._daily, this._sleep, this._coach, this._stress,
-      this._nocturnal, this._resp, this._hrv, this._skinTemp, this._spo2, this._status,
-      this.stepGoal);
+  TodayData._(
+    this._daily,
+    this._sleep,
+    this._coach,
+    this._stress,
+    this._nocturnal,
+    this._resp,
+    this._hrv,
+    this._skinTemp,
+    this._spo2,
+    this._status,
+    this.stepGoal,
+  );
 
   factory TodayData.fromJson(Object? json) {
     final row = json is Map ? json.cast<String, dynamic>() : const {};
@@ -57,9 +69,19 @@ class TodayData {
     final daily = sub('daily') ?? const <String, dynamic>{};
     final sleep = sub('sleep') ?? const <String, dynamic>{};
     final goal = (row['step_goal'] as num?)?.toInt();
-    return TodayData._(daily, sleep, sub('coach'), sub('stress'),
-        sub('nocturnal'), sub('resp'), sub('hrv'), sub('skin_temp'), sub('spo2'), sub('status'),
-        goal);
+    return TodayData._(
+      daily,
+      sleep,
+      sub('coach'),
+      sub('stress'),
+      sub('nocturnal'),
+      sub('resp'),
+      sub('hrv'),
+      sub('skin_temp'),
+      sub('spo2'),
+      sub('status'),
+      goal,
+    );
   }
 
   TodayStatus? get status => _status == null ? null : TodayStatus(_status);
@@ -79,21 +101,23 @@ class TodayData {
   /// Skin-temp deviation vs your baseline (relative, raw units), or null.
   double? get skinTempIdx => (_skinTemp?['value'] as num?)?.toDouble();
 
-  /// Blood-oxygen deviation vs your baseline (relative, raw units), or null.
-  double? get spo2Idx => (_spo2?['value'] as num?)?.toDouble();
+  /// Overnight relative oxygen-dip screen derived from red/IR channels.
+  Spo2Data? get spo2 =>
+      (_spo2 == null || _spo2['odi_per_hour'] == null) ? null : Spo2Data(_spo2);
 
   /// The deterministic coach output (plan + strain target + contributors), or null.
   CoachData? get coach => _coach == null ? null : CoachData(_coach);
 
   /// Stress / arousal monitor summary (NOT HRV), or null.
-  StressData? get stress =>
-      (_stress == null || _stress['score'] == null) ? null : StressData(_stress);
+  StressData? get stress => (_stress == null || _stress['score'] == null)
+      ? null
+      : StressData(_stress);
 
   /// Nocturnal-heart summary, or null when no sleeping-HR was measured.
   NocturnalData? get nocturnal =>
       (_nocturnal == null || _nocturnal['sleeping_hr_avg'] == null)
-          ? null
-          : NocturnalData(_nocturnal);
+      ? null
+      : NocturnalData(_nocturnal);
 
   /// Respiratory rate (PPG) — only present once validated server-side; else null.
   RespData? get resp => _resp == null ? null : RespData(_resp);
@@ -141,7 +165,8 @@ class TodayStatus {
   int? get activityComputedAt => (_s['activity_computed_at'] as num?)?.toInt();
   String get overnightState => (_s['overnight_state'] ?? 'missing').toString();
   String? get overnightDay => _s['overnight_day']?.toString();
-  int? get overnightComputedAt => (_s['overnight_computed_at'] as num?)?.toInt();
+  int? get overnightComputedAt =>
+      (_s['overnight_computed_at'] as num?)?.toInt();
   bool get showingPriorOvernight => _s['showing_prior_overnight'] == true;
 
   bool get overnightBuilding => overnightState == 'building';
@@ -158,7 +183,8 @@ class CoachData {
   String get summary => (_c['summary'] ?? '').toString();
 
   /// Recommended strain target {value, low, high, rationale}, or null.
-  ({double value, double low, double high, String rationale})? get strainTarget {
+  ({double value, double low, double high, String rationale})?
+  get strainTarget {
     final t = _c['strain_target'];
     if (t is! Map) return null;
     return (
@@ -169,11 +195,10 @@ class CoachData {
     );
   }
 
-  List<CoachSuggestion> get plan =>
-      ((_c['plan'] as List?) ?? const [])
-          .whereType<Map>()
-          .map((e) => CoachSuggestion(e.cast<String, dynamic>()))
-          .toList();
+  List<CoachSuggestion> get plan => ((_c['plan'] as List?) ?? const [])
+      .whereType<Map>()
+      .map((e) => CoachSuggestion(e.cast<String, dynamic>()))
+      .toList();
 
   List<CoachContributor> get contributors =>
       ((_c['readiness_contributors'] as List?) ?? const [])
@@ -197,11 +222,13 @@ class CoachSuggestion {
   List<({String label, String value, String? detail})> get why =>
       ((_s['why'] as List?) ?? const [])
           .whereType<Map>()
-          .map((w) => (
-                label: (w['label'] ?? '').toString(),
-                value: (w['value'] ?? '').toString(),
-                detail: w['detail']?.toString(),
-              ))
+          .map(
+            (w) => (
+              label: (w['label'] ?? '').toString(),
+              value: (w['value'] ?? '').toString(),
+              detail: w['detail']?.toString(),
+            ),
+          )
           .toList();
 }
 
@@ -258,6 +285,19 @@ class NocturnalData {
   bool get elevated => _n['elevated'] == true;
 }
 
+class Spo2Data {
+  final Map<String, dynamic> _s;
+  Spo2Data(this._s);
+
+  double? get odiPerHour => (_s['odi_per_hour'] as num?)?.toDouble();
+  int get dipCount => (_s['dip_count'] as num?)?.toInt() ?? 0;
+  double? get meanDipPct => (_s['mean_dip_pct'] as num?)?.toDouble();
+  double? get burdenPct => (_s['burden_pct'] as num?)?.toDouble();
+  double? get signalCoverage => (_s['signal_coverage'] as num?)?.toDouble();
+  double? get trustedCoverage => (_s['trusted_coverage'] as num?)?.toDouble();
+  double? get confidence => (_s['confidence'] as num?)?.toDouble();
+}
+
 /// ── respiratory rate (PPG; gated — only present once validated) ───────────────
 class RespData {
   final Map<String, dynamic> _r;
@@ -301,7 +341,8 @@ class RecordsData {
     );
   }
 
-  ({double now, double then, double delta, String direction, int days})? get rhrDrift {
+  ({double now, double then, double delta, String direction, int days})?
+  get rhrDrift {
     final d = _r['rhr_drift'];
     if (d is! Map) return null;
     return (
@@ -340,7 +381,10 @@ class NotificationsData {
     final list = (row['notifications'] as List?) ?? const [];
     return NotificationsData(
       (row['unread'] as num?)?.toInt() ?? 0,
-      list.whereType<Map>().map((e) => NotificationItem(e.cast<String, dynamic>())).toList(),
+      list
+          .whereType<Map>()
+          .map((e) => NotificationItem(e.cast<String, dynamic>()))
+          .toList(),
     );
   }
   bool get isEmpty => items.isEmpty;
@@ -357,8 +401,10 @@ class SleepData {
 
   // Scalar columns + a `flags` blob keyed {duration, stages}. duration_min and
   // efficiency both carry the `duration` confidence entry.
-  Metric get durationMin =>
-      Metric.parse(_num(_row['duration_min']), flag: flagFor(_flags, 'duration'));
+  Metric get durationMin => Metric.parse(
+    _num(_row['duration_min']),
+    flag: flagFor(_flags, 'duration'),
+  );
   // need_min comes from the user's baseline (backend attaches it per row).
   Metric get needMin => metricOf(_row, 'need_min', flags: _flags);
   Metric get efficiency =>
@@ -455,7 +501,8 @@ class TrendsData {
 
   /// A named time series → list of (epochSec, value).
   List<TrendPoint> series(String key) {
-    final raw = _row[key] ?? (_row['series'] is Map ? _row['series'][key] : null);
+    final raw =
+        _row[key] ?? (_row['series'] is Map ? _row['series'][key] : null);
     if (raw is! List) return const [];
     final out = <TrendPoint>[];
     for (final e in raw) {
@@ -518,11 +565,15 @@ class ChartSeries {
       if (e is Map) {
         final t = _num(e['t'] ?? e['ts'])?.toInt();
         final v = _num(e['v'] ?? e['value'] ?? e['hr']);
-        if (t != null && v != null && v > 0) out.add(TrendPoint(t, v.toDouble()));
+        if (t != null && v != null && v > 0) {
+          out.add(TrendPoint(t, v.toDouble()));
+        }
       } else if (e is List && e.length >= 2) {
         final t = _num(e[0])?.toInt();
         final v = _num(e[1]);
-        if (t != null && v != null && v > 0) out.add(TrendPoint(t, v.toDouble()));
+        if (t != null && v != null && v > 0) {
+          out.add(TrendPoint(t, v.toDouble()));
+        }
       }
     }
     return ChartSeries(out);

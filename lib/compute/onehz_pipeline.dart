@@ -227,8 +227,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     startSec: d.sleepOnsetSec,
     endSec: d.sleepOffsetSec,
   );
-  final sleepSessionRmssd =
-      sleepSessionRmssdMetric.present ? sleepSessionRmssdMetric.value : null;
+  final sleepSessionRmssd = sleepSessionRmssdMetric.present
+      ? sleepSessionRmssdMetric.value
+      : null;
   final hrvF = nn.length >= 20
       ? hrvFreq(nn, nnTimes, artifactFraction: artifactFraction)
       : const Metric<HrvFreq>.absent(
@@ -331,6 +332,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final hrMax = age == null ? null : 208 - 0.7 * age; // Tanaka
   final rhrForTrimp = rhrToday ?? (prof['resting_hr'] as num?)?.toDouble();
   final weightKg = (prof['weight_kg'] as num?)?.toDouble();
+  final heightCm = (prof['height_cm'] as num?)?.toDouble();
   // Wake-span per-minute mean HR = the day minus the sleep window (shared by
   // TRIMP, HR zones, and calories so all three see the same wake series).
   final wakeHr = _perMinuteWakeSeries(d);
@@ -351,9 +353,17 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       );
     }
     hrZones = _wakeZoneMinutesFromSeries(wakeHr, hrMax);
-    // Keytel 2005 HR→kcal over the wake span (needs age + weight + sex).
     if (age != null && sex != null && weightKg != null) {
-      caloriesKcal = _keytelCalories(perMin, age, weightKg, hrMax, sex == 'f');
+      caloriesKcal = Calories.activeEnergy(
+        perMin,
+        profile: WorkoutUserProfile(
+          weightKg: weightKg,
+          heightCm: heightCm ?? 170.0,
+          age: age,
+          sex: sex == 'f' ? 'female' : (sex == 'm' ? 'male' : 'nonbinary'),
+        ),
+        hrmax: hrMax,
+      );
     }
   }
 
@@ -512,7 +522,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // HEADLINE RMSSD = mean of 5-min cleaned-window RMSSDs across the detected
   // sleep session. Fall back to the robust estimator, then the whole-window
   // RMSSD only when the canonical sleep-session value is absent.
-  final rmssdScalar = sleepSessionRmssd ??
+  final rmssdScalar =
+      sleepSessionRmssd ??
       (robustRmssd.present
           ? robustRmssd.value
           : ((hrvT.present && hrvT.value!.rmssd != null)
@@ -548,18 +559,39 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'note': 'Baevsky Stress Index → 0–100; resting autonomic tension (PRV).',
   };
 
-  // ── SpO₂ (RELATIVE only): the overnight desaturation index (dips/hour). We
-  //    have relative ADC, never absolute %SpO₂ — so we surface the ODI screen as
-  //    "blood-oxygen relative to your baseline", honestly labelled. 0 = no dips.
+  // ── SpO₂ (RELATIVE only): overnight oxygen-dip screening from the red/IR ADC
+  //    channels. Never absolute %SpO₂; this is a relative overnight signal.
   final odiPerHour = odi.present ? odi.value!.odiPerHour : null;
+  final dipCount = odi.present ? odi.value!.dipCount : null;
+  final meanDipPct = odi.present ? odi.value!.meanDipPct : null;
+  final maxDipPct = odi.present ? odi.value!.maxDipPct : null;
+  final longestDipSec = odi.present ? odi.value!.longestDipSec : null;
+  final burdenPct = odi.present ? odi.value!.burdenPct : null;
+  final signalCoverage = odi.present ? odi.value!.signalCoverage : null;
+  final trustedCoverage = odi.present ? odi.value!.trustedCoverage : null;
+  final rejectCounts = odi.present ? odi.value!.rejectCounts : null;
+  final severityCounts = odi.present ? odi.value!.severityCounts : null;
   final spo2Block = <String, dynamic>{
     'value': odiPerHour == null ? '—' : _round(odiPerHour, 2),
     'odi_per_hour': odiPerHour == null ? null : _round(odiPerHour, 2),
+    'dip_count': dipCount,
+    'mean_dip_pct': meanDipPct == null ? null : _round(meanDipPct, 2),
+    'max_dip_pct': maxDipPct == null ? null : _round(maxDipPct, 2),
+    'longest_dip_sec': longestDipSec,
+    'burden_pct': burdenPct == null ? null : _round(burdenPct, 2),
+    'signal_coverage': signalCoverage == null
+        ? null
+        : _round(signalCoverage, 4),
+    'trusted_coverage': trustedCoverage == null
+        ? null
+        : _round(trustedCoverage, 4),
+    'reject_counts': rejectCounts,
+    'severity_counts': severityCounts,
     'confidence': odi.present ? _round(odi.confidence, 4) : 0,
     'tier': Tier.relative,
     'inputs_used': const ['spo2_red_raw', 'spo2_ir_raw'],
     'note':
-        'relative desaturation index (dips/h); no absolute %SpO₂ from this band',
+        'relative overnight oxygen-dip screen (dips/h); no absolute %SpO₂ from this band',
   };
 
   // ── NOCTURNAL detail: sleeping-HR nadir + waking HR. Both computable today
@@ -620,10 +652,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     double? today,
     MetricCfg cfg,
   ) {
-    final state = Baselines.foldHistory(
-      <double?>[for (final v in history) v],
-      cfg,
-    );
+    final state = Baselines.foldHistory(<double?>[
+      for (final v in history) v,
+    ], cfg);
     final dev = today == null ? null : Baselines.deviation(today, state);
     return <String, dynamic>{
       ...state.toJson(),
@@ -636,12 +667,18 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   }
 
   final baselines = <String, dynamic>{
-    'resting_hr':
-        baselineBlock(d.rhrHistory, rhrScalar, Baselines.restingHRCfg),
+    'resting_hr': baselineBlock(
+      d.rhrHistory,
+      rhrScalar,
+      Baselines.restingHRCfg,
+    ),
     'hrv': baselineBlock(d.rmssdHistory, rmssdScalar, Baselines.hrvCfg),
     'resp': baselineBlock(d.respHistory, respToday, Baselines.respCfg),
-    'skin_temp':
-        baselineBlock(d.skinTempAdcHistory, skinTempAdc, _skinTempAdcCfg),
+    'skin_temp': baselineBlock(
+      d.skinTempAdcHistory,
+      skinTempAdc,
+      _skinTempAdcCfg,
+    ),
   };
 
   return <String, dynamic>{
@@ -814,7 +851,10 @@ List<_WakeMinuteHr> _perMinuteWakeSeries(DayBundleInput d) {
   return [for (final k in keys) _WakeMinuteHr(k * 60, _mean(buckets[k]!)!)];
 }
 
-Map<String, int> _wakeZoneMinutesFromSeries(List<_WakeMinuteHr> wakeHr, double hrMax) {
+Map<String, int> _wakeZoneMinutesFromSeries(
+  List<_WakeMinuteHr> wakeHr,
+  double hrMax,
+) {
   final samples = <HrSample>[
     for (final p in wakeHr) HrSample(p.tsSec * 1000.0, p.hr),
   ];
@@ -854,29 +894,6 @@ List<Map<String, num>> _strainCurve(
     out.add({'t': p.tsSec, 'v': _round(strainScore(trimp), 2)});
   }
   return out;
-}
-
-/// Active calories (kcal) over the wake span via Keytel et al. 2005 HR→energy,
-/// gated to minutes ≥50% HRmax (below that the HR-kcal relation is unreliable).
-/// One [perMin] entry = one minute. age (yr), weight (kg), [female] selects the
-/// sex-specific Keytel coefficients.
-double _keytelCalories(
-  List<double> perMin,
-  double age,
-  double weight,
-  double hrMax,
-  bool female,
-) {
-  var kcal = 0.0;
-  for (final hr in perMin) {
-    if (hr < 0.50 * hrMax) continue; // gate: HR-kcal invalid at rest
-    // Keytel 2005 kJ/min, then ÷4.184 → kcal/min.
-    final kjMin = female
-        ? (-20.4022 + 0.4472 * hr - 0.1263 * weight + 0.074 * age) / 4.184
-        : (-55.0969 + 0.6309 * hr + 0.1988 * weight + 0.2017 * age) / 4.184;
-    if (kjMin > 0) kcal += kjMin;
-  }
-  return kcal;
 }
 
 double? _mean(List<double> xs) {

@@ -19,7 +19,7 @@ import '../recap/recap_screen.dart';
 import '../coach/coach_screen.dart';
 import '../profile/profile_screen.dart';
 import '../screens/screens.dart';
-import '../timeline/timeline_screen.dart';
+import '../journey/journey_screen.dart';
 import '../stress/stress_screen.dart';
 import '../records/records_screen.dart';
 import '../notifications/notifications_screen.dart';
@@ -109,6 +109,18 @@ class _TodayScreenState extends State<TodayScreen>
 
   /// Round a metric's value to an int string, or null when empty.
   String? _int(Metric m) => m.isEmpty ? null : m.value!.round().toString();
+
+  Widget _oxygenQualityTag(Spo2Data? spo2) {
+    if (spo2 == null) return Tag('beta', color: AppColors.coral);
+    final trusted = spo2.trustedCoverage ?? spo2.signalCoverage ?? 0;
+    if (trusted >= 0.85) {
+      return Tag('clean', color: AppColors.good);
+    }
+    if (trusted >= 0.60) {
+      return Tag('usable', color: AppColors.warn);
+    }
+    return Tag('low signal', color: AppColors.coral);
+  }
 
   /// Today as 'YYYY-MM-DD' (UTC, matching the backend's day keys).
   String _todayStr() {
@@ -383,13 +395,13 @@ class _TodayScreenState extends State<TodayScreen>
       _statRow(
         StatTile(
           icon: Ic.heart,
-          label: 'Blood O₂ (rel.)',
-          value: t.spo2Idx == null
-              ? null
-              : (t.spo2Idx! >= 0 ? '+' : '') + t.spo2Idx!.toStringAsFixed(0),
-          unit: 'Δ',
+          label: 'Oxygen dips',
+          value: t.spo2?.odiPerHour?.toStringAsFixed(1),
+          unit: '/h',
           accent: AppColors.coralDeep,
-          tag: Tag('beta', color: AppColors.coral),
+          tag: _oxygenQualityTag(t.spo2),
+          confidence: t.spo2?.confidence,
+          onTap: () => _push(() => const OxygenScreen()),
         ),
         _bodyOverTimeTile(),
       ),
@@ -397,10 +409,6 @@ class _TodayScreenState extends State<TodayScreen>
 
       // Heart rate spark.
       _hrCard(),
-
-      // Cycle entry (only when the user tracks their menstrual cycle) — promoted
-      // to Today so it isn't buried under the Body tab.
-      const CycleEntryCard(),
     ];
   }
 
@@ -751,9 +759,8 @@ class _TodayScreenState extends State<TodayScreen>
     final latest = hasData ? points.last : null;
     final peak = hasData ? points.reduce((a, b) => a.y >= b.y ? a : b) : null;
     final low = hasData ? points.reduce((a, b) => a.y <= b.y ? a : b) : null;
-    final liveHr = context.select<AppState, int?>((a) => a.device.liveHr);
     return ProCard(
-      onTap: () => _push(() => TimelineScreen(date: _todayStr())),
+      onTap: () => _push(() => JourneyScreen(date: _todayStr())),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -761,19 +768,13 @@ class _TodayScreenState extends State<TodayScreen>
             children: [
               AppIcon(Ic.pulse, size: 19, color: AppColors.coral),
               const SizedBox(width: Sp.x2),
-              Expanded(
-                child: Row(crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic, children: [
-                  Text('Timeline', style: AppText.h2),
-                  if (liveHr != null && liveHr > 0) ...[
-                    const SizedBox(width: Sp.x3),
-                    Text('$liveHr', style: AppText.h2.copyWith(color: AppColors.coral)),
-                    const SizedBox(width: 2),
-                    Text('bpm now', style: AppText.captionMuted),
-                  ],
-                ]),
+              Expanded(child: Text("Today's heart rate", style: AppText.h2)),
+              Text(
+                'Your day',
+                style: AppText.label.copyWith(color: AppColors.coralDeep),
               ),
-              AppIcon(Ic.arrowRight, size: 16, color: AppColors.coralDeep),
+              const SizedBox(width: 2),
+              AppIcon(Ic.arrowRight, size: 15, color: AppColors.coralDeep),
             ],
           ),
           const SizedBox(height: Sp.x4),
