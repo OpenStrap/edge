@@ -354,11 +354,18 @@ class LocalRepositoryImpl extends LocalRepository {
       (getProfileMap()?['step_goal'] as num?)?.toInt() ?? 10000;
 
   num? _wearMin(Map<String, dynamic> b) {
+    // Wear = RECORD presence (the band logs 1 Hz to flash ONLY while worn), NOT
+    // hr_valid/60. HR only locks when still (mostly sleep), so hr_valid collapsed
+    // wear to ~half a day — the "wore it all day, shows half" bug, on BOTH
+    // platforms. Prefer the engine wear block's record-presence worn_min; fall
+    // back to the TOTAL record count (hr_samples, not hr_valid); never hr_valid.
+    // Mirrors getDayWear so the summary tile and the wear detail agree.
+    final w = b['wear'] is Map ? (b['wear'] as Map).cast<String, dynamic>() : null;
+    final fromBlock = (w?['worn_min'] as num?);
+    if (fromBlock != null) return fromBlock;
     final cov = _sub(b, 'coverage');
-    final hr = (cov?['hr_valid'] as num?)?.toInt();
-    return hr == null
-        ? null
-        : (hr / 60).round(); // 1 Hz valid samples → minutes
+    final total = (cov?['hr_samples'] as num?)?.toInt();
+    return total == null ? null : (total / 60).round();
   }
 
   Map<String, dynamic> _sleepSummary(Map<String, dynamic> b) {

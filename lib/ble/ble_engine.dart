@@ -182,7 +182,13 @@ class BleEngine {
     this.onCommitBatch,
     this.cursorReader,
     this.deriveDebouncer = const DeriveDebouncer(),
+    this.isBackgroundDrainer = false,
   });
+
+  /// True for the headless restore-drain engine (runHeadlessSync). It YIELDS the
+  /// band to a foreground engine rather than fighting it — see [_claimBand]. The
+  /// foreground app engine leaves this false and always wins.
+  final bool isBackgroundDrainer;
 
   /// Optional reader for a persisted cursor value (e.g. counter_hw) so the engine
   /// can seed its frontier from the durable store on connect — making the stuck/
@@ -190,6 +196,41 @@ class BleEngine {
   final Future<int?> Function(String name)? cursorReader;
 
   final DeviceState state = DeviceState();
+
+  // ── PROCESS-WIDE SINGLE-OWNER GUARD ─────────────────────────────────────────
+  // The strap streams its historical offload to EVERY subscribed central. If two
+  // BleEngine instances in this process are connected at once — the foreground
+  // app engine AND the headless restore-drain engine (runHeadlessSync, fired by
+  // the iOS CoreBluetooth-restoration wake) — BOTH parse the same HISTORY_END and
+  // send CONFLICTING batch-ACKs with different seq numbers. The band's flash trim
+  // cursor then races and the offload never advances (observed on-device: batch
+  // stuck at 28, duplicate ACKs, sync never completes). Enforce a single owner,
+  // FOREGROUND-PRIORITY: a background drainer yields if the band is already owned;
+  // a foreground engine preempts a background owner by dropping its link.
+  static BleEngine? _bandOwner;
+
+  /// Claim exclusive ownership of the band for this engine. Returns false only for
+  /// a background drainer when another engine already owns it (→ it must NOT touch
+  /// the band this cycle). A foreground engine always succeeds and preempts any
+  /// background owner by disconnecting it.
+  bool _claimBand() {
+    final other = _bandOwner;
+    if (other != null && !identical(other, this)) {
+      if (isBackgroundDrainer) {
+        _log('band already owned by the foreground session — background drain '
+            'yielding (avoids duplicate ACKs on the same offload).');
+        return false;
+      }
+      _log('preempting a background drain to take the foreground session.');
+      unawaited(other.disconnect());
+    }
+    _bandOwner = this;
+    return true;
+  }
+
+  void _releaseBand() {
+    if (identical(_bandOwner, this)) _bandOwner = null;
+  }
 
   // ── transport state machine ─────────────────────────────────────────────────
   BleConnState _phase = BleConnState.idle;
@@ -238,6 +279,10 @@ class BleEngine {
   ClockRef? _clockRef; // strap-RTC ↔ wall correlation (set from GET_CLOCK)
   /// Latest strap-RTC ↔ wall correlation, or null until GET_CLOCK is answered.
   ClockRef? get clockRef => _clockRef;
+  /// SET_CLOCK re-issue attempts THIS connection. setClock() reads the clock
+  /// back, and the GET_CLOCK handler re-issues on drift — so cap the retries or
+  /// a firmware that never latches either payload form would loop forever.
+  int _clockCorrectTries = 0;
   int? _sessionOldestUnix; // strap's banked-data window (GET_DATA_RANGE)
   int? _sessionNewestUnix;
   DateTime? _bondTime; // when the handshake completed (bond confirmed)
@@ -399,6 +444,10 @@ class BleEngine {
       _log('connect: already connected to ${device.remoteId.str} — reusing.');
       return true;
     }
+    // SINGLE-OWNER: a background drainer must not open a second drain against a
+    // band the foreground session already owns (duplicate ACKs corrupt the trim
+    // cursor). Foreground engines preempt instead. See [_claimBand].
+    if (!_claimBand()) return false;
     // Any prior session is dead to us now — tear it down before a new one.
     await _teardownSession(intentional: true);
     return _doConnect(device);
@@ -520,6 +569,7 @@ class BleEngine {
       // Set the strap RTC to real wall-clock time. The band ships with an unset
       // clock; SET_CLOCK is non-destructive (it's what the official app does each
       // connect). Records stamped after this carry real unix time.
+      _clockCorrectTries = 0; // fresh retry budget for this connection
       await setClock();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
       // here — they count consecutive bad cycles across reconnects and self-reset on
@@ -1006,11 +1056,16 @@ class BleEngine {
         ),
       );
     }
-    if (f.containsKey('alarm_epoch')) {
-      final e = f['alarm_epoch'] as int;
-      state.alarmEpoch = e > 1000000000 ? e : null;
-      onState(state);
-    }
+    // GET_ALARM_TIME readback is PARKED: the response byte layout isn't confirmed
+    // (the decode assumed a leading revision byte before the epoch that the band
+    // doesn't send → it returned a plausible-but-wrong epoch, e.g. showing 21:49
+    // for an alarm set to 11:14). The band has no independent alarm source — its
+    // alarm is always exactly what the app last wrote (SET_ALARM is HW-verified) —
+    // so the locally-set/persisted value in AppState is authoritative for display.
+    // Do NOT clobber it with the unconfirmed readback. If the response format is
+    // ever captured, decode it in parseCommandResponse and re-enable here.
+    //
+    // if (f.containsKey('alarm_epoch')) { ... }
     if (f.containsKey('strap_name')) {
       // Guard with cleanDeviceLabel: a garbled name read never overwrites the
       // last good one (keeps "?*" off the UI).
@@ -1037,10 +1092,23 @@ class BleEngine {
       final wall = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       _clockRef = ClockRef(device: dev, wall: wall);
       _log('Clock correlated: device=$dev wall=$wall (drift=${wall - dev}s).');
-      // Re-issue SET_CLOCK if the strap RTC has drifted > 1 day or is unset.
+      // Re-issue SET_CLOCK if the strap RTC has drifted > 1 day or is unset —
+      // but BOUND the retries: setClock() reads the clock back, so an unbounded
+      // re-issue on a firmware that never latches either payload form would spin
+      // SET_CLOCK/GET_CLOCK forever. Historical records carry their own embedded
+      // unix time regardless, so giving up after a few tries is safe.
       if (ClockPolicy.shouldSetClock(dev, wall)) {
-        _log('Clock drift over policy — re-issuing SET_CLOCK.');
-        unawaited(setClock());
+        if (_clockCorrectTries < 3) {
+          _clockCorrectTries++;
+          _log('Clock drift over policy — re-issuing SET_CLOCK '
+              '(attempt $_clockCorrectTries/3).');
+          unawaited(setClock());
+        } else {
+          _log('Clock still off after 3 SET_CLOCK attempts — giving up; '
+              'firmware may not accept our payload length.');
+        }
+      } else {
+        _clockCorrectTries = 0; // latched — reset for the next drift episode
       }
     }
     if (f.containsKey('range_oldest') && f.containsKey('range_newest')) {
@@ -1111,9 +1179,11 @@ class BleEngine {
       final tokenHex = m.token!
           .map((b) => b.toRadixString(16).padLeft(2, '0'))
           .join();
+      final r = d.bufferedRecTsRange;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
-        'token=$tokenHex',
+        'token=$tokenHex '
+        'recTs=${r == null ? "none" : "${r.$1}..${r.$2}"}',
       );
       // SAFE-TRIM INVARIANT: persist decoded+raw AND the continuation cursor
       // DURABLY (one transaction) BEFORE the ACK. The band trims its flash only
@@ -1305,21 +1375,40 @@ class BleEngine {
     return report;
   }
 
-  /// Set the strap RTC to current unix time: payload = [u32 epoch LE, u32 pad].
+  /// Set the strap RTC to current time — WHOOP-EXACT payload.
+  ///
+  /// The official WHOOP app (jadx: rh0/s0.java SetClockPacket, n92/a.java) sends
+  /// an 8-byte payload of TWO little-endian u32s: whole seconds at [0:4] and
+  /// SUB-SECONDS at [4:8], where subseconds are in units of 1/32768 s (a 32768 Hz
+  /// RTC crystal): `subsec = (millis % 1000) * 32768 / 1000` (0..32767, a u16 in
+  /// the low half of the second word). We previously sent zero subseconds, which
+  /// is a protocol divergence from what the strap firmware expects. Matching WHOOP
+  /// byte-for-byte here is the safe thing. Then read the clock back (GET_CLOCK) so
+  /// the response handler can VERIFY it latched and re-issue on drift.
   Future<void> setClock() async {
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    await _send(Cmd.setClock, [
-      now & 0xff,
-      (now >> 8) & 0xff,
-      (now >> 16) & 0xff,
-      (now >> 24) & 0xff,
+    final ms = DateTime.now().millisecondsSinceEpoch;
+    final sec = ms ~/ 1000;
+    final subsec = ((ms % 1000) * 32768) ~/ 1000; // 0..32767, 1/32768 s units
+    final payload = <int>[
+      sec & 0xff,
+      (sec >> 8) & 0xff,
+      (sec >> 16) & 0xff,
+      (sec >> 24) & 0xff,
+      subsec & 0xff,
+      (subsec >> 8) & 0xff,
       0,
       0,
-      0,
-      0,
-    ]);
-    _log('SET_CLOCK → $now (strap RTC aligned to real time).');
+    ];
+    await _send(Cmd.setClock, payload);
+    _log('SET_CLOCK → sec=$sec subsec=$subsec (WHOOP-exact 8B).');
+    // Read the RTC back so the GET_CLOCK response handler can confirm it latched
+    // (and re-issue SET_CLOCK if the strap clock is still off — see _onDecoded).
+    await getClock();
   }
+
+  /// Read the strap RTC. The response carries `clock_epoch`, handled where we
+  /// verify drift and re-correlate the strap-RTC ↔ wall clock.
+  Future<void> getClock() => _send(Cmd.getClock, const <int>[]);
 
   /// Smart alarm. Payload (7 bytes, LE):
   /// [0]=0x01 revision, [1:5]=u32 epoch seconds, [5:7]=u16 sub-seconds (0).
@@ -1426,6 +1515,11 @@ class BleEngine {
       } catch (_) {}
     }
     await _teardownSession(intentional: true);
+    // Release the single-owner claim ONLY on an intentional disconnect (not on a
+    // link-down we intend to reconnect from) so the band is free for a background
+    // drain once we've genuinely let go. If we were already preempted by another
+    // engine, _releaseBand no-ops (it only clears when we still hold the claim).
+    _releaseBand();
     _setPhase(BleConnState.idle);
     _log('Disconnected.');
   });
@@ -1473,10 +1567,18 @@ class BleEngine {
     final payload = frame.inner.length > 3
         ? Uint8List.sublistView(frame.inner, 3)
         : Uint8List(0);
+    // We scan every byte offset for a plausible unix u32 (the field layout isn't
+    // fully pinned), so the UPPER bound must be tight: a data-range timestamp can
+    // never be in the FUTURE. The old ceiling (2100000000 ≈ year 2036) let a
+    // spurious cross-field read land as "newest" — observed 2020230636 (year
+    // 2034) — which made `history_newest` garbage, so backlogRemains was
+    // PERMANENTLY true and the offload never recognized completion (it chased a
+    // 2034 target forever). Cap at wall-clock + 1 day (clock skew slack).
+    final maxPlausible = (DateTime.now().millisecondsSinceEpoch ~/ 1000) + 86400;
     final ts = <int>[];
     for (var off = 0; off + 4 <= payload.length; off++) {
       final v = u32(payload, off);
-      if (v >= 1600000000 && v <= 2100000000) {
+      if (v >= 1600000000 && v <= maxPlausible) {
         ts.add(v);
       }
     }
@@ -1520,6 +1622,27 @@ class _DrainController {
 
   int get bufferedRecords => _raws.length;
   int get lastProgressMs => _lastProgressAt.millisecondsSinceEpoch;
+
+  /// Min/max real record time (rec_ts) currently buffered for this batch — lets
+  /// us see whether the offload is serving a FROZEN/old timestamp block (the
+  /// time-frontier can't advance) vs. genuinely newer records. Diagnostic.
+  (int, int)? get bufferedRecTsRange {
+    var lo = 0, hi = 0;
+    var any = false;
+    for (final rec in _raws) {
+      final t = rec.recTs;
+      if (t == null || t <= 0) continue;
+      if (!any) {
+        lo = t;
+        hi = t;
+        any = true;
+      } else {
+        if (t < lo) lo = t;
+        if (t > hi) hi = t;
+      }
+    }
+    return any ? (lo, hi) : null;
+  }
   // Trim-advance tracking for the stuck/continuation detectors: a HISTORY_END
   // whose 8-byte token differs from the last one means the cursor moved.
   String? _lastAckedToken;
