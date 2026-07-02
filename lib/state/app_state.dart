@@ -1012,6 +1012,10 @@ class AppState extends ChangeNotifier {
   /// On Android the Edge Tracking foreground service keeps the process + connection alive.
   Future<void> pauseForBackground() async {
     _background = true;
+    // Defer derivation while backgrounded — running the heavy derive pass on a
+    // short background BLE wake gets the app killed (iOS CPU watchdog / jetsam).
+    // Capture keeps running; queued derive jobs drain on foreground return.
+    _deriveScheduler.setBackground(true);
     if (Platform.isAndroid) {
       // Android: ensure the Edge Tracking foreground service is up (idempotent) so the
       // process + live connection survive backgrounding. The service IS the keep-alive.
@@ -1055,9 +1059,12 @@ class AppState extends ChangeNotifier {
   // taps the RR-bearing frames (0x28 compact HR, 0x2B R10) into the in-memory
   // scan buffer. Cheap-bounded; cleared at each scan start.
   void _onLiveFrame(int pt, String hex, int? recTs) {
-    if (recTs != null && recTs > 0 && recTs > (_lastRecTs ?? 0)) {
-      _lastRecTs = recTs;
-    }
+    // NOTE: deliberately do NOT advance _lastRecTs from live frames. Live frames
+    // (0x28/0x2B/0x33) are ephemeral and NEVER persisted, and they carry the
+    // CURRENT wall-clock time — so bumping _lastRecTs here pinned the "last data"
+    // label to "now" while the app was connected, hiding whether the overnight
+    // HISTORICAL backlog had actually synced. "Last data" must reflect the newest
+    // STORED record (the data edge), which only _onRecord advances.
     if (spotActive && (pt == 0x28 || pt == 0x2B)) {
       if (_spotFrames.length < 8000) _spotFrames.add(hex);
     }
@@ -1312,7 +1319,13 @@ class AppState extends ChangeNotifier {
 
   Future<SyncReport> _runSyncBurst({
     required bool kickFirst,
-    int maxSessions = 6,
+    // A band that hasn't synced for days can hold a HUGE flash backlog (observed:
+    // ~2 weeks / hundreds of thousands of records), and an RTC-loss can leave a
+    // large frozen-timestamp block the drain must grind THROUGH to reach newer
+    // data. 6 sessions wasn't enough to catch up; 20 lets a big backlog drain in
+    // one foreground burst. Each session still early-exits on completion / no
+    // real progress, so this only runs long when there's genuinely a lot to pull.
+    int maxSessions = 20,
   }) async {
     var last = SyncReport(0, 0, false);
     for (var i = 0; i < maxSessions && engine.isConnected; i++) {
@@ -1350,11 +1363,29 @@ class AppState extends ChangeNotifier {
         _log('Backfill stop — no batch ACKs; trim did not advance.');
         break;
       }
-      if (!frontierAdvanced) {
+      if (!frontierAdvanced && !backlogRemains) {
+        // Frontier didn't advance AND the strap reports nothing newer than what
+        // we already hold → genuinely nothing more to pull (or a pure re-send).
         _log(
-          'Backfill stop — batch ACKed but persisted frontier did not advance.',
+          'Backfill stop — frontier did not advance and no backlog remains '
+          '(strap newest=$strapNewest, frontier=$frontierAfter).',
         );
         break;
+      }
+      if (!frontierAdvanced) {
+        // Frontier stuck but the strap says it HAS newer data. This happens when
+        // a stretch of flash carries STALE/duplicate timestamps — e.g. the band
+        // rebooted, lost its RTC, and recorded for a while with a frozen clock
+        // before SET_CLOCK re-latched. The rec_ts frontier can't advance across
+        // that block, but the flash read cursor IS walking forward (batches>0),
+        // so DON'T stop — drain through the stale block to reach the newer,
+        // correctly-stamped records behind it. Bounded by maxSessions.
+        _log(
+          'Backfill continuation ${i + 1}/$maxSessions — frontier stuck on a '
+          'stale-timestamp block but strap reports backlog '
+          '(newest=$strapNewest > frontier=$frontierAfter); draining through.',
+        );
+        continue;
       }
       if (!backlogRemains) break;
       _log(
@@ -1418,8 +1449,11 @@ class AppState extends ChangeNotifier {
 
   // ── alarm + strap name (require a live connection) ──────────────────────────
   bool get isConnected => device.connection == 'connected';
-  // Prefer a value read back from the band; else the one we last set (persisted),
-  // since the band's GET_ALARM echo format isn't fully confirmed.
+  // The locally-set value is authoritative: the band has no independent alarm
+  // source (its alarm is always what the app last wrote, and SET_ALARM is
+  // HW-verified), while the GET_ALARM readback format is unconfirmed and was
+  // clobbering the display (see the parked block in ble_engine._onDecoded).
+  // device.alarmEpoch = this-session optimistic set; _savedAlarm = persisted.
   int? get alarmEpoch => device.alarmEpoch ?? _savedAlarm;
   String? get strapName => device.strapName;
   int? _savedAlarm;
@@ -1462,6 +1496,9 @@ class AppState extends ChangeNotifier {
     // background): don't tear it down and reconnect — just reclaim ownership.
     final wasBackground = _background;
     _background = false;
+    // Back in the foreground with an OS CPU/memory budget again — let the
+    // scheduler drain any derive jobs that queued (durably) while backgrounded.
+    _deriveScheduler.setBackground(false);
     if (wasBackground && engine.isConnected) {
       IosBleRestore.foregroundActive = true;
       await IosBleRestore.setOwnsBand(true);
@@ -1474,13 +1511,14 @@ class AppState extends ChangeNotifier {
       // re-subscribes (the only place setNotifyValue runs) and drains the gap.
       if (engine.sinceLastRx < const Duration(seconds: 30)) {
         // Healthy link → fast reclaim. But the fast path skips the band polls the full
-        // connect path runs, so the cached battery %/charging/strap-name/alarm go stale.
+        // connect path runs, so the cached battery %/charging/strap-name go stale.
         // Re-poll them in the background so the UI stays current. Non-blocking.
+        // (Alarm is NOT re-polled: the readback format is unconfirmed and the local
+        // set value is authoritative — see the parked block in ble_engine._onDecoded.)
         unawaited(() async {
           try {
             await engine.getBattery();
             await engine.getStrapName();
-            await engine.getAlarm();
           } catch (_) {}
         }());
         _startBackfillTimer();
@@ -1514,14 +1552,21 @@ class AppState extends ChangeNotifier {
             '(official WHOOP app force-quit)?';
         return;
       }
-      await engine.enableLiveStreams();
-      _resetLivePedometer(); // fresh live step count for this connected session
       await engine.getBattery();
-      await engine
-          .getStrapName(); // populate strap name + alarm for the Profile UI
-      await engine.getAlarm();
-      _log('Listening (history + live).');
-      // Block until the band's backlog is fully handed over (HISTORY_COMPLETE) —
+      await engine.getStrapName(); // populate strap name for the Profile UI
+      // Alarm is displayed from the locally-set/persisted value (authoritative);
+      // the GET_ALARM readback is parked (unconfirmed format) — see ble_engine.
+      _log('Listening (history first, live after catch-up).');
+      // Drain the backlog BEFORE enabling the high-rate live flood. A fresh connect
+      // after a long gap can hold hours of flash (observed: an overnight ~11h block
+      // that re-drains from the bottom on every offload until it fully lands). The
+      // R10/R11 + IMU + optical flood competes with the historical offload for the
+      // radio and stalls it (60s mid-offload silences → abandon/re-send), so the
+      // big first drain never finishes and "last data" appears frozen. Dedicate the
+      // link to the offload first, exactly as the reconnect path already does, then
+      // turn on live streams once we've caught up.
+      //
+      // Blocks until the band's backlog is fully handed over (HISTORY_COMPLETE) —
       // does NOT abort or end the listen. Per-batch derives already fired via the
       // debounced onDataStored; once the WHOLE backlog has landed we run the heavy
       // foreground finalize (full sleep staging + 24-h spectra over every stale day).
@@ -1530,6 +1575,8 @@ class AppState extends ChangeNotifier {
         'Backlog drained: ${report.records} records in ${report.batches} '
         'batches (${report.complete ? "complete" : "stopped early"}).',
       );
+      await engine.enableLiveStreams();
+      _resetLivePedometer(); // fresh live step count for this connected session
       dbCounts = await LocalDb.counts();
       _deriveScheduler.requestHeavy();
       _startBackfillTimer();

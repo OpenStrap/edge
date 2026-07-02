@@ -25,6 +25,15 @@ class DeriveScheduler {
   final Duration heavySettle;
 
   bool _offloadActive = false;
+  // While the app is backgrounded we must NOT run derivation: a derive pass
+  // decodes the whole retained substrate + runs the metric compute, and doing
+  // that on a short background BLE wake trips iOS's CPU watchdog
+  // (cpu_resource_fatal) or memory jetsam → the app gets terminated. Capture
+  // (persist + ACK) is lightweight and keeps running; the derive intent is
+  // durable in compute_jobs, so it simply waits and drains on foreground return
+  // (Android WorkManager / iOS BGProcessingTask still handle heavy passes with a
+  // proper OS budget). Held exactly like _offloadActive.
+  bool _background = false;
   bool _running = false;
   bool _pendingLight = false;
   bool _pendingHeavy = false;
@@ -44,6 +53,7 @@ class DeriveScheduler {
 
   Map<String, dynamic> snapshot() => {
         'offload_active': _offloadActive,
+        'background': _background,
         'running': _running,
         'pending_light': _pendingLight,
         'pending_heavy': _pendingHeavy,
@@ -72,6 +82,24 @@ class DeriveScheduler {
     _arm();
   }
 
+  /// Foreground/background gate. While backgrounded, derivation is held (heavy
+  /// compute on a background BLE wake gets the app killed by the OS). Queued jobs
+  /// stay durable and drain when we come back to the foreground.
+  void setBackground(bool background) {
+    if (_background == background) return;
+    _background = background;
+    if (background) {
+      _timer?.cancel();
+      _timer = null;
+      log('[derive-scheduler] backgrounded — deferring derive to foreground');
+      onChanged();
+      return;
+    }
+    log('[derive-scheduler] foregrounded — draining deferred derive work');
+    onChanged();
+    _arm();
+  }
+
   void dispose() {
     _timer?.cancel();
     _timer = null;
@@ -87,7 +115,7 @@ class DeriveScheduler {
   }
 
   void _arm() {
-    if (_running || _offloadActive) return;
+    if (_running || _offloadActive || _background) return;
     if (!_pendingLight && !_pendingHeavy) {
       unawaited(_refreshSnapshot());
       return;
@@ -100,7 +128,7 @@ class DeriveScheduler {
   }
 
   Future<void> _drain() async {
-    if (_running || _offloadActive) return;
+    if (_running || _offloadActive || _background) return;
     _timer?.cancel();
     _timer = null;
     final job = await LocalDb.takeNextComputeJob();

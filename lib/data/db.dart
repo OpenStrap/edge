@@ -41,6 +41,38 @@ class LocalDb {
     final path = p.join(dir, dbName);
     return openDatabase(
       path,
+      onConfigure: (db) async {
+        // WRITE PERFORMANCE. The default rollback journal (journal_mode=delete)
+        // with synchronous=FULL fsyncs the whole DB on every commit — brutal for
+        // the high-volume sync-ingest and the raw re-decode migration on a large
+        // ledger. WAL + synchronous=NORMAL is the standard mobile config: writers
+        // append to a -wal file and don't block readers, with one fsync per
+        // checkpoint instead of per commit. journal_mode is persistent per-file;
+        // synchronous/cache_size are per-connection so we set them every open.
+        // Durability trade-off under NORMAL: a crash/power-loss can lose only the
+        // last uncheckpointed transactions, never corrupt the DB — fine here since
+        // raw is re-syncable from the band and derived is recomputable.
+        //
+        // CRITICAL: a perf PRAGMA must NEVER prevent the DB from opening (a throw
+        // here fails openDatabase → the app is stuck on the loading screen). And
+        // `PRAGMA journal_mode=WAL` RETURNS A ROW ("wal"), so on the iOS sqflite
+        // Darwin backend it MUST be issued via rawQuery — `execute()` on a
+        // value-returning pragma throws DatabaseException("not an error") and
+        // bricks the open (confirmed on device). So: rawQuery + try/catch.
+        try {
+          await db.rawQuery('PRAGMA journal_mode=WAL');
+        } catch (_) {
+          /* keep the default journal — this is a perf tweak, not a requirement */
+        }
+        try {
+          await db.execute('PRAGMA synchronous=NORMAL');
+          // ~40 MB page cache (negative = KiB) so hot b-tree pages stay resident
+          // on a 150 MB+ DB instead of being re-read from disk each query.
+          await db.execute('PRAGMA cache_size=-40000');
+        } catch (_) {
+          /* non-fatal */
+        }
+      },
       onCreate: (db, version) async {
         await _createRaw(db);
         await _createSamples(db);
@@ -210,6 +242,17 @@ class LocalDb {
           // "is this right?" confirm). Additive table; survives algo bumps.
           await _createSleepOverride(db);
         }
+        // NOTE (counter-reset recovery): we deliberately do NOT re-decode the raw
+        // ledger here. onUpgrade runs synchronously inside openDatabase, so a
+        // full 500k-row re-decode would burn tens of seconds of CPU on the launch
+        // path and iOS would CPU-watchdog-kill the app → stuck on loading. It is
+        // also unnecessary: the write path now dedupes by rec_ts with REPLACE
+        // (see _queueDecodedOneHz), and the derivation coordinator already FALLS
+        // BACK to decoding raw_records directly for any day-range whose decoded
+        // rows are absent (see _loadSubstrateRange). So the reboot-quarantined
+        // days recover on the next re-derive (triggered by the kAlgoVersion bump),
+        // which runs paged + in a worker isolate AFTER the app is up — never on
+        // the openDatabase critical path.
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -234,6 +277,21 @@ class LocalDb {
     await _createComputeState(db);
     await _createPrimitiveArtifacts(db);
     await _createDecodedStore(db);
+    // Drop leftover DUPLICATE indexes from an old canonical-store rebuild. When
+    // `_rebuildCanonicalDecodedStore` renamed `_decoded_*_new` → `decoded_*`, the
+    // temp `_new`-named indexes rode along and now shadow the canonical ones on
+    // the SAME columns — so every decoded insert (the hottest write path) updated
+    // twice as many b-trees as needed. The canonical indexes are (re)created by
+    // _createDecodedStore just above; these `_new` duplicates are pure write tax.
+    for (final ix in const [
+      'idx_decoded_onehz_new_rects',
+      'idx_decoded_onehz_new_rec_ts_unique',
+      'idx_decoded_rr_new_counter',
+      'idx_decoded_rr_new_ts',
+      'idx_decoded_rr_new_ts_beat_unique',
+    ]) {
+      await db.execute('DROP INDEX IF EXISTS $ix');
+    }
     await _createLiveCoverage(db);
     await _createCycleSymptom(db);
     await _ensureRawRecordSchema(db);
@@ -755,10 +813,21 @@ class LocalDb {
     if (!names.contains('rec_ts')) {
       await _addRecTsColumn(db);
       await _backfillRecTs(db);
-      await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_raw_rects ON raw_records(rec_ts)',
-      );
     }
+    // ALWAYS ensure the rec_ts index exists — NOT only when the column was just
+    // added. The v8 rebuild (RENAME + recreate) ran with an older _createRaw that
+    // did not recreate this index, so DBs upgraded through v8 have the rec_ts
+    // COLUMN but NO index. Every DerivationEngine pass filters/orders
+    // raw_records by rec_ts, so without it a large ledger (100k+ rows) does a
+    // full table SCAN + temp-b-tree sort on every derive → the app crawls.
+    // CREATE INDEX IF NOT EXISTS is a cheap no-op once it's present.
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_raw_rects ON raw_records(rec_ts)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_raw_unuploaded '
+      'ON raw_records(uploaded, captured_at) WHERE uploaded = 0',
+    );
   }
 
   static Future<void> _ensureSessionSchema(Database db) async {
@@ -1351,6 +1420,15 @@ class LocalDb {
     final decoded = _decodeOneHzSample(raw, preferred: sample);
     if (decoded == null) return;
     final recTs = raw.recTs ?? decoded.tsEpoch;
+    // TIME-KEYED, NEWEST-WINS (noop/WHOOP-4 model: dedupe records by their
+    // embedded timestamp, not by a counter). decoded_onehz has a UNIQUE(rec_ts)
+    // index and decoded_rr a UNIQUE(rr_ts_ms, beat_index). We use REPLACE, not
+    // IGNORE: the strap's record `counter` RESETS to ~0 on every reboot, so a
+    // post-reboot record whose second already had a row would be SILENTLY DROPPED
+    // under IGNORE — quarantining everything after a reboot (observed: whole days
+    // present in raw_records but absent from the decoded substrate the engine
+    // reads → "not worn / metrics still computing / strain –"). REPLACE lets the
+    // freshly-offloaded record for a given second win, which is what we want.
     batch.insert('decoded_onehz', {
       'counter': raw.counter,
       'rec_ts': recTs,
@@ -1361,7 +1439,7 @@ class LocalDb {
       'spo2_red_raw': decoded.spo2RedRaw ?? 0,
       'spo2_ir_raw': decoded.spo2IrRaw ?? 0,
       'skin_temp_raw': decoded.skinTempRaw ?? 0,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     for (var i = 0; i < decoded.rrIntervalsMs.length; i++) {
       final rr = decoded.rrIntervalsMs[i];
       if (rr <= 0) continue;
@@ -1370,7 +1448,7 @@ class LocalDb {
         'beat_index': i,
         'rr_ts_ms': recTs * 1000,
         'rr_ms': rr,
-      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   }
 

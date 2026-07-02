@@ -127,7 +127,13 @@ import 'substrate.dart';
 // 'auto_fallback', low confidence); a user can type/confirm a window
 // (sleep_override table → source 'manual'/'confirmed') which force-derives even
 // a finalized day. Bump so fallback-eligible days restage.
-const int kAlgoVersion = 28;
+// v29: COUNTER-RESET RECOVERY. The decoded substrate now dedupes by timestamp
+// (rec_ts, newest-wins) instead of by the strap counter, which resets on reboot
+// and silently quarantined every post-reboot day (empty "today", strain –). The
+// DB v21 migration re-decodes the whole raw ledger back into decoded_onehz, so
+// previously-quarantined days now have data. Bump so those days (and any finalized
+// day derived while data was missing) recompute against the recovered substrate.
+const int kAlgoVersion = 30;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 14;
@@ -2364,14 +2370,24 @@ class DerivationEngine {
             ana.SavedWorkoutSpan(r['start_ts'] as int, r['end_ts'] as int),
       ];
       final rhr = (scMap?['rhr'] as num?)?.round();
-      final detected = ana.autoDetectWorkouts(
-        hrTs: hrTs,
-        hrBpm: hrBpm,
-        restingBpm: rhr,
-        motion: motion,
-        savedSpans: savedSpans,
-      );
-      final bouts = detected.value ?? const [];
+      // Age-predicted HRmax (Tanaka) computed by the pipeline — drives the %HRR
+      // gate in the detector. Null when age is unknown (detector falls back).
+      final maxHr = (bundle['max_hr_used'] as num?)?.round();
+      // Auto-detection needs a real resting-HR baseline. Without one the detector
+      // can't compute a trustworthy %HRR floor and ordinary daytime HR reads as a
+      // workout. If we don't have a nightly RHR for this day yet, skip detection
+      // entirely (HRR for already-saved sessions below still runs).
+      final bouts = rhr == null
+          ? const <ana.DetectedWorkout>[]
+          : (ana.autoDetectWorkouts(
+                hrTs: hrTs,
+                hrBpm: hrBpm,
+                restingBpm: rhr,
+                maxBpm: maxHr,
+                motion: motion,
+                savedSpans: savedSpans,
+              ).value ??
+              const <ana.DetectedWorkout>[]);
 
       // HRR per bout from the per-second HR tail bracketing each bout end.
       final drops = <double>[];
@@ -2426,17 +2442,26 @@ class DerivationEngine {
             'created_at': DateTime.now().millisecondsSinceEpoch,
           });
         }
-        final first = bouts.first;
-        await NotificationCenter.instance.emit(NotificationEvent(
-          dedupeKey: '${day.date}:auto_workout',
-          category: NotifCategory.recovery,
-          priority: NotifPriority.normal,
-          title: 'Did you work out?',
-          body: 'We spotted ~${first.durationMin} min of elevated activity. '
-              'Tap to log it.',
-          date: day.date,
-          route: '/workouts',
-        ));
+        // Notify ONLY for a bout that ended in the last ~2 h (a near-real-time
+        // detection). Draining a backlog (e.g. an overnight gap) re-derives a whole
+        // day at once; without this every hours-old bout would fire a "did you work
+        // out?" prompt → a wall of notifications. Suggestions are still persisted
+        // above so they surface in the Workouts screen; we just don't ping for them.
+        final newest =
+            bouts.reduce((a, b) => a.endSec >= b.endSec ? a : b);
+        final freshlyEnded = (dataNowSec - newest.endSec) < 2 * 3600;
+        if (freshlyEnded) {
+          await NotificationCenter.instance.emit(NotificationEvent(
+            dedupeKey: '${day.date}:auto_workout',
+            category: NotifCategory.recovery,
+            priority: NotifPriority.normal,
+            title: 'Did you work out?',
+            body: 'We spotted ~${newest.durationMin} min of elevated activity. '
+                'Tap to log it.',
+            date: day.date,
+            route: '/workouts',
+          ));
+        }
       }
     } catch (e) {
       _log('auto-workout/HRR FAILED/skipped: $e');

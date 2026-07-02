@@ -282,6 +282,103 @@ void main() {
   );
 
   test(
+    'counter reset does not quarantine the decoded second (newest-wins by rec_ts)',
+    () async {
+      // Reproduce the reboot bug: the strap counter RESETS to ~0 on reboot, so a
+      // post-reboot record can land on a second that a pre-reboot (high-counter)
+      // record already wrote. The decoded store dedupes by rec_ts; the OLD
+      // INSERT-OR-IGNORE dropped the newcomer → everything after a reboot became
+      // invisible to analytics. It must now REPLACE (newest-wins) so the fresh
+      // record is kept.
+      final sec = DateTime(2026, 6, 30, 2, 0).millisecondsSinceEpoch ~/ 1000;
+
+      // Pre-reboot record: high counter, this second.
+      await LocalDb.insertRecord(
+        RawRecord(
+          counter: 34000000,
+          packetType: 47,
+          hex: 'pre-reboot',
+          capturedAt: sec * 1000,
+          recTs: sec,
+        ),
+        Sample(
+          tsEpoch: sec,
+          counter: 34000000,
+          hr: 61,
+          ax: 0.0,
+          ay: 0.0,
+          az: 1.0,
+          spo2RedRaw: 1,
+          spo2IrRaw: 1,
+          skinTempRaw: 1,
+        ),
+      );
+
+      // Post-reboot record: counter has reset to a low value, SAME second, but a
+      // fresher reading (hr=77). Under the old IGNORE this was dropped.
+      await LocalDb.insertRecord(
+        RawRecord(
+          counter: 42,
+          packetType: 47,
+          hex: 'post-reboot',
+          capturedAt: (sec + 3600) * 1000,
+          recTs: sec,
+        ),
+        Sample(
+          tsEpoch: sec,
+          counter: 42,
+          hr: 77,
+          ax: 0.0,
+          ay: 0.0,
+          az: 1.0,
+          spo2RedRaw: 2,
+          spo2IrRaw: 2,
+          skinTempRaw: 2,
+        ),
+      );
+
+      final frames = await LocalDb.decodedOneHzBatchByRecTsRange(
+        limit: 10,
+        fromRecTs: sec - 1,
+        toRecTs: sec + 1,
+      );
+      // Exactly one row for the second, and it is the POST-reboot reading.
+      expect(frames, hasLength(1));
+      expect(frames.first['hr'], 77);
+      expect(frames.first['counter'], 42);
+
+      // A post-reboot record on a brand-new second is also stored (not gated by
+      // any stale counter high-water).
+      await LocalDb.insertRecord(
+        RawRecord(
+          counter: 43,
+          packetType: 47,
+          hex: 'post-reboot-2',
+          capturedAt: (sec + 3601) * 1000,
+          recTs: sec + 1,
+        ),
+        Sample(
+          tsEpoch: sec + 1,
+          counter: 43,
+          hr: 78,
+          ax: 0.0,
+          ay: 0.0,
+          az: 1.0,
+          spo2RedRaw: 3,
+          spo2IrRaw: 3,
+          skinTempRaw: 3,
+        ),
+      );
+      final after = await LocalDb.decodedOneHzBatchByRecTsRange(
+        limit: 10,
+        fromRecTs: sec - 1,
+        toRecTs: sec + 2,
+      );
+      expect(after, hasLength(2));
+    },
+  );
+
+  test(
     'structured band signals persist event history and battery samples',
     () async {
       const eventHex = '3000070000105e5f';

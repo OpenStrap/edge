@@ -55,6 +55,11 @@ Future<bool> runHeadlessSync() async {
       onCommitBatch: (raws, samples, trimTokenHex) =>
           LocalDb.commitSyncBatch(raws, samples, trimToken: trimTokenHex),
       cursorReader: LocalDb.getCursorInt,
+      // Mark this as the background drainer: if the foreground app engine already
+      // owns the band (same process — iOS restore-wake OR Android headless boot /
+      // foreground service), this engine YIELDS instead of opening a second drain
+      // that would double-ACK the same offload and stall the trim cursor.
+      isBackgroundDrainer: true,
     );
 
     // connect() subscribes → SET_CLOCK → INIT, so the historical offload is already
