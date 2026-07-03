@@ -2,7 +2,7 @@
 //
 // Current flow (per trigger):
 //   1. Decide WHICH calendar days need compute (force / pending span / latest
-//      day + context).
+//      freshness-critical day).
 //   2. Build / refresh the first primitive, `sleep_session_candidates`, from a
 //      bounded overlap window only when needed.
 //   3. Load the exact calendar-day substrate + exact sleep-window substrate for
@@ -136,7 +136,7 @@ import 'substrate.dart';
 const int kAlgoVersion = 30;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
-const int rawRetentionDays = 14;
+const int rawRetentionDays = 3;
 
 /// A day stays recomputable for this long after its wake, then FINALIZES (locks)
 /// — more flash may still drain within this buffer (ARCHITECTURE_V2: ~48 h).
@@ -144,7 +144,18 @@ const int _finalizationSec = 48 * 3600;
 
 /// How many trailing derived days feed readiness/composite baselines.
 const int _baselineWindowDays = 28;
-const int _lightScopeDays = 3;
+
+@visibleForTesting
+({List<String> days, String reason}) selectLightDeriveDays({
+  required Set<String> rawDays,
+  required List<String> pendingDays,
+  required String today,
+}) {
+  if (rawDays.contains(today) && pendingDays.contains(today)) {
+    return (days: [today], reason: 'today-priority');
+  }
+  return (days: [pendingDays.last], reason: 'latest-pending');
+}
 
 class _DeriveScope {
   final bool fullHistory;
@@ -316,8 +327,9 @@ class DerivationEngine {
 
   Map<String, dynamic> snapshot() => Map<String, dynamic>.from(_diag);
 
-  /// Run a derivation pass. [heavy]=false runs a bounded light pass (only the
-  /// most-recent affected day); [heavy]=true sweeps every recomputable day.
+  /// Run a derivation pass. [heavy]=false runs a bounded light pass over the
+  /// freshness-critical day: TODAY when raw has reached today, else the latest
+  /// pending day. [heavy]=true sweeps every recomputable day.
   /// [force]=true recomputes EVERY non-finalized day regardless of the cursor.
   /// Re-entrant calls are coalesced. Returns the number of days computed.
   Future<int> run(
@@ -358,9 +370,9 @@ class DerivationEngine {
       _diag
         ..['scope_days'] = scope.targetDays.length
         ..['scope_reason'] = scope.reason;
-      final dataNowSec = await LocalDb.lastRawRecTs() ?? 0;
+      final dataNowSec = await LocalDb.lastDecodedRecTs() ?? 0;
       if (dataNowSec <= 0) {
-        _log('derive: no raw');
+        _log('derive: no decoded data');
         return 0;
       }
       final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
@@ -376,7 +388,7 @@ class DerivationEngine {
       if (todoDays.isEmpty) {
         _log('derive: all days finalized — nothing to do');
         if (scope.fullHistory) {
-          await _pruneOldRaw(todoDays, dataNowSec);
+          await _pruneOldDecoded(todoDays, dataNowSec);
         }
         return 0;
       }
@@ -455,7 +467,7 @@ class DerivationEngine {
       // 5. Prune raw — never for a day still inside its raw window / un-derived.
       if (scope.fullHistory) {
         _diag['stage'] = 'prune';
-        await _pruneOldRaw(todoDays, dataNowSec);
+        await _pruneOldDecoded(todoDays, dataNowSec);
       }
       return done;
     } catch (e, st) {
@@ -510,9 +522,9 @@ class DerivationEngine {
       ..['last_error'] = null;
     try {
       final scope = _scopeForDays(days.toList(), reason: 'selected-days');
-      final dataNowSec = await LocalDb.lastRawRecTs() ?? 0;
+      final dataNowSec = await LocalDb.lastDecodedRecTs() ?? 0;
       if (dataNowSec <= 0) {
-        _log('derive selected: no raw');
+        _log('derive selected: no decoded data');
         return 0;
       }
       final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
@@ -698,7 +710,6 @@ class DerivationEngine {
       _diag
         ..['range_from_rec_ts'] = fromRecTs
         ..['range_to_rec_ts'] = toRecTs;
-      var usedDecoded = false;
       while (true) {
         final decodedRows = await LocalDb.decodedOneHzBatchByRecTsRange(
           limit: _rawDecodeBatchSize,
@@ -708,7 +719,6 @@ class DerivationEngine {
           afterCounter: afterCursor,
         );
         if (decodedRows.isNotEmpty) {
-          usedDecoded = true;
           _trackPrepareBatch(decodedRows.length);
           rangePages += 1;
           rangeRows += decodedRows.length;
@@ -734,33 +744,7 @@ class DerivationEngine {
           if (decodedRows.length < _rawDecodeBatchSize) break;
           continue;
         }
-        if (usedDecoded) break;
-        final rows = await LocalDb.rawHexBatchByRecTsRange(
-          limit: _rawDecodeBatchSize,
-          fromRecTs: fromRecTs,
-          toRecTs: toRecTs,
-          afterRecTs: afterRecTs,
-          afterRowId: afterCursor,
-        );
-        if (rows.isEmpty) break;
-        _trackPrepareBatch(rows.length);
-        rangePages += 1;
-        rangeRows += rows.length;
-        _enforcePrepareBudget(
-          dayId: dayId,
-          fromRecTs: fromRecTs,
-          toRecTs: toRecTs,
-          rangePages: rangePages,
-          rangeRows: rangeRows,
-        );
-        worker.send({
-          'type': 'page',
-          'hexes': [for (final row in rows) row['hex'] as String],
-        });
-        final last = rows.last;
-        afterRecTs = (last['rec_ts'] as num?)?.toInt() ?? afterRecTs;
-        afterCursor = (last['rowid'] as num?)?.toInt() ?? afterCursor;
-        if (rows.length < _rawDecodeBatchSize) break;
+        break;
       }
       worker.send(const {'type': 'finish'});
       return result.future;
@@ -804,7 +788,7 @@ class DerivationEngine {
     required bool heavy,
     required bool force,
   }) async {
-    final rawByDay = await LocalDb.rawRecTsMaxByDay();
+    final rawByDay = await LocalDb.decodedRecTsMaxByDay();
     if (rawByDay.isEmpty) {
       return const _DeriveScope(
         fullHistory: true,
@@ -830,13 +814,12 @@ class DerivationEngine {
       return _scopeForDays(pending, reason: 'pending-span');
     }
 
-    final latest = pending.last;
-    final latestSec = _localDayLabelToSec(latest);
-    final scoped = <String>[];
-    for (var i = _lightScopeDays - 1; i >= 0; i--) {
-      scoped.add(_localDateLabel(latestSec - i * 86400));
-    }
-    return _scopeForDays(scoped, reason: 'latest+context');
+    final light = selectLightDeriveDays(
+      rawDays: rawByDay.keys.toSet(),
+      pendingDays: pending,
+      today: LocalDb.localDayLabelNow(),
+    );
+    return _scopeForDays(light.days, reason: light.reason);
   }
 
   _DeriveScope _scopeForDays(
@@ -885,12 +868,12 @@ class DerivationEngine {
         return 0;
       }
 
-      final rawByDay = await LocalDb.rawRecTsMaxByDay();
+      final rawByDay = await LocalDb.decodedRecTsMaxByDay();
       if (rawByDay.isEmpty) {
-        _log('rescan: no raw');
+        _log('rescan: no decoded data');
         return 0;
       }
-      final dataNowSec = await LocalDb.lastRawRecTs() ?? 0;
+      final dataNowSec = await LocalDb.lastDecodedRecTs() ?? 0;
       if (dataNowSec <= 0) {
         _log('rescan: no data edge');
         return 0;
@@ -901,7 +884,7 @@ class DerivationEngine {
           if ((_localDayLabelToSec(dayId) + 86400) >= cutoffSec) dayId,
       ]..sort();
       if (todoDays.isEmpty) {
-        _log('rescan: no recent raw-backed days');
+        _log('rescan: no recent decoded-backed days');
         await LocalDb.setCursor('baseline_sig', sig);
         return 0;
       }
@@ -1107,6 +1090,7 @@ class DerivationEngine {
     final bundle = await Isolate.run(
       () => deriveDayBundle(withHistory),
     ).timeout(_perDayTimeout);
+    _logSpo2Diagnostics(day, input, bundle);
 
     // Where this day's sleep window came from (auto / auto_fallback / manual /
     // confirmed) — drives the Sleep screen's "is this right?" prompt + the
@@ -1276,6 +1260,86 @@ class DerivationEngine {
       'derived ${day.date} v$kAlgoVersion '
       '(sleep=${day.sleepOffsetSec > day.sleepOnsetSec}, final=$finalized)',
     );
+  }
+
+  void _logSpo2Diagnostics(
+    PreparedDerivationDay day,
+    DayBundleInput input,
+    Map<String, dynamic> bundle,
+  ) {
+    final red = input.sleepSpo2Red;
+    final ir = input.sleepSpo2Ir;
+    final ts = input.sleepTsSec;
+    if (red.isEmpty || ir.isEmpty || ts.isEmpty) {
+      _log('[spo2-detect] {"day":"${day.date}","status":"no_sleep_spo2"}');
+      return;
+    }
+
+    int minInt(List<int> xs) => xs.reduce((a, b) => a < b ? a : b);
+    int maxInt(List<int> xs) => xs.reduce((a, b) => a > b ? a : b);
+    double meanInt(List<int> xs) =>
+        xs.isEmpty ? 0 : xs.reduce((a, b) => a + b) / xs.length;
+
+    final redNonZero = red.where((v) => v > 0).length;
+    final irNonZero = ir.where((v) => v > 0).length;
+    final spo2 = (bundle['spo2'] as Map?)?.cast<String, dynamic>();
+    final ratios = <double>[
+      for (var i = 0; i < red.length && i < ir.length; i++)
+        if (red[i] > 0 && ir[i] > 0) red[i] / ir[i],
+    ];
+    double? meanDouble(List<double> xs) =>
+        xs.isEmpty ? null : xs.reduce((a, b) => a + b) / xs.length;
+    double? minDouble(List<double> xs) =>
+        xs.isEmpty ? null : xs.reduce((a, b) => a < b ? a : b);
+    double? maxDouble(List<double> xs) =>
+        xs.isEmpty ? null : xs.reduce((a, b) => a > b ? a : b);
+
+    final payload = <String, dynamic>{
+      'day': day.date,
+      'sleep_samples': ts.length,
+      'sleep_span_sec': ts.last - ts.first,
+      'feature_disabled': spo2?['disabled'] == true,
+      'red': <String, dynamic>{
+        'non_zero': redNonZero,
+        'zero': red.length - redNonZero,
+        'coverage': redNonZero / red.length,
+        'unique': red.toSet().length,
+        'min': minInt(red),
+        'max': maxInt(red),
+        'mean': meanInt(red).toStringAsFixed(2),
+        'first10': red.take(10).toList(),
+      },
+      'ir': <String, dynamic>{
+        'non_zero': irNonZero,
+        'zero': ir.length - irNonZero,
+        'coverage': irNonZero / ir.length,
+        'unique': ir.toSet().length,
+        'min': minInt(ir),
+        'max': maxInt(ir),
+        'mean': meanInt(ir).toStringAsFixed(2),
+        'first10': ir.take(10).toList(),
+      },
+      'ratio': <String, dynamic>{
+        'samples': ratios.length,
+        'min': minDouble(ratios)?.toStringAsFixed(6),
+        'max': maxDouble(ratios)?.toStringAsFixed(6),
+        'mean': meanDouble(ratios)?.toStringAsFixed(6),
+        'first10': ratios.take(10).map((v) => v.toStringAsFixed(6)).toList(),
+      },
+      'odi': <String, dynamic>{
+        'disabled': spo2?['disabled'],
+        'note': spo2?['note'],
+        'value': spo2?['odi_per_hour'],
+        'dip_count': spo2?['dip_count'],
+        'signal_coverage': spo2?['signal_coverage'],
+        'trusted_coverage': spo2?['trusted_coverage'],
+        'confidence': spo2?['confidence'],
+        'reject_counts': spo2?['reject_counts'],
+        'severity_counts': spo2?['severity_counts'],
+        'debug': spo2?['debug'],
+      },
+    };
+    _log('[spo2-detect] ${jsonEncode(payload)}');
   }
 
   /// Persist a minimal skip marker so a pathological day isn't retried forever.
@@ -1577,7 +1641,7 @@ class DerivationEngine {
   /// backfill received in one sync must not be pruned just because it landed
   /// "now". Guard: never prune while any day in [days] is NOT yet derived at the
   /// current algo version (raw-first).
-  Future<void> _pruneOldRaw(List<String> dayIds, int dataNowSec) async {
+  Future<void> _pruneOldDecoded(List<String> dayIds, int dataNowSec) async {
     final derivedIds = await LocalDb.dayResultIds(kAlgoVersion);
     final pending = dayIds.where((d) => !derivedIds.contains(d)).toList();
     if (pending.isNotEmpty) {
@@ -1586,8 +1650,10 @@ class DerivationEngine {
     }
     final cutoffSec = dataNowSec - rawRetentionDays * 86400;
     if (cutoffSec <= 0) return;
-    final deleted = await LocalDb.pruneRawBeforeRecTs(cutoffSec);
-    if (deleted > 0) _log('pruned $deleted raw rows with rec_ts < $cutoffSec');
+    final deleted = await LocalDb.pruneDecodedBeforeRecTs(cutoffSec);
+    if (deleted > 0) {
+      _log('pruned $deleted decoded rows with rec_ts < $cutoffSec');
+    }
   }
 
   List<double> _perMinuteMeanWake(
@@ -2641,12 +2707,6 @@ class DerivationEngine {
     final d = DateTime.tryParse(day);
     if (d == null) return 0;
     return DateTime(d.year, d.month, d.day).millisecondsSinceEpoch ~/ 1000;
-  }
-
-  String _localDateLabel(int epochSec) {
-    final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000);
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${d.year}-${two(d.month)}-${two(d.day)}';
   }
 
   String _skipReasonForError(Object error) {

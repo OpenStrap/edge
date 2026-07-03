@@ -194,7 +194,7 @@ class _DataHistoryScreenState extends State<DataHistoryScreen> {
                 children: [
                   Expanded(child: _stat('Local size', _fmtBytes(_dbBytes))),
                   const SizedBox(width: Sp.x3),
-                  Expanded(child: _stat('Days with raw', '$rawDays')),
+                  Expanded(child: _stat('Days with data', '$rawDays')),
                   const SizedBox(width: Sp.x3),
                   Expanded(child: _stat('Days derived', '$derivedDays')),
                 ],

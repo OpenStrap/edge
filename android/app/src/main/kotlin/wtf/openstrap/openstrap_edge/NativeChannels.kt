@@ -44,6 +44,18 @@ object NativeChannels {
                         app.stopService(Intent(app, EdgeTrackingService::class.java))
                         result.success(null)
                     }
+                    "consumeHeadlessBootPending" -> {
+                        val prefs = app.getSharedPreferences(
+                            "openstrap_runtime",
+                            Context.MODE_PRIVATE
+                        )
+                        val pending = prefs.getBoolean("pending_headless_boot", false)
+                        val eligible = pending && !MainActivity.activityAttached
+                        if (eligible) {
+                            prefs.edit().putBoolean("pending_headless_boot", false).apply()
+                        }
+                        result.success(eligible)
+                    }
                     else -> result.notImplemented()
                 }
             }

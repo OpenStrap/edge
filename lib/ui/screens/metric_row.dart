@@ -41,7 +41,7 @@ const Map<String, String> kMetricInfo = {
   'sleeping_hr': 'Average heart rate while you slept.',
   'resp': 'Breaths per minute, derived from heart-rate variability.',
   'spo2':
-      'Overnight red/IR oxygen screen. Dips are relative to your own nightly baseline, not an absolute SpO₂%.',
+      'TODO. Blood O₂ is temporarily disabled while the packet decode is re-validated from raw captures.',
   'skin_temp':
       'Skin temperature vs your personal overnight baseline. Relative (Δ), not an absolute thermometer.',
   'hrr60':

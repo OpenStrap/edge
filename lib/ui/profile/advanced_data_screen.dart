@@ -20,6 +20,7 @@ class _AdvancedDataScreenState extends State<AdvancedDataScreen> {
   bool _loading = true;
   bool _busy = false;
   List<Map<String, dynamic>> _days = const [];
+  List<Map<String, dynamic>> _tableStats = const [];
   Map<String, dynamic>? _capture;
   Map<String, dynamic>? _today;
   Map<String, dynamic>? _crossday;
@@ -35,6 +36,7 @@ class _AdvancedDataScreenState extends State<AdvancedDataScreen> {
     final app = context.read<AppState>();
     setState(() => _loading = true);
     final days = await app.dataHistoryDays();
+    final tableStats = await LocalDb.tableStorageStats();
     final captureRow = await LocalDb.computeFreshness('capture');
     final todayRow = await LocalDb.computeFreshness('today');
     final crossdayRow = await LocalDb.computeFreshness('crossday');
@@ -52,6 +54,7 @@ class _AdvancedDataScreenState extends State<AdvancedDataScreen> {
     if (!mounted) return;
     setState(() {
       _days = days;
+      _tableStats = tableStats;
       _capture = decode(captureRow);
       _today = decode(todayRow);
       _crossday = decode(crossdayRow);
@@ -66,6 +69,19 @@ class _AdvancedDataScreenState extends State<AdvancedDataScreen> {
     final hh = dt.hour.toString().padLeft(2, '0');
     final mm = dt.minute.toString().padLeft(2, '0');
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} $hh:$mm';
+  }
+
+  String _fmtMb(num? mb) {
+    if (mb == null || !mb.isFinite) return '—';
+    if (mb >= 100) return '${mb.toStringAsFixed(0)} MB';
+    if (mb >= 10) return '${mb.toStringAsFixed(1)} MB';
+    return '${mb.toStringAsFixed(2)} MB';
+  }
+
+  String _fmtRows(Object? rows) {
+    final n = (rows as num?)?.toInt();
+    if (n == null) return '—';
+    return n.toString();
   }
 
   Future<void> _reanalyzeSelected() async {
@@ -189,11 +205,11 @@ class _AdvancedDataScreenState extends State<AdvancedDataScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _kv(
-                    'Latest raw day',
+                    'Latest data day',
                     _capture?['latest_raw_day']?.toString() ?? '—',
                   ),
                   _kv(
-                    'Latest raw rec_ts',
+                    'Latest data rec_ts',
                     (_capture?['latest_raw_rec_ts'] ?? '—').toString(),
                   ),
                   _kv(
@@ -230,6 +246,23 @@ class _AdvancedDataScreenState extends State<AdvancedDataScreen> {
                     'Cross-day updated',
                     _fmtMs((_crossday?['updated_at'] as num?)?.toInt()),
                   ),
+                ],
+              ),
+            ),
+            const SizedBox(height: Sp.x6),
+            const SectionHeader('Storage'),
+            ProCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final row in _tableStats) ...[
+                    _tableRow(row),
+                    if (!identical(row, _tableStats.last))
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: Sp.x2),
+                        child: Divider(height: 1),
+                      ),
+                  ],
                 ],
               ),
             ),
@@ -283,6 +316,25 @@ class _AdvancedDataScreenState extends State<AdvancedDataScreen> {
       ],
     ),
   );
+
+  Widget _tableRow(Map<String, dynamic> row) {
+    final approx = row['approximate'] == true;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Text(row['table']?.toString() ?? '—', style: AppText.body),
+        ),
+        const SizedBox(width: Sp.x3),
+        Text('${_fmtRows(row['rows'])} rows', style: AppText.captionMuted),
+        const SizedBox(width: Sp.x3),
+        Text(
+          _fmtMb((row['mb'] as num?)),
+          style: approx ? AppText.captionMuted : AppText.bodySoft,
+        ),
+      ],
+    );
+  }
 
   Widget _dayCard(Map<String, dynamic> row) {
     final dayId = row['day_id'] as String;

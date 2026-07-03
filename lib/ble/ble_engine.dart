@@ -37,7 +37,7 @@
 
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
@@ -75,6 +75,66 @@ typedef CommitSyncBatchSink =
 /// DerivationEngine pass. Replaces the old "runSync() → SyncReport → derive"
 /// trigger now that listening is continuous and there's no discrete sync end.
 typedef DataStoredSink = void Function();
+
+@visibleForTesting
+int countHistoricalBurstPackets({
+  required Map<int, int> dataPacketCountsByRevision,
+  int revision16Count = 0,
+  int revision19Count = 0,
+  int revision22Count = 0,
+  int revision25Count = 0,
+  int revision26Count = 0,
+}) {
+  return dataPacketCountsByRevision.values.fold<int>(
+        0,
+        (sum, count) => sum + count,
+      ) +
+      revision16Count +
+      revision19Count +
+      revision22Count +
+      revision25Count +
+      revision26Count;
+}
+
+@visibleForTesting
+int countBurstTrafficPackets({
+  required Map<int, int> dataPacketCountsByRevision,
+  int revision16Count = 0,
+  int revision19Count = 0,
+  int revision22Count = 0,
+  int revision25Count = 0,
+  int revision26Count = 0,
+  int eventCount = 0,
+  int consoleCount = 0,
+  int unknownCount = 0,
+}) {
+  return countHistoricalBurstPackets(
+        dataPacketCountsByRevision: dataPacketCountsByRevision,
+        revision16Count: revision16Count,
+        revision19Count: revision19Count,
+        revision22Count: revision22Count,
+        revision25Count: revision25Count,
+        revision26Count: revision26Count,
+      ) +
+      eventCount +
+      consoleCount +
+      unknownCount;
+}
+
+@visibleForTesting
+int nextBurstStablePollStreak({
+  required bool queueEmpty,
+  required int currentCount,
+  required int previousCount,
+  required int stableStreak,
+}) {
+  if (!queueEmpty) return 0;
+  return currentCount == previousCount ? (stableStreak + 1) : 0;
+}
+
+@visibleForTesting
+bool shouldPauseMaintenanceTraffic({required bool offloadActive}) =>
+    offloadActive;
 
 /// Fired for every LIVE high-rate frame (0x28/0x2B/0x33). These are EPHEMERAL —
 /// they are NOT persisted to raw_records (that bloated storage ~50x and stalled
@@ -264,8 +324,10 @@ class BleEngine {
   final CommitSyncBatchSink? onCommitBatch;
 
   /// Tunable debounce window for [onDataStored]. Default coalesces a burst once the
-  /// stream goes quiet for ~12s, with a 90s never-quiet floor.
+  /// stream goes quiet. The debouncer can run in a fast stale mode or a calmer
+  /// fresh mode depending on [deriveDataStaleness].
   final DeriveDebouncer deriveDebouncer;
+  final Duration Function() deriveDataStaleness;
 
   BleEngine({
     required this.onRecord,
@@ -280,12 +342,15 @@ class BleEngine {
     this.cursorReader,
     this.deriveDebouncer = const DeriveDebouncer(),
     this.isBackgroundDrainer = false,
+    this.deriveDataStaleness = _defaultDeriveDataStaleness,
   });
 
   /// True for the headless restore-drain engine (runHeadlessSync). It YIELDS the
   /// band to a foreground engine rather than fighting it — see [_claimBand]. The
   /// foreground app engine leaves this false and always wins.
   final bool isBackgroundDrainer;
+
+  static Duration _defaultDeriveDataStaleness() => const Duration(days: 3650);
 
   /// Optional reader for a persisted cursor value (e.g. counter_hw) so the engine
   /// can seed its frontier from the durable store on connect — making the stuck/
@@ -314,8 +379,10 @@ class BleEngine {
     final other = _bandOwner;
     if (other != null && !identical(other, this)) {
       if (isBackgroundDrainer) {
-        _log('band already owned by the foreground session — background drain '
-            'yielding (avoids duplicate ACKs on the same offload).');
+        _log(
+          'band already owned by the foreground session — background drain '
+          'yielding (avoids duplicate ACKs on the same offload).',
+        );
         return false;
       }
       _log('preempting a background drain to take the foreground session.');
@@ -384,6 +451,7 @@ class BleEngine {
   ClockRef? _clockRef; // strap-RTC ↔ wall correlation (set from GET_CLOCK)
   /// Latest strap-RTC ↔ wall correlation, or null until GET_CLOCK is answered.
   ClockRef? get clockRef => _clockRef;
+
   /// SET_CLOCK re-issue attempts THIS connection. setClock() reads the clock
   /// back, and the GET_CLOCK handler re-issues on drift — so cap the retries or
   /// a firmware that never latches either payload form would loop forever.
@@ -398,6 +466,8 @@ class BleEngine {
   double? _lastHistoricalSendAt; // last actual SEND_HISTORICAL_DATA wall time
   int _emptyStreak = 0; // consecutive empty offloads (BackfillPolicy backoff)
   int _droppedImplausible = 0; // records rejected by the plausibility gate
+  final Map<int, int> _historicalVersionCounts = <int, int>{};
+  final Set<String> _historicalOpticalDebugKeys = <String>{};
 
   double _wallSecs() => DateTime.now().millisecondsSinceEpoch / 1000.0;
 
@@ -424,6 +494,52 @@ class BleEngine {
 
   void _log(String s) => log?.call(s);
 
+  void _logHistoricalOptics(Uint8List inner, R24 r) {
+    final version = r.histVersion;
+    final count = (_historicalVersionCounts[version] ?? 0) + 1;
+    _historicalVersionCounts[version] = count;
+
+    // Keep the log small but deterministic: first three records of each version,
+    // then version milestones that help confirm which path dominates the drain.
+    final shouldLogMilestone =
+        count <= 3 || count == 10 || count == 50 || count == 100;
+    final key = 'v$version#$count';
+    if (!shouldLogMilestone || !_historicalOpticalDebugKeys.add(key)) return;
+
+    if (version == 24 || version == 12) {
+      _log(
+        '[SPO2] hist=v$version count=$count base=inner '
+        'whoop4_optical(red@64 ir@66 temp@68 amb@70) '
+        'ts=${r.tsEpoch} red=${r.spo2RedRaw} ir=${r.spo2IrRaw} '
+        'temp=${r.skinTempRaw} amb=${r.ambientRaw} '
+        'ppg_green=${r.ppgGreen} ppg_red_ir=${r.ppgRedIr}',
+      );
+      return;
+    }
+
+    if (version == 25) {
+      final view = inner.buffer.asByteData(
+        inner.offsetInBytes,
+        inner.lengthInBytes,
+      );
+      final u16s = <int>[];
+      for (int off = 23; off + 2 <= inner.length && off < 73; off += 2) {
+        u16s.add(view.getUint16(off, Endian.little));
+      }
+      final first = u16s.take(8).toList();
+      final min = u16s.isEmpty ? 0 : u16s.reduce((a, b) => a < b ? a : b);
+      final max = u16s.isEmpty ? 0 : u16s.reduce((a, b) => a > b ? a : b);
+      _log(
+        '[SPO2] hist=v25 count=$count base=inner '
+        'known(unix@7 gravity@69/71/73) '
+        'unknown_optical_region=23..72 '
+        'ts=${r.tsEpoch} g=${r.accelG.map((v) => v.toStringAsFixed(4)).join(",")} '
+        'opt_u16_unique=${u16s.toSet().length} opt_u16_min=$min opt_u16_max=$max '
+        'opt_u16_first8=$first',
+      );
+    }
+  }
+
   /// Note that records were just persisted; (re)arm the debounced derive trigger.
   /// Called from the record-store paths. No-op when no [onDataStored] is wired.
   void _noteStored() {
@@ -438,6 +554,7 @@ class BleEngine {
         hasPending: true,
         sinceLastRecord: DateTime.now().difference(_lastStored),
         sinceFirstPending: DateTime.now().difference(fp),
+        dataStaleness: deriveDataStaleness(),
       );
       if (fire) {
         _firstPending = null;
@@ -720,7 +837,11 @@ class BleEngine {
       // Heartbeat: keep the link alive (~10s LINK_VALID). Owned by the session, so a
       // disconnect cancels it — no zombie timer firing into a dead characteristic.
       session.heartbeat = Timer.periodic(const Duration(seconds: 10), (_) {
-        if (session.connected) _send(Cmd.linkValid, const [0x00]);
+        if (!session.connected ||
+            shouldPauseMaintenanceTraffic(offloadActive: _offloadActive)) {
+          return;
+        }
+        _send(Cmd.linkValid, const [0x00]);
       });
       // Keep-alive (30s): liveness watchdog (bounce a silently-dead link), periodic
       // battery poll, and realtime re-arm.
@@ -776,6 +897,9 @@ class BleEngine {
           ); // surfaces 'disconnected' → caller reconnects
         }),
       );
+      return;
+    }
+    if (shouldPauseMaintenanceTraffic(offloadActive: _offloadActive)) {
       return;
     }
     if (_liveEnabled) {
@@ -1103,6 +1227,7 @@ class BleEngine {
       if (recType == Record.r24) {
         final r = parseR24(frame.inner);
         if (r != null) {
+          _logHistoricalOptics(frame.inner, r);
           sample = Sample(
             tsEpoch: r.tsEpoch,
             counter: r.counter,
@@ -1218,6 +1343,7 @@ class BleEngine {
     if (recType == Record.r24) {
       final r = parseR24(frame.inner);
       if (r != null) {
+        _logHistoricalOptics(frame.inner, r);
         sample = Sample(
           tsEpoch: r.tsEpoch,
           counter: r.counter,
@@ -1313,12 +1439,16 @@ class BleEngine {
       if (ClockPolicy.shouldSetClock(dev, wall)) {
         if (_clockCorrectTries < 3) {
           _clockCorrectTries++;
-          _log('Clock drift over policy — re-issuing SET_CLOCK '
-              '(attempt $_clockCorrectTries/3).');
+          _log(
+            'Clock drift over policy — re-issuing SET_CLOCK '
+            '(attempt $_clockCorrectTries/3).',
+          );
           unawaited(setClock());
         } else {
-          _log('Clock still off after 3 SET_CLOCK attempts — giving up; '
-              'firmware may not accept our payload length.');
+          _log(
+            'Clock still off after 3 SET_CLOCK attempts — giving up; '
+            'firmware may not accept our payload length.',
+          );
         }
       } else {
         _clockCorrectTries = 0; // latched — reset for the next drift episode
@@ -1459,12 +1589,16 @@ class BleEngine {
           drain: d,
         );
       }
+      await _awaitBurstTrafficSettle(d);
       final expected = m.expectedPacketCount;
       if (expected != null && !d.validateBurst(expectedPacketCount: expected)) {
         _log(
           '[SYNC] Burst validation failed '
           '(attempt ${d.consecutiveValidationFailures}): expected=$expected, '
-          'actual=${d.currentBurstPacketCount}, breakdown=${d.currentBurstBreakdown}',
+          'actual=${d.currentBurstPacketCount}, '
+          'historical=${d.currentBurstHistoricalPacketCount}, '
+          'traffic=${d.currentBurstTrafficCount}, '
+          'breakdown=${d.currentBurstBreakdown}',
         );
         d.discardOpenChunk();
         final fail = buildHistoryResultFail(_seq.nextSync());
@@ -1479,6 +1613,8 @@ class BleEngine {
           metaPatch: {
             'expected_burst_packets': expected,
             'actual_burst_packets': d.currentBurstPacketCount,
+            'historical_burst_packets': d.currentBurstHistoricalPacketCount,
+            'traffic_burst_packets': d.currentBurstTrafficCount,
             'burst_validation_failures': d.consecutiveValidationFailures,
             'burst_breakdown': d.currentBurstBreakdown,
           },
@@ -1504,7 +1640,9 @@ class BleEngine {
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
         'expected=${m.expectedPacketCount} actual=${d.currentBurstPacketCount} '
-        'token=$tokenHex recTs=${r == null ? "none" : "${r.$1}..${r.$2}"}',
+        'historical=${d.currentBurstHistoricalPacketCount} '
+        'traffic=${d.currentBurstTrafficCount} token=$tokenHex '
+        'recTs=${r == null ? "none" : "${r.$1}..${r.$2}"}',
       );
       // SAFE-TRIM INVARIANT: persist decoded+raw AND the continuation cursor
       // DURABLY (one transaction) BEFORE the ACK. The band trims its flash only
@@ -1571,6 +1709,51 @@ class BleEngine {
     }
   }
 
+  Future<void> _awaitBurstTrafficSettle(_DrainController d) async {
+    const poll = Duration(milliseconds: 60);
+    const budget = Duration(milliseconds: 720);
+    const requiredStablePolls = 3;
+    final deadline = DateTime.now().add(budget);
+    var previousCount = d.currentBurstPacketCount;
+    var waitedMs = 0;
+    var stablePolls = 0;
+    while (DateTime.now().isBefore(deadline)) {
+      if (_offloadFrames.isNotEmpty) {
+        await Future<void>.delayed(poll);
+        waitedMs += poll.inMilliseconds;
+        previousCount = d.currentBurstPacketCount;
+        stablePolls = 0;
+        continue;
+      }
+      await Future<void>.delayed(poll);
+      waitedMs += poll.inMilliseconds;
+      final currentCount = d.currentBurstPacketCount;
+      stablePolls = nextBurstStablePollStreak(
+        queueEmpty: _offloadFrames.isEmpty,
+        currentCount: currentCount,
+        previousCount: previousCount,
+        stableStreak: stablePolls,
+      );
+      if (_offloadFrames.isEmpty && stablePolls >= requiredStablePolls) {
+        if (waitedMs > 0) {
+          _log(
+            '[SYNC] history-end settle: waited=${waitedMs}ms '
+            'traffic=$currentCount historical=${d.currentBurstHistoricalPacketCount} '
+            'stable_polls=$stablePolls',
+          );
+        }
+        return;
+      }
+      previousCount = currentCount;
+    }
+    _log(
+      '[SYNC] history-end settle timed out at ${waitedMs}ms '
+      'traffic=${d.currentBurstPacketCount} '
+      'historical=${d.currentBurstHistoricalPacketCount} '
+      'stable_polls=$stablePolls',
+    );
+  }
+
   // ── post-offload policy: empty-sync, stuck-strap, auto-continue ──────────────
   Future<void> _onOffloadFinished({required bool complete}) async {
     final d = _drain;
@@ -1604,7 +1787,6 @@ class BleEngine {
       stillConnected: _session?.connected == true,
       strapNewestTs: _sessionNewestUnix,
       ourFrontierTs: _frontierTs,
-      rowsPersistedThisSession: d.recordsThisOffload,
       lastTrimAdvanced: d.lastTrimAdvanced,
       consecutiveCount: _autoContinueCount,
     );
@@ -1988,7 +2170,8 @@ class BleEngine {
     // 2034) — which made `history_newest` garbage, so backlogRemains was
     // PERMANENTLY true and the offload never recognized completion (it chased a
     // 2034 target forever). Cap at wall-clock + 1 day (clock skew slack).
-    final maxPlausible = (DateTime.now().millisecondsSinceEpoch ~/ 1000) + 86400;
+    final maxPlausible =
+        (DateTime.now().millisecondsSinceEpoch ~/ 1000) + 86400;
     final ts = <int>[];
     for (var off = 0; off + 4 <= payload.length; off++) {
       final v = u32(payload, off);
@@ -2058,6 +2241,7 @@ class _DrainController {
     }
     return any ? (lo, hi) : null;
   }
+
   // Trim-advance tracking for the stuck/continuation detectors: a HISTORY_END
   // whose 8-byte token differs from the last one means the cursor moved.
   String? _lastAckedToken;
@@ -2065,7 +2249,9 @@ class _DrainController {
   int consecutiveValidationFailures = 0;
 
   bool get _buffering => onCommit != null || onRecordsBatch != null;
-  int get currentBurstPacketCount => burstStats.totalPacketCount;
+  int get currentBurstPacketCount => burstStats.totalTrafficPacketCount;
+  int get currentBurstTrafficCount => burstStats.totalTrafficPacketCount;
+  int get currentBurstHistoricalPacketCount => burstStats.historicalPacketCount;
   String get currentBurstBreakdown => burstStats.breakdownString;
 
   void onHistoricalRecord(RawRecord raw, Sample? sample) {
@@ -2244,19 +2430,26 @@ class _BurstStats {
     (sum, s) => sum + s.backwardCount,
   );
 
-  int get totalPacketCount =>
-      _dataPacketCountsByRevision.values.fold<int>(
-        0,
-        (sum, count) => sum + count,
-      ) +
-      _revision16Count +
-      _revision19Count +
-      _revision22Count +
-      _revision25Count +
-      _revision26Count +
-      _eventCount +
-      _consoleCount +
-      _unknownCount;
+  int get historicalPacketCount => countHistoricalBurstPackets(
+    dataPacketCountsByRevision: _dataPacketCountsByRevision,
+    revision16Count: _revision16Count,
+    revision19Count: _revision19Count,
+    revision22Count: _revision22Count,
+    revision25Count: _revision25Count,
+    revision26Count: _revision26Count,
+  );
+
+  int get totalTrafficPacketCount => countBurstTrafficPackets(
+    dataPacketCountsByRevision: _dataPacketCountsByRevision,
+    revision16Count: _revision16Count,
+    revision19Count: _revision19Count,
+    revision22Count: _revision22Count,
+    revision25Count: _revision25Count,
+    revision26Count: _revision26Count,
+    eventCount: _eventCount,
+    consoleCount: _consoleCount,
+    unknownCount: _unknownCount,
+  );
 
   String get breakdownString {
     final parts = <String>[];

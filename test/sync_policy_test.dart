@@ -159,14 +159,12 @@ void main() {
       bool connected = true,
       int? strapNewest = 2000,
       int? frontier = 1000,
-      int rows = 50,
       bool trimAdvanced = true,
       int count = 0,
     }) => BackfillContinuation.shouldAutoContinue(
       stillConnected: connected,
       strapNewestTs: strapNewest,
       ourFrontierTs: frontier,
-      rowsPersistedThisSession: rows,
       lastTrimAdvanced: trimAdvanced,
       consecutiveCount: count,
     );
@@ -187,12 +185,12 @@ void main() {
       () => expect(cont(trimAdvanced: false), isFalse),
     );
     test(
-      'within the behind-gap but rows persisted → continues (#451 stale newest)',
-      () => expect(cont(strapNewest: 1100, frontier: 1000, rows: 30), isTrue),
+      'within the behind-gap and no rows → stops',
+      () => expect(cont(strapNewest: 1100, frontier: 1000), isFalse),
     );
     test(
-      'within the behind-gap and no rows → stops',
-      () => expect(cont(strapNewest: 1100, frontier: 1000, rows: 0), isFalse),
+      'missing strap newest information → stops',
+      () => expect(cont(strapNewest: null, frontier: 1000), isFalse),
     );
   });
 

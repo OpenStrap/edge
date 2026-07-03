@@ -462,7 +462,7 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: Sp.x3),
                 Text(
-                  'Your raw band data and metrics are stored entirely on this '
+                  'Your band data and metrics are stored entirely on this '
                   'phone. Nothing is uploaded to a server.',
                   style: AppText.captionMuted,
                 ),

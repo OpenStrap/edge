@@ -48,6 +48,7 @@ import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
 import '../notify/water_buzzer.dart';
 import '../sync/edge_tracking.dart';
+import '../sync/band_ownership.dart';
 import '../sync/high_freq_wake_window.dart';
 import '../sync/paired_device.dart';
 import '../sync/update_service.dart';
@@ -66,6 +67,7 @@ enum AppRoute { loading, welcome, pairing, profile, shell }
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
   PairedDevice? paired;
+  BandLease? _foregroundLease;
 
   /// SEAM: the screen data layer. Wired to [LocalRepositoryImpl] in the ctor —
   /// it reads the precomputed derived_day / metric_series rows (ZERO heavy
@@ -551,6 +553,7 @@ class AppState extends ChangeNotifier {
   /// listens; it resets to -1 after consuming. Kept off the ChangeNotifier path so
   /// a deep-link doesn't repaint the whole tree.
   final ValueNotifier<int> navRequest = ValueNotifier<int>(-1);
+  final ValueNotifier<int> insightsRevision = ValueNotifier<int>(0);
   StreamSubscription<String>? _tapSub;
 
   static const Map<String, int> _routeToTab = {
@@ -577,7 +580,7 @@ class AppState extends ChangeNotifier {
       log: _log,
       onEvent: _onLiveEvent,
       onRecordsBatch: LocalDb.insertRecordsBatch,
-      // RESUMABLE SYNC: atomic commit of raw + samples + continuation cursor
+      // RESUMABLE SYNC: atomic commit of decoded rows + continuation cursor
       // before the HISTORY_END ACK, and a reader to seed the offload frontier
       // from the durable high-water on (re)connect.
       onCommitBatch: (raws, samples, trimTokenHex) =>
@@ -585,13 +588,20 @@ class AppState extends ChangeNotifier {
       cursorReader: LocalDb.getCursorInt,
       // Debounced compute trigger: with continuous listening there's no discrete
       // "sync done", so the engine coalesces stored-record bursts and fires this
-      // once a burst goes quiet. Light pass (newest affected day) — the foreground
-      // heavy finalize still runs in openSession after the backlog fully drains.
+      // once a burst goes quiet. Light pass = freshness-first (TODAY when data has
+      // reached today, else the latest pending day). The foreground heavy finalize
+      // still runs in openSession after the backlog fully drains.
       onDataStored: _onDataStored,
       onOffloadState: (active) => _deriveScheduler.setOffloadActive(active),
       // LIVE high-rate frames (0x28/0x2B/0x33) are ephemeral — routed here for the
-      // live UI / spot-check, NEVER persisted to raw_records.
+      // live UI / spot-check, never persisted.
       onLiveFrame: _onLiveFrame,
+      deriveDataStaleness: () {
+        final ts = _lastRecTs;
+        if (ts == null || ts <= 0) return const Duration(days: 3650);
+        final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+        return DateTime.now().difference(at);
+      },
     );
     repo = LocalRepositoryImpl(getProfileMap: () => user);
     _init();
@@ -604,8 +614,11 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _tapSub?.cancel();
     _stopBackfillTimer();
+    BandOwnership.markForegroundIntent(false);
+    _releaseForegroundLease();
     _deriveScheduler.dispose();
     _waterBuzzer.dispose();
+    insightsRevision.dispose();
     super.dispose();
   }
 
@@ -622,10 +635,10 @@ class AppState extends ChangeNotifier {
   }
 
   /// Compute trigger: kick the DerivationEngine after data is persisted.
-  /// [heavy]=false is the bounded light pass (newest affected day); [heavy]=true is
-  /// the foreground finalize sweep. Best-effort + non-blocking — never throws into
-  /// the BLE path. Refreshes the UI when results land so screens re-read the fresh
-  /// derived rows.
+  /// [heavy]=false is the bounded light pass (TODAY when raw has reached today,
+  /// else the latest pending day); [heavy]=true is the foreground finalize
+  /// sweep. Best-effort + non-blocking — never throws into the BLE path.
+  /// Refreshes the UI when results land so screens re-read the fresh derived rows.
   Future<void> _afterDrain({bool heavy = false}) async {
     try {
       // Refresh the UI after EACH day so Today/trends fill in as the sweep runs,
@@ -641,6 +654,7 @@ class AppState extends ChangeNotifier {
         },
       );
       await LocalDb.refreshComputeFreshness();
+      _bumpInsightsRevision();
       notifyListeners(); // screens re-fetch from the derived store
       // A heavy finalize is where a freshly-closed sleep window + recovery for a
       // new physiological day lands — fire the "recovery ready" push off it.
@@ -862,6 +876,7 @@ class AppState extends ChangeNotifier {
         },
       );
       await LocalDb.refreshComputeFreshness();
+      _bumpInsightsRevision();
       dbCounts = await LocalDb.counts();
       return n;
     } catch (e) {
@@ -960,6 +975,7 @@ class AppState extends ChangeNotifier {
         },
       );
       await LocalDb.refreshComputeFreshness();
+      _bumpInsightsRevision();
       dbCounts = await LocalDb.counts();
       return n;
     } catch (e) {
@@ -988,6 +1004,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     return deleted;
   }
+
   /// Debounced "new data stored" callback from the engine (continuous listening has
   /// no discrete sync end). The engine already coalesced the burst; we run a single
   /// LIGHT derive over the affected day(s) and refresh DB counts for the UI.
@@ -1012,7 +1029,7 @@ class AppState extends ChangeNotifier {
     await _loadProfile();
     await _deriveScheduler.init();
     lastSynced = await LocalDb.latestSample();
-    _lastRecTs = await LocalDb.lastRawRecTs() ?? lastSynced?.tsEpoch;
+    _lastRecTs = await LocalDb.lastDecodedRecTs() ?? lastSynced?.tsEpoch;
     dbCounts = await LocalDb.counts();
     await LocalDb.refreshComputeFreshness();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
@@ -1072,7 +1089,10 @@ class AppState extends ChangeNotifier {
     FileLog.write(line);
     logLines.insert(0, line);
     if (logLines.length > 200) logLines.removeLast();
-    notifyListeners();
+  }
+
+  void _bumpInsightsRevision() {
+    insightsRevision.value = insightsRevision.value + 1;
   }
 
   /// Called when the app goes to the background.
@@ -1192,6 +1212,7 @@ class AppState extends ChangeNotifier {
   static const int _minuteSamples = 6000; // 60 s @ 100 Hz — calibration chunk
   int _lastMovementMs =
       0; // wall-clock of the last live frame showing real motion
+  int _lastLiveUiNotifyMs = 0;
   // DEVICE-time window (epoch sec) the live pedometer covered this session — so
   // the 1 Hz estimate can EXCLUDE these minutes (100 Hz real count wins).
   int? _liveCoverStartTs;
@@ -1245,7 +1266,11 @@ class AppState extends ChangeNotifier {
       _magMin.removeRange(0, _minuteSamples);
       _committedRaw += ana.pedometer(minute);
     }
-    notifyListeners(); // live readout re-counts the partial minute on read
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastLiveUiNotifyMs >= 1000) {
+      _lastLiveUiNotifyMs = nowMs;
+      notifyListeners(); // live readout re-counts the partial minute on read
+    }
   }
 
   /// Reset the live step counter for a fresh connected session.
@@ -1254,6 +1279,7 @@ class AppState extends ChangeNotifier {
     _committedRaw = 0;
     _liveSamples = 0;
     _liveEnmoSum = 0;
+    _lastLiveUiNotifyMs = 0;
     _liveEnmoN = 0;
     _imuStreamSeen = false;
     _liveCoverStartTs = null;
@@ -1362,6 +1388,8 @@ class AppState extends ChangeNotifier {
         // OS will relaunch us when it returns.
         if (_background) unawaited(_armRecovery());
         _reconnect();
+      } else {
+        _releaseForegroundLease();
       }
     }
     _prevConn = s.connection;
@@ -1412,7 +1440,7 @@ class AppState extends ChangeNotifier {
   }) async {
     var last = SyncReport(0, 0, false);
     for (var i = 0; i < maxSessions && engine.isConnected; i++) {
-      final frontierBefore = await LocalDb.lastRawRecTs();
+      final frontierBefore = await LocalDb.lastDecodedRecTs();
       if (kickFirst || i > 0) {
         await engine.requestHistorySync();
       }
@@ -1420,7 +1448,7 @@ class AppState extends ChangeNotifier {
       final report = await engine.runSync(
         timeout: const Duration(seconds: 180),
       );
-      final frontierAfter = await LocalDb.lastRawRecTs();
+      final frontierAfter = await LocalDb.lastDecodedRecTs();
       final strapNewest = engine.strapHistoryNewestTs;
       final frontierAdvanced =
           frontierAfter != null &&
@@ -1444,6 +1472,10 @@ class AppState extends ChangeNotifier {
       );
       if (report.batches == 0) {
         _log('Backfill stop — no batch ACKs; trim did not advance.');
+        break;
+      }
+      if (report.complete && !backlogRemains) {
+        _log('Backfill stop — history complete acknowledged by strap.');
         break;
       }
       if (!frontierAdvanced && !backlogRemains) {
@@ -1517,6 +1549,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> unpair() async {
     _keepAlive = false;
+    BandOwnership.markForegroundIntent(false);
     _stopBackfillTimer();
     IosBleRestore.foregroundActive = false;
     await EdgeTracking.stop();
@@ -1525,6 +1558,7 @@ class AppState extends ChangeNotifier {
     // re-establishes iOS-26 relaunch eligibility. No-op on Android / iOS < 18.
     await AccessorySetup.removeAll();
     await engine.disconnect();
+    _releaseForegroundLease();
     await PairedDevice.clear();
     paired = null;
     notifyListeners();
@@ -1575,6 +1609,8 @@ class AppState extends ChangeNotifier {
   // ── session: drain history, go live, stay connected ──────────────────────────
   Future<void> openSession() async {
     if (busy || paired == null) return;
+    BandOwnership.markForegroundIntent(true);
+    _log('[OWNERSHIP] foreground intent on (${BandOwnership.debugState})');
     // Returning to the foreground with the connection still alive (kept during
     // background): don't tear it down and reconnect — just reclaim ownership.
     final wasBackground = _background;
@@ -1625,10 +1661,14 @@ class AppState extends ChangeNotifier {
     IosBleRestore.arm(paired!.remoteId);
     _log('===== SESSION START ===== raw=${dbCounts['raw']}');
     try {
+      await _ensureForegroundLease();
       // connect() now subscribes → SET_CLOCK → INIT, so the historical offload is
-      // ALREADY streaming the moment this returns. We just enable live streams (so
-      // the band also emits live R10/R11) and poll device info; the offload keeps
-      // running on the same subscription with no mode flip.
+      // ALREADY streaming the moment this returns.
+      //
+      // Important: do NOT send any other foreground commands while the initial
+      // historical burst is still in flight. Live-stream toggles and info polls
+      // (battery/name/alarm/high-frequency wake config) add side traffic that can
+      // perturb the burst packet count and cause near-miss HISTORY_END failures.
       if (!await engine.connectToRemoteId(paired!.remoteId)) {
         lastError =
             'Could not reach your band. Is it nearby and free '
@@ -1636,20 +1676,10 @@ class AppState extends ChangeNotifier {
         return;
       }
       await _refreshHighFreqWakeWindow();
-      await engine.getBattery();
-      await engine.getStrapName(); // populate strap name for the Profile UI
-      // Alarm is displayed from the locally-set/persisted value (authoritative);
-      // the GET_ALARM readback is parked (unconfirmed format) — see ble_engine.
-      _log('Listening (history first, live after catch-up).');
       // Drain the backlog BEFORE enabling the high-rate live flood. A fresh connect
-      // after a long gap can hold hours of flash (observed: an overnight ~11h block
-      // that re-drains from the bottom on every offload until it fully lands). The
-      // R10/R11 + IMU + optical flood competes with the historical offload for the
-      // radio and stalls it (60s mid-offload silences → abandon/re-send), so the
-      // big first drain never finishes and "last data" appears frozen. Dedicate the
-      // link to the offload first, exactly as the reconnect path already does, then
-      // turn on live streams once we've caught up.
-      //
+      // after a long gap can hold hours of flash. R10/R11 + IMU + optical live
+      // traffic competes with historical offload traffic and can stall it, so the
+      // initial catch-up must own the link first.
       // Blocks until the band's backlog is fully handed over (HISTORY_COMPLETE) —
       // does NOT abort or end the listen. Per-batch derives already fired via the
       // debounced onDataStored; once the WHOLE backlog has landed we run the heavy
@@ -1659,8 +1689,13 @@ class AppState extends ChangeNotifier {
         'Backlog drained: ${report.records} records in ${report.batches} '
         'batches (${report.complete ? "complete" : "stopped early"}).',
       );
+      await _refreshHighFreqWakeWindow();
       await engine.enableLiveStreams();
       _resetLivePedometer(); // fresh live step count for this connected session
+      await engine.getBattery();
+      await engine
+          .getStrapName(); // populate strap name + alarm for the Profile UI
+      _log('Listening (history first, live after catch-up).');
       dbCounts = await LocalDb.counts();
       _deriveScheduler.requestHeavy();
       _startBackfillTimer();
@@ -1669,6 +1704,9 @@ class AppState extends ChangeNotifier {
     } finally {
       if (!engine.isConnected || !_keepAlive) {
         _stopBackfillTimer();
+        BandOwnership.markForegroundIntent(false);
+        _log('[OWNERSHIP] foreground intent off (${BandOwnership.debugState})');
+        _releaseForegroundLease();
       }
       _setBusy(false);
     }
@@ -1677,6 +1715,8 @@ class AppState extends ChangeNotifier {
   Future<void> _reconnect() async {
     if (_reconnecting || paired == null) return;
     _reconnecting = true;
+    BandOwnership.markForegroundIntent(true);
+    _log('[OWNERSHIP] reconnect intent on (${BandOwnership.debugState})');
     try {
       // Keep trying for as long as we still want the link (a session is active) —
       // a runner who left their phone behind can be out of range for an hour.
@@ -1688,6 +1728,7 @@ class AppState extends ChangeNotifier {
         attempt++;
         await Future.delayed(engine.reconnectDelay(attempt));
         if (!_keepAlive) break;
+        await _ensureForegroundLease();
         if (await engine.connectToRemoteId(paired!.remoteId)) {
           // Reclaim the band from the iOS restore central so it stops competing.
           if (Platform.isIOS) {
@@ -1695,11 +1736,14 @@ class AppState extends ChangeNotifier {
             await IosBleRestore.setOwnsBand(true);
           }
           EdgeTracking.start(); // ensure the Android foreground service is up too
-          await _refreshHighFreqWakeWindow();
           // FULL drain (no short timeout): pull the ENTIRE offline backlog the band
           // buffered to flash while we were out of range.
           await _runSyncBurst(kickFirst: false);
+          await _refreshHighFreqWakeWindow();
           await engine.enableLiveStreams();
+          await engine.getBattery();
+          await engine.getStrapName();
+          await engine.getAlarm();
           dbCounts = await LocalDb.counts();
           _log('Reconnected — backlog drained.');
           // Backlog (often an overnight gap) just landed → derive it.
@@ -1711,6 +1755,10 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       _log('Reconnect failed: $e');
     } finally {
+      if (!_keepAlive) {
+        BandOwnership.markForegroundIntent(false);
+        _log('[OWNERSHIP] reconnect intent off (${BandOwnership.debugState})');
+      }
       _reconnecting = false;
     }
   }
@@ -1758,8 +1806,32 @@ class AppState extends ChangeNotifier {
 
   Future<void> endSession() async {
     _keepAlive = false;
+    BandOwnership.markForegroundIntent(false);
+    _log('[OWNERSHIP] endSession intent off (${BandOwnership.debugState})');
     _stopBackfillTimer();
     await engine.disconnect();
+    _releaseForegroundLease();
+  }
+
+  Future<void> _ensureForegroundLease() async {
+    if (_foregroundLease != null) return;
+    final lease = await BandOwnership.acquireForeground();
+    _foregroundLease = lease;
+    _log(
+      '[OWNERSHIP] acquired foreground lease=${lease.token} '
+      '(${BandOwnership.debugState})',
+    );
+  }
+
+  void _releaseForegroundLease() {
+    final lease = _foregroundLease;
+    if (lease == null) return;
+    _log(
+      '[OWNERSHIP] releasing foreground lease=${lease.token} '
+      '(${BandOwnership.debugState})',
+    );
+    BandOwnership.release(lease);
+    _foregroundLease = null;
   }
 
   String get status => device.connection;

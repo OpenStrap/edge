@@ -18,6 +18,7 @@ import '../ble/ble_engine.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
+import 'band_ownership.dart';
 import 'high_freq_wake_window.dart';
 import 'paired_device.dart';
 
@@ -37,8 +38,20 @@ Future<Profile> _loadProfile() async {
 /// throws. Connects-by-id if reachable, drains whatever the band buffered to
 /// flash into local storage (non-destructive cursor — catches up everything since
 /// last time), and disconnects. No network.
-Future<bool> runHeadlessSync() async {
+Future<bool> runHeadlessSync({BandLease? lease}) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final ownedLease = lease ?? BandOwnership.tryAcquireHeadless();
+  if (ownedLease == null) {
+    debugPrint(
+      '[bgsync] skipped — foreground or another headless session owns the band '
+      '(${BandOwnership.debugState}).',
+    );
+    return true;
+  }
+  debugPrint(
+    '[bgsync] acquired headless lease=${ownedLease.token} '
+    '(${BandOwnership.debugState})',
+  );
   try {
     final paired = await PairedDevice.load();
     if (paired == null) {
@@ -111,5 +124,11 @@ Future<bool> runHeadlessSync() async {
   } catch (e) {
     debugPrint('[bgsync] error (ignored): $e');
     return true;
+  } finally {
+    debugPrint(
+      '[bgsync] releasing headless lease=${ownedLease.token} '
+      '(${BandOwnership.debugState})',
+    );
+    BandOwnership.release(ownedLease);
   }
 }

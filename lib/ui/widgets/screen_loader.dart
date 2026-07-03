@@ -32,11 +32,28 @@ mixin ScreenLoaderMixin<W extends StatefulWidget> on State<W> {
   bool _busy = false;
 
   Timer? _timer;
+  AppState? _app;
+  VoidCallback? _insightsListener;
+  int _lastInsightsRevision = -1;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => refresh());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _app = context.read<AppState>();
+      _lastInsightsRevision = _app!.insightsRevision.value;
+      _insightsListener = () {
+        final app = _app;
+        if (!mounted || app == null) return;
+        final next = app.insightsRevision.value;
+        if (next == _lastInsightsRevision) return;
+        _lastInsightsRevision = next;
+        refresh(background: true);
+      };
+      _app!.insightsRevision.addListener(_insightsListener!);
+      refresh();
+    });
     _timer = Timer.periodic(const Duration(seconds: 90), (_) {
       if (mounted) refresh(background: true);
     });
@@ -45,6 +62,11 @@ mixin ScreenLoaderMixin<W extends StatefulWidget> on State<W> {
   @override
   void dispose() {
     _timer?.cancel();
+    final listener = _insightsListener;
+    final app = _app;
+    if (listener != null && app != null) {
+      app.insightsRevision.removeListener(listener);
+    }
     super.dispose();
   }
 

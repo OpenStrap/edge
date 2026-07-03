@@ -183,12 +183,18 @@ class DrainStopEvaluator {
 /// the burst into a single pass. Pure + deterministic so it's unit-testable without
 /// timers — the engine drives it with wall-clock reads.
 class DeriveDebouncer {
-  final Duration quietPeriod;
-  final Duration maxWait;
+  final Duration staleQuietPeriod;
+  final Duration staleMaxWait;
+  final Duration freshQuietPeriod;
+  final Duration freshMaxWait;
+  final Duration staleThreshold;
 
   const DeriveDebouncer({
-    this.quietPeriod = const Duration(seconds: 12),
-    this.maxWait = const Duration(seconds: 90),
+    this.staleQuietPeriod = const Duration(seconds: 12),
+    this.staleMaxWait = const Duration(seconds: 90),
+    this.freshQuietPeriod = const Duration(minutes: 1),
+    this.freshMaxWait = const Duration(minutes: 5),
+    this.staleThreshold = const Duration(minutes: 30),
   });
 
   /// Should we derive now, given the pending-record bookkeeping?
@@ -199,8 +205,12 @@ class DeriveDebouncer {
     required bool hasPending,
     required Duration sinceLastRecord,
     required Duration sinceFirstPending,
+    required Duration dataStaleness,
   }) {
     if (!hasPending) return false;
+    final staleMode = dataStaleness >= staleThreshold;
+    final quietPeriod = staleMode ? staleQuietPeriod : freshQuietPeriod;
+    final maxWait = staleMode ? staleMaxWait : freshMaxWait;
     if (sinceLastRecord >= quietPeriod) return true; // stream went quiet
     if (sinceFirstPending >= maxWait) return true; // never-quiet floor
     return false;

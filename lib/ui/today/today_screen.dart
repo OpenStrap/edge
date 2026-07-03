@@ -110,18 +110,6 @@ class _TodayScreenState extends State<TodayScreen>
   /// Round a metric's value to an int string, or null when empty.
   String? _int(Metric m) => m.isEmpty ? null : m.value!.round().toString();
 
-  Widget _oxygenQualityTag(Spo2Data? spo2) {
-    if (spo2 == null) return Tag('beta', color: AppColors.coral);
-    final trusted = spo2.trustedCoverage ?? spo2.signalCoverage ?? 0;
-    if (trusted >= 0.85) {
-      return Tag('clean', color: AppColors.good);
-    }
-    if (trusted >= 0.60) {
-      return Tag('usable', color: AppColors.warn);
-    }
-    return Tag('low signal', color: AppColors.coral);
-  }
-
   /// Today as 'YYYY-MM-DD' (UTC, matching the backend's day keys).
   String _todayStr() {
     final n = DateTime.now().toUtc();
@@ -292,17 +280,15 @@ class _TodayScreenState extends State<TodayScreen>
   // ── content ──────────────────────────────────────────────────────────────────
 
   List<Widget> _content(TodayData t) {
+    final app = context.read<AppState>();
     final alert = t.bodyAlert;
     final coach = t.coach;
     final status = t.status;
 
     return [
       if (alert != null) ...[_bodyAlert(alert), const SizedBox(height: Sp.x4)],
-      if (status != null &&
-          (status.overnightBuilding ||
-              status.activityBuilding ||
-              status.showingPriorOvernight)) ...[
-        _todayStatusCard(status),
+      if (_shouldShowTodayStatus(app, status)) ...[
+        _todayStatusCard(app, status),
         const SizedBox(height: Sp.x4),
       ],
       // Composite Readiness headline. Shows the score when present, or a
@@ -395,13 +381,11 @@ class _TodayScreenState extends State<TodayScreen>
       _statRow(
         StatTile(
           icon: Ic.heart,
-          label: 'Oxygen dips',
-          value: t.spo2?.odiPerHour?.toStringAsFixed(1),
-          unit: '/h',
+          label: 'Blood O₂',
+          value: 'TODO',
+          unit: null,
           accent: AppColors.coralDeep,
-          tag: _oxygenQualityTag(t.spo2),
-          confidence: t.spo2?.confidence,
-          onTap: () => _push(() => const OxygenScreen()),
+          tag: Tag('decode pending', color: AppColors.coral),
         ),
         _bodyOverTimeTile(),
       ),
@@ -850,10 +834,10 @@ class _TodayScreenState extends State<TodayScreen>
 
   /// Honest empty/processing state. Three cases, never a blank-with-no-reason:
   ///   • analysis running  → "Processing… N/M days" with a spinner.
-  ///   • raw collected, not yet derived → invite to analyze now (shows record count).
+  ///   • decoded data collected, not yet derived → invite to analyze now.
   ///   • truly no data      → "Wear + sync to see today".
   Widget _emptyOrProcessing(AppState app) {
-    final raw = app.dbCounts['raw'] ?? 0;
+    final raw = app.dbCounts['decoded_onehz'] ?? app.dbCounts['raw'] ?? 0;
     if (app.reanalyzing) {
       return _processing(
         app.reanalyzeProgress.isEmpty
@@ -916,7 +900,7 @@ class _TodayScreenState extends State<TodayScreen>
         ),
         const SizedBox(height: Sp.x2),
         Text(
-          'Stored $raw raw record${raw == 1 ? '' : 's'} from your strap. '
+          'Stored $raw decoded sample${raw == 1 ? '' : 's'} from your strap. '
           'Analysis runs automatically after a sync — or run it now.',
           style: AppText.bodySoft,
           textAlign: TextAlign.center,
@@ -952,23 +936,55 @@ class _TodayScreenState extends State<TodayScreen>
     );
   }
 
-  Widget _todayStatusCard(TodayStatus status) {
+  bool _shouldShowTodayStatus(AppState app, TodayStatus? status) {
+    final last = app.lastRecordAt;
+    final stale =
+        last == null || DateTime.now().difference(last).inMinutes >= 60;
+    if (stale) return true;
+    if (status == null) return false;
+    return status.overnightBuilding ||
+        status.activityBuilding ||
+        status.showingPriorOvernight;
+  }
+
+  Widget _todayStatusCard(AppState app, TodayStatus? status) {
+    final last = app.lastRecordAt;
+    final stale =
+        last == null || DateTime.now().difference(last).inMinutes >= 60;
+    final capture = app.pipelineStatus['capture'] as Map<String, dynamic>?;
+    final derive = app.pipelineStatus['derive'] as Map<String, dynamic>?;
+    final captureActive = capture?['active'] == true;
+    final deriveRunning = derive?['running'] == true;
+    final pendingLight = derive?['pending_light'] == true;
+    final pendingHeavy = derive?['pending_heavy'] == true;
+
     String label;
-    if (status.overnightBuilding && status.activityBuilding) {
+    if (stale &&
+        (captureActive || deriveRunning || pendingLight || pendingHeavy)) {
+      label =
+          'Your latest band data is more than an hour behind. OpenStrap is catching up now and this page will refresh automatically when sleep and today\'s metrics are ready.';
+    } else if (stale && app.isConnected) {
+      label =
+          'Your latest band data is more than an hour behind. OpenStrap is connected and waiting for the next data handoff.';
+    } else if (stale) {
+      label =
+          'Your latest band data is more than an hour behind. Reconnect the band and this page will refresh automatically once new data is captured and computed.';
+    } else if (status?.overnightBuilding == true &&
+        status?.activityBuilding == true) {
       label =
           'Today\'s activity is landing and the overnight metrics are still settling.';
-    } else if (status.overnightBuilding) {
+    } else if (status?.overnightBuilding == true) {
       label =
           'Today\'s overnight metrics are still computing. Sleep and readiness will fill when that pass finishes.';
-    } else if (status.activityBuilding) {
+    } else if (status?.activityBuilding == true) {
       label =
           'Fresh data is in for today, but the day metrics are still catching up.';
     } else {
       label =
           'Showing the last settled overnight while today\'s overnight metrics have not landed yet.';
     }
-    final overnight = status.overnightDay;
-    final extra = status.showingPriorOvernight && overnight != null
+    final overnight = status?.overnightDay;
+    final extra = status?.showingPriorOvernight == true && overnight != null
         ? ' Last settled night: $overnight.'
         : '';
     return ProCard(

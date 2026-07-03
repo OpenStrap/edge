@@ -473,7 +473,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'daytime_hrv': b['daytime_hrv'],
       'nocturnal': _nocturnal(b, baselineRhr: await _seriesMean('rhr')),
       'resp': _respObj(b),
-      'spo2': _sub(b, 'respiration.odi'),
+      'spo2': b['spo2'],
       // Illness watch (CUSUM/NightSignal) — carries `note` (need_baseline) while
       // baseline is short, so the card can say "Need N more nights".
       'illness': cd?['illness'],
@@ -616,10 +616,7 @@ class LocalRepositoryImpl extends LocalRepository {
     return {
       'resp': _respObj(b),
       'cvhr': _sub(b, 'respiration.cvhr_apnea'),
-      'spo2': _sub(
-        b,
-        'respiration.odi',
-      ), // relative desaturation screen; never an absolute %
+      'spo2': b['spo2'], // relative desaturation screen; never an absolute %
       'sleep_window': {
         'start': (sleepWin?['onset_ms'] as num?) == null
             ? null

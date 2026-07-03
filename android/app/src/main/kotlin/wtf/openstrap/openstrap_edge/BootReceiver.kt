@@ -29,6 +29,7 @@ class BootReceiver : BroadcastReceiver() {
             action != "android.intent.action.QUICKBOOT_POWERON") return
 
         if (!hasPairedDevice(context)) return
+        markPendingHeadlessBoot(context)
 
         val svcIntent = Intent(context, EdgeTrackingService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -46,5 +47,13 @@ class BootReceiver : BroadcastReceiver() {
         )
         val id = prefs.getString("flutter.paired_remote_id", null)
         return !id.isNullOrEmpty()
+    }
+
+    private fun markPendingHeadlessBoot(context: Context) {
+        val prefs: SharedPreferences = context.getSharedPreferences(
+            "openstrap_runtime",
+            Context.MODE_PRIVATE
+        )
+        prefs.edit().putBoolean("pending_headless_boot", true).apply()
     }
 }

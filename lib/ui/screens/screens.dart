@@ -72,14 +72,53 @@ class HeartScreen extends StatelessWidget {
 class OxygenScreen extends StatelessWidget {
   const OxygenScreen({super.key});
   @override
-  Widget build(BuildContext context) => MetricScreen(
-    title: 'Overnight oxygen',
-    metric: 'spo2',
-    icon: Ic.droplet,
-    accent: AppColors.coralDeep,
-    valueFmt: (v) => v == 0 ? '0' : v.toStringAsFixed(1),
-    todayDetail: (ctx) => OxygenDayCard(date: todayUtc()),
-    dayDetail: (ctx, date) => OxygenDayCard(date: date),
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: AppColors.bg,
+    appBar: AppBar(title: const Text('Blood O₂')),
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(Sp.x4),
+        child: ProCard(
+          child: Padding(
+            padding: const EdgeInsets.all(Sp.x5),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.coralDeep.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(R.chip),
+                      ),
+                      child: AppIcon(
+                        Ic.droplet,
+                        size: 18,
+                        color: AppColors.coralDeep,
+                      ),
+                    ),
+                    const SizedBox(width: Sp.x3),
+                    Text('TODO', style: AppText.metric),
+                  ],
+                ),
+                const SizedBox(height: Sp.x4),
+                Text(
+                  'Blood O₂ is temporarily disabled while packet decoding is being re-validated.',
+                  style: AppText.body,
+                ),
+                const SizedBox(height: Sp.x3),
+                Text(
+                  'Raw red/IR data is still being logged so the feature can be rebuilt from real captures instead of guesswork.',
+                  style: AppText.bodySoft,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 }
 

@@ -124,12 +124,11 @@ void main() {
       bool complete = false,
       bool linkDown = false,
       int sinceStartS = 1,
-    }) =>
-        e.evaluate(
-          complete: complete,
-          linkDown: linkDown,
-          sinceStart: Duration(seconds: sinceStartS),
-        );
+    }) => e.evaluate(
+      complete: complete,
+      linkDown: linkDown,
+      sinceStart: Duration(seconds: sinceStartS),
+    );
 
     test('keeps going while the offload is still streaming', () {
       // The KEY behaviour change: a still-running offload never stops on its own —
@@ -164,49 +163,105 @@ void main() {
 
   group('DeriveDebouncer coalesce logic', () {
     const d = DeriveDebouncer(
-      quietPeriod: Duration(seconds: 12),
-      maxWait: Duration(seconds: 90),
+      staleQuietPeriod: Duration(seconds: 12),
+      staleMaxWait: Duration(seconds: 90),
+      freshQuietPeriod: Duration(minutes: 1),
+      freshMaxWait: Duration(minutes: 5),
+      staleThreshold: Duration(minutes: 30),
     );
 
     test('never derives with nothing pending', () {
       expect(
-          d.shouldDerive(
-            hasPending: false,
-            sinceLastRecord: const Duration(seconds: 30),
-            sinceFirstPending: const Duration(seconds: 30),
-          ),
-          isFalse);
+        d.shouldDerive(
+          hasPending: false,
+          sinceLastRecord: const Duration(seconds: 30),
+          sinceFirstPending: const Duration(seconds: 30),
+          dataStaleness: const Duration(hours: 2),
+        ),
+        isFalse,
+      );
     });
 
     test('holds while records are still arriving (not yet quiet)', () {
       expect(
-          d.shouldDerive(
-            hasPending: true,
-            sinceLastRecord: const Duration(seconds: 3),
-            sinceFirstPending: const Duration(seconds: 5),
-          ),
-          isFalse);
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 3),
+          sinceFirstPending: const Duration(seconds: 5),
+          dataStaleness: const Duration(hours: 2),
+        ),
+        isFalse,
+      );
     });
 
-    test('fires once the inbound stream goes quiet', () {
+    test('stale mode fires once the inbound stream goes quiet', () {
       expect(
-          d.shouldDerive(
-            hasPending: true,
-            sinceLastRecord: const Duration(seconds: 12),
-            sinceFirstPending: const Duration(seconds: 20),
-          ),
-          isTrue);
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 12),
+          sinceFirstPending: const Duration(seconds: 20),
+          dataStaleness: const Duration(hours: 2),
+        ),
+        isTrue,
+      );
     });
 
-    test('never-quiet stream still derives at the maxWait floor', () {
+    test('stale mode never-quiet stream still derives at the maxWait floor', () {
       // Records keep landing (only 2s quiet) but the dirty run is 90s old → derive.
       expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 2),
+          sinceFirstPending: const Duration(seconds: 90),
+          dataStaleness: const Duration(hours: 2),
+        ),
+        isTrue,
+      );
+    });
+
+    test('fresh mode waits longer before deriving', () {
+      expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 20),
+          sinceFirstPending: const Duration(seconds: 90),
+          dataStaleness: const Duration(minutes: 5),
+        ),
+        isFalse,
+      );
+      expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(minutes: 1),
+          sinceFirstPending: const Duration(minutes: 2),
+          dataStaleness: const Duration(minutes: 5),
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+      'fresh mode never-quiet stream derives at the calmer 5 minute floor',
+      () {
+        expect(
           d.shouldDerive(
             hasPending: true,
             sinceLastRecord: const Duration(seconds: 2),
-            sinceFirstPending: const Duration(seconds: 90),
+            sinceFirstPending: const Duration(minutes: 4, seconds: 59),
+            dataStaleness: const Duration(minutes: 5),
           ),
-          isTrue);
-    });
+          isFalse,
+        );
+        expect(
+          d.shouldDerive(
+            hasPending: true,
+            sinceLastRecord: const Duration(seconds: 2),
+            sinceFirstPending: const Duration(minutes: 5),
+            dataStaleness: const Duration(minutes: 5),
+          ),
+          isTrue,
+        );
+      },
+    );
   });
 }

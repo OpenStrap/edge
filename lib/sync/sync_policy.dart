@@ -127,14 +127,12 @@ class BackfillContinuation {
 
   /// Whether to immediately re-trigger an offload after a chunk drain / idle cap.
   /// ALL gates must hold: still connected, under the per-connection cap, the trim
-  /// cursor actually advanced (not spinning on a frozen cursor), and either the
-  /// strap is genuinely >5 min ahead of our frontier OR this session persisted
-  /// real rows (the strap's reported "newest" can be stale — #451).
+  /// cursor actually advanced (not spinning on a frozen cursor), and the strap is
+  /// genuinely still >5 min ahead of our frontier.
   static bool shouldAutoContinue({
     required bool stillConnected,
     required int? strapNewestTs,
     required int? ourFrontierTs,
-    required int rowsPersistedThisSession,
     required bool lastTrimAdvanced,
     required int consecutiveCount,
     int maxAutoContinues = defaultMaxAutoContinues,
@@ -144,9 +142,9 @@ class BackfillContinuation {
     if (consecutiveCount >= maxAutoContinues) return false;
     if (!lastTrimAdvanced) return false;
     if (strapNewestTs != null && ourFrontierTs != null) {
-      if ((strapNewestTs - ourFrontierTs) > behindGapSeconds) return true;
+      return (strapNewestTs - ourFrontierTs) > behindGapSeconds;
     }
-    return rowsPersistedThisSession > 0;
+    return false;
   }
 }
 

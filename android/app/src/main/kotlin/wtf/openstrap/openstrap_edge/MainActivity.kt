@@ -1,5 +1,7 @@
 package wtf.openstrap.openstrap_edge
 
+import android.content.Context
+import android.os.Bundle
 import io.flutter.embedding.android.FlutterFragmentActivity
 
 /**
@@ -17,6 +19,38 @@ import io.flutter.embedding.android.FlutterFragmentActivity
  * FragmentActivity host. The cached-engine overrides work the same on either base.
  */
 class MainActivity : FlutterFragmentActivity() {
+    companion object {
+        @Volatile
+        var activityAttached: Boolean = false
+    }
+
     override fun getCachedEngineId(): String = EdgeApplication.ENGINE_ID
     override fun shouldDestroyEngineWithHost(): Boolean = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        activityAttached = true
+        clearPendingHeadlessBoot()
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        activityAttached = true
+        clearPendingHeadlessBoot()
+    }
+
+    override fun onStop() {
+        activityAttached = false
+        super.onStop()
+    }
+
+    private fun clearPendingHeadlessBoot() {
+        val prefs = applicationContext.getSharedPreferences(
+            "openstrap_runtime",
+            Context.MODE_PRIVATE
+        )
+        if (prefs.getBoolean("pending_headless_boot", false)) {
+            prefs.edit().putBoolean("pending_headless_boot", false).apply()
+        }
+    }
 }
