@@ -18,8 +18,8 @@ dependencies:
   # 1 Hz-native family (import via `package:openstrap_analytics/onehz.dart`).
   openstrap_protocol:
     git:
-      url: https://github.com/OpenStrap/protocol.git
-      ref: main
+      url: https://github.com/localhoop/protocol.git
+      ref: codex/protocol-clean-20260704
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

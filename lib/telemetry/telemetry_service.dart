@@ -86,10 +86,10 @@ class TelemetryService {
   }) {
     _outbox.add({
       'kind': kind,
-      if (level != null) 'level': level,
-      if (message != null) 'message': _clip(message, 4000),
-      if (stack != null) 'stacktrace': _clip(stack, 8000),
-      if (context != null) 'context': context,
+      ...?level == null ? null : {'level': level},
+      ...?message == null ? null : {'message': _clip(message, 4000)},
+      ...?stack == null ? null : {'stacktrace': _clip(stack, 8000)},
+      ...?context == null ? null : {'context': context},
       'ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
     });
     while (_outbox.length > _maxOutbox) {

@@ -18,6 +18,33 @@ import '../../state/app_state.dart';
 
 enum LoadPhase { loading, ready, empty, error }
 
+@visibleForTesting
+class ScreenRefreshGate {
+  bool _busy = false;
+  bool _queued = false;
+
+  bool get busy => _busy;
+  bool get queued => _queued;
+
+  bool tryBegin() {
+    if (_busy) {
+      _queued = true;
+      return false;
+    }
+    _busy = true;
+    return true;
+  }
+
+  bool finishAndShouldReplay() {
+    _busy = false;
+    if (_queued) {
+      _queued = false;
+      return true;
+    }
+    return false;
+  }
+}
+
 /// Mix into a screen `State`. Provide [cacheKey] (kept for parity / future local
 /// cache), [fetch] (raw payload), and [isEmpty] (does the payload have nothing?).
 mixin ScreenLoaderMixin<W extends StatefulWidget> on State<W> {
@@ -29,7 +56,7 @@ mixin ScreenLoaderMixin<W extends StatefulWidget> on State<W> {
   LoadPhase phase = LoadPhase.loading;
   String? errorText;
   bool fromCache = false;
-  bool _busy = false;
+  final ScreenRefreshGate _refreshGate = ScreenRefreshGate();
 
   Timer? _timer;
   AppState? _app;
@@ -73,7 +100,7 @@ mixin ScreenLoaderMixin<W extends StatefulWidget> on State<W> {
   /// Pull-to-refresh / background refresh. [background] keeps the current view
   /// while fetching (no loading flash).
   Future<void> refresh({bool background = false}) async {
-    if (_busy) return;
+    if (!_refreshGate.tryBegin()) return;
     final app = context.read<AppState>();
     final repo = app.repo;
     if (repo == null) {
@@ -83,9 +110,9 @@ mixin ScreenLoaderMixin<W extends StatefulWidget> on State<W> {
           errorText = 'Local insights are not available yet.';
         });
       }
+      _refreshGate.finishAndShouldReplay();
       return;
     }
-    _busy = true;
     if (!background && data == null && mounted) {
       setState(() => phase = LoadPhase.loading);
     }
@@ -113,7 +140,9 @@ mixin ScreenLoaderMixin<W extends StatefulWidget> on State<W> {
         }
       });
     } finally {
-      _busy = false;
+      if (_refreshGate.finishAndShouldReplay() && mounted) {
+        unawaited(refresh(background: true));
+      }
     }
   }
 
