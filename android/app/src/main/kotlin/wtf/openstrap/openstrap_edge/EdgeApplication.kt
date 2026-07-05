@@ -38,5 +38,9 @@ class EdgeApplication : Application() {
             DartExecutor.DartEntrypoint.createDefault()
         )
         FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
+        // Periodic watchdog: restart the tracking foreground service if the OS killed
+        // it while a band is paired (START_STICKY backup). Idempotent (KEEP policy);
+        // the worker itself no-ops when unpaired or already running.
+        KeepAliveWorker.schedule(applicationContext)
     }
 }

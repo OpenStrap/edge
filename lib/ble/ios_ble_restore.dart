@@ -14,10 +14,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../sync/background_sync.dart';
+import '../sync/headless_gate.dart';
 
 class IosBleRestore {
   static const _ch = MethodChannel('openstrap/ble_restore');
-  static bool _busy = false;
 
   /// Set true while the app holds a live foreground session (BleEngine connected).
   /// A wake-triggered headless sync would otherwise fight flutter_blue_plus for the
@@ -33,16 +33,19 @@ class IosBleRestore {
         await _done();
         return null;
       }
-      if (_busy) return null;
-      _busy = true;
-      try {
-        await runHeadlessSync();
-      } catch (e) {
-        debugPrint('[ios-restore] headless sync threw: $e');
-      } finally {
-        _busy = false;
-        await _done();
-      }
+      // Shared gate with the BGProcessingTask/BGAppRefreshTask entry points
+      // (HeadlessSyncGate): if another headless sync is mid-flight, skip this
+      // wake — matching the old private-_busy semantics (no syncDone signal;
+      // the running entry point completes its own cycle).
+      await HeadlessSyncGate.tryRun<void>('ble_restore_wake', () async {
+        try {
+          await runHeadlessSync();
+        } catch (e) {
+          debugPrint('[ios-restore] headless sync threw: $e');
+        } finally {
+          await _done();
+        }
+      });
       return null;
     });
     try {

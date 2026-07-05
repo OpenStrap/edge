@@ -4,6 +4,7 @@
 //
 // Decision (locked): health-critical alerts (illness, unusual physiology, fever)
 // can override quiet hours; recovery + reminders stay silent during the window.
+// Presentation: design-system language; prefs/scheduling logic untouched.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -12,9 +13,7 @@ import '../../notify/notification_center.dart';
 import '../../notify/notification_prefs.dart';
 import '../../notify/notification_service.dart';
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
+import '../design/design.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -75,28 +74,6 @@ class _NotificationSettingsScreenState
     return '$label hr${h == 1 ? '' : 's'}';
   }
 
-  Widget _intervalChip(int min) {
-    final selected = _p.waterIntervalMin == min;
-    return GestureDetector(
-      onTap: () =>
-          _update(_p.copyWith(waterIntervalMin: min), reschedule: true),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.coral : AppColors.inkSoft.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          _fmtInterval(min),
-          style: AppText.caption.copyWith(
-            color: selected ? Colors.white : AppColors.ink,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<void> _pickTime(bool start) async {
     final cur = start ? _p.quietStartMin : _p.quietEndMin;
     final picked = await showTimePicker(
@@ -112,157 +89,143 @@ class _NotificationSettingsScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
-          children: [
-            const SizedBox(height: Sp.x4),
-            _topBar(),
-            const SizedBox(height: Sp.x6),
-            if (!_loaded)
-              const Padding(
-                padding: EdgeInsets.only(top: Sp.x7),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else ...[
-              const SectionHeader('What you get'),
-              ProCard(
-                child: Column(children: [
-                  _toggle(
-                    title: 'Health alerts',
-                    subtitle:
-                        'Possible illness, unusual overnight physiology and '
-                        'elevated temperature. High priority.',
-                    value: _p.healthEnabled,
-                    onChanged: (v) => _update(_p.copyWith(healthEnabled: v)),
-                  ),
-                  const _HairLine(),
-                  _toggle(
-                    title: 'Recovery',
-                    subtitle:
-                        'Your daily recovery readiness and notable shifts in '
-                        'your trends.',
-                    value: _p.recoveryEnabled,
-                    onChanged: (v) => _update(_p.copyWith(recoveryEnabled: v)),
-                  ),
-                  const _HairLine(),
-                  _toggle(
-                    title: 'Reminders',
-                    subtitle:
-                        'Wind-down, movement nudges, step goal and the weekly '
-                        'recap.',
-                    value: _p.remindersEnabled,
-                    onChanged: (v) => _update(
-                        _p.copyWith(remindersEnabled: v),
-                        reschedule: true),
-                  ),
-                ]),
-              ),
-              const SizedBox(height: Sp.x7),
-              const SectionHeader('Hydration'),
-              ProCard(
-                child: Column(children: [
-                  _toggle(
-                    title: 'Water reminder',
-                    subtitle:
-                        'A gentle nudge to drink water across your waking hours, '
-                        'and a buzz on your strap when it\'s connected. Stays '
-                        'silent during quiet hours.',
-                    value: _p.waterEnabled,
-                    onChanged: (v) => _update(_p.copyWith(waterEnabled: v),
-                        reschedule: true),
-                  ),
-                  if (_p.waterEnabled) ...[
-                    const _HairLine(),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: Sp.x2),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('How often', style: AppText.title),
-                          const SizedBox(height: 2),
-                          Text('Every ${_fmtInterval(_p.waterIntervalMin)}.',
-                              style: AppText.captionMuted),
-                          const SizedBox(height: Sp.x3),
-                          Wrap(
-                            spacing: Sp.x2,
-                            runSpacing: Sp.x2,
-                            children: _waterPresets
-                                .map((m) => _intervalChip(m))
-                                .toList(),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ]),
-              ),
-              const SizedBox(height: Sp.x7),
-              const SectionHeader('Quiet hours'),
-              ProCard(
-                child: Column(children: [
-                  _toggle(
-                    title: 'Silence during quiet hours',
-                    subtitle:
-                        'Recovery and reminders stay silent in this window.',
-                    value: _p.quietEnabled,
-                    onChanged: (v) => _update(_p.copyWith(quietEnabled: v)),
-                  ),
-                  if (_p.quietEnabled) ...[
-                    const _HairLine(),
-                    _timeRow('From', _p.quietStartMin, () => _pickTime(true)),
-                    const _HairLine(),
-                    _timeRow('To', _p.quietEndMin, () => _pickTime(false)),
-                    const _HairLine(),
-                    _toggle(
-                      title: 'Let health alerts through',
-                      subtitle:
-                          'Illness and temperature alerts can still notify you '
-                          'during quiet hours.',
-                      value: _p.criticalOverridesQuiet,
-                      onChanged: (v) =>
-                          _update(_p.copyWith(criticalOverridesQuiet: v)),
-                    ),
-                  ],
-                ]),
-              ),
-              const SizedBox(height: Sp.x6),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: Sp.x2),
-                child: Text(
-                  'Everything you see here is generated on this device from your '
-                  'own data — nothing is sent to a server. Your in-app history '
-                  'keeps every alert even when a category is off.',
-                  style: AppText.captionMuted,
-                ),
-              ),
-              const SizedBox(height: Sp.x8),
-            ],
+    return AppScaffold(
+      title: 'Notifications',
+      subtitle: 'Alerts, recovery & reminders',
+      actions: const [
+        InfoDot(
+          title: 'How notifications work',
+          bullets: [
+            'Everything is generated on this device from your own data — '
+                'nothing is sent to a server.',
+            'Your in-app history keeps every alert even when a category '
+                'is off.',
+            'Health alerts can break through quiet hours if you allow it.',
           ],
         ),
-      ),
+      ],
+      children: [
+        if (!_loaded)
+          Skeleton.tileRow(rows: 3)
+        else ...[
+          const SectionHeader('What you get'),
+          SurfaceCard(
+            child: Column(children: [
+              _toggle(
+                title: 'Health alerts',
+                subtitle:
+                    'Possible illness, unusual overnight physiology and '
+                    'elevated temperature. High priority.',
+                value: _p.healthEnabled,
+                onChanged: (v) => _update(_p.copyWith(healthEnabled: v)),
+              ),
+              const _HairLine(),
+              _toggle(
+                title: 'Recovery',
+                subtitle:
+                    'Your daily recovery readiness and notable shifts in '
+                    'your trends.',
+                value: _p.recoveryEnabled,
+                onChanged: (v) => _update(_p.copyWith(recoveryEnabled: v)),
+              ),
+              const _HairLine(),
+              _toggle(
+                title: 'Reminders',
+                subtitle:
+                    'Wind-down, movement nudges, step goal and the weekly '
+                    'recap.',
+                value: _p.remindersEnabled,
+                onChanged: (v) =>
+                    _update(_p.copyWith(remindersEnabled: v), reschedule: true),
+              ),
+            ]),
+          ),
+          const SizedBox(height: Sp.x6),
+          const SectionHeader('Hydration'),
+          SurfaceCard(
+            child: Column(children: [
+              _toggle(
+                title: 'Water reminder',
+                subtitle:
+                    'A gentle nudge across your waking hours, and a buzz on '
+                    'your strap when it\'s connected. Silent in quiet hours.',
+                value: _p.waterEnabled,
+                onChanged: (v) =>
+                    _update(_p.copyWith(waterEnabled: v), reschedule: true),
+              ),
+              if (_p.waterEnabled) ...[
+                const _HairLine(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: Sp.x2),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('How often', style: AppText.title),
+                      const SizedBox(height: 2),
+                      Text('Every ${_fmtInterval(_p.waterIntervalMin)}.',
+                          style: AppText.captionMuted),
+                      const SizedBox(height: Sp.x3),
+                      Wrap(
+                        spacing: Sp.x2,
+                        runSpacing: Sp.x2,
+                        children: [
+                          for (final m in _waterPresets)
+                            ToggleChip(
+                              _fmtInterval(m),
+                              selected: _p.waterIntervalMin == m,
+                              onTap: () => _update(
+                                  _p.copyWith(waterIntervalMin: m),
+                                  reschedule: true),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ]),
+          ),
+          const SizedBox(height: Sp.x6),
+          const SectionHeader('Quiet hours'),
+          SurfaceCard(
+            child: Column(children: [
+              _toggle(
+                title: 'Silence during quiet hours',
+                subtitle: 'Recovery and reminders stay silent in this window.',
+                value: _p.quietEnabled,
+                onChanged: (v) => _update(_p.copyWith(quietEnabled: v)),
+              ),
+              if (_p.quietEnabled) ...[
+                const _HairLine(),
+                ListRow(
+                  title: 'From',
+                  value: _fmt(_p.quietStartMin),
+                  divider: true,
+                  onTap: () => _pickTime(true),
+                ),
+                ListRow(
+                  title: 'To',
+                  value: _fmt(_p.quietEndMin),
+                  divider: true,
+                  onTap: () => _pickTime(false),
+                ),
+                _toggle(
+                  title: 'Let health alerts through',
+                  subtitle:
+                      'Illness and temperature alerts can still notify you '
+                      'during quiet hours.',
+                  value: _p.criticalOverridesQuiet,
+                  onChanged: (v) =>
+                      _update(_p.copyWith(criticalOverridesQuiet: v)),
+                ),
+              ],
+            ]),
+          ),
+          const SizedBox(height: Sp.x4),
+        ],
+      ],
     );
   }
-
-  Widget _topBar() => Row(children: [
-        RoundIconButton(Ic.arrowLeft,
-            onTap: () => Navigator.of(context).maybePop()),
-        const SizedBox(width: Sp.x3),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Notifications', style: AppText.h1),
-              Text('Alerts, recovery & reminders',
-                  style: AppText.caption.copyWith(color: AppColors.inkSoft)),
-            ],
-          ),
-        ),
-      ]);
 
   Widget _toggle({
     required String title,
@@ -273,7 +236,7 @@ class _NotificationSettingsScreenState
       Padding(
         padding: const EdgeInsets.symmetric(vertical: Sp.x2),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
               child: Column(
@@ -288,24 +251,10 @@ class _NotificationSettingsScreenState
             const SizedBox(width: Sp.x3),
             Switch(
               value: value,
-              activeThumbColor: AppColors.coral,
+              activeThumbColor: AppColors.accent,
               onChanged: onChanged,
             ),
           ],
-        ),
-      );
-
-  Widget _timeRow(String label, int min, VoidCallback onTap) => InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: Sp.x3),
-          child: Row(children: [
-            Expanded(child: Text(label, style: AppText.title)),
-            Text(_fmt(min),
-                style: AppText.title.copyWith(color: AppColors.coral)),
-            const SizedBox(width: Sp.x2),
-            AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkSoft),
-          ]),
         ),
       );
 }
@@ -313,6 +262,6 @@ class _NotificationSettingsScreenState
 class _HairLine extends StatelessWidget {
   const _HairLine();
   @override
-  Widget build(BuildContext context) => Divider(
-      height: Sp.x4, thickness: 1, color: AppColors.inkSoft.withValues(alpha: 0.12));
+  Widget build(BuildContext context) =>
+      Divider(height: Sp.x4, thickness: 1, color: AppColors.divider);
 }

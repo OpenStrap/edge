@@ -21,11 +21,21 @@ import 'tokens.dart';
 
 /// Wrap a screen builder so the route rebuilds on every mode change.
 /// Use everywhere instead of `MaterialPageRoute(builder: ...)`.
-PageRoute<T> themedRoute<T>(WidgetBuilder builder, {bool fullscreenDialog = false}) =>
-    MaterialPageRoute<T>(
-      fullscreenDialog: fullscreenDialog,
-      builder: (ctx) => _ThemeReactive(builder: builder),
-    );
+///
+/// NAVIGATION CONTRACT — this MUST stay a [MaterialPageRoute] (or another
+/// route mixing in Material/Cupertino route-transition machinery). A raw
+/// PageRouteBuilder has no interactive back-gesture support, which silently
+/// kills the iOS edge-swipe-back on every pushed screen. The app's shared-axis
+/// fade-through transition therefore lives in the theme's pageTransitionsTheme
+/// instead (see buildOpenStrapTheme + page_transitions.dart): Android-likes
+/// keep the fade-through, iOS/macOS get the Cupertino slide WITH swipe-back.
+PageRoute<T> themedRoute<T>(
+  WidgetBuilder builder, {
+  bool fullscreenDialog = false,
+}) => MaterialPageRoute<T>(
+  fullscreenDialog: fullscreenDialog,
+  builder: (ctx) => _ThemeReactive(builder: builder),
+);
 
 class _ThemeReactive extends StatelessWidget {
   final WidgetBuilder builder;

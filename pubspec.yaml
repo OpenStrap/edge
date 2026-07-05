@@ -25,6 +25,14 @@ dependencies:
       url: https://github.com/OpenStrap/analytics.git
       ref: main
 
+  # Illustrated icon set — theme-aware full-colour WebP icons (nav tabs, domain
+  # heroes, metric tiles). Path dep for local dev; a release build would need
+  # this published to pub.dev or pinned to a git ref instead.
+  openstrap_icons:
+    git:
+      url: https://github.com/OpenStrap/icons.git
+      ref: main
+
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
 
@@ -50,9 +58,31 @@ dependencies:
   # Charts (for the future server-analytics view).
   fl_chart: ^0.69.2
 
-  # Modern type (Space Grotesk display + Inter body) and a professional icon set.
+  # Interactive maps for GPS workout routes (run/ride/walk). Local-first: raster
+  # tiles are fetched from OpenStreetMap on demand (no cloud API keys, no Google/
+  # Mapbox), and the "© OpenStreetMap contributors" attribution is rendered on
+  # every map per the OSM tile-usage license. Recorded GPS points are stored
+  # on-device only (workout_route table) and never uploaded.
+  # flutter_map_tile_caching (offline tile cache) is a documented follow-up — it
+  # pulls heavier native storage deps, so v1 uses live OSM tiles only.
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  geolocator: ^13.0.2
+
+  # Modern type (ONE family — Manrope, tabular figures for all metrics) and a
+  # professional icon set.
   google_fonts: ^6.2.1
   hugeicons: ^0.0.11
+
+  # Declarative motion language for the design system (entrance stagger, press
+  # pops, count-ups, shimmer) — one consistent vocabulary instead of hand-rolled
+  # AnimationControllers in every component. See lib/ui/design/motion.dart.
+  flutter_animate: ^4.5.2
+
+  # Cold-start splash video (assets/splash/splashscreen.mp4) shown while AppState
+  # initializes; dismissed the instant the route gate resolves. See
+  # lib/ui/splash/boot_splash.dart.
+  video_player: ^2.9.2
 
   # Share recap cards (rendered card → image → share sheet).
   share_plus: ^10.1.4
@@ -125,3 +155,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/splash/

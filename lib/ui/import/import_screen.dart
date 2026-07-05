@@ -5,16 +5,14 @@
 //
 // Reachable from onboarding (welcome) AND Profile → Data (a returning user is past
 // the welcome gate). Each option: pick file → run via AppState → progress → result.
+// Presentation: design-system language; the import logic is untouched.
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
+import '../design/design.dart';
 
 class ImportScreen extends StatefulWidget {
   const ImportScreen({super.key});
@@ -106,151 +104,156 @@ class _ImportScreenState extends State<ImportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
+    return AppScaffold(
+      title: 'Import data',
+      subtitle: 'Bring history from another source',
+      children: [
+        ...dsStaggered([
+          ImportOptionCard(
+            icon: Ic.pulse,
+            title: 'Import from NOOP',
+            body: 'Raw 1 Hz CSV — re-analyzed end-to-end on this phone.',
+            onTap: _busy ? null : _importNoop,
+          ),
+          const SizedBox(height: Sp.x3),
+          ImportOptionCard(
+            icon: Ic.server,
+            title: 'Import from Edge backup',
+            body: 'A .db exported from another OpenStrap device.',
+            onTap: _busy ? null : _importEdge,
+          ),
+          const SizedBox(height: Sp.x3),
+          ImportOptionCard(
+            icon: Ic.history,
+            title: 'Import from WHOOP',
+            tag: 'BETA',
+            body: 'WHOOP export CSVs — derived summaries only.',
+            onTap: _busy ? null : _importWhoop,
+          ),
+        ]),
+        const SizedBox(height: Sp.x2),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: Sp.x4),
-            Row(children: [
-              if (Navigator.of(context).canPop())
-                RoundIconButton(Ic.arrowLeft,
-                    onTap: () => Navigator.of(context).maybePop()),
-              const SizedBox(width: Sp.x3),
-              Text('Import data', style: AppText.h1),
-            ]),
-            const SizedBox(height: Sp.x3),
-            Text(
-                'Bring history in from another source. Imported days sit alongside '
-                'your band data; new band syncs always take priority on overlap.',
-                style: AppText.bodySoft),
-            const SizedBox(height: Sp.x6),
-
-            _card(
-              icon: Ic.cloud,
-              title: 'Import from NOOP',
-              body: 'Raw 1 Hz sensor CSV. Re-analyzed end-to-end on this phone — '
-                  'full-fidelity sleep, HRV, strain & workouts.',
-              onTap: _busy ? null : _importNoop,
-            ),
-            const SizedBox(height: Sp.x4),
-            _card(
-              icon: Ic.cloud,
-              title: 'Import from Edge backup',
-              body: 'A .db file exported from another OpenStrap device '
-                  '(Profile → Export data). Merges its full history.',
-              onTap: _busy ? null : _importEdge,
-            ),
-            const SizedBox(height: Sp.x4),
-            _card(
-              icon: Ic.cloud,
-              title: 'Import from WHOOP',
-              tag: 'BETA',
-              body: 'Your WHOOP data export CSVs (physiological cycles / sleeps / '
-                  'workouts). Derived summaries only — WHOOP has no raw 1 Hz.',
-              onTap: _busy ? null : _importWhoop,
-            ),
-
-            const SizedBox(height: Sp.x6),
-            if (_busy) ...[
-              Row(children: [
-                SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: AppColors.coral)),
-                const SizedBox(width: Sp.x3),
-                Expanded(
-                    child: Text(_progress ?? 'Importing…',
-                        style: AppText.bodySoft)),
-              ]),
-            ],
-            if (_result != null) ...[
-              Row(children: [
-                AppIcon(Ic.check, size: 18, color: AppColors.good),
-                const SizedBox(width: Sp.x2),
-                Expanded(
-                    child: Text(_result!,
-                        style: AppText.body.copyWith(color: AppColors.good))),
-              ]),
-              const SizedBox(height: Sp.x5),
-              SizedBox(
-                height: 54,
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _busy ? null : _continue,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.coral,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(R.pill)),
-                  ),
-                  child: Text('Continue',
-                      style: AppText.title.copyWith(color: Colors.white)),
-                ),
+            Expanded(
+              child: Text(
+                'Imported days sit alongside your band data; band data wins '
+                'on overlap.',
+                style: AppText.captionMuted,
               ),
-              const SizedBox(height: Sp.x3),
-              Center(
-                child: TextButton(
-                  onPressed: _busy ? null : () => _set(() => _result = null),
-                  child: Text('Import another file',
-                      style: AppText.bodySoft.copyWith(color: AppColors.coralInk)),
-                ),
-              ),
-            ],
-            if (_error != null)
-              Text(_error!, style: AppText.bodySoft.copyWith(color: AppColors.bad)),
-            const SizedBox(height: Sp.x8),
+            ),
+            const InfoDot(
+              title: 'How imports work',
+              bullets: [
+                'NOOP CSVs carry raw 1 Hz sensor data — they get the same '
+                    'full analysis as a live sync.',
+                'Edge backups merge another device\'s complete history.',
+                'WHOOP exports have no raw 1 Hz, so those days import as '
+                    'derived summaries.',
+                'New band syncs always take priority where days overlap.',
+              ],
+            ),
           ],
         ),
-      ),
+        const SizedBox(height: Sp.x4),
+        if (_busy)
+          SurfaceCard(
+            level: 0,
+            padding: const EdgeInsets.all(Sp.x4),
+            child: Row(children: [
+              SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: AppColors.accent)),
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                  child:
+                      Text(_progress ?? 'Importing…', style: AppText.bodySoft)),
+            ]),
+          ),
+        if (_result != null) ...[
+          SurfaceCard(
+            level: 0,
+            color: AppColors.positiveSoft,
+            padding: const EdgeInsets.all(Sp.x4),
+            child: Row(children: [
+              AppIcon(Ic.check, size: 18, color: AppColors.positive),
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                  child: Text(_result!,
+                      style: AppText.body.copyWith(color: AppColors.positive))),
+            ]),
+          ).dsPop(),
+          const SizedBox(height: Sp.x5),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _busy ? null : _continue,
+              child: const Text('Continue'),
+            ),
+          ),
+          const SizedBox(height: Sp.x2),
+          Center(
+            child: TextButton(
+              onPressed: _busy ? null : () => _set(() => _result = null),
+              child: const Text('Import another file'),
+            ),
+          ),
+        ],
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: Sp.x3),
+            child: Text(_error!,
+                style: AppText.bodySoft.copyWith(color: AppColors.critical)),
+          ),
+      ],
     );
   }
+}
 
-  Widget _card({
-    required IconData icon,
-    required String title,
-    required String body,
-    required VoidCallback? onTap,
-    String? tag,
-  }) {
-    return Opacity(
+/// One import source — SurfaceCard + ListRow; disabled while a run is busy.
+class ImportOptionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
+  final VoidCallback? onTap;
+  final String? tag;
+
+  const ImportOptionCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.body,
+    required this.onTap,
+    this.tag,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      duration: Motion.fast,
       opacity: onTap == null ? 0.5 : 1,
-      child: GestureDetector(
-        onTap: onTap == null
-            ? null
-            : () {
-                HapticFeedback.selectionClick();
-                onTap();
-              },
-        child: ProCard(
-          child: Row(children: [
-            Container(
-              padding: const EdgeInsets.all(11),
-              decoration: BoxDecoration(
-                  color: AppColors.coralSoft,
-                  borderRadius: BorderRadius.circular(R.chip)),
-              child: AppIcon(icon, size: 20, color: AppColors.coralInk),
-            ),
-            const SizedBox(width: Sp.x4),
-            Expanded(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      Flexible(child: Text(title, style: AppText.title)),
-                      if (tag != null) ...[
-                        const SizedBox(width: Sp.x2),
-                        Tag(tag, color: AppColors.warn),
-                      ],
-                    ]),
-                    const SizedBox(height: 3),
-                    Text(body, style: AppText.captionMuted),
-                  ]),
-            ),
-            const SizedBox(width: Sp.x2),
-            AppIcon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
-          ]),
+      child: SurfaceCard(
+        onTap: onTap,
+        padding:
+            const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+        child: ListRow(
+          icon: icon,
+          iconColor: AppColors.accent,
+          title: title,
+          subtitle: body,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (tag != null) ...[
+                Tag(tag!, color: AppColors.warn),
+                const SizedBox(width: Sp.x2),
+              ],
+              AppIcon(Ic.arrowRight,
+                  size: 16, color: AppColors.onSurfaceFaint),
+            ],
+          ),
         ),
       ),
     );

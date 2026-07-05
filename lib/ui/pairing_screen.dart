@@ -1,13 +1,18 @@
 // Pairing — put the strap in pairing mode, then scan and connect.
 // Used by app.dart's gate: PairingScreen.
+//
+// Presentation: design-system language. The BLE flow (scan → found → pair, or
+// the iOS 18+ AccessorySetupKit picker) is UNTOUCHED — only the rendering moved
+// onto SurfaceCard/BentoTile/StatusChip. Pure widgets (PairingInstructionContent
+// and PairingStateView, keyed by the public [PairPhase]) are extracted so render
+// tests can cover every state in both palettes without BLE.
+
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
-import '../theme/theme.dart';
-import '../theme/tokens.dart';
-import 'kit/kit.dart';
+import 'design/design.dart';
 
 class PairingScreen extends StatefulWidget {
   const PairingScreen({super.key});
@@ -20,11 +25,13 @@ class _PairingScreenState extends State<PairingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       body: SafeArea(
         child: AnimatedSwitcher(
           duration: Motion.med,
+          switchInCurve: Motion.curve,
           child: _step == 0
-              ? _InstructionStep(
+              ? PairingInstructionContent(
                   key: const ValueKey('step0'),
                   onReady: () => setState(() => _step = 1),
                 )
@@ -39,68 +46,69 @@ class _PairingScreenState extends State<PairingScreen> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Step 1 — instruction
+// Step 1 — instruction (pure)
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _InstructionStep extends StatelessWidget {
+class PairingInstructionContent extends StatelessWidget {
   final VoidCallback onReady;
-  const _InstructionStep({super.key, required this.onReady});
+  const PairingInstructionContent({super.key, required this.onReady});
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x6, Sp.screen, Sp.x6),
-      children: [
+      physics: const BouncingScrollPhysics(),
+      children: dsStaggered([
         const _StrapHero(),
-        const SizedBox(height: Sp.x7),
+        const SizedBox(height: Sp.x6),
         Text('Put your strap in\npairing mode.', style: AppText.display),
-        const SizedBox(height: Sp.x4),
+        const SizedBox(height: Sp.x3),
         Text(
-          'Your WHOOP only talks to one phone at a time. Force-quit the official '
-          'WHOOP app, then put the strap into pairing mode before continuing.',
+          'Your WHOOP only talks to one phone at a time. Force-quit the '
+          'official app first.',
           style: AppText.bodySoft,
         ),
-        const SizedBox(height: Sp.x6),
-        ProCard(
+        const SizedBox(height: Sp.x5),
+        SurfaceCard(
+          padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: const [
-              _Bullet(
+              ListRow(
                 icon: Ic.watch,
                 title: 'Wake the strap',
-                body: 'Place it on its charger so it powers up and is awake.',
+                subtitle: 'Place it on its charger so it powers up.',
+                divider: true,
               ),
-              SizedBox(height: Sp.x4),
-              _Bullet(
+              ListRow(
                 icon: Ic.bluetooth,
                 title: 'Enter pairing mode',
-                body:
+                subtitle:
                     'Follow the WHOOP unpair/reset steps so it advertises to a '
                     'new phone.',
               ),
             ],
           ),
         ),
-        const SizedBox(height: Sp.x4),
-        ProCard(
+        const SizedBox(height: Sp.x3),
+        SurfaceCard(
+          level: 0,
           color: AppColors.warnSoft,
-          shadow: const [],
+          padding: const EdgeInsets.all(Sp.x4),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppIcon(Ic.info, size: 20, color: AppColors.warn),
+              AppIcon(Ic.info, size: 18, color: AppColors.warn),
               const SizedBox(width: Sp.x3),
               Expanded(
                 child: Text(
-                  'Pairing will likely FAIL if the strap isn\'t in pairing mode. '
-                  'Make sure it is before you continue.',
+                  'Pairing will likely fail unless the strap is in pairing mode.',
                   style: AppText.caption.copyWith(color: AppColors.ink),
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: Sp.x7),
+        const SizedBox(height: Sp.x6),
         FilledButton(
           onPressed: onReady,
           child: Row(
@@ -112,47 +120,12 @@ class _InstructionStep extends StatelessWidget {
             ],
           ),
         ),
-      ],
+      ]),
     );
   }
 }
 
-class _Bullet extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String body;
-  const _Bullet(
-      {required this.icon, required this.title, required this.body});
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(Sp.x3),
-          decoration: BoxDecoration(
-            color: AppColors.coralSoft,
-            borderRadius: BorderRadius.circular(R.chip),
-          ),
-          child: AppIcon(icon, size: 20, color: AppColors.coralDeep),
-        ),
-        const SizedBox(width: Sp.x4),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: AppText.title),
-              const SizedBox(height: 2),
-              Text(body, style: AppText.bodySoft),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Strap hero image with a graceful coral-gradient placeholder if the asset
+/// Strap hero image with a graceful ember-gradient placeholder if the asset
 /// hasn't been added yet.
 class _StrapHero extends StatelessWidget {
   const _StrapHero();
@@ -196,6 +169,9 @@ class _StrapPlaceholder extends StatelessWidget {
 // Step 2 — scan / pair
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Public so the pure [PairingStateView] can be rendered per-state in tests.
+enum PairPhase { scanning, found, notFound, pairing, askReady }
+
 class _ScanStep extends StatefulWidget {
   final VoidCallback onBack;
   const _ScanStep({super.key, required this.onBack});
@@ -203,10 +179,8 @@ class _ScanStep extends StatefulWidget {
   State<_ScanStep> createState() => _ScanStepState();
 }
 
-enum _Phase { scanning, found, notFound, pairing, askReady }
-
 class _ScanStepState extends State<_ScanStep> {
-  _Phase _phase = _Phase.scanning;
+  PairPhase _phase = PairPhase.scanning;
   BluetoothDevice? _device;
   String? _error;
 
@@ -220,7 +194,7 @@ class _ScanStepState extends State<_ScanStep> {
       final ask = await context.read<AppState>().accessorySetupSupported();
       if (!mounted) return;
       if (ask) {
-        setState(() => _phase = _Phase.askReady);
+        setState(() => _phase = PairPhase.askReady);
       } else {
         _scan();
       }
@@ -234,7 +208,7 @@ class _ScanStepState extends State<_ScanStep> {
   /// and the gate rebuilds to the main shell.
   Future<void> _pairViaAsk() async {
     setState(() {
-      _phase = _Phase.pairing;
+      _phase = PairPhase.pairing;
       _error = null;
     });
     try {
@@ -244,14 +218,14 @@ class _ScanStepState extends State<_ScanStep> {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
-        _phase = _Phase.askReady;
+        _phase = PairPhase.askReady;
       });
     }
   }
 
   Future<void> _scan() async {
     setState(() {
-      _phase = _Phase.scanning;
+      _phase = PairPhase.scanning;
       _device = null;
       _error = null;
     });
@@ -260,13 +234,13 @@ class _ScanStepState extends State<_ScanStep> {
       if (!mounted) return;
       setState(() {
         _device = d;
-        _phase = d == null ? _Phase.notFound : _Phase.found;
+        _phase = d == null ? PairPhase.notFound : PairPhase.found;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
-        _phase = _Phase.notFound;
+        _phase = PairPhase.notFound;
       });
     }
   }
@@ -275,7 +249,7 @@ class _ScanStepState extends State<_ScanStep> {
     final d = _device;
     if (d == null) return;
     setState(() {
-      _phase = _Phase.pairing;
+      _phase = PairPhase.pairing;
       _error = null;
     });
     try {
@@ -287,64 +261,94 @@ class _ScanStepState extends State<_ScanStep> {
       if (!mounted) return;
       setState(() {
         _error = e.toString();
-        _phase = _Phase.found;
+        _phase = PairPhase.found;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    return PairingStateView(
+      phase: _phase,
+      deviceName: _device == null ? null : _name(_device!),
+      error: _error,
+      onBack: widget.onBack,
+      onPair: _phase == PairPhase.askReady ? _pairViaAsk : _pair,
+      onRetry: _scan,
+    );
+  }
+}
+
+/// Pure per-state pairing view: scanning rings, found device tile, pairing
+/// spinner, not-found retry — one primary action per state.
+class PairingStateView extends StatelessWidget {
+  final PairPhase phase;
+  final String? deviceName;
+  final String? error;
+  final VoidCallback onBack;
+  final VoidCallback onPair;
+  final VoidCallback onRetry;
+
+  const PairingStateView({
+    super.key,
+    required this.phase,
+    this.deviceName,
+    this.error,
+    required this.onBack,
+    required this.onPair,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(Sp.x3, Sp.x2, Sp.screen, 0),
-          child: Row(children: [
-            RoundIconButton(Ic.arrowLeft, onTap: widget.onBack),
-          ]),
+          padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x3, Sp.screen, 0),
+          child: Row(children: [AppBackButton(onBack: onBack)]),
         ),
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-                Sp.screen, Sp.x4, Sp.screen, Sp.x6),
+            padding:
+                const EdgeInsets.fromLTRB(Sp.screen, Sp.x4, Sp.screen, Sp.x6),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  switch (_phase) {
-                    _Phase.notFound => 'No strap found.',
-                    _Phase.askReady => 'Pair your\nstrap.',
+                  switch (phase) {
+                    PairPhase.notFound => 'No strap found.',
+                    PairPhase.askReady => 'Pair your\nstrap.',
+                    PairPhase.found => 'Strap found.',
                     _ => 'Finding your\nstrap.',
                   },
                   style: AppText.display,
                 ),
-                const SizedBox(height: Sp.x4),
+                const SizedBox(height: Sp.x3),
                 Text(
-                  switch (_phase) {
-                    _Phase.scanning =>
+                  switch (phase) {
+                    PairPhase.scanning =>
                       'Scanning for a nearby WHOOP in pairing mode…',
-                    _Phase.found =>
-                      'Found a strap. Confirm it\'s yours, then pair.',
-                    _Phase.notFound =>
-                      'We couldn\'t find a strap. Make sure it\'s awake and in '
-                          'pairing mode, then try again.',
-                    _Phase.pairing => 'Pairing with your strap…',
-                    _Phase.askReady =>
+                    PairPhase.found => 'Confirm it\'s yours, then pair.',
+                    PairPhase.notFound =>
+                      'Make sure it\'s awake and in pairing mode, then try again.',
+                    PairPhase.pairing => 'Pairing with your strap…',
+                    PairPhase.askReady =>
                       'Tap Pair, then choose your WHOOP in the system sheet. '
                           'This lets OpenStrap reconnect in the background.',
                   },
                   style: AppText.bodySoft,
                 ),
                 const Spacer(),
-                Center(child: _Visual(phase: _phase, device: _device, name: _name)),
+                Center(child: _visual()),
                 const Spacer(),
-                if (_error != null) ...[
+                if (error != null) ...[
                   Row(children: [
-                    AppIcon(Ic.info, size: 18, color: AppColors.bad),
+                    AppIcon(Ic.info, size: 18, color: AppColors.critical),
                     const SizedBox(width: Sp.x2),
                     Expanded(
-                      child: Text(_error!,
+                      child: Text(error!,
                           style: AppText.caption
-                              .copyWith(color: AppColors.bad)),
+                              .copyWith(color: AppColors.critical)),
                     ),
                   ]),
                   const SizedBox(height: Sp.x4),
@@ -358,13 +362,36 @@ class _ScanStepState extends State<_ScanStep> {
     );
   }
 
+  Widget _visual() {
+    switch (phase) {
+      case PairPhase.found:
+        return _FoundDeviceTile(name: deviceName ?? 'WHOOP band').dsPop();
+      case PairPhase.notFound:
+        return Opacity(
+          opacity: 0.45,
+          child: Container(
+            width: 132,
+            height: 132,
+            decoration: BoxDecoration(
+                color: AppColors.surfaceAlt, shape: BoxShape.circle),
+            child: AppIcon(Ic.watch, size: 56, color: AppColors.inkMuted),
+          ),
+        );
+      case PairPhase.scanning:
+      case PairPhase.pairing:
+      case PairPhase.askReady:
+        return const _PulseRings();
+    }
+  }
+
   Widget _actions() {
-    switch (_phase) {
-      case _Phase.scanning:
+    switch (phase) {
+      case PairPhase.scanning:
         return const SizedBox(height: 56);
-      case _Phase.askReady:
+      case PairPhase.askReady:
+      case PairPhase.found:
         return FilledButton(
-          onPressed: _pairViaAsk,
+          onPressed: onPair,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: const [
@@ -374,19 +401,7 @@ class _ScanStepState extends State<_ScanStep> {
             ],
           ),
         );
-      case _Phase.found:
-        return FilledButton(
-          onPressed: _pair,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Text('Pair'),
-              SizedBox(width: Sp.x2),
-              AppIcon(Ic.bluetooth, size: 20, color: Colors.white),
-            ],
-          ),
-        );
-      case _Phase.pairing:
+      case PairPhase.pairing:
         return const FilledButton(
           onPressed: null,
           child: SizedBox(
@@ -396,28 +411,63 @@ class _ScanStepState extends State<_ScanStep> {
                 strokeWidth: 2.2, color: Colors.white),
           ),
         );
-      case _Phase.notFound:
+      case PairPhase.notFound:
         return OutlinedButton(
-          onPressed: _scan,
+          onPressed: onRetry,
           child: const Text('Scan again'),
         );
     }
   }
 }
 
-/// The central animated visual: a pulsing bluetooth ring while scanning, the
-/// strap name when found, a spinner while pairing, a muted watch when missing.
-class _Visual extends StatefulWidget {
-  final _Phase phase;
-  final BluetoothDevice? device;
-  final String Function(BluetoothDevice) name;
-  const _Visual(
-      {required this.phase, required this.device, required this.name});
+/// The found-device card — the language's inverted ink device tile.
+class _FoundDeviceTile extends StatelessWidget {
+  final String name;
+  const _FoundDeviceTile({required this.name});
+
   @override
-  State<_Visual> createState() => _VisualState();
+  Widget build(BuildContext context) {
+    return BentoTile(
+      tone: BentoTone.ink,
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x6, vertical: Sp.x6),
+      child: Builder(builder: (context) {
+        final tone = ToneScope.of(context);
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(Sp.x4),
+              decoration: BoxDecoration(
+                color: AppColors.accent,
+                borderRadius: BorderRadius.circular(R.cardSm),
+              ),
+              child: const AppIcon(Ic.watch, size: 30, color: Colors.white),
+            ),
+            const SizedBox(height: Sp.x4),
+            Text(
+              name,
+              style: AppText.h1.copyWith(color: tone.fg),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: Sp.x3),
+            const StatusChip('Ready to pair',
+                icon: Icons.bluetooth_rounded, tone: ChipTone.positive),
+          ],
+        );
+      }),
+    );
+  }
 }
 
-class _VisualState extends State<_Visual>
+/// The scanning/pairing visual: two eased expanding rings around a steady
+/// ember core. Painter isolated behind a RepaintBoundary; one ticker.
+class _PulseRings extends StatefulWidget {
+  const _PulseRings();
+  @override
+  State<_PulseRings> createState() => _PulseRingsState();
+}
+
+class _PulseRingsState extends State<_PulseRings>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c =
       AnimationController(vsync: this, duration: const Duration(seconds: 2))
@@ -430,80 +480,47 @@ class _VisualState extends State<_Visual>
 
   @override
   Widget build(BuildContext context) {
-    if (widget.phase == _Phase.found && widget.device != null) {
-      return ProCard(
-        padding: const EdgeInsets.symmetric(
-            horizontal: Sp.x6, vertical: Sp.x6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(Sp.x4),
-              decoration: BoxDecoration(
-                color: AppColors.coralSoft,
-                borderRadius: BorderRadius.circular(R.cardSm),
-              ),
-              child: AppIcon(Ic.watch, size: 34, color: AppColors.coralDeep),
-            ),
-            const SizedBox(height: Sp.x4),
-            Text(widget.name(widget.device!),
-                style: AppText.h1, textAlign: TextAlign.center),
-          ],
-        ),
-      );
-    }
-    if (widget.phase == _Phase.notFound) {
-      return Opacity(
-        opacity: 0.45,
-        child: Container(
-          width: 132,
-          height: 132,
-          decoration: BoxDecoration(
-              color: AppColors.surfaceAlt, shape: BoxShape.circle),
-          child: AppIcon(Ic.watch, size: 56, color: AppColors.inkMuted),
-        ),
-      );
-    }
-    // scanning / pairing → pulsing rings
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (_, _) {
-        final t = _c.value;
-        return SizedBox(
-          width: 180,
-          height: 180,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              for (final phase in const [0.0, 0.5])
-                _ring((t + phase) % 1.0),
-              Container(
-                width: 96,
-                height: 96,
-                decoration: BoxDecoration(
-                  color: AppColors.coral,
-                  shape: BoxShape.circle,
-                  boxShadow: Shadows.coral,
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (_, _) {
+          final t = _c.value;
+          return SizedBox(
+            width: 180,
+            height: 180,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                for (final phase in const [0.0, 0.5]) _ring((t + phase) % 1.0),
+                Container(
+                  width: 96,
+                  height: 96,
+                  decoration: BoxDecoration(
+                    color: AppColors.accent,
+                    shape: BoxShape.circle,
+                    boxShadow: AppColors.isDark ? const [] : Shadows.coral,
+                  ),
+                  child:
+                      const AppIcon(Ic.bluetooth, size: 40, color: Colors.white),
                 ),
-                child: const AppIcon(Ic.bluetooth, size: 40, color: Colors.white),
-              ),
-            ],
-          ),
-        );
-      },
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
   Widget _ring(double t) {
-    final size = 96 + t * 84;
+    final size = 96 + Curves.easeOut.transform(t) * 84;
     return Opacity(
-      opacity: (1 - t) * 0.5,
+      opacity: (1 - t) * 0.45,
       child: Container(
         width: size,
         height: size,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: AppColors.coral, width: 2),
+          border: Border.all(color: AppColors.accent, width: 2),
         ),
       ),
     );

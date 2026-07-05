@@ -130,10 +130,13 @@ import 'substrate.dart';
 // v29: COUNTER-RESET RECOVERY. The decoded substrate now dedupes by timestamp
 // (rec_ts, newest-wins) instead of by the strap counter, which resets on reboot
 // and silently quarantined every post-reboot day (empty "today", strain –). The
-// DB v21 migration re-decodes the whole raw ledger back into decoded_onehz, so
-// previously-quarantined days now have data. Bump so those days (and any finalized
-// day derived while data was missing) recompute against the recovered substrate.
-const int kAlgoVersion = 30;
+// DB v17 migration (_rebuildCanonicalDecodedStore) rebuilt decoded_onehz/
+// decoded_rr time-keyed, the write path REPLACEs on rec_ts, and the substrate
+// loader falls back to decoding raw_records directly for ranges whose decoded
+// rows are absent — so previously-quarantined days now have data. Bump so those
+// days (and any finalized day derived while data was missing) recompute against
+// the recovered substrate.
+const int kAlgoVersion = 31;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 14;

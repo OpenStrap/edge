@@ -3,13 +3,64 @@
 
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
+import '../../models/metric.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import 'kit.dart';
+import '../design/arc_gauge.dart';
+
+/// A circular progress gauge with a value in the center — the richer engine
+/// behind [RingStat]. Adds an optional zone-tinted track, an optional target
+/// notch, a confidence-aware arc (faint + dashed when the value is uncertain),
+/// and the first-reveal sweep. `t` is 0..1 fill; `color` the arc color.
+class Gauge extends StatelessWidget {
+  final double t; // 0..1 (NaN → muted empty ring)
+  final Color color;
+  final double size;
+  final double stroke;
+  final Widget center;
+
+  /// If set, the track is tinted with this zone's soft colour (0..5) instead of
+  /// the neutral surfaceAlt — reads as "you're in zone N".
+  final int? zoneTint;
+
+  /// Optional goal marker at this 0..1 fraction — a short notch on the track.
+  final double? target;
+
+  /// 0..1 — 1.0 paints the arc solid; lower fades it (and dashes it below 0.4)
+  /// so a low-confidence value reads as visually uncertain.
+  final double confidence;
+
+  const Gauge({
+    super.key,
+    required this.t,
+    required this.color,
+    required this.center,
+    this.size = 160,
+    this.stroke = 14,
+    this.zoneTint,
+    this.target,
+    this.confidence = 1.0,
+  });
+
+  @override
+  Widget build(BuildContext context) => ArcGauge(
+    value: t,
+    color: color,
+    size: size,
+    stroke: stroke,
+    zone: zoneTint,
+    target: target,
+    confidence: confidence,
+    center: center,
+  );
+}
 
 /// A circular progress ring with a value in the center. Used for readiness /
-/// strain / sleep-fill. `t` is 0..1 fill; `color` the arc color.
+/// strain / sleep-fill. `t` is 0..1 fill; `color` the arc color. Thin delegate
+/// over [Gauge] so its ~dozens of call sites keep working unchanged.
 class RingStat extends StatelessWidget {
   final double t; // 0..1 (NaN → muted empty ring)
   final Color color;
@@ -25,67 +76,101 @@ class RingStat extends StatelessWidget {
     this.stroke = 14,
   });
   @override
-  Widget build(BuildContext context) {
-    final fill = t.isNaN ? 0.0 : t.clamp(0.0, 1.0);
-    return SizedBox(
-      width: size,
-      height: size,
-      child: TweenAnimationBuilder<double>(
-        duration: Motion.ring,
-        curve: Motion.emphatic,
-        tween: Tween(begin: 0, end: fill),
-        builder: (_, v, _) => CustomPaint(
-          painter: _RingPainter(v, color, stroke),
-          child: Center(child: center),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Gauge(
+    t: t,
+    color: color,
+    size: size,
+    stroke: stroke,
+    center: center,
+  );
 }
 
-class _RingPainter extends CustomPainter {
-  final double t;
-  final Color color;
-  final double stroke;
-  _RingPainter(this.t, this.color, this.stroke);
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = size.center(Offset.zero);
-    final r = (size.width - stroke) / 2;
-    final track = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round
-      ..color = AppColors.surfaceAlt;
-    canvas.drawArc(
-      Rect.fromCircle(center: c, radius: r),
-      0,
-      math.pi * 2,
-      false,
-      track,
-    );
-    if (t <= 0) return;
-    final arc = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round
-      ..shader = SweepGradient(
-        startAngle: -math.pi / 2,
-        endAngle: math.pi * 1.5,
-        colors: [color.withValues(alpha: 0.85), color],
-      ).createShader(Rect.fromCircle(center: c, radius: r));
-    canvas.drawArc(
-      Rect.fromCircle(center: c, radius: r),
-      -math.pi / 2,
-      math.pi * 2 * t,
-      false,
-      arc,
+/// BaselineProgress — the honest "still learning you" state, rendered as a
+/// partially-filled [Gauge] (nights collected / nights needed) with the count
+/// remaining in the centre and a line saying what it unlocks. Replaces the bare
+/// "Need N more nights" text where a baseline is still filling in.
+class BaselineProgress extends StatelessWidget {
+  final int collected;
+  final int needed;
+  final String unlocks; // e.g. 'to unlock Readiness'
+  final Color? color;
+  final double size;
+  const BaselineProgress({
+    super.key,
+    required this.collected,
+    required this.needed,
+    this.unlocks = '',
+    this.color,
+    this.size = 150,
+  });
+
+  /// Build from a baseline-gated [Metric] (`need_baseline:have=H,need=N`).
+  /// Returns null if the metric isn't a baseline abstention.
+  static BaselineProgress? fromMetric(
+    Metric m, {
+    String unlocks = '',
+    Color? color,
+    double size = 150,
+    Key? key,
+  }) {
+    final note = m.note;
+    if (note == null || !note.contains('need_baseline:')) return null;
+    final match = RegExp(r'have=(\d+),need=(\d+)').firstMatch(note);
+    if (match == null) return null;
+    final have = int.tryParse(match.group(1)!) ?? 0;
+    final need = int.tryParse(match.group(2)!) ?? 0;
+    if (need <= 0) return null;
+    return BaselineProgress(
+      key: key,
+      collected: have.clamp(0, need),
+      needed: need,
+      unlocks: unlocks,
+      color: color,
+      size: size,
     );
   }
 
   @override
-  bool shouldRepaint(_RingPainter old) =>
-      old.t != t || old.color != color || old.stroke != stroke;
+  Widget build(BuildContext context) {
+    final c = color ?? AppColors.coral;
+    final remaining = (needed - collected).clamp(0, needed);
+    final frac = needed == 0 ? 0.0 : (collected / needed).clamp(0.0, 1.0);
+    final numSize = (size * 0.28).clamp(20.0, 44.0);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Gauge(
+          t: frac,
+          color: c,
+          size: size,
+          stroke: size < 110 ? 10 : 12,
+          center: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('$remaining', style: AppText.display.copyWith(fontSize: numSize)),
+              Text(
+                remaining == 1 ? 'night to go' : 'nights to go',
+                style: AppText.caption.copyWith(fontSize: size < 110 ? 9.5 : 12),
+              ),
+            ],
+          ),
+        ),
+        if (unlocks.isNotEmpty) ...[
+          const SizedBox(height: Sp.x4),
+          Text(
+            unlocks,
+            style: AppText.bodySoft,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: Sp.x2),
+          Text(
+            '$collected of $needed nights',
+            style: AppText.captionMuted,
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 /// Tiny sparkline bars (for inside cards). Values normalized to their own max.
@@ -360,6 +445,27 @@ class TimeSeriesChart extends StatefulWidget {
     this.markers = const [],
     this.leftPad = 52,
   });
+
+  /// The snapped x upper bound the chart ACTUALLY draws with (the raw hiX is
+  /// ceilinged to a span-dependent grid so a live axis doesn't jitter). Any
+  /// overlay that maps timestamps to pixels over this chart (HrReplayOverlay,
+  /// positioned markers) MUST use this same bound, or its geometry drifts off
+  /// the drawn line.
+  static double stableTimeUpperBound(double loX, double hiX) {
+    final span = hiX - loX;
+    if (span <= 0) return hiX;
+    double snapSec;
+    if (span >= 18 * 3600) {
+      snapSec = 15 * 60;
+    } else if (span >= 6 * 3600) {
+      snapSec = 10 * 60;
+    } else if (span >= 3600) {
+      snapSec = 5 * 60;
+    } else {
+      snapSec = 60;
+    }
+    return (hiX / snapSec).ceilToDouble() * snapSec;
+  }
 
   @override
   State<TimeSeriesChart> createState() => _TimeSeriesChartState();
@@ -681,21 +787,8 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
     return span / math.max(1, targetTicks - 1);
   }
 
-  static double _stabilizeTimeUpperBound(double loX, double hiX) {
-    final span = hiX - loX;
-    if (span <= 0) return hiX;
-    double snapSec;
-    if (span >= 18 * 3600) {
-      snapSec = 15 * 60;
-    } else if (span >= 6 * 3600) {
-      snapSec = 10 * 60;
-    } else if (span >= 3600) {
-      snapSec = 5 * 60;
-    } else {
-      snapSec = 60;
-    }
-    return (hiX / snapSec).ceilToDouble() * snapSec;
-  }
+  static double _stabilizeTimeUpperBound(double loX, double hiX) =>
+      TimeSeriesChart.stableTimeUpperBound(loX, hiX);
 
   static String _defaultXLabel(double value) {
     final dt = DateTime.fromMillisecondsSinceEpoch(
@@ -718,6 +811,164 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
     final v = point.y.round();
     return '${dt.hour}:$mm\n$v${unit == null || unit.isEmpty ? '' : ' $unit'}';
   }
+}
+
+/// A play button + a dot that replays an HR line — an [AnimationController]
+/// sweeps x across the series while a dot rides the curve. Drop it in as the
+/// last child of the host's Stack (it returns a [Positioned.fill]); the host
+/// passes the same pixel geometry it used to lay out its [TimeSeriesChart].
+class HrReplayOverlay extends StatefulWidget {
+  final List<TimeSeriesPoint> points;
+  final double loX, hiX, loY, hiY;
+  final double leftPad, topInset, chartHeight, bottomPad;
+  final Color color;
+  const HrReplayOverlay({
+    super.key,
+    required this.points,
+    required this.loX,
+    required this.hiX,
+    required this.loY,
+    required this.hiY,
+    required this.chartHeight,
+    this.leftPad = 28,
+    this.topInset = 8,
+    this.bottomPad = 30,
+    this.color = const Color(0xFFFF5A36),
+  });
+  @override
+  State<HrReplayOverlay> createState() => _HrReplayOverlayState();
+}
+
+class _HrReplayOverlayState extends State<HrReplayOverlay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 6000),
+  );
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    if (_c.isAnimating) {
+      _c.stop();
+    } else {
+      if (_c.value >= 1.0) _c.value = 0;
+      _c.forward();
+    }
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final playing = _c.isAnimating;
+    return Positioned.fill(
+      child: Stack(
+        children: [
+          if (_c.value > 0 && _c.value < 1)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _c,
+                  builder: (context, _) => CustomPaint(
+                    painter: _ReplayDotPainter(
+                      points: widget.points,
+                      t: _c.value,
+                      loX: widget.loX,
+                      hiX: widget.hiX,
+                      loY: widget.loY,
+                      hiY: widget.hiY,
+                      leftPad: widget.leftPad,
+                      topInset: widget.topInset,
+                      plotH: widget.chartHeight - widget.bottomPad,
+                      color: widget.color,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Positioned(
+            right: 0,
+            top: widget.topInset,
+            child: Material(
+              color: widget.color,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _toggle,
+                child: Padding(
+                  padding: const EdgeInsets.all(7),
+                  child: Icon(
+                    playing ? Icons.pause : Icons.play_arrow,
+                    size: 16,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ReplayDotPainter extends CustomPainter {
+  final List<TimeSeriesPoint> points;
+  final double t, loX, hiX, loY, hiY, leftPad, topInset, plotH;
+  final Color color;
+  _ReplayDotPainter({
+    required this.points,
+    required this.t,
+    required this.loX,
+    required this.hiX,
+    required this.loY,
+    required this.hiY,
+    required this.leftPad,
+    required this.topInset,
+    required this.plotH,
+    required this.color,
+  });
+
+  double _yAt(double x) {
+    if (points.isEmpty) return loY;
+    if (x <= points.first.x) return points.first.y;
+    if (x >= points.last.x) return points.last.y;
+    for (var i = 1; i < points.length; i++) {
+      if (points[i].x >= x) {
+        final a = points[i - 1], b = points[i];
+        final f = (b.x - a.x) == 0 ? 0.0 : (x - a.x) / (b.x - a.x);
+        return a.y + (b.y - a.y) * f;
+      }
+    }
+    return points.last.y;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final chartW = size.width - leftPad;
+    final x = loX + t * (hiX - loX);
+    final y = _yAt(x);
+    final px = leftPad + ((x - loX) / (hiX - loX)).clamp(0.0, 1.0) * chartW;
+    final py = topInset +
+        (1 - ((y - loY) / (hiY - loY)).clamp(0.0, 1.0)) * plotH;
+    canvas.drawCircle(Offset(px, py), 9, Paint()..color = color.withValues(alpha: 0.22));
+    canvas.drawCircle(Offset(px, py), 5, Paint()..color = color);
+    canvas.drawCircle(
+      Offset(px, py),
+      5,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = Colors.white,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ReplayDotPainter old) => old.t != t;
 }
 
 class ZoneTimelineBar extends StatelessWidget {
@@ -927,7 +1178,13 @@ class StatTile extends StatelessWidget {
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 110),
       child: ProCard(
-        onTap: onTap,
+        onTap: onTap == null
+            ? null
+            : () {
+                HapticFeedback.selectionClick();
+                onTap!();
+              },
+        pressScale: onTap != null,
         padding: const EdgeInsets.all(Sp.x3),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

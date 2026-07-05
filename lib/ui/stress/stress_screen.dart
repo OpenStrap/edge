@@ -1,19 +1,20 @@
 // Stress — HRV-based sympathetic activation (Baevsky Stress Index + LF/HF),
-// personal-relative. Backed by /day/stress, which returns:
+// personal-relative, rebuilt on the design language: a rose ArcGauge hero with
+// a calm/settled/elevated word, a bento of the measurement numbers, the day's
+// rhythm for context, and every explanation behind (i).
+//
+// Backed by /day/stress, which returns:
 //   { stress:{score,si,lf_hf,rmssd,level,drivers}, sleep_stress:{...}, drivers, hr:[{t,v}] }
-// (The old HR-above-resting "arousal band" model was removed — this reads the real
-// HRV stress. Nocturnal arousal lives under sleep_stress.)
+// (The old HR-above-resting "arousal band" model was removed — this reads the
+// real HRV stress. Nocturnal arousal lives under sleep_stress.)
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
-import '../kit/charts.dart';
-import '../screens/metric_row.dart';
+import '../design/design.dart';
+import '../screens/metric_row.dart' show infoFor;
 
 class StressScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
@@ -39,21 +40,35 @@ class _StressScreenState extends State<StressScreen> {
   Future<void> _load() async {
     final api = context.read<AppState>().repo;
     if (api == null) {
-      setState(() { _phase = _Phase.error; _error = 'Not signed in.'; });
+      setState(() {
+        _phase = _Phase.error;
+        _error = 'Not signed in.';
+      });
       return;
     }
-    setState(() { _phase = _Phase.loading; _error = null; });
+    setState(() {
+      _phase = _Phase.loading;
+      _error = null;
+    });
     try {
       final res = await api.getDayStress(widget.date);
-      // Daytime HRV is best-effort — don't fail the whole screen if it's absent.
+      // Daytime HRV is best-effort — don't fail the whole screen if absent.
       Map<String, dynamic> hrv = const {};
-      try { hrv = await api.getDayHrv(widget.date); } catch (_) {/* optional */}
+      try {
+        hrv = await api.getDayHrv(widget.date);
+      } catch (_) {/* optional */}
       if (!mounted) return;
       setState(() {
         _data = res;
         _hrv = hrv;
-        final hasStress = _stress.isNotEmpty && _score != null;
-        final hasSleep = _sleepStress.isNotEmpty && _sleepScore != null;
+        final stress = (res['stress'] is Map)
+            ? (res['stress'] as Map).cast<String, dynamic>()
+            : const <String, dynamic>{};
+        final sleep = (res['sleep_stress'] is Map)
+            ? (res['sleep_stress'] as Map).cast<String, dynamic>()
+            : const <String, dynamic>{};
+        final hasStress = stress['score'] is num;
+        final hasSleep = sleep['score'] is num;
         _phase = (hasStress || hasSleep) ? _Phase.ready : _Phase.empty;
       });
     } catch (e) {
@@ -65,32 +80,116 @@ class _StressScreenState extends State<StressScreen> {
     }
   }
 
-  // ── parsing (matches the HRV-stress response shape) ──────────────────────────
-  num? _num(Object? v) => v is num ? v : (v is String ? num.tryParse(v) : null);
-  Map<String, dynamic> _map(Object? v) => v is Map ? v.cast<String, dynamic>() : const {};
+  static const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  static const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  String _prettyDate() {
+    final p = widget.date.split('-');
+    if (p.length != 3) return widget.date;
+    final y = int.tryParse(p[0]), mo = int.tryParse(p[1]), d = int.tryParse(p[2]);
+    if (y == null || mo == null || d == null || mo < 1 || mo > 12) {
+      return widget.date;
+    }
+    final dt = DateTime(y, mo, d);
+    return '${_weekdays[(dt.weekday - 1) % 7]}, ${_months[mo - 1]} $d';
+  }
 
-  Map<String, dynamic> get _stress => _map(_data['stress']);
-  Map<String, dynamic> get _sleepStress => _map(_data['sleep_stress']);
+  @override
+  Widget build(BuildContext context) {
+    return AppScaffold(
+      title: 'Stress',
+      subtitle: _prettyDate(),
+      children: [
+        if (_phase == _Phase.loading) ...[
+          Skeleton.hero(),
+          const SizedBox(height: Sp.x3),
+          Skeleton.tileRow(rows: 2),
+        ] else if (_phase == _Phase.empty)
+          StateCard(
+            icon: Ic.pulse,
+            title: 'No stress reading for this day',
+            message:
+                'Stress is computed from your overnight HRV (beat-to-beat '
+                'heart data). Wear your strap through the night and sync — it '
+                'needs a few nights of baseline before it can score you '
+                'against your own normal.',
+            actionLabel: 'Try again',
+            onAction: _load,
+          )
+        else if (_phase == _Phase.error)
+          StateCard(
+            icon: Ic.cloud,
+            title: "Couldn't load stress",
+            message: _error ?? 'Please try again.',
+            actionLabel: 'Try again',
+            onAction: _load,
+          )
+        else
+          StressDayContent(data: _data, hrv: _hrv, date: widget.date),
+        const SizedBox(height: Sp.x8),
+      ],
+    );
+  }
+}
+
+/// StressDayContent — the pure stress board (rose domain), testable with a
+/// sample /day/stress payload: gauge hero + word, relief line, measurement
+/// bento, day-rhythm context, overnight arousal, and drivers.
+class StressDayContent extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final Map<String, dynamic> hrv; // /day/hrv payload (may be empty)
+  final String date;
+  const StressDayContent({
+    super.key,
+    required this.data,
+    this.hrv = const {},
+    required this.date,
+  });
+
+  // ── parsing (matches the HRV-stress response shape) ───────────────────────
+  num? _num(Object? v) => v is num ? v : (v is String ? num.tryParse(v) : null);
+  Map<String, dynamic> _map(Object? v) =>
+      v is Map ? v.cast<String, dynamic>() : const {};
+
+  Map<String, dynamic> get _stress => _map(data['stress']);
+  Map<String, dynamic> get _sleepStress => _map(data['sleep_stress']);
   int? get _score => _num(_stress['score'])?.toInt();
   int? get _sleepScore => _num(_sleepStress['score'])?.toInt();
-  List<double> get _hr => ((_data['hr'] as List?) ?? const [])
-      .map((e) => (_num((e as Map)['v']) ?? 0).toDouble())
-      .where((v) => v > 0)
+  List<double?> get _hr => [
+    for (final e in ((data['hr'] as List?) ?? const []).whereType<Map>())
+      () {
+        final v = (_num(e['v']) ?? 0).toDouble();
+        return v > 0 ? v : null;
+      }(),
+  ];
+  List<Map> get _drivers => ((data['drivers'] as List?) ?? const [])
+      .whereType<Map>()
+      .where((d) => (d['label']?.toString() ?? '').isNotEmpty)
       .toList();
-  List<Map> get _drivers =>
-      ((_data['drivers'] as List?) ?? const []).whereType<Map>()
-          .where((d) => (d['label']?.toString() ?? '').isNotEmpty).toList();
 
   /// Stress score → color (LOW stress is good; HIGH is warn/bad).
   Color _scoreColor(int v) {
     if (v < 25) return AppColors.good;
-    if (v < 50) return AppColors.coral;
+    if (v < 50) return DomainAccent.stress;
     if (v < 75) return AppColors.warn;
     return AppColors.bad;
   }
 
-  String _bandLabel(int v) =>
-      v < 25 ? 'Low' : v < 50 ? 'Moderate' : v < 75 ? 'Elevated' : 'High';
+  String _word(int v) => v < 25
+      ? 'Calm'
+      : v < 50
+          ? 'Settled'
+          : v < 75
+              ? 'Elevated'
+              : 'High';
+
+  /// The relief line — what to do with this number, one sentence.
+  String _relief(int v) => v < 25
+      ? 'Your system is settled — a good day to take on load.'
+      : v < 50
+          ? 'Normal daily activation. Nothing to manage here.'
+          : v < 75
+              ? 'Running warm — slow breaths, a walk or daylight all help it settle.'
+              : 'High sympathetic load — favour easy movement and an early night.';
 
   String _hm(int m) {
     if (m <= 0) return '0m';
@@ -100,195 +199,326 @@ class _StressScreenState extends State<StressScreen> {
     return '${h}h ${r}m';
   }
 
-  static const _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  static const _weekdays = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  String _prettyDate() {
-    final p = widget.date.split('-');
-    if (p.length != 3) return widget.date;
-    final y = int.tryParse(p[0]), mo = int.tryParse(p[1]), d = int.tryParse(p[2]);
-    if (y == null || mo == null || d == null || mo < 1 || mo > 12) return widget.date;
-    final dt = DateTime(y, mo, d);
-    return '${_weekdays[(dt.weekday - 1) % 7]}, ${_months[mo - 1]} $d';
-  }
+  String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
-  // ── build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
-          children: [
-            const SizedBox(height: Sp.x4),
-            _topBar(),
-            const SizedBox(height: Sp.x6),
-            if (_phase == _Phase.loading)
-              _loading()
-            else if (_phase == _Phase.empty)
-              _stateCard(Ic.pulse, 'No stress reading for this day',
-                  'Stress is computed from your overnight HRV (beat-to-beat heart data). '
-                  'Wear your strap through the night and sync — it needs a few nights of '
-                  'baseline before it can score you against your own normal.')
-            else if (_phase == _Phase.error)
-              _stateCard(Ic.cloud, "Couldn't load stress", _error ?? 'Please try again.')
-            else ...[
-              if (_score != null) _hero(),
-              ..._hrvSection(),
-              ..._daytimeHrvSection(),
-              ..._timelineSection(),
-              ..._sleepStressSection(),
-              ..._driversSection(),
-              const SizedBox(height: Sp.x6),
-              _honesty(),
-            ],
-            const SizedBox(height: 40),
-          ],
-        ),
-      ),
+    final score = _score;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (score != null) ...[
+          _hero(score).dsEnter(),
+          const SizedBox(height: Sp.x2),
+        ],
+        _bento(context),
+        ..._daySection(),
+        ..._sleepSection(),
+        ..._driversSection(),
+      ],
     );
   }
 
-  Widget _topBar() => Row(children: [
-        RoundIconButton(Ic.arrowLeft, onTap: () => Navigator.of(context).maybePop()),
-        const SizedBox(width: Sp.x3),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Stress', style: AppText.h1),
-            const SizedBox(height: 2),
-            Text(_prettyDate(), style: AppText.caption),
-          ],
-        )),
-      ]);
-
-  Widget _hero() {
-    final v = _score!;
+  // ── hero — the gauge floats directly on the page, no card chrome ──────────
+  Widget _hero(int v) {
     final color = _scoreColor(v);
     final level = (_stress['level']?.toString().trim().isNotEmpty ?? false)
         ? _cap(_stress['level'].toString())
-        : _bandLabel(v);
-    return GlowCard(
-      padding: const EdgeInsets.all(Sp.x6),
-      child: Row(children: [
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(children: [
-              AppIcon(Ic.pulse, size: 16, color: AppColors.coralDeep),
-              const SizedBox(width: Sp.x2),
-              Text('STRESS', style: AppText.overline),
-              const SizedBox(width: Sp.x2),
-              Tag('HRV', color: AppColors.good),
-            ]),
-            const SizedBox(height: Sp.x3),
-            Text('$v', style: AppText.display.copyWith(color: color)),
-            const SizedBox(height: Sp.x1),
-            Text('$level · sympathetic activation from your HRV', style: AppText.bodySoft),
-          ],
-        )),
-        const SizedBox(width: Sp.x4),
-        RingStat(
-          t: (v / 100).clamp(0.0, 1.0), color: color, size: 104, stroke: 11,
-          center: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('$v', style: AppText.metricSm.copyWith(fontSize: 20, color: color)),
-            Text('/100', style: AppText.captionMuted),
-          ]),
+        : _word(v);
+    return Column(
+      children: [
+        const SizedBox(height: Sp.x3),
+        ArcGauge(
+          value: (v / 100).clamp(0.0, 1.0),
+          color: color,
+          size: 180,
+          stroke: 14,
+          sweepFraction: 0.75,
+          endDot: true,
+          valueText: '$v',
+          label: level.toLowerCase(),
         ),
-      ]),
+        const SizedBox(height: Sp.x3),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            StatusChip(
+              level,
+              icon: Icons.self_improvement_rounded,
+              tone: v < 50
+                  ? ChipTone.positive
+                  : v < 75
+                      ? ChipTone.warn
+                      : ChipTone.critical,
+            ),
+            InfoDot(
+              title: 'Stress',
+              body:
+                  'Sympathetic "fight-or-flight" activation read from your '
+                  'overnight HRV (Baevsky Stress Index), scored against your '
+                  'own baseline — a body signal, not a mood. It needs a few '
+                  'nights of HRV to be meaningful.',
+              methodNote: 'Baevsky SI vs your rolling baseline · 0–100',
+            ),
+          ],
+        ),
+        const SizedBox(height: Sp.x2),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Sp.x6),
+          // The relief line — in the settled bands it carries the calm art so
+          // the "nothing to manage" read lands at a glance.
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (v < 50) ...[
+                const OsAppIcon(OsIcon.calm, size: 32),
+                const SizedBox(width: Sp.x2),
+              ],
+              Flexible(
+                child: Text(
+                  _relief(v),
+                  style: AppText.bodySoft,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: Sp.x2),
+      ],
     );
   }
 
-  List<Widget> _hrvSection() {
+  // ── the measurement bento ──────────────────────────────────────────────────
+  Widget _bento(BuildContext context) {
     final si = _num(_stress['si']);
     final lfhf = _num(_stress['lf_hf']);
     final rmssd = _num(_stress['rmssd']);
-    if (si == null && lfhf == null && rmssd == null) return const [];
-    return [
-      const SizedBox(height: Sp.x6),
-      const SectionHeader('How it was measured'),
-      MetricGroup([
-        if (si != null)
-          MetricRow(icon: Ic.strain, accent: AppColors.warn, label: 'Stress index (Baevsky)',
-              info: 'Baevsky SI from your HRV — higher = more sympathetic activation. Scored vs your own baseline.',
-              value: '$si'),
-        if (lfhf != null)
-          MetricRow(icon: Ic.pulse, accent: AppColors.warn, label: 'Sympatho-vagal balance',
-              info: infoFor('lf_hf'), value: '$lfhf'),
-        if (rmssd != null)
-          MetricRow(icon: Ic.pulse, accent: AppColors.good, label: 'RMSSD (this read)',
-              info: infoFor('rmssd'), value: '$rmssd', unit: 'ms'),
-      ]),
+    final day = _map(hrv['daytime_hrv']);
+    final dayMed = _num(day['rmssd_median'])?.toInt();
+    final dayN = _num(day['n_windows'])?.toInt() ?? 0;
+
+    final left = <Widget>[
+      BentoTile(
+        tone: BentoTone.soft,
+        accent: DomainAccent.stress,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TileHeader(
+              'Stress index',
+              icon: Ic.strain,
+              osIcon: OsIcon.stress,
+              trailing: InfoDot(
+                title: 'Stress index (Baevsky)',
+                body:
+                    'Baevsky SI from your HRV — higher means more sympathetic '
+                    'activation. Scored vs your own baseline.',
+              ),
+            ),
+            const SizedBox(height: Sp.x2),
+            BigStat(value: si?.toString(), caption: 'Baevsky'),
+          ],
+        ),
+      ),
+      if (rmssd != null)
+        BentoTile(
+          accent: DomainAccent.recovery,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TileHeader(
+                'RMSSD',
+                icon: Ic.pulse,
+                osIcon: OsIcon.hrv,
+                trailing: InfoDot(title: 'RMSSD', body: infoFor('rmssd')!),
+              ),
+              const SizedBox(height: Sp.x2),
+              BigStat(value: '$rmssd', unit: 'ms', caption: 'this read'),
+            ],
+          ),
+        ),
     ];
+    final right = <Widget>[
+      if (lfhf != null)
+        BentoTile(
+          accent: DomainAccent.stress,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TileHeader(
+                'LF / HF',
+                icon: Ic.pulse,
+                osIcon: OsIcon.calm,
+                trailing: InfoDot(
+                  title: 'Sympatho-vagal balance',
+                  body: infoFor('lf_hf')!,
+                ),
+              ),
+              const SizedBox(height: Sp.x2),
+              BigStat(value: '$lfhf', caption: 'balance'),
+            ],
+          ),
+        ),
+      if (dayMed != null && dayN >= 3)
+        BentoTile(
+          tone: BentoTone.ink,
+          accent: DomainAccent.recovery,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TileHeader(
+                'Daytime HRV',
+                icon: Ic.chart,
+                trailing: InfoDot(
+                  title: 'Daytime HRV',
+                  body:
+                      'Heart-rate variability across your waking hours '
+                      '(ultradian rhythm), excluding your main sleep. Higher '
+                      'generally means more recovered / parasympathetic.',
+                  methodNote: '$dayN five-minute windows with enough beats',
+                ),
+              ),
+              const SizedBox(height: Sp.x2),
+              BigStat(
+                value: '$dayMed',
+                unit: 'ms',
+                caption: 'median · $dayN windows',
+              ),
+            ],
+          ),
+        ),
+    ];
+    if (left.length == 1 && right.isEmpty) {
+      // Lone SI tile → let it breathe full-width instead of a half column.
+      return left.first;
+    }
+    return BentoColumns(left: left, right: right);
   }
 
-  List<Widget> _timelineSection() {
-    if (!detailedAvailable(widget.date)) {
-      return const [SizedBox(height: Sp.x6), DetailRetentionNote(what: 'the minute-by-minute heart rate')];
+  // ── the day's rhythm (context, not the score) ──────────────────────────────
+  List<Widget> _daySection() {
+    if (!detailedAvailable(date)) {
+      return const [
+        SizedBox(height: Sp.x3),
+        DetailRetentionNote(what: 'the minute-by-minute heart rate'),
+      ];
     }
     final hr = _hr;
-    if (hr.length < 2) return const [];
+    if (hr.whereType<double>().length < 2) return const [];
     return [
-      const SizedBox(height: Sp.x6),
-      const SectionHeader('Heart rate (context)'),
-      ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        AreaSpark(hr, color: AppColors.coral, height: 90),
-        const SizedBox(height: Sp.x2),
-        Text('Your heart rate across the day — shown for context, not the stress score.',
-            style: AppText.captionMuted),
-      ])),
+      const SizedBox(height: Sp.x3),
+      SurfaceCard(
+        padding: const EdgeInsets.all(Sp.x4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TileHeader(
+              'Through the day',
+              icon: Ic.pulse,
+              osIcon: OsIcon.stress,
+              trailing: InfoDot(
+                title: 'Through the day',
+                body:
+                    'Your heart rate across the day — shown as context for the '
+                    'stress score, not what it is computed from.',
+              ),
+            ),
+            const SizedBox(height: Sp.x3),
+            Sparkline(
+              hr,
+              color: DomainAccent.stress,
+              height: 90,
+              area: true,
+            ),
+          ],
+        ),
+      ).dsEnter(index: 2),
     ];
   }
 
-  List<Widget> _sleepStressSection() {
+  // ── overnight arousal ──────────────────────────────────────────────────────
+  List<Widget> _sleepSection() {
     final ss = _sleepStress;
-    if (ss.isEmpty || _sleepScore == null) return const [];
+    final sleepScore = _sleepScore;
+    if (ss.isEmpty || sleepScore == null) return const [];
     final arousals = _num(ss['arousal_events'])?.toInt() ?? 0;
     final restless = _num(ss['restless_min'])?.toInt() ?? 0;
-    // Richer movement-restlessness (calcRestlessness), distinct from HR-surge arousal.
+    // Richer movement-restlessness (calcRestlessness), distinct from HR-surge
+    // arousal.
     final rest = _map(ss['restlessness']);
     final bouts = _num(rest['movement_bouts'])?.toInt();
     final stillMin = _num(rest['longest_still_min'])?.toInt();
     return [
       const SizedBox(height: Sp.x6),
       const SectionHeader('Overnight arousal'),
-      ProCard(child: Column(children: [
-        MetricRow(icon: Ic.moon, accent: AppColors.loadDetraining, label: 'Sleep stress',
-            info: 'Possible arousals overnight — brief heart-rate surges with movement during sleep.',
-            value: '$_sleepScore', unit: '/100'),
-        if (arousals > 0 || restless > 0)
-          MetricRow(icon: Ic.activity, accent: AppColors.inkSoft, label: 'Disturbance',
-              info: 'Count of possible arousals and total restless time.',
-              value: '$arousals events · ${_hm(restless)}'),
-        if (bouts != null)
-          MetricRow(icon: Ic.activity, accent: AppColors.inkSoft, label: 'Restlessness',
-              info: 'How fragmented the night was — number of times you shifted, and your longest unbroken still stretch.',
-              value: stillMin != null ? '$bouts shifts · ${_hm(stillMin)} still' : '$bouts shifts'),
-      ])),
-    ];
-  }
-
-  // Daytime (waking) HRV — the ultradian RMSSD rhythm from /day/hrv. Complements the
-  // nocturnal recovery score: a sense of autonomic state across the day.
-  List<Widget> _daytimeHrvSection() {
-    final h = _map(_hrv['daytime_hrv']);
-    final med = _num(h['rmssd_median'])?.toInt();
-    final n = _num(h['n_windows'])?.toInt() ?? 0;
-    if (med == null || n < 3) return const [];
-    return [
-      const SizedBox(height: Sp.x6),
-      const SectionHeader('Daytime HRV'),
-      ProCard(child: Column(children: [
-        MetricRow(icon: Ic.pulse, accent: AppColors.good, label: 'Median daytime RMSSD',
-            info: 'Heart-rate variability across your waking hours (ultradian rhythm), excluding your main sleep. Higher generally means more recovered/parasympathetic.',
-            value: '$med', unit: 'ms'),
-        MetricRow(icon: Ic.activity, accent: AppColors.inkSoft, label: 'Coverage',
-            info: 'Number of 5-minute windows with enough beat-to-beat data to measure.',
-            value: '$n', unit: 'windows'),
-      ])),
+      BentoColumns(
+        left: [
+          BentoTile(
+            tone: BentoTone.soft,
+            accent: DomainAccent.sleep,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TileHeader(
+                  'Sleep stress',
+                  icon: Ic.moon,
+                  osIcon: OsIcon.sleep,
+                  trailing: InfoDot(
+                    title: 'Sleep stress',
+                    body:
+                        'Possible arousals overnight — brief heart-rate surges '
+                        'with movement during sleep. Not nightmares.',
+                  ),
+                ),
+                const SizedBox(height: Sp.x2),
+                BigStat(
+                  value: '$sleepScore',
+                  unit: '/100',
+                  caption: arousals > 0 || restless > 0
+                      ? '$arousals events · ${_hm(restless)}'
+                      : null,
+                ),
+              ],
+            ),
+          ),
+        ],
+        right: [
+          if (bouts != null)
+            BentoTile(
+              accent: DomainAccent.sleep,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TileHeader(
+                    'Restlessness',
+                    icon: Ic.activity,
+                    trailing: InfoDot(
+                      title: 'Restlessness',
+                      body:
+                          'How fragmented the night was — the number of times '
+                          'you shifted, and your longest unbroken still '
+                          'stretch.',
+                    ),
+                  ),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(
+                    value: '$bouts',
+                    caption: stillMin != null
+                        ? 'shifts · ${_hm(stillMin)} still'
+                        : 'shifts',
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     ];
   }
 
@@ -298,47 +528,21 @@ class _StressScreenState extends State<StressScreen> {
     return [
       const SizedBox(height: Sp.x6),
       const SectionHeader('What affected this'),
-      ProCard(child: Column(children: [
-        for (final dr in d)
-          DetailRow(label: dr['label']?.toString() ?? '', value: dr['detail']?.toString() ?? ''),
-      ])),
+      SurfaceCard(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Sp.x4,
+          vertical: Sp.x2,
+        ),
+        child: Column(
+          children: [
+            for (final dr in d)
+              DetailRow(
+                label: dr['label']?.toString() ?? '',
+                value: dr['detail']?.toString() ?? '',
+              ),
+          ],
+        ),
+      ),
     ];
   }
-
-  Widget _honesty() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        AppIcon(Ic.info, size: 14, color: AppColors.inkMuted),
-        const SizedBox(width: Sp.x2),
-        Expanded(child: Text(
-          'Daytime stress here is your nocturnal HRV (Baevsky Stress Index), scored '
-          'against your own baseline — sympathetic "fight-or-flight" load, not a mood. '
-          'Overnight arousal is brief heart-rate surges with movement during sleep, not '
-          'nightmares. Both need a few nights of HRV to be meaningful.',
-          style: AppText.captionMuted,
-        )),
-      ]);
-
-  String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
-
-  Widget _loading() => ProCard(
-        padding: const EdgeInsets.all(Sp.x6),
-        child: SizedBox(height: 320,
-            child: Center(child: CircularProgressIndicator(color: AppColors.coral))),
-      );
-
-  Widget _stateCard(IconData icon, String title, String message) => ProCard(
-        padding: const EdgeInsets.all(Sp.x6),
-        child: Column(children: [
-          Container(
-            padding: const EdgeInsets.all(Sp.x4),
-            decoration: BoxDecoration(color: AppColors.coralSoft, shape: BoxShape.circle),
-            child: AppIcon(icon, size: 30, color: AppColors.coralDeep),
-          ),
-          const SizedBox(height: Sp.x4),
-          Text(title, style: AppText.h2, textAlign: TextAlign.center),
-          const SizedBox(height: Sp.x2),
-          Text(message, style: AppText.bodySoft, textAlign: TextAlign.center),
-          const SizedBox(height: Sp.x5),
-          OutlinedButton(onPressed: _load, child: const Text('Try again')),
-        ]),
-      );
 }

@@ -1,15 +1,15 @@
-// MetricRow + metric dictionary — the polished, breathing building block for every metric
-// detail. Icon chip + label + a one-line "what this is" + value, with real
-// padding. Group several in a MetricGroup (one ProCard, hairline dividers). This is
-// what makes the new screens read like the hand-written ones instead of flat lists.
+// MetricRow + metric dictionary — the numbers-first building block for metric
+// detail lists on the design language: icon chip + label, a big tabular value,
+// and the "what this is" copy behind a quiet (i) InfoSheet instead of a
+// paragraph under every row (glanceable first, explanations on demand).
+// Group several in a MetricGroup (one SurfaceCard, hairline dividers).
 
 import 'package:flutter/material.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
 
-/// One-line, honest explanation per metric key. Shown under the label so users
-/// learn what they're looking at without leaving the screen.
+import '../design/design.dart';
+
+/// One-line, honest explanation per metric key. Lives behind the (i) so users
+/// can learn what they're looking at without the screen reading like a manual.
 const Map<String, String> kMetricInfo = {
   'recovery': "How recovered you are — tonight's HRV vs your own baseline.",
   'hrv':
@@ -60,9 +60,17 @@ const Map<String, String> kMetricInfo = {
 
 String? infoFor(String key) => kMetricInfo[key];
 
-/// A single metric line: [icon chip] label + description ........ value unit [›]
+/// A single metric line: [icon chip] label (i) ........ big value unit [›]
+/// The explanation opens in an InfoSheet from the (i) — the row itself stays
+/// a clean number.
 class MetricRow extends StatelessWidget {
   final IconData icon;
+
+  /// Illustrated variant — takes precedence over [icon] inside the chip.
+  /// Rendered at 38px (the art carries built-in transparent padding, so it
+  /// needs a larger canvas than a stroke glyph to read at the same weight);
+  /// the chip footprint grows to 40px vs the glyph chip's 35px.
+  final OsIcon? osIcon;
   final Color? accent;
   final String label;
   final String? info;
@@ -73,6 +81,7 @@ class MetricRow extends StatelessWidget {
   const MetricRow({
     super.key,
     required this.icon,
+    this.osIcon,
     required this.label,
     required this.value,
     this.info,
@@ -81,91 +90,80 @@ class MetricRow extends StatelessWidget {
     this.valueTag,
     this.onTap,
   });
+
   @override
   Widget build(BuildContext context) {
     final accent = this.accent ?? AppColors.coral;
-    final row = Padding(
-      padding: const EdgeInsets.symmetric(vertical: Sp.x3),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final row = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 56),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Top line: icon chip + label .......... value unit [tag] [›]
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(R.chip),
-                ),
-                child: AppIcon(icon, size: 17, color: accent),
-              ),
-              const SizedBox(width: Sp.x3),
-
-              Expanded(
-                child: Text(
-                  label,
-                  style: AppText.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-
-              const SizedBox(width: Sp.x3),
-
-              Flexible(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        value,
-                        style: AppText.metricSm.copyWith(fontSize: 19),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.right,
-                      ),
-                    ),
-                    if (unit != null) ...[
-                      const SizedBox(width: 3),
-                      Text(unit!, style: AppText.caption),
-                    ],
-                    if (valueTag != null) ...[
-                      const SizedBox(width: Sp.x2),
-                      valueTag!,
-                    ],
-                    if (onTap != null) ...[
-                      const SizedBox(width: Sp.x2),
-                      AppIcon(
-                        Ic.arrowRight,
-                        size: 16,
-                        color: AppColors.inkMuted,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
-          ),
-          // Description on its OWN full-width line (indented under the chip) so it
-          // never gets squeezed/cut by the value column.
-          if (info != null) ...[
-            const SizedBox(height: Sp.x2),
-            Padding(
-              padding: const EdgeInsets.only(left: 38), // chip width + gap
-              child: Text(info!, style: AppText.captionMuted),
+          Container(
+            padding: EdgeInsets.all(osIcon != null ? 1 : 9),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(R.chip),
             ),
-          ],
+            child: osIcon != null
+                ? OsAppIcon(osIcon!, size: 38)
+                : AppIcon(icon, size: 17, color: accent),
+          ),
+          const SizedBox(width: Sp.x3),
+          Flexible(
+            child: Text(
+              label,
+              style: AppText.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (info != null)
+            InfoDot(title: label, body: info)
+          else
+            const SizedBox(width: Sp.x3),
+          const Spacer(),
+          Flexible(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Flexible(
+                  child: Text(
+                    value,
+                    style: AppText.metricSm.copyWith(fontSize: 19),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+                if (unit != null) ...[
+                  const SizedBox(width: 3),
+                  Text(unit!,
+                      style: AppText.caption.copyWith(
+                        color: AppColors.inkSoft,
+                        fontWeight: FontWeight.w700,
+                      )),
+                ],
+                if (valueTag != null) ...[
+                  const SizedBox(width: Sp.x2),
+                  valueTag!,
+                ],
+                if (onTap != null) ...[
+                  const SizedBox(width: Sp.x2),
+                  AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
+                ],
+              ],
+            ),
+          ),
         ],
       ),
     );
     if (onTap == null) return row;
-    return InkWell(
-      borderRadius: BorderRadius.circular(R.cardSm),
+    return Pressable(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(R.cardSm),
       child: row,
     );
   }
@@ -178,7 +176,7 @@ class MetricGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final children = <Widget>[];
-    for (int i = 0; i < rows.length; i++) {
+    for (var i = 0; i < rows.length; i++) {
       children.add(rows[i]);
       if (i < rows.length - 1) {
         children.add(
@@ -186,6 +184,9 @@ class MetricGroup extends StatelessWidget {
         );
       }
     }
-    return ProCard(child: Column(children: children));
+    return SurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+      child: Column(children: children),
+    );
   }
 }

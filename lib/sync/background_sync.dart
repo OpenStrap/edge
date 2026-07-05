@@ -52,8 +52,10 @@ Future<bool> runHeadlessSync() async {
       onEvent: (id, ts, hex) => LocalDb.insertEvent(id, ts, hex),
       log: (l) => debugPrint('[bgsync] $l'),
       onRecordsBatch: LocalDb.insertRecordsBatch,
-      onCommitBatch: (raws, samples, trimTokenHex) =>
-          LocalDb.commitSyncBatch(raws, samples, trimToken: trimTokenHex),
+      onCommitBatch: (raws, samples, trimTokenHex, {archives}) =>
+          LocalDb.commitSyncBatch(raws, samples,
+              trimToken: trimTokenHex, archives: archives),
+      onArchiveRecord: LocalDb.archiveRawRecord,
       cursorReader: LocalDb.getCursorInt,
       // Mark this as the background drainer: if the foreground app engine already
       // owns the band (same process — iOS restore-wake OR Android headless boot /

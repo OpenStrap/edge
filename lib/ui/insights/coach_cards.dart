@@ -83,15 +83,41 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
     if (!when.isAfter(now)) when = when.add(const Duration(days: 1));
     try {
       await app.setAlarm(when);
-      _snack('Band alarm set for ${_hhmm(wakeMin)}.');
+      _snack('Band alarm set for ${_hhmm(wakeMin)} — confirming with the strap…');
     } catch (e) {
       _snack("Couldn't set alarm: $e");
+    }
+  }
+
+  Future<void> _testBuzz() async {
+    final app = context.read<AppState>();
+    if (!app.isConnected) {
+      _snack('Connect your strap to test the alarm buzz.');
+      return;
+    }
+    try {
+      await app.testAlarmBuzz();
+      _snack('Sent a test buzz to your strap.');
+    } catch (e) {
+      _snack("Couldn't buzz the strap: $e");
     }
   }
 
   void _snack(String s) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
+  }
+
+  /// Live alarm-status caption driven by the strap's own confirmation events.
+  String _alarmCaption(AppState app) {
+    const base = 'Your strap buzzes at this time — set on the band, so it works '
+        'even with the app closed. Aligned to a ~90-min cycle so it lands near '
+        'light sleep.';
+    if (app.alarmEpoch == null) return base;
+    if (app.alarmConfirmed) return 'Alarm set ✓ — $base';
+    if (app.alarmPending) return 'Setting alarm… — $base';
+    return 'Alarm sent, but the strap hasn\'t confirmed it yet. '
+        'Tap "Test buzz" to check it fires, and keep a backup alarm.';
   }
 
   @override
@@ -119,7 +145,7 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          AppIcon(Ic.moon, size: 16, color: accent),
+          const OsAppIcon(OsIcon.sleep, size: 34),
           const SizedBox(width: Sp.x2),
           Text('SLEEP COACH', style: AppText.overline),
           const Spacer(),
@@ -145,9 +171,11 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
         ]),
         const SizedBox(height: Sp.x4),
         if (bedMin != null)
-          _row(Ic.moon, accent, 'Recommended bedtime', _hhmm(bedMin)),
+          _row(Ic.moon, accent, 'Recommended bedtime', _hhmm(bedMin),
+              osIcon: OsIcon.bedtime),
         if (wakeMin != null)
-          _row(Ic.bell, AppColors.coral, 'Wake (cycle-aligned)', _hhmm(wakeMin)),
+          _row(Ic.bell, AppColors.coral, 'Wake (cycle-aligned)', _hhmm(wakeMin),
+              osIcon: OsIcon.alarm),
         if (wakeMin != null) ...[
           const SizedBox(height: Sp.x3),
           SizedBox(
@@ -159,20 +187,31 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
             ),
           ),
           const SizedBox(height: Sp.x2),
-          Text(
-              'Your strap buzzes at this time — set on the band, so it works even '
-              'with the app closed. Aligned to a ~90-min cycle so it lands near '
-              'light sleep.',
-              style: AppText.captionMuted),
+          Row(children: [
+            Expanded(
+              child: Text(_alarmCaption(context.watch<AppState>()),
+                  style: AppText.captionMuted),
+            ),
+            const SizedBox(width: Sp.x2),
+            TextButton(
+              onPressed: _testBuzz,
+              child: const Text('Test buzz'),
+            ),
+          ]),
         ],
       ]),
     );
   }
 
-  Widget _row(IconData icon, Color accent, String label, String value) => Padding(
+  Widget _row(IconData icon, Color accent, String label, String value,
+          {OsIcon? osIcon}) =>
+      Padding(
         padding: const EdgeInsets.symmetric(vertical: Sp.x2),
         child: Row(children: [
-          AppIcon(icon, size: 15, color: accent),
+          if (osIcon != null)
+            OsAppIcon(osIcon, size: 28)
+          else
+            AppIcon(icon, size: 15, color: accent),
           const SizedBox(width: Sp.x3),
           Expanded(child: Text(label, style: AppText.body)),
           Text(value, style: AppText.label),
@@ -237,7 +276,7 @@ class _StrainCoachCardState extends State<StrainCoachCard> {
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          AppIcon(Ic.strain, size: 16, color: accent),
+          const OsAppIcon(OsIcon.bodyStrain, size: 34),
           const SizedBox(width: Sp.x2),
           Text('STRAIN COACH', style: AppText.overline),
           const Spacer(),
@@ -316,7 +355,7 @@ class _WhoopAgeCardState extends State<WhoopAgeCard> {
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          AppIcon(Ic.pulse, size: 16, color: accent),
+          const OsAppIcon(OsIcon.vo2max, size: 34),
           const SizedBox(width: Sp.x2),
           Text('FITNESS AGE', style: AppText.overline),
         ]),

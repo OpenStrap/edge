@@ -19,11 +19,13 @@ void openTrend(
   required String title,
   required String metric,
   required IconData icon,
+  OsIcon? osIcon,
   Color? accent,
   String Function(double v)? valueFmt,
 }) {
   Navigator.of(context).push(themedRoute((_) => GenericTrendScreen(
-      title: title, metric: metric, icon: icon, accent: accent, valueFmt: valueFmt),
+      title: title, metric: metric, icon: icon, osIcon: osIcon,
+      accent: accent, valueFmt: valueFmt),
   ));
 }
 
@@ -34,6 +36,7 @@ class GenericTrendScreen extends StatelessWidget {
   final String title;
   final String metric;
   final IconData icon;
+  final OsIcon? osIcon;
   final Color? accent;
   final String Function(double v)? valueFmt;
   const GenericTrendScreen({
@@ -41,6 +44,7 @@ class GenericTrendScreen extends StatelessWidget {
     required this.title,
     required this.metric,
     required this.icon,
+    this.osIcon,
     this.accent,
     this.valueFmt,
   });
@@ -52,14 +56,15 @@ class GenericTrendScreen extends StatelessWidget {
       title: title,
       metric: metric,
       icon: icon,
+      osIcon: osIcon,
       accent: accent,
       valueFmt: valueFmt,
-      todayDetail: (ctx) => _TrendTodayCard(metric: metric, icon: icon, accent: accent, valueFmt: valueFmt),
+      todayDetail: (ctx) => _TrendTodayCard(metric: metric, icon: icon, osIcon: osIcon, accent: accent, valueFmt: valueFmt),
       // Drill selection: render the SELECTED day's value, not the latest (the
       // card keys off `date` — without it every bar showed today's number).
       dayDetail: (ctx, date) => _TrendTodayCard(
           key: ValueKey('trendday-$metric-$date'),
-          metric: metric, icon: icon, accent: accent, valueFmt: valueFmt, date: date),
+          metric: metric, icon: icon, osIcon: osIcon, accent: accent, valueFmt: valueFmt, date: date),
     );
   }
 }
@@ -69,12 +74,13 @@ class GenericTrendScreen extends StatelessWidget {
 class _TrendTodayCard extends StatefulWidget {
   final String metric;
   final IconData icon;
+  final OsIcon? osIcon;
   final Color accent;
   final String Function(double v)? valueFmt;
   /// When set, this card is a DRILL selection: show THIS day's value (the bar the
   /// user tapped), not the latest. Null = the Today leaf (latest value).
   final String? date;
-  const _TrendTodayCard({super.key, required this.metric, required this.icon, required this.accent, this.valueFmt, this.date});
+  const _TrendTodayCard({super.key, required this.metric, required this.icon, this.osIcon, required this.accent, this.valueFmt, this.date});
   @override
   State<_TrendTodayCard> createState() => _TrendTodayCardState();
 }
@@ -148,7 +154,10 @@ class _TrendTodayCardState extends State<_TrendTodayCard> {
       glow: widget.accent,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          AppIcon(widget.icon, size: 16, color: widget.accent),
+          if (widget.osIcon != null)
+            OsAppIcon(widget.osIcon!, size: 34)
+          else
+            AppIcon(widget.icon, size: 16, color: widget.accent),
           const SizedBox(width: Sp.x2),
           Text(header, style: AppText.overline),
         ]),
@@ -185,6 +194,7 @@ class _TrendTodayCardState extends State<_TrendTodayCard> {
 /// look matches every other row; the chevron signals it's drillable.
 class TrendMetricRow extends StatelessWidget {
   final IconData icon;
+  final OsIcon? osIcon; // illustrated variant — flows into the trend screen too
   final Color? accent;
   final String label;
   final String? info;
@@ -197,6 +207,7 @@ class TrendMetricRow extends StatelessWidget {
   const TrendMetricRow({
     super.key,
     required this.icon,
+    this.osIcon,
     required this.label,
     required this.value,
     required this.metric,
@@ -209,7 +220,7 @@ class TrendMetricRow extends StatelessWidget {
   });
   @override
   Widget build(BuildContext context) => MetricRow(
-        icon: icon, accent: accent, label: label, info: info, value: value, unit: unit, valueTag: valueTag,
-        onTap: () => openTrend(context, title: trendTitle, metric: metric, icon: icon, accent: accent, valueFmt: valueFmt),
+        icon: icon, osIcon: osIcon, accent: accent, label: label, info: info, value: value, unit: unit, valueTag: valueTag,
+        onTap: () => openTrend(context, title: trendTitle, metric: metric, icon: icon, osIcon: osIcon, accent: accent, valueFmt: valueFmt),
       );
 }

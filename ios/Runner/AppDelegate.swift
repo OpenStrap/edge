@@ -28,6 +28,18 @@ import BackgroundTasks
       }
       BackgroundTaskManager.handleTask(processingTask)
     }
+    // Light sync-only BGAppRefreshTask — separate identifier + budget from the
+    // processing task above; also registered BEFORE didFinishLaunching returns.
+    BGTaskScheduler.shared.register(
+      forTaskWithIdentifier: BackgroundTaskManager.refreshTaskIdentifier,
+      using: nil
+    ) { task in
+      guard let refreshTask = task as? BGAppRefreshTask else {
+        task.setTaskCompleted(success: false)
+        return
+      }
+      BackgroundTaskManager.handleRefreshTask(refreshTask)
+    }
 
     // Apple Watch companion: activate the WCSession so the watch can receive
     // today's metrics (mirrored from the App Group snapshot). No-op without a
@@ -72,8 +84,10 @@ import BackgroundTasks
     // BGTask channel: Dart handler for opportunistic headless sync + heavy derivation.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BackgroundTaskManager") {
       BackgroundTaskManager.wireChannel(messenger: registrar.messenger())
-      // Now that the channel is wired, submit the first BGProcessingTask request.
+      // Now that the channel is wired, submit the first task requests
+      // (heavy processing + light sync-only refresh).
       BackgroundTaskManager.schedule()
+      BackgroundTaskManager.scheduleRefresh()
     }
   }
 }

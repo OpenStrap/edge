@@ -1,6 +1,6 @@
 // LocalRepositoryImpl — serves the UI from the PRECOMPUTED derived store.
 //
-// ZERO heavy compute on read: every method reads derived_day / metric_series
+// ZERO heavy compute on read: every method reads day_result / metric_series
 // rows (written by the DerivationEngine) and shapes them into the exact Map/List
 // blobs the existing screens expect (the shapes the old cloud ApiClient returned,
 // parsed by lib/models/payloads.dart + metric.dart).
@@ -14,13 +14,17 @@
 // Profile-gated metrics are null when the profile field is missing.
 
 import 'dart:convert';
+import 'dart:math' as math;
 
 import '../compute/derivation_engine.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
+import 'day_label.dart';
 import 'db.dart';
 import 'local_repository.dart';
+import '../gps/route_models.dart';
+import '../gps/route_math.dart' as rmath;
 
 class LocalRepositoryImpl extends LocalRepository {
   LocalRepositoryImpl({required this.getProfileMap});
@@ -30,7 +34,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
-  /// Decode a derived_day row's payload bundle, or null.
+  /// Decode a day_result row's payload bundle (latest algo_version), or null.
   Future<Map<String, dynamic>?> _bundle(String date) async {
     final row = await LocalDb.dayResult(date);
     if (row == null) return null;
@@ -85,13 +89,13 @@ class LocalRepositoryImpl extends LocalRepository {
 
   String _todayLocalLabel() => LocalDb.localDayLabelNow();
 
-  /// True when [date] is today's (UTC) label — the only case where a missing
-  /// derived row should fall back to the latest complete day. The screens pass
-  /// `todayUtc()` for the Today tab; historical drill-downs pass an exact past
-  /// date, which must NEVER fall back (else every empty day renders the latest
-  /// day's data — the "stage minutes show the latest night" bug).
-  bool _isTodayLabel(String date) =>
-      date == DateTime.now().toUtc().toIso8601String().substring(0, 10);
+  /// True when [date] is today's LOCAL day label (the key the day model files
+  /// everything under) — the only case where a missing derived row should fall
+  /// back to the latest complete day. The screens pass `todayLabel()` for the
+  /// Today tab; historical drill-downs pass an exact past date, which must
+  /// NEVER fall back (else every empty day renders the latest day's data — the
+  /// "stage minutes show the latest night" bug).
+  bool _isTodayLabel(String date) => date == todayLabel();
 
   /// The bundle for a requested date: the exact day's row, or — only for the
   /// Today request — the latest complete day. A historical date with no row
@@ -317,8 +321,11 @@ class LocalRepositoryImpl extends LocalRepository {
           : const {'value': null},
       // Stress (Baevsky SI → 0–100 score block) + relative SpO₂ (desat index),
       // both emitted by the pipeline. The Today tiles + stress screen read these.
-      if (sleepBundle != null && sleepBundle['stress'] is Map)
-        'stress': sleepBundle['stress'],
+      // Same readiness-inverse fallback as getDayStress: without it the Today
+      // stress tile rendered "—" whenever SI abstained while the stress screen
+      // showed a number (the "stress pill has no number" bug).
+      if (sleepBundle != null)
+        'stress': ?stressSummaryForToday(sleepBundle, _scalar(sleepBundle, 'readiness')),
       if (sleepBundle != null && sleepBundle['spo2'] is Map)
         'spo2': sleepBundle['spo2'],
       if (activityBundle != null && activityBundle['activity'] is Map)
@@ -381,6 +388,10 @@ class LocalRepositoryImpl extends LocalRepository {
         'ESTIMATE',
         unit: 'min',
       ),
+      // Sleep need: same default-8 h convention as getDaySleep, so the Today
+      // sleep tile gets its "of Xh need" caption + progress just like the
+      // Sleep screen (it was silently absent from the /today seam before).
+      'need_min': _scalarMetric(480, 'ESTIMATE', unit: 'min'),
       'efficiency': _scalarMetric(eff, 'ESTIMATE', unit: '%'),
     };
   }
@@ -893,6 +904,10 @@ class LocalRepositoryImpl extends LocalRepository {
       'resp': respLine,
       'skin_temp': tempLine,
       'activity': b['activity_curve'] ?? const [],
+      // The DISPLAYED day (bundle date) — when a partial "today" fell back to
+      // the latest complete day this differs from the requested date, and the
+      // screen must window/axis by THIS date, not "now".
+      'date': bundleDate,
       'day_start': dayStart,
       'highs': {
         if (peakV != null) 'peak_hr': {'v': peakV, 't': peakT},
@@ -1406,8 +1421,27 @@ class LocalRepositoryImpl extends LocalRepository {
     int? to,
   }) async {
     if (metric == 'hr') {
-      final b = await _latestBundle();
-      return {'points': (_sub(b, 'series')?['hr_curve'] as List?) ?? const []};
+      // "Today's heart rate" card: the curve must be TODAY's. _latestBundle
+      // falls back to the latest COMPLETE day, so its curve could be
+      // yesterday's — drawn on a midnight→now axis it rendered a previous
+      // day's line on today's timeline. Prefer today's own (partial) bundle,
+      // then clip whatever we got to today's local-day window; an empty result
+      // is the card's honest "No heart-rate data yet today" state.
+      final today = _todayLocalLabel();
+      final b = await _bundleForDate(today);
+      final curve = (_sub(b, 'series')?['hr_curve'] as List?) ?? const [];
+      final dayStart = _localMidnightSec(today);
+      final dayEnd = dayStart + 86400;
+      return {
+        'points': [
+          for (final e in curve)
+            if (e is Map &&
+                e['t'] is num &&
+                (e['t'] as num) >= dayStart &&
+                (e['t'] as num) < dayEnd)
+              e,
+        ],
+      };
     }
     final rows = await LocalDb.metricSeries(_trendKey(metric));
     return {
@@ -1427,16 +1461,148 @@ class LocalRepositoryImpl extends LocalRepository {
     final rows = await LocalDb.recentDayResults(3650);
     final days = rows.length;
     int nights = 0;
+    final sleepDays = <String>{};
     for (final r in rows) {
       final b = _decode(r['payload_json']);
-      if (_sub(b, 'sleep.accounting.value')?['tst_sec'] != null) nights++;
+      if (_sub(b, 'sleep.accounting.value')?['tst_sec'] != null) {
+        nights++;
+        final d = r['date'] as String?;
+        if (d != null) sleepDays.add(d);
+      }
     }
+
+    // Personal records from the day scalars (metric_series) + the sessions
+    // table — computed locally with the record's own date attached.
+    final records = <String, Map<String, dynamic>>{};
+    Future<void> extreme(String recordKey, String seriesKey,
+        {bool max = true, double Function(double)? mapValue}) async {
+      final series = await LocalDb.metricSeries(seriesKey);
+      String? bestDate;
+      double? best;
+      for (final r in series) {
+        final v = (r['value'] as num?)?.toDouble();
+        if (v == null) continue;
+        if (best == null || (max ? v > best : v < best)) {
+          best = v;
+          bestDate = r['date'] as String?;
+        }
+      }
+      if (best == null || bestDate == null) return;
+      records[recordKey] = {
+        'value': mapValue == null ? best : mapValue(best),
+        'date': bestDate,
+      };
+    }
+
+    await extreme('lowest_rhr', 'rhr', max: false);
+    await extreme('top_strain', 'strain');
+    await extreme('longest_sleep', 'tst_min');
+    // The Records screen formats efficiency as a 0..1 fraction ((v*100)%).
+    await extreme('best_efficiency', 'efficiency',
+        mapValue: (v) => v > 1.5 ? v / 100.0 : v);
+    await extreme('most_steps', 'steps');
+    await extreme('top_readiness', 'readiness');
+
+    // Sessions: top workout strain (with its type) + total tracked count.
+    var workoutsTracked = 0;
+    final sessions = await LocalDb.sessionsInRange(
+        0, DateTime.now().millisecondsSinceEpoch ~/ 1000);
+    Map<String, dynamic>? topWorkout;
+    for (final s in sessions) {
+      if (s['status'] == 'live') continue;
+      workoutsTracked++;
+      final strain = (s['strain'] as num?)?.toDouble();
+      if (strain == null || strain <= 0) continue;
+      if (topWorkout == null ||
+          strain > (topWorkout['value'] as double)) {
+        final startTs = (s['start_ts'] as num?)?.toInt();
+        topWorkout = {
+          'value': strain,
+          'date': startTs == null
+              ? ''
+              : _dayLabelOf(
+                  DateTime.fromMillisecondsSinceEpoch(startTs * 1000)),
+          'type': s['type'],
+        };
+      }
+    }
+    if (topWorkout != null && (topWorkout['date'] as String).isNotEmpty) {
+      records['top_workout'] = topWorkout;
+    }
+
+    // Streaks: consecutive most-recent days with derived data / with sleep.
+    final dayLabels = <String>{
+      for (final r in rows)
+        if (r['date'] is String) r['date'] as String,
+    };
+    int streakOf(Set<String> have) {
+      var streak = 0;
+      var d = DateTime.now();
+      // Today may legitimately not be derived yet — start from today if
+      // present, else from yesterday.
+      if (!have.contains(_dayLabelOf(d))) {
+        d = d.subtract(const Duration(days: 1));
+      }
+      while (have.contains(_dayLabelOf(d))) {
+        streak++;
+        d = d.subtract(const Duration(days: 1));
+      }
+      return streak;
+    }
+
+    final wearStreak = streakOf(dayLabels);
+    final sleepStreak = streakOf(sleepDays);
+
     return {
       'days_tracked': days,
       'nights_tracked': nights,
-      'workouts_tracked': 0,
-      'records': const {},
-      'streaks': const {},
+      'workouts_tracked': workoutsTracked,
+      'records': records,
+      'streaks': {
+        if (wearStreak > 0)
+          'wear': {'current': wearStreak, 'label': 'Days tracked in a row'},
+        if (sleepStreak > 0)
+          'sleep': {'current': sleepStreak, 'label': 'Nights of sleep in a row'},
+      },
+      ..._rhrDriftOf(await LocalDb.metricSeries('rhr')),
+    };
+  }
+
+  /// 'YYYY-MM-DD' local label for a DateTime (records/streaks bookkeeping).
+  String _dayLabelOf(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+
+  /// Resting-HR drift: mean of the newest 7 rhr points vs the mean of the 7
+  /// points ~30 days back. Needs ≥ 21 points spanning ≥ 21 days; otherwise the
+  /// screen shows its honest "not enough history" state.
+  Map<String, dynamic> _rhrDriftOf(List<Map<String, dynamic>> series) {
+    final pts = [
+      for (final r in series)
+        if (r['value'] is num && r['date'] is String)
+          (date: r['date'] as String, v: (r['value'] as num).toDouble()),
+    ];
+    if (pts.length < 21) return const {};
+    double mean(Iterable<double> xs) =>
+        xs.reduce((a, b) => a + b) / xs.length;
+    final now = mean(pts.sublist(pts.length - 7).map((p) => p.v));
+    final thenStart = math.max(0, pts.length - 37);
+    final then = mean(pts.sublist(thenStart, thenStart + 7).map((p) => p.v));
+    final delta = now - then;
+    final direction = delta <= -1
+        ? 'improving'
+        : delta >= 1
+            ? 'worsening'
+            : 'flat';
+    return {
+      'rhr_drift': {
+        'now': now,
+        'then': then,
+        'delta': delta,
+        'direction': direction,
+        'days': math.min(37, pts.length),
+      },
     };
   }
 
@@ -1462,6 +1628,8 @@ class LocalRepositoryImpl extends LocalRepository {
       // Heart-rate recovery (bpm drop in 60 s) backfilled during derivation.
       'hrr60': (r['hrr_bpm'] as num?)?.round(),
       'zone_min': zoneMin,
+      // manual / auto — the detail screen shows the AUTO tag + correct-type CTA.
+      'source': r['source'],
     };
   }
 
@@ -1482,6 +1650,22 @@ class LocalRepositoryImpl extends LocalRepository {
     final fromTs = _rangeFromSec(range, now);
     final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
     final workouts = [for (final r in rows) _workoutOf(r)];
+
+    // Per-session HR aggregates from the 1 Hz substrate (one indexed join).
+    // Sessions have no avg_hr column — without this every workout looked like
+    // "no data" (avg_hr == 0) even when the window is full of worn HR.
+    try {
+      final stats = await LocalDb.sessionHrStats(fromTs, nowSec);
+      for (final w in workouts) {
+        final s = stats[w['id']];
+        if (s == null || (s['n'] ?? 0) == 0) continue;
+        w['avg_hr'] = (s['avg_hr'] as num).round();
+        w['min_hr'] = (s['min_hr'] as num).toInt();
+        w['max_hr'] ??= (s['max_hr'] as num).toInt();
+      }
+    } catch (_) {
+      /* stats are an enrichment — the list still renders without them */
+    }
 
     // Summary excludes live sessions (no final stats yet).
     final done = workouts.where((w) => w['status'] != 'live');
@@ -1534,7 +1718,159 @@ class LocalRepositoryImpl extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getWorkout(String id) async {
     final r = await LocalDb.session(id);
-    return r == null ? const {} : _workoutOf(r);
+    if (r == null) return const {};
+    final w = _workoutOf(r);
+    final startTs = w['start_ts'] as int?;
+    if (startTs == null) return w;
+    final endTs =
+        (w['end_ts'] as int?) ?? DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    if (endTs <= startTs) return w;
+
+    // Enrich from the 1 Hz substrate over the session window — the exact
+    // approach getWorkoutRoute already uses. The detail/finish screens read
+    // hr / avg_hr / min_hr / zone_bands / recovery_curve / hr_drift_pct /
+    // time_to_peak_min; without a producer they were blank everywhere.
+    try {
+      final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
+      if (hrRows.isNotEmpty) {
+        final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
+        final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
+        w['hr'] = _minuteHrCurve(ts, hr);
+        final avg = hr.reduce((a, b) => a + b) / hr.length;
+        w['avg_hr'] = avg.round();
+        w['min_hr'] = hr.reduce(math.min);
+        final peak = hr.reduce(math.max);
+        w['max_hr'] = math.max((w['max_hr'] as int?) ?? 0, peak);
+        w['zone_bands'] = _zoneBands(hr);
+        w['time_to_peak_min'] =
+            ((ts[hr.indexOf(peak)] - startTs) / 60).round();
+        final drift = _hrDriftPct(ts, hr, startTs, endTs);
+        if (drift != null) w['hr_drift_pct'] = drift;
+      }
+      if (w['status'] == 'done') {
+        final curve = await _recoveryCurve(endTs);
+        if (curve.isNotEmpty) w['recovery_curve'] = curve;
+      }
+    } catch (_) {
+      /* enrichment is best-effort — the summary scalars still render */
+    }
+    return w;
+  }
+
+  /// Minute-mean HR curve [{t, v}] (epoch sec at each minute start) from raw
+  /// 1 Hz samples — the shape the detail chart parses.
+  List<Map<String, num>> _minuteHrCurve(List<int> ts, List<int> hr) {
+    final out = <Map<String, num>>[];
+    var bucket = -1;
+    var sum = 0;
+    var n = 0;
+    void emit() {
+      if (n > 0) out.add({'t': bucket * 60, 'v': (sum / n).round()});
+    }
+
+    for (var i = 0; i < ts.length; i++) {
+      final b = ts[i] ~/ 60;
+      if (b != bucket) {
+        emit();
+        bucket = b;
+        sum = 0;
+        n = 0;
+      }
+      sum += hr[i];
+      n++;
+    }
+    emit();
+    return out;
+  }
+
+  /// Time-in-zone bands Z1..Z5 (50/60/70/80/90 % of max HR) over the session's
+  /// 1 Hz HR — the shape the zones card + summary bar parse.
+  List<Map<String, dynamic>> _zoneBands(List<int> hr) {
+    final maxHr = _profileMaxHr();
+    const names = ['Warm-up', 'Fat burn', 'Aerobic', 'Threshold', 'Max effort'];
+    const loPct = [0.5, 0.6, 0.7, 0.8, 0.9];
+    final secs = List<int>.filled(5, 0);
+    for (final v in hr) {
+      final pct = v / maxHr;
+      for (var z = 4; z >= 0; z--) {
+        if (pct >= loPct[z]) {
+          secs[z]++;
+          break;
+        }
+      }
+    }
+    final total = hr.length;
+    return [
+      for (var z = 0; z < 5; z++)
+        {
+          'zone': z + 1,
+          'name': names[z],
+          'lo': (loPct[z] * maxHr).round(),
+          'hi': z == 4 ? maxHr : (loPct[z + 1] * maxHr).round(),
+          'min': double.parse((secs[z] / 60).toStringAsFixed(1)),
+          'pct': total == 0 ? 0 : (secs[z] / total * 100).round(),
+        },
+    ];
+  }
+
+  /// Cardiac drift: mean HR of the 2nd half vs the 1st half, %; sessions under
+  /// 10 min (or with a sparse half) yield null rather than a noisy number.
+  double? _hrDriftPct(List<int> ts, List<int> hr, int startTs, int endTs) {
+    if (endTs - startTs < 600) return null;
+    final mid = startTs + (endTs - startTs) ~/ 2;
+    var s1 = 0, n1 = 0, s2 = 0, n2 = 0;
+    for (var i = 0; i < ts.length; i++) {
+      if (ts[i] < mid) {
+        s1 += hr[i];
+        n1++;
+      } else {
+        s2 += hr[i];
+        n2++;
+      }
+    }
+    if (n1 < 60 || n2 < 60) return null;
+    final a = s1 / n1, b = s2 / n2;
+    if (a <= 0) return null;
+    return double.parse(((b / a - 1) * 100).toStringAsFixed(1));
+  }
+
+  /// Post-end HR recovery curve [{sec, drop}] at 60/120/180 s: the drop from
+  /// the end-of-effort HR (median of the last 15 s) to the HR around each mark.
+  Future<List<Map<String, num>>> _recoveryCurve(int endTs) async {
+    final rows = await LocalDb.hrSamplesInRange(endTs - 15, endTs + 190);
+    if (rows.isEmpty) return const [];
+    final endWindow = <int>[];
+    final post = <int, int>{}; // ts → hr
+    for (final e in rows) {
+      final t = (e['rec_ts'] as num).toInt();
+      final v = (e['hr'] as num).toInt();
+      if (t <= endTs) {
+        endWindow.add(v);
+      } else {
+        post[t] = v;
+      }
+    }
+    if (endWindow.length < 5) return const [];
+    endWindow.sort();
+    final endHr = endWindow[endWindow.length ~/ 2];
+    final out = <Map<String, num>>[];
+    for (final sec in const [60, 120, 180]) {
+      // Median of a ±7 s window around the mark; skip marks with no data.
+      final win = <int>[
+        for (final e in post.entries)
+          if ((e.key - (endTs + sec)).abs() <= 7) e.value,
+      ]..sort();
+      if (win.isEmpty) continue;
+      final drop = endHr - win[win.length ~/ 2];
+      if (drop <= 0) continue; // HR not recovering (or still working) — omit
+      out.add({'sec': sec, 'drop': drop});
+    }
+    return out;
+  }
+
+  int _profileMaxHr() {
+    final age = (getProfileMap()?['age'] as num?)?.toDouble() ?? 30.0;
+    return (220 - age).round();
   }
 
   @override
@@ -1578,6 +1914,38 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> setWorkoutType(String id, String type) async {
     await LocalDb.setSessionType(id, type);
     return {'workout_id': id, 'type': type};
+  }
+
+  @override
+  Future<WorkoutRoute?> getWorkoutRoute(String id) async {
+    final rows = await LocalDb.routePoints(id);
+    if (rows.length < 2) return null;
+    final points = [for (final r in rows) RoutePoint.fromRow(r)];
+
+    // 1 Hz HR over the route's own time window (± a small pad), for zone
+    // colouring and per-split average HR.
+    final fromTs = (points.first.tsMs ~/ 1000) - 5;
+    final toTs = (points.last.tsMs ~/ 1000) + 5;
+    final hrRows = await LocalDb.hrSamplesInRange(fromTs, toTs);
+    final hr = [
+      for (final r in hrRows)
+        HrSample(
+          tsMs: (r['rec_ts'] as num).toInt() * 1000,
+          hr: (r['hr'] as num).toInt(),
+        ),
+    ];
+
+    return WorkoutRoute(
+      sessionId: id,
+      points: points,
+      hr: hr,
+      distanceMeters: rmath.totalDistanceMeters(points),
+      movingSec: rmath.movingSeconds(points),
+      splitsKm:
+          rmath.computeSplits(points, hr, unitMeters: rmath.kMetersPerKm),
+      splitsMi:
+          rmath.computeSplits(points, hr, unitMeters: rmath.kMetersPerMile),
+    );
   }
 
   // ── journal — local store + tag-vs-metric correlation insights ──────────────
@@ -2042,4 +2410,26 @@ class LocalRepositoryImpl extends LocalRepository {
     }
     return mx == 0 ? null : mx;
   }
+}
+
+/// The /today `stress` block from a day bundle — the pipeline's Baevsky block
+/// with the SAME readiness-inverse fallback getDayStress applies (only when SI
+/// couldn't compute a score). Pure + public so the Today seam is unit-testable.
+/// Returns null when there is neither a stress block nor a readiness scalar
+/// (the tile then renders the honest "—").
+Map<String, dynamic>? stressSummaryForToday(
+  Map<String, dynamic> bundle,
+  num? readiness,
+) {
+  final blk = bundle['stress'] is Map
+      ? (bundle['stress'] as Map).cast<String, dynamic>()
+      : const <String, dynamic>{};
+  if (blk['score'] != null) return blk;
+  if (readiness == null) return blk.isEmpty ? null : blk;
+  final score = (100 - readiness).round().clamp(0, 100);
+  return {
+    ...blk,
+    'score': score,
+    'level': score < 34 ? 'low' : (score < 67 ? 'moderate' : 'high'),
+  };
 }

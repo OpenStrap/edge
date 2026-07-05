@@ -78,6 +78,19 @@ void main() {
     test('connect/foreground honor the 90s event floor', () {
       expect(BackfillPolicy.shouldRun(BackfillTrigger.connect, 89, 0, 0), isFalse);
       expect(BackfillPolicy.shouldRun(BackfillTrigger.connect, 90, 0, 0), isTrue);
+      // FOREGROUND catch-up pull (app reopened on a healthy link): allowed
+      // after the floor, refused inside it — rapid app switching can't hammer
+      // the strap.
+      expect(
+          BackfillPolicy.shouldRun(BackfillTrigger.foreground, 89, 0, 0),
+          isFalse);
+      expect(
+          BackfillPolicy.shouldRun(BackfillTrigger.foreground, 90, 0, 0),
+          isTrue);
+      // First-ever pull is never floored.
+      expect(
+          BackfillPolicy.shouldRun(BackfillTrigger.foreground, 1, null, 0),
+          isTrue);
     });
 
     test('empty-streak backoff multiplies the strap floor (capped 4x)', () {
@@ -236,6 +249,100 @@ void main() {
       d.observe(1200, 1000, 0);
       // strap only 200s ahead (< 300s behind-gap) → off-wrist, not stuck.
       expect(d.observe(1200, 1000, 1000), isFalse);
+    });
+  });
+
+  group('BondRefusalGiveUp', () {
+    test('trips exactly once on the Nth consecutive refusal', () {
+      final d = BondRefusalGiveUp(giveUpThreshold: 3);
+      expect(d.bondRefused(), isFalse); // 1
+      expect(d.bondRefused(), isFalse); // 2
+      expect(d.bondRefused(), isTrue); // 3 → give up (one-shot)
+      expect(d.gaveUp, isTrue);
+      expect(d.consecutive, 3);
+      // Already gave up → never re-fires on further refusals.
+      expect(d.bondRefused(), isFalse);
+    });
+
+    test('a successful bond clears the streak AND the give-up latch', () {
+      final d = BondRefusalGiveUp(giveUpThreshold: 2);
+      d.bondRefused();
+      expect(d.bondRefused(), isTrue); // gave up
+      d.bondSucceeded();
+      expect(d.gaveUp, isFalse);
+      expect(d.consecutive, 0);
+      // A fresh run of refusals can trip again.
+      d.bondRefused();
+      expect(d.bondRefused(), isTrue);
+    });
+  });
+
+  group('snapToGrid + correctRecordTs (RTC salvage)', () {
+    test('snapToGrid rounds DOWN to the 5-minute boundary', () {
+      expect(snapToGrid(0), 0);
+      expect(snapToGrid(299), 0);
+      expect(snapToGrid(300), 300);
+      expect(snapToGrid(301), 300);
+      expect(snapToGrid(1234567), (1234567 ~/ 300) * 300);
+    });
+
+    test('sub-day drift is left alone (returns null — trust embedded time)', () {
+      // offset = clockWall - deviceClock = 3600 (1h) ≤ 1 day → no correction.
+      expect(
+        ClockPolicy.correctRecordTs(
+          wall - 100000,
+          wallNow: wall,
+          deviceClock: wall - 3600,
+          clockWall: wall,
+        ),
+        isNull,
+      );
+    });
+
+    test('a >1-day offset is applied AND snapped to the 5-min grid', () {
+      const daysOff = 40 * 86400; // unset RTC parked ~40 days in the past
+      final deviceClock = wall - daysOff;
+      // A record stamped at the device clock's own "now" salvages to ~wall,
+      // snapped down to the 5-min grid.
+      final corrected = ClockPolicy.correctRecordTs(
+        deviceClock, // recTs sits on the device clock
+        wallNow: wall,
+        deviceClock: deviceClock,
+        clockWall: wall,
+      );
+      expect(corrected, isNotNull);
+      expect(corrected, snapToGrid(wall));
+      expect(corrected! % kRecTsGridSeconds, 0);
+    });
+
+    test('never pushes a corrected record into the future', () {
+      const daysOff = 40 * 86400;
+      final deviceClock = wall - daysOff;
+      // A record stamped AHEAD of the device clock would land past wall-now
+      // after the offset is applied → rejected.
+      final corrected = ClockPolicy.correctRecordTs(
+        deviceClock + daysOff + 10 * 86400,
+        wallNow: wall,
+        deviceClock: deviceClock,
+        clockWall: wall,
+      );
+      expect(corrected, isNull);
+    });
+
+    test('the corrected result must still pass the session-relative band', () {
+      const daysOff = 40 * 86400;
+      final deviceClock = wall - daysOff;
+      // Session window sits far from where the correction lands → rejected even
+      // though the arithmetic is plausible against the absolute gate.
+      final corrected = ClockPolicy.correctRecordTs(
+        deviceClock,
+        wallNow: wall,
+        deviceClock: deviceClock,
+        clockWall: wall,
+        sessionOldestUnix: wall - 100 * 86400,
+        sessionNewestUnix: wall - 90 * 86400,
+      );
+      expect(corrected, isNull);
     });
   });
 }

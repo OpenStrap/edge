@@ -16,11 +16,21 @@ import 'package:flutter/services.dart';
 class EdgeTracking {
   static const _ch = MethodChannel('openstrap/edge_tracking');
 
-  /// Start the foreground service. Idempotent — safe to call on every session start.
-  static Future<void> start() async {
+  // Whether the FGS should currently carry the `location` service type (a GPS
+  // route session is live). Sticky across the frequent no-arg start() calls so
+  // an unrelated keep-alive start can't silently strip the location type
+  // mid-run; explicitly cleared with start(location: false) when the run ends.
+  static bool _locationActive = false;
+
+  /// Start the foreground service. Idempotent — safe to call on every session
+  /// start. Pass [location] to add/remove the `location` foreground-service
+  /// type (required for background GPS fixes during a route workout); omit it
+  /// to keep the current mode.
+  static Future<void> start({bool? location}) async {
     if (!Platform.isAndroid) return;
+    if (location != null) _locationActive = location;
     try {
-      await _ch.invokeMethod('start');
+      await _ch.invokeMethod('start', {'location': _locationActive});
     } catch (e) {
       debugPrint('[edge-tracking] start failed: $e');
     }

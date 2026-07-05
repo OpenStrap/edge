@@ -10,6 +10,8 @@
 
 import 'dart:math';
 
+import '../sync/sync_policy.dart' show isPlausibleUnix;
+
 /// The explicit connection state machine. The flutter_blue_plus connection-state
 /// stream is the SOURCE OF TRUTH for connected/disconnected; this enum layers the
 /// app's intent + sub-phases (scan/discover/subscribe) on top of it.
@@ -172,6 +174,86 @@ class DrainStopEvaluator {
   }
 }
 
+/// Pure per-record admission gate + time-frontier tracker for the historical
+/// offload. ONE instance per connection; BOTH frame-processing paths (the
+/// immediate path and the queued offload path) must funnel every historical
+/// record through [admit] — this class existing at all is the fix for the bug
+/// where the two paths drifted apart (the queued path, which real traffic
+/// takes, silently lost the plausibility gate + frontier advance, so the
+/// stuck-strap detector and auto-continue ran on a frozen frontier).
+///
+/// Responsibilities (kept together so they can never diverge again):
+///   - plausibility gate: reject records whose embedded unix time is
+///     implausible vs wall-clock / the strap's own GET_DATA_RANGE window
+///     (a previous owner's wandering-clock pollution). Rejected records are
+///     neither stored nor counted; the batch ACK still walks the cursor.
+///   - frontier: track the highest plausible rec_ts admitted so far — the
+///     durable high-water the StuckStrapDetector / BackfillContinuation read.
+///   - drop counter: how many records the gate rejected (diagnostics).
+class RecordGate {
+  /// Highest plausible historical rec_ts admitted (or the seed from the
+  /// durable cursor at connect, so detectors are correct on first offload).
+  int frontierTs;
+
+  /// Records rejected by the plausibility gate this connection.
+  int dropped = 0;
+
+  RecordGate({this.frontierTs = 0});
+
+  /// Should this record be stored? Records with no decodable time ([tsEpoch]
+  /// null or <= 0) are always admitted (we can't gate them) and never advance
+  /// the frontier. Plausible records advance [frontierTs]; implausible ones
+  /// increment [dropped] and are refused.
+  bool admit(
+    int? tsEpoch, {
+    required int wallNow,
+    int? sessionOldestUnix,
+    int? sessionNewestUnix,
+  }) {
+    if (tsEpoch == null || tsEpoch <= 0) return true;
+    if (!isPlausibleUnix(
+      tsEpoch,
+      wallNow,
+      sessionOldestUnix: sessionOldestUnix,
+      sessionNewestUnix: sessionNewestUnix,
+    )) {
+      dropped++;
+      return false;
+    }
+    if (tsEpoch > frontierTs) frontierTs = tsEpoch;
+    return true;
+  }
+}
+
+/// Pure retry schedule for the HISTORY_END batch-ACK write.
+///
+/// The safe-trim invariant commits raw+samples+cursor DURABLY BEFORE the ACK,
+/// so by the time the ACK write runs the data can never be lost — but if the
+/// write silently FAILS the band never trims its flash and re-floods the same
+/// chunk forever (a silent re-flood loop). So the ACK write is verified and
+/// retried a few times with short backoff; on persistent failure the link is
+/// bounced (reconnect re-delivers the chunk; decoded rows are dedup-safe via
+/// the REPLACE-keyed store).
+class AckRetryPolicy {
+  final int maxAttempts;
+  final Duration baseDelay;
+
+  const AckRetryPolicy({
+    this.maxAttempts = 3,
+    this.baseDelay = const Duration(milliseconds: 200),
+  });
+
+  /// Whether another attempt is allowed after [failedAttempts] failures.
+  bool shouldRetry(int failedAttempts) => failedAttempts < maxAttempts;
+
+  /// Delay before retry number [attempt] (1-based; attempt 1 is the first
+  /// RETRY, i.e. after the first failure). Linear backoff: base, 2×base, …
+  Duration delayFor(int attempt) {
+    final n = attempt < 1 ? 1 : attempt;
+    return baseDelay * n;
+  }
+}
+
 /// Pure debounce/coalesce logic for the "new data stored → derive" trigger.
 ///
 /// With continuous listening there is no discrete "sync done" signal, so we can't
@@ -203,5 +285,154 @@ class DeriveDebouncer {
     if (sinceLastRecord >= quietPeriod) return true; // stream went quiet
     if (sinceFirstPending >= maxWait) return true; // never-quiet floor
     return false;
+  }
+}
+
+/// Pure builders for the on-device wake-alarm command PAYLOADS (the inner body
+/// AFTER the opcode byte). The engine wraps these in a frame via its `_send`;
+/// keeping the exact byte layout here makes it unit-testable without a real band.
+///
+/// Alarm opcodes: SET_ALARM_TIME 0x42, GET_ALARM_TIME 0x43, RUN_ALARM 0x44,
+/// DISABLE_ALARM 0x45. The RICH SET form (a haptic waveform + time) is the one
+/// that actually FIRES on WHOOP 4.0; the SHORT time-only form is ACKed but never
+/// buzzes (no waveform to play).
+class AlarmPayloads {
+  /// The strap's stock 12-byte wake-buzz haptic pattern:
+  ///   [0..7]  eight waveform-effect slots (two active: 47, 152; six idle)
+  ///   [8..9]  u16 per-effect loop control (LE) = 0
+  ///   [10]    overall-waveform loop count = 7
+  ///   [11]    max alarm duration in seconds = 30
+  static const List<int> defaultHaptics = <int>[
+    47, 152, 0, 0, 0, 0, 0, 0, // waveform-effect slots
+    0, 0, //                       loop control (u16 LE)
+    7, //                          overall loop
+    30, //                         duration seconds
+  ];
+
+  /// Sub-seconds in 1/32768 s units (the 32768 Hz RTC crystal), 0..32767.
+  static int subsecOf(DateTime when) =>
+      ((when.millisecondsSinceEpoch % 1000) * 32768) ~/ 1000;
+
+  /// RICH 20-byte SET_ALARM_TIME payload — the form that actually fires:
+  /// `[0x04][u8 index][u32 epoch-sec LE][u16 subsec LE][12-byte haptic pattern]`.
+  static List<int> rich(DateTime when, {int index = 0, List<int>? haptics}) {
+    final ms = when.millisecondsSinceEpoch;
+    final sec = ms ~/ 1000;
+    final subsec = subsecOf(when);
+    final pattern = haptics ?? defaultHaptics;
+    assert(pattern.length == 12, 'alarm haptic pattern must be 12 bytes');
+    return <int>[
+      0x04,
+      index & 0xff,
+      sec & 0xff,
+      (sec >> 8) & 0xff,
+      (sec >> 16) & 0xff,
+      (sec >> 24) & 0xff,
+      subsec & 0xff,
+      (subsec >> 8) & 0xff,
+      ...pattern.map((b) => b & 0xff),
+    ];
+  }
+
+  /// SHORT 7-byte time-only SET_ALARM_TIME payload (ACKs but does NOT fire):
+  /// `[0x01][u32 epoch-sec LE][u16 subsec LE]`.
+  static List<int> simple(DateTime when) {
+    final ms = when.millisecondsSinceEpoch;
+    final sec = ms ~/ 1000;
+    final subsec = subsecOf(when);
+    return <int>[
+      0x01,
+      sec & 0xff,
+      (sec >> 8) & 0xff,
+      (sec >> 16) & 0xff,
+      (sec >> 24) & 0xff,
+      subsec & 0xff,
+      (subsec >> 8) & 0xff,
+    ];
+  }
+
+  /// RUN_ALARM (0x44) body — fire the haptics immediately ("test buzz").
+  static const List<int> runNow = <int>[0x01];
+
+  /// DISABLE_ALARM (0x45) body — cancel the on-device alarm.
+  static const List<int> disable = <int>[0x01];
+}
+
+/// Effect of a strap alarm-lifecycle event, for the caller to act on.
+enum AlarmEffect { confirmed, fired, cleared }
+
+/// Pure state machine for alarm CONFIRMATION, driven by the strap's own event
+/// stream. This replaces the parked (and wrong) GET_ALARM readback as the display
+/// truth: instead of guessing whether an alarm latched, the strap tells us.
+///   - [set] after a SET write → not confirmed, timer starts (PENDING)
+///   - event 56 (ALARM_SET) → [confirmed] = true
+///   - no 56 within the grace window → UNCONFIRMED (soft warning)
+///   - event 57/58 (EXECUTED) → fired ([firedAt] set)
+///   - event 59 (DISABLED) → cleared
+/// I/O-free + deterministic (caller supplies `nowMs`) so it is fully unit-testable.
+class AlarmConfirmation {
+  // Strap alarm-lifecycle event ids (match the protocol EventId values).
+  static const int kEvtSet = 56;
+  static const int kEvtStrapExecuted = 57;
+  static const int kEvtAppExecuted = 58;
+  static const int kEvtDisabled = 59;
+  static const int kEvtHapticsFired = 60;
+
+  final int graceMs;
+  AlarmConfirmation({this.graceMs = 6000});
+
+  int? targetEpoch; // the scheduled wake time (unix sec), or null when off
+  bool confirmed = false; // strap emitted ALARM_SET (56)
+  int? setAtMs; // wall-ms of the SET write (for the grace window)
+  int? lastEventId; // most recent alarm event seen
+  int? firedAt; // wall-ms of the last EXECUTED event
+
+  /// Record a SET write (awaiting the strap's confirmation event).
+  void set(int epoch, int nowMs) {
+    targetEpoch = epoch;
+    confirmed = false;
+    setAtMs = nowMs;
+  }
+
+  /// Record an explicit disable/clear.
+  void disable() {
+    targetEpoch = null;
+    confirmed = false;
+    setAtMs = null;
+  }
+
+  /// SET written but not yet confirmed AND still inside the grace window.
+  bool isPending(int nowMs) =>
+      targetEpoch != null &&
+      !confirmed &&
+      setAtMs != null &&
+      nowMs - setAtMs! < graceMs;
+
+  /// Set but neither confirmed nor still pending — the soft-warning state.
+  bool isUnconfirmed(int nowMs) =>
+      targetEpoch != null && !confirmed && !isPending(nowMs);
+
+  /// Feed a strap event. Returns the resulting [AlarmEffect] the caller acts on,
+  /// or null when the event is unrelated to the alarm.
+  AlarmEffect? onEvent(int id, int nowMs) {
+    switch (id) {
+      case kEvtSet:
+        confirmed = true;
+        lastEventId = id;
+        return AlarmEffect.confirmed;
+      case kEvtStrapExecuted:
+      case kEvtAppExecuted:
+        lastEventId = id;
+        firedAt = nowMs;
+        return AlarmEffect.fired;
+      case kEvtDisabled:
+        confirmed = false;
+        targetEpoch = null;
+        setAtMs = null;
+        lastEventId = id;
+        return AlarmEffect.cleared;
+      default:
+        return null;
+    }
   }
 }

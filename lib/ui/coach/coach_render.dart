@@ -10,9 +10,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../coach/coach_engine.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
+import '../design/design.dart';
 import 'coach_chart.dart';
 
 // ── loose parsing helpers (LLM output is liberal) ─────────────────────────────
@@ -38,26 +36,22 @@ double? _num(dynamic v) {
 
 String _str(dynamic v) => v == null ? '' : v.toString();
 
-final List<Color> _palette = [
-  AppColors.coral,
-  AppColors.good,
-  AppColors.loadDetraining,
-  AppColors.warn,
-  AppColors.coralDeep,
-];
+/// Mode-aware domain palette (a getter so theme switches recolour figures).
+List<Color> get _palette => coachSeriesColors();
 
-/// Sleep-stage colors for the hypnogram band.
+/// Sleep-stage colors for the hypnogram band — the ONE stage palette every
+/// hypnogram in the app uses.
 Color _stageColor(String stage) {
   switch (stage.toLowerCase()) {
     case 'deep':
-      return AppColors.coralDeep;
+      return DomainAccent.stageDeep;
     case 'rem':
-      return AppColors.good;
+      return DomainAccent.stageRem;
     case 'light':
-      return AppColors.coral;
+      return DomainAccent.stageLight;
     case 'wake':
     default:
-      return AppColors.warn;
+      return DomainAccent.stageAwake;
   }
 }
 
@@ -108,9 +102,12 @@ class CoachRender extends StatelessWidget {
     }
     final note = _str(spec['note']);
     final legend = _legend(type);
-    return ProCard(
+    return SurfaceCard(
+      padding: const EdgeInsets.all(Sp.x4),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (title.isNotEmpty) Text(title, style: AppText.title),
+        if (title.isNotEmpty)
+          Text(title.toUpperCase(),
+              style: AppText.overline.copyWith(color: AppColors.inkMuted)),
         if (title.isNotEmpty) const SizedBox(height: Sp.x4),
         body,
         if (legend != null) ...[const SizedBox(height: Sp.x3), legend],
@@ -183,14 +180,16 @@ class _Animated extends StatelessWidget {
   final double height;
   const _Animated(this.make, {required this.height});
   @override
-  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
-        duration: const Duration(milliseconds: 700),
-        curve: Curves.easeOutCubic,
-        tween: Tween(begin: 0, end: 1),
-        builder: (_, t, _) => SizedBox(
-          height: height,
-          width: double.infinity,
-          child: CustomPaint(painter: make(t)),
+  Widget build(BuildContext context) => RepaintBoundary(
+        child: TweenAnimationBuilder<double>(
+          duration: const Duration(milliseconds: 700),
+          curve: Curves.easeOutCubic,
+          tween: Tween(begin: 0, end: 1),
+          builder: (_, t, _) => SizedBox(
+            height: height,
+            width: double.infinity,
+            child: CustomPaint(painter: make(t)),
+          ),
         ),
       );
 }

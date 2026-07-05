@@ -50,12 +50,62 @@ class ClockRef {
   const ClockRef({required this.device, required this.wall});
 }
 
+/// The dedup grid the record-time correction snaps to. Repeated re-syncs of the
+/// SAME physical record (a band that re-floods after a missed ACK) must land on
+/// the IDENTICAL corrected rec_ts, or the decoded_onehz UNIQUE(rec_ts) dedup
+/// admits duplicates. Snapping the correction to a coarse grid makes the result
+/// stable even if the strap↔wall offset wobbles by a few seconds between syncs.
+const int kRecTsGridSeconds = 300; // 5-minute grid
+
+/// Snap [ts] DOWN to the nearest [grid]-second boundary.
+int snapToGrid(int ts, [int grid = kRecTsGridSeconds]) => (ts ~/ grid) * grid;
+
 class ClockPolicy {
   /// Re-issue SET_CLOCK if the strap clock has drifted > 1 day or is frozen in
   /// the pre-2023 past (an unset RTC).
   static bool shouldSetClock(int deviceClock, int wallNow) {
     final drift = (wallNow - deviceClock).abs();
     return drift > 86400 || deviceClock < kMinPlausibleUnix;
+  }
+
+  /// Salvage an implausible record time using the strap↔wall clock offset
+  /// (device→wall = [clockWall] - [deviceClock]). A wandering/unset RTC offsets
+  /// EVERY record in a session by the same amount, so shifting by that offset
+  /// recovers the true wall time. Conservative by design:
+  ///   - only corrects when the offset exceeds 1 day (small drift is left alone —
+  ///     the embedded time is trusted for sub-day skew);
+  ///   - SNAPS the result to a 5-minute grid so repeated re-syncs dedupe to the
+  ///     identical rec_ts (protects the decoded_onehz UNIQUE(rec_ts) key);
+  ///   - never returns a time past wall-clock-now;
+  ///   - the result must still pass [isPlausibleUnix] against the session's own
+  ///     GET_DATA_RANGE ±7-day band.
+  /// Returns the corrected+snapped ts, or null when it can't be made plausible
+  /// (the caller then drops the record, exactly as before).
+  static int? correctRecordTs(
+    int recTs, {
+    required int wallNow,
+    int? deviceClock,
+    int? clockWall,
+    int? sessionOldestUnix,
+    int? sessionNewestUnix,
+  }) {
+    if (deviceClock == null || clockWall == null) return null;
+    final offset = clockWall - deviceClock;
+    if (offset.abs() <= 86400) return null; // sub-day drift — don't manufacture a fix
+    var corrected = recTs + offset;
+    // Snap FIRST, then clamp: snapping down can only lower the value, so a value
+    // that was <= now stays <= now, and we still guard the post-snap result.
+    corrected = snapToGrid(corrected);
+    if (corrected > wallNow) return null; // never push a record into the future
+    if (!isPlausibleUnix(
+      corrected,
+      wallNow,
+      sessionOldestUnix: sessionOldestUnix,
+      sessionNewestUnix: sessionNewestUnix,
+    )) {
+      return null;
+    }
+    return corrected;
   }
 }
 
@@ -204,6 +254,48 @@ class PostBondTimeoutLoopDetector {
   void reset() {
     _consecutive = 0;
     tripped = false;
+  }
+}
+
+// ── detector 2b: bond-refusal give-up ────────────────────────────────────────
+/// A band that keeps REFUSING the bond (link reachable, encryption denied) will
+/// never accept commands, so retrying forever just pins the radio and drains the
+/// battery. After [giveUpThreshold] consecutive refusals this signals "give up":
+/// the caller pauses the auto-reconnect loop and surfaces the re-pair guide
+/// instead. Distinct from [PostBondTimeoutLoopDetector] (which watches a
+/// bond→instant-timeout loop) — this counts outright refusals of createBond.
+/// A single successful bond resets the streak.
+class BondRefusalGiveUp {
+  final int giveUpThreshold;
+  BondRefusalGiveUp({this.giveUpThreshold = 5});
+
+  int _consecutive = 0;
+  bool gaveUp = false;
+
+  int get consecutive => _consecutive;
+
+  /// Feed a bond refusal/timeout. Returns true EXACTLY ONCE, on the call that
+  /// crosses the threshold (the caller then pauses reconnect + surfaces the guide).
+  bool bondRefused() {
+    if (gaveUp) return false;
+    _consecutive++;
+    if (_consecutive >= giveUpThreshold) {
+      gaveUp = true;
+      return true;
+    }
+    return false;
+  }
+
+  /// A bond that succeeded (or a session that got past bonding). Clears the
+  /// streak AND the give-up latch so a later refusal run can trip again.
+  void bondSucceeded() {
+    _consecutive = 0;
+    gaveUp = false;
+  }
+
+  void reset() {
+    _consecutive = 0;
+    gaveUp = false;
   }
 }
 

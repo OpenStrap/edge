@@ -2,16 +2,17 @@
 // predicted period + fertile window (log-anchored calendar method), and how your
 // skin-temp / resting-HR / HRV shift across the cycle. Honest: an estimate, not
 // medical or contraceptive guidance. Uses getCycle / postCycleLog / deleteCycleLog.
+//
+// On the design language: a rose-plum domain accent, the cycle day as a clean
+// open-arc ring hero, predictions as quiet rows, the body's shifts as a bento,
+// symptoms as calm toggle chips, and the honesty copy behind the (i).
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
-import '../kit/charts.dart';
+import '../design/design.dart';
 
 class CycleScreen extends StatefulWidget {
   const CycleScreen({super.key});
@@ -26,13 +27,6 @@ class _CycleScreenState extends State<CycleScreen> {
   String? _error;
   final Set<String> _symptoms = {}; // today's logged symptoms
 
-  // Common menstrual symptoms the user can tap to log for today.
-  static const _symptomOptions = <String>[
-    'cramps', 'headache', 'bloating', 'fatigue', 'mood swings',
-    'tender breasts', 'acne', 'back pain', 'nausea', 'cravings',
-    'insomnia', 'spotting',
-  ];
-
   LocalRepository? get _api => context.read<AppState>().repo;
 
   @override
@@ -44,10 +38,17 @@ class _CycleScreenState extends State<CycleScreen> {
   Future<void> _load() async {
     final api = _api;
     if (api == null) {
-      setState(() { _loading = false; _noApi = true; });
+      setState(() {
+        _loading = false;
+        _noApi = true;
+      });
       return;
     }
-    setState(() { _loading = true; _error = null; _noApi = false; });
+    setState(() {
+      _loading = true;
+      _error = null;
+      _noApi = false;
+    });
     try {
       final d = await api.getCycle();
       final sym = await api.getCycleSymptoms();
@@ -61,25 +62,34 @@ class _CycleScreenState extends State<CycleScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _loading = false; _error = e is RepositoryException ? e.body : e.toString(); });
+      setState(() {
+        _loading = false;
+        _error = e is RepositoryException ? e.body : e.toString();
+      });
     }
   }
 
   static String _fmt(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-  Future<void> _logToday() => _logDate(DateTime.now().toUtc());
+  // LOCAL dates: cycle logs are keyed by the local day label like the rest of
+  // the day model. (The old .toUtc() logged the UTC date — and shifted a picked
+  // local-midnight date to the PREVIOUS day for any UTC+ timezone.)
+  Future<void> _logToday() => _logDate(DateTime.now());
 
   Future<void> _logDate(DateTime day) async {
     final api = _api;
-    if (api == null) { return; }
+    if (api == null) {
+      return;
+    }
     try {
       await api.postCycleLog(_fmt(day), kind: 'start');
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Couldn't log: ${e is RepositoryException ? e.body : e}")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                "Couldn't log: ${e is RepositoryException ? e.body : e}")));
       }
     }
   }
@@ -92,7 +102,7 @@ class _CycleScreenState extends State<CycleScreen> {
       firstDate: DateTime(now.year - 2),
       lastDate: now,
     );
-    if (picked != null) await _logDate(picked.toUtc());
+    if (picked != null) await _logDate(picked);
   }
 
   Future<void> _delete(String date) async {
@@ -115,6 +125,97 @@ class _CycleScreenState extends State<CycleScreen> {
     } catch (_) {/* best-effort */}
   }
 
+  @override
+  Widget build(BuildContext context) {
+    return AppScaffold(
+      title: 'Cycle',
+      subtitle: 'Phase, predictions & body shifts',
+      actions: [
+        InfoDot(
+          title: 'Cycle tracking',
+          body:
+              'Predictions use the calendar method anchored on your logged '
+              'period starts — an estimate that sharpens as you log more '
+              'cycles. Everything stays on this phone.',
+          bullets: const [
+            'Not medical or contraceptive guidance.',
+            'Body shifts (temp, resting HR, HRV) are context, not the prediction.',
+          ],
+          methodNote: 'Log-anchored calendar method · on-device',
+        ),
+      ],
+      body: RefreshIndicator(
+        onRefresh: _load,
+        color: DomainAccent.cycle,
+        child: ListView(
+          physics: const BouncingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
+          ),
+          padding:
+              const EdgeInsets.fromLTRB(Sp.screen, Sp.x2, Sp.screen, Sp.x8),
+          children: [
+            if (_noApi)
+              const StateCard(
+                icon: Ic.calendar,
+                title: 'Cycle tracking unavailable',
+                message:
+                    'Pair your strap to log periods and see predictions. '
+                    'Everything stays on this phone.',
+              )
+            else if (_loading) ...[
+              Skeleton.hero(),
+              const SizedBox(height: Sp.x3),
+              Skeleton.tileRow(rows: 2),
+            ] else if (_error != null)
+              StateCard(
+                icon: Ic.cloud,
+                title: "Couldn't load cycle",
+                message: _error!,
+                actionLabel: 'Try again',
+                onAction: _load,
+              )
+            else
+              CycleContent(
+                data: _data!,
+                symptoms: _symptoms,
+                onToggleSymptom: _toggleSymptom,
+                onLogToday: _logToday,
+                onPickDate: _pickAndLog,
+                onDelete: _delete,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The pure cycle board — testable with a sample /cycle payload.
+class CycleContent extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final Set<String> symptoms;
+  final ValueChanged<String>? onToggleSymptom;
+  final VoidCallback? onLogToday;
+  final VoidCallback? onPickDate;
+  final ValueChanged<String>? onDelete;
+
+  const CycleContent({
+    super.key,
+    required this.data,
+    this.symptoms = const {},
+    this.onToggleSymptom,
+    this.onLogToday,
+    this.onPickDate,
+    this.onDelete,
+  });
+
+  // Common menstrual symptoms the user can tap to log for today.
+  static const symptomOptions = <String>[
+    'cramps', 'headache', 'bloating', 'fatigue', 'mood swings',
+    'tender breasts', 'acne', 'back pain', 'nausea', 'cravings',
+    'insomnia', 'spotting',
+  ];
+
   // ── phase presentation ──────────────────────────────────────────────────────
   static const _phaseLabel = {
     'menstrual': 'Menstruation',
@@ -123,64 +224,35 @@ class _CycleScreenState extends State<CycleScreen> {
     'luteal': 'Luteal phase',
     'unknown': 'Cycle',
   };
+
   Color _phaseColor(String p) {
     switch (p) {
-      case 'menstrual': return AppColors.coral;
-      case 'follicular': return AppColors.good;
-      case 'ovulation': return AppColors.coralDeep;
-      case 'luteal': return AppColors.warn;
-      default: return AppColors.inkSoft;
+      case 'menstrual':
+        return DomainAccent.cycle;
+      case 'follicular':
+        return DomainAccent.recovery;
+      case 'ovulation':
+        return DomainAccent.cyclePlum;
+      case 'luteal':
+        return DomainAccent.strain;
+      default:
+        return AppColors.inkSoft;
     }
   }
 
+  // MM-DD short date.
+  String _md(String iso) => iso.length >= 10 ? iso.substring(5) : iso;
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          onRefresh: _load,
-          color: AppColors.coral,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
-            children: [
-              const SizedBox(height: Sp.x4),
-              _topBar(),
-              const SizedBox(height: Sp.x6),
-              if (_noApi)
-                _stateCard('Cycle tracking unavailable',
-                    'Pair your strap to log periods and see predictions. Everything stays on this phone.')
-              else if (_loading)
-                const Padding(padding: EdgeInsets.all(Sp.x8), child: Center(child: CircularProgressIndicator()))
-              else if (_error != null)
-                _stateCard("Couldn't load cycle", _error!)
-              else
-                ..._content(),
-              const SizedBox(height: 110),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _topBar() => Row(children: [
-        RoundIconButton(Ic.arrowLeft, onTap: () => Navigator.of(context).pop()),
-        const SizedBox(width: Sp.x3),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Cycle', style: AppText.h1),
-          const SizedBox(height: 4),
-          Text('Log periods — see phase, fertile window & body shifts', style: AppText.caption),
-        ])),
-      ]);
-
-  List<Widget> _content() {
-    final d = _data!;
+    final d = data;
     if (d['enabled'] == false) {
-      return [_stateCard('Cycle tracking is off',
-          (d['note'] as String?) ?? 'Enable it in your profile to start tracking.')];
+      return StateCard(
+        icon: Ic.calendar,
+        title: 'Cycle tracking is off',
+        message: (d['note'] as String?) ??
+            'Enable it in your profile to start tracking.',
+      );
     }
     final phase = (d['phase'] as String?) ?? 'unknown';
     final cycleDay = d['cycle_day'] as num?;
@@ -193,182 +265,271 @@ class _CycleScreenState extends State<CycleScreen> {
     final note = (d['note'] as String?) ?? '';
     final conf = (d['confidence'] as num?) ?? 0;
     final logs = (d['logs'] as List?)?.whereType<Map>().toList() ?? const [];
-    final overlay = (d['overlay'] as List?)?.whereType<Map>().toList() ?? const [];
+    final overlay =
+        (d['overlay'] as List?)?.whereType<Map>().toList() ?? const [];
     final accent = _phaseColor(phase);
-
     final hasPrediction = next != null && conf > 0;
 
-    return [
-      // HERO — current phase + cycle day.
-      GlowCard(
-        padding: const EdgeInsets.all(Sp.x6),
-        child: Row(children: [
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-            Row(children: [
-              AppIcon(Ic.calendar, size: 16, color: accent),
-              const SizedBox(width: Sp.x2),
-              Text('YOUR CYCLE', style: AppText.overline),
-            ]),
-            const SizedBox(height: Sp.x3),
-            Text(_phaseLabel[phase] ?? 'Cycle', style: AppText.h2.copyWith(color: accent)),
-            const SizedBox(height: Sp.x2),
-            Text(cycleDay != null ? 'Day ${cycleDay.round()} of your cycle' : 'Log a period to begin',
-                style: AppText.bodySoft),
-          ])),
-          if (cycleDay != null && meanLen != null)
-            RingStat(
-              t: (cycleDay / meanLen).clamp(0.0, 1.0),
-              color: accent, size: 92, stroke: 11,
-              center: Text('${cycleDay.round()}', style: AppText.metricSm),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // HERO — the cycle-day ring floats on the page, no card chrome.
+        _hero(phase, accent, cycleDay, meanLen).dsEnter(index: 0),
+
+        // PREDICTION.
+        if (hasPrediction) ...[
+          const SizedBox(height: Sp.x5),
+          const SectionHeader('Prediction'),
+          SurfaceCard(
+            padding:
+                const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+            child: Column(
+              children: [
+                DetailRow(
+                  icon: Ic.droplet,
+                  label: 'Next period',
+                  value: daysUntil != null && daysUntil >= 0
+                      ? 'in ${daysUntil.round()} days'
+                      : _md(next),
+                ),
+                if (fertileStart != null && fertileEnd != null)
+                  DetailRow(
+                    icon: Ic.heart,
+                    label: 'Fertile window',
+                    value: '${_md(fertileStart)} – ${_md(fertileEnd)}',
+                  ),
+                if (ovulation != null)
+                  DetailRow(
+                    icon: Ic.up,
+                    label: 'Estimated ovulation',
+                    value: _md(ovulation),
+                  ),
+              ],
             ),
-        ]),
-      ),
+          ).dsEnter(index: 1),
+          if (note.isNotEmpty) ...[
+            const SizedBox(height: Sp.x2),
+            Text(note, style: AppText.captionMuted),
+          ],
+        ],
 
-      // PREDICTION.
-      if (hasPrediction) ...[
-        const SizedBox(height: Sp.x6),
-        SectionHeader('Prediction'),
-        ProCard(child: Column(children: [
-          _row(Ic.droplet, AppColors.coral, 'Next period',
-              daysUntil != null && daysUntil >= 0 ? 'in ${daysUntil.round()} days' : (next),
-              sub: next),
-          if (fertileStart != null && fertileEnd != null)
-            _row(Ic.heart, AppColors.good, 'Fertile window', '${_md(fertileStart)} – ${_md(fertileEnd)}'),
-          if (ovulation != null)
-            _row(Ic.up, AppColors.coralDeep, 'Estimated ovulation', _md(ovulation)),
-        ])),
-        const SizedBox(height: Sp.x2),
-        Text(note, style: AppText.captionMuted),
-      ],
-
-      // BIOMETRIC OVERLAY — how the body is shifting this cycle (descriptive).
-      if (overlay.isNotEmpty) ...[
-        const SizedBox(height: Sp.x6),
-        SectionHeader('Body this cycle'),
-        ProCard(child: Column(children: [
-          _overlayRow(Ic.thermometer, AppColors.coralDeep, 'Skin temp vs baseline', overlay, 'skin_temp_idx', 'Δ', signed: true),
-          _overlayRow(Ic.heart, AppColors.coral, 'Resting HR', overlay, 'resting_hr', 'bpm'),
-          _overlayRow(Ic.pulse, AppColors.good, 'HRV (RMSSD)', overlay, 'hrv_rmssd', 'ms'),
-        ])),
-        const SizedBox(height: Sp.x2),
-        Text('Skin temp and resting HR often rise, and HRV dips, in the luteal phase. '
-            'Shown for context — the prediction is based on your logged periods, not these.',
-            style: AppText.captionMuted),
-      ],
-
-      // SYMPTOMS — tap to log how you feel today (feeds the cycle picture).
-      const SizedBox(height: Sp.x6),
-      SectionHeader('Symptoms today'),
-      ProCard(
-        child: Wrap(
-          spacing: Sp.x2,
-          runSpacing: Sp.x2,
-          children: [
-            for (final s in _symptomOptions)
-              FilterChip(
-                label: Text(s),
-                selected: _symptoms.contains(s),
-                onSelected: (_) => _toggleSymptom(s),
-                showCheckmark: false,
-                selectedColor: AppColors.coral.withValues(alpha: 0.18),
-                labelStyle: AppText.caption.copyWith(
-                    color: _symptoms.contains(s)
-                        ? AppColors.coralDeep
-                        : AppColors.inkSoft),
-                backgroundColor: AppColors.surface,
-                shape: StadiumBorder(
-                    side: BorderSide(
-                        color: _symptoms.contains(s)
-                            ? AppColors.coral
-                            : AppColors.divider)),
+        // BIOMETRIC OVERLAY — how the body is shifting this cycle (descriptive).
+        if (overlay.isNotEmpty) ...[
+          const SizedBox(height: Sp.x5),
+          Row(
+            children: [
+              const Expanded(child: SectionHeader('Body this cycle')),
+              InfoDot(
+                title: 'Body this cycle',
+                body:
+                    'Skin temp and resting HR often rise, and HRV dips, in the '
+                    'luteal phase. Shown for context — the prediction is based '
+                    'on your logged periods, not these.',
               ),
+            ],
+          ),
+          _overlayBento(overlay),
+        ],
+
+        // SYMPTOMS — tap to log how you feel today (feeds the cycle picture).
+        const SizedBox(height: Sp.x5),
+        const SectionHeader('Symptoms today'),
+        SurfaceCard(
+          padding: const EdgeInsets.all(Sp.x4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: Sp.x2,
+                runSpacing: Sp.x2,
+                children: [
+                  for (final s in symptomOptions)
+                    ToggleChip(
+                      s,
+                      selected: symptoms.contains(s),
+                      accent: DomainAccent.cycle,
+                      onTap: onToggleSymptom == null
+                          ? null
+                          : () => onToggleSymptom!(s),
+                    ),
+                ],
+              ),
+              const SizedBox(height: Sp.x3),
+              Text(
+                'Symptoms ride along with your phase + recovery — over time '
+                'they sharpen the picture.',
+                style: AppText.captionMuted,
+              ),
+            ],
+          ),
+        ).dsEnter(index: 2),
+
+        // LOG actions.
+        const SizedBox(height: Sp.x5),
+        const SectionHeader('Log a period'),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: onLogToday,
+                style: FilledButton.styleFrom(
+                  backgroundColor: DomainAccent.cycle,
+                ),
+                icon: const AppIcon(Ic.droplet, size: 18, color: Colors.white),
+                label: const Text('Period started today'),
+              ),
+            ),
+            const SizedBox(width: Sp.x3),
+            OutlinedButton(
+                onPressed: onPickDate, child: const Text('Pick date')),
           ],
         ),
-      ),
-      const SizedBox(height: Sp.x2),
-      Text('Logged symptoms ride along with your phase + recovery — over time '
-          'they sharpen the picture.', style: AppText.captionMuted),
 
-      // LOG actions.
-      const SizedBox(height: Sp.x6),
-      SectionHeader('Log a period'),
-      Row(children: [
-        Expanded(child: FilledButton.icon(
-          onPressed: _logToday,
-          icon: const AppIcon(Ic.droplet, size: 18, color: Colors.white),
-          label: const Text('Period started today'),
-        )),
-        const SizedBox(width: Sp.x3),
-        OutlinedButton(onPressed: _pickAndLog, child: const Text('Pick date')),
-      ]),
-
-      // RECENT LOGS.
-      if (logs.isNotEmpty) ...[
-        const SizedBox(height: Sp.x6),
-        SectionHeader('Logged periods'),
-        ProCard(child: Column(children: [
-          for (final l in logs.take(12))
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(children: [
-                AppIcon(Ic.droplet, size: 15, color: AppColors.coral),
-                const SizedBox(width: Sp.x3),
-                Expanded(child: Text('${l['date']}  ·  ${l['kind']}', style: AppText.body)),
-                IconButton(
-                  icon: AppIcon(Ic.cancel, size: 16, color: AppColors.inkMuted),
-                  onPressed: () => _delete('${l['date']}'),
-                  visualDensity: VisualDensity.compact,
-                ),
-              ]),
+        // RECENT LOGS.
+        if (logs.isNotEmpty) ...[
+          const SizedBox(height: Sp.x5),
+          const SectionHeader('Logged periods'),
+          SurfaceCard(
+            padding:
+                const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+            child: Column(
+              children: [
+                for (final l in logs.take(12))
+                  DetailRow(
+                    icon: Ic.droplet,
+                    label: '${l['date']}',
+                    value: '${l['kind']}',
+                    trailing: onDelete == null
+                        ? null
+                        : IconButton(
+                            icon: AppIcon(Ic.cancel,
+                                size: 16, color: AppColors.inkMuted),
+                            onPressed: () => onDelete!('${l['date']}'),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                  ),
+              ],
             ),
-        ])),
+          ),
+        ],
       ],
-    ];
+    );
   }
 
-  // MM-DD short date.
-  String _md(String iso) => iso.length >= 10 ? iso.substring(5) : iso;
-
-  Widget _row(IconData icon, Color accent, String label, String? value, {String? sub}) =>
-      Padding(padding: const EdgeInsets.symmetric(vertical: Sp.x2), child: Row(children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(color: accent.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(R.chip)),
-          child: AppIcon(icon, size: 16, color: accent),
+  // ── hero — cycle-day arc + phase chip ─────────────────────────────────────────
+  Widget _hero(String phase, Color accent, num? cycleDay, num? meanLen) {
+    final hasDay = cycleDay != null && meanLen != null && meanLen > 0;
+    return Column(
+      children: [
+        const SizedBox(height: Sp.x3),
+        ArcGauge(
+          value: hasDay ? (cycleDay / meanLen).clamp(0.0, 1.0) : double.nan,
+          color: accent,
+          size: 180,
+          stroke: 14,
+          sweepFraction: 0.75,
+          endDot: hasDay,
+          center: hasDay
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('${cycleDay.round()}',
+                        style: AppText.metric.copyWith(fontSize: 40)),
+                    Text('DAY',
+                        style: AppText.overline
+                            .copyWith(color: AppColors.inkMuted)),
+                  ],
+                )
+              : AppIcon(Ic.calendar, size: 42, color: AppColors.inkMuted),
         ),
-        const SizedBox(width: Sp.x3),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: AppText.label),
-          if (sub != null) Text(sub, style: AppText.captionMuted),
-        ])),
-        Text(value ?? '—', style: AppText.label),
-      ]));
+        const SizedBox(height: Sp.x3),
+        StatusChip(
+          _phaseLabel[phase] ?? 'Cycle',
+          icon: Ic.calendar,
+          tone: ChipTone.neutral,
+        ),
+        const SizedBox(height: Sp.x2),
+        Text(
+          hasDay
+              ? 'Day ${cycleDay.round()} of ~${meanLen.round()}'
+              : 'Log a period to begin',
+          style: AppText.bodySoft,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: Sp.x2),
+      ],
+    );
+  }
 
-  // Latest non-null value of [key] across the cycle, with a signed/plain format.
-  Widget _overlayRow(IconData icon, Color accent, String label, List<Map> series, String key, String unit, {bool signed = false}) {
-    num? latest;
+  // ── the body-shift bento ──────────────────────────────────────────────────────
+  // Latest non-null value of [key] across the cycle.
+  num? _latest(List<Map> series, String key) {
     for (final r in series.reversed) {
       final v = r[key];
-      if (v is num) { latest = v; break; }
+      if (v is num) return v;
     }
-    String val = '—';
-    if (latest != null) {
-      final s = signed ? latest.toStringAsFixed(1) : latest.round().toString();
-      val = signed && latest > 0 ? '+$s $unit' : '$s $unit';
-    }
-    return Padding(padding: const EdgeInsets.symmetric(vertical: Sp.x2), child: Row(children: [
-      AppIcon(icon, size: 15, color: accent),
-      const SizedBox(width: Sp.x3),
-      Expanded(child: Text(label, style: AppText.body)),
-      Text(val, style: AppText.label),
-    ]));
+    return null;
   }
 
-  Widget _stateCard(String title, String message) => ProCard(
-        child: Padding(padding: const EdgeInsets.all(Sp.x4), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: AppText.label),
-          const SizedBox(height: Sp.x2),
-          Text(message, style: AppText.captionMuted),
-        ])),
-      );
+  Widget _overlayBento(List<Map> overlay) {
+    final temp = _latest(overlay, 'skin_temp_idx');
+    final rhr = _latest(overlay, 'resting_hr');
+    final hrv = _latest(overlay, 'hrv_rmssd');
+    String? signed(num? v) => v == null
+        ? null
+        : (v > 0 ? '+${v.toStringAsFixed(1)}' : v.toStringAsFixed(1));
+    return BentoColumns(
+      left: [
+        BentoTile(
+          tone: BentoTone.soft,
+          accent: DomainAccent.cycle,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const TileHeader('Skin temp',
+                  icon: Ic.thermometer, osIcon: OsIcon.skinTemperature),
+              const SizedBox(height: Sp.x2),
+              BigStat(value: signed(temp), unit: 'Δ', caption: 'vs baseline'),
+            ],
+          ),
+        ),
+        BentoTile(
+          accent: DomainAccent.recovery,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const TileHeader('HRV', icon: Ic.pulse, osIcon: OsIcon.hrv),
+              const SizedBox(height: Sp.x2),
+              BigStat(
+                value: hrv?.round().toString(),
+                unit: 'ms',
+                caption: 'RMSSD',
+              ),
+            ],
+          ),
+        ),
+      ],
+      right: [
+        BentoTile(
+          accent: DomainAccent.heart,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const TileHeader('Resting HR',
+                  icon: Ic.heart, osIcon: OsIcon.restingHeartRate),
+              const SizedBox(height: Sp.x2),
+              BigStat(
+                value: rhr?.round().toString(),
+                unit: 'bpm',
+                caption: 'this cycle',
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }

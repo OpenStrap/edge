@@ -1,6 +1,7 @@
 // Gesture settings — maps a band double-tap to an action. Only offers actions the
 // current platform actually supports (from native capabilities); falls back to a
-// "nothing available yet" note otherwise. Same card/sheet idiom as the rest of Profile.
+// "nothing available yet" note otherwise. Same card/sheet idiom as the rest of
+// Profile (design-system SurfaceCard + ListRow).
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -8,9 +9,7 @@ import 'package:provider/provider.dart';
 import '../../gestures/device_action.dart';
 import '../../gestures/gesture_settings.dart';
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
+import '../design/design.dart';
 
 class GestureSettingsCard extends StatelessWidget {
   const GestureSettingsCard({super.key});
@@ -21,24 +20,17 @@ class GestureSettingsCard extends StatelessWidget {
     return AnimatedBuilder(
       animation: settings,
       builder: (context, _) {
-        return ProCard(
+        return SurfaceCard(
+          padding:
+              const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
           onTap: () => _pick(context, settings),
-          child: Row(
-            children: [
-              Icon(Ic.watch, size: 22, color: AppColors.coral),
-              const SizedBox(width: Sp.x4),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Double-tap your band', style: AppText.title),
-                    const SizedBox(height: 2),
-                    Text(settings.doubleTap.label, style: AppText.bodySoft),
-                  ],
-                ),
-              ),
-              Icon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
-            ],
+          child: ListRow(
+            icon: Ic.watch,
+            iconColor: AppColors.accent,
+            title: 'Double-tap your band',
+            subtitle: settings.doubleTap.label,
+            trailing:
+                AppIcon(Ic.arrowRight, size: 16, color: AppColors.onSurfaceFaint),
           ),
         );
       },
@@ -50,9 +42,9 @@ class GestureSettingsCard extends StatelessWidget {
         DeviceAction.values.where((a) => settings.supported.contains(a)).toList();
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppColors.surfaceElevated,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.card)),
       ),
       builder: (sheetCtx) {
         return SafeArea(
@@ -69,32 +61,16 @@ class GestureSettingsCard extends StatelessWidget {
                 const SizedBox(height: Sp.x4),
                 ...options.map((a) {
                   final selected = a == settings.doubleTap;
-                  return InkWell(
-                    borderRadius: BorderRadius.circular(12),
+                  return ListRow(
+                    title: a.label,
+                    subtitle: a.blurb,
+                    trailing: selected
+                        ? AppIcon(Ic.check, size: 20, color: AppColors.positive)
+                        : const SizedBox(width: 20),
                     onTap: () {
                       settings.setDoubleTap(a);
                       Navigator.of(sheetCtx).pop();
                     },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: Sp.x3, horizontal: Sp.x2),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(a.label, style: AppText.body),
-                                const SizedBox(height: 2),
-                                Text(a.blurb, style: AppText.caption),
-                              ],
-                            ),
-                          ),
-                          if (selected)
-                            Icon(Ic.check, size: 20, color: AppColors.good),
-                        ],
-                      ),
-                    ),
                   );
                 }),
                 if (options.length <= 1) ...[

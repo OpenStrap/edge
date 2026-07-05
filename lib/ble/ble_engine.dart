@@ -68,8 +68,15 @@ typedef CommitSyncBatchSink =
     Future<void> Function(
       List<RawRecord> raws,
       List<Sample?> samples,
-      String? trimTokenHex,
-    );
+      String? trimTokenHex, {
+      List<ArchiveRecord>? archives,
+    });
+
+/// Persist an UNDECODABLE historical record (unknown/unsupported version) to the
+/// durable archive (never pruned). Used only by the pre-setup fallback path; the
+/// drain path archives inside the SAME transaction as the batch commit so the
+/// safe-trim invariant holds (see [CommitSyncBatchSink]).
+typedef ArchiveSink = Future<void> Function(ArchiveRecord archive);
 
 /// Fired (debounced) after records are persisted so the caller can schedule a
 /// DerivationEngine pass. Replaces the old "runSync() → SyncReport → derive"
@@ -166,6 +173,11 @@ class BleEngine {
   /// When null the engine falls back to [onRecordsBatch] (no durable cursor).
   final CommitSyncBatchSink? onCommitBatch;
 
+  /// If provided, an undecodable historical record that arrives OUTSIDE an armed
+  /// drain (pre-setup fallback only) is archived durably via this sink. The
+  /// normal drain path archives inside the batch-commit transaction instead.
+  final ArchiveSink? onArchiveRecord;
+
   /// Tunable debounce window for [onDataStored]. Default coalesces a burst once the
   /// stream goes quiet for ~12s, with a 90s never-quiet floor.
   final DeriveDebouncer deriveDebouncer;
@@ -180,6 +192,7 @@ class BleEngine {
     this.onLiveFrame,
     this.onOffloadState,
     this.onCommitBatch,
+    this.onArchiveRecord,
     this.cursorReader,
     this.deriveDebouncer = const DeriveDebouncer(),
     this.isBackgroundDrainer = false,
@@ -213,7 +226,15 @@ class BleEngine {
   /// a background drainer when another engine already owns it (→ it must NOT touch
   /// the band this cycle). A foreground engine always succeeds and preempts any
   /// background owner by disconnecting it.
-  bool _claimBand() {
+  ///
+  /// SERIALIZED PREEMPTION: the preempted engine's teardown is AWAITED (bounded)
+  /// before we proceed — firing our connect while its disconnect is still in
+  /// flight gave flutter_blue_plus two overlapping ops on the same peripheral
+  /// (connect racing disconnect → spurious connect failures / a half-torn-down
+  /// GATT). A hung teardown can't wedge us forever: after the timeout we log and
+  /// proceed (the preempted engine's own session guards make its late teardown
+  /// harmless once we own the band).
+  Future<bool> _claimBand() async {
     final other = _bandOwner;
     if (other != null && !identical(other, this)) {
       if (isBackgroundDrainer) {
@@ -222,7 +243,16 @@ class BleEngine {
         return false;
       }
       _log('preempting a background drain to take the foreground session.');
-      unawaited(other.disconnect());
+      try {
+        await other
+            .disconnect()
+            .timeout(const Duration(seconds: 10));
+      } on TimeoutException {
+        _log('preempted engine teardown timed out after 10s — proceeding '
+            'with the foreground connect anyway.');
+      } catch (e) {
+        _log('preempted engine teardown failed ($e) — proceeding.');
+      }
     }
     _bandOwner = this;
     return true;
@@ -251,11 +281,112 @@ class BleEngine {
   /// The delay to wait before reconnect `attempt` (1-based). Bounded + jittered.
   Duration reconnectDelay(int attempt) => reconnectPolicy.delayFor(attempt);
 
+  // ── reconnecting-state surface (owned by the caller's reconnect loop) ────────
+  /// The caller (AppState._reconnect) owns reconnect INTENT, so only it knows
+  /// when the engine's `idle` actually means "between reconnect attempts" rather
+  /// than "genuinely disconnected". It calls this at the top of each retry so
+  /// the UI can show a reconnecting/connecting state instead of 'disconnected'
+  /// while the loop backs off. Only lifts idle/error — never stomps an
+  /// in-flight connect phase or an established listen.
+  void markReconnecting() {
+    if (_phase == BleConnState.idle || _phase == BleConnState.error) {
+      _setPhase(BleConnState.reconnecting);
+    }
+  }
+
+  /// The reconnect loop gave up (keepAlive dropped / unpaired) — fall back to
+  /// a truthful 'disconnected'. No-op unless we're actually in `reconnecting`.
+  void clearReconnecting() {
+    if (_phase == BleConnState.reconnecting) _setPhase(BleConnState.idle);
+  }
+
+  // ── OS-managed pending reconnect (background fallback) ───────────────────────
+  /// Arm a flutter_blue_plus `autoConnect` pending connection and wait for the
+  /// OS to complete it. Unlike the direct `connect(autoConnect:false)` retry
+  /// loop (which needs our Dart timer alive to fire the next attempt), an armed
+  /// autoConnect is held by the OS bluetooth stack: whenever the band comes
+  /// back into range the link comes up without us polling. Used by the caller's
+  /// reconnect loop as a low-churn fallback once direct attempts keep failing
+  /// (or while backgrounded on Android, where the foreground service keeps the
+  /// process — and therefore the pending connect — alive).
+  ///
+  /// flutter_blue_plus 1.36.x semantics honoured here:
+  ///   - `connect(autoConnect: true)` REQUIRES `mtu: null` (asserted by the
+  ///     plugin) and returns immediately — the link is only up once the
+  ///     `connectionState` stream reports `connected`. The normal setup path
+  ///     already requests the MTU explicitly after connect, so nothing is lost.
+  ///   - the pending autoConnect is cancelled by `disconnect()`.
+  ///
+  /// TRADE-OFF (kept conservative): this method only WAITS for the OS-level
+  /// link; it does NOT run service discovery/subscribe/INIT itself. On success
+  /// the caller must immediately run the normal [connect] path — FBP treats a
+  /// connect() on an already-connected device as a no-op, so the full setup
+  /// (discover → subscribe → SET_CLOCK → INIT) runs exactly as for a direct
+  /// connect. If we return false (deadline / caller gave up), the pending
+  /// autoConnect is cancelled so a surprise OS connect can't come up later
+  /// with no subscriptions/heartbeat attached.
+  Future<bool> waitForOsAutoConnect(
+    String remoteId, {
+    Duration wait = const Duration(minutes: 15),
+    bool Function()? keepWaiting,
+  }) async {
+    final device = BluetoothDevice.fromId(remoteId);
+    try {
+      // Arm under the op lock so it can't overlap a connect/disconnect.
+      await _locked(() => device.connect(autoConnect: true, mtu: null));
+    } catch (e) {
+      _log('autoConnect arm failed: $e');
+      return false;
+    }
+    _log('OS autoConnect armed for $remoteId — waiting (max '
+        '${wait.inMinutes} min) for the band to reappear.');
+    final done = Completer<bool>();
+    final sub = device.connectionState.listen((s) {
+      if (s == BluetoothConnectionState.connected && !done.isCompleted) {
+        done.complete(true);
+      }
+    });
+    final poll = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (keepWaiting != null && !keepWaiting() && !done.isCompleted) {
+        done.complete(false);
+      }
+    });
+    final deadline = Timer(wait, () {
+      if (!done.isCompleted) done.complete(false);
+    });
+    final ok = await done.future;
+    await sub.cancel();
+    poll.cancel();
+    deadline.cancel();
+    if (!ok) {
+      // Cancel the pending autoConnect — an unsupervised OS connect later
+      // (no subscriptions, no heartbeat) would just confuse the band.
+      try {
+        await _locked(() => device.disconnect());
+      } catch (_) {}
+      _log('OS autoConnect window ended without a link — cancelled.');
+    } else {
+      _log('OS autoConnect completed — running the normal setup path.');
+    }
+    return ok;
+  }
+
   // Historical-offload bookkeeping. A controller is live for the whole connection
   // (we keep ACKing HISTORY_END markers as they arrive, even after the first
   // HISTORY_COMPLETE — a later strap-triggered offload reuses it).
   _DrainController? _drain;
   bool _liveEnabled = false;
+  // Background live downgrade: only the compact realtime-HR stream is armed
+  // (no high-rate R10/R11 + IMU + optical flood). Set by [enableHrOnlyLive].
+  bool _liveHrOnly = false;
+
+  /// Whether any live stream is currently armed (full or HR-only). Lets a live
+  /// consumer (spot check / step calibration) know if it must arm streams itself
+  /// — and therefore whether IT owns turning them back off.
+  bool get liveEnabled => _liveEnabled;
+
+  /// True while live is in the background HR-only downgrade.
+  bool get liveHrOnly => _liveEnabled && _liveHrOnly;
   bool _offloadActive = false;
   final List<Frame> _offloadFrames = [];
   bool _drainingOffloadFrames = false;
@@ -273,6 +404,10 @@ class BleEngine {
   final MarginalRadioDetector _marginalRadio = MarginalRadioDetector();
   final PostBondTimeoutLoopDetector _postBondLoop =
       PostBondTimeoutLoopDetector();
+  // Counts OUTRIGHT bond refusals across reconnects; after the threshold the
+  // caller pauses the auto-reconnect loop instead of pinning the radio forever.
+  // A single successful bond clears it (see the createBond block below).
+  final BondRefusalGiveUp _bondGiveUp = BondRefusalGiveUp();
   EmptySyncTracker _emptySync = EmptySyncTracker();
   StuckStrapDetector _stuckStrap = StuckStrapDetector();
 
@@ -287,11 +422,13 @@ class BleEngine {
   int? _sessionNewestUnix;
   DateTime? _bondTime; // when the handshake completed (bond confirmed)
   DateTime? _armTime; // when live (R10/R11) streams were last armed
-  int _frontierTs = 0; // highest historical rec_ts we've durably persisted
   int _autoContinueCount = 0; // consecutive auto-continues this connection
   double _lastBackfillAt = 0; // monotonic-ish secs of the last offload trigger
   int _emptyStreak = 0; // consecutive empty offloads (BackfillPolicy backoff)
-  int _droppedImplausible = 0; // records rejected by the plausibility gate
+  // ONE shared per-record gate (plausibility + frontier + drop counter) used by
+  // EVERY historical-record path — see RecordGate in ble_state.dart. Re-seeded
+  // on each connect from the durable cursor.
+  RecordGate _recordGate = RecordGate();
 
   double _wallSecs() => DateTime.now().millisecondsSinceEpoch / 1000.0;
 
@@ -446,8 +583,9 @@ class BleEngine {
     }
     // SINGLE-OWNER: a background drainer must not open a second drain against a
     // band the foreground session already owns (duplicate ACKs corrupt the trim
-    // cursor). Foreground engines preempt instead. See [_claimBand].
-    if (!_claimBand()) return false;
+    // cursor). Foreground engines preempt instead — awaiting the preempted
+    // engine's teardown so two FBP ops never overlap. See [_claimBand].
+    if (!await _claimBand()) return false;
     // Any prior session is dead to us now — tear it down before a new one.
     await _teardownSession(intentional: true);
     return _doConnect(device);
@@ -504,8 +642,33 @@ class BleEngine {
         try {
           await device.createBond();
           _log('Bonded (or already bonded).');
+          // A clean bond clears the refusal streak + any give-up latch, so a
+          // later run of refusals can trip the pause again, and un-pauses the
+          // auto-reconnect loop.
+          _bondGiveUp.bondSucceeded();
+          state.bondRefusals = 0;
+          state.autoReconnectPaused = false;
         } catch (e) {
-          _log('createBond: $e');
+          // A failed bond is NOT benign: the strap gates every command behind
+          // encryption, so downstream GATT ops will fail confusingly (writes
+          // silently dropped, no INIT flood, "connected but nothing happens").
+          // Log loudly and surface the re-pair diagnostic on engine state so
+          // the UI can point the user at the fix instead of a dead session.
+          _log('BOND FAILED: $e — encrypted commands will be silently dropped '
+              'by the band. Remove the bond in system Bluetooth settings and '
+              're-pair.');
+          state.needsRepairGuide = true;
+          state.bondRefusals++;
+          // After a run of consecutive refusals, stop the auto-reconnect loop
+          // (it would otherwise pin the radio + drain the battery on a band that
+          // will never accept the bond) and surface the re-pair guide. A manual
+          // user connect still runs createBond, so a successful re-pair recovers.
+          if (_bondGiveUp.bondRefused()) {
+            state.autoReconnectPaused = true;
+            _log('[RECONNECT] bond-refusal give-up (${_bondGiveUp.consecutive}) '
+                '— pausing auto-reconnect; re-pair required.');
+          }
+          onState(state);
         }
       }
 
@@ -578,13 +741,13 @@ class BleEngine {
       _stuckStrap = StuckStrapDetector();
       _autoContinueCount = 0;
       _lastBackfillAt = 0;
-      _droppedImplausible = 0;
       _sessionOldestUnix = null;
       _sessionNewestUnix = null;
       _bondTime = DateTime.now();
-      // Seed the frontier from the durable high-water so the stuck/continuation
-      // detectors are correct on the first offload after a restart.
-      _frontierTs = (await cursorReader?.call('rec_ts_hw')) ?? 0;
+      // Fresh record gate, seeded from the durable high-water so the stuck/
+      // continuation detectors are correct on the first offload after a restart.
+      _recordGate =
+          RecordGate(frontierTs: (await cursorReader?.call('rec_ts_hw')) ?? 0);
 
       // Heartbeat: keep the link alive (~10s LINK_VALID). Owned by the session, so a
       // disconnect cancels it — no zombie timer firing into a dead characteristic.
@@ -614,6 +777,7 @@ class BleEngine {
         onRecord: _storeRecord,
         onRecordsBatch: onRecordsBatch == null ? null : _storeRecordsBatch,
         onCommit: onCommitBatch == null ? null : _commitBatch,
+        onArchive: onArchiveRecord,
         log: _log,
       );
       _setPhase(BleConnState.listening);
@@ -648,7 +812,12 @@ class BleEngine {
       return;
     }
     if (_liveEnabled) {
-      _send(Cmd.sendR10R11Realtime, const [0x01]);
+      // Re-arm ONLY what the current live mode wants: re-sending the high-rate
+      // R10/R11 toggle while in HR-only mode (background downgrade) or under the
+      // marginal-radio fallback would silently undo the downgrade every 30 s.
+      if (!_liveHrOnly && !state.standardHrFallback) {
+        _send(Cmd.sendR10R11Realtime, const [0x01]);
+      }
       _send(Cmd.toggleRealtimeHr, const [0x01]);
     }
     _send(Cmd.getBatteryLevel, const []);
@@ -657,16 +826,18 @@ class BleEngine {
   /// Trigger a historical offload, floored by [BackfillPolicy] (manual /
   /// autoContinue are never floored). Re-arms the drain so a fresh HISTORY_COMPLETE
   /// is awaited. Used by the periodic timer, continuation, and the public sync API.
-  Future<void> _triggerBackfill(BackfillTrigger trigger) async {
+  /// Returns true when an offload was actually requested (false → floored or not
+  /// connected), so event-driven callers know whether to await a sync report.
+  Future<bool> _triggerBackfill(BackfillTrigger trigger) async {
     final d = _drain;
-    if (_session?.connected != true || d == null) return;
+    if (_session?.connected != true || d == null) return false;
     if (!BackfillPolicy.shouldRun(
       trigger,
       _wallSecs(),
       _lastBackfillAt,
       _emptyStreak,
     )) {
-      return;
+      return false;
     }
     _lastBackfillAt = _wallSecs();
     await _startHistoricalRefresh(
@@ -674,7 +845,16 @@ class BleEngine {
       reason: trigger.name,
       refreshRange: true,
     );
+    return true;
   }
+
+  /// Foreground catch-up pull: the app came back to the foreground on a healthy
+  /// link and wants the flash backlog NOW instead of waiting out the 15-min
+  /// periodic timer. Floored at [BackfillPolicy.eventFloorSeconds] (90 s) so
+  /// rapid app switching can't hammer the strap. Returns true when an offload
+  /// was actually requested.
+  Future<bool> requestForegroundSync() =>
+      _triggerBackfill(BackfillTrigger.foreground);
 
   /// Canonical historical-refresh entrypoint for the whole app.
   ///
@@ -790,24 +970,57 @@ class BleEngine {
   // The cmd characteristic write is WITH-RESPONSE: that's what triggers BLE bonding
   // (the auth challenge) AND gets commands delivered + acknowledged. Write-WITHOUT-
   // response is silently dropped by the band and never establishes the bond.
-  Future<void> _write(Uint8List raw) {
+  //
+  // Returns whether the write actually succeeded (link ready + GATT write
+  // confirmed within [_writeTimeout]). Most callers can ignore the result
+  // (fire-and-forget telemetry polls), but the batch-ACK path MUST check it —
+  // a swallowed ACK failure after the cursor commit means the band never trims
+  // and silently re-floods the same chunk forever. The per-write timeout stops
+  // a hung write-with-response from stalling the whole write chain / drain.
+  static const Duration _writeTimeout = Duration(seconds: 8);
+
+  Future<bool> _write(Uint8List raw) {
     final session = _session;
-    final completer = Completer<void>();
+    final completer = Completer<bool>();
     _writeChain = _writeChain.then((_) async {
+      var ok = false;
       try {
         final cmd = session?.cmdTo;
         if (session == null || !session.connected || cmd == null) {
           _log('write skipped: link not ready.');
           return;
         }
-        await cmd.write(raw, withoutResponse: false);
+        await cmd.write(raw, withoutResponse: false).timeout(_writeTimeout);
+        ok = true;
+      } on TimeoutException {
+        _log('write timeout: no GATT response in ${_writeTimeout.inSeconds}s.');
       } catch (e) {
         _log('write error: $e');
       } finally {
-        completer.complete();
+        completer.complete(ok);
       }
     });
     return completer.future;
+  }
+
+  /// Retry schedule for the HISTORY_END batch ACK (pure; see ble_state.dart).
+  final AckRetryPolicy ackRetryPolicy = const AckRetryPolicy();
+
+  /// VERIFIED batch-ACK write: retry a few times with short backoff. Returns
+  /// false only after every attempt failed — the caller must then bounce the
+  /// link (the chunk is already durably committed; the band re-delivers it next
+  /// session and the decoded store dedups by REPLACE).
+  Future<bool> _writeAckVerified(Uint8List ack) async {
+    var failures = 0;
+    while (true) {
+      if (await _write(ack)) return true;
+      failures++;
+      if (!ackRetryPolicy.shouldRetry(failures)) return false;
+      _log('[SYNC] batch-ACK write failed (attempt $failures/'
+          '${ackRetryPolicy.maxAttempts}) — retrying.');
+      await Future.delayed(ackRetryPolicy.delayFor(failures));
+      if (_session?.connected != true) return false;
+    }
   }
 
   Future<void> _send(int opcode, List<int> payload) async {
@@ -836,15 +1049,20 @@ class BleEngine {
     _noteStored();
   }
 
-  /// Atomic commit of a sync chunk (raw + samples + cursor) before the ACK.
+  /// Atomic commit of a sync chunk (raw + samples + undecodable archive + cursor)
+  /// before the ACK. Archiving the undecodable records in this SAME transaction is
+  /// what keeps the safe-trim invariant intact — nothing the band trims on ACK has
+  /// been dropped; unknown-version records are set aside durably first.
   Future<void> _commitBatch(
     List<RawRecord> raws,
     List<Sample?> samples,
-    String? trimTokenHex,
-  ) async {
-    if (raws.isEmpty && trimTokenHex == null) return;
-    await onCommitBatch!(raws, samples, trimTokenHex);
-    if (raws.isNotEmpty) _noteStored();
+    String? trimTokenHex, {
+    List<ArchiveRecord>? archives,
+  }) async {
+    final hasArchives = archives != null && archives.isNotEmpty;
+    if (raws.isEmpty && trimTokenHex == null && !hasArchives) return;
+    await onCommitBatch!(raws, samples, trimTokenHex, archives: archives);
+    if (raws.isNotEmpty || hasArchives) _noteStored();
   }
 
   // ── frame handling ─────────────────────────────────────────────────────────────
@@ -886,69 +1104,12 @@ class BleEngine {
       // Fall through to decodeFrame so the UI gets live telemetry (state.liveHr).
     }
     if (pt == PacketType.historicalData) {
-      final recType = frame.inner.length > 1 ? frame.inner[1] : -1;
-      final counter = _counterFromInner(frame.inner);
-      // Decode the record FIRST so we can stamp its REAL time onto rec_ts. The
-      // DerivationEngine buckets/windows days by rec_ts, so a multi-day flash
-      // backfill (all received in one sync) splits into correct per-real-day
-      // buckets instead of collapsing into one "today".
-      Sample? sample;
-      if (recType == Record.r24) {
-        final r = parseR24(frame.inner);
-        if (r != null) {
-          sample = Sample(
-            tsEpoch: r.tsEpoch,
-            counter: r.counter,
-            hr: r.hr,
-            rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
-            ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
-            ay: r.accelG.length > 1 ? r.accelG[1] : 0,
-            az: r.accelG.length > 2 ? r.accelG[2] : 0,
-            spo2RedRaw: r.spo2RedRaw,
-            spo2IrRaw: r.spo2IrRaw,
-            skinTempRaw: r.skinTempRaw,
-          );
-        }
-      } else if (recType == Record.r10) {
-        final r = parseR10Lite(frame.inner);
-        if (r != null) {
-          sample = Sample(tsEpoch: r.tsEpoch, counter: r.counter, hr: r.hr);
-        }
-      }
-      // PLAUSIBILITY GATE. When we have a decoded record time, drop records
-      // whose unix is implausible vs wall-clock and (when known) the strap's own
-      // GET_DATA_RANGE window — a previous owner's wandering-clock pollution.
-      // Records with no decodable ts are kept (can't gate them).
-      if (sample != null && sample.tsEpoch > 0) {
-        if (!isPlausibleUnix(
-          sample.tsEpoch,
-          DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          sessionOldestUnix: _sessionOldestUnix,
-          sessionNewestUnix: _sessionNewestUnix,
-        )) {
-          _droppedImplausible++;
-          return; // neither stored nor counted; the ACK still walks the cursor
-        }
-        if (sample.tsEpoch > _frontierTs) _frontierTs = sample.tsEpoch;
-      }
-      final raw = RawRecord(
-        counter: counter,
-        packetType: pt,
-        hex: _innerHex(frame.inner),
-        capturedAt: DateTime.now().millisecondsSinceEpoch,
-        recTs: (sample != null && sample.tsEpoch > 0) ? sample.tsEpoch : null,
-      );
-      // Hand the record to the offload controller (it buffers per-batch until the
-      // HISTORY_END flush, which persists raw-first BEFORE we ACK). The controller
-      // is armed for the whole connection, so this is always present; the fallback
-      // just stores directly if a frame somehow arrives before setup completed.
-      final d = _drain;
-      if (d != null) {
-        _armIdleWatchdog(); // a record arrived → the strap is still draining
-        d.onHistoricalRecord(raw, sample);
-      } else {
-        unawaited(_storeRecord(sample, raw));
-      }
+      // Same shared path as the queued offload drain — plausibility gate,
+      // frontier bump, drop counter and storage enqueue all live in ONE place
+      // (see _ingestHistoricalFrame). This branch is only reached by a
+      // historicalData frame arriving outside the 'data' role queue.
+      _armIdleWatchdog(); // a record arrived → the strap is still draining
+      _ingestHistoricalFrame(frame);
       return;
     }
     if (pt == PacketType.commandResponse) {
@@ -982,11 +1143,15 @@ class BleEngine {
       final count = _offloadFrames.length > 64 ? 64 : _offloadFrames.length;
       final batch = _offloadFrames.sublist(0, count);
       _offloadFrames.removeRange(0, count);
+      // Records are flowing → the strap is still draining. Armed per drained
+      // batch (bounded rate) instead of per record — same watchdog semantics,
+      // no Timer churn at flood rates. Markers re-arm it in _handleSyncMarker.
+      _armIdleWatchdog();
       for (final frame in batch) {
         if (frame.packetType == PacketType.metadata) {
           await _handleSyncMarker(frame);
         } else {
-          _processHistoricalFrame(frame);
+          _ingestHistoricalFrame(frame);
         }
       }
       if (_offloadFrames.isNotEmpty) {
@@ -996,11 +1161,21 @@ class BleEngine {
     _drainingOffloadFrames = false;
   }
 
-  void _processHistoricalFrame(Frame frame) {
+  /// THE single historical-record processing path — used by BOTH the queued
+  /// offload drain (real traffic) and the immediate fallback. Decode → gate
+  /// (plausibility + frontier via [RecordGate]) → storage enqueue. Keeping one
+  /// path is deliberate: the previous duplicate had drifted, silently losing
+  /// the plausibility gate and freezing the frontier the stuck-strap /
+  /// auto-continue policies read.
+  void _ingestHistoricalFrame(Frame frame) {
     final pt = frame.packetType;
     if (pt != PacketType.historicalData) return;
     final recType = frame.inner.length > 1 ? frame.inner[1] : -1;
     final counter = _counterFromInner(frame.inner);
+    // Decode the record FIRST so we can stamp its REAL time onto rec_ts. The
+    // DerivationEngine buckets/windows days by rec_ts, so a multi-day flash
+    // backfill (all received in one sync) splits into correct per-real-day
+    // buckets instead of collapsing into one "today".
     Sample? sample;
     if (recType == Record.r24) {
       final r = parseR24(frame.inner);
@@ -1024,13 +1199,54 @@ class BleEngine {
         sample = Sample(tsEpoch: r.tsEpoch, counter: r.counter, hr: r.hr);
       }
     }
+    // FIRMWARE RESILIENCE: a historical record we could NOT decode (unknown/
+    // unsupported version, or a known version whose decode failed) is ARCHIVED
+    // durably rather than dropped — it used to fall into raw_records with a null
+    // rec_ts and get pruned unseen, losing a future firmware's data forever. The
+    // archive rides the SAME commit that runs before the batch-ACK, so nothing the
+    // band trims has been discarded (safe-trim invariant intact).
+    if (sample == null) {
+      final archive = ArchiveRecord(
+        counter: counter,
+        hex: _innerHex(frame.inner),
+        packetType: frame.inner.isNotEmpty ? frame.inner[0] : 0,
+        capturedAt: DateTime.now().millisecondsSinceEpoch,
+        reason: 'undecodable_rec_v$recType',
+      );
+      final d = _drain;
+      if (d != null) {
+        d.onUndecodableRecord(archive);
+      } else {
+        unawaited(onArchiveRecord?.call(archive) ?? Future<void>.value());
+      }
+      return;
+    }
+    // PLAUSIBILITY GATE + FRONTIER (RecordGate, shared with the detectors).
+    // Drop records whose unix is implausible vs wall-clock and (when known) the
+    // strap's own GET_DATA_RANGE window — a previous owner's wandering-clock
+    // pollution. Records with no decodable ts are kept (can't gate them).
+    // Rejected records are neither stored nor counted; the ACK still walks the
+    // band's cursor.
+    // Past this point [sample] is non-null — undecodable records returned above.
+    if (!_recordGate.admit(
+      sample.tsEpoch,
+      wallNow: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      sessionOldestUnix: _sessionOldestUnix,
+      sessionNewestUnix: _sessionNewestUnix,
+    )) {
+      return;
+    }
     final raw = RawRecord(
       counter: counter,
       packetType: pt,
       hex: _innerHex(frame.inner),
       capturedAt: DateTime.now().millisecondsSinceEpoch,
-      recTs: (sample != null && sample.tsEpoch > 0) ? sample.tsEpoch : null,
+      recTs: sample.tsEpoch > 0 ? sample.tsEpoch : null,
     );
+    // Hand the record to the offload controller (it buffers per-batch until the
+    // HISTORY_END flush, which persists raw-first BEFORE we ACK). The controller
+    // is armed for the whole connection, so this is always present; the fallback
+    // just stores directly if a frame somehow arrives before setup completed.
     final d = _drain;
     if (d != null) {
       d.onHistoricalRecord(raw, sample);
@@ -1196,8 +1412,23 @@ class BleEngine {
         '[SYNC] ACK frame='
         '${ack.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
       );
-      d.noteBatchAcked();
-      await _write(ack); // ACK and KEEP listening
+      // VERIFIED ACK (retried): the cursor above is already durably committed,
+      // so a silently-failed ACK write would leave the band never trimming and
+      // re-flooding the same chunk forever. On persistent failure bounce the
+      // link — the committed data is safe, and the next session's re-delivery
+      // is dedup-safe (decoded rows REPLACE by rec_ts).
+      if (!await _writeAckVerified(ack)) {
+        _log('[SYNC] BATCH-ACK FAILED after '
+            '${ackRetryPolicy.maxAttempts} attempts (token=$tokenHex) — '
+            'bouncing the link; data is committed and the band will re-send.');
+        unawaited(
+          _teardownSession(intentional: false).then((_) {
+            _setPhase(BleConnState.idle); // caller's reconnect loop takes over
+          }),
+        );
+        return;
+      }
+      d.noteBatchAcked(); // ACKed and KEEP listening
       await LocalDb.upsertSyncLedgerEntry(
         status: 'acknowledged',
         ackedAt: DateTime.now().millisecondsSinceEpoch,
@@ -1235,7 +1466,7 @@ class BleEngine {
       );
       _log(
         '[SYNC] HistoryComplete — backlog drained (${d.records} records, '
-        '$_droppedImplausible dropped). Still listening for live records.',
+        '${_recordGate.dropped} dropped). Still listening for live records.',
       );
       _noteStored();
       await _onOffloadFinished(complete: true);
@@ -1262,7 +1493,8 @@ class BleEngine {
     }
 
     // Stuck-strap: frontier frozen ≥10 min while the strap is >5 min ahead.
-    if (_stuckStrap.observe(_sessionNewestUnix, _frontierTs, _wallSecs())) {
+    if (_stuckStrap.observe(
+        _sessionNewestUnix, _recordGate.frontierTs, _wallSecs())) {
       state.strapNeedsReboot = true;
       onState(state);
       _log('[SYNC] stuck-strap tripped — defensive SET_CLOCK.');
@@ -1274,7 +1506,7 @@ class BleEngine {
     final cont = BackfillContinuation.shouldAutoContinue(
       stillConnected: _session?.connected == true,
       strapNewestTs: _sessionNewestUnix,
-      ourFrontierTs: _frontierTs,
+      ourFrontierTs: _recordGate.frontierTs,
       rowsPersistedThisSession: d.recordsThisOffload,
       lastTrimAdvanced: d.lastTrimAdvanced,
       consecutiveCount: _autoContinueCount,
@@ -1375,15 +1607,14 @@ class BleEngine {
     return report;
   }
 
-  /// Set the strap RTC to current time — WHOOP-EXACT payload.
+  /// Set the strap RTC to current time — hardware-verified payload.
   ///
-  /// The official WHOOP app (jadx: rh0/s0.java SetClockPacket, n92/a.java) sends
-  /// an 8-byte payload of TWO little-endian u32s: whole seconds at [0:4] and
-  /// SUB-SECONDS at [4:8], where subseconds are in units of 1/32768 s (a 32768 Hz
-  /// RTC crystal): `subsec = (millis % 1000) * 32768 / 1000` (0..32767, a u16 in
-  /// the low half of the second word). We previously sent zero subseconds, which
-  /// is a protocol divergence from what the strap firmware expects. Matching WHOOP
-  /// byte-for-byte here is the safe thing. Then read the clock back (GET_CLOCK) so
+  /// The strap expects an 8-byte payload of TWO little-endian u32s: whole
+  /// seconds at [0:4] and SUB-SECONDS at [4:8], where subseconds are in units of
+  /// 1/32768 s (a 32768 Hz RTC crystal): `subsec = (millis % 1000) * 32768 / 1000`
+  /// (0..32767, a u16 in the low half of the second word). We previously sent
+  /// zero subseconds, which the strap firmware rejected; sending the exact
+  /// subsecond value is the safe thing. Then read the clock back (GET_CLOCK) so
   /// the response handler can VERIFY it latched and re-issue on drift.
   Future<void> setClock() async {
     final ms = DateTime.now().millisecondsSinceEpoch;
@@ -1410,23 +1641,52 @@ class BleEngine {
   /// verify drift and re-correlate the strap-RTC ↔ wall clock.
   Future<void> getClock() => _send(Cmd.getClock, const <int>[]);
 
-  /// Smart alarm. Payload (7 bytes, LE):
-  /// [0]=0x01 revision, [1:5]=u32 epoch seconds, [5:7]=u16 sub-seconds (0).
-  Future<void> setAlarm(int epoch) async {
-    await _send(Cmd.setAlarmTime, [
-      0x01,
-      epoch & 0xff,
-      (epoch >> 8) & 0xff,
-      (epoch >> 16) & 0xff,
-      (epoch >> 24) & 0xff,
-      0,
-      0,
-    ]);
-    _log('SET_ALARM_TIME → $epoch');
+  /// On-device wake alarm (SET_ALARM_TIME = 0x42) — the RICH 20-byte form that
+  /// actually FIRES on WHOOP 4.0:
+  /// ```
+  ///   [0]      0x04              rich-form marker
+  ///   [1]      u8  index         alarm slot (default 0)
+  ///   [2..6]   u32 epoch-sec LE  the wake time
+  ///   [6..8]   u16 subsec  LE    (millis % 1000) * 32768 ~/ 1000 (1/32768 s units)
+  ///   [8..20]  12-byte haptic pattern (see [AlarmPayloads.defaultHaptics])
+  /// ```
+  /// The short 7-byte time-only form ([setAlarmSimple]) is accepted and ACKed by
+  /// the band but carries no waveform, so the strap never buzzes it — our earlier
+  /// short-form attempts silently failed for exactly this reason. The strap
+  /// confirms the alarm latched via event 56 (STRAP_DRIVEN_ALARM_SET) and reports
+  /// firing via events 57/58 + 60. Byte layout lives in the pure [AlarmPayloads].
+  Future<void> setAlarm(
+    DateTime when, {
+    int index = 0,
+    List<int>? haptics,
+  }) async {
+    await _send(
+      Cmd.setAlarmTime,
+      AlarmPayloads.rich(when, index: index, haptics: haptics),
+    );
+    _log('SET_ALARM_TIME (rich 20B) → sec=${when.millisecondsSinceEpoch ~/ 1000} '
+        'subsec=${AlarmPayloads.subsecOf(when)}');
+  }
+
+  /// Time-only alarm (SET_ALARM_TIME = 0x42), SHORT 7-byte form:
+  /// `[0x01][u32 epoch-sec LE][u16 subsec LE]`. Kept for diagnostics/parity —
+  /// the band ACKs it but never fires it (no haptic waveform). Use [setAlarm].
+  Future<void> setAlarmSimple(DateTime when) async {
+    await _send(Cmd.setAlarmTime, AlarmPayloads.simple(when));
+    _log('SET_ALARM_TIME (simple 7B) → sec=${when.millisecondsSinceEpoch ~/ 1000} '
+        '(ACKs but will not fire)');
   }
 
   Future<void> getAlarm() => _send(Cmd.getAlarmTime, const [revision1]);
-  Future<void> disableAlarm() => _send(Cmd.disableAlarm, const [0x00]);
+
+  /// Fire the alarm haptics IMMEDIATELY (RUN_ALARM = 0x44), payload `[0x01]`.
+  /// A "test buzz" so the user can confirm the strap actually fires before
+  /// trusting the scheduled wake.
+  Future<void> runAlarm() => _send(Cmd.runAlarm, AlarmPayloads.runNow);
+
+  /// Cancel the on-device alarm (DISABLE_ALARM = 0x45), payload `[0x01]`.
+  /// (The earlier `[0x00]` body was ACKed but did not clear the alarm.)
+  Future<void> disableAlarm() => _send(Cmd.disableAlarm, AlarmPayloads.disable);
 
   Future<void> getStrapName() =>
       _send(Cmd.getAdvertisingNameHarvard, const [0x00]);
@@ -1453,6 +1713,7 @@ class BleEngine {
   /// live records simply start arriving on the same subscription history uses.
   Future<void> enableLiveStreams() async {
     _liveEnabled = true;
+    _liveHrOnly = false;
     _armTime =
         DateTime.now(); // marginal-radio detector measures arm→drop latency
     await _send(Cmd.toggleRealtimeHr, const [0x01]);
@@ -1469,6 +1730,41 @@ class BleEngine {
     await Future.delayed(const Duration(milliseconds: 100));
     await _send(Cmd.enableOpticalData, const [revision1, 0x01]);
     _log('Live streams enabled (optical: wrist-gated).');
+  }
+
+  /// Background live downgrade: keep ONLY the compact realtime-HR stream (0x28)
+  /// armed and turn the high-rate R10/R11 + IMU + optical flood OFF. Used while
+  /// backgrounded with no live consumer, so the radio isn't saturated by a raw
+  /// flood nobody is reading — which can starve the periodic R24 offloads.
+  /// [enableLiveStreams] restores the full set on foreground return. Idempotent.
+  Future<void> enableHrOnlyLive() async {
+    if (_session?.connected != true) return;
+    _liveEnabled = true;
+    _liveHrOnly = true;
+    await _send(Cmd.toggleRealtimeHr, const [0x01]);
+    final offOps = <List<dynamic>>[
+      [
+        Cmd.toggleOpticalMode,
+        [revision1, 0x00],
+      ],
+      [
+        Cmd.enableOpticalData,
+        [revision1, 0x00],
+      ],
+      [
+        Cmd.sendR10R11Realtime,
+        [0x00],
+      ],
+      [
+        Cmd.toggleImuMode,
+        [0x00],
+      ],
+    ];
+    for (final op in offOps) {
+      await _send(op[0] as int, (op[1] as List).cast<int>());
+      await Future.delayed(const Duration(milliseconds: 60));
+    }
+    _log('Live streams: HR-only (background downgrade — raw flood off).');
   }
 
   /// Turn everything off. Safe + idempotent. Clears flags back to wrist-gated.
@@ -1500,6 +1796,7 @@ class BleEngine {
       await Future.delayed(const Duration(milliseconds: 60));
     }
     _liveEnabled = false;
+    _liveHrOnly = false;
     _armTime = null;
     state.liveHr = null;
     // No phase change — we stay `listening`; only the live R10/R11/optical streams
@@ -1601,17 +1898,23 @@ class _DrainController {
   final SampleSink onRecord;
   final BatchSink? onRecordsBatch;
   final CommitSyncBatchSink? onCommit;
+  final ArchiveSink? onArchive;
   final void Function(String) log;
 
   _DrainController({
     required this.onRecord,
     required this.onRecordsBatch,
     required this.onCommit,
+    required this.onArchive,
     required this.log,
   });
 
   final List<RawRecord> _raws = [];
   final List<Sample?> _samples = [];
+  // Undecodable historical records buffered for THIS chunk. Committed in the same
+  // transaction as [_raws]/[_samples]/the trim cursor (see [commit]) so a future
+  // firmware's records are durably set aside BEFORE the band is told to trim.
+  final List<ArchiveRecord> _archives = [];
 
   int records = 0; // total this connection
   int recordsThisOffload = 0; // since the last HISTORY_COMPLETE / rearm
@@ -1662,6 +1965,20 @@ class _DrainController {
     }
   }
 
+  /// An undecodable historical record (unknown/unsupported version, or a decode
+  /// that failed). Buffered for archival in the next atomic commit — never dropped,
+  /// never ACKed away before it is durably set aside.
+  void onUndecodableRecord(ArchiveRecord a) {
+    records++;
+    recordsThisOffload++;
+    _lastProgressAt = DateTime.now();
+    if (_buffering) {
+      _archives.add(a);
+    } else {
+      unawaited(onArchive?.call(a) ?? Future<void>.value());
+    }
+  }
+
   void noteBatchAcked() => batches++;
 
   /// HISTORY_COMPLETE seen — the backlog has been fully handed over. Marks the
@@ -1688,10 +2005,12 @@ class _DrainController {
   /// watchdog). These records were never ACKed, so the band re-delivers them on the
   /// next offload — dropping them here just avoids ACKing a partial.
   void discardOpenChunk() {
-    if (_raws.isEmpty) return;
-    log('discarding ${_raws.length} un-ACKed buffered records (idle).');
+    if (_raws.isEmpty && _archives.isEmpty) return;
+    log('discarding ${_raws.length} un-ACKed buffered records + '
+        '${_archives.length} archived (idle).');
     _raws.clear();
     _samples.clear();
+    _archives.clear();
   }
 
   /// SAFE-TRIM commit: persist the buffered chunk + the continuation [token]
@@ -1706,11 +2025,13 @@ class _DrainController {
     if (tokenHex != null) _lastAckedToken = tokenHex;
     final raws = List<RawRecord>.from(_raws);
     final samples = List<Sample?>.from(_samples);
+    final archives = List<ArchiveRecord>.from(_archives);
     _raws.clear();
     _samples.clear();
+    _archives.clear();
     try {
       if (onCommit != null) {
-        await onCommit!(raws, samples, tokenHex);
+        await onCommit!(raws, samples, tokenHex, archives: archives);
       } else if (onRecordsBatch != null && raws.isNotEmpty) {
         await onRecordsBatch!(raws, samples);
       }

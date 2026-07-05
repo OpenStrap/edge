@@ -361,6 +361,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
       rows.add(
         TrendMetricRow(
           icon: Ic.pulse,
+          osIcon: OsIcon.vo2max,
           accent: AppColors.good,
           label: 'VO₂max',
           info: infoFor('vo2max'),
@@ -375,6 +376,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
       rows.add(
         TrendMetricRow(
           icon: Ic.strain,
+          osIcon: OsIcon.bodyStrain,
           accent: AppColors.coral,
           label: 'Training load (ACWR)',
           info: infoFor('load'),
@@ -487,7 +489,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
           if (acwr != null) ...[
             Row(
               children: [
-                AppIcon(Ic.strain, size: 18, color: AppColors.coralDeep),
+                const OsAppIcon(OsIcon.bodyStrain, size: 28),
                 const SizedBox(width: Sp.x2),
                 Text('Acute:chronic load', style: AppText.label),
                 const Spacer(),
@@ -536,18 +538,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
               children: [
                 Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: AppColors.coralSoft,
-                        borderRadius: BorderRadius.circular(R.chip),
-                      ),
-                      child: AppIcon(
-                        Ic.strain,
-                        size: 16,
-                        color: AppColors.coralDeep,
-                      ),
-                    ),
+                    const OsAppIcon(OsIcon.bodyStrain, size: 34),
                     const SizedBox(width: Sp.x2),
                     Text('DAY STRAIN', style: AppText.overline),
                   ],
@@ -837,12 +828,12 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(Sp.x3),
+                padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
                   color: AppColors.coralSoft,
                   shape: BoxShape.circle,
                 ),
-                child: AppIcon(Ic.run, size: 18, color: AppColors.coralDeep),
+                child: const OsAppIcon(OsIcon.workouts, size: 34),
               ),
               const SizedBox(width: Sp.x3),
               Expanded(

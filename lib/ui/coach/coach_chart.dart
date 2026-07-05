@@ -1,34 +1,39 @@
 // Renders a ChartSpec (built by the coach from real data) as an ANIMATED native
-// chart, using the app's look. Bars reuse LabeledBars; line/area use an animated
-// multi-series painter. Honest: it only ever plots the numbers the model passed.
+// chart, on the design language: a SurfaceCard frame, domain-accent series
+// palette, whispered title/unit. Bars reuse LabeledBars; line/area use an
+// animated multi-series painter. Honest: it only ever plots the numbers the
+// model passed.
 
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../coach/coach_engine.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
-import '../kit/charts.dart';
+import '../design/design.dart';
+
+/// The series palette every coach figure shares — domain accents, not neon.
+List<Color> coachSeriesColors() => [
+      DomainAccent.heart,
+      DomainAccent.recovery,
+      DomainAccent.sleep,
+      DomainAccent.strain,
+      DomainAccent.steps,
+    ];
 
 class CoachChart extends StatelessWidget {
   final ChartSpec spec;
   const CoachChart({super.key, required this.spec});
 
-  List<Color> get _colors => [
-        AppColors.coral,
-        AppColors.good,
-        AppColors.loadDetraining,
-        AppColors.warn,
-        AppColors.coralDeep,
-      ];
+  List<Color> get _colors => coachSeriesColors();
 
   @override
   Widget build(BuildContext context) {
     final single = spec.series.length == 1;
-    return ProCard(
+    return SurfaceCard(
+      padding: const EdgeInsets.all(Sp.x4),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (spec.title.isNotEmpty) Text(spec.title, style: AppText.title),
+        if (spec.title.isNotEmpty)
+          Text(spec.title.toUpperCase(),
+              style: AppText.overline.copyWith(color: AppColors.inkMuted)),
         if (spec.unit.isNotEmpty) ...[
           const SizedBox(height: 2),
           Text(spec.unit, style: AppText.captionMuted),
@@ -38,7 +43,7 @@ class CoachChart extends StatelessWidget {
           LabeledBars(
             values: spec.series.first.values.map((v) => v ?? 0).toList(),
             labels: _fitLabels(spec.xLabels, spec.series.first.values.length),
-            color: AppColors.coral,
+            color: DomainAccent.heart,
             height: 160,
           )
         else
@@ -77,16 +82,18 @@ class _AnimatedLineChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      duration: const Duration(milliseconds: 700),
-      curve: Curves.easeOutCubic,
-      tween: Tween(begin: 0, end: 1),
-      builder: (_, t, _) => SizedBox(
-        height: 170,
-        width: double.infinity,
-        child: CustomPaint(
-          painter: _LinePainter(spec: spec, colors: colors, filled: filled, progress: t,
-              grid: AppColors.divider, label: AppColors.inkMuted),
+    return RepaintBoundary(
+      child: TweenAnimationBuilder<double>(
+        duration: const Duration(milliseconds: 700),
+        curve: Curves.easeOutCubic,
+        tween: Tween(begin: 0, end: 1),
+        builder: (_, t, _) => SizedBox(
+          height: 170,
+          width: double.infinity,
+          child: CustomPaint(
+            painter: _LinePainter(spec: spec, colors: colors, filled: filled, progress: t,
+                grid: AppColors.divider, label: AppColors.inkMuted),
+          ),
         ),
       ),
     );

@@ -1,7 +1,13 @@
-// Profile and settings — account, paired device, profile fields, and backend.
-// Edits use bottom sheets; destructive actions confirm.
+// Profile and settings — account, paired device, profile fields, data tools,
+// health sync, notifications, AI, appearance, developer. Edits use bottom
+// sheets; destructive actions confirm.
+//
+// Presentation: normalized onto the design system (SurfaceCard + ListRow
+// sections, the ink DeviceTile, SegmentedControl units). Every action is
+// preserved; only the rendering moved. [DeviceTile] is pure so render tests
+// can cover it in both palettes.
 
-import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -12,11 +18,11 @@ import '../../data/db.dart';
 import '../../health/health_export.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
-import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
-import '../../theme/tokens.dart';
+import '../ai/ai_settings_screen.dart';
+import '../design/design.dart';
+import '../design/gallery_screen.dart';
 import '../import/import_screen.dart';
-import '../kit/kit.dart';
 import '../today/step_goal_screen.dart';
 import 'gesture_section.dart';
 import 'notification_relay_section.dart';
@@ -51,90 +57,93 @@ class ProfileScreen extends StatelessWidget {
     return SafeArea(
       bottom: false,
       child: ListView(
+        physics: const BouncingScrollPhysics(
+          parent: AlwaysScrollableScrollPhysics(),
+        ),
         padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x6, Sp.screen, 0),
         children: [
-          _Header(
-            name: name.isEmpty ? 'Your profile' : name,
-            onEdit: () => _editProfileSheet(context, app),
+          // ── Header ───────────────────────────────────────────────────
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name.isEmpty ? 'Your profile' : name,
+                  style: AppText.h1,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: Sp.x2),
+              RoundIconButton(Ic.edit,
+                  osIcon: OsIcon.edit,
+                  onTap: () => _editProfileSheet(context, app)),
+            ],
           ),
-          const SizedBox(height: Sp.x8),
+          const SizedBox(height: Sp.x6),
 
           // ── Your device ──────────────────────────────────────────────
           const SectionHeader('Your device'),
-          _DeviceHero(app: app),
+          _deviceTile(context, app),
+          // Android: battery-optimization (Doze) exemption — without it the OS
+          // can freeze the background BLE session between events overnight.
+          if (Platform.isAndroid) const _KeepAliveRow(),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
 
           // ── Profile ──────────────────────────────────────────────────
           const SectionHeader('Profile'),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x2,
+          _SettingsCard(rows: [
+            ListRow(
+              icon: Ic.profile,
+              osIcon: OsIcon.profile,
+              title: 'Name',
+              value: name.isEmpty ? 'Add' : name,
+              divider: true,
+              onTap: () => _editProfileSheet(context, app),
             ),
-            child: Column(
-              children: [
-                DetailRow(
-                  icon: Ic.profile,
-                  label: 'Name',
-                  value: name.isEmpty ? 'Add' : name,
-                  onTap: () => _editProfileSheet(context, app),
-                ),
-                const _HairDivider(),
-                DetailRow(
-                  icon: Ic.heart,
-                  label: 'Sex',
-                  value: _sexLabel(user['sex']?.toString()),
-                  onTap: () => _editProfileSheet(context, app),
-                ),
-                const _HairDivider(),
-                DetailRow(
-                  icon: Ic.calendar,
-                  label: 'Age',
-                  value: user['age'] != null ? '${user['age']}' : 'Add',
-                  onTap: () => _editProfileSheet(context, app),
-                ),
-                const _HairDivider(),
-                DetailRow(
-                  icon: Ic.activity,
-                  label: 'Height',
-                  value: user['height_cm'] != null
-                      ? units.height(user['height_cm'] as num?)
-                      : 'Add',
-                  onTap: () => _editProfileSheet(context, app),
-                ),
-                const _HairDivider(),
-                DetailRow(
-                  icon: Ic.fire,
-                  label: 'Weight',
-                  value: user['weight_kg'] != null
-                      ? units.weight(user['weight_kg'] as num?)
-                      : 'Add',
-                  onTap: () => _editProfileSheet(context, app),
-                ),
-              ],
+            ListRow(
+              icon: Ic.heart,
+              title: 'Sex',
+              value: _sexLabel(user['sex']?.toString()),
+              divider: true,
+              onTap: () => _editProfileSheet(context, app),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: Sp.x2, left: Sp.x2),
-            child: Text(
-              'Body metrics improve your calorie estimate.',
-              style: AppText.captionMuted,
+            ListRow(
+              icon: Ic.calendar,
+              title: 'Age',
+              value: user['age'] != null ? '${user['age']}' : 'Add',
+              divider: true,
+              onTap: () => _editProfileSheet(context, app),
             ),
-          ),
+            ListRow(
+              icon: Ic.activity,
+              title: 'Height',
+              value: user['height_cm'] != null
+                  ? units.height(user['height_cm'] as num?)
+                  : 'Add',
+              divider: true,
+              onTap: () => _editProfileSheet(context, app),
+            ),
+            ListRow(
+              icon: Ic.fire,
+              title: 'Weight',
+              value: user['weight_kg'] != null
+                  ? units.weight(user['weight_kg'] as num?)
+                  : 'Add',
+              onTap: () => _editProfileSheet(context, app),
+            ),
+          ]),
+          const _CardNote('Body metrics improve your calorie estimate.'),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
 
           // ── Goals ────────────────────────────────────────────────────
           const SectionHeader('Goals'),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x2,
-            ),
-            child: DetailRow(
+          _SettingsCard(rows: [
+            ListRow(
               icon: Ic.run,
-              label: 'Daily step goal',
+              osIcon: OsIcon.steps,
+              title: 'Daily step goal',
               value: user['step_goal'] != null
                   ? '${user['step_goal']} steps'
                   : 'Set',
@@ -146,53 +155,40 @@ class ProfileScreen extends StatelessWidget {
                 ),
               ),
             ),
-          ),
+          ]),
+
+          const SizedBox(height: Sp.x6),
 
           // ── Data ─────────────────────────────────────────────────────
           const SectionHeader('Data'),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x2,
-            ),
-            child: DetailRow(
-              icon: Ic.cloud,
-              label: 'Import data',
+          _SettingsCard(rows: [
+            ListRow(
+              icon: Ic.history,
+              title: 'Import data',
               value: 'NOOP · Edge · WHOOP',
+              divider: true,
               onTap: () => Navigator.of(
                 context,
               ).push(themedRoute((_) => const ImportScreen())),
             ),
-          ),
-          const SizedBox(height: Sp.x3),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x2,
-            ),
-            child: DetailRow(
+            ListRow(
               icon: Ic.cloud,
-              label: 'Companion URL',
+              title: 'Companion URL',
               value: app.companionConfigured
                   ? _shortUrl(app.companionUrl)
                   : 'Not set',
+              divider: true,
               onTap: () => _editCompanionUrl(context, app),
             ),
-          ),
-          const SizedBox(height: Sp.x3),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x2,
-            ),
-            child: DetailRow(
-              icon: Ic.history,
-              label: 'Re-analyze data',
+            ListRow(
+              icon: Ic.chart,
+              title: 'Re-analyze data',
               value: app.reanalyzing
                   ? (app.reanalyzeProgress.isEmpty
                         ? 'Working…'
                         : app.reanalyzeProgress)
                   : 'Run',
+              divider: true,
               onTap: () async {
                 if (app.reanalyzing) return;
                 final messenger = ScaffoldMessenger.of(context);
@@ -208,20 +204,13 @@ class ProfileScreen extends StatelessWidget {
                 );
               },
             ),
-          ),
-          const SizedBox(height: Sp.x3),
-          // Export the local SQLite store (transactionally-consistent VACUUM INTO
-          // snapshot) via the share sheet — for backup, moving to a new device
-          // ("Import from Edge"), or sharing for debugging.
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x2,
-            ),
-            child: Builder(
-              builder: (rowCtx) => DetailRow(
-                icon: Ic.cloud,
-                label: 'Export data (.db)',
+            // Export the local SQLite store (transactionally-consistent VACUUM
+            // INTO snapshot) via the share sheet — for backup, moving to a new
+            // device ("Import from Edge"), or sharing for debugging.
+            Builder(
+              builder: (rowCtx) => ListRow(
+                icon: Ic.server,
+                title: 'Export data (.db)',
                 value: 'Share',
                 onTap: () async {
                   final messenger = ScaffoldMessenger.of(rowCtx);
@@ -243,268 +232,179 @@ class ProfileScreen extends StatelessWidget {
                 },
               ),
             ),
-          ),
+          ]),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
 
           // ── Apple Health (iOS) / Health Connect (Android) ─────────────
           SectionHeader(app.healthStoreName),
           _HealthSection(app: app),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
 
           // ── Units (local display preference) ─────────────────────────
           const SectionHeader('Units'),
-          ProCard(
-            padding: const EdgeInsets.all(Sp.x3),
-            child: Row(
+          SurfaceCard(
+            padding: const EdgeInsets.all(Sp.x4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (final s in UnitSystem.values)
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => units.setSystem(s),
-                      child: Container(
-                        margin: EdgeInsets.only(
-                          right: s == UnitSystem.metric ? Sp.x2 : 0,
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: Sp.x3),
-                        decoration: BoxDecoration(
-                          color: units.system == s
-                              ? AppColors.coralSoft
-                              : AppColors.surfaceSunk,
-                          borderRadius: BorderRadius.circular(R.chip),
-                        ),
-                        child: Column(
-                          children: [
-                            Text(
-                              s.label,
-                              textAlign: TextAlign.center,
-                              style: AppText.label.copyWith(
-                                color: units.system == s
-                                    ? AppColors.coralInk
-                                    : AppColors.inkSoft,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              s == UnitSystem.metric ? 'kg · cm' : 'lb · ft/in',
-                              textAlign: TextAlign.center,
-                              style: AppText.captionMuted,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                SegmentedControl(
+                  options: [for (final s in UnitSystem.values) s.label],
+                  index: UnitSystem.values.indexOf(units.system),
+                  expanded: true,
+                  onChanged: (i) => units.setSystem(UnitSystem.values[i]),
+                ),
+                const SizedBox(height: Sp.x2),
+                Center(
+                  child: Text(
+                    units.system == UnitSystem.metric
+                        ? 'kg · cm'
+                        : 'lb · ft/in',
+                    style: AppText.captionMuted,
                   ),
+                ),
               ],
             ),
           ),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
 
           // ── Cycle tracking (explicit opt-in) ─────────────────────────
           const SectionHeader('Cycle tracking'),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x3,
-            ),
-            child: Row(
-              children: [
-                AppIcon(Ic.calendar, size: 18, color: AppColors.coral),
-                const SizedBox(width: Sp.x4),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Track menstrual cycle', style: AppText.title),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Log periods and see phase, next period & fertile window. '
-                        'Off by default — nothing is computed until you turn this on.',
-                        style: AppText.captionMuted,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Sp.x3),
-                Switch(
-                  value:
-                      user['track_cycle'] == true || user['track_cycle'] == 1,
-                  onChanged: (v) async {
-                    try {
-                      await app.updateProfile({'track_cycle': v ? 1 : 0});
-                    } catch (_) {}
-                  },
-                ),
-              ],
-            ),
+          _ToggleCard(
+            icon: Ic.calendar,
+            iconColor: DomainAccent.cycle,
+            title: 'Track menstrual cycle',
+            subtitle:
+                'Log periods and see phase, next period & fertile window. '
+                'Off by default — nothing is computed until you turn this on.',
+            value: user['track_cycle'] == true || user['track_cycle'] == 1,
+            onChanged: (v) async {
+              try {
+                await app.updateProfile({'track_cycle': v ? 1 : 0});
+              } catch (_) {}
+            },
           ),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
 
           // ── Privacy (opt-in companion data — also offered at onboarding) ──
           const SectionHeader('Privacy'),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x3,
-            ),
-            child: Row(
-              children: [
-                AppIcon(Ic.info, size: 18, color: AppColors.coral),
-                const SizedBox(width: Sp.x4),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Send anonymous diagnostics', style: AppText.title),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Crash/error reports plus basic device info (model, OS, '
-                        'battery, connection). No health data. On by default — '
-                        'switch off anytime.',
-                        style: AppText.captionMuted,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Sp.x3),
-                Switch(
-                  value: app.telemetryConsent,
-                  onChanged: (v) => app.setTelemetryConsent(v),
-                ),
-              ],
-            ),
+          _ToggleCard(
+            icon: Ic.info,
+            title: 'Send anonymous diagnostics',
+            subtitle:
+                'Crash/error reports plus basic device info. No health data. '
+                'On by default — switch off anytime.',
+            value: app.telemetryConsent,
+            onChanged: (v) => app.setTelemetryConsent(v),
           ),
           const SizedBox(height: Sp.x3),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x3,
-            ),
-            child: Row(
-              children: [
-                AppIcon(Ic.activity, size: 18, color: AppColors.coral),
-                const SizedBox(width: Sp.x4),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Contribute my health data', style: AppText.title),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Periodically upload your full on-device database (over '
-                        'Wi-Fi, while charging) to improve the algorithms. On by '
-                        'default — switch off anytime.',
-                        style: AppText.captionMuted,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: Sp.x3),
-                Switch(
-                  value: app.healthShareConsent,
-                  onChanged: (v) => app.setHealthShareConsent(v),
-                ),
-              ],
-            ),
+          _ToggleCard(
+            icon: Ic.activity,
+            title: 'Contribute my health data',
+            subtitle:
+                'Periodically upload your on-device database (over Wi-Fi, '
+                'while charging) to improve the algorithms. On by default — '
+                'switch off anytime.',
+            value: app.healthShareConsent,
+            onChanged: (v) => app.setHealthShareConsent(v),
           ),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
 
           // ── Appearance ───────────────────────────────────────────────
           const SectionHeader('Appearance'),
-          ProCard(child: const AppearanceSelector(labeled: true)),
+          const SurfaceCard(child: AppearanceSelector(labeled: true)),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
 
           // ── Gestures ─────────────────────────────────────────────────
           const SectionHeader('Gestures'),
           const GestureSettingsCard(),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
 
           // ── Notifications ────────────────────────────────────────────
           const SectionHeader('Notifications'),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-                horizontal: Sp.x5, vertical: Sp.x2),
-            child: DetailRow(
+          _SettingsCard(rows: [
+            ListRow(
               icon: Ic.bell,
-              label: 'Alerts & reminders',
+              osIcon: OsIcon.notifications,
+              title: 'Alerts & reminders',
               value: 'Manage',
               onTap: () => Navigator.of(context).push(
                   themedRoute((_) => const NotificationSettingsScreen())),
             ),
-          ),
+          ]),
           // Notification relay (Android only — self-hides on iOS).
           if (app.notificationRelay.supported) ...[
             const SizedBox(height: Sp.x3),
             const NotificationRelaySection(),
           ],
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
+
+          // ── AI briefings & journaling (BYOK) ──────────────────────────
+          const SectionHeader('AI briefings & journaling'),
+          _SettingsCard(rows: [
+            ListRow(
+              icon: Ic.ai,
+              osIcon: OsIcon.ai,
+              title: 'Briefings & journal',
+              value: 'Manage',
+              onTap: () => Navigator.of(context)
+                  .push(themedRoute((_) => const AiSettingsScreen())),
+            ),
+          ]),
+          const SizedBox(height: Sp.x6),
 
           // ── Storage ──────────────────────────────────────────────────
           // CLOUD EXCISED: there is no backend. Everything lives on this device.
           const SectionHeader('Storage'),
-          ProCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          SurfaceCard(
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(Sp.x3),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceAlt,
-                        borderRadius: BorderRadius.circular(R.chip),
-                      ),
-                      child: AppIcon(
-                        Ic.shield,
-                        size: 20,
-                        color: AppColors.inkSoft,
-                      ),
-                    ),
-                    const SizedBox(width: Sp.x3),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('On this device', style: AppText.title),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Local-first — no cloud',
-                            style: AppText.caption,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                Container(
+                  padding: const EdgeInsets.all(Sp.x3),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceAlt,
+                    borderRadius: BorderRadius.circular(R.chip),
+                  ),
+                  child: AppIcon(Ic.shield, size: 20, color: AppColors.inkSoft),
                 ),
-                const SizedBox(height: Sp.x3),
-                Text(
-                  'Your raw band data and metrics are stored entirely on this '
-                  'phone. Nothing is uploaded to a server.',
-                  style: AppText.captionMuted,
+                const SizedBox(width: Sp.x3),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('On this device', style: AppText.title),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Raw band data and metrics stay on this phone — '
+                        'nothing is uploaded.',
+                        style: AppText.captionMuted,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
 
           // ── Community ────────────────────────────────────────────────
           const SectionHeader('Community'),
-          ProCard(
+          SurfaceCard(
+            padding: const EdgeInsets.symmetric(
+                horizontal: Sp.x2, vertical: Sp.x2),
             child: Row(
               children: [
                 for (final s in _socials)
                   Expanded(
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(R.card),
+                    child: Pressable(
+                      borderRadius: BorderRadius.circular(R.cardSm),
                       onTap: () => _openUrl(s.url),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(vertical: Sp.x3),
@@ -513,14 +413,11 @@ class ProfileScreen extends StatelessWidget {
                             Container(
                               padding: const EdgeInsets.all(11),
                               decoration: BoxDecoration(
-                                color: AppColors.surfaceSunk,
+                                color: AppColors.surfaceAlt,
                                 shape: BoxShape.circle,
                               ),
-                              child: AppIcon(
-                                s.icon,
-                                size: 20,
-                                color: AppColors.ink,
-                              ),
+                              child: AppIcon(s.icon,
+                                  size: 20, color: AppColors.ink),
                             ),
                             const SizedBox(height: Sp.x2),
                             Text(s.label, style: AppText.caption),
@@ -532,42 +429,42 @@ class ProfileScreen extends StatelessWidget {
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.only(top: Sp.x2, left: Sp.x2),
-            child: Text(
-              'Join the community, report bugs, or peek at the source.',
-              style: AppText.captionMuted,
-            ),
-          ),
+          const _CardNote(
+              'Join the community, report bugs, or peek at the source.'),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
 
           // ── Reset ────────────────────────────────────────────────────
           const SectionHeader('Reset'),
-          ProCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x5,
-              vertical: Sp.x1,
-            ),
-            child: DetailRow(
+          _SettingsCard(rows: [
+            ListRow(
               icon: Ic.logout,
-              label: 'Reset profile',
-              value: '',
+              iconColor: AppColors.critical,
+              title: 'Reset profile',
               onTap: () => _confirmSignOut(context, app),
-              trailing: AppIcon(
-                Ic.arrowRight,
-                size: 16,
-                color: AppColors.coral,
-              ),
             ),
-          ),
+          ]),
 
-          const SizedBox(height: Sp.x7),
+          const SizedBox(height: Sp.x6),
+
+          // ── Developer ────────────────────────────────────────────────
+          const SectionHeader('Developer'),
+          _SettingsCard(rows: [
+            ListRow(
+              icon: Ic.edit,
+              title: 'Design gallery',
+              value: 'All components',
+              onTap: () => Navigator.of(context)
+                  .push(themedRoute((_) => const DesignGalleryScreen())),
+            ),
+          ]),
+
+          const SizedBox(height: Sp.x6),
 
           // ── Honesty note ─────────────────────────────────────────────
-          ProCard(
+          SurfaceCard(
+            level: 0,
             color: AppColors.surfaceAlt,
-            shadow: const [],
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -580,10 +477,10 @@ class ProfileScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: Sp.x3),
                 Text(
-                  'Metrics are computed from published algorithms over the raw '
-                  'sensor data your strap uploads. We show only what this hardware '
-                  'can measure — there\'s no HRV or stress score, because this '
-                  'firmware doesn\'t stream the RR intervals those need.',
+                  'Metrics are computed on this phone from published algorithms '
+                  'over your strap\'s raw sensor data. We show only what the '
+                  'hardware can honestly measure — estimates are labelled, and '
+                  'a metric without enough data stays blank instead of guessed.',
                   style: AppText.bodySoft,
                 ),
                 const SizedBox(height: Sp.x3),
@@ -598,6 +495,58 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: 110),
         ],
       ),
+    );
+  }
+
+  // ── Device tile wiring ─────────────────────────────────────────────────
+  Widget _deviceTile(BuildContext context, AppState app) {
+    if (app.paired == null) {
+      return SurfaceCard(
+        child: Row(
+          children: [
+            AppIcon(Ic.watch, size: 22, color: AppColors.inkMuted),
+            const SizedBox(width: Sp.x3),
+            Expanded(child: Text('No strap paired.', style: AppText.bodySoft)),
+          ],
+        ),
+      );
+    }
+
+    final d = app.device;
+    final conn = d.connection;
+    final (statusTone, statusText) = switch (conn) {
+      // Single listening mode — no separate "syncing" state; history + live
+      // records both stream over the one link.
+      'connected' => (ChipTone.positive, 'Connected'),
+      'connecting' || 'scanning' => (ChipTone.warn, 'Connecting…'),
+      _ => (ChipTone.neutral, 'Disconnected'),
+    };
+
+    return DeviceTile(
+      name: app.strapName ?? 'OpenStrap',
+      statusText: statusText,
+      statusTone: statusTone,
+      battery: d.batteryPct == null
+          ? '—'
+          : '${d.batteryPct!.round()}%${d.charging == true ? ' ⚡' : ''}',
+      wrist: d.wristOn == null ? '—' : (d.wristOn! ? 'On wrist' : 'Off wrist'),
+      serial: d.serial ?? app.paired?.serial ?? '—',
+      // Manual pull: anything the strap flashed that we don't hold yet, over
+      // the CURRENT connection (no reconnect). Only offered while connected.
+      onSyncNow: conn == 'connected' ? () => app.forceResync() : null,
+      onTap: () => _openDeviceSheet(context, app),
+    );
+  }
+
+  Future<void> _openDeviceSheet(BuildContext context, AppState app) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surfaceElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.card)),
+      ),
+      builder: (_) => _DeviceSheet(app: app),
     );
   }
 
@@ -623,7 +572,12 @@ class ProfileScreen extends StatelessWidget {
     final url = await showDialog<String>(
       context: context,
       builder: (dctx) => AlertDialog(
-        title: const Text('Companion URL'),
+        backgroundColor: AppColors.surfaceElevated,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(R.card),
+        ),
+        title: Text('Companion URL', style: AppText.h2),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -676,6 +630,10 @@ class ProfileScreen extends StatelessWidget {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: AppColors.surfaceElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.card)),
+      ),
       builder: (_) => _ProfileEditSheet(app: app),
     );
   }
@@ -695,6 +653,262 @@ class ProfileScreen extends StatelessWidget {
   }
 }
 
+// ── Section building blocks ─────────────────────────────────────────────────
+
+/// One SurfaceCard wrapping a stack of [ListRow]s — the settings-section idiom.
+class _SettingsCard extends StatelessWidget {
+  final List<Widget> rows;
+  const _SettingsCard({required this.rows});
+  @override
+  Widget build(BuildContext context) => SurfaceCard(
+        padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x1),
+        child: Column(children: rows),
+      );
+}
+
+/// A quiet caption under a card.
+class _CardNote extends StatelessWidget {
+  final String text;
+  const _CardNote(this.text);
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: Sp.x2, left: Sp.x2),
+        child: Text(text, style: AppText.captionMuted),
+      );
+}
+
+/// A titled toggle card (icon tile + title + one-liner + Switch).
+class _ToggleCard extends StatelessWidget {
+  final IconData icon;
+  final Color? iconColor;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _ToggleCard({
+    required this.icon,
+    this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = iconColor ?? AppColors.accent;
+    return SurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x3),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(Sp.x2),
+            decoration: BoxDecoration(
+              color: c.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(R.chip),
+            ),
+            child: AppIcon(icon, size: 18, color: c),
+          ),
+          const SizedBox(width: Sp.x3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: AppText.title),
+                const SizedBox(height: 2),
+                Text(subtitle, style: AppText.captionMuted),
+              ],
+            ),
+          ),
+          const SizedBox(width: Sp.x3),
+          Switch(
+            value: value,
+            activeThumbColor: AppColors.accent,
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Device tile (pure) ──────────────────────────────────────────────────────
+
+/// The paired-device card — the language's inverted ink tile: name, a status
+/// chip, and the three facts that matter (battery / wrist / serial). Tap opens
+/// the device sheet; an optional quiet "Sync now" action runs a manual pull.
+/// No sync-cadence or data-freshness copy — the connection chip is the story.
+class DeviceTile extends StatefulWidget {
+  final String name;
+  final String statusText;
+  final ChipTone statusTone;
+  final String battery;
+  final String wrist;
+  final String serial;
+  final VoidCallback? onTap;
+  final Future<void> Function()? onSyncNow;
+
+  const DeviceTile({
+    super.key,
+    required this.name,
+    required this.statusText,
+    required this.statusTone,
+    required this.battery,
+    required this.wrist,
+    required this.serial,
+    this.onTap,
+    this.onSyncNow,
+  });
+
+  @override
+  State<DeviceTile> createState() => _DeviceTileState();
+}
+
+class _DeviceTileState extends State<DeviceTile> {
+  bool _syncing = false;
+
+  Future<void> _sync() async {
+    final run = widget.onSyncNow;
+    if (run == null || _syncing) return;
+    setState(() => _syncing = true);
+    try {
+      await run();
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BentoTile(
+      tone: BentoTone.ink,
+      padding: const EdgeInsets.all(Sp.x5),
+      onTap: widget.onTap,
+      child: Builder(builder: (context) {
+        final tone = ToneScope.of(context);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(Sp.x3),
+                  decoration: BoxDecoration(
+                    color: AppColors.nightAlt,
+                    borderRadius: BorderRadius.circular(R.chip),
+                  ),
+                  child:
+                      AppIcon(Ic.watch, size: 24, color: AppColors.onNight),
+                ),
+                const SizedBox(width: Sp.x4),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.name,
+                        style: AppText.h2.copyWith(color: tone.fg),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: Sp.x2),
+                      StatusChip(widget.statusText, tone: widget.statusTone),
+                    ],
+                  ),
+                ),
+                if (widget.onTap != null)
+                  AppIcon(Ic.arrowRight, size: 18, color: tone.fgMuted),
+              ],
+            ),
+            const SizedBox(height: Sp.x5),
+            Row(
+              children: [
+                Expanded(
+                  child: _fact(Ic.battery, 'Battery', widget.battery, tone),
+                ),
+                Expanded(
+                  child: _fact(Ic.pulse, 'Wrist', widget.wrist, tone),
+                ),
+              ],
+            ),
+            const SizedBox(height: Sp.x4),
+            Row(
+              children: [
+                Expanded(
+                  child: _fact(Ic.info, 'Serial', widget.serial, tone),
+                ),
+                if (widget.onSyncNow != null)
+                  Pressable(
+                    pressedScale: 0.95,
+                    borderRadius: BorderRadius.circular(R.pill),
+                    onTap: _syncing ? null : _sync,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: Sp.x3 + 2, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: AppColors.nightAlt,
+                        borderRadius: BorderRadius.circular(R.pill),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_syncing) ...[
+                            SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.6,
+                                color: tone.fgMuted,
+                              ),
+                            ),
+                            const SizedBox(width: Sp.x2),
+                          ],
+                          Text(
+                            _syncing ? 'Syncing…' : 'Sync now',
+                            style: AppText.caption.copyWith(color: tone.fg),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        );
+      }),
+    );
+  }
+
+  Widget _fact(IconData icon, String label, String value, ToneColors tone) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AppIcon(icon, size: 16, color: tone.fgFaint),
+        const SizedBox(width: Sp.x2),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label.toUpperCase(),
+                  style: AppText.overline
+                      .copyWith(fontSize: 9, color: tone.fgFaint)),
+              Text(
+                value,
+                style: AppText.title.copyWith(color: tone.fg),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ── Confirm dialog helper ──────────────────────────────────────────────────
 Future<bool?> _confirm(
   BuildContext context, {
@@ -706,7 +920,7 @@ Future<bool?> _confirm(
   return showDialog<bool>(
     context: context,
     builder: (c) => AlertDialog(
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppColors.surfaceElevated,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(R.card),
@@ -720,7 +934,7 @@ Future<bool?> _confirm(
         ),
         FilledButton(
           style: destructive
-              ? FilledButton.styleFrom(backgroundColor: AppColors.bad)
+              ? FilledButton.styleFrom(backgroundColor: AppColors.critical)
               : null,
           onPressed: () => Navigator.pop(c, true),
           child: Text(confirmLabel),
@@ -730,7 +944,7 @@ Future<bool?> _confirm(
   );
 }
 
-// ── Header ──────────────────────────────────────────────────────────────────
+// ── Health section ──────────────────────────────────────────────────────────
 /// Apple Health (iOS) / Health Connect (Android) export controls: a toggle to
 /// keep pushing each day's metrics, plus state-aware CTAs (grant / install).
 class _HealthSection extends StatelessWidget {
@@ -741,26 +955,26 @@ class _HealthSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = app.healthStoreName;
     final st = app.healthState;
-    return ProCard(
+    return SurfaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(9),
+                padding: const EdgeInsets.all(Sp.x2),
                 decoration: BoxDecoration(
-                  color: AppColors.coralSoft,
+                  color: AppColors.accentSoft,
                   borderRadius: BorderRadius.circular(R.chip),
                 ),
-                child: AppIcon(Ic.heart, size: 18, color: AppColors.coralInk),
+                child: AppIcon(Ic.heart, size: 18, color: AppColors.onAccentSoft),
               ),
               const SizedBox(width: Sp.x3),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Sync to $store', style: AppText.label),
+                    Text('Sync to $store', style: AppText.title),
                     const SizedBox(height: 1),
                     Text(
                       'Sleep, resting HR, HRV, respiratory rate, energy & workouts.',
@@ -771,14 +985,14 @@ class _HealthSection extends StatelessWidget {
               ),
               Switch(
                 value: app.healthSyncEnabled,
-                activeThumbColor: AppColors.coral,
+                activeThumbColor: AppColors.accent,
                 onChanged: (v) => app.setHealthSync(v),
               ),
             ],
           ),
           if (app.healthSyncEnabled) ...[
             const SizedBox(height: Sp.x2),
-            const _HairDivider(),
+            Divider(height: 1, thickness: 1, color: AppColors.divider),
             const SizedBox(height: Sp.x3),
             _statusRow(context, st, store),
           ],
@@ -824,7 +1038,7 @@ class _HealthSection extends StatelessWidget {
       children: [
         Row(
           children: [
-            AppIcon(Ic.check, size: 16, color: AppColors.good),
+            AppIcon(Ic.check, size: 16, color: AppColors.positive),
             const SizedBox(width: Sp.x2),
             Expanded(
               child: Text('Syncing to $store.', style: AppText.captionMuted),
@@ -843,19 +1057,17 @@ class _HealthSection extends StatelessWidget {
             FilledButton(
               onPressed: () => app.requestHealth(),
               style: FilledButton.styleFrom(
-                backgroundColor: AppColors.coral,
                 visualDensity: VisualDensity.compact,
+                minimumSize: const Size(0, 40),
               ),
-              child: const Text(
-                'Allow access',
-                style: TextStyle(color: Colors.white),
-              ),
+              child: const Text('Allow access'),
             ),
             if (!app.healthIsApple)
               OutlinedButton(
                 onPressed: () => app.openHealthConnect(),
                 style: OutlinedButton.styleFrom(
                   visualDensity: VisualDensity.compact,
+                  minimumSize: const Size(0, 40),
                 ),
                 child: const Text('Open Health Connect'),
               ),
@@ -887,288 +1099,67 @@ class _HealthSection extends StatelessWidget {
       FilledButton(
         onPressed: onTap,
         style: FilledButton.styleFrom(
-          backgroundColor: AppColors.coral,
           visualDensity: VisualDensity.compact,
+          minimumSize: const Size(0, 40),
         ),
-        child: Text(label, style: TextStyle(color: Colors.white)),
+        child: Text(label),
       ),
     ],
   );
 }
 
-class _Header extends StatelessWidget {
-  final String name;
-  final VoidCallback onEdit;
-  const _Header({required this.name, required this.onEdit});
-
+// ── Android "keep alive in background" (battery-optimization exemption) ────
+// Shows whether OpenStrap is exempt from battery optimizations (Doze) and, if
+// not, fires the system exemption dialog. Android-only (guarded at the call
+// site); the check/request live in AppState → AndroidBackground.
+class _KeepAliveRow extends StatefulWidget {
+  const _KeepAliveRow();
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                style: AppText.h1,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: Sp.x2),
-        RoundIconButton(Ic.edit, onTap: onEdit),
-      ],
-    );
-  }
+  State<_KeepAliveRow> createState() => _KeepAliveRowState();
 }
 
-// ── Device hero ───────────────────────────────────────────────────────────
-class _DeviceHero extends StatelessWidget {
-  final AppState app;
-  const _DeviceHero({required this.app});
-
-  @override
-  Widget build(BuildContext context) {
-    if (app.paired == null) {
-      return ProCard(
-        child: Row(
-          children: [
-            AppIcon(Ic.watch, size: 22, color: AppColors.inkMuted),
-            const SizedBox(width: Sp.x3),
-            Expanded(child: Text('No strap paired.', style: AppText.bodySoft)),
-          ],
-        ),
-      );
-    }
-
-    final d = app.device;
-    final conn = d.connection;
-    // CLOUD EXCISED: there is no upload status anymore — connection state only.
-    final (dotColor, statusText) = _status(conn, false);
-    final batteryPct = d.batteryPct;
-    final wristOn = d.wristOn;
-
-    return NightCard(
-      onTap: () => _openDeviceSheet(context, app),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(Sp.x3),
-                decoration: BoxDecoration(
-                  color: AppColors.nightAlt,
-                  borderRadius: BorderRadius.circular(R.chip),
-                ),
-                child: const AppIcon(
-                  Ic.watch,
-                  size: 24,
-                  color: AppColors.onNight,
-                ),
-              ),
-              const SizedBox(width: Sp.x4),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      app.strapName ?? 'OpenStrap',
-                      style: AppText.h2.copyWith(color: AppColors.onNight),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: dotColor,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: Sp.x2),
-                        Text(
-                          statusText,
-                          style: AppText.caption.copyWith(
-                            color: AppColors.onNightSoft,
-                          ),
-                        ),
-                        // Single listening mode: show data freshness instead of a
-                        // syncing/live flip. Throttled to ~1/s with a subtle pulse.
-                        if (conn == 'connected') ...[
-                          const SizedBox(width: Sp.x3),
-                          const Expanded(child: LastDataIndicator()),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const AppIcon(
-                Ic.arrowRight,
-                size: 18,
-                color: AppColors.onNightSoft,
-              ),
-            ],
-          ),
-          const SizedBox(height: Sp.x5),
-          Wrap(
-            spacing: Sp.x6,
-            runSpacing: Sp.x3,
-            children: [
-              _Stat(
-                icon: Ic.battery,
-                text: batteryPct == null
-                    ? '—'
-                    : '${batteryPct.round()}%${d.charging == true ? ' ⚡' : ''}',
-              ),
-              _Stat(
-                icon: Ic.pulse,
-                text: wristOn == null
-                    ? 'Wrist —'
-                    : (wristOn ? 'On wrist' : 'Off wrist'),
-              ),
-              _Stat(
-                icon: Ic.watch,
-                text: d.serial ?? app.paired?.serial ?? 'No serial',
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  (Color, String) _status(String conn, bool uploading) {
-    switch (conn) {
-      case 'connected':
-        // Single listening mode — no separate "syncing" state. History + live
-        // records both stream here; freshness is shown by "last data: Xs ago".
-        return (AppColors.good, 'Listening');
-      case 'connecting':
-      case 'scanning':
-        return (AppColors.warn, 'Connecting…');
-      default:
-        return (AppColors.inkMuted, 'Disconnected');
-    }
-  }
-
-  Future<void> _openDeviceSheet(BuildContext context, AppState app) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _DeviceSheet(app: app),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  final IconData icon;
-  final String text;
-  const _Stat({required this.icon, required this.text});
-  @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      AppIcon(icon, size: 18, color: AppColors.onNightSoft),
-      const SizedBox(width: Sp.x2),
-      Text(text, style: AppText.title.copyWith(color: AppColors.onNight)),
-    ],
-  );
-}
-
-/// "last data: Xs ago" — driven by the engine's last-RX time. Refreshes at most
-/// ~1/s on its OWN timer (so live HR's ~1 Hz notifyListeners doesn't hard-rebuild
-/// this, and vice-versa) and gives a SMALL scale pulse when fresh data lands.
-class LastDataIndicator extends StatefulWidget {
-  const LastDataIndicator({super.key});
-  @override
-  State<LastDataIndicator> createState() => _LastDataIndicatorState();
-}
-
-class _LastDataIndicatorState extends State<LastDataIndicator> {
-  Timer? _ticker;
-  DateTime? _lastSeen; // last lastDataAt we observed (to detect a fresh frame)
-  bool _pulse = false;
+class _KeepAliveRowState extends State<_KeepAliveRow> {
+  bool? _exempt; // null = still checking
 
   @override
   void initState() {
     super.initState();
-    // Throttle: one refresh per second, max. The bounce is driven off the change
-    // in lastDataAt, not a flag flip per build.
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      final now = context.read<AppState>().lastDataAt;
-      if (now != null && now != _lastSeen) {
-        _lastSeen = now;
-        // Toggle the scale up for a single frame, then settle — a subtle pulse.
-        setState(() => _pulse = true);
-        Future.delayed(const Duration(milliseconds: 180), () {
-          if (mounted) setState(() => _pulse = false);
-        });
-      } else {
-        setState(() {}); // just refresh the "Xs ago" text
-      }
-    });
+    _refresh();
   }
 
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    super.dispose();
-  }
-
-  static const _mon = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-
-  /// Show the RECORD's own timestamp (the band's clock), not "time since the last
-  /// BLE frame". During a flash backfill, frames arrive continuously ("just now")
-  /// while carrying hours-old records — that lie is exactly what this fixes.
-  String _label(DateTime? at) {
-    if (at == null) return 'waiting for data…';
-    final h = at.hour;
-    final h12 = h % 12 == 0 ? 12 : h % 12;
-    final ap = h < 12 ? 'AM' : 'PM';
-    final t = '$h12:${at.minute.toString().padLeft(2, '0')} $ap';
-    final now = DateTime.now();
-    final sameDay =
-        at.year == now.year && at.month == now.month && at.day == now.day;
-    if (sameDay) return 'last data: today $t';
-    return 'last data: ${_mon[at.month - 1]} ${at.day}, $t';
+  Future<void> _refresh() async {
+    final v = await context.read<AppState>().isIgnoringBatteryOptimizations();
+    if (mounted) setState(() => _exempt = v);
   }
 
   @override
   Widget build(BuildContext context) {
-    final at = context.read<AppState>().lastRecordAt;
-    return AnimatedScale(
-      scale: _pulse ? 1.06 : 1.0,
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOut,
-      alignment: Alignment.centerLeft,
-      child: Text(
-        _label(at),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: AppText.caption.copyWith(color: AppColors.onNightSoft),
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: Sp.x3),
+        _SettingsCard(rows: [
+          ListRow(
+            icon: Ic.battery,
+            title: 'Keep alive in background',
+            subtitle: 'So overnight tracking isn’t frozen by the OS',
+            value: _exempt == null ? '…' : (_exempt! ? 'On' : 'Allow'),
+            trailing: _exempt == true
+                ? AppIcon(Ic.check, size: 18, color: AppColors.positive)
+                : null,
+            onTap: _exempt == true
+                ? null
+                : () async {
+                    final app = context.read<AppState>();
+                    await app.requestIgnoreBatteryOptimizations();
+                    // The system dialog resolves out-of-band — re-check after a
+                    // beat so the row reflects the user's choice on return.
+                    await Future.delayed(const Duration(seconds: 1));
+                    await _refresh();
+                  },
+          ),
+        ]),
+      ],
     );
   }
 }
@@ -1190,42 +1181,71 @@ class _DeviceSheet extends StatelessWidget {
       children: [
         if (!connected)
           _Notice('Connect to your strap to rename it or change the alarm.'),
-        DetailRow(
+        ListRow(
           icon: Ic.edit,
-          label: 'Rename strap',
+          osIcon: OsIcon.edit,
+          title: 'Rename strap',
           value: live.strapName ?? 'OpenStrap',
+          divider: true,
           onTap: connected ? () => _rename(context, live) : null,
         ),
-        const _HairDivider(),
-        DetailRow(
+        ListRow(
           icon: Ic.clock,
-          label: 'Smart alarm',
+          osIcon: OsIcon.alarm,
+          title: 'Smart alarm',
           value: alarm != null ? _fmtAlarm(alarm) : 'Off',
           onTap: connected ? () => _setAlarm(context, live) : null,
         ),
+        // ALARM STATUS: the rich firing form (haptic waveform) is wired, and the
+        // strap now CONFIRMS the alarm latched via its own event stream — so this
+        // caption reflects the real confirmation state instead of a blanket
+        // "experimental" warning.
+        if (alarm != null)
+          Padding(
+            padding: const EdgeInsets.only(top: Sp.x1),
+            child: Text(
+              _alarmStatusText(live),
+              style: AppText.captionMuted,
+            ),
+          ),
         if (connected && alarm != null)
           Padding(
             padding: const EdgeInsets.only(top: Sp.x2),
-            child: OutlinedButton.icon(
-              onPressed: () async {
-                try {
-                  await live.clearAlarm();
-                  if (context.mounted) {
-                    Navigator.pop(context);
-                    _snack(context, 'Alarm cleared.');
+            child: Row(children: [
+              OutlinedButton.icon(
+                onPressed: () async {
+                  try {
+                    await live.testAlarmBuzz();
+                    if (context.mounted) _snack(context, 'Sent a test buzz.');
+                  } catch (e) {
+                    if (context.mounted) _snack(context, 'Buzz failed: $e');
                   }
-                } catch (e) {
-                  if (context.mounted) _snack(context, 'Clear failed: $e');
-                }
-              },
-              icon: const AppIcon(Ic.cancel, size: 18),
-              label: const Text('Clear alarm'),
-            ),
+                },
+                icon: const AppIcon(Ic.bell, size: 18),
+                label: const Text('Test buzz'),
+              ),
+              const SizedBox(width: Sp.x2),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  try {
+                    await live.clearAlarm();
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                      _snack(context, 'Alarm cleared.');
+                    }
+                  } catch (e) {
+                    if (context.mounted) _snack(context, 'Clear failed: $e');
+                  }
+                },
+                icon: const AppIcon(Ic.cancel, size: 18),
+                label: const Text('Clear alarm'),
+              ),
+            ]),
           ),
-        const _HairDivider(),
-        DetailRow(
+        Divider(height: Sp.x4, thickness: 1, color: AppColors.divider),
+        ListRow(
           icon: Ic.info,
-          label: 'Serial',
+          title: 'Serial',
           value: live.device.serial ?? live.paired?.serial ?? '—',
         ),
         const SizedBox(height: Sp.x4),
@@ -1233,14 +1253,14 @@ class _DeviceSheet extends StatelessWidget {
           width: double.infinity,
           child: OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
-              foregroundColor: AppColors.bad,
+              foregroundColor: AppColors.critical,
               side: BorderSide(
-                color: AppColors.bad.withValues(alpha: 0.5),
+                color: AppColors.critical.withValues(alpha: 0.5),
                 width: 1.5,
               ),
             ),
             onPressed: () => _forget(context, live),
-            icon: AppIcon(Ic.cancel, size: 18, color: AppColors.bad),
+            icon: AppIcon(Ic.cancel, size: 18, color: AppColors.critical),
             label: const Text('Forget device'),
           ),
         ),
@@ -1260,6 +1280,10 @@ class _DeviceSheet extends StatelessWidget {
     final name = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: AppColors.surfaceElevated,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.card)),
+      ),
       builder: (_) => _SheetShell(
         title: 'Rename strap',
         children: [
@@ -1307,11 +1331,23 @@ class _DeviceSheet extends StatelessWidget {
     try {
       await app.setAlarm(when);
       if (context.mounted) {
-        _snack(context, 'Alarm set for ${picked.format(context)}.');
+        _snack(
+          context,
+          'Alarm set for ${picked.format(context)} — confirming with the strap…',
+        );
       }
     } catch (e) {
       if (context.mounted) _snack(context, 'Set failed: $e');
     }
+  }
+
+  /// Live alarm caption driven by the strap's confirmation events (see AppState's
+  /// alarm state machine): confirmed ✓ / pending / soft unconfirmed warning.
+  String _alarmStatusText(AppState app) {
+    if (app.alarmConfirmed) return 'Alarm set ✓ — confirmed by your strap.';
+    if (app.alarmPending) return 'Setting alarm… waiting for the strap to confirm.';
+    return 'Alarm sent, but the strap hasn\'t confirmed it yet. '
+        'Tap "Test buzz" to check it fires, and keep a backup alarm.';
   }
 
   Future<void> _forget(BuildContext context, AppState app) async {
@@ -1437,26 +1473,17 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
           ],
         ),
         const SizedBox(height: Sp.x4),
-        Text('Sex (optional)', style: AppText.label),
+        Text('SEX (OPTIONAL)',
+            style: AppText.overline.copyWith(color: AppColors.inkMuted)),
         const SizedBox(height: Sp.x2),
         Wrap(
           spacing: Sp.x2,
           children: [
             for (final opt in const ['male', 'female', 'other'])
-              ChoiceChip(
-                label: Text(opt[0].toUpperCase() + opt.substring(1)),
+              ToggleChip(
+                opt[0].toUpperCase() + opt.substring(1),
                 selected: _sex == opt,
-                onSelected: (_) =>
-                    setState(() => _sex = _sex == opt ? null : opt),
-                selectedColor: AppColors.coralSoft,
-                labelStyle: AppText.label.copyWith(
-                  color: _sex == opt ? AppColors.coralInk : AppColors.inkSoft,
-                ),
-                backgroundColor: AppColors.surfaceAlt,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(R.pill),
-                ),
-                side: BorderSide.none,
+                onTap: () => setState(() => _sex = _sex == opt ? null : opt),
               ),
           ],
         ),
@@ -1493,11 +1520,22 @@ class _SheetShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
-      padding: EdgeInsets.fromLTRB(Sp.x6, Sp.x2, Sp.x6, Sp.x6 + bottom),
+      padding: EdgeInsets.fromLTRB(Sp.x6, Sp.x3, Sp.x6, Sp.x6 + bottom),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.divider,
+                borderRadius: BorderRadius.circular(R.pill),
+              ),
+            ),
+          ),
+          const SizedBox(height: Sp.x4),
           Text(title, style: AppText.h2),
           const SizedBox(height: Sp.x5),
           ...children,
@@ -1526,13 +1564,6 @@ class _Notice extends StatelessWidget {
       ],
     ),
   );
-}
-
-class _HairDivider extends StatelessWidget {
-  const _HairDivider();
-  @override
-  Widget build(BuildContext context) =>
-      Divider(height: 1, thickness: 1, color: AppColors.divider);
 }
 
 void _snack(BuildContext context, String msg) {

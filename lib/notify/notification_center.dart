@@ -10,6 +10,8 @@
 // This is what fixes the old inversion where health-critical events (illness,
 // anomaly, fever) went only to the feed and never reached the OS shade.
 
+import '../ai/ai_prefs.dart';
+import '../ai/reminder_plan.dart';
 import '../data/db.dart';
 import 'notification_event.dart';
 import 'notification_prefs.dart';
@@ -43,8 +45,6 @@ class NotificationCenter {
   static const int recapWeekday = DateTime.sunday;
   static const int recapHour = 18; // Sunday 18:00
   static const int recapMinute = 0;
-  static const int journalHour = 20; // 20:00 "log your day"
-  static const int journalMinute = 0;
 
   /// (Re)register the recurring wall-clock nudges as real OS-scheduled
   /// notifications, so they fire even when the app is closed. Idempotent: cancels
@@ -55,7 +55,6 @@ class NotificationCenter {
     final svc = NotificationService.instance;
     await svc.cancel(NotificationService.idWindDown);
     await svc.cancel(NotificationService.idWeeklyRecap);
-    await svc.cancel(NotificationService.idJournalLog);
     // Always clear the hydration band first so a disabled/retuned reminder never
     // leaves stale OS-scheduled slots behind.
     for (var i = 0; i < NotificationService.maxWaterSlots; i++) {
@@ -84,17 +83,9 @@ class NotificationCenter {
       minute: bedMin,
       route: '/sleep',
     );
-    // "Log your day" — the journal nudge that powers the correlation engine.
-    await svc.scheduleDaily(
-      id: NotificationService.idJournalLog,
-      category: NotifCategory.reminders,
-      title: 'Time to log your day',
-      body: 'A few taps — sleep, alcohol, stress, training — teaches OpenStrap '
-          'what actually moves your recovery.',
-      hour: journalHour,
-      minute: journalMinute,
-      route: '/today',
-    );
+    // NOTE: the "log your day" journal nudge moved to scheduleAiReminders —
+    // it is now the pre-sleep journaling prompt (bedtime-aware, deep-links
+    // into the compose screen, honours the once-per-night done flag).
     await svc.scheduleWeekly(
       id: NotificationService.idWeeklyRecap,
       category: NotifCategory.reminders,
@@ -149,6 +140,44 @@ class NotificationCenter {
       slots.add(t);
     }
     return slots;
+  }
+
+  /// (Re)register the AI-feature nudges (morning briefing, evening recap,
+  /// pre-sleep journal prompt) per the pure [aiReminderPlan]. Idempotent:
+  /// cancels the three slots, then schedules whatever the plan says. Briefing
+  /// slots only exist while a BYOK key is configured ([aiConfigured]); the
+  /// journal prompt fires ~30 min before the recommended bedtime (or the
+  /// user's explicit time) and skips tonight when already logged.
+  Future<void> scheduleAiReminders(
+    NotificationPrefs prefs,
+    AiPrefs ai, {
+    required bool aiConfigured,
+    double? bedtimeMinOfDay,
+    required bool journalDoneToday,
+  }) async {
+    final svc = NotificationService.instance;
+    await svc.cancel(NotificationService.idMorningBrief);
+    await svc.cancel(NotificationService.idEveningBrief);
+    await svc.cancel(NotificationService.idJournalLog);
+    final plan = aiReminderPlan(
+      ai,
+      remindersEnabled: prefs.remindersEnabled,
+      aiConfigured: aiConfigured,
+      bedtimeMinOfDay: bedtimeMinOfDay,
+      journalDoneToday: journalDoneToday,
+    );
+    for (final s in plan) {
+      await svc.scheduleDaily(
+        id: s.id,
+        category: NotifCategory.reminders,
+        title: s.title,
+        body: s.body,
+        hour: s.hour,
+        minute: s.minute,
+        route: s.route,
+        skipToday: s.skipToday,
+      );
+    }
   }
 
   /// Schedule the hydration reminders as a band of daily-repeating OS slots, one

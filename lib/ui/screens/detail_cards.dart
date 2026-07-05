@@ -1,17 +1,17 @@
-// Per-metric day-detail cards. Each fetches its /day/* endpoint and renders with
-// the EXISTING kit (RingStat, SegmentBar, DetailRow, ProCard, StatTile) — no new
-// widget types. Used both for the "Today" tab (date = today) and as the inline
-// drill leaf (date = the tapped day). One card per metric keeps it DRY.
+// Per-metric day-detail content on the design language. Each *DayCard fetches
+// its /day/* endpoint and hands the payload to a PURE content widget
+// (HeartDayContent / OxygenNightContent / WearDayContent — testable with a
+// sample map, no repo). The look is the redesigned bento: a numbers-first hero
+// (BigStat for Heart, ArcGauge coverage for Oxygen/Wear), mixed-tone BigStat
+// tiles, and explanations behind (i).
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../../models/metric.dart'
     show needMoreNightsFromNote, needMessageFromNote;
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
-import '../kit/charts.dart';
+import '../design/design.dart';
 import 'metric_row.dart';
 import 'trend_screen.dart';
 
@@ -57,7 +57,7 @@ Widget _baselineRow(
   );
 }
 
-/// Shared async wrapper: fetch a map, render via builder; spinner/empty states.
+/// Shared async wrapper: fetch a map, render via builder; skeleton/empty states.
 class _Fetch extends StatefulWidget {
   final Future<Map<String, dynamic>> Function(dynamic api) load;
   final Widget Function(Map<String, dynamic> data) build;
@@ -94,20 +94,64 @@ class _FetchState extends State<_Fetch> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Padding(
-        padding: EdgeInsets.all(Sp.x5),
-        child: Center(child: CircularProgressIndicator()),
+      return Column(
+        children: [
+          Skeleton.hero(),
+          const SizedBox(height: Sp.x3),
+          Skeleton.tileRow(rows: 2),
+        ],
       );
     }
     if (_d == null) {
-      return ProCard(
-        child: Padding(
-          padding: const EdgeInsets.all(Sp.x4),
-          child: Text('No data', style: AppText.captionMuted),
-        ),
+      return SurfaceCard(
+        child: Text('No data', style: AppText.captionMuted),
       );
     }
     return widget.build(_d!);
+  }
+}
+
+/// A quiet honest-state tile (building baseline / nothing recorded) — one icon
+/// chip + title + short line. Shared by the watch cards + empty leaves.
+class _QuietState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  const _QuietState({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SurfaceCard(
+      padding: const EdgeInsets.all(Sp.x4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(9),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceSunk,
+              borderRadius: BorderRadius.circular(R.chip),
+            ),
+            child: AppIcon(icon, size: 17, color: AppColors.inkMuted),
+          ),
+          const SizedBox(width: Sp.x3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: AppText.label),
+                const SizedBox(height: 2),
+                Text(message, style: AppText.captionMuted),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -121,9 +165,28 @@ final _zoneColors = [
 ];
 
 // ── HEART ────────────────────────────────────────────────────────────────────
+
 class HeartDayCard extends StatelessWidget {
   final String date;
   const HeartDayCard({super.key, required this.date});
+
+  @override
+  Widget build(BuildContext context) {
+    return _Fetch(
+      load: (api) => api.getDayHeart(date),
+      build: (d) => HeartDayContent(data: d, date: date),
+    );
+  }
+}
+
+/// HeartDayContent — the pure heart-day board: a headline BigStat hero
+/// (recovery or resting HR as the big figure), a mixed-tone bento of the
+/// day's cardiac numbers, the 24 h HR curve, zones, the HRV suite, and the
+/// always-honest illness / irregular-beat watches.
+class HeartDayContent extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final String date;
+  const HeartDayContent({super.key, required this.data, required this.date});
 
   num? _n(Object? v) => v is num ? v : null;
 
@@ -148,603 +211,668 @@ class HeartDayCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Fetch(
-      load: (api) => api.getDayHeart(date),
-      build: (d) {
-        final hrRaw = (d['hr'] as List?) ?? const [];
-        final hr = _hrPoints(hrRaw);
-        final rhr = _n(d['resting_hr']);
-        final rhrBase = _n(d['resting_hr_baseline']);
-        final rec = _n(d['recovery']);
-        final hrv = (d['hrv'] as Map?);
-        final zones = (d['zones'] as Map?);
-        final noct = (d['nocturnal'] as Map?);
-        final stress = (d['stress'] as Map?);
-        final illness = (d['illness'] as Map?);
-        final resp = (d['resp'] as Map?);
-        final spo2 = (d['spo2'] as Map?);
-        final irr24 = (d['irregular_24h'] as Map?);
-        final irr24v = (irr24?['value'] is Map)
-            ? (irr24!['value'] as Map).cast<String, dynamic>()
-            : null;
-        final hrr = _n(d['hrr']);
-        final brvHas = (d['brv'] is Map) && ((d['brv'] as Map)['value'] is Map);
-        final baselines = (d['baselines'] as Map?);
-        final dmap = (d['drivers'] as Map?) ?? const {};
-        final heartDrivers =
-            [
-                  ...((dmap['recovery'] as List?) ?? const []),
-                  ...((dmap['stress'] as List?) ?? const []),
-                ]
-                .whereType<Map>()
-                .where((dr) => (dr['label']?.toString() ?? '').isNotEmpty)
-                .toList();
-        final latest = hr.isEmpty ? null : hr.last;
-        final peak = hr.isEmpty
-            ? null
-            : hr.reduce((a, b) => a.y >= b.y ? a : b);
-        final low = hr.isEmpty ? null : hr.reduce((a, b) => a.y <= b.y ? a : b);
+    final d = data;
+    final hr = _hrPoints((d['hr'] as List?) ?? const []);
+    final rhr = _n(d['resting_hr']);
+    final rhrBase = _n(d['resting_hr_baseline']);
+    final rec = _n(d['recovery']);
+    final hrv = (d['hrv'] as Map?);
+    final zones = (d['zones'] as Map?);
+    final noct = (d['nocturnal'] as Map?);
+    final stress = (d['stress'] as Map?);
+    final illness = (d['illness'] as Map?);
+    final resp = (d['resp'] as Map?);
+    final spo2 = (d['spo2'] as Map?);
+    final irr24 = (d['irregular_24h'] as Map?);
+    final irr24v = (irr24?['value'] is Map)
+        ? (irr24!['value'] as Map).cast<String, dynamic>()
+        : null;
+    final hrr = _n(d['hrr']);
+    final brvHas = (d['brv'] is Map) && ((d['brv'] as Map)['value'] is Map);
+    final baselines = (d['baselines'] as Map?);
+    final dmap = (d['drivers'] as Map?) ?? const {};
+    final heartDrivers =
+        [
+              ...((dmap['recovery'] as List?) ?? const []),
+              ...((dmap['stress'] as List?) ?? const []),
+            ]
+            .whereType<Map>()
+            .where((dr) => (dr['label']?.toString() ?? '').isNotEmpty)
+            .toList();
+    final latest = hr.isEmpty ? null : hr.last;
+    final peak = hr.isEmpty ? null : hr.reduce((a, b) => a.y >= b.y ? a : b);
+    final low = hr.isEmpty ? null : hr.reduce((a, b) => a.y <= b.y ? a : b);
+    final sleepingHr = _n(noct?['sleeping_hr_avg']);
+    final dipPct = _n(noct?['dip_pct']);
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // HERO — recovery (HRV) if we have it, else resting HR.
-            GlowCard(
-              padding: const EdgeInsets.all(Sp.x6),
-              child: Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── hero: the anatomical heart beside the day's headline figure ─────
+        SurfaceCard(
+          padding: const EdgeInsets.all(Sp.x5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TileHeader(
+                rec != null ? 'Recovery' : 'Resting HR',
+                icon: rec != null ? Ic.recovery : Ic.heart,
+                osIcon: rec != null ? OsIcon.recovery : OsIcon.restingHeartRate,
+                trailing: InfoDot(
+                  title: rec != null ? 'Recovery' : 'Resting heart rate',
+                  body: rec != null
+                      ? infoFor('recovery')!
+                      : infoFor('resting_hr')!,
+                  methodNote: rec != null
+                      ? 'Plews lnRMSSD readiness vs your own baseline'
+                      : null,
+                ),
+              ),
+              const SizedBox(height: Sp.x2),
+              rec != null
+                  ? BigStat(
+                      value: '${rec.round()}',
+                      unit: '/100',
+                      caption: 'HRV-based recovery',
+                      captionAccent: true,
+                      size: BigStatSize.xl,
+                      color: AppColors.scoreColor(
+                        (rec / 100).clamp(0.0, 1.0),
+                      ),
+                    )
+                  : BigStat(
+                      value: rhr == null ? null : '${rhr.round()}',
+                      unit: 'bpm',
+                      caption: (rhr != null && rhrBase != null)
+                          ? '${(rhr - rhrBase) >= 0 ? '+' : ''}'
+                                '${(rhr - rhrBase).toStringAsFixed(1)} vs baseline'
+                          : 'resting heart rate',
+                      size: BigStatSize.xl,
+                    ),
+            ],
+          ),
+        ).dsEnter(),
+        const SizedBox(height: Sp.x3),
+
+        // ── the cardiac bento ────────────────────────────────────────────────
+        BentoColumns(
+          left: [
+            // HRV — the recovery-green tile.
+            BentoTile(
+              tone: BentoTone.soft,
+              accent: DomainAccent.recovery,
+              onTap: hrv == null
+                  ? null
+                  : () => openTrend(context,
+                      title: 'HRV (RMSSD)',
+                      metric: 'hrv',
+                      icon: Ic.pulse,
+                      osIcon: OsIcon.hrv,
+                      accent: DomainAccent.recovery),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            AppIcon(
-                              rec != null ? Ic.recovery : Ic.heart,
-                              size: 16,
-                              color: AppColors.coralDeep,
-                            ),
-                            const SizedBox(width: Sp.x2),
-                            Text(
-                              rec != null ? 'RECOVERY' : 'RESTING HR',
-                              style: AppText.overline,
-                            ),
-                            if (rec != null) ...[
-                              const SizedBox(width: Sp.x2),
-                              Tag('HRV', color: AppColors.good),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: Sp.x3),
-                        if (rec != null)
-                          Text('${rec.round()}', style: AppText.display)
-                        else if (rhr != null)
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text('${rhr.round()}', style: AppText.display),
-                              const SizedBox(width: Sp.x2),
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 8),
-                                child: Text('bpm', style: AppText.bodySoft),
-                              ),
-                            ],
-                          )
-                        else
-                          metricDash(44),
-                        const SizedBox(height: Sp.x2),
-                        Text(
-                          rec != null
-                              ? 'HRV-based recovery'
-                              : (rhr != null && rhrBase != null
-                                    ? '${(rhr - rhrBase) >= 0 ? '+' : ''}${(rhr - rhrBase).toStringAsFixed(1)} bpm vs baseline'
-                                    : 'resting heart rate'),
-                          style: AppText.bodySoft,
-                        ),
-                      ],
-                    ),
+                  const TileHeader('HRV', icon: Ic.pulse, osIcon: OsIcon.hrv),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(
+                    value: hrv?['rmssd']?.toString(),
+                    unit: 'ms',
                   ),
-                  if (rec != null)
-                    RingStat(
-                      t: (rec / 100).clamp(0.0, 1.0),
-                      color: AppColors.good,
-                      size: 96,
-                      stroke: 11,
-                      center: Text('${rec.round()}%', style: AppText.metricSm),
+                  if (_n(hrv?['baseline']) != null &&
+                      _n(hrv?['rmssd']) != null) ...[
+                    const SizedBox(height: Sp.x2),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: BaselineDeltaChip(
+                        _n(hrv!['rmssd'])!.toDouble() -
+                            _n(hrv['baseline'])!.toDouble(),
+                        unit: 'ms',
+                        showVsNormal: false,
+                      ),
                     ),
+                  ],
                 ],
               ),
             ),
-
-            // Minute-level 24h HR only for recent days; recovery/HRV/zones below are
-            // permanent summaries and always show.
-            if (detailedAvailable(date) && hr.length > 1) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Heart rate'),
-              ProCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TimeSeriesChart(
-                      points: hr,
-                      color: AppColors.coral,
-                      height: 220,
-                      yUnit: ' bpm',
-                      tooltip: (p) {
-                        final dt = DateTime.fromMillisecondsSinceEpoch(
-                          (p.x * 1000).round(),
-                        ).toLocal();
-                        final mm = dt.minute.toString().padLeft(2, '0');
-                        return '${dt.hour}:$mm\n${p.y.round()} bpm';
-                      },
-                    ),
-                    const SizedBox(height: Sp.x4),
-                    Row(
-                      children: [
-                        if (latest != null)
-                          Expanded(
-                            child: _HeartMetricCell(
-                              'Latest',
-                              '${latest.y.round()}',
-                            ),
-                          ),
-                        if (latest != null && peak != null)
-                          const SizedBox(width: Sp.x2),
-                        if (peak != null)
-                          Expanded(
-                            child: _HeartMetricCell(
-                              'Peak',
-                              '${peak.y.round()}',
-                            ),
-                          ),
-                        if ((latest != null || peak != null) && low != null)
-                          const SizedBox(width: Sp.x2),
-                        if (low != null)
-                          Expanded(
-                            child: _HeartMetricCell('Low', '${low.y.round()}'),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: Sp.x3),
-                    Text(
-                      'Real time scale. Missing periods stay missing. '
-                      'avg ${d['avg_hr'] ?? '—'} · max ${d['max_hr'] ?? '—'} bpm',
-                      style: AppText.captionMuted,
-                    ),
-                  ],
-                ),
-              ),
-            ] else if (!detailedAvailable(date)) ...[
-              const SizedBox(height: Sp.x6),
-              const DetailRetentionNote(what: 'minute-by-minute heart rate'),
-            ],
-
-            // HRV — full Task-Force suite, each tappable into its trend.
-            if (hrv != null) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Heart-rate variability'),
-              MetricGroup([
-                TrendMetricRow(
-                  icon: Ic.pulse,
-                  accent: AppColors.good,
-                  label: 'RMSSD',
-                  info: infoFor('rmssd'),
-                  value: '${hrv['rmssd'] ?? '—'}',
-                  unit: 'ms',
-                  metric: 'hrv',
-                  trendTitle: 'HRV (RMSSD)',
-                ),
-                if (hrv['sdnn'] != null)
-                  TrendMetricRow(
-                    icon: Ic.pulse,
-                    accent: AppColors.good,
-                    label: 'SDNN',
-                    info: infoFor('sdnn'),
-                    value: '${hrv['sdnn']}',
-                    unit: 'ms',
-                    metric: 'sdnn',
-                    trendTitle: 'HRV (SDNN)',
-                  ),
-                if (hrv['lf_hf'] != null)
-                  TrendMetricRow(
-                    icon: Ic.pulse,
-                    accent: AppColors.good,
-                    label: 'LF / HF',
-                    info: infoFor('lf_hf'),
-                    value: '${hrv['lf_hf']}',
-                    metric: 'lf_hf',
-                    trendTitle: 'LF / HF',
-                  ),
-                if (hrv['cv'] != null)
-                  TrendMetricRow(
-                    icon: Ic.chart,
-                    accent: AppColors.good,
-                    label: 'HRV stability',
-                    info: infoFor('hrv_cv'),
-                    value: '${hrv['cv']}',
-                    unit: '%',
-                    metric: 'hrv_cv',
-                    trendTitle: 'HRV stability (CV)',
-                  ),
-                if (hrv['baseline'] != null)
-                  MetricRow(
-                    icon: Ic.chart,
-                    accent: AppColors.inkSoft,
-                    label: 'Your baseline',
-                    info:
-                        'Your typical RMSSD — recovery is measured against this.',
-                    value: '${(_n(hrv['baseline']) ?? 0).round()}',
-                    unit: 'ms',
-                  ),
-              ]),
-            ],
-
-            // ── 24/7 irregular-rhythm SCREEN (not a diagnosis) ──────────────
-            const SizedBox(height: Sp.x6),
-            const SectionHeader('Rhythm screen'),
-            Builder(builder: (_) {
-              if (irr24v == null) {
-                return ProCard(
-                  child: Text(
-                    'Not enough clean beats today to screen your heart rhythm.',
-                    style: AppText.captionMuted,
-                  ),
-                );
-              }
-              final flag = irr24v['flag'] == true;
-              final ratio = _n(irr24v['sd1_sd2']);
-              final pnn = _n(irr24v['pnn_pct']);
-              final accent = flag ? AppColors.coral : AppColors.good;
-              return ProCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      AppIcon(flag ? Ic.heart : Ic.pulse,
-                          size: 18, color: accent),
-                      const SizedBox(width: Sp.x3),
-                      Expanded(
-                        child: Text(
-                          flag
-                              ? 'Irregular pattern detected today'
-                              : 'Rhythm screen: normal',
-                          style: AppText.label.copyWith(color: accent),
-                        ),
-                      ),
-                      Tag('SCREEN', color: accent),
-                    ]),
-                    const SizedBox(height: Sp.x3),
-                    Text(
-                      "A screen, not a diagnosis — wrist pulse can't see the "
-                      "heart's electrical signal. See a clinician if you have "
-                      'symptoms (palpitations, dizziness, breathlessness).',
-                      style: AppText.captionMuted,
-                    ),
-                    const SizedBox(height: Sp.x3),
-                    Row(children: [
-                      Expanded(
-                        child: Text(
-                          'SD1/SD2 ${ratio == null ? '—' : ratio.toStringAsFixed(2)}',
-                          style: AppText.captionMuted,
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          'pNN ${pnn == null ? '—' : '${pnn.toStringAsFixed(0)}%'}',
-                          style: AppText.captionMuted,
-                        ),
-                      ),
-                    ]),
-                  ],
-                ),
-              );
-            }),
-
-            // ── Heart-rate recovery + breathing-rate variability trends ─────
-            if (hrr != null || brvHas) ...[
-              const SizedBox(height: Sp.x6),
-              const SectionHeader('Fitness & breathing'),
-              MetricGroup([
-                if (hrr != null)
-                  TrendMetricRow(
-                    icon: Ic.recovery,
-                    accent: AppColors.good,
-                    label: 'HR recovery',
-                    info: 'Drop in heart rate 60 s after exercise. Faster '
-                        'recovery means a fitter, better-regulated heart.',
-                    value: hrr.toStringAsFixed(0),
+            // Sleeping HR + dip — the board's ink tile.
+            BentoTile(
+              tone: BentoTone.ink,
+              accent: DomainAccent.heart,
+              onTap: dipPct == null
+                  ? null
+                  : () => openTrend(context,
+                      title: 'Nocturnal HR dip',
+                      metric: 'dip',
+                      icon: Ic.down,
+                      accent: DomainAccent.heart),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TileHeader('Sleeping HR',
+                      icon: Ic.moon, osIcon: OsIcon.sleep),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(
+                    value: sleepingHr == null ? null : '${sleepingHr.round()}',
                     unit: 'bpm',
-                    metric: 'hrr',
-                    trendTitle: 'Heart-rate recovery',
+                    caption: dipPct == null
+                        ? null
+                        : 'dip ${(dipPct * 100).round()}%',
+                    captionAccent: true,
                   ),
-                if (brvHas)
-                  TrendMetricRow(
-                    icon: Ic.chart,
-                    accent: AppColors.good,
-                    label: 'Breathing variability',
-                    info: 'How much your breathing rate varied overnight '
-                        '(within-user trend), tracked against your own history.',
-                    value: () {
-                      final cv =
-                          _n((((d['brv'] as Map)['value']) as Map)['cv']);
-                      return cv == null ? '—' : cv.toStringAsFixed(2);
-                    }(),
-                    metric: 'brv',
-                    trendTitle: 'Breathing-rate variability',
-                  ),
-              ]),
-            ],
-
-            // Personal baselines (Winsorized-EWMA) — robust center + how settled
-            // each baseline is (calibrating → trusted), with today's z vs your range.
-            if (baselines != null && baselines.isNotEmpty) ...[
-              const SizedBox(height: Sp.x6),
-              const SectionHeader('Personal baselines'),
-              ProCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Robust, recency-weighted (Winsorized EWMA). "z" is today vs your '
-                      'personal range; status shows how settled each baseline is.',
-                      style: AppText.captionMuted,
-                    ),
-                    const SizedBox(height: Sp.x3),
-                    for (final e in const [
-                      ['resting_hr', 'Resting HR', 'bpm', false],
-                      ['hrv', 'HRV (RMSSD)', 'ms', false],
-                      ['resp', 'Respiratory rate', 'rpm', false],
-                      [
-                        'skin_temp',
-                        'Skin temp',
-                        '',
-                        true,
-                      ], // relative-only (raw ADC)
-                    ])
-                      if (baselines[e[0] as String] is Map)
-                        _baselineRow(
-                          (baselines[e[0] as String] as Map)
-                              .cast<String, dynamic>(),
-                          e[1] as String,
-                          e[2] as String,
-                          relative: e[3] as bool,
-                        ),
-                  ],
-                ),
+                ],
               ),
-            ],
-
-            // Stress (HRV-based).
-            if (stress != null &&
-                (stress['si'] != null || stress['score'] != null)) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Stress'),
-              MetricGroup([
-                MetricRow(
-                  icon: Ic.strain,
-                  accent: AppColors.warn,
-                  label: 'Stress',
-                  info: infoFor('stress'),
-                  value: '${stress['score'] ?? stress['si']}',
-                  valueTag: stress['level'] != null
-                      ? Tag(
-                          '${stress['level']}'.toUpperCase(),
-                          color: AppColors.warn,
-                        )
-                      : null,
-                ),
-                if (stress['lf_hf'] != null)
-                  MetricRow(
-                    icon: Ic.pulse,
-                    accent: AppColors.warn,
-                    label: 'Sympatho-vagal balance',
-                    info: infoFor('lf_hf'),
-                    value: '${stress['lf_hf']}',
-                  ),
-              ]),
-            ],
-
-            if (zones != null &&
-                _zoneVals(zones).fold<double>(0, (s, v) => s + v) > 0) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('HR zones'),
-              ProCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Minutes spent in each effort zone today.',
-                      style: AppText.captionMuted,
-                    ),
-                    const SizedBox(height: Sp.x3),
-                    SegmentBar(_zoneVals(zones), _zoneColors, height: 14),
-                    const SizedBox(height: Sp.x3),
-                    Wrap(
-                      spacing: Sp.x4,
-                      runSpacing: Sp.x2,
-                      children: [
-                        for (int i = 0; i < 5; i++)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 9,
-                                height: 9,
-                                decoration: BoxDecoration(
-                                  color: _zoneColors[i],
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: Sp.x2),
-                              Text(
-                                'Z${i + 1} · ${_zoneVals(zones)[i].round()}m',
-                                style: AppText.caption,
-                              ),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
-            if (noct != null && noct['sleeping_hr_avg'] != null) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Nocturnal heart'),
-              MetricGroup([
-                MetricRow(
-                  icon: Ic.moon,
-                  accent: AppColors.loadDetraining,
-                  label: 'Sleeping HR',
-                  info: infoFor('sleeping_hr'),
-                  value: '${noct['sleeping_hr_avg']}',
-                  unit: 'bpm',
-                ),
-                if (noct['dip_pct'] != null)
-                  TrendMetricRow(
-                    icon: Ic.down,
-                    accent: AppColors.good,
-                    label: 'Nocturnal dip',
-                    info: infoFor('dip'),
-                    value: '${((noct['dip_pct'] as num) * 100).round()}',
-                    unit: '%',
-                    metric: 'dip',
-                    trendTitle: 'Nocturnal HR dip',
-                  ),
-                if (noct['vs_baseline_bpm'] != null)
-                  MetricRow(
-                    icon: Ic.chart,
-                    accent: AppColors.inkSoft,
-                    label: 'vs baseline',
-                    info: 'Tonight vs your typical sleeping heart rate.',
-                    value: '${noct['vs_baseline_bpm']}',
-                    unit: 'bpm',
-                  ),
-              ]),
-            ],
-
-            if (resp != null ||
-                spo2 != null ||
-                dmap['desaturation'] is Map) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Respiratory'),
-              MetricGroup([
-                if (resp != null)
-                  MetricRow(
-                    icon: Ic.activity,
-                    accent: AppColors.good,
-                    label: 'Respiratory rate',
-                    info: infoFor('resp'),
-                    value: '${resp['value']}',
-                    unit: 'brpm',
-                  ),
-                if (spo2 != null)
-                  TrendMetricRow(
-                    icon: Ic.droplet,
-                    accent: AppColors.coralDeep,
-                    label: 'Oxygen dips',
-                    info: infoFor('spo2'),
-                    value: '${spo2['odi_per_hour'] ?? spo2['value']}',
-                    unit: '/h',
-                    metric: 'spo2',
-                    trendTitle: 'Overnight oxygen dips',
-                  ),
-                // Overnight desaturation screen (RELATIVE, not diagnostic) — clustered dips
-                // in the red/IR ratio vs your baseline. An apnea-style screening signal only.
-                if (dmap['desaturation'] is Map)
-                  MetricRow(
-                    icon: Ic.droplet,
-                    accent: AppColors.warn,
-                    label: 'Desaturation dips',
-                    info:
-                        'Number of relative blood-oxygen dips overnight (per hour). A screen, not a diagnosis — talk to a clinician if it stays high.',
-                    value: '${(dmap['desaturation'] as Map)['events'] ?? 0}',
-                    unit: '· ${(dmap['desaturation'] as Map)['odi'] ?? 0}/h',
-                  ),
-              ]),
-            ],
-
-            // Skin temperature — relative deviation vs your personal baseline (°),
-            // tappable into its trend. Honest: relative, not an absolute thermometer.
-            if (spo2 != null || d['skin_temp'] is Map) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Skin temperature'),
-              MetricGroup([
-                if (d['skin_temp'] is Map &&
-                    _n((d['skin_temp'] as Map)['value']) != null)
-                  TrendMetricRow(
-                    icon: Ic.thermometer,
-                    accent: AppColors.coralDeep,
-                    label: 'Skin temp vs baseline',
-                    info: infoFor('skin_temp'),
-                    value: _signed(_n((d['skin_temp'] as Map)['value'])),
-                    unit: 'Δ',
-                    metric: 'skin_temp',
-                    trendTitle: 'Skin temp vs baseline',
-                  )
-                else
-                  // No value yet → honest "Need N more nights" (baseline building),
-                  // from the need_baseline note, instead of a bare "—".
-                  MetricRow(
-                    icon: Ic.thermometer,
-                    accent: AppColors.inkSoft,
-                    label: 'Skin temp vs baseline',
-                    info: infoFor('skin_temp'),
-                    value:
-                        needMessageFromNote(
-                          (d['skin_temp'] as Map?)?['note'] as String?,
-                        ) ??
-                        '—',
-                  ),
-              ]),
-            ],
-
-            // Illness watch — ALWAYS shown (Mahalanobis of resting HR / HRV / temp).
-            // Three honest states: active signal, all-clear, or still building baseline.
-            ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Illness watch'),
-              _IllnessCard(illness),
-            ],
-
-            // Irregular-rhythm screen (Poincaré from nocturnal RR) — ALWAYS shown,
-            // with a "building" state until there's a night of RR to read.
-            ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Irregular-beat watch'),
-              _IrregularCard(
-                d['irregular'] is Map ? d['irregular'] as Map : null,
-              ),
-            ],
-
-            // What affected this — display-only (no navigation loop), properly padded.
-            if (heartDrivers.isNotEmpty) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('What affected this'),
-              ProCard(
-                child: Column(
-                  children: [
-                    for (final dr in heartDrivers)
-                      DetailRow(
-                        label: dr['label']?.toString() ?? '',
-                        value: dr['detail']?.toString() ?? '',
-                      ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ],
-        );
-      },
+          right: [
+            // Resting HR.
+            BentoTile(
+              accent: DomainAccent.heart,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TileHeader('Resting HR',
+                      icon: Ic.heart, osIcon: OsIcon.restingHeartRate),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(
+                    value: rhr == null ? null : '${rhr.round()}',
+                    unit: 'bpm',
+                    caption: rhrBase == null ? null : 'usual ${rhrBase.round()}',
+                  ),
+                ],
+              ),
+            ),
+            // HRR — 60-s recovery after effort.
+            BentoTile(
+              tone: BentoTone.soft,
+              accent: DomainAccent.strain,
+              onTap: hrr == null
+                  ? null
+                  : () => openTrend(context,
+                      title: 'Heart-rate recovery',
+                      metric: 'hrr',
+                      icon: Ic.recovery,
+                      osIcon: OsIcon.heartRateRecovery,
+                      accent: DomainAccent.strain),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TileHeader('HR recovery',
+                      icon: Ic.recovery, osIcon: OsIcon.heartRateRecovery),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(
+                    value: hrr?.toStringAsFixed(0),
+                    unit: 'bpm',
+                    caption: hrr == null ? null : '60 s after effort',
+                  ),
+                ],
+              ),
+            ),
+            // Stress — the rose tile.
+            BentoTile(
+              accent: DomainAccent.stress,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TileHeader('Stress',
+                      icon: Ic.strain, osIcon: OsIcon.stress),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(
+                    value: (stress?['score'] ?? stress?['si'])?.toString(),
+                    unit: '/100',
+                    caption: stress?['level']?.toString(),
+                    captionAccent: true,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+
+        // ── 24 h heart-rate curve (recent days only) ─────────────────────────
+        if (detailedAvailable(date) && hr.length > 1) ...[
+          const SizedBox(height: Sp.x3),
+          SurfaceCard(
+            padding: const EdgeInsets.all(Sp.x4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TileHeader(
+                  'Heart rate',
+                  icon: Ic.pulse,
+                  osIcon: OsIcon.heartRate,
+                  trailing: InfoDot(
+                    title: 'Heart rate',
+                    body:
+                        'Your minute-by-minute heart rate across the day, on a '
+                        'real time scale. Missing periods stay missing.',
+                    methodNote:
+                        'avg ${d['avg_hr'] ?? '—'} · max ${d['max_hr'] ?? '—'} bpm',
+                  ),
+                ),
+                const SizedBox(height: Sp.x3),
+                TimeSeriesChart(
+                  points: hr,
+                  color: DomainAccent.heart,
+                  height: 200,
+                  yUnit: ' bpm',
+                  tooltip: (p) {
+                    final dt = DateTime.fromMillisecondsSinceEpoch(
+                      (p.x * 1000).round(),
+                    ).toLocal();
+                    final mm = dt.minute.toString().padLeft(2, '0');
+                    return '${dt.hour}:$mm\n${p.y.round()} bpm';
+                  },
+                ),
+                const SizedBox(height: Sp.x3),
+                Wrap(
+                  spacing: Sp.x2,
+                  runSpacing: Sp.x1,
+                  children: [
+                    if (latest != null)
+                      StatusChip('Now ${latest.y.round()}',
+                          tone: ChipTone.accent),
+                    if (peak != null) StatusChip('Peak ${peak.y.round()}'),
+                    if (low != null) StatusChip('Low ${low.y.round()}'),
+                  ],
+                ),
+              ],
+            ),
+          ).dsEnter(index: 2),
+        ] else if (!detailedAvailable(date)) ...[
+          const SizedBox(height: Sp.x3),
+          const DetailRetentionNote(what: 'minute-by-minute heart rate'),
+        ],
+
+        // ── HR zones ────────────────────────────────────────────────────────
+        if (zones != null &&
+            _zoneVals(zones).fold<double>(0, (s, v) => s + v) > 0) ...[
+          const SizedBox(height: Sp.x3),
+          SurfaceCard(
+            padding: const EdgeInsets.all(Sp.x4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TileHeader(
+                  'Effort zones',
+                  icon: Ic.strain,
+                  osIcon: OsIcon.intensity,
+                  trailing: InfoDot(
+                    title: 'Effort zones',
+                    body: 'Minutes spent in each heart-rate zone today, '
+                        'from easy (Z1) to maximal (Z5).',
+                  ),
+                ),
+                const SizedBox(height: Sp.x3),
+                SegmentBar(_zoneVals(zones), _zoneColors, height: 14),
+                const SizedBox(height: Sp.x3),
+                Wrap(
+                  spacing: Sp.x4,
+                  runSpacing: Sp.x2,
+                  children: [
+                    for (int i = 0; i < 5; i++)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 9,
+                            height: 9,
+                            decoration: BoxDecoration(
+                              color: _zoneColors[i],
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: Sp.x2),
+                          Text(
+                            'Z${i + 1} · ${_zoneVals(zones)[i].round()}m',
+                            style: AppText.caption,
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // ── HRV suite — full Task-Force set, each tappable into its trend ───
+        if (hrv != null) ...[
+          const SizedBox(height: Sp.x6),
+          const SectionHeader('Heart-rate variability'),
+          MetricGroup([
+            TrendMetricRow(
+              icon: Ic.pulse,
+              // The headline HRV number gets the illustrated icon; the sibling
+              // SDNN/LF-HF rows stay monochrome so the group doesn't repeat art.
+              osIcon: OsIcon.hrv,
+              accent: DomainAccent.recovery,
+              label: 'RMSSD',
+              info: infoFor('rmssd'),
+              value: '${hrv['rmssd'] ?? '—'}',
+              unit: 'ms',
+              metric: 'hrv',
+              trendTitle: 'HRV (RMSSD)',
+            ),
+            if (hrv['sdnn'] != null)
+              TrendMetricRow(
+                icon: Ic.pulse,
+                accent: DomainAccent.recovery,
+                label: 'SDNN',
+                info: infoFor('sdnn'),
+                value: '${hrv['sdnn']}',
+                unit: 'ms',
+                metric: 'sdnn',
+                trendTitle: 'HRV (SDNN)',
+              ),
+            if (hrv['lf_hf'] != null)
+              TrendMetricRow(
+                icon: Ic.pulse,
+                accent: DomainAccent.recovery,
+                label: 'LF / HF',
+                info: infoFor('lf_hf'),
+                value: '${hrv['lf_hf']}',
+                metric: 'lf_hf',
+                trendTitle: 'LF / HF',
+              ),
+            if (hrv['cv'] != null)
+              TrendMetricRow(
+                icon: Ic.chart,
+                accent: DomainAccent.recovery,
+                label: 'HRV stability',
+                info: infoFor('hrv_cv'),
+                value: '${hrv['cv']}',
+                unit: '%',
+                metric: 'hrv_cv',
+                trendTitle: 'HRV stability (CV)',
+              ),
+            if (hrv['baseline'] != null)
+              MetricRow(
+                icon: Ic.chart,
+                accent: AppColors.inkSoft,
+                label: 'Your baseline',
+                info: 'Your typical RMSSD — recovery is measured against this.',
+                value: '${(_n(hrv['baseline']) ?? 0).round()}',
+                unit: 'ms',
+              ),
+            if (brvHas)
+              TrendMetricRow(
+                icon: Ic.chart,
+                accent: DomainAccent.recovery,
+                label: 'Breathing variability',
+                info: 'How much your breathing rate varied overnight '
+                    '(within-user trend), tracked against your own history.',
+                value: () {
+                  final cv = _n((((d['brv'] as Map)['value']) as Map)['cv']);
+                  return cv == null ? '—' : cv.toStringAsFixed(2);
+                }(),
+                metric: 'brv',
+                trendTitle: 'Breathing-rate variability',
+              ),
+          ]),
+        ],
+
+        // ── 24/7 irregular-rhythm SCREEN (not a diagnosis) ───────────────────
+        const SizedBox(height: Sp.x6),
+        const SectionHeader('Rhythm screen'),
+        Builder(builder: (context) {
+          if (irr24v == null) {
+            return const _QuietState(
+              icon: Ic.pulse,
+              title: 'Not enough clean beats today',
+              message:
+                  'The 24/7 rhythm screen needs more artifact-free beat data '
+                  'to read today.',
+            );
+          }
+          final flag = irr24v['flag'] == true;
+          final ratio = _n(irr24v['sd1_sd2']);
+          final pnn = _n(irr24v['pnn_pct']);
+          final accent = flag ? AppColors.warn : AppColors.good;
+          return BentoTile(
+            tone: BentoTone.soft,
+            accent: accent,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const OsAppIcon(OsIcon.ecgRhythm, size: 34),
+                    const SizedBox(width: Sp.x2),
+                    Expanded(
+                      child: StatusChip(
+                        flag ? 'Irregular pattern today' : 'Normal',
+                        icon: flag
+                            ? Icons.error_outline
+                            : Icons.check_circle_outline,
+                        tone: flag ? ChipTone.warn : ChipTone.positive,
+                      ),
+                    ),
+                    InfoDot(
+                      title: 'Rhythm screen',
+                      body:
+                          "A screen, not a diagnosis — wrist pulse can't see "
+                          "the heart's electrical signal. See a clinician if "
+                          'you have symptoms (palpitations, dizziness, '
+                          'breathlessness).',
+                      methodNote:
+                          'Poincaré SD1/SD2 + pNN70 over the day’s clean beats',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: Sp.x3),
+                Row(
+                  children: [
+                    Expanded(
+                      child: BigStat(
+                        value: ratio?.toStringAsFixed(2),
+                        label: 'SD1/SD2',
+                        size: BigStatSize.md,
+                      ),
+                    ),
+                    Expanded(
+                      child: BigStat(
+                        value: pnn?.toStringAsFixed(0),
+                        unit: '%',
+                        label: 'pNN',
+                        size: BigStatSize.md,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }),
+
+        // ── Personal baselines (Winsorized-EWMA) ─────────────────────────────
+        if (baselines != null && baselines.isNotEmpty) ...[
+          const SizedBox(height: Sp.x6),
+          const SectionHeader('Personal baselines'),
+          SurfaceCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x4,
+              vertical: Sp.x2,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TileHeader(
+                  'You vs your normal',
+                  trailing: InfoDot(
+                    title: 'Personal baselines',
+                    body:
+                        'Robust, recency-weighted baselines (Winsorized EWMA). '
+                        '"z" is today vs your personal range; the tag shows how '
+                        'settled each baseline is (calibrating → trusted).',
+                  ),
+                ),
+                for (final e in const [
+                  ['resting_hr', 'Resting HR', 'bpm', false],
+                  ['hrv', 'HRV (RMSSD)', 'ms', false],
+                  ['resp', 'Respiratory rate', 'rpm', false],
+                  ['skin_temp', 'Skin temp', '', true], // relative-only (ADC)
+                ])
+                  if (baselines[e[0] as String] is Map)
+                    _baselineRow(
+                      (baselines[e[0] as String] as Map)
+                          .cast<String, dynamic>(),
+                      e[1] as String,
+                      e[2] as String,
+                      relative: e[3] as bool,
+                    ),
+              ],
+            ),
+          ),
+        ],
+
+        // ── Respiratory + skin temperature ───────────────────────────────────
+        if (resp != null || spo2 != null || dmap['desaturation'] is Map) ...[
+          const SizedBox(height: Sp.x6),
+          const SectionHeader('Respiratory'),
+          MetricGroup([
+            if (resp != null)
+              MetricRow(
+                icon: Ic.activity,
+                accent: DomainAccent.oxygen,
+                label: 'Respiratory rate',
+                info: infoFor('resp'),
+                value: '${resp['value']}',
+                unit: 'brpm',
+              ),
+            if (spo2 != null)
+              TrendMetricRow(
+                icon: Ic.droplet,
+                accent: DomainAccent.oxygen,
+                label: 'Oxygen dips',
+                info: infoFor('spo2'),
+                value: '${spo2['odi_per_hour'] ?? spo2['value']}',
+                unit: '/h',
+                metric: 'spo2',
+                trendTitle: 'Overnight oxygen dips',
+              ),
+            // Overnight desaturation screen (RELATIVE, not diagnostic).
+            if (dmap['desaturation'] is Map)
+              MetricRow(
+                icon: Ic.droplet,
+                accent: AppColors.warn,
+                label: 'Desaturation dips',
+                info:
+                    'Number of relative blood-oxygen dips overnight (per hour). '
+                    'A screen, not a diagnosis — talk to a clinician if it '
+                    'stays high.',
+                value: '${(dmap['desaturation'] as Map)['events'] ?? 0}',
+                unit: '· ${(dmap['desaturation'] as Map)['odi'] ?? 0}/h',
+              ),
+          ]),
+        ],
+
+        if (spo2 != null || d['skin_temp'] is Map) ...[
+          const SizedBox(height: Sp.x6),
+          const SectionHeader('Skin temperature'),
+          MetricGroup([
+            if (d['skin_temp'] is Map &&
+                _n((d['skin_temp'] as Map)['value']) != null)
+              TrendMetricRow(
+                icon: Ic.thermometer,
+                osIcon: OsIcon.temperatureDeviation,
+                accent: AppColors.coralDeep,
+                label: 'Skin temp vs baseline',
+                info: infoFor('skin_temp'),
+                value: _signed(_n((d['skin_temp'] as Map)['value'])),
+                unit: 'Δ',
+                metric: 'skin_temp',
+                trendTitle: 'Skin temp vs baseline',
+              )
+            else
+              // No value yet → honest "Need N more nights" from the
+              // need_baseline note, instead of a bare "—".
+              MetricRow(
+                icon: Ic.thermometer,
+                osIcon: OsIcon.temperatureDeviation,
+                accent: AppColors.inkSoft,
+                label: 'Skin temp vs baseline',
+                info: infoFor('skin_temp'),
+                value:
+                    needMessageFromNote(
+                      (d['skin_temp'] as Map?)?['note'] as String?,
+                    ) ??
+                    '—',
+              ),
+          ]),
+        ],
+
+        // ── Illness watch — ALWAYS shown, three honest states ───────────────
+        const SizedBox(height: Sp.x6),
+        const SectionHeader('Illness watch'),
+        _IllnessCard(illness),
+
+        // ── Irregular-beat watch (nocturnal Poincaré) — ALWAYS shown ────────
+        const SizedBox(height: Sp.x6),
+        const SectionHeader('Irregular-beat watch'),
+        _IrregularCard(d['irregular'] is Map ? d['irregular'] as Map : null),
+
+        // ── What affected this — display-only ───────────────────────────────
+        if (heartDrivers.isNotEmpty) ...[
+          const SizedBox(height: Sp.x6),
+          const SectionHeader('What affected this'),
+          SurfaceCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x4,
+              vertical: Sp.x2,
+            ),
+            child: Column(
+              children: [
+                for (final dr in heartDrivers)
+                  DetailRow(
+                    label: dr['label']?.toString() ?? '',
+                    value: dr['detail']?.toString() ?? '',
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
 
+// ── OXYGEN ───────────────────────────────────────────────────────────────────
+
 class OxygenDayCard extends StatelessWidget {
   final String date;
   const OxygenDayCard({super.key, required this.date});
+
+  @override
+  Widget build(BuildContext context) {
+    return _Fetch(
+      load: (api) => api.getDayLungs(date),
+      build: (d) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          OxygenNightContent(data: d, date: date),
+          if ((d['spo2'] as Map?) != null) ...[
+            const SizedBox(height: Sp.x3),
+            _OxygenRecentStrip(date: date),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// OxygenNightContent — the pure overnight-oxygen board (slate domain): ODI
+/// hero with a signal-coverage ArcGauge, verdict + severity tiles, the dip
+/// trace, and the numbers group. RELATIVE red/IR screen — never absolute SpO₂.
+class OxygenNightContent extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final String date;
+  const OxygenNightContent({super.key, required this.data, required this.date});
 
   List<TimeSeriesPoint> _series(Map<String, dynamic>? spo2) {
     final raw = (spo2?['series'] as List?) ?? const [];
@@ -833,478 +961,460 @@ class OxygenDayCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Fetch(
-      load: (api) => api.getDayLungs(date),
-      build: (d) {
-        final spo2 = (d['spo2'] as Map?)?.cast<String, dynamic>();
-        final resp = (d['resp'] as Map?)?.cast<String, dynamic>();
-        final points = _series(spo2);
-        final events = ((spo2?['events'] as List?) ?? const [])
-            .whereType<Map>()
-            .cast<Map<String, dynamic>>()
-            .toList();
-        final latestEvent = events.isEmpty ? null : events.last;
-        final signalCoverage = (spo2?['signal_coverage'] as num?)?.toDouble();
-        final trustedCoverage = (spo2?['trusted_coverage'] as num?)?.toDouble();
-        final analyzedHours = (spo2?['analyzed_hours'] as num?)?.toDouble();
-        final burdenPct = (spo2?['burden_pct'] as num?)?.toDouble();
-        final meanDipPct = (spo2?['mean_dip_pct'] as num?)?.toDouble();
-        final maxDipPct = (spo2?['max_dip_pct'] as num?)?.toDouble();
-        final longestDipSec = (spo2?['longest_dip_sec'] as num?)?.toInt();
-        final rejectCounts = (spo2?['reject_counts'] as Map?)
-            ?.cast<String, dynamic>();
-        final severityCounts = (spo2?['severity_counts'] as Map?)
-            ?.cast<String, dynamic>();
-        final rejectTotal =
-            rejectCounts?.values.whereType<num>().fold<int>(
-              0,
-              (sum, v) => sum + v.toInt(),
-            ) ??
-            0;
-        final sleepWindow = (d['sleep_window'] as Map?)
-            ?.cast<String, dynamic>();
-        final sleepStart = (sleepWindow?['start'] as num?)?.toDouble();
-        final sleepEnd = (sleepWindow?['end'] as num?)?.toDouble();
-        final odiPerHour = (spo2?['odi_per_hour'] as num?)?.toDouble();
-        final verdict = _oxygenVerdict({
-          'trusted_coverage': trustedCoverage,
-          'signal_coverage': signalCoverage,
-          'reject_total': rejectTotal,
-          'dip_count': (spo2?['dip_count'] as num?)?.toInt() ?? events.length,
-        });
-        final severity = _oxygenSeverity(
-          odiPerHour: odiPerHour,
-          maxDipPct: maxDipPct,
-          burdenPct: burdenPct,
-          trustedCoverage: trustedCoverage,
-        );
+    final d = data;
+    final accent = DomainAccent.oxygen;
+    final spo2 = (d['spo2'] as Map?)?.cast<String, dynamic>();
+    final resp = (d['resp'] as Map?)?.cast<String, dynamic>();
+    final points = _series(spo2);
+    final events = ((spo2?['events'] as List?) ?? const [])
+        .whereType<Map>()
+        .cast<Map<String, dynamic>>()
+        .toList();
+    final signalCoverage = (spo2?['signal_coverage'] as num?)?.toDouble();
+    final trustedCoverage = (spo2?['trusted_coverage'] as num?)?.toDouble();
+    final analyzedHours = (spo2?['analyzed_hours'] as num?)?.toDouble();
+    final burdenPct = (spo2?['burden_pct'] as num?)?.toDouble();
+    final meanDipPct = (spo2?['mean_dip_pct'] as num?)?.toDouble();
+    final maxDipPct = (spo2?['max_dip_pct'] as num?)?.toDouble();
+    final longestDipSec = (spo2?['longest_dip_sec'] as num?)?.toInt();
+    final rejectCounts = (spo2?['reject_counts'] as Map?)
+        ?.cast<String, dynamic>();
+    final severityCounts = (spo2?['severity_counts'] as Map?)
+        ?.cast<String, dynamic>();
+    final rejectTotal =
+        rejectCounts?.values.whereType<num>().fold<int>(
+          0,
+          (sum, v) => sum + v.toInt(),
+        ) ??
+        0;
+    final sleepWindow = (d['sleep_window'] as Map?)?.cast<String, dynamic>();
+    final sleepStart = (sleepWindow?['start'] as num?)?.toDouble();
+    final sleepEnd = (sleepWindow?['end'] as num?)?.toDouble();
+    final odiPerHour = (spo2?['odi_per_hour'] as num?)?.toDouble();
+    final verdict = _oxygenVerdict({
+      'trusted_coverage': trustedCoverage,
+      'signal_coverage': signalCoverage,
+      'reject_total': rejectTotal,
+      'dip_count': (spo2?['dip_count'] as num?)?.toInt() ?? events.length,
+    });
+    final severity = _oxygenSeverity(
+      odiPerHour: odiPerHour,
+      maxDipPct: maxDipPct,
+      burdenPct: burdenPct,
+      trustedCoverage: trustedCoverage,
+    );
 
-        if (spo2 == null) {
-          return ProCard(
-            child: Padding(
-              padding: const EdgeInsets.all(Sp.x4),
-              child: Text(
-                'No overnight red/IR oxygen signal yet.',
-                style: AppText.captionMuted,
+    if (spo2 == null) {
+      return const _QuietState(
+        icon: Ic.droplet,
+        title: 'No overnight oxygen signal yet',
+        message:
+            'Wear the strap through the night — the red/IR channels need a '
+            'full night of stable contact to read.',
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── hero: ODI beside the signal-coverage gauge ───────────────────────
+        SurfaceCard(
+          padding: const EdgeInsets.all(Sp.x5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TileHeader(
+                'Overnight oxygen',
+                icon: Ic.droplet,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Tag('rel', color: accent),
+                    InfoDot(
+                      title: 'Overnight oxygen',
+                      body: infoFor('spo2')!,
+                      methodNote:
+                          'Relative red/IR ratio vs your own nightly baseline '
+                          '— a screening signal, never an absolute SpO₂%.',
+                    ),
+                  ],
+                ),
               ),
-            ),
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            GlowCard(
-              padding: const EdgeInsets.all(Sp.x6),
-              child: Row(
+              const SizedBox(height: Sp.x2),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            AppIcon(
-                              Ic.droplet,
-                              size: 16,
-                              color: AppColors.coralDeep,
-                            ),
-                            const SizedBox(width: Sp.x2),
-                            Text('OVERNIGHT OXYGEN', style: AppText.overline),
-                          ],
-                        ),
-                        const SizedBox(height: Sp.x3),
-                        Text(
-                          (spo2['odi_per_hour'] as num?)?.toStringAsFixed(1) ??
-                              '—',
-                          style: AppText.display,
-                        ),
-                        const SizedBox(height: Sp.x1),
-                        Text(
+                    child: BigStat(
+                      value: odiPerHour?.toStringAsFixed(1),
+                      unit: 'dips/h',
+                      caption:
                           '${(spo2['dip_count'] as num?)?.toInt() ?? 0} dips · '
-                          '${analyzedHours?.toStringAsFixed(1) ?? '—'} h analyzed',
-                          style: AppText.bodySoft,
-                        ),
-                      ],
+                          '${_nightSpan(analyzedHours)}',
+                      size: BigStatSize.xl,
                     ),
                   ),
-                  RingStat(
-                    t: (((signalCoverage ?? 0) * 100) / 100).clamp(0.0, 1.0),
-                    color: AppColors.coralDeep,
+                  const SizedBox(width: Sp.x3),
+                  ArcGauge(
+                    value: signalCoverage ?? double.nan,
+                    color: accent,
                     size: 96,
-                    stroke: 11,
-                    center: Text(
-                      signalCoverage == null
-                          ? '—'
-                          : '${(signalCoverage * 100).round()}%',
-                      style: AppText.metricSm,
+                    stroke: 10,
+                    valueText: signalCoverage == null
+                        ? '—'
+                        : '${(signalCoverage * 100).round()}%',
+                    label: 'signal',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ).dsEnter(),
+        const SizedBox(height: Sp.x3),
+
+        // ── verdict + severity tiles ─────────────────────────────────────────
+        BentoColumns(
+          left: [
+            BentoTile(
+              tone: BentoTone.soft,
+              accent: verdict.color,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TileHeader(
+                    'Signal verdict',
+                    trailing: InfoDot(
+                      title: 'Signal verdict',
+                      body: verdict.reason,
                     ),
                   ),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(
+                    value: verdict.label,
+                    caption: trustedCoverage == null
+                        ? null
+                        : 'trusted ${(trustedCoverage * 100).round()}%',
+                    size: BigStatSize.md,
+                    color: verdict.color,
+                  ),
                 ],
               ),
             ),
-            const SizedBox(height: Sp.x6),
-            SectionHeader('Tonight at a glance'),
-            ProCard(
+            BentoTile(
+              accent: accent,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      Text('Verdict', style: AppText.label),
-                      const Spacer(),
-                      Tag(verdict.label, color: verdict.color),
-                    ],
-                  ),
+                  const TileHeader('Burden'),
                   const SizedBox(height: Sp.x2),
-                  Text(verdict.reason, style: AppText.bodySoft),
-                  const SizedBox(height: Sp.x4),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _MiniMetricCell(
-                          'ODI',
-                          '${(spo2['odi_per_hour'] as num?)?.toStringAsFixed(1) ?? '—'} /h',
-                        ),
-                      ),
-                      const SizedBox(width: Sp.x3),
-                      Expanded(
-                        child: _MiniMetricCell(
-                          'Signal',
-                          signalCoverage == null
-                              ? '—'
-                              : '${(signalCoverage * 100).round()}%',
-                        ),
-                      ),
-                      const SizedBox(width: Sp.x3),
-                      Expanded(
-                        child: _MiniMetricCell(
-                          'Night',
-                          _nightSpan(analyzedHours),
-                        ),
-                      ),
-                    ],
+                  BigStat(
+                    value: burdenPct?.toStringAsFixed(1),
+                    unit: '%',
+                    caption: 'of night in dips',
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: Sp.x6),
-            SectionHeader('Overnight severity'),
-            ProCard(
+          ],
+          right: [
+            BentoTile(
+              tone: BentoTone.soft,
+              accent: severity.color,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    children: [
-                      Text('Assessment', style: AppText.label),
-                      const Spacer(),
-                      Tag(severity.label, color: severity.color),
-                    ],
+                  TileHeader(
+                    'Overnight load',
+                    trailing: InfoDot(
+                      title: 'Overnight load',
+                      body: severity.reason,
+                    ),
                   ),
                   const SizedBox(height: Sp.x2),
-                  Text(severity.reason, style: AppText.bodySoft),
-                  const SizedBox(height: Sp.x4),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _MiniMetricCell(
-                          'Strongest dip',
-                          maxDipPct == null
-                              ? '—'
-                              : '${maxDipPct.toStringAsFixed(1)}%',
-                        ),
-                      ),
-                      const SizedBox(width: Sp.x3),
-                      Expanded(
-                        child: _MiniMetricCell(
-                          'Burden',
-                          burdenPct == null
-                              ? '—'
-                              : '${burdenPct.toStringAsFixed(1)}%',
-                        ),
-                      ),
-                      const SizedBox(width: Sp.x3),
-                      Expanded(
-                        child: _MiniMetricCell(
-                          'Longest',
-                          longestDipSec == null ? '—' : '${longestDipSec}s',
-                        ),
-                      ),
-                    ],
+                  BigStat(
+                    value: severity.label,
+                    caption: maxDipPct == null
+                        ? null
+                        : 'strongest ${maxDipPct.toStringAsFixed(1)}%',
+                    size: BigStatSize.md,
+                    color: severity.color,
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: Sp.x6),
-            if (severityCounts != null) ...[
-              SectionHeader('Dip severity mix'),
-              ProCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            BentoTile(
+              accent: accent,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TileHeader('Longest dip'),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(
+                    value: longestDipSec == null ? null : '$longestDipSec',
+                    unit: 's',
+                    caption: meanDipPct == null
+                        ? null
+                        : 'mean depth ${meanDipPct.toStringAsFixed(1)}%',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+
+        // ── dip-severity mix ─────────────────────────────────────────────────
+        if (severityCounts != null) ...[
+          const SizedBox(height: Sp.x3),
+          SurfaceCard(
+            padding: const EdgeInsets.all(Sp.x4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const TileHeader('Dip severity mix'),
+                const SizedBox(height: Sp.x3),
+                SegmentBar(
+                  [
+                    (severityCounts['mild'] as num?)?.toDouble() ?? 0,
+                    (severityCounts['moderate'] as num?)?.toDouble() ?? 0,
+                    (severityCounts['severe'] as num?)?.toDouble() ?? 0,
+                  ],
+                  [AppColors.good, AppColors.coral, AppColors.warn],
+                  height: 14,
+                ),
+                const SizedBox(height: Sp.x3),
+                Wrap(
+                  spacing: Sp.x2,
+                  runSpacing: Sp.x1,
                   children: [
-                    SegmentBar(
-                      [
-                        (severityCounts['mild'] as num?)?.toDouble() ?? 0,
-                        (severityCounts['moderate'] as num?)?.toDouble() ?? 0,
-                        (severityCounts['severe'] as num?)?.toDouble() ?? 0,
-                      ],
-                      [AppColors.good, AppColors.coral, AppColors.warn],
-                      height: 14,
+                    StatusChip(
+                      'Mild ${(severityCounts['mild'] as num?)?.toInt() ?? 0}',
+                      tone: ChipTone.positive,
                     ),
-                    const SizedBox(height: Sp.x3),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _MiniMetricCell(
-                            'Mild',
-                            '${(severityCounts['mild'] as num?)?.toInt() ?? 0}',
-                          ),
-                        ),
-                        const SizedBox(width: Sp.x3),
-                        Expanded(
-                          child: _MiniMetricCell(
-                            'Moderate',
-                            '${(severityCounts['moderate'] as num?)?.toInt() ?? 0}',
-                          ),
-                        ),
-                        const SizedBox(width: Sp.x3),
-                        Expanded(
-                          child: _MiniMetricCell(
-                            'Severe',
-                            '${(severityCounts['severe'] as num?)?.toInt() ?? 0}',
-                          ),
-                        ),
-                      ],
+                    StatusChip(
+                      'Moderate ${(severityCounts['moderate'] as num?)?.toInt() ?? 0}',
+                    ),
+                    StatusChip(
+                      'Severe ${(severityCounts['severe'] as num?)?.toInt() ?? 0}',
+                      tone: ChipTone.warn,
                     ),
                   ],
                 ),
+              ],
+            ),
+          ),
+        ],
+
+        // ── the dip trace ────────────────────────────────────────────────────
+        const SizedBox(height: Sp.x3),
+        SurfaceCard(
+          padding: const EdgeInsets.all(Sp.x4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TileHeader(
+                'Overnight dip signal',
+                icon: Ic.chart,
+                trailing: InfoDot(
+                  title: 'Overnight dip signal',
+                  body:
+                      'Tracks overnight oxygen dips from the red/IR channel '
+                      'pair against your own nightly baseline. A screening '
+                      'signal, not an absolute saturation %.',
+                ),
               ),
-              const SizedBox(height: Sp.x6),
-            ],
-            _OxygenRecentStrip(date: date),
-            const SizedBox(height: Sp.x6),
-            SectionHeader('Overnight dip signal'),
-            ProCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (points.length > 1)
-                    TimeSeriesChart(
-                      points: points,
-                      color: AppColors.coralDeep,
-                      height: 220,
-                      yUnit: '%',
-                      minY: -1,
-                      spans: [
-                        if (sleepStart != null && sleepEnd != null)
-                          VerticalSpan(
-                            sleepStart,
-                            sleepEnd,
-                            AppColors.cool.withValues(alpha: 0.08),
-                          ),
-                        ..._eventSpans(events),
-                      ],
-                      markers: _eventMarkers(events),
-                      bands: const [
-                        HorizontalBand(0, 3, Color(0x1426A69A)),
-                        HorizontalBand(3, 6, Color(0x14F4B942)),
-                        HorizontalBand(6, 100, Color(0x14E57373)),
-                      ],
-                      tooltip: (p) => _tooltipForPoint(
-                        p,
-                        events,
-                        sleepStart: sleepStart,
-                        sleepEnd: sleepEnd,
+              const SizedBox(height: Sp.x3),
+              if (points.length > 1)
+                TimeSeriesChart(
+                  points: points,
+                  color: accent,
+                  height: 200,
+                  yUnit: '%',
+                  minY: -1,
+                  spans: [
+                    if (sleepStart != null && sleepEnd != null)
+                      VerticalSpan(
+                        sleepStart,
+                        sleepEnd,
+                        AppColors.cool.withValues(alpha: 0.08),
                       ),
-                    )
-                  else
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: Sp.x4),
-                      child: Text(
-                        'Not enough stable overnight signal for a dip trace yet.',
-                        style: AppText.captionMuted,
-                      ),
-                    ),
-                  const SizedBox(height: Sp.x3),
-                  Text(
-                    'Tracks overnight oxygen dips from the red/IR channel pair against your own nightly baseline. This is a screening signal, not an absolute saturation %. ',
+                    ..._eventSpans(events),
+                  ],
+                  markers: _eventMarkers(events),
+                  bands: const [
+                    HorizontalBand(0, 3, Color(0x1426A69A)),
+                    HorizontalBand(3, 6, Color(0x14F4B942)),
+                    HorizontalBand(6, 100, Color(0x14E57373)),
+                  ],
+                  tooltip: (p) => _tooltipForPoint(
+                    p,
+                    events,
+                    sleepStart: sleepStart,
+                    sleepEnd: sleepEnd,
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: Sp.x4),
+                  child: Text(
+                    'Not enough stable overnight signal for a dip trace yet.',
                     style: AppText.captionMuted,
                   ),
-                  const SizedBox(height: Sp.x2),
-                  Wrap(
-                    spacing: Sp.x4,
-                    runSpacing: Sp.x2,
-                    children: [
-                      _legendPill(
-                        'Sleep window',
-                        AppColors.cool.withValues(alpha: 0.28),
-                      ),
-                      _legendPill(
-                        'Detected dips',
-                        AppColors.warn.withValues(alpha: 0.45),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+              if (points.length > 1) ...[
+                const SizedBox(height: Sp.x2),
+                Wrap(
+                  spacing: Sp.x4,
+                  runSpacing: Sp.x2,
+                  children: [
+                    _legendPill(
+                      'Sleep window',
+                      AppColors.cool.withValues(alpha: 0.28),
+                    ),
+                    _legendPill(
+                      'Detected dips',
+                      AppColors.warn.withValues(alpha: 0.45),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+
+        // ── the numbers ──────────────────────────────────────────────────────
+        const SizedBox(height: Sp.x6),
+        const SectionHeader('The numbers'),
+        MetricGroup([
+          MetricRow(
+            icon: Ic.droplet,
+            accent: accent,
+            label: 'Oxygen dips',
+            info: infoFor('spo2'),
+            value: odiPerHour?.toStringAsFixed(1) ?? '—',
+            unit: '/h',
+          ),
+          MetricRow(
+            icon: Ic.chart,
+            accent: AppColors.warn,
+            label: 'Dip burden',
+            info: 'Share of the analyzed overnight signal spent in dip events.',
+            value: burdenPct?.toStringAsFixed(1) ?? '—',
+            unit: '%',
+          ),
+          MetricRow(
+            icon: Ic.activity,
+            accent: AppColors.good,
+            label: 'Mean dip depth',
+            info:
+                'Average size of the accepted relative dips versus the rolling '
+                'baseline.',
+            value: meanDipPct?.toStringAsFixed(1) ?? '—',
+            unit: '%',
+          ),
+          MetricRow(
+            icon: Ic.chart,
+            accent: accent,
+            label: 'Strongest dip',
+            info:
+                'Largest accepted relative dip versus the rolling nightly '
+                'baseline.',
+            value: maxDipPct?.toStringAsFixed(1) ?? '—',
+            unit: '%',
+          ),
+          MetricRow(
+            icon: Ic.watch,
+            accent: AppColors.inkSoft,
+            label: 'Signal coverage',
+            info:
+                'Share of the overnight red/IR signal that was usable after '
+                'contact and stability checks.',
+            value: signalCoverage == null
+                ? '—'
+                : (signalCoverage * 100).toStringAsFixed(0),
+            unit: '%',
+          ),
+          MetricRow(
+            icon: Ic.watch,
+            accent: AppColors.inkMuted,
+            label: 'Trusted coverage',
+            info:
+                'Share of the overnight red/IR signal that survived the '
+                'stricter artifact gate used for dip detection.',
+            value: trustedCoverage == null
+                ? '—'
+                : (trustedCoverage * 100).toStringAsFixed(0),
+            unit: '%',
+          ),
+          if (resp?['value'] != null)
+            MetricRow(
+              icon: Ic.activity,
+              accent: AppColors.good,
+              label: 'Respiratory rate',
+              info: infoFor('resp'),
+              value: '${resp!['value']}',
+              unit: 'brpm',
             ),
-            const SizedBox(height: Sp.x6),
-            SectionHeader('Summary'),
-            MetricGroup([
-              MetricRow(
-                icon: Ic.droplet,
-                accent: AppColors.coralDeep,
-                label: 'Oxygen dips',
-                info: infoFor('spo2'),
-                value:
-                    (spo2['odi_per_hour'] as num?)?.toStringAsFixed(1) ?? '—',
-                unit: '/h',
-              ),
-              MetricRow(
-                icon: Ic.chart,
-                accent: AppColors.warn,
-                label: 'Dip burden',
-                info:
-                    'Share of the analyzed overnight signal spent in dip events.',
-                value: burdenPct?.toStringAsFixed(1) ?? '—',
-                unit: '%',
-              ),
-              MetricRow(
-                icon: Ic.activity,
-                accent: AppColors.good,
-                label: 'Mean dip depth',
-                info:
-                    'Average size of the accepted relative dips versus the rolling baseline.',
-                value: meanDipPct?.toStringAsFixed(1) ?? '—',
-                unit: '%',
-              ),
-              MetricRow(
-                icon: Ic.chart,
-                accent: AppColors.coralDeep,
-                label: 'Strongest dip',
-                info:
-                    'Largest accepted relative dip versus the rolling nightly baseline.',
-                value: maxDipPct?.toStringAsFixed(1) ?? '—',
-                unit: '%',
-              ),
-              MetricRow(
-                icon: Ic.watch,
-                accent: AppColors.warn,
-                label: 'Longest dip',
-                info:
-                    'Longest accepted dip event duration in the overnight signal.',
-                value: longestDipSec == null ? '—' : '$longestDipSec',
-                unit: 's',
-              ),
-              MetricRow(
-                icon: Ic.watch,
-                accent: AppColors.inkSoft,
-                label: 'Signal coverage',
-                info:
-                    'Share of the overnight red/IR signal that was usable after contact and stability checks.',
-                value: signalCoverage == null
-                    ? '—'
-                    : (signalCoverage * 100).toStringAsFixed(0),
-                unit: '%',
-              ),
-              MetricRow(
-                icon: Ic.watch,
-                accent: AppColors.inkMuted,
-                label: 'Trusted coverage',
-                info:
-                    'Share of the overnight red/IR signal that survived the stricter artifact gate used for dip detection.',
-                value: trustedCoverage == null
-                    ? '—'
-                    : (trustedCoverage * 100).toStringAsFixed(0),
-                unit: '%',
-              ),
-              if (resp?['value'] != null)
-                MetricRow(
-                  icon: Ic.activity,
-                  accent: AppColors.good,
-                  label: 'Respiratory rate',
-                  info: infoFor('resp'),
-                  value: '${resp!['value']}',
-                  unit: 'brpm',
+        ]),
+
+        // ── signal quality diagnostics ───────────────────────────────────────
+        if (rejectCounts != null) ...[
+          const SizedBox(height: Sp.x6),
+          const SectionHeader('Signal quality'),
+          SurfaceCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x4,
+              vertical: Sp.x2,
+            ),
+            child: Column(
+              children: [
+                DetailRow(
+                  label: 'Rejected: non-positive',
+                  value: '${rejectCounts['non_positive'] ?? 0}',
                 ),
-            ]),
-            if (rejectCounts != null) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Signal quality'),
-              ProCard(
-                child: Column(
-                  children: [
-                    DetailRow(
-                      label: 'Rejected: non-positive',
-                      value: '${rejectCounts['non_positive'] ?? 0}',
-                    ),
-                    DetailRow(
-                      label: 'Rejected: flatline',
-                      value: '${rejectCounts['flatline'] ?? 0}',
-                    ),
-                    DetailRow(
-                      label: 'Rejected: jump',
-                      value: '${rejectCounts['jump'] ?? 0}',
-                    ),
-                    DetailRow(
-                      label: 'Rejected: ratio outlier',
-                      value: '${rejectCounts['ratio_outlier'] ?? 0}',
-                    ),
-                  ],
+                DetailRow(
+                  label: 'Rejected: flatline',
+                  value: '${rejectCounts['flatline'] ?? 0}',
                 ),
-              ),
-            ],
-            if (latestEvent != null) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Latest dip'),
-              ProCard(
-                child: Column(
-                  children: [
-                    DetailRow(
-                      label: 'Window',
-                      value:
-                          '${_hm((latestEvent['start'] as num?)?.toInt())} → ${_hm((latestEvent['end'] as num?)?.toInt())}',
-                    ),
-                    DetailRow(
-                      label: 'Duration',
-                      value:
-                          '${(latestEvent['duration_sec'] as num?)?.toInt() ?? 0}s',
-                    ),
-                    DetailRow(
-                      label: 'Peak rise',
-                      value:
-                          '${((latestEvent['peak_rise_pct'] as num?)?.toDouble() ?? 0).toStringAsFixed(1)}%',
-                    ),
-                  ],
+                DetailRow(
+                  label: 'Rejected: jump',
+                  value: '${rejectCounts['jump'] ?? 0}',
                 ),
-              ),
-            ],
-            if (events.isNotEmpty) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Detected dips'),
-              ProCard(
-                child: Column(
-                  children: [
-                    for (final e in events) ...[
-                      DetailRow(
-                        label:
-                            '${_hm((e['start'] as num?)?.toInt())} → ${_hm((e['end'] as num?)?.toInt())}',
-                        value:
-                            '${(e['duration_sec'] as num?)?.toInt() ?? 0}s · ${((e['peak_rise_pct'] as num?)?.toDouble() ?? 0).toStringAsFixed(1)}%',
-                      ),
-                      if (e != events.last)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: Sp.x1),
-                          child: Divider(height: 1),
-                        ),
-                    ],
-                  ],
+                DetailRow(
+                  label: 'Rejected: ratio outlier',
+                  value: '${rejectCounts['ratio_outlier'] ?? 0}',
                 ),
-              ),
-            ],
-          ],
-        );
-      },
+              ],
+            ),
+          ),
+        ],
+
+        // ── detected dips list ───────────────────────────────────────────────
+        if (events.isNotEmpty) ...[
+          const SizedBox(height: Sp.x6),
+          const SectionHeader('Detected dips'),
+          SurfaceCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x4,
+              vertical: Sp.x2,
+            ),
+            child: Column(
+              children: [
+                for (final e in events)
+                  DetailRow(
+                    label:
+                        '${_hm((e['start'] as num?)?.toInt())} → ${_hm((e['end'] as num?)?.toInt())}',
+                    value:
+                        '${(e['duration_sec'] as num?)?.toInt() ?? 0}s · ${((e['peak_rise_pct'] as num?)?.toDouble() ?? 0).toStringAsFixed(1)}%',
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -1334,20 +1444,20 @@ Widget _legendPill(String label, Color color) {
 
   if (trusted < 0.35 || (coverage < 0.5 && rejects > 100)) {
     return (
-      label: 'noisy',
+      label: 'Noisy',
       color: AppColors.warn,
       reason: 'Low trusted coverage or too many rejected samples.',
     );
   }
   if (trusted < 0.65 || coverage < 0.75 || rejects > 500) {
     return (
-      label: 'questionable',
+      label: 'Shaky',
       color: AppColors.coral,
       reason: 'Usable, but signal quality is not stable enough to fully trust.',
     );
   }
   return (
-    label: dips > 0 ? 'usable' : 'clean',
+    label: dips > 0 ? 'Usable' : 'Clean',
     color: AppColors.good,
     reason: dips > 0
         ? 'Signal quality looks good enough to inspect the detected dips.'
@@ -1364,7 +1474,7 @@ Widget _legendPill(String label, Color color) {
   final trusted = trustedCoverage ?? 0;
   if (trusted < 0.6) {
     return (
-      label: 'uncertain',
+      label: 'Uncertain',
       color: AppColors.inkSoft,
       reason:
           'Signal trust is too low to grade tonight’s oxygen burden confidently.',
@@ -1377,15 +1487,16 @@ Widget _legendPill(String label, Color color) {
 
   if (odi >= 12 || maxDip >= 8 || burden >= 6) {
     return (
-      label: 'high',
+      label: 'High',
       color: AppColors.warn,
       reason:
-          'Tonight shows frequent or pronounced oxygen dips for this relative overnight screen.',
+          'Tonight shows frequent or pronounced oxygen dips for this relative '
+          'overnight screen.',
     );
   }
   if (odi >= 5 || maxDip >= 5 || burden >= 2) {
     return (
-      label: 'elevated',
+      label: 'Elevated',
       color: AppColors.coral,
       reason:
           'Tonight has a noticeable oxygen-dip load, but not an extreme one.',
@@ -1393,14 +1504,15 @@ Widget _legendPill(String label, Color color) {
   }
   if (odi > 0 || maxDip > 0 || burden > 0) {
     return (
-      label: 'mild',
+      label: 'Mild',
       color: AppColors.good,
       reason:
-          'Some dips were detected, but the overall overnight burden looks limited.',
+          'Some dips were detected, but the overall overnight burden looks '
+          'limited.',
     );
   }
   return (
-    label: 'quiet',
+    label: 'Quiet',
     color: AppColors.good,
     reason: 'No meaningful overnight oxygen dips were detected in this signal.',
   );
@@ -1412,6 +1524,8 @@ String _nightSpan(double? hours) {
   return '${hours.toStringAsFixed(1)} h analyzed';
 }
 
+/// Last-7-nights strip — fetches the week trend anchored on [date] and grades
+/// the pattern (spike / rising / settling / steady) honestly.
 class _OxygenRecentStrip extends StatefulWidget {
   final String date;
   const _OxygenRecentStrip({required this.date});
@@ -1514,14 +1628,7 @@ class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const ProCard(
-        child: Padding(
-          padding: EdgeInsets.all(Sp.x4),
-          child: Center(child: CircularProgressIndicator()),
-        ),
-      );
-    }
+    if (_loading) return Skeleton.chart(height: 160);
 
     final buckets = ((_trend?['buckets'] as List?) ?? const [])
         .whereType<Map>()
@@ -1529,14 +1636,10 @@ class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
         .toList();
     final present = buckets.where((b) => b['has'] == true).toList();
     if (present.isEmpty) {
-      return ProCard(
-        child: Padding(
-          padding: const EdgeInsets.all(Sp.x4),
-          child: Text(
-            'No recent overnight oxygen trend yet.',
-            style: AppText.captionMuted,
-          ),
-        ),
+      return const _QuietState(
+        icon: Ic.droplet,
+        title: 'No recent oxygen trend yet',
+        message: 'A few more nights of wear build the 7-night pattern.',
       );
     }
     final values = [
@@ -1548,52 +1651,43 @@ class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
     final avg = values.reduce((a, b) => a + b) / values.length;
     final latest = values.last;
     final pattern = _patternVerdict(values);
-    return ProCard(
+    return SurfaceCard(
+      padding: const EdgeInsets.all(Sp.x4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text('Last 7 nights', style: AppText.label),
-              const Spacer(),
-              Tag(pattern.label, color: pattern.color),
-            ],
+          TileHeader(
+            'Last 7 nights',
+            icon: Ic.calendar,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Tag(pattern.label, color: pattern.color),
+                InfoDot(title: 'Last 7 nights', body: pattern.reason),
+              ],
+            ),
           ),
-          const SizedBox(height: Sp.x2),
-          Text(pattern.reason, style: AppText.captionMuted),
-          const SizedBox(height: Sp.x4),
+          const SizedBox(height: Sp.x3),
           SizedBox(
-            height: 180,
+            height: 150,
             child: LabeledBars(
               values: values,
               labels: labels,
-              color: AppColors.coralDeep,
+              color: DomainAccent.oxygen,
               highlight: values.length - 1,
               valueFmt: (v) => v == 0 ? '' : v.toStringAsFixed(1),
             ),
           ),
-          const SizedBox(height: Sp.x4),
-          Row(
+          const SizedBox(height: Sp.x3),
+          Wrap(
+            spacing: Sp.x2,
+            runSpacing: Sp.x1,
             children: [
-              Expanded(
-                child: _MiniMetricCell(
-                  'Latest',
-                  '${latest.toStringAsFixed(1)} /h',
-                ),
-              ),
-              const SizedBox(width: Sp.x3),
-              Expanded(
-                child: _MiniMetricCell(
-                  'Week avg',
-                  '${avg.toStringAsFixed(1)} /h',
-                ),
-              ),
-              const SizedBox(width: Sp.x3),
-              Expanded(
-                child: _MiniMetricCell(
-                  'Delta',
-                  '${(latest - avg >= 0 ? '+' : '')}${(latest - avg).toStringAsFixed(1)} /h',
-                ),
+              StatusChip('Latest ${latest.toStringAsFixed(1)}/h',
+                  tone: ChipTone.accent),
+              StatusChip('Avg ${avg.toStringAsFixed(1)}/h'),
+              StatusChip(
+                '${(latest - avg >= 0 ? '+' : '')}${(latest - avg).toStringAsFixed(1)} vs avg',
               ),
             ],
           ),
@@ -1603,59 +1697,9 @@ class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
   }
 }
 
-class _HeartMetricCell extends StatelessWidget {
-  final String label;
-  final String value;
-  const _HeartMetricCell(this.label, this.value);
+// ── ILLNESS + IRREGULAR watches ──────────────────────────────────────────────
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Sp.x3, vertical: Sp.x3),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.divider),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label.toUpperCase(), style: AppText.overline),
-          const SizedBox(height: 2),
-          Text('$value bpm', style: AppText.label),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniMetricCell extends StatelessWidget {
-  final String label;
-  final String value;
-  const _MiniMetricCell(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Sp.x3, vertical: Sp.x3),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.divider),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label.toUpperCase(), style: AppText.overline),
-          const SizedBox(height: 2),
-          Text(value, style: AppText.label, textAlign: TextAlign.center),
-        ],
-      ),
-    );
-  }
-}
-
-// Illness watch — always visible. Renders one of three honest states from the
+// Illness watch — always visible. One of three honest states from the
 // Mahalanobis illness object: a fired signal (amber), all-clear (green), or
 // "still building baseline" (muted) when there aren't yet ~7 nights to compare.
 class _IllnessCard extends StatelessWidget {
@@ -1677,123 +1721,69 @@ class _IllnessCard extends StatelessWidget {
     final drivers =
         (illness?['drivers'] as List?)?.whereType<Map>().toList() ?? const [];
 
-    // No baseline yet → honest "Need N more nights" state (precise when the note
-    // carries the count; otherwise the generic ~7-night copy).
+    // No baseline yet → honest "Need N more nights" state.
     if (illness == null || (cusum == null && !signal)) {
       final needLine = needNights != null
           ? 'Need $needNights more night${needNights == 1 ? '' : 's'} of wear to start.'
           : 'It needs about 7 nights of wear to start.';
-      return ProCard(
-        child: Padding(
-          padding: const EdgeInsets.all(Sp.x4),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceSunk,
-                  borderRadius: BorderRadius.circular(R.chip),
-                ),
-                child: AppIcon(Ic.info, size: 17, color: AppColors.inkMuted),
-              ),
-              const SizedBox(width: Sp.x3),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      needNights != null
-                          ? 'Need $needNights more night${needNights == 1 ? '' : 's'}'
-                          : 'Building your baseline',
-                      style: AppText.label,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Illness watch compares today’s resting HR, HRV and skin temperature '
-                      'against your normal range. $needLine',
-                      style: AppText.captionMuted,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+      return _QuietState(
+        icon: Ic.info,
+        title: needNights != null
+            ? 'Need $needNights more night${needNights == 1 ? '' : 's'}'
+            : 'Building your baseline',
+        message:
+            'Illness watch compares today’s resting HR, HRV and skin '
+            'temperature against your normal range. $needLine',
       );
     }
 
     final accent = signal ? AppColors.warn : AppColors.good;
-    final softBg = signal ? AppColors.warnSoft : AppColors.goodSoft;
     final title = signal ? 'Elevated body signal' : 'All clear';
     final blurb = signal
-        ? 'Your resting HR, HRV and temperature are deviating together — a pattern that can precede illness. A signal, not a diagnosis.'
+        ? 'Your resting HR, HRV and temperature are deviating together — a '
+              'pattern that can precede illness. A signal, not a diagnosis.'
         : 'Your resting HR, HRV and temperature are within your normal range.';
 
-    return ProCard(
+    return BentoTile(
+      tone: BentoTone.soft,
+      accent: accent,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Padding(
-            padding: const EdgeInsets.all(Sp.x4),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(9),
-                  decoration: BoxDecoration(
-                    color: softBg,
-                    borderRadius: BorderRadius.circular(R.chip),
-                  ),
-                  child: AppIcon(
-                    signal ? Ic.info : Ic.check,
-                    size: 17,
-                    color: accent,
-                  ),
+          Row(
+            children: [
+              Expanded(
+                child: StatusChip(
+                  title,
+                  icon: signal
+                      ? Icons.error_outline
+                      : Icons.check_circle_outline,
+                  tone: signal ? ChipTone.warn : ChipTone.positive,
                 ),
-                const SizedBox(width: Sp.x3),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            title,
-                            style: AppText.label.copyWith(color: accent),
-                          ),
-                          const Spacer(),
-                          if (cusum != null)
-                            Text(
-                              'index ${cusum.toStringAsFixed(1)}',
-                              style: AppText.captionMuted,
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(blurb, style: AppText.captionMuted),
-                    ],
-                  ),
+              ),
+              if (cusum != null)
+                Text(
+                  'index ${cusum.toStringAsFixed(1)}',
+                  style: AppText.captionMuted,
                 ),
-              ],
-            ),
+              InfoDot(
+                title: 'Illness watch',
+                body: blurb,
+                methodNote:
+                    'NightSignal CUSUM over resting HR / HRV / skin temp vs '
+                    'your own baselines — a signal, not a diagnosis.',
+              ),
+            ],
           ),
           // Per-feature deviations (what's moving), when present.
           if (drivers.isNotEmpty) ...[
-            Divider(height: 1, color: AppColors.divider),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Sp.x4,
-                vertical: Sp.x2,
+            const SizedBox(height: Sp.x2),
+            for (final dr in drivers)
+              DetailRow(
+                label: dr['label']?.toString() ?? '',
+                value: dr['detail']?.toString() ?? '',
               ),
-              child: Column(
-                children: [
-                  for (final dr in drivers)
-                    DetailRow(
-                      label: dr['label']?.toString() ?? '',
-                      value: dr['detail']?.toString() ?? '',
-                    ),
-                ],
-              ),
-            ),
           ],
         ],
       ),
@@ -1812,104 +1802,54 @@ class _IrregularCard extends StatelessWidget {
     final conf = (irr?['confidence'] as num?) ?? 0;
     // No usable nocturnal RR yet → honest "building" state.
     if (irr == null || conf <= 0) {
-      return ProCard(
-        child: Padding(
-          padding: const EdgeInsets.all(Sp.x4),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(9),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceSunk,
-                  borderRadius: BorderRadius.circular(R.chip),
-                ),
-                child: AppIcon(Ic.info, size: 17, color: AppColors.inkMuted),
-              ),
-              const SizedBox(width: Sp.x3),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Listening for your rhythm', style: AppText.label),
-                    const SizedBox(height: 2),
-                    Text(
-                      'This screens your beat-to-beat (RR) timing overnight for irregularity. '
-                      'It needs a night of good wear with heart-rate variability data to read.',
-                      style: AppText.captionMuted,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+      return const _QuietState(
+        icon: Ic.info,
+        title: 'Listening for your rhythm',
+        message:
+            'This screens your beat-to-beat (RR) timing overnight for '
+            'irregularity. It needs a night of good wear with heart-rate '
+            'variability data to read.',
       );
     }
     final flag = irr!['flag'] == true;
     final accent = flag ? AppColors.warn : AppColors.good;
-    final softBg = flag ? AppColors.warnSoft : AppColors.goodSoft;
-    return ProCard(
+    return BentoTile(
+      tone: BentoTone.soft,
+      accent: accent,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Padding(
-            padding: const EdgeInsets.all(Sp.x4),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(9),
-                  decoration: BoxDecoration(
-                    color: softBg,
-                    borderRadius: BorderRadius.circular(R.chip),
-                  ),
-                  child: AppIcon(
-                    flag ? Ic.info : Ic.check,
-                    size: 17,
-                    color: accent,
-                  ),
+          Row(
+            children: [
+              Expanded(
+                child: StatusChip(
+                  flag ? 'Irregular rhythm pattern' : 'Rhythm looks regular',
+                  icon: flag
+                      ? Icons.error_outline
+                      : Icons.check_circle_outline,
+                  tone: flag ? ChipTone.warn : ChipTone.positive,
                 ),
-                const SizedBox(width: Sp.x3),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        flag
-                            ? 'Irregular rhythm pattern'
-                            : 'Rhythm looks regular',
-                        style: AppText.label.copyWith(color: accent),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        flag
-                            ? 'Your beat-to-beat timing was unusually irregular overnight. A screen, not a diagnosis — if it persists, see a clinician.'
-                            : 'Beat-to-beat timing was within a normal range overnight.',
-                        style: AppText.captionMuted,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+              InfoDot(
+                title: 'Irregular-beat watch',
+                body: flag
+                    ? 'Your beat-to-beat timing was unusually irregular '
+                          'overnight. A screen, not a diagnosis — if it '
+                          'persists, see a clinician.'
+                    : 'Beat-to-beat timing was within a normal range overnight.',
+                methodNote: 'Poincaré SD1/SD2 + pNN from nocturnal RR',
+              ),
+            ],
           ),
           if (irr!['sd1'] != null && irr!['sd2'] != null) ...[
-            Divider(height: 1, color: AppColors.divider),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Sp.x4,
-                vertical: Sp.x2,
-              ),
-              child: Column(
-                children: [
-                  DetailRow(
-                    label: 'Poincaré SD1 / SD2',
-                    value: '${irr!['sd1']} / ${irr!['sd2']} ms',
-                  ),
-                  if (irr!['pnn50'] != null)
-                    DetailRow(label: 'pNN50', value: '${irr!['pnn50']}%'),
-                ],
-              ),
+            const SizedBox(height: Sp.x2),
+            DetailRow(
+              label: 'Poincaré SD1 / SD2',
+              value: '${irr!['sd1']} / ${irr!['sd2']} ms',
             ),
+            if (irr!['pnn50'] != null)
+              DetailRow(label: 'pNN50', value: '${irr!['pnn50']}%'),
           ],
         ],
       ),
@@ -1918,16 +1858,31 @@ class _IrregularCard extends StatelessWidget {
 }
 
 // ── WEAR TIME ────────────────────────────────────────────────────────────────
-// How long the strap was on the wrist for a day: a coverage ring + worn time hero,
-// a 24-hour coverage strip (minutes worn each hour), and when it went on/off.
-// All from /day/wear (device wrist sensor, tier AUTH). Existing kit only.
+
 class WearDayCard extends StatelessWidget {
   final String date;
   const WearDayCard({super.key, required this.date});
 
+  @override
+  Widget build(BuildContext context) {
+    return _Fetch(
+      load: (api) => api.getDayWear(date),
+      build: (d) => WearDayContent(data: d, date: date),
+    );
+  }
+}
+
+/// WearDayContent — the pure wear-day board: worn-time hero with a coverage
+/// ArcGauge, the 24-hour coverage bars (recent days only), and on/off tiles.
+/// All from /day/wear (device wrist sensor, tier AUTH).
+class WearDayContent extends StatelessWidget {
+  final Map<String, dynamic> data;
+  final String date;
+  const WearDayContent({super.key, required this.data, required this.date});
+
   num? _n(Object? v) => v is num ? v : null;
 
-  // unix seconds → local "h:mm a"
+  // unix seconds → local "h:mm AM/PM"
   String _clock(num? ts) {
     if (ts == null) return '—';
     final d = DateTime.fromMillisecondsSinceEpoch(ts.toInt() * 1000).toLocal();
@@ -1938,131 +1893,176 @@ class WearDayCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Fetch(
-      load: (api) => api.getDayWear(date),
-      build: (d) {
-        final worn = (_n(d['worn_min']) ?? 0).toInt();
-        final cov = (_n(d['coverage_pct']) ?? 0).toInt();
-        final hourly = ((d['hourly'] as List?) ?? const [])
-            .map((e) => (e as num).toDouble())
-            .toList();
-        final firstOn = _n(d['first_on']);
-        final lastOn = _n(d['last_on']);
-        final segments = (_n(d['segments']) ?? 0).toInt();
-        final longestOff = (_n(d['longest_off_min']) ?? 0).toInt();
+    final d = data;
+    final accent = AppColors.coralDeep;
+    final worn = (_n(d['worn_min']) ?? 0).toInt();
+    final cov = (_n(d['coverage_pct']) ?? 0).toInt();
+    final hourly = ((d['hourly'] as List?) ?? const [])
+        .map((e) => (e as num).toDouble())
+        .toList();
+    final firstOn = _n(d['first_on']);
+    final lastOn = _n(d['last_on']);
+    final segments = (_n(d['segments']) ?? 0).toInt();
+    final longestOff = (_n(d['longest_off_min']) ?? 0).toInt();
 
-        if (worn == 0) {
-          return ProCard(
-            child: Padding(
-              padding: const EdgeInsets.all(Sp.x5),
-              child: Center(
-                child: Text(
-                  'The strap wasn’t worn on this day',
-                  style: AppText.captionMuted,
-                ),
-              ),
-            ),
-          );
-        }
+    if (worn == 0) {
+      return const _QuietState(
+        icon: Ic.watch,
+        title: 'Not worn on this day',
+        message: 'No wrist contact was recorded — nothing to analyze.',
+      );
+    }
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Hero — worn time + coverage ring.
-            GlowCard(
-              padding: const EdgeInsets.all(Sp.x6),
-              glow: AppColors.coralDeep,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            AppIcon(
-                              Ic.watch,
-                              size: 16,
-                              color: AppColors.coralDeep,
-                            ),
-                            const SizedBox(width: Sp.x2),
-                            Text('TIME WORN', style: AppText.overline),
-                            const SizedBox(width: Sp.x2),
-                            Tag('AUTH', color: AppColors.good),
-                          ],
-                        ),
-                        const SizedBox(height: Sp.x3),
-                        Text(hm(worn), style: AppText.display),
-                        const SizedBox(height: Sp.x2),
-                        Text('$cov% of the day', style: AppText.bodySoft),
-                      ],
-                    ),
-                  ),
-                  RingStat(
-                    t: (cov / 100).clamp(0.0, 1.0),
-                    color: AppColors.coralDeep,
-                    size: 96,
-                    stroke: 11,
-                    center: Text('$cov%', style: AppText.metricSm),
-                  ),
-                ],
-              ),
-            ),
-
-            // 24-hour coverage strip — minute-level, recent days only. The worn-time
-            // total + first/last/segments summary above is permanent.
-            if (!detailedAvailable(date)) ...[
-              const SizedBox(height: Sp.x6),
-              const DetailRetentionNote(what: 'hourly wear breakdown'),
-            ] else if (hourly.length == 24) ...[
-              const SizedBox(height: Sp.x6),
-              SectionHeader('Hourly coverage'),
-              ProCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── hero: worn time beside the coverage gauge ────────────────────────
+        SurfaceCard(
+          padding: const EdgeInsets.all(Sp.x5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TileHeader(
+                'Time worn',
+                icon: Ic.watch,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      'Minutes worn in each hour of the day.',
-                      style: AppText.captionMuted,
-                    ),
-                    const SizedBox(height: Sp.x3),
-                    MiniBars(hourly, color: AppColors.coralDeep, height: 64),
-                    const SizedBox(height: Sp.x2),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('12a', style: AppText.captionMuted),
-                        Text('6a', style: AppText.captionMuted),
-                        Text('12p', style: AppText.captionMuted),
-                        Text('6p', style: AppText.captionMuted),
-                        Text('12a', style: AppText.captionMuted),
-                      ],
+                    Tag('AUTH', color: AppColors.good),
+                    InfoDot(
+                      title: 'Wear time',
+                      body:
+                          'How long the strap was actually on your wrist, from '
+                          'the device wrist sensor. More wear = better sleep, '
+                          'recovery and baseline quality.',
                     ),
                   ],
                 ),
               ),
-            ],
-
-            // When + how continuous.
-            const SizedBox(height: Sp.x6),
-            SectionHeader('Details'),
-            ProCard(
-              child: Column(
+              const SizedBox(height: Sp.x2),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  DetailRow(label: 'First put on', value: _clock(firstOn)),
-                  DetailRow(label: 'Last worn', value: _clock(lastOn)),
-                  DetailRow(label: 'Wear stretches', value: '$segments'),
-                  DetailRow(
-                    label: 'Longest off-wrist',
+                  Expanded(
+                    child: BigStat(
+                      value: hm(worn),
+                      caption: '$cov% of the day',
+                      size: BigStatSize.xl,
+                    ),
+                  ),
+                  const SizedBox(width: Sp.x3),
+                  ArcGauge(
+                    value: (cov / 100).clamp(0.0, 1.0),
+                    color: AppColors.coralDeep,
+                    size: 96,
+                    stroke: 10,
+                    valueText: '$cov%',
+                    label: 'of day',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ).dsEnter(),
+
+        // ── 24-hour coverage strip (recent days only) ────────────────────────
+        if (!detailedAvailable(date)) ...[
+          const SizedBox(height: Sp.x3),
+          const DetailRetentionNote(what: 'hourly wear breakdown'),
+        ] else if (hourly.length == 24) ...[
+          const SizedBox(height: Sp.x3),
+          SurfaceCard(
+            padding: const EdgeInsets.all(Sp.x4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TileHeader(
+                  'Hourly coverage',
+                  trailing: InfoDot(
+                    title: 'Hourly coverage',
+                    body: 'Minutes worn in each hour of the day.',
+                  ),
+                ),
+                const SizedBox(height: Sp.x3),
+                MiniBars(hourly, color: AppColors.coralDeep, height: 64),
+                const SizedBox(height: Sp.x2),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('12a', style: AppText.captionMuted),
+                    Text('6a', style: AppText.captionMuted),
+                    Text('12p', style: AppText.captionMuted),
+                    Text('6p', style: AppText.captionMuted),
+                    Text('12a', style: AppText.captionMuted),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+
+        // ── when + how continuous ────────────────────────────────────────────
+        const SizedBox(height: Sp.x3),
+        BentoColumns(
+          left: [
+            BentoTile(
+              accent: accent,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TileHeader('First put on', icon: Ic.up),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(value: _clock(firstOn), size: BigStatSize.md),
+                ],
+              ),
+            ),
+            BentoTile(
+              tone: BentoTone.soft,
+              accent: accent,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TileHeader('Wear stretches', icon: Ic.activity),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(value: '$segments', size: BigStatSize.md),
+                ],
+              ),
+            ),
+          ],
+          right: [
+            BentoTile(
+              accent: accent,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TileHeader('Last worn', icon: Ic.down),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(value: _clock(lastOn), size: BigStatSize.md),
+                ],
+              ),
+            ),
+            BentoTile(
+              tone: BentoTone.soft,
+              accent: accent,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TileHeader('Longest off', icon: Ic.clock),
+                  const SizedBox(height: Sp.x2),
+                  BigStat(
                     value: longestOff > 0 ? hm(longestOff) : 'none',
+                    size: BigStatSize.md,
                   ),
                 ],
               ),
             ),
           ],
-        );
-      },
+        ),
+      ],
     );
   }
 }
@@ -2144,29 +2144,34 @@ class _SectionExtrasState extends State<SectionExtras> {
     }
   }
 
+  Color get _accent => switch (widget.section) {
+    'sleep' => DomainAccent.sleep,
+    'body' => DomainAccent.strain,
+    _ => DomainAccent.heart,
+  };
+
   @override
   Widget build(BuildContext context) {
     if (_loading) return const SizedBox.shrink();
     final cfg = _recordCfg[widget.section] ?? const [];
     final recs = (_records?['records'] as Map?) ?? const {};
-    final tiles = <Widget>[];
+    final tiles = <BentoItem>[];
     for (final c in cfg) {
       final rec = (recs[c.$1] as Map?);
       final v = rec == null ? null : (rec['value'] as num?);
       if (v == null) continue;
       tiles.add(
-        Expanded(
-          child: ProCard(
-            padding: const EdgeInsets.all(Sp.x4),
+        BentoItem(
+          BentoTile(
+            tone: BentoTone.soft,
+            accent: _accent,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(c.$2.toUpperCase(), style: AppText.overline, maxLines: 2),
-                const SizedBox(height: Sp.x3),
-                Text(
-                  _fmt(v, c.$3),
-                  style: AppText.metricSm.copyWith(fontSize: 20),
-                ),
+                TileHeader(c.$2, icon: Ic.recovery),
+                const SizedBox(height: Sp.x2),
+                BigStat(value: _fmt(v, c.$3), size: BigStatSize.md),
               ],
             ),
           ),
@@ -2209,24 +2214,32 @@ class _SectionExtrasState extends State<SectionExtras> {
         if (tiles.isNotEmpty) ...[
           const SizedBox(height: Sp.x6),
           const SectionHeader('Records'),
-          Row(
-            children: [
-              for (int i = 0; i < tiles.length; i++) ...[
-                tiles[i],
-                if (i < tiles.length - 1) const SizedBox(width: Sp.x3),
-              ],
-            ],
-          ),
+          BentoGrid(items: tiles),
         ],
         if (patternRows.isNotEmpty) ...[
           const SizedBox(height: Sp.x6),
           const SectionHeader('Patterns'),
-          Text(
-            'How your tagged days compare — descriptive, not causal.',
-            style: AppText.captionMuted,
+          SurfaceCard(
+            padding: const EdgeInsets.symmetric(
+              horizontal: Sp.x4,
+              vertical: Sp.x2,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TileHeader(
+                  'Your tagged days',
+                  trailing: InfoDot(
+                    title: 'Patterns',
+                    body:
+                        'How your tagged journal days compare with the rest — '
+                        'descriptive, not causal.',
+                  ),
+                ),
+                ...patternRows,
+              ],
+            ),
           ),
-          const SizedBox(height: Sp.x2),
-          ProCard(child: Column(children: patternRows)),
         ],
       ],
     );

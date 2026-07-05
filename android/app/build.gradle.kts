@@ -79,4 +79,8 @@ flutter {
 dependencies {
     // Backs isCoreLibraryDesugaringEnabled (required by ota_update 7.x).
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // KeepAliveWorker (service watchdog). The workmanager Flutter plugin ships the
+    // runtime transitively, but as an `implementation` dep it isn't visible to app
+    // code at compile time — declare it explicitly for our native Worker.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 }

@@ -12,6 +12,8 @@
 // run server-side. The screen DATA layer is therefore a clean, localized seam:
 // nothing above this file references HTTP, JWT, or a backend URL anymore.
 
+import '../gps/route_models.dart';
+
 /// Replaces the old ApiClient `ApiException`. Screens catch this to show an
 /// offline / error state. The re-layer can subclass or throw it directly.
 class RepositoryException implements Exception {
@@ -93,6 +95,9 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: endWorkout');
   Future<Map<String, dynamic>> setWorkoutType(String id, String type) =>
       throw UnimplementedError('re-layer: setWorkoutType');
+  // GPS route for a run/ride/walk (on-device only). Null when none recorded.
+  Future<WorkoutRoute?> getWorkoutRoute(String id) =>
+      throw UnimplementedError('re-layer: getWorkoutRoute');
 
   // ── journal + correlation engine ──────────────────────────────────────────────
   Future<List<Map<String, dynamic>>> getJournal({String range = '30d'}) =>
