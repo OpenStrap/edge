@@ -219,7 +219,6 @@ class HeartDayContent extends StatelessWidget {
     final hrv = (d['hrv'] as Map?);
     final zones = (d['zones'] as Map?);
     final noct = (d['nocturnal'] as Map?);
-    final stress = (d['stress'] as Map?);
     final illness = (d['illness'] as Map?);
     final resp = (d['resp'] as Map?);
     final spo2 = (d['spo2'] as Map?);
@@ -227,7 +226,6 @@ class HeartDayContent extends StatelessWidget {
     final irr24v = (irr24?['value'] is Map)
         ? (irr24!['value'] as Map).cast<String, dynamic>()
         : null;
-    final hrr = _n(d['hrr']);
     final brvHas = (d['brv'] is Map) && ((d['brv'] as Map)['value'] is Map);
     final baselines = (d['baselines'] as Map?);
     final dmap = (d['drivers'] as Map?) ?? const {};
@@ -380,52 +378,6 @@ class HeartDayContent extends StatelessWidget {
                     value: rhr == null ? null : '${rhr.round()}',
                     unit: 'bpm',
                     caption: rhrBase == null ? null : 'usual ${rhrBase.round()}',
-                  ),
-                ],
-              ),
-            ),
-            // HRR — 60-s recovery after effort.
-            BentoTile(
-              tone: BentoTone.soft,
-              accent: DomainAccent.strain,
-              onTap: hrr == null
-                  ? null
-                  : () => openTrend(context,
-                      title: 'Heart-rate recovery',
-                      metric: 'hrr',
-                      icon: Ic.recovery,
-                      osIcon: OsIcon.heartRateRecovery,
-                      accent: DomainAccent.strain),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const TileHeader('HR recovery',
-                      icon: Ic.recovery, osIcon: OsIcon.heartRateRecovery),
-                  const SizedBox(height: Sp.x2),
-                  BigStat(
-                    value: hrr?.toStringAsFixed(0),
-                    unit: 'bpm',
-                    caption: hrr == null ? null : '60 s after effort',
-                  ),
-                ],
-              ),
-            ),
-            // Stress — the rose tile.
-            BentoTile(
-              accent: DomainAccent.stress,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const TileHeader('Stress',
-                      icon: Ic.strain, osIcon: OsIcon.stress),
-                  const SizedBox(height: Sp.x2),
-                  BigStat(
-                    value: (stress?['score'] ?? stress?['si'])?.toString(),
-                    unit: '/100',
-                    caption: stress?['level']?.toString(),
-                    captionAccent: true,
                   ),
                 ],
               ),

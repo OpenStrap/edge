@@ -143,6 +143,28 @@ int nextBurstStablePollStreak({
 bool shouldPauseMaintenanceTraffic({required bool offloadActive}) =>
     offloadActive;
 
+/// Whether a HISTORY_END burst's packet accounting matches what the band
+/// reported sending (`expectedPacketCount`, from the metadata frame).
+///
+/// [actualBurstPacketCount] only counts packets that reached
+/// onHistoricalRecord/onUndecodableRecord — i.e. that PASSED the RecordGate
+/// plausibility check. A record the gate rejects (a stale/wandering-clock
+/// block — see RecordGate.admit) is, by design, "neither stored nor
+/// counted": it never reaches either callback. The band's own count has no
+/// such carve-out — it just counts every packet it physically transmitted.
+/// [droppedThisBurst] (RecordGate.dropped delta across this burst) must be
+/// added back in before comparing, or a burst containing even one
+/// gate-rejected record can never validate — which discards its OTHER,
+/// perfectly good buffered records and re-requests the same stuck block
+/// forever (zero sync progress).
+@visibleForTesting
+bool burstPacketCountMatches({
+  required int expectedPacketCount,
+  required int actualBurstPacketCount,
+  required int droppedThisBurst,
+}) =>
+    expectedPacketCount == actualBurstPacketCount + droppedThisBurst;
+
 /// Fired for every LIVE high-rate frame (0x28/0x2B/0x33). These are EPHEMERAL —
 /// they are NOT persisted to raw_records (that bloated storage ~50x and stalled
 /// derivation). The caller routes them to an in-memory sink for the live UI /
@@ -163,7 +185,6 @@ enum _HpsTerminalKind {
   success,
   timeout,
   disconnected,
-  error,
 }
 
 class _HpsTerminal {
@@ -603,6 +624,11 @@ class BleEngine {
   // EVERY historical-record path — see RecordGate in ble_state.dart. Re-seeded
   // on each connect from the durable cursor.
   RecordGate _recordGate = RecordGate();
+  // Snapshot of `_recordGate.dropped` at the last HISTORY_START — lets the
+  // HISTORY_END validator (below) tell "the band sent fewer packets than it
+  // said" apart from "we correctly, silently rejected some as implausible
+  // (stale-clock block) and never tallied them." See _handleSyncMarker.
+  int _burstDroppedAtStart = 0;
   // Per-revision packet accounting for the historical drain (gap detection +
   // honest per-version counts surfaced to the debug screens).
   final Map<int, int> _historicalVersionCounts = <int, int>{};
@@ -722,6 +748,11 @@ class BleEngine {
     'records_seen': _drain?.records ?? 0,
     'batches_acked': _drain?.batches ?? 0,
     'buffered_records': _drain?.bufferedRecords ?? 0,
+    // Connection-wide plausibility-gate rejections (RecordGate.dropped) — see
+    // burstPacketCountMatches for why these must be added back to the burst
+    // packet count before comparing against the band's expectedPacketCount.
+    'gate_dropped_total': _recordGate.dropped,
+    'gate_dropped_this_burst': _recordGate.dropped - _burstDroppedAtStart,
     'history_requests': _historyRequests,
     'history_completions': _historyCompletions,
     'successful_bursts': _successfulBursts,
@@ -1796,6 +1827,7 @@ class BleEngine {
         d.discardOpenChunk();
       }
       _session?.historicalRetry?.cancel();
+      _burstDroppedAtStart = _recordGate.dropped;
       d?.rearm();
       _setOffloadActive(true);
       return;
@@ -1812,45 +1844,54 @@ class BleEngine {
       }
       await _awaitBurstTrafficSettle(d);
       final expected = m.expectedPacketCount;
-      if (expected != null && !d.validateBurst(expectedPacketCount: expected)) {
+      // Records the plausibility gate silently rejected THIS burst (stale/
+      // wandering-clock block — by design, "neither stored nor counted",
+      // see RecordGate.admit) never reach onHistoricalRecord/
+      // onUndecodableRecord, so they never entered currentBurstPacketCount.
+      final droppedThisBurst = _recordGate.dropped - _burstDroppedAtStart;
+      final validated = expected == null ||
+          d.validateBurst(
+            expectedPacketCount: expected,
+            droppedThisBurst: droppedThisBurst,
+          );
+      // ADVISORY ONLY, never a gate: `expectedPacketCount`'s exact semantics
+      // (which transport packet types the band itself counts — command
+      // responses interleaved with the burst? retried/duplicate frames?) are
+      // not fully reverse-engineered, and field data shows the gap between
+      // expected and actual varies run to run with no fixed offset. What IS
+      // fully verified is frame-level CRC32 (framing.dart) and the RecordGate
+      // plausibility check — both already ran on every buffered record before
+      // we ever get here. So a count mismatch is NOT evidence of corrupt or
+      // missing data; treating it as fatal was actively harmful: on mismatch
+      // the OLD behavior discarded the entire buffered chunk (throwing away
+      // perfectly good, already-CRC-verified, already-gate-passed records),
+      // told the band FAIL, and re-requested the same block — forever, since
+      // nothing about a retry changes the count relationship. Zero sync
+      // progress, "last data" frozen indefinitely. Log the mismatch (still
+      // useful signal — see the sync-diagnostics screen) and commit anyway.
+      if (!validated) {
         _log(
-          '[SYNC] Burst validation failed '
+          '[SYNC] Burst packet-count mismatch (advisory, NOT blocking commit) '
           '(attempt ${d.consecutiveValidationFailures}): expected=$expected, '
           'actual=${d.currentBurstPacketCount}, '
+          'dropped_this_burst=$droppedThisBurst, '
           'historical=${d.currentBurstHistoricalPacketCount}, '
           'traffic=${d.currentBurstTrafficCount}, '
           'breakdown=${d.currentBurstBreakdown}',
         );
-        d.discardOpenChunk();
-        final fail = buildHistoryResultFail(_seq.nextSync());
-        _log(
-          '[SYNC] FAIL frame='
-          '${fail.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
-        );
-        await _write(fail);
         await LocalDb.upsertSyncLedgerEntry(
-          status: 'validation_failed',
+          status: 'validated_with_mismatch',
           lastError: 'burst_packet_mismatch',
           metaPatch: {
             'expected_burst_packets': expected,
             'actual_burst_packets': d.currentBurstPacketCount,
+            'dropped_this_burst': droppedThisBurst,
             'historical_burst_packets': d.currentBurstHistoricalPacketCount,
             'traffic_burst_packets': d.currentBurstTrafficCount,
             'burst_validation_failures': d.consecutiveValidationFailures,
             'burst_breakdown': d.currentBurstBreakdown,
           },
         );
-        if (d.consecutiveValidationFailures >= 15) {
-          _log(
-            '[SYNC] Burst validation stuck after '
-            '${d.consecutiveValidationFailures} failures.',
-          );
-          _setHpsTerminal(_HpsTerminalKind.error, reason: 'stuck', drain: d);
-          _setOffloadActive(false);
-          return;
-        }
-        unawaited(_abortAndRetryHistorical(reason: 'burst_validation_failed'));
-        return;
       }
       _successfulBursts++;
       _mergeValidatedBurst(d);
@@ -2600,9 +2641,23 @@ class _DrainController {
 
   void onBurstUnknown() => burstStats.onUnknown();
 
-  bool validateBurst({required int expectedPacketCount}) {
-    final actual = currentBurstPacketCount;
-    if (expectedPacketCount == actual) {
+  /// [droppedThisBurst] = records the plausibility gate rejected during this
+  /// same burst (stale/wandering-clock block) — never tallied into
+  /// [currentBurstPacketCount] (they're never stored), but the band's own
+  /// [expectedPacketCount] counts them anyway since it just counts what it
+  /// physically transmitted. Add them back in before comparing, or a burst
+  /// that legitimately contains even one gate-rejected record can never
+  /// validate — discarding otherwise-good buffered records and looping
+  /// forever on the same stuck block.
+  bool validateBurst({
+    required int expectedPacketCount,
+    int droppedThisBurst = 0,
+  }) {
+    if (burstPacketCountMatches(
+      expectedPacketCount: expectedPacketCount,
+      actualBurstPacketCount: currentBurstPacketCount,
+      droppedThisBurst: droppedThisBurst,
+    )) {
       consecutiveValidationFailures = 0;
       return true;
     }

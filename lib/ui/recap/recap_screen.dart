@@ -18,6 +18,7 @@ import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../state/prefs.dart';
 import '../design/design.dart';
+import '../workouts/workout_types.dart';
 
 class RecapScreen extends StatefulWidget {
   const RecapScreen({super.key});
@@ -530,7 +531,12 @@ class RecapShareCard extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  AppIcon(Ic.run, size: 16, color: DomainAccent.strain),
+                  workoutTypeOsIcon(top['type']?.toString()) != null
+                      ? OsAppIcon(
+                          workoutTypeOsIcon(top['type']?.toString())!,
+                          size: 20,
+                        )
+                      : AppIcon(Ic.run, size: 16, color: DomainAccent.strain),
                   const SizedBox(width: Sp.x2),
                   Expanded(
                     child: Text(

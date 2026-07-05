@@ -1,7 +1,9 @@
-// One day, hour by hour — on the bento design language: the 24h HR timeline
-// (with the tap-to-replay overlay), peak/low HR stat tiles, movement, and a
-// clean workout list. Backed by /day/timeline; presentation lives in
-// [JourneyContent] (pure, render-testable).
+// Your day, every vital, one lookback — on the bento design language: the
+// merged multi-vital timeline (heart rate, HRV, respiration, skin temp — one
+// line per vital, each its own color, values hidden until you touch/scrub;
+// see [TimelineContent]), movement, and a clean workout list. Backed by
+// /day/timeline; presentation lives in [JourneyContent] (pure,
+// render-testable).
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +11,8 @@ import 'package:provider/provider.dart';
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../design/design.dart';
+import '../timeline/timeline_screen.dart' show TimelineContent;
+import '../workouts/workout_types.dart';
 
 class JourneyScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
@@ -107,7 +111,8 @@ class _JourneyScreenState extends State<JourneyScreen> {
 }
 
 /// Pure presentation for the day-journey board (render-testable without a
-/// repo): timeline tile + HR replay, peak/low bento, movement, workouts.
+/// repo): the merged multi-vital lookback (heart rate, HRV, resp, skin temp),
+/// movement, workouts.
 class JourneyContent extends StatelessWidget {
   final Map<String, dynamic> data;
 
@@ -122,12 +127,9 @@ class JourneyContent extends StatelessWidget {
   });
 
   static bool isEmptyPayload(Map<String, dynamic> d) =>
-      _pointsOf(d['hr']).isEmpty && _listOf(d['sessions']).isEmpty;
+      !TimelineContent.hasVitals(d) && _listOf(d['sessions']).isEmpty;
 
   // ── defensive parsing helpers ─────────────────────────────────────────────
-
-  static Map<String, dynamic> _mapOf(Object? v) =>
-      v is Map ? v.cast<String, dynamic>() : const {};
 
   static List<Map<String, dynamic>> _listOf(Object? v) => v is List
       ? [
@@ -157,7 +159,6 @@ class JourneyContent extends StatelessWidget {
 
   int get _dayStart => _numOf(data['day_start'])?.toInt() ?? 0;
   List<Map<String, dynamic>> get _sessions => _listOf(data['sessions']);
-  List<Map<String, dynamic>> get _sleep => _listOf(data['sleep']);
 
   // ── formatting (no intl) ──────────────────────────────────────────────────
 
@@ -217,282 +218,16 @@ class JourneyContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: dsStaggered([
-        // Minute-level 24h timeline + movement only for recent days; workouts
-        // below come from permanent tables and always show.
+        // The merged multi-vital lookback + movement only for recent days;
+        // workouts below come from permanent tables and always show.
         if (detailed) ...[
-          _timelineTile(),
-          const SizedBox(height: Sp.x3),
-          _highsBento(),
+          TimelineContent(data: data),
           const SizedBox(height: Sp.x3),
           _movementTile(),
         ] else
-          const DetailRetentionNote(what: '24-hour timeline'),
+          const DetailRetentionNote(what: 'the day lookback'),
         ..._workoutsSection(),
       ]),
-    );
-  }
-
-  // ── peak / low HR bento ───────────────────────────────────────────────────
-
-  Widget _highsBento() {
-    final highs = _mapOf(data['highs']);
-    final peak = _mapOf(highs['peak_hr']);
-    final low = _mapOf(highs['low_hr']);
-    return BentoColumns(
-      entrance: false,
-      left: [
-        _highTile(
-          'Peak HR',
-          Ic.pulse,
-          OsIcon.maxHeartRate,
-          DomainAccent.heart,
-          _numOf(peak['v'])?.round(),
-          _numOf(peak['t'])?.toInt(),
-        ),
-      ],
-      right: [
-        _highTile(
-          'Lowest HR',
-          Ic.heart,
-          OsIcon.restingHeartRate,
-          DomainAccent.oxygen,
-          _numOf(low['v'])?.round(),
-          _numOf(low['t'])?.toInt(),
-        ),
-      ],
-    );
-  }
-
-  Widget _highTile(String label, IconData icon, OsIcon osIcon, Color accent,
-      int? bpm, int? ts) {
-    return BentoTile(
-      tone: BentoTone.soft,
-      accent: accent,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TileHeader(label, icon: icon, osIcon: osIcon),
-          const SizedBox(height: Sp.x2),
-          BigStat(
-            value: bpm?.toString(),
-            unit: 'bpm',
-            caption: bpm == null ? 'No reading' : 'at ${_hm(ts)}',
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── the timeline (24h HR line + replay + context band) ────────────────────
-
-  Widget _timelineTile() {
-    final hr = _pointsOf(data['hr']);
-    final points = [for (final p in hr) TimeSeriesPoint(p.t.toDouble(), p.v)];
-    final endSec = _isToday
-        ? DateTime.now().millisecondsSinceEpoch / 1000.0
-        : _dayStart + 86400.0;
-    final first = hr.isEmpty ? null : hr.first;
-    final last = hr.isEmpty ? null : hr.last;
-    // Match the chart's own auto y-range (min/max + 12% pad) so the replay dot
-    // rides the drawn line.
-    final ys = [for (final p in points) p.y];
-    final minYRaw = ys.isEmpty ? 0.0 : ys.reduce((a, b) => a < b ? a : b);
-    final maxYRaw = ys.isEmpty ? 1.0 : ys.reduce((a, b) => a > b ? a : b);
-    final yPad = (maxYRaw - minYRaw) * 0.12 < 2.0
-        ? 2.0
-        : (maxYRaw - minYRaw) * 0.12;
-    final chart = TimeSeriesChart(
-      points: points,
-      color: DomainAccent.heart,
-      height: 260,
-      minX: _dayStart.toDouble(),
-      maxX: endSec,
-      yUnit: ' bpm',
-      tooltip: (p) {
-        final dt = DateTime.fromMillisecondsSinceEpoch(
-          (p.x * 1000).round(),
-        ).toLocal();
-        return '${dt.hour}:${dt.minute.toString().padLeft(2, '0')}'
-            '\n${p.y.round()} bpm';
-      },
-    );
-    return BentoTile(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const TileHeader(
-            'The timeline',
-            icon: Ic.pulse,
-            trailing: InfoDot(
-              title: 'Your 24-hour timeline',
-              body:
-                  'Minute-level heart rate across the day. Sleep and workout '
-                  'context is drawn on the band under the chart. Tap the '
-                  'chart to replay the day.',
-            ),
-          ),
-          const SizedBox(height: Sp.x3),
-          if (points.length >= 2)
-            Stack(
-              children: [
-                chart,
-                HrReplayOverlay(
-                  points: points,
-                  loX: _dayStart.toDouble(),
-                  // Same SNAPPED bound the chart draws with, or the replay dot
-                  // rides off the drawn curve.
-                  hiX: TimeSeriesChart.stableTimeUpperBound(
-                    _dayStart.toDouble(),
-                    endSec,
-                  ),
-                  loY: minYRaw - yPad,
-                  hiY: maxYRaw + yPad,
-                  chartHeight: 260,
-                  leftPad: 52,
-                  topInset: 0,
-                  color: DomainAccent.heart,
-                ),
-              ],
-            )
-          else
-            chart,
-          const SizedBox(height: Sp.x4),
-          _contextBand(),
-          if (first != null && last != null) ...[
-            const SizedBox(height: Sp.x4),
-            Row(
-              children: [
-                Expanded(
-                  child: BigStat(
-                    value: '${first.v.round()}',
-                    unit: 'bpm',
-                    label: 'Start',
-                    size: BigStatSize.md,
-                  ),
-                ),
-                Expanded(
-                  child: BigStat(
-                    value: '${last.v.round()}',
-                    unit: 'bpm',
-                    label: 'Latest',
-                    size: BigStatSize.md,
-                  ),
-                ),
-                Expanded(
-                  child: BigStat(
-                    value: ((last.t - first.t) / 3600).toStringAsFixed(1),
-                    unit: 'h',
-                    label: 'Span',
-                    size: BigStatSize.md,
-                  ),
-                ),
-              ],
-            ),
-          ],
-          if (_sleep.isNotEmpty || _sessions.isNotEmpty) ...[
-            const SizedBox(height: Sp.x3),
-            Row(
-              children: [
-                if (_sleep.isNotEmpty)
-                  _legendDot(DomainAccent.sleep, 'Sleep'),
-                if (_sleep.isNotEmpty && _sessions.isNotEmpty)
-                  const SizedBox(width: Sp.x4),
-                if (_sessions.isNotEmpty)
-                  _legendDot(DomainAccent.strain, 'Workout'),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _legendDot(Color c, String label) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Container(
-        width: 10,
-        height: 10,
-        decoration: BoxDecoration(
-          color: c,
-          borderRadius: BorderRadius.circular(3),
-        ),
-      ),
-      const SizedBox(width: 6),
-      Text(label, style: AppText.captionMuted),
-    ],
-  );
-
-  /// 0..1 fraction of where an epoch falls in the day's 24h window.
-  double _frac(int ts) {
-    final start = _dayStart;
-    if (start <= 0) return 0;
-    return ((ts - start) / 86400.0).clamp(0.0, 1.0);
-  }
-
-  /// A thin band of positioned colored rects: sleep blocks under workout
-  /// sessions, placed by (ts - day_start)/86400 fraction.
-  Widget _contextBand() {
-    const h = 14.0;
-    final segments = <Widget>[];
-
-    void addSeg(int? start, int? end, Color color, double opacity) {
-      if (start == null || end == null || end <= start || _dayStart <= 0) {
-        return;
-      }
-      final left = _frac(start);
-      final right = _frac(end);
-      final width = (right - left).clamp(0.0, 1.0);
-      if (width <= 0) return;
-      segments.add(
-        Align(
-          alignment: Alignment(left * 2 - 1, 0),
-          child: FractionallySizedBox(
-            widthFactor: width,
-            alignment: Alignment.centerLeft,
-            child: Container(
-              height: h,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: opacity),
-                borderRadius: BorderRadius.circular(R.pill),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    for (final s in _sleep) {
-      addSeg(
-        _numOf(s['onset_ts'])?.toInt(),
-        _numOf(s['wake_ts'])?.toInt(),
-        DomainAccent.sleep,
-        0.7,
-      );
-    }
-    for (final s in _sessions) {
-      addSeg(
-        _numOf(s['start_ts'])?.toInt(),
-        _numOf(s['end_ts'])?.toInt(),
-        DomainAccent.strain,
-        0.85,
-      );
-    }
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(R.pill),
-      child: Container(
-        height: h,
-        decoration: BoxDecoration(
-          color: AppColors.surfaceAlt,
-          borderRadius: BorderRadius.circular(R.pill),
-        ),
-        // The track is full width; segments are positioned within it. Align
-        // uses the parent's full width so left/width fractions map to 24h.
-        child: Stack(alignment: Alignment.centerLeft, children: segments),
-      ),
     );
   }
 
@@ -584,8 +319,8 @@ class JourneyContent extends StatelessWidget {
       if (max != null) 'max $max bpm',
     ].join(' · ');
     return ListRow(
-      icon: Ic.run,
-      osIcon: OsIcon.workouts,
+      icon: workoutTypeIcon(type),
+      osIcon: workoutTypeOsIcon(type) ?? OsIcon.workouts,
       iconColor: DomainAccent.strain,
       title: type.isEmpty ? 'Workout' : _titleCase(type),
       subtitle: meta,

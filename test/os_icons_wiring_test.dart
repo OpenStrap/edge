@@ -138,8 +138,8 @@ void main() {
       expect(t.takeException(), isNull);
     });
 
-    testWidgets('Sleep night renders the hypnogram-header art and the Deep '
-        'stage row art (REM keeps its hugeicon)', (t) async {
+    testWidgets('Sleep night renders the hypnogram-header art; trend rows '
+        'stay icon-free by design', (t) async {
       t.view.physicalSize = const Size(390, 3200);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.reset);
@@ -172,15 +172,22 @@ void main() {
         ),
       ));
       await t.pump(const Duration(milliseconds: 1200));
-      for (final icon in [
-        OsIcon.sleepHypnogram, // stages/hypnogram section header
-        OsIcon.deepSleep, // Deep trend row
-        OsIcon.lightSleep, // Light trend row (pre-existing wiring)
-      ]) {
+      // Section header keeps its illustrated art.
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is OsAppIcon && w.icon == OsIcon.sleepHypnogram,
+        ),
+        findsOneWidget,
+        reason: 'the hypnogram section header should render its art',
+      );
+      // MetricRow trend rows (Deep/Light/etc.) are deliberately icon-free —
+      // a whole list of "heading left, score right" rows each with their own
+      // chip read as noise; the icon belongs on the metric's own screen/hero.
+      for (final icon in [OsIcon.deepSleep, OsIcon.lightSleep]) {
         expect(
           find.byWidgetPredicate((w) => w is OsAppIcon && w.icon == icon),
-          findsOneWidget,
-          reason: '$icon should render exactly once',
+          findsNothing,
+          reason: '$icon should NOT render inside a MetricRow trend row',
         );
       }
       expect(t.takeException(), isNull);

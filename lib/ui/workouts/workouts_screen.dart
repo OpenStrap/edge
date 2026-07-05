@@ -22,19 +22,8 @@ import '../design/design.dart';
 import '../kit/route_map.dart';
 import '../screens/detail_cards.dart' show hm;
 import '../../gps/route_models.dart';
+import 'workout_types.dart';
 
-// (key, label, glyph, illustrated art). Only strength has custom art so far —
-// the other sports stay on their hugeicons until their illustrations exist.
-const _exercises = <(String, String, IconData, OsIcon?)>[
-  ('run', 'Run', Ic.run, null),
-  ('cycle', 'Cycle', Ic.activity, null),
-  ('strength', 'Strength', Ic.weights, OsIcon.strength),
-  ('walk', 'Walk', Ic.run, null),
-  ('swim', 'Swim', Ic.activity, null),
-  ('cardio', 'Cardio', Ic.pulse, null),
-  ('yoga', 'Yoga', Ic.heart, null),
-  ('other', 'Other', Ic.activity, null),
-];
 const _ranges = ['Today', 'Week', 'Month', '3M'];
 const _rangeKey = [
   'week',
@@ -42,31 +31,6 @@ const _rangeKey = [
   'month',
   'quarter',
 ]; // Today filters week to today
-
-IconData _typeIcon(String? type) {
-  final raw = (type ?? '').toLowerCase();
-  if (raw.contains('autodetected')) return Ic.weights;
-  if (raw.contains('workout')) return Ic.weights;
-  for (final e in _exercises) {
-    if (e.$1 == type) return e.$3;
-  }
-  return Ic.weights;
-}
-
-/// Illustrated art for a workout type — non-null ONLY where custom art exists
-/// (strength today). Autodetected/unknown types stay on the glyph fallback.
-OsIcon? _typeOsIcon(String? type) {
-  for (final e in _exercises) {
-    if (e.$1 == type) return e.$4;
-  }
-  return null;
-}
-
-String _typeLabel(String? type) {
-  if (type == null || type.isEmpty) return 'Workout';
-  if (type.toLowerCase().contains('autodetected')) return 'Workout';
-  return type[0].toUpperCase() + type.substring(1);
-}
 
 String _dayLabel(int? startTs) {
   if (startTs == null || startTs == 0) return '—';
@@ -111,42 +75,6 @@ String _whenLabel(int? startTs) {
   return '${mon[d.month - 1]} ${d.day} · $time';
 }
 
-/// Shared exercise grid used by both bottom sheets.
-Widget _exerciseGrid(BuildContext context) => Wrap(
-  spacing: Sp.x3,
-  runSpacing: Sp.x3,
-  children: [
-    for (final e in _exercises)
-      Pressable(
-        pressedScale: 0.94,
-        onTap: () => Navigator.pop(context, e.$1),
-        child: Container(
-          width: 96,
-          padding: const EdgeInsets.symmetric(vertical: Sp.x4),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceAlt,
-            borderRadius: BorderRadius.circular(R.cardSm),
-          ),
-          child: Column(
-            children: [
-              // Fixed 32px slot so illustrated and glyph tiles line up.
-              SizedBox(
-                height: 32,
-                child: Center(
-                  child: e.$4 != null
-                      ? OsAppIcon(e.$4!, size: 32)
-                      : AppIcon(e.$3, size: 26, color: AppColors.accent),
-                ),
-              ),
-              const SizedBox(height: Sp.x2),
-              Text(e.$2, style: AppText.label),
-            ],
-          ),
-        ),
-      ),
-  ],
-);
-
 /// Bottom-sheet exercise picker → starts a workout → opens the live screen.
 Future<void> startWorkoutFlow(BuildContext context) async {
   final type = await showModalBottomSheet<String>(
@@ -161,7 +89,7 @@ Future<void> startWorkoutFlow(BuildContext context) async {
           children: [
             Text('Start a workout', style: AppText.h2),
             const SizedBox(height: Sp.x4),
-            Builder(builder: _exerciseGrid),
+            Builder(builder: workoutTypeGrid),
             const SizedBox(height: Sp.x4),
           ],
         ),
@@ -205,7 +133,7 @@ Future<String?> pickWorkoutType(
           children: [
             Text(title, style: AppText.h2),
             const SizedBox(height: Sp.x4),
-            Builder(builder: _exerciseGrid),
+            Builder(builder: workoutTypeGrid),
             const SizedBox(height: Sp.x4),
           ],
         ),
@@ -597,9 +525,9 @@ class _SuggestionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            _typeOsIcon(sport) != null
-                ? OsAppIcon(_typeOsIcon(sport)!, size: 28)
-                : AppIcon(_typeIcon(sport), size: 18, color: AppColors.accent),
+            workoutTypeOsIcon(sport) != null
+                ? OsAppIcon(workoutTypeOsIcon(sport)!, size: 28)
+                : AppIcon(workoutTypeIcon(sport), size: 18, color: AppColors.accent),
             const SizedBox(width: Sp.x3),
             Expanded(
               child: Column(
@@ -851,15 +779,15 @@ class WorkoutFeedCard extends StatelessWidget {
                 Container(
                   // Glyph: 10 + 18 + 10; art: 2 + 34 + 2 — same 38px chip.
                   padding: EdgeInsets.all(
-                      _typeOsIcon(w['type'] as String?) != null ? 2 : 10),
+                      workoutTypeOsIcon(w['type'] as String?) != null ? 2 : 10),
                   decoration: BoxDecoration(
                     color: tone.accent.withValues(alpha: live ? 0.22 : 0.12),
                     borderRadius: BorderRadius.circular(R.chip),
                   ),
-                  child: _typeOsIcon(w['type'] as String?) != null
-                      ? OsAppIcon(_typeOsIcon(w['type'] as String?)!, size: 34)
+                  child: workoutTypeOsIcon(w['type'] as String?) != null
+                      ? OsAppIcon(workoutTypeOsIcon(w['type'] as String?)!, size: 34)
                       : AppIcon(
-                          _typeIcon(w['type'] as String?),
+                          workoutTypeIcon(w['type'] as String?),
                           size: 18,
                           color: tone.accent,
                         ),
@@ -867,7 +795,7 @@ class WorkoutFeedCard extends StatelessWidget {
                 const SizedBox(width: Sp.x3),
                 Flexible(
                   child: Text(
-                    _typeLabel(w['type'] as String?),
+                    workoutTypeLabel(w['type'] as String?),
                     style: AppText.title.copyWith(color: tone.fg),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1217,15 +1145,15 @@ class WorkoutDetailContent extends StatelessWidget {
                 Container(
                   // Glyph: 10 + 20 + 10; art: 2 + 36 + 2 — same 40px chip.
                   padding: EdgeInsets.all(
-                      _typeOsIcon(d['type'] as String?) != null ? 2 : 10),
+                      workoutTypeOsIcon(d['type'] as String?) != null ? 2 : 10),
                   decoration: BoxDecoration(
                     color: tone.accent.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(R.chip),
                   ),
-                  child: _typeOsIcon(d['type'] as String?) != null
-                      ? OsAppIcon(_typeOsIcon(d['type'] as String?)!, size: 36)
+                  child: workoutTypeOsIcon(d['type'] as String?) != null
+                      ? OsAppIcon(workoutTypeOsIcon(d['type'] as String?)!, size: 36)
                       : AppIcon(
-                          _typeIcon(d['type'] as String?),
+                          workoutTypeIcon(d['type'] as String?),
                           size: 20,
                           color: tone.accent,
                         ),
@@ -1236,7 +1164,7 @@ class WorkoutDetailContent extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _typeLabel(d['type'] as String?).toUpperCase(),
+                        workoutTypeLabel(d['type'] as String?).toUpperCase(),
                         style: AppText.overline.copyWith(color: tone.fgFaint),
                       ),
                       Text(

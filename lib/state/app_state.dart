@@ -1087,9 +1087,22 @@ class AppState extends ChangeNotifier {
   /// Debounced "new data stored" callback from the engine (continuous listening has
   /// no discrete sync end). The engine already coalesced the burst; we run a single
   /// LIGHT derive over the affected day(s) and refresh DB counts for the UI.
+  ///
+  /// This is also THE reliable place to refresh `_lastRecTs` (the "last data"
+  /// freshness banner reads it). `_runSyncBurst`'s own before/after frontier
+  /// check can race the async commit — HISTORY_END's commit+ACK sometimes
+  /// lands just after `engine.runSync()` already returned, so that
+  /// checkpoint-based refresh can miss a burst entirely. This callback fires
+  /// on EVERY successful persist path (foreground burst, background/headless
+  /// drain, live-triggered store) after the write is durable, so it can't
+  /// race it — same guarantee dbCounts already relies on above.
   void _onDataStored() {
     unawaited(() async {
       dbCounts = await LocalDb.counts();
+      final recTsHw = await LocalDb.getCursorInt('rec_ts_hw');
+      if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) {
+        _lastRecTs = recTsHw;
+      }
       notifyListeners();
       _deriveScheduler.markStoredData();
     }());
@@ -1109,7 +1122,18 @@ class AppState extends ChangeNotifier {
     await _loadProfile();
     await _deriveScheduler.init();
     lastSynced = await LocalDb.latestSample();
-    _lastRecTs = await LocalDb.lastDecodedRecTs() ?? lastSynced?.tsEpoch;
+    // The true data-edge frontier is the `rec_ts_hw` sync cursor, NOT
+    // lastDecodedRecTs() (MAX(rec_ts) FROM decoded_onehz). decoded_onehz only
+    // gets a row when a record decodes to the FULL 1 Hz shape (R24-family);
+    // historical R10 "lite" records (hr-only, no accel/optical) decode fine
+    // but land in `samples` instead — so on an R10-lite-heavy backlog,
+    // decoded_onehz's max freezes while the strap is genuinely, successfully
+    // syncing, and "last data" reads as stuck/stale. `rec_ts_hw` advances for
+    // every record commitSyncBatch durably persists, decoded_onehz-eligible
+    // or not, so it's the honest frontier (same one RecordGate/backfill
+    // policies already trust).
+    _lastRecTs =
+        await LocalDb.getCursorInt('rec_ts_hw') ?? lastSynced?.tsEpoch;
     dbCounts = await LocalDb.counts();
     await LocalDb.refreshComputeFreshness();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
@@ -1383,7 +1407,19 @@ class AppState extends ChangeNotifier {
   }
 
   /// Reset the live step counter for a fresh connected session.
+  ///
+  /// This zeroes the connection-lifetime raw counter (`_liveRaw`). If a
+  /// workout is active, `_workoutRawBase` was snapshotted from a *previous*
+  /// (now-stale) `_liveRaw` value — left untouched, `workoutSteps` would
+  /// compute a negative delta on the next BLE disconnect/reconnect blip,
+  /// clamp to 0, and visibly reset the walk's step count instead of counting
+  /// monotonically. Rebase it here so the already-accrued workout steps
+  /// carry through the reset.
   void _resetLivePedometer() {
+    if (activeWorkout != null && _workoutRawBase != null) {
+      final accruedRaw = _liveRaw - _workoutRawBase!;
+      _workoutRawBase = accruedRaw > 0 ? -accruedRaw : 0;
+    }
     _magMin.clear();
     _committedRaw = 0;
     _liveSamples = 0;
@@ -1571,7 +1607,12 @@ class AppState extends ChangeNotifier {
   }) async {
     var last = SyncReport(0, 0, false);
     for (var i = 0; i < maxSessions && engine.isConnected; i++) {
-      final frontierBefore = await LocalDb.lastDecodedRecTs();
+      // rec_ts_hw, not lastDecodedRecTs() — see the boot-time seed above for
+      // why: an R10-lite-heavy backlog can genuinely advance without ever
+      // touching decoded_onehz, and this "did we make progress" check must
+      // not mistake that for a stuck drain (spin-guard/backlogRemains below
+      // read frontierAfter too).
+      final frontierBefore = await LocalDb.getCursorInt('rec_ts_hw');
       if (kickFirst || i > 0) {
         await engine.requestHistorySync();
       }
@@ -1579,7 +1620,20 @@ class AppState extends ChangeNotifier {
       final report = await engine.runSync(
         timeout: const Duration(seconds: 180),
       );
-      final frontierAfter = await LocalDb.lastDecodedRecTs();
+      final frontierAfter = await LocalDb.getCursorInt('rec_ts_hw');
+      // Refresh the freshness signal the "last data" banner reads from EVERY
+      // burst session, not just at app boot. `_lastRecTs` was previously only
+      // ever seeded in `_init()` — during a real historical drain, records go
+      // through `_DrainController.onHistoricalRecord` → `onCommitBatch`
+      // (bypassing `_onRecord`'s in-memory bump, which only fires on the rare
+      // pre-drain-setup fallback path), so a session left open kept showing
+      // "more than an hour behind" no matter how much fresh data actually
+      // synced, until the app was fully restarted. Bump + notify here so the
+      // UI reflects real progress as it happens, mid-burst.
+      if (frontierAfter != null && frontierAfter > (_lastRecTs ?? 0)) {
+        _lastRecTs = frontierAfter;
+        notifyListeners();
+      }
       final strapNewest = engine.strapHistoryNewestTs;
       final frontierAdvanced =
           frontierAfter != null &&

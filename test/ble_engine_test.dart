@@ -67,6 +67,61 @@ void main() {
     );
   });
 
+  group('burst packet count validation (dropped-record carve-out)', () {
+    test('matches when nothing was gate-rejected', () {
+      expect(
+        burstPacketCountMatches(
+          expectedPacketCount: 26,
+          actualBurstPacketCount: 26,
+          droppedThisBurst: 0,
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+      'a real mismatch (band reports more than we saw at all) still fails',
+      () {
+        expect(
+          burstPacketCountMatches(
+            expectedPacketCount: 50,
+            actualBurstPacketCount: 26,
+            droppedThisBurst: 0,
+          ),
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'matches once gate-rejected (stale-clock block) records are added '
+      'back in — the exact shape of the real bug: expected=50, only 26 '
+      'passed the plausibility gate, 24 were legitimately dropped',
+      () {
+        expect(
+          burstPacketCountMatches(
+            expectedPacketCount: 50,
+            actualBurstPacketCount: 26,
+            droppedThisBurst: 24,
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test('does not over-forgive — dropped count must exactly close the gap',
+        () {
+      expect(
+        burstPacketCountMatches(
+          expectedPacketCount: 50,
+          actualBurstPacketCount: 26,
+          droppedThisBurst: 10, // leaves a real 14-packet gap unexplained
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('history-end settle streak', () {
     test('resets while queue is not empty', () {
       final streak = nextBurstStablePollStreak(

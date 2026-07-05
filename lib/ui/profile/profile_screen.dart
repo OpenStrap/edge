@@ -57,33 +57,19 @@ class ProfileScreen extends StatelessWidget {
     final user = app.user ?? const {};
     final name = (user['name'] ?? '').toString().trim();
 
-    return SafeArea(
-      bottom: false,
-      child: ListView(
-        physics: const BouncingScrollPhysics(
-          parent: AlwaysScrollableScrollPhysics(),
-        ),
-        padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x6, Sp.screen, 0),
-        children: [
-          // ── Header ───────────────────────────────────────────────────
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  name.isEmpty ? 'Your profile' : name,
-                  style: AppText.h1,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: Sp.x2),
-              RoundIconButton(Ic.edit,
-                  osIcon: OsIcon.edit,
-                  onTap: () => _editProfileSheet(context, app)),
-            ],
-          ),
-          const SizedBox(height: Sp.x6),
-
+    return AppScaffold(
+      titleWidget: Text(
+        name.isEmpty ? 'Your profile' : name,
+        style: AppText.h1,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      actions: [
+        RoundIconButton(Ic.edit,
+            osIcon: OsIcon.edit,
+            onTap: () => _editProfileSheet(context, app)),
+      ],
+      children: [
           // ── Your device ──────────────────────────────────────────────
           const SectionHeader('Your device'),
           _deviceTile(context, app),
@@ -97,29 +83,24 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('Profile'),
           _SettingsCard(rows: [
             ListRow(
-              icon: Ic.profile,
-              osIcon: OsIcon.profile,
               title: 'Name',
               value: name.isEmpty ? 'Add' : name,
               divider: true,
               onTap: () => _editProfileSheet(context, app),
             ),
             ListRow(
-              icon: Ic.heart,
               title: 'Sex',
               value: _sexLabel(user['sex']?.toString()),
               divider: true,
               onTap: () => _editProfileSheet(context, app),
             ),
             ListRow(
-              icon: Ic.calendar,
               title: 'Age',
               value: user['age'] != null ? '${user['age']}' : 'Add',
               divider: true,
               onTap: () => _editProfileSheet(context, app),
             ),
             ListRow(
-              icon: Ic.activity,
               title: 'Height',
               value: user['height_cm'] != null
                   ? units.height(user['height_cm'] as num?)
@@ -128,7 +109,6 @@ class ProfileScreen extends StatelessWidget {
               onTap: () => _editProfileSheet(context, app),
             ),
             ListRow(
-              icon: Ic.fire,
               title: 'Weight',
               value: user['weight_kg'] != null
                   ? units.weight(user['weight_kg'] as num?)
@@ -384,41 +364,6 @@ class ProfileScreen extends StatelessWidget {
           ]),
           const SizedBox(height: Sp.x6),
 
-          // ── Storage ──────────────────────────────────────────────────
-          // CLOUD EXCISED: there is no backend. Everything lives on this device.
-          const SectionHeader('Storage'),
-          SurfaceCard(
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(Sp.x3),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceAlt,
-                    borderRadius: BorderRadius.circular(R.chip),
-                  ),
-                  child: AppIcon(Ic.shield, size: 20, color: AppColors.inkSoft),
-                ),
-                const SizedBox(width: Sp.x3),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('On this device', style: AppText.title),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Your band data and metrics stay on this phone — '
-                        'nothing is uploaded to a server.',
-                        style: AppText.captionMuted,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: Sp.x6),
-
           // ── Community ────────────────────────────────────────────────
           const SectionHeader('Community'),
           SurfaceCard(
@@ -518,8 +463,7 @@ class ProfileScreen extends StatelessWidget {
           ),
 
           const SizedBox(height: 110),
-        ],
-      ),
+      ],
     );
   }
 

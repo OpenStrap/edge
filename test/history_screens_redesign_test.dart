@@ -245,8 +245,7 @@ void main() {
 
   group('JourneyContent', () {
     testWidgets(
-      'timeline tile + HR replay, peak/low bento, movement and workouts '
-      'in both palettes',
+      'merged multi-vital lookback, movement and workouts in both palettes',
       (t) async {
         for (final palette in [kLightPalette, kDarkPalette]) {
           await t.pumpWidget(
@@ -257,22 +256,25 @@ void main() {
           );
           await _pumpTwice(t);
 
-          expect(find.text('THE TIMELINE'), findsOneWidget);
-          // The replay overlay must survive the restyle.
-          expect(find.byType(HrReplayOverlay), findsOneWidget);
-          // Peak / low HR stat tiles.
-          expect(find.text('PEAK HR'), findsOneWidget);
-          expect(find.text('LOWEST HR'), findsOneWidget);
-          expect(find.text('171'), findsOneWidget);
-          expect(find.text('44'), findsOneWidget);
-          // Movement chart tile + workout list row.
+          // The merged multi-vital timeline (TimelineContent) is embedded
+          // here — one selector chip + color per continuously-recorded vital.
+          for (final label in ['Heart rate', 'HRV', 'Resp', 'Skin temp']) {
+            expect(find.text(label), findsOneWidget);
+          }
+          expect(find.text('HEART RATE · BPM'), findsOneWidget);
+          expect(find.text('PEAK · HEART RATE'), findsOneWidget);
+          expect(find.text('LOW · HEART RATE'), findsOneWidget);
+          // No play/replay control — scrub replaces tap-to-replay.
+          expect(find.byType(HrReplayOverlay), findsNothing);
+          // The merged timeline's own event bands (sleep/nap/workout).
+          expect(find.text('EVENTS'), findsOneWidget);
+          expect(find.text('Sleep'), findsOneWidget);
+          expect(find.text('Nap'), findsOneWidget);
+          // Movement chart tile + workout list row (Journey-only content).
           expect(find.text('MOVEMENT'), findsOneWidget);
           expect(find.text('WORKOUTS · 1'), findsOneWidget);
-          expect(find.text('Run'), findsOneWidget);
+          expect(find.text('Run'), findsWidgets); // event band + workout row
           expect(find.text('12.4 strain'), findsOneWidget);
-          // Context-band legend.
-          expect(find.text('Sleep'), findsOneWidget);
-          expect(find.text('Workout'), findsOneWidget);
           expect(t.takeException(), isNull);
         }
       },

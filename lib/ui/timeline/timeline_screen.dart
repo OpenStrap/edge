@@ -640,17 +640,23 @@ class _ChartPainter extends CustomPainter {
     }
 
     // ── active vital scale → Y-axis ticks (real units) ──
+    // HONESTY: no numbers shown until the chart is touched — a bare line
+    // invites eyeballing a false-precise value off an unlabeled axis. Only
+    // draw the grid + tick labels while actively scrubbing; the crosshair
+    // readout below is the source of truth for values.
     final act = vitals[active];
     final (alo, ahi) = _range(act);
-    final grid = Paint()
-      ..color = AppColors.divider.withValues(alpha: 0.45)
-      ..strokeWidth = 1;
-    for (var i = 0; i <= 3; i++) {
-      final v = alo + (ahi - alo) * i / 3;
-      final yy = yNorm(v, alo, ahi);
-      canvas.drawLine(Offset(leftPad, yy), Offset(size.width, yy), grid);
-      _text(canvas, v.toStringAsFixed(act.decimals), Offset(0, yy - 6),
-          act.color.withValues(alpha: 0.8), 9);
+    if (scrubT != null) {
+      final grid = Paint()
+        ..color = AppColors.divider.withValues(alpha: 0.45)
+        ..strokeWidth = 1;
+      for (var i = 0; i <= 3; i++) {
+        final v = alo + (ahi - alo) * i / 3;
+        final yy = yNorm(v, alo, ahi);
+        canvas.drawLine(Offset(leftPad, yy), Offset(size.width, yy), grid);
+        _text(canvas, v.toStringAsFixed(act.decimals), Offset(0, yy - 6),
+            act.color.withValues(alpha: 0.8), 9);
+      }
     }
 
     // ── X time axis ──

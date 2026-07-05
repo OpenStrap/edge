@@ -60,16 +60,19 @@ const Map<String, String> kMetricInfo = {
 
 String? infoFor(String key) => kMetricInfo[key];
 
-/// A single metric line: [icon chip] label (i) ........ big value unit [›]
+/// A single metric line: label (i) ........ big value unit [›]
 /// The explanation opens in an InfoSheet from the (i) — the row itself stays
-/// a clean number.
+/// a clean number. NO leading icon — a whole screen of "heading left, score
+/// right" rows each with their own chip reads as noise; the icon belongs on
+/// that metric's own dedicated screen/hero, not repeated on every list row.
+/// [icon]/[osIcon]/[accent] are accepted-but-unused so the ~30 existing call
+/// sites across detail_cards.dart/sleep_detail_screen.dart/
+/// strain_detail_screen.dart don't need touching — this is the one place to
+/// change if that decision ever reverses.
 class MetricRow extends StatelessWidget {
   final IconData icon;
 
   /// Illustrated variant — takes precedence over [icon] inside the chip.
-  /// Rendered at 38px (the art carries built-in transparent padding, so it
-  /// needs a larger canvas than a stroke glyph to read at the same weight);
-  /// the chip footprint grows to 40px vs the glyph chip's 35px.
   final OsIcon? osIcon;
   final Color? accent;
   final String label;
@@ -93,23 +96,11 @@ class MetricRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = this.accent ?? AppColors.coral;
     final row = ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 56),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            padding: EdgeInsets.all(osIcon != null ? 1 : 9),
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(R.chip),
-            ),
-            child: osIcon != null
-                ? OsAppIcon(osIcon!, size: 38)
-                : AppIcon(icon, size: 17, color: accent),
-          ),
-          const SizedBox(width: Sp.x3),
           Flexible(
             child: Text(
               label,
@@ -129,13 +120,20 @@ class MetricRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.baseline,
               textBaseline: TextBaseline.alphabetic,
               children: [
+                // FittedBox, not ellipsis — a shrunk-but-whole figure is
+                // honest; a truncated one ("14…" for "142.5") reads as a
+                // different, wrong number. Matches BigStat's contract that a
+                // value must always render in full.
                 Flexible(
-                  child: Text(
-                    value,
-                    style: AppText.metricSm.copyWith(fontSize: 19),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.right,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      value,
+                      style: AppText.metricSm.copyWith(fontSize: 19),
+                      maxLines: 1,
+                      textAlign: TextAlign.right,
+                    ),
                   ),
                 ),
                 if (unit != null) ...[

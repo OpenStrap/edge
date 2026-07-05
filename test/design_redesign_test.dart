@@ -472,7 +472,7 @@ void main() {
           expect(find.text('8412'), findsOneWidget);
           expect(find.text('640'), findsOneWidget);
           // Week rings card present (steps spark provided).
-          expect(find.text('THIS WEEK'), findsOneWidget);
+          expect(find.text('STEPS GOAL (WEEK)'), findsOneWidget);
           // No sync-anxiety copy anywhere in the composition.
           expect(find.textContaining('Sync'), findsNothing);
           expect(find.textContaining('stored to'), findsNothing);

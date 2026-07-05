@@ -175,17 +175,11 @@ class _TodayScreenState extends State<TodayScreen>
           osIcon: OsIcon.edit,
           onTap: () => _push(() => const JournalScreen()),
         ),
-        // Profile / settings. ProfileScreen is tab content (no Scaffold of its
-        // own), so wrap it when pushing standalone.
+        // Profile / settings.
         RoundIconButton(
           Ic.profile,
           osIcon: OsIcon.profile,
-          onTap: () => _push(
-            () => Scaffold(
-              backgroundColor: AppColors.background,
-              body: const ProfileScreen(),
-            ),
-          ),
+          onTap: () => _push(() => const ProfileScreen()),
         ),
         // Recap: plain surface like its siblings — the full-colour art would
         // clash on the old coral fill.
@@ -297,66 +291,97 @@ class _TodayScreenState extends State<TodayScreen>
     final alert = t.bodyAlert;
     final status = t.status;
 
+    // Every substantive item below carries a stable Key. This list is
+    // unkeyed-fragile otherwise: several conditions here (freshness banner,
+    // alert chip, coach row) flip during exactly the moments AppState is
+    // notifying most often (an active backfill/derive pass) — without keys,
+    // inserting/removing an item shifts every widget below it by one slot in
+    // the plain ListView, Flutter's positional (no-key) diff can't match old
+    // vs new elements by identity, and it unmounts+remounts the mismatched
+    // subtrees — replaying every dsEnter/dsPop entrance at once (the
+    // "screen is glitching" symptom). Keys let it match by identity instead
+    // of position, so a banner toggling on/off never disturbs its siblings.
     return [
       if (_showStory(t)) ...[
-        _RecoveryStory(
-          recoveredPct: t.readiness.value!.round(),
-          sleptMin: t.sleepDuration.isEmpty
-              ? null
-              : t.sleepDuration.value!.round(),
-          needMin: t.sleepNeed.isEmpty ? null : t.sleepNeed.value!.round(),
-          hrvRmssd: t.hrv?.rmssd,
-          hrvDelta: (t.hrv?.baseline != null)
-              ? (t.hrv!.rmssd - t.hrv!.baseline!)
-              : null,
-          planTitle: (coach?.plan.isNotEmpty ?? false)
-              ? coach!.plan.first.title
-              : null,
-          planBody: (coach?.plan.isNotEmpty ?? false)
-              ? coach!.plan.first.body
-              : null,
-          onDone: _dismissStory,
-        ).dsEnter(),
+        KeyedSubtree(
+          key: const ValueKey('today-story'),
+          child: _RecoveryStory(
+            recoveredPct: t.readiness.value!.round(),
+            sleptMin: t.sleepDuration.isEmpty
+                ? null
+                : t.sleepDuration.value!.round(),
+            needMin: t.sleepNeed.isEmpty ? null : t.sleepNeed.value!.round(),
+            hrvRmssd: t.hrv?.rmssd,
+            hrvDelta: (t.hrv?.baseline != null)
+                ? (t.hrv!.rmssd - t.hrv!.baseline!)
+                : null,
+            planTitle: (coach?.plan.isNotEmpty ?? false)
+                ? coach!.plan.first.title
+                : null,
+            planBody: (coach?.plan.isNotEmpty ?? false)
+                ? coach!.plan.first.body
+                : null,
+            onDone: _dismissStory,
+          ).dsEnter(),
+        ),
         const SizedBox(height: Sp.x3),
       ],
       // Data-freshness note — only when the band data is genuinely stale or a
       // metrics pass is mid-flight (settling states also get the compact chip
       // inside TodayVitals).
       if (_shouldShowTodayStatus(app, status)) ...[
-        _todayStatusCard(app, status),
+        KeyedSubtree(
+          key: const ValueKey('today-freshness'),
+          child: _todayStatusCard(app, status),
+        ),
         const SizedBox(height: Sp.x3),
       ],
       // AI briefing hero — shows the cached one-liner for the current period;
       // tapping opens the shared breakdown screen. Reads the BriefingStore
       // synchronously at build; AppState.notifyListeners() repaints it when a
       // briefing is generated opportunistically on foreground.
-      Builder(builder: (_) {
-        final period = currentBriefingPeriod(DateTime.now());
-        final brief = BriefingStore.read(period);
-        return AiSummaryCard(
-          summary: brief?.oneLiner,
-          onTap: () => _push(() => AiBreakdownScreen(period: period)),
-        );
-      }).dsEnter(index: 0),
+      KeyedSubtree(
+        key: const ValueKey('today-ai-summary'),
+        child: Builder(builder: (_) {
+          final period = currentBriefingPeriod(DateTime.now());
+          final brief = BriefingStore.read(period);
+          return AiSummaryCard(
+            summary: brief?.oneLiner,
+            onTap: () => _push(() => AiBreakdownScreen(period: period)),
+          );
+        }).dsEnter(index: 0),
+      ),
       if (alert != null) ...[
         const SizedBox(height: Sp.x3),
-        _alertChipRow(alert),
+        KeyedSubtree(
+          key: const ValueKey('today-alert'),
+          child: _alertChipRow(alert),
+        ),
       ],
-      TodayVitals(
-        t: t,
-        sparks: _sparks,
-        stepsWeek: _stepsWeek,
-        liveSteps: context.read<AppState>().liveSteps,
-        stageMin: _stageMin,
-        hypno: _hypno,
-        onOpen: _open,
+      KeyedSubtree(
+        key: const ValueKey('today-vitals'),
+        child: TodayVitals(
+          t: t,
+          sparks: _sparks,
+          stepsWeek: _stepsWeek,
+          liveSteps: context.read<AppState>().liveSteps,
+          stageMin: _stageMin,
+          hypno: _hypno,
+          onOpen: _open,
+        ),
       ),
       const SizedBox(height: Sp.x3),
       if (coach != null) ...[
-        _coachRow(coach).dsEnter(index: 5),
+        KeyedSubtree(
+          key: const ValueKey('today-coach'),
+          child: _coachRow(coach).dsEnter(index: 5),
+        ),
         const SizedBox(height: Sp.x3),
       ],
-      _hrCard().dsEnter(index: 6),
+      KeyedSubtree(
+        key: const ValueKey('today-lookback'),
+        child: _lookbackCard().dsEnter(index: 6),
+      ),
     ];
   }
 
@@ -441,17 +466,17 @@ class _TodayScreenState extends State<TodayScreen>
     );
   }
 
-  /// The heart-domain card: the big latest bpm with peak/low chips over the
-  /// day's HR curve — the whole card opens the journey. The header carries the
-  /// small illustrated heart-rate mark; the number + curve stay the card's
-  /// hero (the big anatomy heart lives on the Heart screen only).
-  Widget _hrCard() {
+  /// The entry point into "Your day" — the merged multi-vital lookback
+  /// (heart rate, HRV, resp, skin temp). Deliberately NOT a live/current-bpm
+  /// reading (that's the ambient "LIVE HEART RATE" tile on the Heart screen);
+  /// this card is a portal, not a live gauge — so its hero is the day's
+  /// peak/low HR chips + a preview curve, never an instantaneous number.
+  Widget _lookbackCard() {
     final points = [
       for (final p in _hr.points) TimeSeriesPoint(p.t.toDouble(), p.v),
     ];
     final hasData = points.length >= 2;
     final nowSec = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final latest = hasData ? points.last : null;
     final peak = hasData ? points.reduce((a, b) => a.y >= b.y ? a : b) : null;
     final low = hasData ? points.reduce((a, b) => a.y <= b.y ? a : b) : null;
     return SurfaceCard(
@@ -464,15 +489,16 @@ class _TodayScreenState extends State<TodayScreen>
             children: [
               const OsAppIcon(OsIcon.heartRate, size: 34),
               const SizedBox(width: Sp.x2),
-              Expanded(child: Text('HEART RATE', style: AppText.overline)),
+              Expanded(child: Text('LOOKBACK', style: AppText.overline)),
               AppIcon(Ic.arrowRight, size: 15, color: AppColors.onSurfaceFaint),
             ],
           ),
           const SizedBox(height: Sp.x3),
-          BigStat(
-            value: hasData ? '${latest!.y.round()}' : null,
-            unit: 'bpm',
-            caption: hasData ? 'right now' : 'no data yet today',
+          Text(
+            hasData
+                ? 'Heart rate, HRV, temp — your whole day'
+                : 'No data yet today',
+            style: AppText.body,
           ),
           if (hasData) ...[
             const SizedBox(height: Sp.x3),
@@ -1187,7 +1213,7 @@ class TodayVitals extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const TileHeader('This week', icon: Ic.calendar),
+          const TileHeader('Steps goal (week)'),
           const SizedBox(height: Sp.x3),
           RingWeek(
             values: ring.values,
