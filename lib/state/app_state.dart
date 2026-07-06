@@ -1,10 +1,10 @@
 // AppState — the single ChangeNotifier the UI listens to. Orchestrates the BLE
-// engine, local DB writes (raw-first), live telemetry, and the screen data SEAM.
+// engine, local decoded writes, live telemetry, and the screen data seam.
 //
 // CLOUD EXCISED: there is no backend, no auth, no upload. Records are captured
-// locally (raw_records / samples / events in lib/data/db.dart) and that is the
-// system of record. Screens read through `repo` (a LocalRepository — the seam to
-// the future on-device analytics re-layer); they no longer talk to a server.
+// locally and the decoded substrate is the system of record. Screens read
+// through `repo` (a LocalRepository — the seam to the future on-device
+// analytics re-layer); they no longer talk to a server.
 //
 // Onboarding gate (see app.dart):
 //   not paired → Pairing (LOCAL device pref)
@@ -185,7 +185,8 @@ class AppState extends ChangeNotifier {
   String get companionUrl => CompanionClient.effectiveBase;
 
   /// True when a companion URL is configured (override or build-time).
-  bool get companionConfigured => CompanionClient.effectiveBase.trim().isNotEmpty;
+  bool get companionConfigured =>
+      CompanionClient.effectiveBase.trim().isNotEmpty;
 
   /// Set (or clear, with '') the runtime companion-URL override.
   Future<void> setCompanionUrl(String url) async {
@@ -348,6 +349,7 @@ class AppState extends ChangeNotifier {
   String deviceId = '';
   bool telemetryConsent = false;
   bool healthShareConsent = false;
+
   /// Whether the user has been through the enrollment consent screen. Until then
   /// the toggles default ON there; an install that never saw the screen keeps the
   /// safe OFF default (we do NOT silently enable for someone who never chose).
@@ -416,10 +418,14 @@ class AppState extends ChangeNotifier {
     await prefs.setBool(_kConsentChosen, true);
     TelemetryService.instance.enabled = on;
     notifyListeners();
-    unawaited(CompanionClient.postConsent(
-      deviceId: deviceId, scope: 'telemetry', granted: on,
-      termsVersion: termsVersion,
-    ));
+    unawaited(
+      CompanionClient.postConsent(
+        deviceId: deviceId,
+        scope: 'telemetry',
+        granted: on,
+        termsVersion: termsVersion,
+      ),
+    );
     if (on) unawaited(TelemetryService.instance.flush());
   }
 
@@ -431,10 +437,14 @@ class AppState extends ChangeNotifier {
     await prefs.setBool(_kHealthShareConsent, on);
     await prefs.setBool(_kConsentChosen, true);
     notifyListeners();
-    unawaited(CompanionClient.postConsent(
-      deviceId: deviceId, scope: 'health_data', granted: on,
-      termsVersion: termsVersion,
-    ));
+    unawaited(
+      CompanionClient.postConsent(
+        deviceId: deviceId,
+        scope: 'health_data',
+        granted: on,
+        termsVersion: termsVersion,
+      ),
+    );
   }
 
   /// Merge + persist local profile fields. Returns the updated map. Replaces the
@@ -566,7 +576,7 @@ class AppState extends ChangeNotifier {
       log: _log,
       onEvent: _onLiveEvent,
       onRecordsBatch: LocalDb.insertRecordsBatch,
-      // RESUMABLE SYNC: atomic commit of raw + samples + continuation cursor
+      // RESUMABLE SYNC: atomic commit of decoded data + samples + continuation cursor
       // before the HISTORY_END ACK, and a reader to seed the offload frontier
       // from the durable high-water on (re)connect.
       onCommitBatch: (raws, samples, trimTokenHex) =>
@@ -578,8 +588,8 @@ class AppState extends ChangeNotifier {
       // heavy finalize still runs in openSession after the backlog fully drains.
       onDataStored: _onDataStored,
       onOffloadState: (active) => _deriveScheduler.setOffloadActive(active),
-      // LIVE high-rate frames (0x28/0x2B/0x33) are ephemeral — routed here for the
-      // live UI / spot-check, NEVER persisted to raw_records.
+      // LIVE high-rate frames (0x28/0x2B/0x33) are ephemeral — routed here for
+      // the live UI / spot-check, never persisted as a replay ledger.
       onLiveFrame: _onLiveFrame,
     );
     repo = LocalRepositoryImpl(getProfileMap: () => user);
@@ -717,15 +727,17 @@ class AppState extends ChangeNotifier {
       }
 
       await prefs.setString(_kLastRecoveryNotifDay, dayId);
-      await NotificationCenter.instance.emit(NotificationEvent(
-        dedupeKey: '$dayId:recovery_ready',
-        category: NotifCategory.recovery,
-        priority: NotifPriority.normal,
-        title: 'Your recovery is ready',
-        body: 'Recovery $score$slept. Tap to see today.',
-        date: dayId,
-        route: '/today',
-      ));
+      await NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: '$dayId:recovery_ready',
+          category: NotifCategory.recovery,
+          priority: NotifPriority.normal,
+          title: 'Your recovery is ready',
+          body: 'Recovery $score$slept. Tap to see today.',
+          date: dayId,
+          route: '/today',
+        ),
+      );
       _log('[notify] recovery-ready fired for $dayId (score=$score)');
     } catch (e) {
       _log('[notify] recovery-ready skipped: $e');
@@ -764,16 +776,21 @@ class AppState extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getString(_kLastStepGoalDay) == date) return; // already fired
       await prefs.setString(_kLastStepGoalDay, date);
-      await NotificationCenter.instance.emit(NotificationEvent(
-        dedupeKey: '$date:step_goal',
-        category: NotifCategory.reminders,
-        priority: NotifPriority.low,
-        title: 'Step goal reached',
-        body: 'You hit about $steps steps — at or above your $goal goal. Nice work.',
-        date: date,
-        route: '/today',
-      ));
-    } catch (_) {/* best-effort */}
+      await NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: '$date:step_goal',
+          category: NotifCategory.reminders,
+          priority: NotifPriority.low,
+          title: 'Step goal reached',
+          body:
+              'You hit about $steps steps — at or above your $goal goal. Nice work.',
+          date: date,
+          route: '/today',
+        ),
+      );
+    } catch (_) {
+      /* best-effort */
+    }
   }
 
   /// Opportunistic "time to move" nudge. HONEST LIMIT: movement is only visible
@@ -794,17 +811,22 @@ class AppState extends ChangeNotifier {
       if (nowMs - lastFired < 2 * 60 * 60 * 1000) return; // rate-limit to /2h
       await prefs.setInt(_kLastInactivityMs, nowMs);
       final today = '${now.year}-${now.month}-${now.day}';
-      await NotificationCenter.instance.emit(NotificationEvent(
-        dedupeKey: '$today:move:${nowMs ~/ (2 * 60 * 60 * 1000)}',
-        category: NotifCategory.reminders,
-        priority: NotifPriority.low,
-        title: 'Time to move',
-        body: "You've been still for a couple of hours — a short walk keeps your "
-            'energy and circulation up.',
-        date: today,
-        route: '/today',
-      ));
-    } catch (_) {/* best-effort */}
+      await NotificationCenter.instance.emit(
+        NotificationEvent(
+          dedupeKey: '$today:move:${nowMs ~/ (2 * 60 * 60 * 1000)}',
+          category: NotifCategory.reminders,
+          priority: NotifPriority.low,
+          title: 'Time to move',
+          body:
+              "You've been still for a couple of hours — a short walk keeps your "
+              'energy and circulation up.',
+          date: today,
+          route: '/today',
+        ),
+      );
+    } catch (_) {
+      /* best-effort */
+    }
   }
 
   /// True while a user-initiated full re-analysis is running (drives the button's
@@ -940,7 +962,7 @@ class AppState extends ChangeNotifier {
     await _loadProfile();
     await _deriveScheduler.init();
     lastSynced = await LocalDb.latestSample();
-    _lastRecTs = await LocalDb.lastRawRecTs() ?? lastSynced?.tsEpoch;
+    _lastRecTs = await LocalDb.lastDecodedRecTs() ?? lastSynced?.tsEpoch;
     dbCounts = await LocalDb.counts();
     await LocalDb.refreshComputeFreshness();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
@@ -954,7 +976,9 @@ class AppState extends ChangeNotifier {
     // Companion (anonymous telemetry + health-data contribution) — best-effort,
     // OFF the critical path so it can never block/break boot. Guarded internally.
     unawaited(_initCompanion());
-    unawaited(armWaterReminder()); // arm the hydration strap-buzz (timers don't persist)
+    unawaited(
+      armWaterReminder(),
+    ); // arm the hydration strap-buzz (timers don't persist)
     // App status (OTA pointer + admin alert banner) — best-effort, non-blocking.
     unawaited(_loadAppStatus());
     // Register the recurring wall-clock nudges as real OS-scheduled notifications
@@ -981,9 +1005,13 @@ class AppState extends ChangeNotifier {
           final b = v is Map ? (v['bedtime_min_of_day'] as num?) : null;
           bedtimeMin = b?.toDouble();
         }
-      } catch (_) {/* fall back to default bedtime */}
-      await NotificationCenter.instance
-          .scheduleStandingReminders(prefs, bedtimeMinOfDay: bedtimeMin);
+      } catch (_) {
+        /* fall back to default bedtime */
+      }
+      await NotificationCenter.instance.scheduleStandingReminders(
+        prefs,
+        bedtimeMinOfDay: bedtimeMin,
+      );
     } catch (e) {
       _log('[notify] schedule reminders skipped: $e');
     }
@@ -1112,7 +1140,8 @@ class AppState extends ChangeNotifier {
   int _liveEnmoN = 0;
   bool _imuStreamSeen = false; // prefer the 0x33 IMU stream once it appears
   static const int _minuteSamples = 6000; // 60 s @ 100 Hz — calibration chunk
-  int _lastMovementMs = 0; // wall-clock of the last live frame showing real motion
+  int _lastMovementMs =
+      0; // wall-clock of the last live frame showing real motion
   // DEVICE-time window (epoch sec) the live pedometer covered this session — so
   // the 1 Hz estimate can EXCLUDE these minutes (100 Hz real count wins).
   int? _liveCoverStartTs;
@@ -1196,7 +1225,8 @@ class AppState extends ChangeNotifier {
     // 100 Hz always wins and a minute is never counted twice.
     if (steps > 0 && coverStart != null && coverEnd >= coverStart) {
       final d = DateTime.fromMillisecondsSinceEpoch(coverStart * 1000);
-      final day = '${d.year.toString().padLeft(4, '0')}-'
+      final day =
+          '${d.year.toString().padLeft(4, '0')}-'
           '${d.month.toString().padLeft(2, '0')}-'
           '${d.day.toString().padLeft(2, '0')}';
       unawaited(LocalDb.addLiveCoverage(coverStart, coverEnd, steps, day));
@@ -1212,8 +1242,10 @@ class AppState extends ChangeNotifier {
       final next = ana.calibrateCadence(prior, result, enmo);
       if (next != null && !identical(next, prior)) {
         await LocalDb.putStepCalibration(next);
-        _log('[steps] cadence calibrated → '
-            '${next.cadenceSpm.toStringAsFixed(0)} spm (n=${next.n})');
+        _log(
+          '[steps] cadence calibrated → '
+          '${next.cadenceSpm.toStringAsFixed(0)} spm (n=${next.n})',
+        );
       }
     } catch (e) {
       _log('[steps] calibration skipped: $e');
@@ -1329,7 +1361,7 @@ class AppState extends ChangeNotifier {
   }) async {
     var last = SyncReport(0, 0, false);
     for (var i = 0; i < maxSessions && engine.isConnected; i++) {
-      final frontierBefore = await LocalDb.lastRawRecTs();
+      final frontierBefore = await LocalDb.lastDecodedRecTs();
       if (kickFirst || i > 0) {
         await engine.requestHistorySync();
       }
@@ -1337,7 +1369,7 @@ class AppState extends ChangeNotifier {
       final report = await engine.runSync(
         timeout: const Duration(seconds: 180),
       );
-      final frontierAfter = await LocalDb.lastRawRecTs();
+      final frontierAfter = await LocalDb.lastDecodedRecTs();
       final strapNewest = engine.strapHistoryNewestTs;
       final frontierAdvanced =
           frontierAfter != null &&
@@ -1499,6 +1531,18 @@ class AppState extends ChangeNotifier {
     // Back in the foreground with an OS CPU/memory budget again — let the
     // scheduler drain any derive jobs that queued (durably) while backgrounded.
     _deriveScheduler.setBackground(false);
+    if (engine.isConnected && !wasBackground) {
+      EdgeTracking.start();
+      IosBleRestore.foregroundActive = true;
+      unawaited(() async {
+        try {
+          await engine.getBattery();
+          await engine.getStrapName();
+        } catch (_) {}
+      }());
+      _startBackfillTimer();
+      return;
+    }
     if (wasBackground && engine.isConnected) {
       IosBleRestore.foregroundActive = true;
       await IosBleRestore.setOwnsBand(true);
@@ -1819,8 +1863,10 @@ class AppState extends ChangeNotifier {
         if (next != null) {
           await LocalDb.putStepCalibration(next);
           learned = next.cadenceSpm;
-          _log('[steps] CALIBRATED → ${next.cadenceSpm.toStringAsFixed(0)} spm '
-              '(refEnmo=${next.refEnmo.toStringAsFixed(3)}, n=${next.n})');
+          _log(
+            '[steps] CALIBRATED → ${next.cadenceSpm.toStringAsFixed(0)} spm '
+            '(refEnmo=${next.refEnmo.toStringAsFixed(3)}, n=${next.n})',
+          );
         }
       } catch (e) {
         _log('[steps] calibration failed: $e');

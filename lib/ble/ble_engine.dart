@@ -217,8 +217,10 @@ class BleEngine {
     final other = _bandOwner;
     if (other != null && !identical(other, this)) {
       if (isBackgroundDrainer) {
-        _log('band already owned by the foreground session — background drain '
-            'yielding (avoids duplicate ACKs on the same offload).');
+        _log(
+          'band already owned by the foreground session — background drain '
+          'yielding (avoids duplicate ACKs on the same offload).',
+        );
         return false;
       }
       _log('preempting a background drain to take the foreground session.');
@@ -279,6 +281,7 @@ class BleEngine {
   ClockRef? _clockRef; // strap-RTC ↔ wall correlation (set from GET_CLOCK)
   /// Latest strap-RTC ↔ wall correlation, or null until GET_CLOCK is answered.
   ClockRef? get clockRef => _clockRef;
+
   /// SET_CLOCK re-issue attempts THIS connection. setClock() reads the clock
   /// back, and the GET_CLOCK handler re-issues on drift — so cap the retries or
   /// a firmware that never latches either payload form would loop forever.
@@ -797,11 +800,16 @@ class BleEngine {
       try {
         final cmd = session?.cmdTo;
         if (session == null || !session.connected || cmd == null) {
-          _log('write skipped: link not ready.');
           return;
         }
         await cmd.write(raw, withoutResponse: false);
       } catch (e) {
+        final msg = '$e'.toLowerCase();
+        if (msg.contains('device is disconnected') ||
+            msg.contains('not connected') ||
+            msg.contains('link not ready')) {
+          return;
+        }
         _log('write error: $e');
       } finally {
         completer.complete();
@@ -939,9 +947,10 @@ class BleEngine {
         recTs: (sample != null && sample.tsEpoch > 0) ? sample.tsEpoch : null,
       );
       // Hand the record to the offload controller (it buffers per-batch until the
-      // HISTORY_END flush, which persists raw-first BEFORE we ACK). The controller
-      // is armed for the whole connection, so this is always present; the fallback
-      // just stores directly if a frame somehow arrives before setup completed.
+      // HISTORY_END flush, which persists decoded data BEFORE we ACK). The
+      // controller is armed for the whole connection, so this is always present;
+      // the fallback just stores directly if a frame somehow arrives before setup
+      // completed.
       final d = _drain;
       if (d != null) {
         _armIdleWatchdog(); // a record arrived → the strap is still draining
@@ -1100,12 +1109,16 @@ class BleEngine {
       if (ClockPolicy.shouldSetClock(dev, wall)) {
         if (_clockCorrectTries < 3) {
           _clockCorrectTries++;
-          _log('Clock drift over policy — re-issuing SET_CLOCK '
-              '(attempt $_clockCorrectTries/3).');
+          _log(
+            'Clock drift over policy — re-issuing SET_CLOCK '
+            '(attempt $_clockCorrectTries/3).',
+          );
           unawaited(setClock());
         } else {
-          _log('Clock still off after 3 SET_CLOCK attempts — giving up; '
-              'firmware may not accept our payload length.');
+          _log(
+            'Clock still off after 3 SET_CLOCK attempts — giving up; '
+            'firmware may not accept our payload length.',
+          );
         }
       } else {
         _clockCorrectTries = 0; // latched — reset for the next drift episode
@@ -1435,8 +1448,10 @@ class BleEngine {
   Future<void> setStrapName(String name) async {
     // Cap at 20 ASCII chars (matches the reference + the GET decoder's length
     // assumption); the length byte then always stays < 0x20.
-    final ascii =
-        name.codeUnits.where((c) => c >= 0x20 && c < 0x7f).take(20).toList();
+    final ascii = name.codeUnits
+        .where((c) => c >= 0x20 && c < 0x7f)
+        .take(20)
+        .toList();
     final payload = <int>[0x01, ascii.length, ...ascii, 0, 0, 0, 0];
     await _send(Cmd.setAdvertisingNameHarvard, payload);
     _log('SET_ADVERTISING_NAME → "$name"');
@@ -1574,7 +1589,8 @@ class BleEngine {
     // 2034) — which made `history_newest` garbage, so backlogRemains was
     // PERMANENTLY true and the offload never recognized completion (it chased a
     // 2034 target forever). Cap at wall-clock + 1 day (clock skew slack).
-    final maxPlausible = (DateTime.now().millisecondsSinceEpoch ~/ 1000) + 86400;
+    final maxPlausible =
+        (DateTime.now().millisecondsSinceEpoch ~/ 1000) + 86400;
     final ts = <int>[];
     for (var off = 0; off + 4 <= payload.length; off++) {
       final v = u32(payload, off);
@@ -1590,13 +1606,14 @@ class BleEngine {
   }
 }
 
-/// Per-connection historical-offload helper. Buffers records per ACK boundary and
-/// flushes them in one transaction (raw-first, BEFORE the HISTORY_END ACK). It is
-/// armed for the whole connection (single listening mode) — it never aborts and
-/// never switches modes. It just tracks running counts and exposes an
-/// [awaitComplete] future that resolves when the band signals HISTORY_COMPLETE (or
-/// the link drops / a safety timeout elapses), so a caller can block until the
-/// backlog is fully handed over without disturbing the continuous listen.
+/// Per-connection historical-offload helper. Buffers records per ACK boundary
+/// and flushes them in one transaction (decoded persistence BEFORE the
+/// HISTORY_END ACK). It is armed for the whole connection (single listening
+/// mode) — it never aborts and never switches modes. It just tracks running
+/// counts and exposes an [awaitComplete] future that resolves when the band
+/// signals HISTORY_COMPLETE (or the link drops / a safety timeout elapses), so
+/// a caller can block until the backlog is fully handed over without disturbing
+/// the continuous listen.
 class _DrainController {
   final SampleSink onRecord;
   final BatchSink? onRecordsBatch;
@@ -1643,6 +1660,7 @@ class _DrainController {
     }
     return any ? (lo, hi) : null;
   }
+
   // Trim-advance tracking for the stuck/continuation detectors: a HISTORY_END
   // whose 8-byte token differs from the last one means the cursor moved.
   String? _lastAckedToken;

@@ -1,7 +1,14 @@
-// Local raw-first storage (SQLite via sqflite).
+// Local decoded-first storage (SQLite via sqflite).
+//
+// Storage policy:
+// - We do NOT actively persist a raw replay ledger anymore. That duplicated the
+//   same physiological timeline already present in the decoded substrate and was
+//   the main source of avoidable storage growth.
+// - The objective in this file is to minimize duplicated storage whenever
+//   possible. Keep one canonical representation of the data unless a separate
+//   copy is required for a concrete compatibility or migration reason.
 //
 // Durable storage layers:
-//   raw_records   — the band's bytes verbatim, keyed by counter. Replay/debug ledger.
 //   decoded_onehz — canonical per-second decoded substrate, deduped by rec_ts.
 //   decoded_rr    — sparse RR beats for that substrate, deduped by (rr_ts_ms, beat_index).
 //   samples       — legacy header cache kept only for backward-compat fallback.
@@ -74,7 +81,9 @@ class LocalDb {
         }
       },
       onCreate: (db, version) async {
-        await _createRaw(db);
+        // Fresh installs create only the canonical decoded store. Raw replay
+        // storage is intentionally omitted to avoid storing the same timeline
+        // twice on device.
         await _createSamples(db);
         await _createDecodedStore(db);
         await db.execute('CREATE INDEX idx_samples_ts ON samples(ts)');
@@ -209,7 +218,9 @@ class LocalDb {
           await _createBandSignals(db);
           await _ensureSyncStateSchema(db);
           await _createLiveCoverage(db);
-          await db.execute("DELETE FROM metric_series WHERE key = 'active_min'");
+          await db.execute(
+            "DELETE FROM metric_series WHERE key = 'active_min'",
+          );
           await db.execute("DELETE FROM metric_series WHERE key = 'steps'");
         }
         if (oldV < 14) {
@@ -265,8 +276,13 @@ class LocalDb {
     // Same-version merged builds can still need additive schema repair on an
     // existing install. Keep this idempotent and cheap: create missing tables,
     // indexes, and additive columns the current code assumes are present.
+    // Important: do not reintroduce raw replay storage here. The steady-state
+    // schema should stay decoded-first and avoid duplicate persistence unless a
+    // migration path explicitly requires temporary overlap.
     await _createSamples(db);
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts)');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts)',
+    );
     await _createEvents(db);
     await _createBandSignals(db);
     await _createDerived(db);
@@ -294,7 +310,6 @@ class LocalDb {
     }
     await _createLiveCoverage(db);
     await _createCycleSymptom(db);
-    await _ensureRawRecordSchema(db);
     await _ensureSessionSchema(db);
     await _ensureSyncStateSchema(db);
     await _createWorkoutSuggestions(db);
@@ -318,22 +333,21 @@ class LocalDb {
 
   /// Upsert the symptom set for [date] (empty list clears the row).
   static Future<void> putCycleSymptoms(
-      String date, List<String> symptoms, {String? note}) async {
+    String date,
+    List<String> symptoms, {
+    String? note,
+  }) async {
     final db = await instance;
     if (symptoms.isEmpty && (note == null || note.isEmpty)) {
       await db.delete('cycle_symptom', where: 'date = ?', whereArgs: [date]);
       return;
     }
-    await db.insert(
-      'cycle_symptom',
-      {
-        'date': date,
-        'symptoms_json': jsonEncode(symptoms),
-        'note': note,
-        'updated_at': DateTime.now().millisecondsSinceEpoch,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('cycle_symptom', {
+      'date': date,
+      'symptoms_json': jsonEncode(symptoms),
+      'note': note,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// All symptom rows (newest first): {date, symptoms_json, note}.
@@ -391,24 +405,24 @@ class LocalDb {
     required String source,
   }) async {
     final db = await instance;
-    await db.insert(
-      'sleep_override',
-      {
-        'day_id': dayId,
-        'onset_ts': onsetTs,
-        'offset_ts': offsetTs,
-        'source': source,
-        'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.insert('sleep_override', {
+      'day_id': dayId,
+      'onset_ts': onsetTs,
+      'offset_ts': offsetTs,
+      'source': source,
+      'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// The user's sleep window for [dayId], or null if none.
   static Future<Map<String, dynamic>?> getSleepOverride(String dayId) async {
     final db = await instance;
-    final rows = await db.query('sleep_override',
-        where: 'day_id = ?', whereArgs: [dayId], limit: 1);
+    final rows = await db.query(
+      'sleep_override',
+      where: 'day_id = ?',
+      whereArgs: [dayId],
+      limit: 1,
+    );
     return rows.isEmpty ? null : rows.first;
   }
 
@@ -444,36 +458,52 @@ class LocalDb {
       )
     ''');
     await db.execute(
-        'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)');
+      'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)',
+    );
   }
 
   /// Record a real 100 Hz step window (device-time seconds) + its step count.
   static Future<void> addLiveCoverage(
-      int startTs, int endTs, int steps, String day) async {
+    int startTs,
+    int endTs,
+    int steps,
+    String day,
+  ) async {
     if (steps <= 0 || endTs < startTs) return;
     final db = await instance;
-    await db.insert('live_coverage',
-        {'start_ts': startTs, 'end_ts': endTs, 'steps': steps, 'day': day});
+    await db.insert('live_coverage', {
+      'start_ts': startTs,
+      'end_ts': endTs,
+      'steps': steps,
+      'day': day,
+    });
   }
 
   /// Real (100 Hz) steps attributed to [day].
   static Future<int> liveStepsForDay(String day) async {
     final db = await instance;
     final r = await db.rawQuery(
-        'SELECT COALESCE(SUM(steps),0) s FROM live_coverage WHERE day = ?', [day]);
+      'SELECT COALESCE(SUM(steps),0) s FROM live_coverage WHERE day = ?',
+      [day],
+    );
     return (r.first['s'] as num?)?.toInt() ?? 0;
   }
 
   /// Coverage windows ([startSec, endSec]) overlapping [loSec, hiSec) — used to
   /// exclude already-counted minutes from the 1 Hz estimate.
   static Future<List<List<int>>> coverageWindowsOverlapping(
-      int loSec, int hiSec) async {
+    int loSec,
+    int hiSec,
+  ) async {
     final db = await instance;
-    final rows = await db.query('live_coverage',
-        where: 'end_ts >= ? AND start_ts < ?', whereArgs: [loSec, hiSec]);
+    final rows = await db.query(
+      'live_coverage',
+      where: 'end_ts >= ? AND start_ts < ?',
+      whereArgs: [loSec, hiSec],
+    );
     return [
       for (final r in rows)
-        [(r['start_ts'] as num).toInt(), (r['end_ts'] as num).toInt()]
+        [(r['start_ts'] as num).toInt(), (r['end_ts'] as num).toInt()],
     ];
   }
 
@@ -510,8 +540,8 @@ class LocalDb {
   }
 
   /// Upsert a sync-cursor value. Caller may pass a [txn] so the cursor write
-  /// shares the SAME transaction as the raw batch — keeping "persist raw then
-  /// persist cursor" atomic before the band is ACKed.
+  /// shares the SAME transaction as the decoded batch — keeping "persist data
+  /// then persist cursor" atomic before the band is ACKed.
   static Future<void> setCursor(
     String name,
     String value, {
@@ -525,10 +555,11 @@ class LocalDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  /// Persist a sync batch atomically: the raw records, their samples, AND the
-  /// continuation cursor in ONE transaction. This is the durable half of the
-  /// safe-trim invariant — it MUST return before the engine writes the ACK frame.
-  /// Advances counter_hw / rec_ts_hw to the batch max so a restart resumes cleanly.
+  /// Persist a sync batch atomically: the canonical decoded substrate, any
+  /// legacy sample rows, AND the continuation cursor in ONE transaction. This
+  /// is the durable half of the safe-trim invariant — it MUST return before the
+  /// engine writes the ACK frame. Advances counter_hw / rec_ts_hw to the batch
+  /// max so a restart resumes cleanly.
   static Future<void> commitSyncBatch(
     List<RawRecord> raws,
     List<Sample?> samples, {
@@ -545,14 +576,6 @@ class LocalDb {
       for (var i = 0; i < raws.length; i++) {
         final raw = raws[i];
         final recTs = _recTsFor(raw);
-        batch.insert('raw_records', {
-          'hex': raw.hex,
-          'packet_type': raw.packetType,
-          'counter': raw.counter,
-          'captured_at': raw.capturedAt,
-          'rec_ts': recTs,
-          'uploaded': raw.uploaded ? 1 : 0,
-        }, conflictAlgorithm: ConflictAlgorithm.ignore);
         final sample = samples[i];
         if (sample != null) {
           batch.insert('samples', {
@@ -804,32 +827,6 @@ class LocalDb {
     await _ensureSyncQuarantineSchema(db);
   }
 
-  static Future<void> _ensureRawRecordSchema(Database db) async {
-    final cols = await db.rawQuery("PRAGMA table_info(raw_records)");
-    final names = {
-      for (final c in cols)
-        if (c['name'] is String) c['name'] as String,
-    };
-    if (!names.contains('rec_ts')) {
-      await _addRecTsColumn(db);
-      await _backfillRecTs(db);
-    }
-    // ALWAYS ensure the rec_ts index exists — NOT only when the column was just
-    // added. The v8 rebuild (RENAME + recreate) ran with an older _createRaw that
-    // did not recreate this index, so DBs upgraded through v8 have the rec_ts
-    // COLUMN but NO index. Every DerivationEngine pass filters/orders
-    // raw_records by rec_ts, so without it a large ledger (100k+ rows) does a
-    // full table SCAN + temp-b-tree sort on every derive → the app crawls.
-    // CREATE INDEX IF NOT EXISTS is a cheap no-op once it's present.
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_raw_rects ON raw_records(rec_ts)',
-    );
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_raw_unuploaded '
-      'ON raw_records(uploaded, captured_at) WHERE uploaded = 0',
-    );
-  }
-
   static Future<void> _ensureSessionSchema(Database db) async {
     final cols = await db.rawQuery("PRAGMA table_info(sessions)");
     final names = {
@@ -865,21 +862,31 @@ class LocalDb {
   /// Upsert an auto-detected workout suggestion (id = "$date:$startSec").
   static Future<void> putWorkoutSuggestion(Map<String, dynamic> row) async {
     final db = await instance;
-    await db.insert('workout_suggestions', row,
-        conflictAlgorithm: ConflictAlgorithm.ignore);
+    await db.insert(
+      'workout_suggestions',
+      row,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
   }
 
   /// Active (not-yet-dismissed, not-yet-confirmed) suggestions, newest first.
   static Future<List<Map<String, dynamic>>> activeWorkoutSuggestions() async {
     final db = await instance;
-    return db.query('workout_suggestions',
-        where: 'dismissed = 0', orderBy: 'start_ts DESC');
+    return db.query(
+      'workout_suggestions',
+      where: 'dismissed = 0',
+      orderBy: 'start_ts DESC',
+    );
   }
 
   static Future<void> dismissWorkoutSuggestion(String id) async {
     final db = await instance;
-    await db.update('workout_suggestions', {'dismissed': 1},
-        where: 'id = ?', whereArgs: [id]);
+    await db.update(
+      'workout_suggestions',
+      {'dismissed': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   // ── COACH READ-ONLY SQL VIEWS (derived-only) ───────────────────────────────
@@ -1630,9 +1637,10 @@ class LocalDb {
     );
   }
 
-  /// Store a raw record (+ optional decoded sample). Idempotent on frame hex.
-  /// Raw is written FIRST (raw-first invariant). Returns true if newly inserted.
-  /// LIVE packets pass sample=null — the backend field-decodes them from raw.
+  /// Store a record into the canonical decoded substrate. Returns whether a
+  /// decoded sample was actually available to persist. LIVE packets may pass
+  /// sample=null; the substrate write then becomes a no-op until a decodable
+  /// sample exists.
   /// Resolve the rec_ts (epoch sec) to store: reuse the already-decoded value from
   /// [raw] (ble_engine sets it from the record it parsed) to avoid a double-decode,
   /// else decode the hex here, else fall back to captured_at/1000.
@@ -1643,28 +1651,18 @@ class LocalDb {
 
   static Future<bool> insertRecord(RawRecord raw, Sample? sample) async {
     final db = await instance;
-    int rawRows = 0;
     await db.transaction((txn) async {
       final batch = txn.batch();
-      rawRows = await txn.insert('raw_records', {
-        'hex': raw.hex,
-        'packet_type': raw.packetType,
-        'counter': raw.counter,
-        'captured_at': raw.capturedAt,
-        'rec_ts': _recTsFor(raw),
-        'uploaded': raw.uploaded ? 1 : 0,
-      }, conflictAlgorithm: ConflictAlgorithm.ignore);
       _queueDecodedOneHz(batch, raw, sample);
       await batch.commit(noResult: true);
     });
-    return rawRows != 0;
+    return sample != null;
   }
 
   /// Insert many records in ONE transaction. During a historical drain this is
   /// far faster than a transaction-per-record (one fsync instead of thousands).
   /// `samples` is now purely an ingest carrier for decoded fields; rows are
-  /// persisted into decoded_onehz/decoded_rr, not into the legacy `samples`
-  /// table. Raw-first is preserved — callers flush this before ACKing a sync batch.
+  /// persisted into decoded_onehz/decoded_rr, not into a raw replay ledger.
   static Future<void> insertRecordsBatch(
     List<RawRecord> raws,
     List<Sample?> samples,
@@ -1675,14 +1673,6 @@ class LocalDb {
       final batch = txn.batch();
       for (var i = 0; i < raws.length; i++) {
         final raw = raws[i];
-        batch.insert('raw_records', {
-          'hex': raw.hex,
-          'packet_type': raw.packetType,
-          'counter': raw.counter,
-          'captured_at': raw.capturedAt,
-          'rec_ts': _recTsFor(raw),
-          'uploaded': raw.uploaded ? 1 : 0,
-        }, conflictAlgorithm: ConflictAlgorithm.ignore);
         final sample = samples[i];
         _queueDecodedOneHz(batch, raw, sample);
       }
@@ -1857,19 +1847,12 @@ class LocalDb {
 
   static Future<Map<String, int>> counts() async {
     final db = await instance;
-    final raw =
+    final decoded =
         Sqflite.firstIntValue(
-          await db.rawQuery('SELECT COUNT(*) FROM raw_records'),
+          await db.rawQuery('SELECT COUNT(*) FROM decoded_onehz'),
         ) ??
         0;
-    final pending =
-        Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COUNT(*) FROM raw_records WHERE uploaded = 0',
-          ),
-        ) ??
-        0;
-    return {'raw': raw, 'pending': pending};
+    return {'raw': decoded, 'pending': 0};
   }
 
   // ── raw read (for the DerivationEngine — main isolate only) ─────────────────
@@ -1893,6 +1876,7 @@ class LocalDb {
   /// a backfill is split by real day, not by when it was received (captured_at).
   static Future<List<String>> rawHexInRecTsRange(int fromSec, int toSec) async {
     final db = await instance;
+    if (!await _hasTable(db, 'raw_records')) return const <String>[];
     final rows = await db.query(
       'raw_records',
       columns: ['hex'],
@@ -1908,9 +1892,25 @@ class LocalDb {
   /// against its derived cursor to decide what needs (re)derivation.
   static Future<Map<String, int>> rawRecTsMaxByDay() async {
     final db = await instance;
+    if (!await _hasTable(db, 'raw_records')) return const <String, int>{};
     final rows = await db.rawQuery(
       "SELECT strftime('%Y-%m-%d', rec_ts, 'unixepoch', 'localtime') AS d, "
       'MAX(rec_ts) AS mx FROM raw_records GROUP BY d',
+    );
+    final out = <String, int>{};
+    for (final r in rows) {
+      final d = r['d'] as String?;
+      final mx = (r['mx'] as num?)?.toInt();
+      if (d != null && mx != null) out[d] = mx;
+    }
+    return out;
+  }
+
+  static Future<Map<String, int>> decodedRecTsMaxByDay() async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      "SELECT strftime('%Y-%m-%d', rec_ts, 'unixepoch', 'localtime') AS d, "
+      'MAX(rec_ts) AS mx FROM decoded_onehz GROUP BY d',
     );
     final out = <String, int>{};
     for (final r in rows) {
@@ -1925,6 +1925,7 @@ class LocalDb {
   /// new raw to (re)derive. Null if the store is empty.
   static Future<int?> latestRawCapturedAt() async {
     final db = await instance;
+    if (!await _hasTable(db, 'raw_records')) return null;
     return Sqflite.firstIntValue(
       await db.rawQuery('SELECT MAX(captured_at) FROM raw_records'),
     );
@@ -1933,6 +1934,7 @@ class LocalDb {
   /// The oldest `captured_at` (epoch ms) across all raw. Null if empty.
   static Future<int?> earliestRawCapturedAt() async {
     final db = await instance;
+    if (!await _hasTable(db, 'raw_records')) return null;
     return Sqflite.firstIntValue(
       await db.rawQuery('SELECT MIN(captured_at) FROM raw_records'),
     );
@@ -1942,12 +1944,21 @@ class LocalDb {
   /// engine decodes these ONCE into a single continuous Substrate (substrate.dart).
   static Future<List<String>> allRawHexByRecTs() async {
     final db = await instance;
+    if (!await _hasTable(db, 'raw_records')) return const <String>[];
     final rows = await db.query(
       'raw_records',
       columns: ['hex'],
       orderBy: 'rec_ts ASC',
     );
     return rows.map((m) => m['hex'] as String).toList();
+  }
+
+  static Future<bool> _hasTable(Database db, String name) async {
+    final rows = await db.rawQuery(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+      [name],
+    );
+    return rows.isNotEmpty;
   }
 
   /// Cursor for batched decode. Used by the derivation coordinator so the raw
@@ -2247,6 +2258,34 @@ class LocalDb {
   /// per-packet_type counts, and the captured_at span (ms) for comparison.
   static Future<Map<String, dynamic>> rawStats() async {
     final db = await instance;
+    if (!await _hasTable(db, 'raw_records')) {
+      final decodedOneHz =
+          Sqflite.firstIntValue(
+            await db.rawQuery('SELECT COUNT(*) FROM decoded_onehz'),
+          ) ??
+          0;
+      final decodedRr =
+          Sqflite.firstIntValue(
+            await db.rawQuery('SELECT COUNT(*) FROM decoded_rr'),
+          ) ??
+          0;
+      final legacySamples =
+          Sqflite.firstIntValue(
+            await db.rawQuery('SELECT COUNT(*) FROM samples'),
+          ) ??
+          0;
+      return {
+        'count': 0,
+        'min_rec_ts': null,
+        'max_rec_ts': null,
+        'by_type': const <String, int>{},
+        'min_captured_ms': null,
+        'max_captured_ms': null,
+        'decoded_onehz': decodedOneHz,
+        'decoded_rr': decodedRr,
+        'legacy_samples': legacySamples,
+      };
+    }
     final count =
         Sqflite.firstIntValue(
           await db.rawQuery('SELECT COUNT(*) FROM raw_records'),
@@ -2341,26 +2380,38 @@ class LocalDb {
       if (!await hasTable(table)) missingTables.add(table);
     }
 
-    final rawCols =
-        await hasTable('raw_records') ? await cols('raw_records') : <String>{};
-    final sessionCols =
-        await hasTable('sessions') ? await cols('sessions') : <String>{};
-    final syncLedgerCols =
-        await hasTable('sync_ledger') ? await cols('sync_ledger') : <String>{};
+    final rawCols = await hasTable('raw_records')
+        ? await cols('raw_records')
+        : <String>{};
+    final sessionCols = await hasTable('sessions')
+        ? await cols('sessions')
+        : <String>{};
+    final syncLedgerCols = await hasTable('sync_ledger')
+        ? await cols('sync_ledger')
+        : <String>{};
 
     final missingColumns = <String, List<String>>{};
     void expect(String table, Set<String> present, List<String> required) {
-      final miss = [for (final c in required) if (!present.contains(c)) c];
+      final miss = [
+        for (final c in required)
+          if (!present.contains(c)) c,
+      ];
       if (miss.isNotEmpty) missingColumns[table] = miss;
     }
 
     expect('raw_records', rawCols, ['counter', 'hex', 'captured_at', 'rec_ts']);
     expect('sessions', sessionCols, ['id', 'start_ts', 'status', 'steps']);
-    expect('sync_ledger', syncLedgerCols,
-        ['chunk_id', 'kind', 'status', 'updated_at', 'meta_json']);
+    expect('sync_ledger', syncLedgerCols, [
+      'chunk_id',
+      'kind',
+      'status',
+      'updated_at',
+      'meta_json',
+    ]);
 
     final integrity = await db.rawQuery('PRAGMA integrity_check');
-    final integrityOk = integrity.isNotEmpty && integrity.first.values.first == 'ok';
+    final integrityOk =
+        integrity.isNotEmpty && integrity.first.values.first == 'ok';
 
     return {
       'ok': missingTables.isEmpty && missingColumns.isEmpty && integrityOk,
@@ -2427,7 +2478,7 @@ class LocalDb {
     int limit,
   ) async {
     final rows = await recentDayResults(limit);
-    final rawByDay = await rawRecTsMaxByDay();
+    final rawByDay = await decodedRecTsMaxByDay();
     final out = <Map<String, dynamic>>[];
     for (final row in rows) {
       final payload = row['payload_json'] as String?;
@@ -2497,8 +2548,12 @@ class LocalDb {
   /// Single metric_series value for one (date, key), or null.
   static Future<double?> metricValueOn(String date, String key) async {
     final db = await instance;
-    final rows = await db.query('metric_series',
-        where: 'date = ? AND key = ?', whereArgs: [date, key], limit: 1);
+    final rows = await db.query(
+      'metric_series',
+      where: 'date = ? AND key = ?',
+      whereArgs: [date, key],
+      limit: 1,
+    );
     if (rows.isEmpty) return null;
     return (rows.first['value'] as num?)?.toDouble();
   }
@@ -2566,7 +2621,10 @@ class LocalDb {
     return rows.isEmpty ? null : rows.first;
   }
 
-  static Future<void> putComputeFreshness(String key, String payloadJson) async {
+  static Future<void> putComputeFreshness(
+    String key,
+    String payloadJson,
+  ) async {
     final db = await instance;
     await db.insert('compute_freshness', {
       'key': key,
@@ -2611,7 +2669,8 @@ class LocalDb {
       final scalars = ((decoded['scalars'] as Map?) ?? const {})
           .cast<String, dynamic>();
       if (latestOvernightDay == null) {
-        final sleep = ((decoded['sleep'] as Map?)?['accounting'] as Map?)?['value'];
+        final sleep =
+            ((decoded['sleep'] as Map?)?['accounting'] as Map?)?['value'];
         if (sleep is Map && sleep['tst_sec'] != null) {
           latestOvernightDay = dayId;
           latestOvernightComputedAt = (row['computed_at'] as num?)?.toInt();
@@ -2622,7 +2681,9 @@ class LocalDb {
         latestRecoveryDay = dayId;
         latestRecoveryComputedAt = (row['computed_at'] as num?)?.toInt();
       }
-      if (latestOvernightDay != null && latestRecoveryDay != null && todayRow != null) {
+      if (latestOvernightDay != null &&
+          latestRecoveryDay != null &&
+          todayRow != null) {
         break;
       }
     }
@@ -2630,7 +2691,8 @@ class LocalDb {
     final wakeComputedAt = (todayWake?['computed_at'] as num?)?.toInt();
     final activityReady = todayRow != null || todayWake != null;
     final overnightReady = latestOvernightDay == today;
-    final rawReachedToday = latestRawTs != null && _localDayLabelFromEpoch(latestRawTs) == today;
+    final rawReachedToday =
+        latestRawTs != null && _localDayLabelFromEpoch(latestRawTs) == today;
     final activityState = activityReady
         ? 'ready'
         : (rawReachedToday ? 'building' : 'missing');
@@ -2641,7 +2703,9 @@ class LocalDb {
       'capture',
       jsonEncode({
         'latest_raw_rec_ts': latestRawTs,
-        'latest_raw_day': latestRawTs == null ? null : _localDayLabelFromEpoch(latestRawTs),
+        'latest_raw_day': latestRawTs == null
+            ? null
+            : _localDayLabelFromEpoch(latestRawTs),
         'decoded_onehz': raw['decoded_onehz'],
         'decoded_rr': raw['decoded_rr'],
       }),
@@ -2690,10 +2754,7 @@ class LocalDb {
     final now = DateTime.now().millisecondsSinceEpoch;
     await db.update(
       'compute_jobs',
-      {
-        'state': 'queued',
-        'updated_at': now,
-      },
+      {'state': 'queued', 'updated_at': now},
       where: 'state = ?',
       whereArgs: ['running'],
     );
@@ -2954,8 +3015,12 @@ class LocalDb {
   /// from the 1 Hz substrate around the session's end during derivation.
   static Future<void> setSessionHrr(String id, double hrrBpm) async {
     final db = await instance;
-    await db.update('sessions', {'hrr_bpm': hrrBpm},
-        where: 'id = ?', whereArgs: [id]);
+    await db.update(
+      'sessions',
+      {'hrr_bpm': hrrBpm},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   static Future<void> setSessionType(String id, String type) async {
@@ -3011,31 +3076,21 @@ class LocalDb {
         0;
   }
 
-  // ── raw pruning (raw-first invariant) ───────────────────────────────────────
+  // ── substrate pruning ───────────────────────────────────────────────────────
 
-  /// Delete raw_records / decoded substrate / structured band signals / events whose RECORD TIME (epoch
-  /// seconds) is
-  /// strictly before [cutoffSec]. Keyed on record time (`rec_ts`/`ts`), NOT
-  /// receive time (`captured_at`): retention tracks the DATA, so a multi-day
-  /// flash backfill drained in a single sync is never pruned merely for having
-  /// just landed. The caller only prunes windows that are FULLY DERIVED — never
-  /// prune raw for a day that hasn't been derived yet. Returns rows deleted.
+  /// Delete decoded substrate / structured band signals / events whose record
+  /// time is strictly before [cutoffSec].
   static Future<int> pruneRawBeforeRecTs(int cutoffSec) async {
     final db = await instance;
     int deleted = 0;
     await db.transaction((txn) async {
-      deleted = await txn.delete(
-        'raw_records',
-        where: 'rec_ts < ?',
-        whereArgs: [cutoffSec],
-      );
       await txn.delete(
         'decoded_rr',
         where:
             'counter IN (SELECT counter FROM decoded_onehz WHERE rec_ts < ?)',
         whereArgs: [cutoffSec],
       );
-      await txn.delete(
+      deleted = await txn.delete(
         'decoded_onehz',
         where: 'rec_ts < ?',
         whereArgs: [cutoffSec],
@@ -3054,8 +3109,18 @@ class LocalDb {
   /// time by hours/days. Null when there's no raw yet.
   static Future<int?> lastRawRecTs() async {
     final db = await instance;
+    if (!await _hasTable(db, 'raw_records')) return null;
     return Sqflite.firstIntValue(
       await db.rawQuery('SELECT MAX(rec_ts) FROM raw_records WHERE rec_ts > 0'),
+    );
+  }
+
+  static Future<int?> lastDecodedRecTs() async {
+    final db = await instance;
+    return Sqflite.firstIntValue(
+      await db.rawQuery(
+        'SELECT MAX(rec_ts) FROM decoded_onehz WHERE rec_ts > 0',
+      ),
     );
   }
 }

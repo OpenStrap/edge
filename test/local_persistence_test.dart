@@ -146,17 +146,18 @@ void main() {
   test(
     'metrics diagnostics helpers surface recent derived day and series counts',
     () async {
-      const dayId = '2099-12-31';
-      final rawTs = DateTime(2099, 12, 31, 12).millisecondsSinceEpoch ~/ 1000;
-      final db = await LocalDb.instance;
-      await db.insert('raw_records', {
-        'counter': 900001,
-        'hex': 'deadbeef',
-        'packet_type': 47,
-        'captured_at': rawTs * 1000,
-        'rec_ts': rawTs,
-        'uploaded': 0,
-      });
+      const dayId = '2026-06-30';
+      final rawTs = DateTime(2026, 6, 30, 12).millisecondsSinceEpoch ~/ 1000;
+      await LocalDb.insertRecord(
+        RawRecord(
+          counter: 900001,
+          packetType: 47,
+          hex: 'deadbeef',
+          capturedAt: rawTs * 1000,
+          recTs: rawTs,
+        ),
+        Sample(tsEpoch: rawTs, counter: 900001, hr: 52),
+      );
 
       await LocalDb.putDayResult(
         dayId: dayId,
@@ -182,7 +183,6 @@ void main() {
       final recent = await LocalDb.recentDayDiagnostics(1);
       expect(recent, isNotEmpty);
       expect(recent.first['day_id'], dayId);
-      expect(recent.first['raw_max_rec_ts'], rawTs);
       expect(recent.first['rhr'], 52.0);
       expect(recent.first['readiness'], 87.0);
       expect(recent.first['strain'], 11.3);
@@ -418,7 +418,7 @@ void main() {
   });
 
   test(
-    'commitSyncBatch persists raw + advances high-water + stores trim token',
+    'commitSyncBatch persists decoded data + advances high-water + stores trim token',
     () async {
       RawRecord raw(int counter, int recTs) => RawRecord(
         counter: counter,

@@ -358,9 +358,9 @@ class DerivationEngine {
       _diag
         ..['scope_days'] = scope.targetDays.length
         ..['scope_reason'] = scope.reason;
-      final dataNowSec = await LocalDb.lastRawRecTs() ?? 0;
+      final dataNowSec = await LocalDb.lastDecodedRecTs() ?? 0;
       if (dataNowSec <= 0) {
-        _log('derive: no raw');
+        _log('derive: no decoded substrate');
         return 0;
       }
       final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
@@ -604,7 +604,6 @@ class DerivationEngine {
       _diag
         ..['range_from_rec_ts'] = fromRecTs
         ..['range_to_rec_ts'] = toRecTs;
-      var usedDecoded = false;
       while (true) {
         final decodedRows = await LocalDb.decodedOneHzBatchByRecTsRange(
           limit: _rawDecodeBatchSize,
@@ -614,7 +613,6 @@ class DerivationEngine {
           afterCounter: afterCursor,
         );
         if (decodedRows.isNotEmpty) {
-          usedDecoded = true;
           _trackPrepareBatch(decodedRows.length);
           rangePages += 1;
           rangeRows += decodedRows.length;
@@ -640,33 +638,7 @@ class DerivationEngine {
           if (decodedRows.length < _rawDecodeBatchSize) break;
           continue;
         }
-        if (usedDecoded) break;
-        final rows = await LocalDb.rawHexBatchByRecTsRange(
-          limit: _rawDecodeBatchSize,
-          fromRecTs: fromRecTs,
-          toRecTs: toRecTs,
-          afterRecTs: afterRecTs,
-          afterRowId: afterCursor,
-        );
-        if (rows.isEmpty) break;
-        _trackPrepareBatch(rows.length);
-        rangePages += 1;
-        rangeRows += rows.length;
-        _enforcePrepareBudget(
-          dayId: dayId,
-          fromRecTs: fromRecTs,
-          toRecTs: toRecTs,
-          rangePages: rangePages,
-          rangeRows: rangeRows,
-        );
-        worker.send({
-          'type': 'page',
-          'hexes': [for (final row in rows) row['hex'] as String],
-        });
-        final last = rows.last;
-        afterRecTs = (last['rec_ts'] as num?)?.toInt() ?? afterRecTs;
-        afterCursor = (last['rowid'] as num?)?.toInt() ?? afterCursor;
-        if (rows.length < _rawDecodeBatchSize) break;
+        break;
       }
       worker.send(const {'type': 'finish'});
       return result.future;
@@ -710,15 +682,15 @@ class DerivationEngine {
     required bool heavy,
     required bool force,
   }) async {
-    final rawByDay = await LocalDb.rawRecTsMaxByDay();
-    if (rawByDay.isEmpty) {
+    final decodedByDay = await LocalDb.decodedRecTsMaxByDay();
+    if (decodedByDay.isEmpty) {
       return const _DeriveScope(
         fullHistory: true,
         targetDays: [],
         reason: 'empty',
       );
     }
-    final rawDays = rawByDay.keys.toList()..sort();
+    final rawDays = decodedByDay.keys.toList()..sort();
     if (force) {
       return _scopeForDays(rawDays, reason: 'full-history', fullHistory: true);
     }
@@ -791,23 +763,23 @@ class DerivationEngine {
         return 0;
       }
 
-      final rawByDay = await LocalDb.rawRecTsMaxByDay();
-      if (rawByDay.isEmpty) {
-        _log('rescan: no raw');
+      final decodedByDay = await LocalDb.decodedRecTsMaxByDay();
+      if (decodedByDay.isEmpty) {
+        _log('rescan: no decoded substrate');
         return 0;
       }
-      final dataNowSec = await LocalDb.lastRawRecTs() ?? 0;
+      final dataNowSec = await LocalDb.lastDecodedRecTs() ?? 0;
       if (dataNowSec <= 0) {
         _log('rescan: no data edge');
         return 0;
       }
       final cutoffSec = dataNowSec - _rescanWindowDays * 86400;
       final todoDays = [
-        for (final dayId in rawByDay.keys)
+        for (final dayId in decodedByDay.keys)
           if ((_localDayLabelToSec(dayId) + 86400) >= cutoffSec) dayId,
       ]..sort();
       if (todoDays.isEmpty) {
-        _log('rescan: no recent raw-backed days');
+        _log('rescan: no recent decoded-backed days');
         await LocalDb.setCursor('baseline_sig', sig);
         return 0;
       }
@@ -1094,11 +1066,21 @@ class DerivationEngine {
     // work out?" suggestions + a recent-day notification, and (2) heart-rate
     // recovery (HRR) per bout → `hrr_bpm` scalar. scMap writes through to
     // bundle['scalars'] (CastMap view), so hrr_bpm reaches the series block below.
-    await _attachWorkoutSuggestionsAndHrr(bundle, scMap, daySub, day, dataNowSec);
+    await _attachWorkoutSuggestionsAndHrr(
+      bundle,
+      scMap,
+      daySub,
+      day,
+      dataNowSec,
+    );
 
     // ── WRIST ORIENTATION during sleep (low-confidence; NOT body position) ───
     _attachWristOrientation(
-        bundle, daySub, day.sleepOnsetSec, day.sleepOffsetSec);
+      bundle,
+      daySub,
+      day.sleepOnsetSec,
+      day.sleepOffsetSec,
+    );
 
     // ── ADVANCED SLEEP (4-class Cole–Kripke + DoG/percentile stager) ─────────
     // A richer, AASM-style sleep read (SOL / REM-latency / disturbances + a
@@ -1229,6 +1211,24 @@ class DerivationEngine {
   static const Duration _crossDayTimeout = Duration(seconds: 30);
   static const int _crossDayWindow = 90;
 
+  dynamic _jsonSafe(dynamic value) {
+    if (value is double) {
+      if (value.isNaN || value.isInfinite) return null;
+      return value;
+    }
+    if (value is num) return value;
+    if (value is Map) {
+      return {
+        for (final entry in value.entries)
+          '${entry.key}': _jsonSafe(entry.value),
+      };
+    }
+    if (value is List) {
+      return [for (final item in value) _jsonSafe(item)];
+    }
+    return value;
+  }
+
   Future<void> _runCrossDay(Profile profile) async {
     try {
       final days = await _crossDayInputDays();
@@ -1240,7 +1240,7 @@ class DerivationEngine {
       final bundle = await Isolate.run(
         () => buildCrossDayBundle(days, profileMap),
       ).timeout(_crossDayTimeout);
-      await LocalDb.putBaseline('crossday', jsonEncode(bundle));
+      await LocalDb.putBaseline('crossday', jsonEncode(_jsonSafe(bundle)));
       _log('crossday: stored over ${days.length} day(s)');
     } catch (e) {
       _log('crossday FAILED/skipped: $e');
@@ -1354,12 +1354,18 @@ class DerivationEngine {
         );
       }
       // 24/7 irregular-rhythm SCREEN (not a diagnosis). Fires at most once/day.
-      final irregFlag = await LocalDb.metricValueOn(date, 'irregular_rhythm_flag');
+      final irregFlag = await LocalDb.metricValueOn(
+        date,
+        'irregular_rhythm_flag',
+      );
       if (irregFlag == 1.0) {
-        await emit('irregular', 'Irregular heart rhythm — screen',
-            'Your beat-to-beat pattern looked irregular today. This is a screen, '
-            'not a diagnosis — see a clinician if you have symptoms.',
-            route: '/heart');
+        await emit(
+          'irregular',
+          'Irregular heart rhythm — screen',
+          'Your beat-to-beat pattern looked irregular today. This is a screen, '
+              'not a diagnosis — see a clinician if you have symptoms.',
+          route: '/heart',
+        );
       }
       final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
       if (score is num && score < 34) {
@@ -1474,15 +1480,15 @@ class DerivationEngine {
     await _refreshCrossDayInputArtifact();
   }
 
-  // ── raw pruning (raw-first invariant) ──────────────────────────────────────
+  // ── substrate pruning ──────────────────────────────────────────────────────
 
-  /// Prune raw older than [rawRetentionDays] BEHIND THE DATA EDGE. Retention is
-  /// measured against the last record timestamp we actually drained
-  /// ([dataNowSec]), never the wall clock, and rows are deleted by their record
-  /// time (`rec_ts`), never receive time (`captured_at`) — a multi-day flash
-  /// backfill received in one sync must not be pruned just because it landed
-  /// "now". Guard: never prune while any day in [days] is NOT yet derived at the
-  /// current algo version (raw-first).
+  /// Prune decoded substrate older than [rawRetentionDays] behind the data
+  /// edge. Retention is measured against the last record timestamp we actually
+  /// drained ([dataNowSec]), never the wall clock, and rows are deleted by
+  /// their record time (`rec_ts`), never receive time (`captured_at`) — a
+  /// multi-day flash backfill received in one sync must not be pruned just
+  /// because it landed "now". Guard: never prune while any day in [dayIds] is
+  /// not yet derived at the current algo version.
   Future<void> _pruneOldRaw(List<String> dayIds, int dataNowSec) async {
     final derivedIds = await LocalDb.dayResultIds(kAlgoVersion);
     final pending = dayIds.where((d) => !derivedIds.contains(d)).toList();
@@ -2358,8 +2364,12 @@ class DerivationEngine {
         }
       }
       if (hrBpm.length < 60) return;
-      final motion =
-          ana.AutoWorkoutDetector.motionPoints(s.tsSec, s.ax, s.ay, s.az);
+      final motion = ana.AutoWorkoutDetector.motionPoints(
+        s.tsSec,
+        s.ax,
+        s.ay,
+        s.az,
+      );
       // Exclude windows the user has already logged (manual/live wins).
       final dayLo = s.tsSec.first;
       final dayHi = s.tsSec.last + 60;
@@ -2379,15 +2389,17 @@ class DerivationEngine {
       // entirely (HRR for already-saved sessions below still runs).
       final bouts = rhr == null
           ? const <ana.DetectedWorkout>[]
-          : (ana.autoDetectWorkouts(
-                hrTs: hrTs,
-                hrBpm: hrBpm,
-                restingBpm: rhr,
-                maxBpm: maxHr,
-                motion: motion,
-                savedSpans: savedSpans,
-              ).value ??
-              const <ana.DetectedWorkout>[]);
+          : (ana
+                    .autoDetectWorkouts(
+                      hrTs: hrTs,
+                      hrBpm: hrBpm,
+                      restingBpm: rhr,
+                      maxBpm: maxHr,
+                      motion: motion,
+                      savedSpans: savedSpans,
+                    )
+                    .value ??
+                const <ana.DetectedWorkout>[]);
 
       // HRR per bout from the per-second HR tail bracketing each bout end.
       final drops = <double>[];
@@ -2447,20 +2459,22 @@ class DerivationEngine {
         // day at once; without this every hours-old bout would fire a "did you work
         // out?" prompt → a wall of notifications. Suggestions are still persisted
         // above so they surface in the Workouts screen; we just don't ping for them.
-        final newest =
-            bouts.reduce((a, b) => a.endSec >= b.endSec ? a : b);
+        final newest = bouts.reduce((a, b) => a.endSec >= b.endSec ? a : b);
         final freshlyEnded = (dataNowSec - newest.endSec) < 2 * 3600;
         if (freshlyEnded) {
-          await NotificationCenter.instance.emit(NotificationEvent(
-            dedupeKey: '${day.date}:auto_workout',
-            category: NotifCategory.recovery,
-            priority: NotifPriority.normal,
-            title: 'Did you work out?',
-            body: 'We spotted ~${newest.durationMin} min of elevated activity. '
-                'Tap to log it.',
-            date: day.date,
-            route: '/workouts',
-          ));
+          await NotificationCenter.instance.emit(
+            NotificationEvent(
+              dedupeKey: '${day.date}:auto_workout',
+              category: NotifCategory.recovery,
+              priority: NotifPriority.normal,
+              title: 'Did you work out?',
+              body:
+                  'We spotted ~${newest.durationMin} min of elevated activity. '
+                  'Tap to log it.',
+              date: day.date,
+              route: '/workouts',
+            ),
+          );
         }
       }
     } catch (e) {
@@ -2505,7 +2519,7 @@ class DerivationEngine {
       final epoch = <ana.AccelSample>[
         for (var i = 0; i < s.length; i++)
           if (s.tsSec[i] >= onsetSec && s.tsSec[i] < offsetSec)
-            ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i])
+            ana.AccelSample(s.tsSec[i] * 1000.0, s.ax[i], s.ay[i], s.az[i]),
       ];
       if (epoch.length < 60) return;
       final tilts = ana.positionSeries(epoch, epochSec: 30);
@@ -2534,7 +2548,8 @@ class DerivationEngine {
         'epochs': tilts.length,
         'confidence': 'low',
         'tier': ana.Tier.relative,
-        'note': 'WRIST orientation during sleep (gravity-tilt). A body-position '
+        'note':
+            'WRIST orientation during sleep (gravity-tilt). A body-position '
             'PROXY, NOT supine/side/prone body position — the wrist moves '
             'independently of the torso.',
       };
