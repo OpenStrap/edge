@@ -18,12 +18,14 @@ void openTrend(
   BuildContext context, {
   required String title,
   required String metric,
-  required IconData icon,
+  required OsIcon icon,
+  OsIcon? osIcon,
   Color? accent,
   String Function(double v)? valueFmt,
 }) {
   Navigator.of(context).push(themedRoute((_) => GenericTrendScreen(
-      title: title, metric: metric, icon: icon, accent: accent, valueFmt: valueFmt),
+      title: title, metric: metric, icon: icon,
+      accent: accent, valueFmt: valueFmt),
   ));
 }
 
@@ -33,7 +35,7 @@ void openTrend(
 class GenericTrendScreen extends StatelessWidget {
   final String title;
   final String metric;
-  final IconData icon;
+  final OsIcon icon;
   final Color? accent;
   final String Function(double v)? valueFmt;
   const GenericTrendScreen({
@@ -68,7 +70,7 @@ class GenericTrendScreen extends StatelessWidget {
 /// Reuses the same /trend data the bars use — no per-metric fetch wiring.
 class _TrendTodayCard extends StatefulWidget {
   final String metric;
-  final IconData icon;
+  final OsIcon icon;
   final Color accent;
   final String Function(double v)? valueFmt;
   /// When set, this card is a DRILL selection: show THIS day's value (the bar the
@@ -148,7 +150,7 @@ class _TrendTodayCardState extends State<_TrendTodayCard> {
       glow: widget.accent,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          AppIcon(widget.icon, size: 16, color: widget.accent),
+          OsAppIcon(widget.icon, size: 34),
           const SizedBox(width: Sp.x2),
           Text(header, style: AppText.overline),
         ]),
@@ -184,7 +186,8 @@ class _TrendTodayCardState extends State<_TrendTodayCard> {
 /// A metric line that opens its trend on tap. Thin wrapper over MetricRow so the
 /// look matches every other row; the chevron signals it's drillable.
 class TrendMetricRow extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
+  // illustrated variant — flows into the trend screen too
   final Color? accent;
   final String label;
   final String? info;

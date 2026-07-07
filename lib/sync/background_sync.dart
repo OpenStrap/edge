@@ -18,6 +18,8 @@ import '../ble/ble_engine.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
+import 'band_ownership.dart';
+import 'high_freq_wake_window.dart';
 import 'paired_device.dart';
 
 /// Load the local profile (no Provider in the headless isolate).
@@ -36,8 +38,20 @@ Future<Profile> _loadProfile() async {
 /// throws. Connects-by-id if reachable, drains whatever the band buffered to
 /// flash into local storage (non-destructive cursor — catches up everything since
 /// last time), and disconnects. No network.
-Future<bool> runHeadlessSync() async {
+Future<bool> runHeadlessSync({BandLease? lease}) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final ownedLease = lease ?? BandOwnership.tryAcquireHeadless();
+  if (ownedLease == null) {
+    debugPrint(
+      '[bgsync] skipped — foreground or another headless session owns the band '
+      '(${BandOwnership.debugState}).',
+    );
+    return true;
+  }
+  debugPrint(
+    '[bgsync] acquired headless lease=${ownedLease.token} '
+    '(${BandOwnership.debugState})',
+  );
   try {
     final paired = await PairedDevice.load();
     if (paired == null) {
@@ -52,8 +66,10 @@ Future<bool> runHeadlessSync() async {
       onEvent: (id, ts, hex) => LocalDb.insertEvent(id, ts, hex),
       log: (l) => debugPrint('[bgsync] $l'),
       onRecordsBatch: LocalDb.insertRecordsBatch,
-      onCommitBatch: (raws, samples, trimTokenHex) =>
-          LocalDb.commitSyncBatch(raws, samples, trimToken: trimTokenHex),
+      onCommitBatch: (raws, samples, trimTokenHex, {archives}) =>
+          LocalDb.commitSyncBatch(raws, samples,
+              trimToken: trimTokenHex, archives: archives),
+      onArchiveRecord: LocalDb.archiveRawRecord,
       cursorReader: LocalDb.getCursorInt,
       // Mark this as the background drainer: if the foreground app engine already
       // owns the band (same process — iOS restore-wake OR Android headless boot /
@@ -66,10 +82,25 @@ Future<bool> runHeadlessSync() async {
     // streaming when this returns. We then await it reaching HISTORY_COMPLETE.
     final connected = await engine.connectToRemoteId(paired.remoteId);
     if (!connected) {
-      debugPrint('[bgsync] strap not reachable this cycle — will catch up next time.');
+      debugPrint(
+        '[bgsync] strap not reachable this cycle — will catch up next time.',
+      );
       return true;
     }
     try {
+      final plan = await HighFreqWakeWindow.planNow();
+      await engine.applyHighFreqWakeWindow(
+        enabled: plan.shouldEnable,
+        targetWake: plan.targetWake,
+        duration: HighFreqWakeWindow.lease,
+        intervalSeconds: 60,
+        reason: plan.source,
+      );
+      debugPrint(
+        '[bgsync] HighFreq wake window: source=${plan.source} '
+        'samples=${plan.sampleCount} enabled=${plan.shouldEnable} '
+        'target=${plan.targetWake?.toIso8601String()}',
+      );
       // Await the full backlog (default timeout): a phone-free run/sleep can leave a
       // large offline backlog on the band's flash. We never abort — if iOS cuts the
       // background window short, the offload persists what it got (flush-before-ACK)
@@ -84,8 +115,9 @@ Future<bool> runHeadlessSync() async {
     // the short iOS execution budget). Best-effort; if the slot ends first, the
     // light pass on the next drain or the foreground finalize catches up.
     try {
-      await DerivationEngine(log: (l) => debugPrint('[bgsync-derive] $l'))
-          .run(await _loadProfile());
+      await DerivationEngine(
+        log: (l) => debugPrint('[bgsync-derive] $l'),
+      ).run(await _loadProfile());
     } catch (e) {
       debugPrint('[bgsync] derive skipped: $e');
     }
@@ -94,5 +126,11 @@ Future<bool> runHeadlessSync() async {
   } catch (e) {
     debugPrint('[bgsync] error (ignored): $e');
     return true;
+  } finally {
+    debugPrint(
+      '[bgsync] releasing headless lease=${ownedLease.token} '
+      '(${BandOwnership.debugState})',
+    );
+    BandOwnership.release(ownedLease);
   }
 }

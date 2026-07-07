@@ -1,5 +1,10 @@
 // Journal — log daily tags and a note, browse recent days, and see correlations
 // from your own data. Uses getJournal / getJournalInsights / postJournal.
+//
+// On the design language: AppScaffold chrome, a SurfaceCard editor with soft
+// multi-select tag chips, recent days as quiet tiles, and each insight as a
+// card whose effects read as tinted delta pills. Correlation honesty lives
+// behind the (i) and a whispered footer.
 
 import 'dart:async';
 
@@ -8,9 +13,9 @@ import 'package:provider/provider.dart';
 
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
+import '../../theme/theme_switcher.dart';
+import '../design/design.dart';
+import 'journal_compose_screen.dart';
 
 class JournalScreen extends StatefulWidget {
   const JournalScreen({super.key});
@@ -34,7 +39,7 @@ class _JournalScreenState extends State<JournalScreen> {
 
   // Loaded data.
   List<_JournalRow> _rows = const [];
-  List<_Insight> _insights = const [];
+  List<Map<String, dynamic>> _insights = const [];
 
   bool _loading = true;
   bool _saving = false;
@@ -76,13 +81,12 @@ class _JournalScreenState extends State<JournalScreen> {
       final journal = await api.getJournal(range: '30d');
       final rows = journal.map(_JournalRow.fromJson).toList();
 
-      List<_Insight> insights = const [];
+      List<Map<String, dynamic>> insights = const [];
       try {
         final ins = await api.getJournalInsights(range: '90d');
-        final list = (ins['insights'] as List?) ?? const [];
-        insights = list
+        insights = ((ins['insights'] as List?) ?? const [])
             .whereType<Map>()
-            .map((e) => _Insight.fromJson(e.cast<String, dynamic>()))
+            .map((e) => e.cast<String, dynamic>())
             .toList();
       } catch (_) {
         // Insights are optional — never fail the screen for them.
@@ -147,75 +151,74 @@ class _JournalScreenState extends State<JournalScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          onRefresh: _load,
-          color: AppColors.coral,
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
-            children: [
-              const SizedBox(height: Sp.x4),
-              _topBar(),
-              const SizedBox(height: Sp.x6),
-              if (_noApi)
-                _stateCard(
-                  icon: Ic.profile,
-                  title: 'Journal unavailable',
-                  message:
-                      'Pair your strap to log tags and unlock insights from '
-                      'your own data.',
-                )
-              else if (_loading)
-                ..._skeleton()
-              else if (_error != null)
-                _stateCard(
-                  icon: Ic.cloud,
-                  title: "Couldn't load journal",
-                  message: _error!,
-                )
-              else
-                ..._content(),
-              const SizedBox(height: 110),
-            ],
+    return AppScaffold(
+      title: 'Journal',
+      subtitle: 'What you did — what it moved',
+      actions: [
+        // Talk-it-through entry point (manual + AI chat compose).
+        RoundIconButton(
+          OsIcon.ai,
+          onTap: () => Navigator.of(context)
+              .push(themedRoute((_) => const JournalComposeScreen()))
+              .then((_) => _load()),
+        ),
+      ],
+      body: RefreshIndicator(
+        onRefresh: _load,
+        color: AppColors.accent,
+        child: ListView(
+          physics: const BouncingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
           ),
+          padding:
+              const EdgeInsets.fromLTRB(Sp.screen, Sp.x2, Sp.screen, Sp.x8),
+          children: [
+            if (_noApi)
+              StateCard(
+                icon: OsIcon.profile,
+                title: 'Journal unavailable',
+                message: 'Pair your strap to log tags and unlock insights '
+                    'from your own data.',
+              ).dsEnter()
+            else if (_loading) ...[
+              Skeleton.box(height: 220),
+              const SizedBox(height: Sp.x3),
+              Skeleton.tileRow(rows: 2),
+            ] else if (_error != null)
+              StateCard(
+                icon: OsIcon.sync,
+                title: "Couldn't load journal",
+                message: _error!,
+                actionLabel: 'Try again',
+                onAction: _load,
+              ).dsEnter()
+            else
+              ..._content(),
+          ],
         ),
       ),
     );
   }
 
-  Widget _topBar() {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        RoundIconButton(Ic.arrowLeft, onTap: () => Navigator.of(context).pop()),
-        const SizedBox(width: Sp.x3),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Journal', style: AppText.h1),
-              const SizedBox(height: 4),
-              Text('Tag your days — see what moves your body',
-                  style: AppText.caption),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   List<Widget> _content() {
     return [
-      _editorCard(),
+      _editorCard().dsEnter(index: 0),
       const SizedBox(height: Sp.x6),
-      SectionHeader('Recent days'),
-      _recentList(),
+      const SectionHeader('Recent days'),
+      ..._recentList(),
       const SizedBox(height: Sp.x6),
-      SectionHeader('What moves your body'),
+      Row(
+        children: [
+          const Expanded(child: SectionHeader('What moves your body')),
+          InfoDot(
+            title: 'What moves your body',
+            body:
+                'How each tag tracks with your recovery, sleep and heart data — '
+                'computed from your own tagged days only.',
+            methodNote: 'Correlation, not cause · needs ≥3 tagged days per tag',
+          ),
+        ],
+      ),
       ..._insightsSection(),
     ];
   }
@@ -223,116 +226,7 @@ class _JournalScreenState extends State<JournalScreen> {
   // ── editor ──────────────────────────────────────────────────────────────────
 
   Widget _editorCard() {
-    return ProCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              AppIcon(Ic.edit, size: 19, color: AppColors.coral),
-              const SizedBox(width: Sp.x2),
-              Expanded(
-                child: Text(
-                  _isToday ? "Today's tags" : 'Editing $_editingDate',
-                  style: AppText.h2,
-                ),
-              ),
-              if (!_isToday)
-                GestureDetector(
-                  onTap: () => _bindEditor(_fmtDate(DateTime.now())),
-                  child: Tag('today', color: AppColors.coral),
-                ),
-            ],
-          ),
-          const SizedBox(height: Sp.x4),
-          Wrap(
-            spacing: Sp.x2,
-            runSpacing: Sp.x2,
-            children: [
-              for (final tag in _presetTags)
-                _tagChip(tag, _selectedTags.contains(tag)),
-            ],
-          ),
-          const SizedBox(height: Sp.x5),
-          TextField(
-            controller: _noteCtrl,
-            minLines: 2,
-            maxLines: 5,
-            style: AppText.body,
-            decoration: const InputDecoration(
-              hintText: 'Anything notable? (optional note)',
-            ),
-          ),
-          const SizedBox(height: Sp.x4),
-          FilledButton(
-            onPressed: _saving ? null : _save,
-            child: _saving
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2.4, color: Colors.white),
-                  )
-                : Text(_isToday ? 'Save day' : 'Save $_editingDate'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _tagChip(String tag, bool selected) {
-    return GestureDetector(
-      onTap: () => setState(() {
-        if (selected) {
-          _selectedTags.remove(tag);
-        } else {
-          _selectedTags.add(tag);
-        }
-      }),
-      child: AnimatedContainer(
-        duration: Motion.fast,
-        curve: Motion.curve,
-        padding:
-            const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.coral : AppColors.surfaceAlt,
-          borderRadius: BorderRadius.circular(R.pill),
-        ),
-        child: Text(
-          tag,
-          style: AppText.label.copyWith(
-            color: selected ? Colors.white : AppColors.inkSoft,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── recent days ───────────────────────────────────────────────────────────────
-
-  Widget _recentList() {
-    if (_rows.isEmpty) {
-      return _stateCard(
-        icon: Ic.calendar,
-        title: 'No entries yet',
-        message: 'Tag today above and your recent days will appear here.',
-      );
-    }
-    return Column(
-      children: [
-        for (int i = 0; i < _rows.length; i++) ...[
-          _recentTile(_rows[i]),
-          if (i != _rows.length - 1) const SizedBox(height: Sp.x3),
-        ],
-      ],
-    );
-  }
-
-  Widget _recentTile(_JournalRow row) {
-    final active = row.date == _editingDate;
-    return ProCard(
-      onTap: () => _bindEditor(row.date),
+    return SurfaceCard(
       padding: const EdgeInsets.all(Sp.x4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -340,56 +234,103 @@ class _JournalScreenState extends State<JournalScreen> {
           Row(
             children: [
               Expanded(
-                child: Text(_prettyDate(row.date),
-                    style: AppText.title, maxLines: 1,
-                    overflow: TextOverflow.ellipsis),
+                child: Text(
+                  (_isToday ? "TODAY'S TAGS" : 'EDITING $_editingDate')
+                      .toUpperCase(),
+                  style: AppText.overline.copyWith(color: AppColors.inkMuted),
+                ),
               ),
-              if (active)
-                Tag('editing', color: AppColors.coral)
-              else
-                AppIcon(Ic.edit, size: 16, color: AppColors.inkMuted),
+              if (!_isToday)
+                Pressable(
+                  pressedScale: 0.94,
+                  onTap: () => _bindEditor(_fmtDate(DateTime.now())),
+                  child: const StatusChip('Back to today',
+                      tone: ChipTone.accent),
+                ),
             ],
           ),
-          if (row.tags.isNotEmpty) ...[
-            const SizedBox(height: Sp.x3),
-            Wrap(
-              spacing: Sp.x2,
-              runSpacing: Sp.x2,
-              children: [for (final t in row.tags) _readChip(t)],
+          const SizedBox(height: Sp.x3),
+          Wrap(
+            spacing: Sp.x2,
+            runSpacing: Sp.x2,
+            children: [
+              for (final tag in _presetTags)
+                ToggleChip(
+                  tag,
+                  selected: _selectedTags.contains(tag),
+                  onTap: () => setState(() {
+                    if (!_selectedTags.remove(tag)) _selectedTags.add(tag);
+                  }),
+                ),
+            ],
+          ),
+          const SizedBox(height: Sp.x4),
+          TextField(
+            controller: _noteCtrl,
+            minLines: 2,
+            maxLines: 5,
+            style: AppText.body,
+            decoration: InputDecoration(
+              hintText: 'Anything notable? (optional note)',
+              hintStyle: AppText.bodySoft.copyWith(color: AppColors.inkMuted),
+              filled: true,
+              fillColor: AppColors.surfaceAlt,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(R.cardSm),
+                borderSide: BorderSide.none,
+              ),
             ),
-          ],
-          if (row.note.isNotEmpty) ...[
-            const SizedBox(height: Sp.x3),
-            Text(
-              row.note,
-              style: AppText.bodySoft,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: Sp.x4),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: _saving ? null : _save,
+              child: Text(
+                _saving
+                    ? 'Saving…'
+                    : (_isToday ? 'Save day' : 'Save $_editingDate'),
+              ),
             ),
-          ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _readChip(String tag) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: Sp.x3, vertical: 5),
-        decoration: BoxDecoration(
-          color: AppColors.coralSoft,
-          borderRadius: BorderRadius.circular(R.pill),
-        ),
-        child: Text(tag,
-            style: AppText.caption.copyWith(
-                color: AppColors.coralInk, fontWeight: FontWeight.w600)),
-      );
+  // ── recent days ─────────────────────────────────────────────────────────────
 
-  // ── insights ──────────────────────────────────────────────────────────────────
+  List<Widget> _recentList() {
+    if (_rows.isEmpty) {
+      return [
+        const StateCard(
+          icon: OsIcon.calendar,
+          title: 'No entries yet',
+          message: 'Tag today above and your recent days will appear here.',
+        ),
+      ];
+    }
+    return [
+      for (var i = 0; i < _rows.length; i++) ...[
+        JournalDayTile(
+          date: _rows[i].date,
+          tags: _rows[i].tags,
+          note: _rows[i].note,
+          active: _rows[i].date == _editingDate,
+          onTap: () => _bindEditor(_rows[i].date),
+        ).dsEnter(index: i + 1),
+        if (i != _rows.length - 1) const SizedBox(height: Sp.x3),
+      ],
+    ];
+  }
+
+  // ── insights ────────────────────────────────────────────────────────────────
 
   List<Widget> _insightsSection() {
     if (_insights.isEmpty) {
-      return [
-        _stateCard(
-          icon: Ic.chart,
+      return const [
+        StateCard(
+          icon: OsIcon.activity,
           title: 'Insights build over time',
           message:
               'Tag at least 3 days with how you lived, and OpenStrap starts '
@@ -399,130 +340,152 @@ class _JournalScreenState extends State<JournalScreen> {
       ];
     }
     return [
-      for (int i = 0; i < _insights.length; i++) ...[
-        _insightCard(_insights[i]),
+      for (var i = 0; i < _insights.length; i++) ...[
+        JournalInsightCard(insight: _insights[i]).dsEnter(index: i),
         if (i != _insights.length - 1) const SizedBox(height: Sp.x3),
       ],
       const SizedBox(height: Sp.x4),
-      _honestyFooter(),
+      Center(
+        child: Text(
+          'Patterns from your own data — correlation, not cause.',
+          style: AppText.captionMuted,
+        ),
+      ),
     ];
   }
+}
 
-  Widget _insightCard(_Insight insight) {
-    // Show the top 2-3 effects.
-    final effects = insight.effects.take(3).toList();
-    return ProCard(
+// ── pure presentation widgets (render-testable) ────────────────────────────────
+
+/// One recent journal day — date, its tags as quiet chips, a note preview.
+class JournalDayTile extends StatelessWidget {
+  final String date; // 'YYYY-MM-DD'
+  final List<String> tags;
+  final String note;
+  final bool active;
+  final VoidCallback? onTap;
+  const JournalDayTile({
+    super.key,
+    required this.date,
+    required this.tags,
+    required this.note,
+    this.active = false,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SurfaceCard(
+      padding: const EdgeInsets.all(Sp.x4),
+      onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Expanded(
-                child: Text(insight.tag, style: AppText.h2,
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                child: Text(prettyJournalDate(date),
+                    style: AppText.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
               ),
-              const SizedBox(width: Sp.x2),
-              Text('${insight.days} days', style: AppText.captionMuted),
+              if (active)
+                const StatusChip('Editing', tone: ChipTone.accent)
+              else if (onTap != null)
+                const OsAppIcon(OsIcon.edit, size: 22),
             ],
           ),
-          const SizedBox(height: Sp.x4),
-          for (int i = 0; i < effects.length; i++) ...[
+          if (tags.isNotEmpty) ...[
+            const SizedBox(height: Sp.x3),
+            Wrap(
+              spacing: Sp.x2,
+              runSpacing: Sp.x2,
+              children: [for (final t in tags) StatusChip(t)],
+            ),
+          ],
+          if (note.isNotEmpty) ...[
+            const SizedBox(height: Sp.x3),
+            Text(
+              note,
+              style: AppText.bodySoft,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One tag's correlation card — the tag, how many days it was logged, and the
+/// top effects as tinted delta pills. Parses the /journal/insights row shape
+/// defensively (presentation only).
+class JournalInsightCard extends StatelessWidget {
+  final Map<String, dynamic> insight;
+  const JournalInsightCard({super.key, required this.insight});
+
+  @override
+  Widget build(BuildContext context) {
+    final tag = (insight['tag'] ?? '').toString();
+    final days = (insight['days'] as num?)?.toInt() ?? 0;
+    final effects = ((insight['effects'] as List?) ?? const [])
+        .whereType<Map>()
+        .take(3)
+        .toList();
+    return SurfaceCard(
+      padding: const EdgeInsets.all(Sp.x4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(tag,
+                    style: AppText.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: Sp.x2),
+              Text('$days days', style: AppText.captionMuted),
+            ],
+          ),
+          const SizedBox(height: Sp.x3),
+          for (var i = 0; i < effects.length; i++) ...[
             _effectRow(effects[i]),
-            if (i != effects.length - 1) const SizedBox(height: Sp.x3),
+            if (i != effects.length - 1) const SizedBox(height: Sp.x2),
           ],
         ],
       ),
     );
   }
 
-  Widget _effectRow(_Effect e) {
-    final c = e.better ? AppColors.good : AppColors.bad;
-    final sign = e.deltaPct >= 0 ? '+' : '−';
-    final pct = '$sign${e.deltaPct.abs().toStringAsFixed(1)}%';
+  Widget _effectRow(Map e) {
+    final label = (e['label'] ?? '').toString();
+    final deltaPct = (e['delta_pct'] as num?)?.toDouble() ?? 0;
+    final better = e['better'] == true;
+    final nWith = (e['n_with'] as num?)?.toInt() ?? 0;
+    final sign = deltaPct >= 0 ? '+' : '−';
+    final pct = '$sign${deltaPct.abs().toStringAsFixed(1)}%';
     return Row(
       children: [
         Expanded(
-          child: Text(e.label, style: AppText.body,
-              maxLines: 1, overflow: TextOverflow.ellipsis),
+          child: Text(label,
+              style: AppText.body, maxLines: 1, overflow: TextOverflow.ellipsis),
         ),
         const SizedBox(width: Sp.x3),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: Sp.x2, vertical: 3),
-          decoration: BoxDecoration(
-            color: c.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(R.pill),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AppIcon(e.better ? Ic.up : Ic.down, size: 13, color: c),
-              const SizedBox(width: 3),
-              Text(pct,
-                  style: AppText.caption
-                      .copyWith(color: c, fontWeight: FontWeight.w700)),
-            ],
-          ),
+        StatusChip(
+          pct,
+          icon: better ? OsIcon.up : OsIcon.down,
+          tone: better ? ChipTone.positive : ChipTone.critical,
         ),
-        if (e.nWith > 0) ...[
+        if (nWith > 0) ...[
           const SizedBox(width: Sp.x2),
-          Text('· ${e.nWith} days', style: AppText.captionMuted),
+          Text('· $nWith days', style: AppText.captionMuted),
         ],
       ],
     );
   }
-
-  Widget _honestyFooter() {
-    return Row(
-      children: [
-        AppIcon(Ic.info, size: 14, color: AppColors.inkMuted),
-        const SizedBox(width: Sp.x2),
-        Expanded(
-          child: Text(
-            'Patterns from your own data — correlation, not cause.',
-            style: AppText.captionMuted,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── shared state cards / skeleton ──────────────────────────────────────────────
-
-  Widget _stateCard({
-    required IconData icon,
-    required String title,
-    required String message,
-  }) {
-    return ProCard(
-      padding: const EdgeInsets.all(Sp.x6),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(Sp.x4),
-            decoration: BoxDecoration(
-              color: AppColors.coralSoft,
-              shape: BoxShape.circle,
-            ),
-            child: AppIcon(icon, size: 28, color: AppColors.coralDeep),
-          ),
-          const SizedBox(height: Sp.x4),
-          Text(title, style: AppText.h2, textAlign: TextAlign.center),
-          const SizedBox(height: Sp.x2),
-          Text(message, style: AppText.bodySoft, textAlign: TextAlign.center),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _skeleton() => const [
-        ProCard(child: SizedBox(height: 220)),
-        SizedBox(height: Sp.x6),
-        ProCard(padding: EdgeInsets.all(Sp.x4), child: SizedBox(height: 64)),
-        SizedBox(height: Sp.x3),
-        ProCard(padding: EdgeInsets.all(Sp.x4), child: SizedBox(height: 64)),
-        SizedBox(height: Sp.x6),
-        ProCard(child: SizedBox(height: 120)),
-      ];
 }
 
 // ── formatting helpers (no intl) ────────────────────────────────────────────────
@@ -542,7 +505,7 @@ const _months = [
 
 /// 'Jun 11' (or 'Today' / 'Yesterday' for the obvious cases). Falls back to the
 /// raw string if it doesn't parse as YYYY-MM-DD.
-String _prettyDate(String iso) {
+String prettyJournalDate(String iso) {
   final parsed = DateTime.tryParse(iso);
   if (parsed == null) return iso;
   final today = DateTime.now();
@@ -569,40 +532,7 @@ class _JournalRow {
 
   factory _JournalRow.fromJson(Map<String, dynamic> j) => _JournalRow(
         (j['date'] ?? '').toString(),
-        ((j['tags'] as List?) ?? const [])
-            .map((e) => e.toString())
-            .toList(),
+        ((j['tags'] as List?) ?? const []).map((e) => e.toString()).toList(),
         (j['note'] ?? '').toString(),
-      );
-}
-
-class _Insight {
-  final String tag;
-  final int days;
-  final List<_Effect> effects;
-  const _Insight(this.tag, this.days, this.effects);
-
-  factory _Insight.fromJson(Map<String, dynamic> j) => _Insight(
-        (j['tag'] ?? '').toString(),
-        (j['days'] as num?)?.toInt() ?? 0,
-        ((j['effects'] as List?) ?? const [])
-            .whereType<Map>()
-            .map((e) => _Effect.fromJson(e.cast<String, dynamic>()))
-            .toList(),
-      );
-}
-
-class _Effect {
-  final String label;
-  final double deltaPct;
-  final bool better;
-  final int nWith;
-  const _Effect(this.label, this.deltaPct, this.better, this.nWith);
-
-  factory _Effect.fromJson(Map<String, dynamic> j) => _Effect(
-        (j['label'] ?? '').toString(),
-        (j['delta_pct'] as num?)?.toDouble() ?? 0,
-        j['better'] == true,
-        (j['n_with'] as num?)?.toInt() ?? 0,
       );
 }

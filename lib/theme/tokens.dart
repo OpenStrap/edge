@@ -217,6 +217,73 @@ class AppColors {
     if (c >= 0.4) return confMid;
     return confLow;
   }
+
+  // ── HR zone palette (Z0..Z5) — the single source for zone colours. Reads the
+  //    active palette at call time, so it re-themes for free. Both the live
+  //    session ladder and the workouts zone bars source their colours here. ──
+  static Color zone(int z) {
+    switch (z.clamp(0, 5)) {
+      case 0:
+        return cool; // resting / below zone 1
+      case 1:
+        return loadDetraining; // warm-up
+      case 2:
+        return good; // fat burn
+      case 3:
+        return warn; // aerobic
+      case 4:
+        return coral; // threshold
+      default:
+        return coralDeep; // max effort (Z5)
+    }
+  }
+
+  /// A soft tint of a zone colour — for faint backfills / legend swatches.
+  static Color zoneSoft(int z) => zone(z).withValues(alpha: 0.16);
+
+  // ── Semantic aliases — the design-system vocabulary. One canonical name per
+  //    role, resolved through [active] like everything else. New components
+  //    (lib/ui/design/) speak these; the legacy names above keep working. ──
+
+  /// Screen background (warm paper / deep char).
+  static Color get background => active.bg;
+
+  /// A surface lifted above [surface] — sheets, popovers, the top bento card.
+  /// On char, elevation is a *lighter* surface (shadows vanish on near-black);
+  /// on paper the same white surface carries a stronger shadow instead.
+  static Color get surfaceElevated =>
+      active.isDark ? active.surfaceAlt : active.surface;
+
+  /// Primary content colour on any surface.
+  static Color get onSurface => active.ink;
+
+  /// Secondary content — labels, captions, supporting copy.
+  static Color get onSurfaceMuted => active.inkSoft;
+
+  /// Tertiary content — placeholders, disabled, hairline glyphs.
+  static Color get onSurfaceFaint => active.inkMuted;
+
+  /// THE brand accent — ember coral.
+  static Color get accent => active.coral;
+
+  /// Ember tint fill (chips, soft badges); pair text with [onAccentSoft].
+  static Color get accentSoft => active.coralSoft;
+  static Color get onAccentSoft => active.coralInk;
+
+  /// Status roles.
+  static Color get positive => active.good;
+  static Color get positiveSoft => active.goodSoft;
+  static Color get critical => active.bad;
+  static Color get criticalSoft => active.badSoft;
+  // (warn / warnSoft already exist above.)
+}
+
+/// Faint arc alpha for a low-confidence ring — high confidence paints the arc
+/// solid, low confidence fades it so uncertainty reads visually. Used by [Gauge]
+/// and any confidence-aware ring. Clamped to a legible floor.
+double confidenceRingAlpha(double c) {
+  if (c.isNaN) return 0.35;
+  return (0.35 + 0.65 * c.clamp(0.0, 1.0)).clamp(0.35, 1.0);
 }
 
 /// Spacing — 4-pt grid.
@@ -258,9 +325,79 @@ class Shadows {
     BoxShadow(color: Color(0x40FF5A36), blurRadius: 28, offset: Offset(0, 12)),
   ];
 
+  /// A medium sheet/finish-card shadow — stronger than [card], softer than
+  /// [lift]. Used by bottom sheets and the cinematic finish card on paper.
+  static const sheet = [
+    BoxShadow(color: Color(0x1A201A12), blurRadius: 40, offset: Offset(0, 20)),
+    BoxShadow(color: Color(0x0F201A12), blurRadius: 6, offset: Offset(0, 2)),
+  ];
+
   /// Elevation for a card by mode. In dark we drop shadows entirely (invisible
   /// on char) and let the lifted surface + border carry depth.
   static List<BoxShadow> cardFor(bool dark) => dark ? const [] : card;
+}
+
+/// Elevation scale — semantic depths mapped onto [Shadows]. Every level honours
+/// the dark=border rule (drop shadows vanish on char) via [forMode]:
+///   e0 = flush • e1 = card • e2 = sheet/finish card • e3 = lifted hero.
+///
+/// Depth by mode (the design-system contract, see lib/ui/design/surface.dart):
+///  • Paper (light): soft warm drop shadows, strength grows e1→e3. No border.
+///  • Char (dark): a hairline border + a *lighter lifted surface* carry depth;
+///    e2 adds a faint black penumbra for sheet separation, e3 adds a subtle
+///    warm ember under-glow so hero cards read as lifted, never flat-on-black.
+class Elevation {
+  Elevation._();
+  static const List<BoxShadow> e0 = [];
+  static const List<BoxShadow> e1 = Shadows.card;
+  static const List<BoxShadow> e2 = Shadows.sheet;
+  static const List<BoxShadow> e3 = Shadows.lift;
+
+  // Dark-mode depth: shadows are useless on char EXCEPT a faint penumbra
+  // (separates a sheet from the surface under it) and, at e3, a low warm glow.
+  static const List<BoxShadow> _darkE2 = [
+    BoxShadow(color: Color(0x66000000), blurRadius: 28, offset: Offset(0, 14)),
+  ];
+  static const List<BoxShadow> _darkE3 = [
+    BoxShadow(color: Color(0x73000000), blurRadius: 32, offset: Offset(0, 16)),
+    BoxShadow(color: Color(0x1AFF7A4D), blurRadius: 36, offset: Offset(0, 6)),
+  ];
+
+  /// Resolve a level for the current mode — dark drops the drop-shadow entirely.
+  /// (Legacy resolver — kept verbatim for existing call sites. New components
+  /// use [shadows]/[border], which give dark its penumbra + glow.)
+  static List<BoxShadow> forMode(List<BoxShadow> level, bool dark) =>
+      dark ? const [] : level;
+
+  /// Mode-correct shadow list for a semantic level 0..3.
+  static List<BoxShadow> shadows(int level, {bool? dark}) {
+    final d = dark ?? AppColors.isDark;
+    return switch (level.clamp(0, 3)) {
+      0 => e0,
+      1 => d ? e0 : e1,
+      2 => d ? _darkE2 : e2,
+      _ => d ? _darkE3 : e3,
+    };
+  }
+
+  /// Mode-correct hairline border for a level — dark gets the border (its
+  /// primary depth cue, brightening slightly with level); light gets none.
+  static Border? border(int level, {bool? dark}) {
+    final d = dark ?? AppColors.isDark;
+    if (!d || level <= 0) return null;
+    final c = level >= 3
+        ? const Color(0xFF3D362C) // brighter hairline on the lifted hero
+        : AppColors.divider;
+    return Border.all(color: c, width: 1);
+  }
+
+  /// Mode-correct fill for a level — on char, higher levels sit on lighter
+  /// surfaces (surface → surfaceAlt); on paper everything is card white.
+  static Color surfaceAt(int level, {bool? dark}) {
+    final d = dark ?? AppColors.isDark;
+    if (!d) return AppColors.surface;
+    return level >= 2 ? AppColors.surfaceElevated : AppColors.surface;
+  }
 }
 
 /// Motion.
@@ -272,4 +409,27 @@ class Motion {
   static const ring = Duration(milliseconds: 1000);
   static const curve = Curves.easeOutCubic;
   static const emphatic = Curves.easeOutQuint;
+
+  // ── Motion semantics — (duration, curve) pairs naming *why* something moves.
+  //    Use like `Motion.enter.d` / `Motion.enter.c`. ──
+
+  /// Content settling into place (list items, cards revealing).
+  static const ({Duration d, Curve c}) enter = (d: med, c: curve);
+
+  /// A responsive, slightly-overshooting pop (press, badge, chip).
+  static const ({Duration d, Curve c}) springy = (
+    d: med,
+    c: Curves.easeOutBack,
+  );
+
+  /// A drawn-out, celebratory reveal (count-ups, finish card, PR pops).
+  static const ({Duration d, Curve c}) celebratory = (d: slow, c: emphatic);
+
+  /// Direct-manipulation follow (scrub thumbs, drag handles, seg-control
+  /// thumbs tracking a finger) — near-instant and linear so it never lags
+  /// the gesture.
+  static const ({Duration d, Curve c}) scrub = (
+    d: Duration(milliseconds: 90),
+    c: Curves.linear,
+  );
 }

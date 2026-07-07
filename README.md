@@ -14,7 +14,7 @@ something to do again. You get your heart rate, your sleep, a strain number, a r
 number, trends over time. It's real and it's useful.
 
 Is it WHOOP? No. I'm not going to oversell this. WHOOP has years of research and a team;
-this is one person, textbook equations, and a protocol I reverse-engineered. The numbers
+this is one person, textbook equations, and a protocol I decoded myself. The numbers
 here are honest approximations of what your band can actually support, not a clone of
 their scores. Think of it as rescuing the hardware, not replacing the service. If you're
 happily paying WHOOP, stay there. If your band would otherwise be e-waste, this is better

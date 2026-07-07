@@ -42,6 +42,8 @@
 	<string>OpenStrap writes your sleep, resting heart rate, HRV, respiratory rate, energy and workouts into Apple Health.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>OpenStrap records your route on a map during a run, ride or walk so you can see it, colored by heart-rate zone, when the workout ends. Your location stays on this device and is never uploaded.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>OpenStrapAppGroupIdentifier</key>
@@ -70,14 +72,19 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<!-- BGTaskSchedulerPermittedIdentifiers: the BGProcessingTask used by
-	     BackgroundTasks.swift for opportunistic headless sync + heavy derivation.
-	     NOTE: "location" is deliberately NOT in UIBackgroundModes — OpenStrap has
-	     no GPS/workout-route feature; adding it without purpose risks App Store
-	     rejection. "processing" enables BGProcessingTask; "fetch" enables
-	     BGAppRefreshTask (future use). -->
+	     BgSyncScheduler.swift for opportunistic headless sync + heavy derivation,
+	     plus the lighter BGAppRefreshTask (sync-only, no heavy derive) that uses
+	     the separate app-refresh budget iOS grants alongside processing tasks.
+	     NOTE: "location" is deliberately NOT in UIBackgroundModes. The workout
+	     route feature uses WHILE-IN-USE location only (foreground / active-session
+	     with the app alive), so continuous background-location updates aren't
+	     needed and "always"/background-location is a documented follow-up. Adding
+	     the background "location" mode without that need risks App Store rejection.
+	     "processing" enables BGProcessingTask; "fetch" enables BGAppRefreshTask. -->
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>wtf.openstrap.edge.bgsync</string>
+		<string>wtf.openstrap.edge.refresh</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

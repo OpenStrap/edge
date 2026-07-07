@@ -3,15 +3,15 @@
 // calibrated, the 1 Hz all-day step estimate is anchored to you instead of a
 // guess. 1 Hz can't count steps directly (Nyquist); this is what makes the
 // estimate trustworthy.
+//
+// Presentation: design-system language (ArcGauge progress, StateCard-style
+// finish, themed CTA). The calibration start/finish/cancel logic is untouched.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
-import '../kit/charts.dart';
+import '../design/design.dart';
 
 class StepCalibrationScreen extends StatefulWidget {
   const StepCalibrationScreen({super.key});
@@ -69,133 +69,129 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
     final t = (_target > 0 ? steps / _target : 0.0).clamp(0.0, 1.0).toDouble();
     final ready = steps >= _target;
 
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
-          children: [
-            const SizedBox(height: Sp.x4),
-            _topBar(),
-            const SizedBox(height: Sp.x6),
-            if (_error != null)
-              ProCard(
-                child: Text(_error!, style: AppText.captionMuted),
-              )
-            else if (done)
-              _doneCard()
-            else ...[
-              Center(
-                child: RingStat(
-                  t: t,
-                  color: AppColors.good,
-                  size: 196,
-                  stroke: 16,
-                  center: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Text('$steps', style: AppText.metric.copyWith(fontSize: 44)),
-                    const SizedBox(height: 2),
-                    Text('of $_target steps',
-                        style: AppText.caption.copyWith(color: AppColors.inkSoft)),
-                  ]),
-                ),
-              ),
-              const SizedBox(height: Sp.x5),
-              Center(
-                child: ready
-                    ? Tag('ready to save', color: AppColors.good)
-                    : Text(_started ? 'Keep walking…' : 'Starting…',
-                        style: AppText.label.copyWith(color: AppColors.inkSoft)),
-              ),
-              const SizedBox(height: Sp.x6),
-              ProCard(
-                child:
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('How to calibrate', style: AppText.label),
-                  const SizedBox(height: Sp.x2),
-                  Text(
-                      'Walk on flat, open ground at your normal pace with the phone '
-                      'on you and the app open. We count ~$_target real steps to '
-                      'learn your stride + cadence. Avoid stairs, crowds and stops.',
-                      style: AppText.captionMuted),
-                ]),
-              ),
-              const SizedBox(height: Sp.x6),
-              _saveButton(ready),
-            ],
-            const SizedBox(height: 40),
+    return AppScaffold(
+      title: 'Calibrate steps',
+      subtitle: 'A short walk teaches your stride',
+      actions: [
+        const InfoDot(
+          title: 'Why calibrate',
+          body:
+              'A brief walk with the app open lets the band\'s real pedometer '
+              'learn your personal cadence, which anchors the all-day step '
+              'estimate to you.',
+          bullets: [
+            'Walk on flat, open ground at your normal pace.',
+            'Keep the phone on you and the app open.',
+            'Avoid stairs, crowds and stops.',
           ],
         ),
-      ),
+      ],
+      children: [
+        if (_error != null)
+          StateCard(
+            icon: OsIcon.run,
+            title: "Couldn't start calibration",
+            message: _error!,
+            actionLabel: 'Try again',
+            onAction: () {
+              setState(() => _error = null);
+              _start();
+            },
+          )
+        else if (done)
+          _doneCard()
+        else ...[
+          const SizedBox(height: Sp.x4),
+          Center(
+            child: RepaintBoundary(
+              child: ArcGauge(
+                value: t,
+                color: DomainAccent.steps,
+                size: 200,
+                stroke: 16,
+                sweepFraction: 0.75,
+                animate: false, // live-driven — no reveal sweep fighting updates
+                center: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text('$steps', style: AppText.metric.copyWith(fontSize: 44)),
+                  const SizedBox(height: 2),
+                  Text('OF $_target',
+                      style:
+                          AppText.overline.copyWith(color: AppColors.inkMuted)),
+                ]),
+              ),
+            ),
+          ).dsEnter(),
+          const SizedBox(height: Sp.x3),
+          Center(
+            child: ready
+                ? const StatusChip('Ready to save', tone: ChipTone.positive)
+                : Text(_started ? 'Keep walking…' : 'Starting…',
+                    style: AppText.label.copyWith(color: AppColors.inkSoft)),
+          ),
+          const SizedBox(height: Sp.x6),
+          SurfaceCard(
+            entranceIndex: 1,
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const TileHeader('How to calibrate'),
+                  const SizedBox(height: Sp.x3),
+                  Text(
+                      'Walk on flat, open ground at your normal pace with the '
+                      'app open. We count ~$_target real steps to learn your '
+                      'stride and cadence.',
+                      style: AppText.bodySoft),
+                ]),
+          ),
+          const SizedBox(height: Sp.x6),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: ready && !_saving ? _save : null,
+              child: _saving
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.4, color: Colors.white))
+                  : const Text('Save calibration'),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
-  Widget _doneCard() => ProCard(
+  Widget _doneCard() => SurfaceCard(
+        level: 2,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            AppIcon(Ic.run, size: 20, color: AppColors.good),
-            const SizedBox(width: Sp.x2),
+            Container(
+              padding: const EdgeInsets.all(Sp.x3),
+              decoration: BoxDecoration(
+                color: AppColors.positiveSoft,
+                shape: BoxShape.circle,
+              ),
+              child: AppIcon(OsIcon.check, size: 22, color: AppColors.positive),
+            ),
+            const SizedBox(width: Sp.x3),
             Text('Calibrated', style: AppText.h2),
           ]),
-          const SizedBox(height: Sp.x3),
-          Text(
-              'Learned cadence ≈ ${_learnedCadence!.toStringAsFixed(0)} steps/min. '
-              'Your all-day step estimate is now anchored to your walk — it will '
-              'get sharper each time you walk with the app open.',
-              style: AppText.captionMuted),
           const SizedBox(height: Sp.x4),
-          _pill('Done', AppColors.coral, () => Navigator.of(context).maybePop()),
-        ]),
-      );
-
-  Widget _saveButton(bool ready) {
-    final enabled = ready && !_saving;
-    return _pill(
-      _saving ? '' : 'Save calibration',
-      enabled ? AppColors.coral : AppColors.inkSoft.withValues(alpha: 0.4),
-      enabled ? _save : null,
-      busy: _saving,
-    );
-  }
-
-  Widget _pill(String label, Color color, VoidCallback? onTap, {bool busy = false}) {
-    return Material(
-      color: color,
-      borderRadius: BorderRadius.circular(R.pill),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(R.pill),
-        onTap: onTap,
-        child: Container(
-          height: 54,
-          alignment: Alignment.center,
-          child: busy
-              ? const SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2.4, color: AppColors.onNight))
-              : Text(label,
-                  style: AppText.label.copyWith(
-                      color: AppColors.onNight, fontWeight: FontWeight.w700)),
-        ),
-      ),
-    );
-  }
-
-  Widget _topBar() => Row(children: [
-        RoundIconButton(Ic.arrowLeft,
-            onTap: () => Navigator.of(context).maybePop()),
-        const SizedBox(width: Sp.x3),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Calibrate steps', style: AppText.h1),
-              Text('A short walk teaches your stride',
-                  style: AppText.caption.copyWith(color: AppColors.inkSoft)),
-            ],
+          BigStat(
+            value: _learnedCadence!.toStringAsFixed(0),
+            unit: 'steps/min',
+            label: 'Your cadence',
+            caption: 'Sharper every time you walk with the app open',
           ),
-        ),
-      ]);
+          const SizedBox(height: Sp.x5),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              child: const Text('Done'),
+            ),
+          ),
+        ]),
+      ).dsCelebrate();
 }

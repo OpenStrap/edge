@@ -148,15 +148,27 @@ void main() {
     () async {
       const dayId = '2099-12-31';
       final rawTs = DateTime(2099, 12, 31, 12).millisecondsSinceEpoch ~/ 1000;
-      final db = await LocalDb.instance;
-      await db.insert('raw_records', {
-        'counter': 900001,
-        'hex': 'deadbeef',
-        'packet_type': 47,
-        'captured_at': rawTs * 1000,
-        'rec_ts': rawTs,
-        'uploaded': 0,
-      });
+      await LocalDb.insertRecord(
+        RawRecord(
+          counter: 900001,
+          packetType: 47,
+          hex: 'deadbeef',
+          capturedAt: rawTs * 1000,
+          recTs: rawTs,
+        ),
+        Sample(
+          tsEpoch: rawTs,
+          counter: 900001,
+          hr: 60,
+          rrIntervalsMs: const [1000],
+          ax: 0,
+          ay: 0,
+          az: 1,
+          spo2RedRaw: 1,
+          spo2IrRaw: 1,
+          skinTempRaw: 1,
+        ),
+      );
 
       await LocalDb.putDayResult(
         dayId: dayId,
@@ -265,11 +277,6 @@ void main() {
       expect(rr, hasLength(2));
       expect(rr.first['rr_ms'], 980);
       expect(rr.last['rr_ms'], 1005);
-
-      final latest = await LocalDb.latestSample();
-      expect(latest, isNotNull);
-      expect(latest!.counter, 424242);
-      expect(latest.tsEpoch, startSec);
 
       final ranged = await LocalDb.samplesInRange(startSec - 1, startSec + 1);
       expect(ranged, hasLength(1));
@@ -418,7 +425,7 @@ void main() {
   });
 
   test(
-    'commitSyncBatch persists raw + advances high-water + stores trim token',
+    'commitSyncBatch persists decoded rows + advances high-water + stores trim token',
     () async {
       RawRecord raw(int counter, int recTs) => RawRecord(
         counter: counter,

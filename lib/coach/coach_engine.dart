@@ -17,6 +17,7 @@ import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import '../data/day_label.dart';
 import '../data/local_repository.dart';
 import 'coach_config.dart';
 import 'coach_db.dart';
@@ -180,7 +181,7 @@ class CoachEngine {
     'Reading your overnight RR…',
     'Doing the Banister math…',
     'Asking your heart rate a few questions…',
-    'Reverse-engineering last night…',
+    'Decoding last night…',
     'Auditing 90 days of you…',
     'Letting the data confess…',
     'Lining up the z-scores…',
@@ -345,7 +346,11 @@ class CoachEngine {
 
   static String _short(String s) => s.length > 200 ? s.substring(0, 200) : s;
 
-  static String _today() => DateTime.now().toUtc().toIso8601String().substring(0, 10);
+  // LOCAL day label — the coach's SQL views (v_daily/v_metric/…) are keyed by
+  // the device-local dates the derivation engine files days under, so "today"
+  // must be local too (a UTC date here pointed the model one day back until
+  // ~05:30 for a UTC+5:30 user).
+  static String _today() => todayLabel();
 
   /// Run one user turn. Emits items via [onItem]; reports the current tool via
   /// [onStatus]; asks the user to confirm writes via [confirm] (returns true to
@@ -364,7 +369,7 @@ class CoachEngine {
     for (var i = 0; i < maxIters; i++) {
       onStatus(_shenanigans[_rand.nextInt(_shenanigans.length)]);
       final messages = <Map<String, dynamic>>[
-        {'role': 'system', 'content': '$kCoachSystemPrompt\n\nToday is ${_today()} (UTC).'},
+        {'role': 'system', 'content': '$kCoachSystemPrompt\n\nToday is ${_today()} (device-local date; all day-keyed data uses these local dates).'},
         ..._history,
       ];
 
@@ -408,31 +413,77 @@ class CoachEngine {
   }
 
   // ── provider call ────────────────────────────────────────────────────────────
-  Future<Map<String, dynamic>> _chat(List<Map<String, dynamic>> messages) async {
-    final resp = await _http.post(
-      Uri.parse('${config.apiBase}/chat/completions'),
-      headers: {
-        'Authorization': 'Bearer ${config.apiKey}',
-        'content-type': 'application/json',
-      },
-      body: jsonEncode({
+  Future<Map<String, dynamic>> _chat(List<Map<String, dynamic>> messages) =>
+      postChat(config, {
         'model': config.model,
         'messages': messages,
         'tools': _toolDefs,
         'tool_choice': 'auto',
         'temperature': 0.3,
-      }),
-    ).timeout(const Duration(seconds: 120));
-    if (resp.statusCode != 200) {
-      throw CoachException('Provider error (${resp.statusCode}): ${_briefErr(resp.body)}');
+      }, client: _http);
+
+  /// THE one OpenAI-compatible chat-completions POST. Every LLM call in the app
+  /// (the coach tool loop, the daily briefings, the journal chat) goes through
+  /// here so there is exactly ONE provider client + error contract. Returns the
+  /// first choice's `message` map. Throws [CoachException] on any provider error.
+  static Future<Map<String, dynamic>> postChat(
+    CoachConfig config,
+    Map<String, dynamic> body, {
+    http.Client? client,
+  }) async {
+    final c = client ?? http.Client();
+    try {
+      final resp = await c
+          .post(
+            Uri.parse('${config.apiBase}/chat/completions'),
+            headers: {
+              'Authorization': 'Bearer ${config.apiKey}',
+              'content-type': 'application/json',
+            },
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 120));
+      if (resp.statusCode != 200) {
+        throw CoachException(
+            'Provider error (${resp.statusCode}): ${_briefErr(resp.body)}');
+      }
+      final j = jsonDecode(utf8.decode(resp.bodyBytes));
+      final choices = (j['choices'] as List?) ?? const [];
+      if (choices.isEmpty) throw CoachException('Empty response from provider.');
+      return (choices.first as Map)['message'] as Map<String, dynamic>;
+    } finally {
+      if (client == null) c.close();
     }
-    final j = jsonDecode(utf8.decode(resp.bodyBytes));
-    final choices = (j['choices'] as List?) ?? const [];
-    if (choices.isEmpty) throw CoachException('Empty response from provider.');
-    return (choices.first as Map)['message'] as Map<String, dynamic>;
   }
 
-  String _briefErr(String body) {
+  /// One-shot multi-turn text completion (no tools). Reuses [postChat] — the
+  /// briefing + journal engines call this instead of owning an HTTP client.
+  static Future<String> chatOnce({
+    required CoachConfig config,
+    required List<Map<String, dynamic>> messages,
+    double temperature = 0.4,
+  }) async {
+    final msg = await postChat(config, {
+      'model': config.model,
+      'messages': messages,
+      'temperature': temperature,
+    });
+    return ((msg['content'] as String?) ?? '').trim();
+  }
+
+  /// One-shot "system + user → text" completion. The simplest reuse surface.
+  static Future<String> completeText({
+    required CoachConfig config,
+    required String system,
+    required String user,
+    double temperature = 0.4,
+  }) =>
+      chatOnce(config: config, temperature: temperature, messages: [
+        {'role': 'system', 'content': system},
+        {'role': 'user', 'content': user},
+      ]);
+
+  static String _briefErr(String body) {
     try {
       final j = jsonDecode(body);
       return (j['error']?['message'] ?? body).toString();

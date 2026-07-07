@@ -83,9 +83,23 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
     if (!when.isAfter(now)) when = when.add(const Duration(days: 1));
     try {
       await app.setAlarm(when);
-      _snack('Band alarm set for ${_hhmm(wakeMin)}.');
+      _snack('Band alarm set for ${_hhmm(wakeMin)} — confirming with the strap…');
     } catch (e) {
       _snack("Couldn't set alarm: $e");
+    }
+  }
+
+  Future<void> _testBuzz() async {
+    final app = context.read<AppState>();
+    if (!app.isConnected) {
+      _snack('Connect your strap to test the alarm buzz.');
+      return;
+    }
+    try {
+      await app.testAlarmBuzz();
+      _snack('Sent a test buzz to your strap.');
+    } catch (e) {
+      _snack("Couldn't buzz the strap: $e");
     }
   }
 
@@ -94,13 +108,25 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(s)));
   }
 
+  /// Live alarm-status caption driven by the strap's own confirmation events.
+  String _alarmCaption(AppState app) {
+    const base = 'Your strap buzzes at this time — set on the band, so it works '
+        'even with the app closed. Aligned to a ~90-min cycle so it lands near '
+        'light sleep.';
+    if (app.alarmEpoch == null) return base;
+    if (app.alarmConfirmed) return 'Alarm set ✓ — $base';
+    if (app.alarmPending) return 'Setting alarm… — $base';
+    return 'Alarm sent, but the strap hasn\'t confirmed it yet. '
+        'Tap "Test buzz" to check it fires, and keep a backup alarm.';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) return const SizedBox.shrink();
     final need = _val(_coach?['need']);
     if (need == null) {
       return _CoachEmpty(
-        icon: Ic.moon,
+        icon: OsIcon.sleep,
         accent: AppColors.loadDetraining,
         title: 'Sleep Coach',
         body: 'A few more nights of sleep data and your personal sleep need, '
@@ -119,7 +145,7 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          AppIcon(Ic.moon, size: 16, color: accent),
+          const OsAppIcon(OsIcon.sleep, size: 34),
           const SizedBox(width: Sp.x2),
           Text('SLEEP COACH', style: AppText.overline),
           const Spacer(),
@@ -145,34 +171,41 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
         ]),
         const SizedBox(height: Sp.x4),
         if (bedMin != null)
-          _row(Ic.moon, accent, 'Recommended bedtime', _hhmm(bedMin)),
+          _row(OsIcon.sleep, accent, 'Recommended bedtime', _hhmm(bedMin)),
         if (wakeMin != null)
-          _row(Ic.bell, AppColors.coral, 'Wake (cycle-aligned)', _hhmm(wakeMin)),
+          _row(OsIcon.notifications, AppColors.coral, 'Wake (cycle-aligned)', _hhmm(wakeMin)),
         if (wakeMin != null) ...[
           const SizedBox(height: Sp.x3),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
               onPressed: () => _setAlarm(wakeMin.toDouble()),
-              icon: const AppIcon(Ic.bell, size: 16, color: Colors.white),
+              icon: const AppIcon(OsIcon.notifications, size: 16, color: Colors.white),
               label: Text('Set band alarm for ${_hhmm(wakeMin)}'),
             ),
           ),
           const SizedBox(height: Sp.x2),
-          Text(
-              'Your strap buzzes at this time — set on the band, so it works even '
-              'with the app closed. Aligned to a ~90-min cycle so it lands near '
-              'light sleep.',
-              style: AppText.captionMuted),
+          Row(children: [
+            Expanded(
+              child: Text(_alarmCaption(context.watch<AppState>()),
+                  style: AppText.captionMuted),
+            ),
+            const SizedBox(width: Sp.x2),
+            TextButton(
+              onPressed: _testBuzz,
+              child: const Text('Test buzz'),
+            ),
+          ]),
         ],
       ]),
     );
   }
 
-  Widget _row(IconData icon, Color accent, String label, String value) => Padding(
+  Widget _row(OsIcon icon, Color accent, String label, String value) =>
+      Padding(
         padding: const EdgeInsets.symmetric(vertical: Sp.x2),
         child: Row(children: [
-          AppIcon(icon, size: 15, color: accent),
+          OsAppIcon(icon, size: 28),
           const SizedBox(width: Sp.x3),
           Expanded(child: Text(label, style: AppText.body)),
           Text(value, style: AppText.label),
@@ -237,7 +270,7 @@ class _StrainCoachCardState extends State<StrainCoachCard> {
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          AppIcon(Ic.strain, size: 16, color: accent),
+          const OsAppIcon(OsIcon.bodyStrain, size: 34),
           const SizedBox(width: Sp.x2),
           Text('STRAIN COACH', style: AppText.overline),
           const Spacer(),
@@ -301,7 +334,7 @@ class _WhoopAgeCardState extends State<WhoopAgeCard> {
     if (_loading) return const SizedBox.shrink();
     if (_age == null && _vo2 == null) {
       return _CoachEmpty(
-        icon: Ic.pulse,
+        icon: OsIcon.heartRate,
         accent: AppColors.good,
         title: 'Fitness age',
         body: 'Your VO₂max and physiological age build from resting heart rate, '
@@ -316,7 +349,7 @@ class _WhoopAgeCardState extends State<WhoopAgeCard> {
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          AppIcon(Ic.pulse, size: 16, color: accent),
+          const OsAppIcon(OsIcon.vo2max, size: 34),
           const SizedBox(width: Sp.x2),
           Text('FITNESS AGE', style: AppText.overline),
         ]),
@@ -401,7 +434,7 @@ class _PerformanceAssessmentCardState
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          AppIcon(Ic.chart, size: 16, color: AppColors.coral),
+          AppIcon(OsIcon.activity, size: 16, color: AppColors.coral),
           const SizedBox(width: Sp.x2),
           Text('PERFORMANCE ASSESSMENT', style: AppText.overline),
         ]),
@@ -420,7 +453,7 @@ class _PerformanceAssessmentCardState
     final helped = i['helped'] == true;
     final accent = helped ? AppColors.good : AppColors.coral;
     final pct = (i['delta_pct'] as num?)?.abs().toStringAsFixed(0) ?? '—';
-    final dir = helped ? Ic.up : Ic.down;
+    final dir = helped ? OsIcon.up : OsIcon.down;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: Sp.x2),
       child: Row(children: [
@@ -440,7 +473,7 @@ class _PerformanceAssessmentCardState
 // ── shared empty state ───────────────────────────────────────────────────────
 
 class _CoachEmpty extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
   final Color accent;
   final String title;
   final String body;

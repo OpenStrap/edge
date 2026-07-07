@@ -21,6 +21,8 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 
+import 'android_boot_signal.dart';
+import 'band_ownership.dart';
 import '../sync/background_sync.dart';
 import '../sync/edge_tracking.dart';
 import '../sync/paired_device.dart';
@@ -46,20 +48,26 @@ Future<void> maybeHeadlessBoot() async {
   if (_booted) return;
   _booted = true;
 
-  // Detect headless: are we running with no Activity attached to the engine?
-  // When launched via BootReceiver the engine runs but the binding's window/view
-  // is not ready. We use the heuristic that WidgetsBinding has no renderView / no
-  // view attached yet. A simpler check: if there are no views, we are headless.
-  final hasView = WidgetsBinding.instance.renderViews.isNotEmpty;
-  if (hasView) {
-    // A real Activity is attached — normal foreground launch, skip headless path.
+  final pendingBoot = await AndroidBootSignal.consumePendingHeadlessBoot();
+  if (!pendingBoot) {
     return;
   }
 
   final paired = await PairedDevice.load();
   if (paired == null) return; // nothing paired, nothing to do
 
-  debugPrint('[headless-boot] no view — headless boot, starting EdgeTracking');
+  final lease = BandOwnership.tryAcquireHeadless();
+  if (lease == null) {
+    debugPrint(
+      '[headless-boot] boot wake skipped — ${BandOwnership.debugState}',
+    );
+    return;
+  }
+
+  debugPrint(
+    '[headless-boot] boot wake confirmed — lease=${lease.token} '
+    '${BandOwnership.debugState}',
+  );
   // Ensure the foreground service is running (it was started by BootReceiver, but
   // calling start() again here is safe — EdgeTracking.start() is idempotent).
   await EdgeTracking.start();
@@ -68,7 +76,7 @@ Future<void> maybeHeadlessBoot() async {
   // disconnect). This catches up the offline backlog accumulated while the phone
   // was powered off. Errors are swallowed inside runHeadlessSync.
   debugPrint('[headless-boot] starting headless sync for ${paired.remoteId}');
-  runHeadlessSync().then((_) {
+  runHeadlessSync(lease: lease).then((_) {
     debugPrint('[headless-boot] headless sync complete');
   });
 }

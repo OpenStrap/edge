@@ -2,82 +2,99 @@
 // Cards, tiles, toggles, chips, icons, buttons, section headers, honesty tags.
 // Charts live in charts.dart. Theme tokens come from theme/tokens.dart + AppText.
 
+// The illustrated icon set rides along with the kit so every screen that
+// imports kit/design gets OsAppIcon + OsIcon without touching the package.
+export 'os_icons.dart';
+
 import 'package:flutter/material.dart';
-import 'package:hugeicons/hugeicons.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../theme/theme.dart';
 import '../../theme/theme_controller.dart';
 import '../../theme/theme_switcher.dart';
 import '../../theme/tokens.dart';
 import '../../models/metric.dart';
+import 'os_icons.dart';
 
-/// Thin wrapper over HugeIcon so call sites stay short and consistent.
+/// Thin wrapper over OsIcon so call sites stay short and consistent.
 class AppIcon extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
   final double size;
-  final Color? color;
+  final Color? color; // Kept for API compatibility, but ignored by illustrated icons
   const AppIcon(this.icon, {super.key, this.size = 22, this.color});
   @override
   Widget build(BuildContext context) =>
-      HugeIcon(icon: icon, size: size, color: color ?? AppColors.ink);
+      OsAppIcon(icon, size: size);
 }
 
-/// Common icon set, named once so screens don't reach into HugeIcons directly.
+/// Common icon set, mapped to OsIcon.
 class Ic {
   Ic._();
-  static const home = HugeIcons.strokeRoundedHome01;
-  static const sleep = HugeIcons.strokeRoundedMoon02;
-  static const activity = HugeIcons.strokeRoundedActivity01;
-  static const stats = HugeIcons.strokeRoundedAnalytics01;
-  static const profile = HugeIcons.strokeRoundedUserCircle;
-  static const strain = HugeIcons.strokeRoundedEnergy;
-  static const recovery = HugeIcons.strokeRoundedChampion;
-  static const heart = HugeIcons.strokeRoundedFavourite;
-  static const pulse = HugeIcons.strokeRoundedPulseRectangle01;
-  static const fire = HugeIcons.strokeRoundedFire;
-  static const bed = HugeIcons.strokeRoundedBed;
-  static const moon = HugeIcons.strokeRoundedMoon02;
-  static const clock = HugeIcons.strokeRoundedClock01;
-  static const calendar = HugeIcons.strokeRoundedCalendar03;
-  static const watch = HugeIcons.strokeRoundedSmartWatch01;
-  static const bluetooth = HugeIcons.strokeRoundedBluetooth;
-  static const battery = HugeIcons.strokeRoundedBatteryFull;
-  static const settings = HugeIcons.strokeRoundedSettings01;
-  static const logout = HugeIcons.strokeRoundedLogout01;
-  static const edit = HugeIcons.strokeRoundedEdit02;
-  static const server = HugeIcons.strokeRoundedServerStack01;
-  static const cloud = HugeIcons.strokeRoundedCloudServer;
-  static const shield = HugeIcons.strokeRoundedShieldEnergy;
-  static const info = HugeIcons.strokeRoundedInformationCircle;
-  static const check = HugeIcons.strokeRoundedCheckmarkCircle02;
-  static const cancel = HugeIcons.strokeRoundedCancel01;
-  static const arrowRight = HugeIcons.strokeRoundedArrowRight01;
-  static const arrowLeft = HugeIcons.strokeRoundedArrowLeft01;
-  static const up = HugeIcons.strokeRoundedArrowUp01;
-  static const down = HugeIcons.strokeRoundedArrowDown01;
-  static const chart = HugeIcons.strokeRoundedChartLineData01;
-  static const droplet = HugeIcons.strokeRoundedDroplet;
-  static const run = HugeIcons.strokeRoundedRunningShoes;
-  static const weights = HugeIcons.strokeRoundedDumbbell01;
-  static const bell = HugeIcons.strokeRoundedNotification03;
-  static const thermometer = HugeIcons.strokeRoundedTemperature;
-  static const ai = HugeIcons.strokeRoundedAiMagic;
-  static const plus = HugeIcons.strokeRoundedAdd01;
-  static const history = HugeIcons.strokeRoundedClock04;
-  static const trash = HugeIcons.strokeRoundedDelete02;
-  static const github = HugeIcons.strokeRoundedGithub;
-  static const discord = HugeIcons.strokeRoundedDiscord;
-  static const reddit = HugeIcons.strokeRoundedReddit;
-  static const twitter = HugeIcons.strokeRoundedNewTwitter;
+  static const home = OsIcon.today;
+  static const sleep = OsIcon.sleep;
+  static const activity = OsIcon.activity;
+  static const stats = OsIcon.records;
+  static const profile = OsIcon.profile;
+  static const strain = OsIcon.bodyStrain;
+  static const recovery = OsIcon.recovery;
+  static const heart = OsIcon.heart;
+  static const pulse = OsIcon.heartRate;
+  static const fire = OsIcon.calories;
+  static const bed = OsIcon.bedtime;
+  static const moon = OsIcon.sleep;
+  static const clock = OsIcon.history;
+  static const calendar = OsIcon.calendar;
+  static const watch = OsIcon.wear;
+  static const bluetooth = OsIcon.bluetooth;
+  static const battery = OsIcon.battery;
+  static const settings = OsIcon.settings;
+  static const logout = OsIcon.logout;
+  static const edit = OsIcon.edit;
+  static const server = OsIcon.server;
+  static const cloud = OsIcon.sync;
+  static const shield = OsIcon.shield;
+  static const info = OsIcon.info;
+  static const check = OsIcon.check;
+  static const cancel = OsIcon.cancel;
+  static const arrowRight = OsIcon.arrowRight;
+  static const arrowLeft = OsIcon.arrowLeft;
+  static const up = OsIcon.up;
+  static const down = OsIcon.down;
+  static const chart = OsIcon.activity;
+  static const droplet = OsIcon.hydration;
+  static const run = OsIcon.run;
+  static const weights = OsIcon.strength;
+  static const bell = OsIcon.notifications;
+  static const thermometer = OsIcon.skinTemperature;
+  static const ai = OsIcon.ai;
+  static const plus = OsIcon.plus;
+  static const history = OsIcon.history;
+  static const trash = OsIcon.trash;
+  static const github = OsIcon.github;
+  static const discord = OsIcon.discord;
+  static const reddit = OsIcon.reddit;
+  static const twitter = OsIcon.twitter;
 }
 
 /// White rounded card with soft warm shadow. The base surface for everything.
+///
+/// Opt-in polish (both default off, so the ~hundreds of existing call sites are
+/// untouched): [entrance] gives a staggered fade-up on first build (delay =
+/// index × 40 ms); [pressScale] dips to 0.98 on tap-down for a tactile press.
 class ProCard extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
   final VoidCallback? onTap;
   final Color? color;
   final List<BoxShadow>? shadow;
+
+  /// When non-null, the card fades + slides up on first build, staggered by
+  /// this index (pass the ListView item index).
+  final int? entrance;
+
+  /// When true (with [onTap]), the card scales to 0.98 while pressed.
+  final bool pressScale;
+
   const ProCard({
     super.key,
     required this.child,
@@ -85,6 +102,8 @@ class ProCard extends StatelessWidget {
     this.onTap,
     this.color,
     this.shadow,
+    this.entrance,
+    this.pressScale = false,
   });
   @override
   Widget build(BuildContext context) {
@@ -104,14 +123,98 @@ class ProCard extends StatelessWidget {
       ),
       child: child,
     );
-    if (onTap == null) return card;
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(R.card),
-      child: InkWell(
+    Widget result;
+    if (onTap == null) {
+      result = card;
+    } else {
+      result = Material(
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(R.card),
-        onTap: onTap,
-        child: card,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(R.card),
+          onTap: onTap,
+          child: card,
+        ),
+      );
+      if (pressScale) result = _PressScale(child: result);
+    }
+    if (entrance != null) result = Entrance(index: entrance!, child: result);
+    return result;
+  }
+}
+
+/// A one-shot staggered fade-up (opacity 0→1, translateY 12→0, delay =
+/// index × 40 ms). Runs once on first build; cheap (a single short-lived
+/// controller, disposed when scrolled away). Wrap any list item to stagger it;
+/// [ProCard.entrance] uses this internally.
+class Entrance extends StatefulWidget {
+  final int index;
+  final Widget child;
+  const Entrance({super.key, required this.index, required this.child});
+  @override
+  State<Entrance> createState() => _EntranceState();
+}
+
+class _EntranceState extends State<Entrance>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: Motion.enter.d,
+  );
+  @override
+  void initState() {
+    super.initState();
+    final delay = Duration(milliseconds: (widget.index * 40).clamp(0, 400));
+    Future.delayed(delay, () {
+      if (mounted) _c.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final anim = CurvedAnimation(parent: _c, curve: Motion.enter.c);
+    return AnimatedBuilder(
+      animation: anim,
+      builder: (context, child) => Opacity(
+        opacity: anim.value,
+        child: Transform.translate(
+          offset: Offset(0, 12 * (1 - anim.value)),
+          child: child,
+        ),
+      ),
+      child: widget.child,
+    );
+  }
+}
+
+/// Scales its child to 0.98 while pressed. Uses a [Listener] so it never steals
+/// the underlying InkWell's tap / ripple.
+class _PressScale extends StatefulWidget {
+  final Widget child;
+  const _PressScale({required this.child});
+  @override
+  State<_PressScale> createState() => _PressScaleState();
+}
+
+class _PressScaleState extends State<_PressScale> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (_) => setState(() => _down = true),
+      onPointerUp: (_) => setState(() => _down = false),
+      onPointerCancel: (_) => setState(() => _down = false),
+      child: AnimatedScale(
+        scale: _down ? 0.98 : 1.0,
+        duration: Motion.fast,
+        curve: Motion.curve,
+        child: widget.child,
       ),
     );
   }
@@ -137,6 +240,9 @@ class GlowCard extends StatelessWidget {
     final glowColor = glow ?? AppColors.coral;
     // On char the blob blooms — keep it a low, warm ember; on paper it can sing.
     final glowAlpha = AppColors.isDark ? 0.28 : 0.55;
+    // Clamp the bloom radius on OLED char so it doesn't smear across the card;
+    // paper can carry a wider, softer wash.
+    final glowRadius = AppColors.isDark ? 0.62 : 0.9;
     final body = ClipRRect(
       borderRadius: BorderRadius.circular(R.card),
       child: Stack(
@@ -146,7 +252,7 @@ class GlowCard extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: RadialGradient(
                   center: glowAlign,
-                  radius: 0.9,
+                  radius: glowRadius,
                   colors: [
                     glowColor.withValues(alpha: glowAlpha),
                     Colors.transparent,
@@ -184,6 +290,17 @@ class NightCard extends StatelessWidget {
   );
 }
 
+/// Wrap each non-spacer widget in a hand-built list with a staggered [Entrance]
+/// (delay by list position), for a one-time fade-up reveal of a ListView's
+/// children. Bare [SizedBox] spacers pass through untouched so gaps don't move.
+List<Widget> staggered(List<Widget> items) {
+  var i = 0;
+  return [
+    for (final w in items)
+      if (w is SizedBox) w else Entrance(index: i++, child: w),
+  ];
+}
+
 /// Section header — overline/title + optional trailing action.
 class SectionHeader extends StatelessWidget {
   final String title;
@@ -207,7 +324,7 @@ class SectionHeader extends StatelessWidget {
                     style: AppText.label.copyWith(color: AppColors.coralDeep),
                   ),
                   const SizedBox(width: 2),
-                  AppIcon(Ic.arrowRight, size: 16, color: AppColors.coralDeep),
+                  AppIcon(OsIcon.arrowRight, size: 16, color: AppColors.coralDeep),
                 ],
               ),
             ),
@@ -241,7 +358,10 @@ class SegToggle extends StatelessWidget {
         children: List.generate(options.length, (i) {
           final sel = i == index;
           return GestureDetector(
-            onTap: () => onChanged(i),
+            onTap: () {
+              if (i != index) HapticFeedback.selectionClick();
+              onChanged(i);
+            },
             child: AnimatedContainer(
               duration: Motion.fast,
               curve: Motion.curve,
@@ -300,7 +420,7 @@ class DeltaChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AppIcon(up ? Ic.up : Ic.down, size: 13, color: c),
+          AppIcon(up ? OsIcon.up : OsIcon.down, size: 13, color: c),
           const SizedBox(width: 2),
           Flexible(
             child: Text(
@@ -476,11 +596,19 @@ class _BetaTag extends StatelessWidget {
 
 /// Compact round icon button (top-bar actions, like the ref's circular buttons).
 class RoundIconButton extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
   final VoidCallback? onTap;
   final Color? bg;
-  final Color? fg;
-  const RoundIconButton(this.icon, {super.key, this.onTap, this.bg, this.fg});
+  final Color? fg; // Ignored for illustrated icons, kept for API compat
+  
+  const RoundIconButton(
+    this.icon, {
+    super.key,
+    this.onTap,
+    this.bg,
+    this.fg,
+  });
+  
   @override
   Widget build(BuildContext context) => Material(
     color: bg ?? AppColors.surface,
@@ -490,8 +618,8 @@ class RoundIconButton extends StatelessWidget {
       customBorder: const CircleBorder(),
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.all(Sp.x3),
-        child: AppIcon(icon, size: 20, color: fg ?? AppColors.ink),
+        padding: const EdgeInsets.all(Sp.x3 - 3),
+        child: OsAppIcon(icon, size: 26),
       ),
     ),
   );
@@ -499,7 +627,7 @@ class RoundIconButton extends StatelessWidget {
 
 /// A label/value list row used in detail sheets and profile sections.
 class DetailRow extends StatelessWidget {
-  final IconData? icon;
+  final OsIcon? icon;
   final String label;
   final String value;
   final VoidCallback? onTap;
@@ -525,15 +653,32 @@ class DetailRow extends StatelessWidget {
               AppIcon(icon!, size: 19, color: AppColors.inkSoft),
               const SizedBox(width: Sp.x3),
             ],
-            Text(label, style: AppText.body),
-            const Spacer(),
-            Text(value, style: AppText.body.copyWith(color: AppColors.inkSoft)),
+            // Label + value are flexible with ellipsis so long strings squeeze
+            // instead of overflowing the row (values keep priority).
+            Expanded(
+              child: Text(
+                label,
+                style: AppText.body,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: Sp.x3),
+            Flexible(
+              child: Text(
+                value,
+                style: AppText.body.copyWith(color: AppColors.inkSoft),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+              ),
+            ),
             if (trailing != null) ...[
               const SizedBox(width: Sp.x2),
               trailing!,
             ] else if (onTap != null) ...[
               const SizedBox(width: Sp.x2),
-              AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
+              AppIcon(OsIcon.arrowRight, size: 16, color: AppColors.inkMuted),
             ],
           ],
         ),
@@ -559,8 +704,11 @@ bool detailedAvailable(String ymd) {
   if (p.length != 3) return true;
   final y = int.tryParse(p[0]), m = int.tryParse(p[1]), d = int.tryParse(p[2]);
   if (y == null || m == null || d == null) return true;
+  // The label is a LOCAL day label, so "today" must be the LOCAL calendar day
+  // (UTC here shifted the window by a day near midnight). The subtraction is
+  // done on UTC-constructed midnights purely for stable day arithmetic.
   final date = DateTime.utc(y, m, d);
-  final now = DateTime.now().toUtc();
+  final now = DateTime.now();
   final today = DateTime.utc(now.year, now.month, now.day);
   return today.difference(date).inDays <= kDetailWindowDays;
 }
@@ -573,7 +721,7 @@ class DetailRetentionNote extends StatelessWidget {
   Widget build(BuildContext context) => ProCard(
     child: Row(
       children: [
-        AppIcon(Ic.clock, size: 20, color: AppColors.inkMuted),
+        AppIcon(OsIcon.history, size: 20, color: AppColors.inkMuted),
         const SizedBox(width: Sp.x3),
         Expanded(
           child: Text(

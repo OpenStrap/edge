@@ -2,20 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import 'ai/briefing.dart';
+import 'coach/coach_config.dart';
+import 'notify/tap_router.dart';
 import 'state/app_state.dart';
 import 'state/prefs.dart';
 import 'theme/theme.dart';
 import 'theme/theme_controller.dart';
 import 'theme/theme_switcher.dart';
 import 'theme/tokens.dart';
+import 'ui/design/nav_pill.dart';
 import 'ui/kit/kit.dart';
 import 'ui/onboarding/welcome_screen.dart';
 import 'ui/pairing_screen.dart';
+import 'ui/splash/boot_splash.dart';
 import 'ui/profile_setup_screen.dart';
 import 'ui/today/today_screen.dart';
 import 'ui/screens/screens.dart';
 import 'ui/workouts/workouts_screen.dart';
 import 'ui/activity/live_session_screen.dart';
+import 'ui/ai/ai_breakdown_screen.dart';
+import 'ui/journal/journal_compose_screen.dart';
 
 class OpenStrapApp extends StatefulWidget {
   const OpenStrapApp({super.key});
@@ -28,6 +35,12 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Hand the BYOK provider config to AppState (briefing generation + the
+    // key-aware AI notification schedule live there).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<AppState>().attachCoachConfig(context.read<CoachConfig>());
+    });
   }
 
   @override
@@ -91,20 +104,21 @@ class _Gate extends StatelessWidget {
     // Not const: these must be fresh instances so a theme flip re-runs their build
     // (State is preserved — same type at the same position). Cheap now: only built
     // on a route change or a theme flip, never on the per-second AppState ticks.
-    switch (route) {
-      case AppRoute.loading:
-        return Scaffold(
+    final Widget resolved = switch (route) {
+      // Underlay while the boot splash covers the loading phase — and what the
+      // user lands on if the splash's safety cap fires before init completes.
+      AppRoute.loading => Scaffold(
           body: Center(child: CircularProgressIndicator(color: AppColors.coral)),
-        );
-      case AppRoute.welcome:
-        return const WelcomeScreen();
-      case AppRoute.pairing:
-        return PairingScreen();
-      case AppRoute.profile:
-        return const ProfileSetupScreen();
-      case AppRoute.shell:
-        return _Shell();
-    }
+        ),
+      AppRoute.welcome => const WelcomeScreen(),
+      AppRoute.pairing => PairingScreen(),
+      AppRoute.profile => const ProfileSetupScreen(),
+      AppRoute.shell => _Shell(),
+    };
+    // Cold-start splash video: covers the whole loading phase, cross-fades out
+    // the instant AppState finishes initializing (route leaves `loading`), even
+    // mid-play. Shown once per launch; BootSplash latches itself off after.
+    return BootSplash(ready: route != AppRoute.loading, child: resolved);
   }
 }
 
@@ -129,9 +143,13 @@ class _ShellState extends State<_Shell> {
     // then clear the request so it isn't replayed on rebuild.
     _app = context.read<AppState>();
     _app!.navRequest.addListener(_onNavRequest);
+    _app!.screenRequest.addListener(_onScreenRequest);
     // Cold launch from a tapped notification: the route may already be set before
     // this shell mounted (so the listener never fired). Consume it once attached.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _onNavRequest());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _onNavRequest();
+      _onScreenRequest();
+    });
   }
 
   void _onNavRequest() {
@@ -140,6 +158,25 @@ class _ShellState extends State<_Shell> {
     _app!.navRequest.value = -1;
     if (!mounted) return;
     _go(i);
+  }
+
+  /// A tapped notification's deep link may target a sub-screen (AI briefing
+  /// breakdown, journal compose). Consume the request and push it on top.
+  void _onScreenRequest() {
+    final s = _app?.screenRequest.value;
+    if (s == null || s.isEmpty) return;
+    _app!.screenRequest.value = null;
+    if (!mounted) return;
+    final Widget? screen = switch (s) {
+      kRouteAiMorning =>
+        const AiBreakdownScreen(period: BriefingPeriod.morning),
+      kRouteAiEvening =>
+        const AiBreakdownScreen(period: BriefingPeriod.evening),
+      kRouteJournalCompose => const JournalComposeScreen(),
+      _ => null,
+    };
+    if (screen == null) return;
+    Navigator.of(context).push(themedRoute((_) => screen));
   }
 
   // Built fresh on every build (not const) so a theme flip re-colours every tab,
@@ -154,43 +191,98 @@ class _ShellState extends State<_Shell> {
         WorkoutsScreen(),
       ];
 
+  // Illustrated tab icons (theme-aware art from openstrap_icons).
   static const _nav = [
-    (Ic.home, 'Today'),
-    (Ic.sleep, 'Sleep'),
-    (Ic.heart, 'Heart'),
-    (Ic.strain, 'Body'),
-    (Ic.run, 'Workouts'),
+    NavPillItem(OsIcon.today, 'Today'),
+    NavPillItem(OsIcon.sleep, 'Sleep'),
+    NavPillItem(OsIcon.heart, 'Heart'),
+    NavPillItem(OsIcon.bodyStrain, 'Body'),
+    NavPillItem(OsIcon.workouts, 'Workouts'),
   ];
 
   @override
   void dispose() {
     _app?.navRequest.removeListener(_onNavRequest);
+    _app?.screenRequest.removeListener(_onScreenRequest);
     _controller.dispose();
     super.dispose();
   }
 
+  // No haptic here: FloatingNavPill fires the selection click on user taps,
+  // and programmatic jumps (notification deep links) shouldn't buzz.
   void _go(int i) {
     if (i == _index) return;
-    HapticFeedback.selectionClick();
     _controller.animateToPage(i, duration: Motion.med, curve: Motion.curve);
   }
+
+  @override
+  Widget build(BuildContext context) {
+    return ShellScaffold(
+      controller: _controller,
+      index: _index,
+      items: _nav,
+      pages: _pages,
+      onSelect: _go,
+      onPageChanged: (i) {
+        setState(() => _index = i);
+        Prefs.setInt(Prefs.shellTab, i);
+      },
+      // No center action: starting a workout lives on the Workouts screen.
+      banner: const _LiveBanner(),
+    );
+  }
+}
+
+/// The shell chrome — swipeable PageView tabs behind a [FloatingNavPill],
+/// plus an optional banner (the live-workout mini-player) stacked above the
+/// pill. Public and AppState-free so the navigation behavior (tab select →
+/// page switch, pushed sub-screens still pop/swipe back over it) stays
+/// unit-testable.
+class ShellScaffold extends StatelessWidget {
+  final PageController controller;
+  final int index;
+  final List<NavPillItem> items;
+  final List<Widget> pages;
+  final ValueChanged<int> onSelect;
+  final ValueChanged<int> onPageChanged;
+
+  /// Rendered above the nav pill (e.g. the live-workout mini-player).
+  final Widget? banner;
+
+  const ShellScaffold({
+    super.key,
+    required this.controller,
+    required this.index,
+    required this.items,
+    required this.pages,
+    required this.onSelect,
+    required this.onPageChanged,
+    this.banner,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
       body: PageView(
-        controller: _controller,
-        onPageChanged: (i) {
-          setState(() => _index = i);
-          Prefs.setInt(Prefs.shellTab, i);
-        },
-        children: [for (final p in _pages) _KeepAlive(child: p)],
+        controller: controller,
+        onPageChanged: onPageChanged,
+        children: [for (final p in pages) _KeepAlive(child: p)],
       ),
-      bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
-        const _LiveBanner(),
-        _ScrubNav(items: _nav, controller: _controller, index: _index, onSelect: _go),
-      ]),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ?banner,
+            FloatingNavPill(
+              items: items,
+              index: index,
+              onSelect: onSelect,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -238,7 +330,7 @@ class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderState
             const SizedBox(width: Sp.x3),
             Text('LIVE · ${w.type.toUpperCase()}', style: AppText.overline.copyWith(color: Colors.white70)),
             const Spacer(),
-            AppIcon(Ic.heart, size: 15, color: AppColors.coral),
+            AppIcon(OsIcon.heart, size: 15, color: AppColors.coral),
             const SizedBox(width: 4),
             Text(w.currentHr > 0 ? '${w.currentHr}' : '—',
                 style: AppText.metricSm.copyWith(color: Colors.white, fontSize: 16)),
@@ -246,7 +338,7 @@ class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderState
             Text(_fmt(w.elapsed), style: AppText.metricSm.copyWith(
                 color: Colors.white60, fontSize: 15, fontFeatures: [const FontFeature.tabularFigures()])),
             const SizedBox(width: Sp.x2),
-            const AppIcon(Ic.arrowRight, size: 16, color: Colors.white38),
+            const AppIcon(OsIcon.arrowRight, size: 16, color: Colors.white38),
           ]),
         ),
       ),
@@ -274,118 +366,3 @@ class _KeepAliveState extends State<_KeepAlive>
   }
 }
 
-/// Floating nav: a coral pill that FOLLOWS the page position in real time
-/// (juicy, never overshoots), CLIPPED to the bar so it can't escape, and you
-/// can scrub a finger across it to flip pages. Equal slots → never overflows.
-class _ScrubNav extends StatelessWidget {
-  final List<(IconData, String)> items;
-  final PageController controller;
-  final int index;
-  final ValueChanged<int> onSelect;
-  const _ScrubNav({
-    required this.items,
-    required this.controller,
-    required this.index,
-    required this.onSelect,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    const inset = 5.0;
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(Sp.x6, 0, Sp.x6, Sp.x3),
-        child: LayoutBuilder(builder: (context, c) {
-          final slot = c.maxWidth / items.length;
-          void handle(double dx) =>
-              onSelect((dx / slot).floor().clamp(0, items.length - 1));
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTapDown: (d) => handle(d.localPosition.dx),
-            onHorizontalDragUpdate: (d) => handle(d.localPosition.dx),
-            child: Container(
-              height: 66,
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(R.pill),
-                boxShadow: Shadows.lift,
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(R.pill),
-                child: AnimatedBuilder(
-                  animation: controller,
-                  builder: (context, _) {
-                    final page =
-                        controller.hasClients && controller.page != null
-                            ? controller.page!
-                            : index.toDouble();
-                    final frac =
-                        page.clamp(0.0, (items.length - 1).toDouble());
-                    return Stack(
-                      children: [
-                        Positioned(
-                          top: inset,
-                          bottom: inset,
-                          left: frac * slot + inset,
-                          width: slot - inset * 2,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: AppColors.coral,
-                              borderRadius: BorderRadius.circular(R.pill),
-                            ),
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            for (int i = 0; i < items.length; i++)
-                              Expanded(
-                                child: _NavItem(
-                                  icon: items[i].$1,
-                                  label: items[i].$2,
-                                  t: (1 - (frac - i).abs()).clamp(0.0, 1.0),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
-          );
-        }),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final double t; // 0 = inactive, 1 = pill fully over this slot
-  const _NavItem(
-      {required this.icon, required this.label, required this.t});
-  @override
-  Widget build(BuildContext context) {
-    final color = Color.lerp(AppColors.inkMuted, Colors.white, t)!;
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          AppIcon(icon, size: 22, color: color),
-          if (t > 0.55) ...[
-            const SizedBox(height: 2),
-            Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.fade,
-                softWrap: false,
-                style: AppText.overline.copyWith(
-                    color: Colors.white, fontSize: 9.5, letterSpacing: 0.2)),
-          ],
-        ],
-      ),
-    );
-  }
-}

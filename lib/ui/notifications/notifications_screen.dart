@@ -1,4 +1,6 @@
 // Notifications — the personalized feed from /notifications, with mark-read.
+// Presentation: design-system language (AppScaffold, SurfaceCard rows, domain
+// accents per category, StateCard states). Feed logic untouched.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -6,9 +8,7 @@ import 'package:provider/provider.dart';
 import '../../models/payloads.dart';
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
+import '../design/design.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -59,143 +59,138 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } catch (_) {/* best-effort */}
   }
 
-  // ── category → icon / color ──────────────────────────────────────────────────
-  IconData _icon(String cat) {
-    switch (cat) {
-      case 'recovery': return Ic.recovery;
-      case 'sleep': return Ic.moon;
-      case 'load': return Ic.strain;
-      case 'health': return Ic.heart;
-      case 'milestone': return Ic.fire;
-      default: return Ic.run;
-    }
+  @override
+  Widget build(BuildContext context) {
+    return AppScaffold(
+      title: 'Notifications',
+      subtitle: _data.unread > 0 ? '${_data.unread} unread' : 'All caught up',
+      actions: [
+        if (_data.unread > 0)
+          TextButton(onPressed: _markAll, child: const Text('Mark all read')),
+      ],
+      children: [
+        if (_phase == _Phase.loading)
+          Skeleton.tileRow(rows: 4)
+        else if (_phase == _Phase.empty)
+          StateCard(
+            icon: OsIcon.notifications,
+            title: 'All clear',
+            message:
+                'Personalized nudges from your own data show up here — '
+                'recovery, sleep debt, streaks and signals.',
+            actionLabel: 'Refresh',
+            onAction: _load,
+          )
+        else if (_phase == _Phase.error)
+          StateCard(
+            icon: OsIcon.notifications,
+            title: "Couldn't load notifications",
+            message: _error ?? 'Please try again.',
+            actionLabel: 'Retry',
+            onAction: _load,
+          )
+        else ...[
+          ...dsStaggered([
+            for (final n in _data.items) ...[
+              NotificationTile(item: n),
+              const SizedBox(height: Sp.x3),
+            ],
+          ]),
+          const SizedBox(height: Sp.x2),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            AppIcon(OsIcon.shield, size: 14, color: AppColors.inkMuted),
+            const SizedBox(width: Sp.x2),
+            Expanded(
+              child: Text(
+                'Built from your own data with simple rules. '
+                'Health cues are signals, not diagnoses.',
+                style: AppText.captionMuted,
+              ),
+            ),
+          ]),
+        ],
+      ],
+    );
   }
+}
 
-  Color _color(int priority) {
-    switch (priority) {
-      case 3: return AppColors.bad;
-      case 2: return AppColors.warn;
-      case 1: return AppColors.coral;
-      default: return AppColors.inkMuted;
-    }
+/// One notification row — pure (render-testable). Category picks the domain
+/// accent; priority tints it; unread carries a quiet ember dot.
+class NotificationTile extends StatelessWidget {
+  final NotificationItem item;
+  const NotificationTile({super.key, required this.item});
+
+  /// Illustrated category icon — read-state dims via opacity, the
+  /// art is never tinted.
+  OsIcon get _osIcon => switch (item.category) {
+        'recovery' => OsIcon.recovery,
+        'sleep' => OsIcon.sleep,
+        'load' => OsIcon.bodyStrain,
+        'health' => OsIcon.heart,
+        'milestone' => OsIcon.calories,
+        _ => OsIcon.steps,
+      };
+
+  Color get _accent {
+    // Priority escalates the tone; otherwise the category's domain accent.
+    if (item.priority >= 3) return AppColors.critical;
+    if (item.priority == 2) return AppColors.warn;
+    return switch (item.category) {
+      'recovery' => DomainAccent.recovery,
+      'sleep' => DomainAccent.sleep,
+      'load' => DomainAccent.strain,
+      'health' => DomainAccent.heart,
+      'milestone' => DomainAccent.calories,
+      _ => DomainAccent.steps,
+    };
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
-          children: [
-            const SizedBox(height: Sp.x4),
-            _topBar(),
-            const SizedBox(height: Sp.x6),
-            if (_phase == _Phase.loading)
-              _loading()
-            else if (_phase == _Phase.empty)
-              _stateCard(Ic.check, 'All clear',
-                  'No notifications right now. Personalized nudges from your own '
-                  'data show up here — recovery, sleep debt, streaks and signals.')
-            else if (_phase == _Phase.error)
-              _stateCard(Ic.cloud, "Couldn't load notifications", _error ?? 'Please try again.')
-            else ...[
-              for (final n in _data.items) ...[
-                _tile(n),
-                const SizedBox(height: Sp.x3),
+    final c = _accent;
+    return SurfaceCard(
+      padding: const EdgeInsets.all(Sp.x4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(1),
+            decoration: BoxDecoration(
+              color: c.withValues(alpha: item.read ? 0.08 : 0.14),
+              borderRadius: BorderRadius.circular(R.chip),
+            ),
+            child: OsAppIcon(_osIcon, size: 38,
+                opacity: item.read ? 0.55 : 1.0),
+          ),
+          const SizedBox(width: Sp.x4),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(children: [
+                  Expanded(
+                    child: Text(
+                      item.title,
+                      style: AppText.title.copyWith(
+                          color: item.read ? AppColors.inkSoft : AppColors.ink),
+                    ),
+                  ),
+                  if (!item.read)
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                          color: AppColors.accent, shape: BoxShape.circle),
+                    ),
+                ]),
+                const SizedBox(height: 4),
+                Text(item.body, style: AppText.bodySoft),
               ],
-              const SizedBox(height: Sp.x4),
-              _honesty(),
-            ],
-            const SizedBox(height: 40),
-          ],
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
-
-  Widget _topBar() => Row(children: [
-        RoundIconButton(Ic.arrowLeft, onTap: () => Navigator.of(context).maybePop()),
-        const SizedBox(width: Sp.x3),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Notifications', style: AppText.h1),
-            const SizedBox(height: 2),
-            Text(_data.unread > 0 ? '${_data.unread} unread' : 'All caught up',
-                style: AppText.caption),
-          ],
-        )),
-        if (_data.unread > 0)
-          TextButton(onPressed: _markAll, child: const Text('Mark all read')),
-      ]);
-
-  Widget _tile(NotificationItem n) {
-    final c = _color(n.priority);
-    return ProCard(
-      color: n.read ? AppColors.surface : AppColors.surface,
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          padding: const EdgeInsets.all(Sp.x3),
-          decoration: BoxDecoration(
-              color: c.withValues(alpha: n.read ? 0.08 : 0.16),
-              borderRadius: BorderRadius.circular(R.chip)),
-          child: AppIcon(_icon(n.category), size: 20,
-              color: n.read ? AppColors.inkMuted : c),
-        ),
-        const SizedBox(width: Sp.x4),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(children: [
-              Expanded(child: Text(n.title,
-                  style: AppText.title.copyWith(
-                      color: n.read ? AppColors.inkSoft : AppColors.ink))),
-              if (!n.read)
-                Container(width: 8, height: 8, decoration: BoxDecoration(
-                    color: AppColors.coral, shape: BoxShape.circle)),
-            ]),
-            const SizedBox(height: 4),
-            Text(n.body, style: AppText.bodySoft),
-          ],
-        )),
-      ]),
-    );
-  }
-
-  Widget _honesty() => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        AppIcon(Ic.shield, size: 14, color: AppColors.inkMuted),
-        const SizedBox(width: Sp.x2),
-        Expanded(child: Text(
-          'Built from your own data with simple rules. '
-          'Health cues are signals, not diagnoses.',
-          style: AppText.captionMuted,
-        )),
-      ]);
-
-  Widget _loading() => ProCard(
-        padding: const EdgeInsets.all(Sp.x6),
-        child: SizedBox(height: 280,
-            child: Center(child: CircularProgressIndicator(color: AppColors.coral))),
-      );
-
-  Widget _stateCard(IconData icon, String title, String message) => ProCard(
-        padding: const EdgeInsets.all(Sp.x6),
-        child: Column(children: [
-          Container(
-            padding: const EdgeInsets.all(Sp.x4),
-            decoration: BoxDecoration(color: AppColors.coralSoft, shape: BoxShape.circle),
-            child: AppIcon(icon, size: 30, color: AppColors.coralDeep),
-          ),
-          const SizedBox(height: Sp.x4),
-          Text(title, style: AppText.h2, textAlign: TextAlign.center),
-          const SizedBox(height: Sp.x2),
-          Text(message, style: AppText.bodySoft, textAlign: TextAlign.center),
-          const SizedBox(height: Sp.x5),
-          OutlinedButton(onPressed: _load, child: const Text('Refresh')),
-        ]),
-      );
 }

@@ -232,7 +232,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     if (_phase == _Phase.empty) {
       return [
         _stateCard(
-          Ic.strain,
+          OsIcon.bodyStrain,
           'No strain for this day',
           'Wear your strap and sync to capture all-day heart rate. Strain '
               'appears once there is data to score.',
@@ -242,7 +242,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     if (_phase == _Phase.error) {
       return [
         _stateCard(
-          Ic.cloud,
+          OsIcon.sync,
           "Couldn't load strain",
           _error ?? 'Please try again.',
         ),
@@ -281,7 +281,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     return Row(
       children: [
         RoundIconButton(
-          Ic.arrowLeft,
+          OsIcon.arrowLeft,
           onTap: () => Navigator.of(context).maybePop(),
         ),
         const SizedBox(width: Sp.x3),
@@ -360,7 +360,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     if (vo2 != null) {
       rows.add(
         TrendMetricRow(
-          icon: Ic.pulse,
+          icon: OsIcon.vo2max,
           accent: AppColors.good,
           label: 'VO₂max',
           info: infoFor('vo2max'),
@@ -374,7 +374,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     if (acwr != null) {
       rows.add(
         TrendMetricRow(
-          icon: Ic.strain,
+          icon: OsIcon.bodyStrain,
           accent: AppColors.coral,
           label: 'Training load (ACWR)',
           info: infoFor('load'),
@@ -387,7 +387,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     if (monotony != null) {
       rows.add(
         TrendMetricRow(
-          icon: Ic.chart,
+          icon: OsIcon.activity,
           accent: AppColors.warn,
           label: 'Monotony',
           info: infoFor('monotony'),
@@ -415,7 +415,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
                     color: AppColors.surfaceSunk,
                     borderRadius: BorderRadius.circular(R.chip),
                   ),
-                  child: AppIcon(Ic.pulse, size: 17, color: AppColors.inkMuted),
+                  child: AppIcon(OsIcon.heartRate, size: 17, color: AppColors.inkMuted),
                 ),
                 const SizedBox(width: Sp.x3),
                 Expanded(
@@ -487,7 +487,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
           if (acwr != null) ...[
             Row(
               children: [
-                AppIcon(Ic.strain, size: 18, color: AppColors.coralDeep),
+                const OsAppIcon(OsIcon.bodyStrain, size: 28),
                 const SizedBox(width: Sp.x2),
                 Text('Acute:chronic load', style: AppText.label),
                 const Spacer(),
@@ -536,18 +536,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
               children: [
                 Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: AppColors.coralSoft,
-                        borderRadius: BorderRadius.circular(R.chip),
-                      ),
-                      child: AppIcon(
-                        Ic.strain,
-                        size: 16,
-                        color: AppColors.coralDeep,
-                      ),
-                    ),
+                    const OsAppIcon(OsIcon.bodyStrain, size: 34),
                     const SizedBox(width: Sp.x2),
                     Text('DAY STRAIN', style: AppText.overline),
                   ],
@@ -795,7 +784,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
                   color: AppColors.coralSoft,
                   shape: BoxShape.circle,
                 ),
-                child: AppIcon(Ic.run, size: 20, color: AppColors.coralDeep),
+                child: AppIcon(OsIcon.run, size: 20, color: AppColors.coralDeep),
               ),
               const SizedBox(width: Sp.x4),
               Expanded(
@@ -837,12 +826,12 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(Sp.x3),
+                padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
                   color: AppColors.coralSoft,
                   shape: BoxShape.circle,
                 ),
-                child: AppIcon(Ic.run, size: 18, color: AppColors.coralDeep),
+                child: const OsAppIcon(OsIcon.workouts, size: 34),
               ),
               const SizedBox(width: Sp.x3),
               Expanded(
@@ -904,7 +893,7 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     ),
   );
 
-  Widget _stateCard(IconData icon, String title, String message) {
+  Widget _stateCard(OsIcon icon, String title, String message) {
     return ProCard(
       padding: const EdgeInsets.all(Sp.x6),
       child: Column(

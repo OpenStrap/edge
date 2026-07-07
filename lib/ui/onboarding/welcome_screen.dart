@@ -7,19 +7,20 @@
 //
 // The app is otherwise fully local; this screen is the only place that talks to
 // the v2 backend, once, at onboarding.
+//
+// Presentation: design-system language (ink hero tile, SurfaceCard options,
+// themed CTA). Pure widgets (WelcomeHero / WelcomeOptionCard) are extracted so
+// render tests can cover both palettes without providers.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../cloud/backend_client.dart';
 import '../../cloud/cloud_import.dart';
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
-import '../../theme/tokens.dart';
+import '../design/design.dart';
 import '../import/import_screen.dart';
-import '../kit/kit.dart';
 
 enum _Step { choice, email, otp, importing }
 
@@ -128,70 +129,77 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: AppColors.background,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
-          child: switch (_step) {
-            _Step.choice => _choice(),
-            _Step.email => _emailStep(),
-            _Step.otp => _otpStep(),
-            _Step.importing => _importingStep(),
-          },
+        child: AnimatedSwitcher(
+          duration: Motion.med,
+          switchInCurve: Motion.curve,
+          child: KeyedSubtree(
+            key: ValueKey(_step),
+            child: switch (_step) {
+              _Step.choice => _choice(),
+              _Step.email => _emailStep(),
+              _Step.otp => _otpStep(),
+              _Step.importing => _importingStep(),
+            },
+          ),
         ),
       ),
     );
   }
 
   Widget _choice() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: Sp.x8),
-        Text('Welcome to OpenStrap', style: AppText.h1),
-        const SizedBox(height: Sp.x2),
-        Text('Bring your history over, or start fresh.', style: AppText.bodySoft),
-        const SizedBox(height: Sp.x8),
-        _bigCard(
-          icon: Ic.cloud,
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x6, Sp.screen, Sp.x8),
+      physics: const BouncingScrollPhysics(),
+      children: dsStaggered([
+        const WelcomeHero(),
+        const SizedBox(height: Sp.x6),
+        Text('How do you want to start?', style: AppText.h2),
+        const SizedBox(height: Sp.x4),
+        WelcomeOptionCard(
+          icon: OsIcon.sync,
           title: 'I used OpenStrap before',
-          body: 'Sign in with your email and we’ll pull your past data '
-              '(recovery, sleep, strain, workouts) into this phone.',
+          body: 'Sign in and pull your history onto this phone.',
           onTap: () => _set(() {
             _step = _Step.email;
             _error = null;
           }),
         ),
-        const SizedBox(height: Sp.x4),
-        _bigCard(
-          icon: Ic.cloud,
+        const SizedBox(height: Sp.x3),
+        WelcomeOptionCard(
+          icon: OsIcon.history,
           title: 'Import from a file',
-          body: 'Bring history from a NOOP CSV, an Edge backup, or a WHOOP '
-              'export. You can still pair a band afterwards.',
+          body: 'NOOP CSV, Edge backup, or a WHOOP export.',
           onTap: () =>
               Navigator.of(context).push(themedRoute((_) => const ImportScreen())),
         ),
-        const SizedBox(height: Sp.x4),
-        _bigCard(
-          icon: Ic.profile,
+        const SizedBox(height: Sp.x3),
+        WelcomeOptionCard(
+          icon: OsIcon.profile,
           title: 'I’m new',
-          body: 'Skip the import. We’ll ask a few basics and get you set up.',
+          body: 'A few basics and you’re in.',
+          accent: true,
           onTap: () => context.read<AppState>().chooseNewUser(),
         ),
-      ],
+      ]),
     );
   }
 
   Widget _emailStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x4, Sp.screen, Sp.x8),
+      physics: const BouncingScrollPhysics(),
       children: [
-        const SizedBox(height: Sp.x6),
-        _back(() => _set(() {
+        Row(children: [
+          AppBackButton(
+            onBack: () => _set(() {
               _step = _Step.choice;
               _error = null;
-            })),
-        const SizedBox(height: Sp.x4),
+            }),
+          ),
+        ]),
+        const SizedBox(height: Sp.x6),
         Text('Your account email', style: AppText.h1),
         const SizedBox(height: Sp.x2),
         Text('We’ll send a 6-digit code to confirm it’s you.',
@@ -202,33 +210,40 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         _errorText(),
         const SizedBox(height: Sp.x6),
         _primary('Send code', _busy ? null : _sendCode),
-        if (_error != null &&
-            _error!.startsWith('No v2 account')) ...[
+        if (_error != null && _error!.startsWith('No v2 account')) ...[
           const SizedBox(height: Sp.x3),
-          _secondary('Continue as a new user',
-              () => context.read<AppState>().chooseNewUser()),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () => context.read<AppState>().chooseNewUser(),
+              child: const Text('Continue as a new user'),
+            ),
+          ),
         ],
       ],
     );
   }
 
   Widget _otpStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x4, Sp.screen, Sp.x8),
+      physics: const BouncingScrollPhysics(),
       children: [
-        const SizedBox(height: Sp.x6),
-        _back(() => _set(() {
+        Row(children: [
+          AppBackButton(
+            onBack: () => _set(() {
               _step = _Step.email;
               _error = null;
-            })),
-        const SizedBox(height: Sp.x4),
+            }),
+          ),
+        ]),
+        const SizedBox(height: Sp.x6),
         Text('Enter your code', style: AppText.h1),
         const SizedBox(height: Sp.x2),
         Text('Sent to ${_email.text.trim()}. It expires in 10 minutes.',
             style: AppText.bodySoft),
         const SizedBox(height: Sp.x6),
-        _input(_code, '123456', TextInputType.number,
-            autofocus: true, maxLen: 6),
+        _input(_code, '123456', TextInputType.number, autofocus: true, maxLen: 6),
         _errorText(),
         const SizedBox(height: Sp.x6),
         _primary('Verify & import', _busy ? null : _verifyAndImport),
@@ -238,56 +253,34 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   Widget _importingStep() {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircularProgressIndicator(color: AppColors.coral),
-          const SizedBox(height: Sp.x5),
-          Text(_progress ?? 'Importing…', style: AppText.title),
-          const SizedBox(height: Sp.x2),
-          Text('This runs once — your data stays on this device.',
-              textAlign: TextAlign.center, style: AppText.captionMuted),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
+        child: SurfaceCard(
+          level: 2,
+          padding: const EdgeInsets.all(Sp.x6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2.6, color: AppColors.accent),
+              ),
+              const SizedBox(height: Sp.x5),
+              Text(_progress ?? 'Importing…',
+                  style: AppText.title, textAlign: TextAlign.center),
+              const SizedBox(height: Sp.x2),
+              Text('This runs once — your data stays on this device.',
+                  textAlign: TextAlign.center, style: AppText.captionMuted),
+            ],
+          ),
+        ).dsEnter(),
       ),
     );
   }
 
-  // ── small building blocks (match profile-setup styling) ─────────────────────
-
-  Widget _bigCard({
-    required IconData icon,
-    required String title,
-    required String body,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        onTap();
-      },
-      child: ProCard(
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(11),
-            decoration: BoxDecoration(
-                color: AppColors.coralSoft,
-                borderRadius: BorderRadius.circular(R.chip)),
-            child: AppIcon(icon, size: 20, color: AppColors.coralInk),
-          ),
-          const SizedBox(width: Sp.x4),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title, style: AppText.title),
-              const SizedBox(height: 3),
-              Text(body, style: AppText.captionMuted),
-            ]),
-          ),
-          const SizedBox(width: Sp.x2),
-          AppIcon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
-        ]),
-      ),
-    );
-  }
+  // ── small building blocks ────────────────────────────────────────────────────
 
   Widget _input(TextEditingController c, String hint, TextInputType kb,
       {bool autofocus = false, int? maxLen}) {
@@ -302,7 +295,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         hintText: hint,
         counterText: '',
         filled: true,
-        fillColor: AppColors.surface,
+        fillColor: Elevation.surfaceAt(1),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(R.cardSm),
           borderSide: BorderSide.none,
@@ -314,44 +307,107 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 
   Widget _primary(String label, VoidCallback? onTap) => SizedBox(
-        height: 54,
         width: double.infinity,
         child: FilledButton(
           onPressed: onTap,
-          style: FilledButton.styleFrom(
-            backgroundColor: AppColors.coral,
-            disabledBackgroundColor: AppColors.coral.withValues(alpha: 0.3),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.pill)),
-          ),
           child: _busy
               ? const SizedBox(
                   width: 22,
                   height: 22,
                   child:
                       CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : Text(label, style: AppText.title.copyWith(color: Colors.white)),
+              : Text(label),
         ),
       );
-
-  Widget _secondary(String label, VoidCallback onTap) => SizedBox(
-        height: 50,
-        width: double.infinity,
-        child: TextButton(
-          onPressed: onTap,
-          child: Text(label,
-              style: AppText.title.copyWith(color: AppColors.coralInk)),
-        ),
-      );
-
-  Widget _back(VoidCallback onTap) =>
-      RoundIconButton(Ic.arrowLeft, onTap: onTap);
 
   Widget _errorText() => _error == null
       ? const SizedBox.shrink()
       : Padding(
           padding: const EdgeInsets.only(top: Sp.x3, left: Sp.x1),
           child: Text(_error!,
-              style: AppText.captionMuted.copyWith(color: AppColors.bad)),
+              style: AppText.captionMuted.copyWith(color: AppColors.critical)),
         );
+}
+
+// ── pure presentation widgets (render-testable) ──────────────────────────────
+
+/// The onboarding hero — the inverted ink tile of the language: ember mark,
+/// confident headline, one whispered line. No sync copy, no feature dump.
+class WelcomeHero extends StatelessWidget {
+  const WelcomeHero({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BentoTile(
+      tone: BentoTone.ink,
+      padding: const EdgeInsets.all(Sp.x6),
+      child: Builder(builder: (context) {
+        final tone = ToneScope.of(context);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: AppColors.accent,
+                shape: BoxShape.circle,
+                boxShadow: AppColors.isDark ? const [] : Shadows.coral,
+              ),
+              child: const Center(
+                child: AppIcon(OsIcon.wear, size: 24, color: Colors.white),
+              ),
+            ),
+            const SizedBox(height: Sp.x5),
+            Text(
+              'Welcome to\nOpenStrap',
+              style: AppText.display.copyWith(color: tone.fg, height: 1.05),
+            ),
+            const SizedBox(height: Sp.x3),
+            Text(
+              'Your band, your data — computed entirely on this phone.',
+              style: AppText.bodySoft.copyWith(color: tone.fgMuted),
+            ),
+          ],
+        );
+      }),
+    );
+  }
+}
+
+/// One onboarding choice — a SurfaceCard row: icon-in-tile, title, one quiet
+/// line, chevron. [accent] marks the recommended path with the ember tint.
+class WelcomeOptionCard extends StatelessWidget {
+  final OsIcon icon;
+  final String title;
+  final String body;
+  final VoidCallback onTap;
+  final bool accent;
+
+  const WelcomeOptionCard({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.body,
+    required this.onTap,
+    this.accent = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SurfaceCard(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+      child: ListRow(
+        icon: icon,
+        iconColor: accent ? AppColors.accent : null,
+        title: title,
+        subtitle: body,
+        // ListRow shows the chevron itself when onTap is null and trailing is
+        // null — force it here since the CARD owns the tap.
+        trailing:
+            AppIcon(OsIcon.arrowRight, size: 16, color: AppColors.onSurfaceFaint),
+      ),
+    );
+  }
 }

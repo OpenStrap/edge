@@ -58,8 +58,10 @@ class CompanionClient {
                 'device_id': deviceId,
                 'scope': scope,
                 'granted': granted,
-                if (termsVersion != null) 'terms_version': termsVersion,
-                if (userId != null) 'user_id': userId,
+                ...?termsVersion == null
+                    ? null
+                    : {'terms_version': termsVersion},
+                ...?userId == null ? null : {'user_id': userId},
               }))
           .timeout(const Duration(seconds: 10));
       return r.statusCode >= 200 && r.statusCode < 300;
@@ -85,8 +87,10 @@ class CompanionClient {
               headers: const {'content-type': 'application/json'},
               body: jsonEncode({
                 'device_id': deviceId,
-                if (userId != null) 'user_id': userId,
-                if (consentVersion != null) 'consent_version': consentVersion,
+                ...?userId == null ? null : {'user_id': userId},
+                ...?consentVersion == null
+                    ? null
+                    : {'consent_version': consentVersion},
                 'device': device,
                 'events': events,
               }))
@@ -113,9 +117,11 @@ class CompanionClient {
             _u('/health/upload', {
               'device_id': deviceId,
               'gz': '1',
-              if (userId != null) 'user_id': userId,
-              if (consentVersion != null) 'consent_version': '$consentVersion',
-              if (appVersion != null) 'app_version': appVersion,
+              ...?userId == null ? null : {'user_id': userId},
+              ...?consentVersion == null
+                  ? null
+                  : {'consent_version': '$consentVersion'},
+              ...?appVersion == null ? null : {'app_version': appVersion},
             }),
             headers: const {'content-type': 'application/gzip'},
             body: gzBytes,

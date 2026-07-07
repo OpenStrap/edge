@@ -1,6 +1,7 @@
 // Notification-relay settings — pick which phone apps buzz the strap. ANDROID ONLY:
 // both the card and the screen render nothing unless NotificationRelay.supported, so
 // the feature simply doesn't exist on iOS (no "unavailable" copy, no trace).
+// Presentation: design-system language; relay logic untouched.
 
 import 'dart:typed_data';
 
@@ -11,10 +12,8 @@ import 'package:provider/provider.dart';
 
 import '../../notify/notification_relay.dart';
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
 import '../../theme/theme_switcher.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
+import '../design/design.dart';
 
 /// The Profile card. Returns an empty box on unsupported platforms (iOS) so the
 /// caller can place it unconditionally and it stays invisible there.
@@ -35,25 +34,18 @@ class NotificationRelaySection extends StatelessWidget {
                 : relay.appCount == 0
                     ? 'On · no apps selected'
                     : 'On · ${relay.appCount} app${relay.appCount == 1 ? '' : 's'}';
-        return ProCard(
+        return SurfaceCard(
+          padding:
+              const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
           onTap: () => Navigator.of(context).push(
               themedRoute((_) => const NotificationRelayScreen())),
-          child: Row(
-            children: [
-              Icon(Ic.bell, size: 22, color: AppColors.coral),
-              const SizedBox(width: Sp.x4),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Buzz on app notifications', style: AppText.title),
-                    const SizedBox(height: 2),
-                    Text(subtitle, style: AppText.bodySoft),
-                  ],
-                ),
-              ),
-              Icon(Ic.arrowRight, size: 18, color: AppColors.inkMuted),
-            ],
+          child: ListRow(
+            icon: OsIcon.notifications,
+            iconColor: AppColors.accent,
+            title: 'Buzz on app notifications',
+            subtitle: subtitle,
+            trailing: AppIcon(OsIcon.arrowRight,
+                size: 16, color: AppColors.onSurfaceFaint),
           ),
         );
       },
@@ -98,59 +90,49 @@ class _NotificationRelayScreenState extends State<NotificationRelayScreen>
   @override
   Widget build(BuildContext context) {
     final relay = context.read<AppState>().notificationRelay;
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: AnimatedBuilder(
-          animation: relay,
-          builder: (context, _) {
-            final showApps = relay.enabled && relay.permissionGranted;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x4, Sp.screen, 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        RoundIconButton(Ic.arrowLeft,
-                            onTap: () => Navigator.of(context).maybePop()),
-                        const SizedBox(width: Sp.x3),
-                        Expanded(child: Text('Band notifications', style: AppText.h1)),
-                      ]),
-                      const SizedBox(height: Sp.x4),
-                      Text(
-                        'When an app below posts a notification, your strap gives a '
-                        'short buzz. Your phone must be connected to the band.',
-                        style: AppText.bodySoft,
-                      ),
-                      const SizedBox(height: Sp.x5),
-                      _MasterToggle(relay: relay),
-                      if (relay.enabled && !relay.permissionGranted) ...[
-                        const SizedBox(height: Sp.x4),
-                        _GrantCard(relay: relay),
-                      ],
-                      const SizedBox(height: Sp.x5),
-                      if (showApps) ...[
-                        Text('APPS', style: AppText.overline),
-                        const SizedBox(height: Sp.x3),
-                        _SearchField(onChanged: (q) => setState(() => _query = q)),
-                        const SizedBox(height: Sp.x3),
-                      ],
+    return AppScaffold(
+      title: 'Band notifications',
+      subtitle: 'Buzz the strap when an app notifies',
+      body: AnimatedBuilder(
+        animation: relay,
+        builder: (context, _) {
+          final showApps = relay.enabled && relay.permissionGranted;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding:
+                    const EdgeInsets.fromLTRB(Sp.screen, 0, Sp.screen, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _MasterToggle(relay: relay),
+                    if (relay.enabled && !relay.permissionGranted) ...[
+                      const SizedBox(height: Sp.x3),
+                      _GrantCard(relay: relay),
                     ],
-                  ),
+                    if (showApps) ...[
+                      const SizedBox(height: Sp.x5),
+                      Text('APPS',
+                          style: AppText.overline
+                              .copyWith(color: AppColors.inkMuted)),
+                      const SizedBox(height: Sp.x3),
+                      _SearchField(
+                          onChanged: (q) => setState(() => _query = q)),
+                      const SizedBox(height: Sp.x3),
+                    ],
+                  ],
                 ),
-                if (showApps)
-                  Expanded(child: _AppList(relay: relay, future: _apps, query: _query))
-                else
-                  const SizedBox.shrink(),
-                const SizedBox(height: Sp.x4),
-              ],
-            );
-          },
-        ),
+              ),
+              if (showApps)
+                Expanded(
+                    child:
+                        _AppList(relay: relay, future: _apps, query: _query))
+              else
+                const SizedBox.shrink(),
+            ],
+          );
+        },
       ),
     );
   }
@@ -161,15 +143,24 @@ class _MasterToggle extends StatelessWidget {
   const _MasterToggle({required this.relay});
   @override
   Widget build(BuildContext context) {
-    return ProCard(
+    return SurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
       child: Row(
         children: [
-          Icon(Ic.bell, size: 22, color: AppColors.coral),
-          const SizedBox(width: Sp.x4),
+          Container(
+            // Art carries its own padding: 2 + 30 ≈ the old 8 + 18 chip.
+            padding: const EdgeInsets.all(2),
+            decoration: BoxDecoration(
+              color: AppColors.accentSoft,
+              borderRadius: BorderRadius.circular(R.chip),
+            ),
+            child: const OsAppIcon(OsIcon.notifications, size: 30),
+          ),
+          const SizedBox(width: Sp.x3),
           Expanded(child: Text('Relay notifications', style: AppText.title)),
           Switch.adaptive(
             value: relay.enabled,
-            activeTrackColor: AppColors.coral,
+            activeTrackColor: AppColors.accent,
             onChanged: (v) => relay.setEnabled(v),
           ),
         ],
@@ -183,7 +174,7 @@ class _GrantCard extends StatelessWidget {
   const _GrantCard({required this.relay});
   @override
   Widget build(BuildContext context) {
-    return ProCard(
+    return SurfaceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -192,13 +183,17 @@ class _GrantCard extends StatelessWidget {
           Text(
             'Android needs your permission to read which app posted a notification. '
             'We only use it to decide whether to buzz the band — nothing leaves your phone.',
-            style: AppText.caption,
+            style: AppText.captionMuted,
           ),
           const SizedBox(height: Sp.x4),
           Align(
             alignment: Alignment.centerLeft,
             child: FilledButton(
               onPressed: () => relay.requestPermission(),
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                minimumSize: const Size(0, 44),
+              ),
               child: const Text('Grant access'),
             ),
           ),
@@ -218,12 +213,13 @@ class _SearchField extends StatelessWidget {
       style: AppText.body,
       decoration: InputDecoration(
         hintText: 'Search apps',
-        hintStyle: AppText.bodySoft,
+        hintStyle: AppText.bodySoft.copyWith(color: AppColors.inkMuted),
         filled: true,
         fillColor: AppColors.surfaceAlt,
-        contentPadding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x3),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x3),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(R.chip),
+          borderRadius: BorderRadius.circular(R.pill),
           borderSide: BorderSide.none,
         ),
       ),
@@ -246,7 +242,8 @@ class _AppList extends StatelessWidget {
           return Center(
             child: SizedBox(
               width: 22, height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.coral)),
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: AppColors.accent)),
           );
         }
         final all = snap.data ?? const <AppInfo>[];
@@ -259,6 +256,7 @@ class _AppList extends StatelessWidget {
           return Center(child: Text('No apps found', style: AppText.captionMuted));
         }
         return ListView.separated(
+          physics: const BouncingScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(Sp.screen, 0, Sp.screen, Sp.x8),
           itemCount: apps.length,
           separatorBuilder: (_, _) => const SizedBox(height: Sp.x2),
@@ -279,7 +277,7 @@ class _AppRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Uint8List? icon = app.icon;
-    return ProCard(
+    return SurfaceCard(
       padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x3),
       child: Row(
         children: [
@@ -289,7 +287,7 @@ class _AppRow extends StatelessWidget {
                 ? Image.memory(icon, width: 34, height: 34, gaplessPlayback: true)
                 : Container(
                     width: 34, height: 34, color: AppColors.surfaceAlt,
-                    child: Icon(Ic.bell, size: 18, color: AppColors.inkMuted)),
+                    child: AppIcon(OsIcon.notifications, size: 18, color: AppColors.inkMuted)),
           ),
           const SizedBox(width: Sp.x4),
           Expanded(
@@ -298,7 +296,7 @@ class _AppRow extends StatelessWidget {
           ),
           Switch.adaptive(
             value: relay.isAppEnabled(app.packageName),
-            activeTrackColor: AppColors.coral,
+            activeTrackColor: AppColors.accent,
             onChanged: (v) => relay.setAppEnabled(app.packageName, v),
           ),
         ],

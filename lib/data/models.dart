@@ -1,8 +1,9 @@
 // Data models shared across the app.
 
-/// The HEADER of a 1 Hz record (type-24 / R10): timestamp + counter + HR. The
-/// sensor block is NOT decoded on-device — the band is a raw pipe, the full frame
-/// is uploaded as hex and the cloud owns the sensor decode.
+/// One decoded 1 Hz record (type-24 / R10): timestamp + counter + HR, plus the
+/// sensor fields (RR beats, accel, SpO₂ raw, skin-temp raw) decoded ON-DEVICE
+/// via proto.parseR24 — the app is local-first and owns the full sensor decode
+/// (see LocalDb._queueDecodedOneHz); raw hex is kept as the replay ledger.
 class Sample {
   final int tsEpoch;
   final int counter;
@@ -27,6 +28,23 @@ class Sample {
     this.spo2IrRaw,
     this.skinTempRaw,
   });
+
+  /// Copy with an overridden [tsEpoch] — used by the clock-offset salvage path
+  /// (a wandering/unset strap RTC offsets every record by the same amount, so a
+  /// corrected+grid-snapped time is stamped back onto the decoded sample). All
+  /// other decoded fields are preserved.
+  Sample copyWith({int? tsEpoch}) => Sample(
+    tsEpoch: tsEpoch ?? this.tsEpoch,
+    counter: counter,
+    hr: hr,
+    rrIntervalsMs: rrIntervalsMs,
+    ax: ax,
+    ay: ay,
+    az: az,
+    spo2RedRaw: spo2RedRaw,
+    spo2IrRaw: spo2IrRaw,
+    skinTempRaw: skinTempRaw,
+  );
 
   bool get wristOn => hr > 0;
   bool get hasDecodedOneHz =>
@@ -77,6 +95,31 @@ class RawRecord {
   });
 }
 
+/// A historical record we RECEIVED off the band but could NOT decode (an
+/// unknown/unsupported record version that also failed the physiological
+/// fallback). Rather than silently dropping it — which would lose a future
+/// firmware's records forever while the UI still showed a clean sync — we
+/// archive the raw bytes durably (never pruned) so they can be re-decoded once
+/// the format is understood. Archived as part of the SAME durable commit that
+/// runs BEFORE the HISTORY_END ACK, so the safe-trim invariant holds.
+class ArchiveRecord {
+  final int counter;
+  final String hex; // full inner bytes, hex
+  final int packetType; // inner[0]: 0x2F historical (the only archived kind)
+  final int? recTs; // decoded record time if any survived; usually null
+  final int capturedAt; // epoch ms we received it
+  final String reason; // e.g. 'undecodable_v<version>'
+
+  ArchiveRecord({
+    required this.counter,
+    required this.hex,
+    required this.packetType,
+    required this.capturedAt,
+    required this.reason,
+    this.recTs,
+  });
+}
+
 /// Live, in-memory device state (not persisted; rebuilt each connection).
 class DeviceState {
   String? address;
@@ -99,6 +142,16 @@ class DeviceState {
   /// PostBondTimeoutLoopDetector tripped (#617): bond-then-instant-timeout loop —
   /// surface the re-pair guide to the user.
   bool needsRepairGuide = false;
+  /// Monotonic count of bond REFUSALS this process (the createBond call the band
+  /// rejects — link reachable but encryption denied). AppState feeds the delta
+  /// into a BondRefusalGiveUp policy so a band that keeps refusing pauses the
+  /// auto-reconnect loop instead of hammering the radio + draining battery.
+  int bondRefusals = 0;
+  /// BondRefusalGiveUp tripped: too many consecutive bond refusals in a row — the
+  /// auto-reconnect loop is PAUSED (it would just pin the radio + drain the
+  /// battery on a band that will never accept the bond). A manual user connect /
+  /// re-pair still runs createBond and clears this on a successful bond.
+  bool autoReconnectPaused = false;
   /// EmptySyncTracker tripped: ≥3 consecutive console-only offloads — the strap's
   /// RTC has likely lost sync.
   bool syncClockLost = false;

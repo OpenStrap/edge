@@ -1,4 +1,7 @@
-// Records, streaks, and resting-HR trend over time. Backed by /records.
+// Records, streaks, and resting-HR trend over time — on the bento design
+// language: a medal for the headline PR, per-domain BigStat tiles for the
+// rest, streak flames, and a real resting-HR sparkline. Backed by
+// getRecords() (+ getChart('resting_hr') for the trend line).
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -6,9 +9,7 @@ import 'package:provider/provider.dart';
 import '../../models/payloads.dart';
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
+import '../design/design.dart';
 
 class RecordsScreen extends StatefulWidget {
   const RecordsScreen({super.key});
@@ -22,6 +23,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
   _Phase _phase = _Phase.loading;
   String? _error;
   RecordsData _r = RecordsData.fromJson(null);
+  List<double?> _rhrSpark = const [];
 
   @override
   void initState() {
@@ -32,15 +34,38 @@ class _RecordsScreenState extends State<RecordsScreen> {
   Future<void> _load() async {
     final api = context.read<AppState>().repo;
     if (api == null) {
-      setState(() { _phase = _Phase.error; _error = 'Not signed in.'; });
+      setState(() {
+        _phase = _Phase.error;
+        _error = 'Pair your strap first.';
+      });
       return;
     }
-    setState(() { _phase = _Phase.loading; _error = null; });
+    setState(() {
+      _phase = _Phase.loading;
+      _error = null;
+    });
     try {
       final res = await api.getRecords();
+      // Daily resting-HR points for the trend sparkline (the drift payload
+      // itself only carries then/now aggregates).
+      List<double?> spark = const [];
+      try {
+        final chart = await api.getChart('resting_hr');
+        final pts = (chart['points'] as List?) ?? const [];
+        final vals = <double?>[
+          for (final p in pts)
+            if (p is Map && p['v'] is num) (p['v'] as num).toDouble(),
+        ];
+        // The drift compares ~the last 37 days — show the same window.
+        spark = vals.length > 37 ? vals.sublist(vals.length - 37) : vals;
+      } catch (_) {/* sparkline is an enrichment */}
       if (!mounted) return;
       final r = RecordsData.fromJson(res);
-      setState(() { _r = r; _phase = r.isEmpty ? _Phase.empty : _Phase.ready; });
+      setState(() {
+        _r = r;
+        _rhrSpark = spark;
+        _phase = r.isEmpty ? _Phase.empty : _Phase.ready;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -50,9 +75,78 @@ class _RecordsScreenState extends State<RecordsScreen> {
     }
   }
 
-  // ── formatting ──────────────────────────────────────────────────────────────
-  static const _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  String _prettyDate(String iso) {
+  @override
+  Widget build(BuildContext context) {
+    return AppScaffold(
+      // Illustrated headline — the trophy art leads the title.
+      titleWidget: Row(
+        children: [
+          const OsAppIcon(OsIcon.records, size: 36),
+          const SizedBox(width: Sp.x2),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Records',
+                    style: AppText.h1,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+                Text('Your body, over time', style: AppText.captionMuted),
+              ],
+            ),
+          ),
+        ],
+      ),
+      children: [
+        if (_phase == _Phase.loading) ...[
+          Skeleton.hero(),
+          const SizedBox(height: Sp.x4),
+          Skeleton.tileRow(rows: 2),
+          const SizedBox(height: Sp.x4),
+          Skeleton.chart(),
+        ] else if (_phase == _Phase.empty)
+          StateCard(
+            icon: OsIcon.records,
+            title: 'Nothing logged yet',
+            message:
+                'Wear and sync for a few days. Your records, streaks and '
+                'trends build up here over time.',
+            actionLabel: 'Try again',
+            onAction: _load,
+          )
+        else if (_phase == _Phase.error)
+          StateCard(
+            icon: OsIcon.sync,
+            title: "Couldn't load your records",
+            message: _error ?? 'Please try again.',
+            actionLabel: 'Try again',
+            onAction: _load,
+          )
+        else
+          RecordsContent(r: _r, rhrSpark: _rhrSpark),
+      ],
+    );
+  }
+}
+
+/// Pure presentation for the records board (render-testable without a repo).
+class RecordsContent extends StatelessWidget {
+  final RecordsData r;
+
+  /// Daily resting-HR values (oldest→newest) for the trend sparkline.
+  final List<double?> rhrSpark;
+
+  const RecordsContent({super.key, required this.r, this.rhrSpark = const []});
+
+  // ── formatting ────────────────────────────────────────────────────────────
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  static String _prettyDate(String iso) {
     final p = iso.split('-');
     if (p.length != 3) return iso;
     final mo = int.tryParse(p[1]), d = int.tryParse(p[2]);
@@ -60,278 +154,297 @@ class _RecordsScreenState extends State<RecordsScreen> {
     return '${_months[mo - 1]} $d';
   }
 
-  String _hm(num m) {
+  static String _hm(num m) {
     final mm = m.round();
-    final h = mm ~/ 60, r = mm % 60;
-    if (h == 0) return '${r}m';
-    if (r == 0) return '${h}h';
-    return '${h}h ${r}m';
+    final h = mm ~/ 60, rest = mm % 60;
+    if (h == 0) return '${rest}m';
+    if (rest == 0) return '${h}h';
+    return '${h}h ${rest}m';
   }
 
-  /// Format a record value per its key.
-  String _fmt(String key, num v, String? type) {
-    switch (key) {
-      case 'lowest_rhr':
-      case 'lowest_sleeping_hr':
-        return '${v.round()} bpm';
-      case 'top_strain':
-      case 'top_workout':
-        return v.toStringAsFixed(1);
-      case 'top_readiness':
-      case 'most_steps':
-        return '${v.round()}';
-      case 'longest_sleep':
-        return _hm(v);
-      case 'best_efficiency':
-        return '${(v * 100).round()}%';
-      default:
-        return v.toString();
+  static String _grouped(num v) {
+    final s = v.round().toString();
+    final out = StringBuffer();
+    for (var i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) out.write(' ');
+      out.write(s[i]);
     }
+    return out.toString();
   }
+
+  static String _titleCase(String s) => s.isEmpty
+      ? s
+      : s
+          .split(RegExp(r'[ _/]'))
+          .where((w) => w.isNotEmpty)
+          .map((w) => '${w[0].toUpperCase()}${w.substring(1)}')
+          .join(' ');
+
+  /// (value, unit) split so BigStat can superscript the unit.
+  static (String, String?) _fmt(String key, num v) => switch (key) {
+        'lowest_rhr' || 'lowest_sleeping_hr' => ('${v.round()}', 'bpm'),
+        'top_strain' || 'top_workout' => (v.toStringAsFixed(1), null),
+        'longest_sleep' => (_hm(v), null),
+        'best_efficiency' => ('${(v * 100).round()}', '%'),
+        'most_steps' => (_grouped(v), null),
+        'top_readiness' => ('${v.round()}', '/100'),
+        _ => (v.toString(), null),
+      };
+
+  // ── build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
-          children: [
-            const SizedBox(height: Sp.x4),
-            _topBar(),
-            const SizedBox(height: Sp.x6),
-            if (_phase == _Phase.loading)
-              _loading()
-            else if (_phase == _Phase.empty)
-              _stateCard(Ic.recovery, 'Nothing logged yet',
-                  'Wear and sync for a few days. Your records, streaks and trends '
-                  'build up here over time.')
-            else if (_phase == _Phase.error)
-              _stateCard(Ic.cloud, "Couldn't load your records", _error ?? 'Please try again.')
-            else ...[
-              _summaryStrip(),
-              const SizedBox(height: Sp.x6),
-              const SectionHeader('Streaks'),
-              _streaks(),
-              const SizedBox(height: Sp.x6),
-              const SectionHeader('Resting heart rate trend'),
-              _driftCard(),
-              const SizedBox(height: Sp.x6),
-              const SectionHeader('Personal records'),
-              _records(),
-            ],
-            const SizedBox(height: 40),
-          ],
-        ),
+    final medal = _medalDef();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: dsStaggered([
+        _summaryTile(),
+        const SizedBox(height: Sp.x3),
+        if (medal != null) ...[medal, const SizedBox(height: Sp.x3)],
+        _recordsBento(medalKey: _medalKey()),
+        const SizedBox(height: Sp.x3),
+        _driftTile(),
+        ..._streakSection(),
+      ]),
+    );
+  }
+
+  // ── all-time tallies: one inverted headline tile ─────────────────────────
+
+  Widget _summaryTile() {
+    Widget cell(String v, String label) => Expanded(
+          child: BigStat(value: v, label: label, size: BigStatSize.md),
+        );
+    return BentoTile(
+      tone: BentoTone.ink,
+      child: Row(
+        children: [
+          cell('${r.daysTracked}', 'Days'),
+          cell('${r.nightsTracked}', 'Nights'),
+          cell('${r.workoutsTracked}', 'Workouts'),
+        ],
       ),
     );
   }
 
-  Widget _topBar() => Row(children: [
-        RoundIconButton(Ic.arrowLeft, onTap: () => Navigator.of(context).maybePop()),
-        const SizedBox(width: Sp.x3),
-        Expanded(child: Column(
+  // ── headline PR as an engraved medal ─────────────────────────────────────
+
+  /// Priority for which record gets the medal treatment.
+  static const _medalPriority = ['top_workout', 'top_strain', 'lowest_rhr'];
+
+  String? _medalKey() {
+    for (final k in _medalPriority) {
+      if (r.record(k) != null) return k;
+    }
+    return null;
+  }
+
+  Widget? _medalDef() {
+    final key = _medalKey();
+    if (key == null) return null;
+    final rec = r.record(key)!;
+    final (value, unit) = _fmt(key, rec.value);
+    final title = switch (key) {
+      'top_workout' => 'Top workout strain — $value',
+      'top_strain' => 'Biggest day strain — $value',
+      _ => 'Lowest resting HR — $value ${unit ?? ''}'.trim(),
+    };
+    final type = rec.type;
+    final subtitle = (type != null && type.isNotEmpty)
+        ? '${_titleCase(type)} · ${_prettyDate(rec.date)}'
+        : _prettyDate(rec.date);
+    return MedalCard(
+      medal: 'PR',
+      overline: 'Personal record',
+      title: title,
+      subtitle: subtitle,
+    );
+  }
+
+  // ── the rest of the PRs: per-domain BigStat bento ─────────────────────────
+
+  static const _recordDefs = <(String, String, OsIcon, OsIcon?)>[
+    ('lowest_rhr', 'Lowest resting HR', OsIcon.heart, OsIcon.restingHeartRate),
+    ('lowest_sleeping_hr', 'Lowest sleeping HR', OsIcon.sleep, OsIcon.sleep),
+    ('top_strain', 'Biggest day strain', OsIcon.bodyStrain, OsIcon.bodyStrain),
+    ('top_workout', 'Top workout strain', OsIcon.run, OsIcon.workouts),
+    ('longest_sleep', 'Longest sleep', OsIcon.bedtime, OsIcon.bedtime),
+    ('best_efficiency', 'Sleep efficiency', OsIcon.sleep, OsIcon.sleep),
+    ('most_steps', 'Most steps', OsIcon.run, OsIcon.steps),
+    ('top_readiness', 'Top readiness', OsIcon.recovery, OsIcon.recovery),
+  ];
+
+  static Color _accentOf(String key) => switch (key) {
+        'lowest_rhr' => DomainAccent.heart,
+        'lowest_sleeping_hr' ||
+        'longest_sleep' ||
+        'best_efficiency' =>
+          DomainAccent.sleep,
+        'top_strain' || 'top_workout' => DomainAccent.strain,
+        'most_steps' => DomainAccent.steps,
+        'top_readiness' => DomainAccent.recovery,
+        _ => AppColors.accent,
+      };
+
+  Widget _recordsBento({String? medalKey}) {
+    final tiles = <Widget>[];
+    for (final (key, label, icon, osIcon) in _recordDefs) {
+      if (key == medalKey) continue; // already the medal
+      final rec = r.record(key);
+      if (rec == null) continue;
+      final (value, unit) = _fmt(key, rec.value);
+      final type = rec.type;
+      tiles.add(
+        BentoTile(
+          tone: tiles.length == 1 ? BentoTone.soft : BentoTone.paper,
+          accent: _accentOf(key),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TileHeader(label, icon: icon),
+              const SizedBox(height: Sp.x2),
+              BigStat(
+                value: value,
+                unit: unit,
+                caption: (type != null && type.isNotEmpty)
+                    ? '${_titleCase(type)} · ${_prettyDate(rec.date)}'
+                    : _prettyDate(rec.date),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (tiles.isEmpty) return const SizedBox.shrink();
+    // True masonry: alternate the two stacks.
+    final left = <Widget>[], right = <Widget>[];
+    for (var i = 0; i < tiles.length; i++) {
+      (i.isEven ? left : right).add(tiles[i]);
+    }
+    return BentoColumns(left: left, right: right, entrance: false);
+  }
+
+  // ── resting-HR drift with the real trend line ─────────────────────────────
+
+  Widget _driftTile() {
+    final d = r.rhrDrift;
+    if (d == null) {
+      return BentoTile(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Your body', style: AppText.h1),
-            const SizedBox(height: 2),
-            Text('Over time', style: AppText.caption),
+            const TileHeader('Resting HR trend'),
+            const SizedBox(height: Sp.x2),
+            const BigStat.dash(caption: 'Needs ~3 weeks of nights'),
           ],
-        )),
-      ]);
-
-  Widget _summaryStrip() => Row(children: [
-        Expanded(child: _miniStat('${_r.daysTracked}', 'days tracked')),
-        const SizedBox(width: Sp.x3),
-        Expanded(child: _miniStat('${_r.nightsTracked}', 'nights')),
-        const SizedBox(width: Sp.x3),
-        Expanded(child: _miniStat('${_r.workoutsTracked}', 'workouts')),
-      ]);
-
-  Widget _miniStat(String v, String label) => ProCard(
-        padding: const EdgeInsets.symmetric(vertical: Sp.x4, horizontal: Sp.x3),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(v, style: AppText.metricSm.copyWith(fontSize: 22)),
-          const SizedBox(height: 2),
-          Text(label, style: AppText.captionMuted, textAlign: TextAlign.center),
-        ]),
-      );
-
-  Widget _streaks() {
-    final items = [
-      ('wear', Ic.watch),
-      ('sleep', Ic.moon),
-      ('strain_target', Ic.strain),
-    ];
-    final cards = <Widget>[];
-    for (final (key, icon) in items) {
-      final s = _r.streak(key);
-      if (s == null) continue;
-      cards.add(_streakCard(icon, s.current, s.label));
-    }
-    if (cards.isEmpty) {
-      return ProCard(child: Text('No streaks yet — keep wearing it.',
-          style: AppText.bodySoft));
-    }
-    return Column(children: [
-      for (int i = 0; i < cards.length; i++) ...[
-        if (i > 0) const SizedBox(height: Sp.x3),
-        cards[i],
-      ],
-    ]);
-  }
-
-  Widget _streakCard(IconData icon, int current, String label) {
-    final active = current > 0;
-    return ProCard(child: Row(children: [
-      Container(
-        padding: const EdgeInsets.all(Sp.x3),
-        decoration: BoxDecoration(
-          color: active ? AppColors.coralSoft : AppColors.surfaceAlt,
-          borderRadius: BorderRadius.circular(R.chip),
         ),
-        child: AppIcon(active ? Ic.fire : icon, size: 20,
-            color: active ? AppColors.coralDeep : AppColors.inkMuted),
-      ),
-      const SizedBox(width: Sp.x4),
-      Expanded(child: Text(label, style: AppText.title)),
-      Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
-        Text('$current', style: AppText.metricSm.copyWith(
-            fontSize: 24, color: active ? AppColors.coral : AppColors.inkMuted)),
-        Text(current == 1 ? 'day' : 'days', style: AppText.captionMuted),
-      ]),
-    ]));
-  }
-
-  Widget _driftCard() {
-    final d = _r.rhrDrift;
-    if (d == null) {
-      return ProCard(child: Text('Not enough history yet to show a resting-HR trend.',
-          style: AppText.bodySoft));
+      );
     }
     final improving = d.direction == 'improving';
     final flat = d.direction == 'flat';
-    final color = improving ? AppColors.good : (flat ? AppColors.inkMuted : AppColors.warn);
-    final arrow = improving ? Ic.down : (flat ? Ic.activity : Ic.up);
     final headline = flat
         ? 'Holding steady'
         : improving
-            ? 'Trending down ${d.delta.abs().toStringAsFixed(1)} bpm'
+            ? 'Down ${d.delta.abs().toStringAsFixed(1)} bpm'
             : 'Up ${d.delta.abs().toStringAsFixed(1)} bpm';
-    return ProCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Container(
-          padding: const EdgeInsets.all(Sp.x3),
-          decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(R.chip)),
-          child: AppIcon(arrow, size: 20, color: color),
-        ),
-        const SizedBox(width: Sp.x4),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(headline, style: AppText.title),
-            const SizedBox(height: 2),
-            Text('${d.then.toStringAsFixed(0)} → ${d.now.toStringAsFixed(0)} bpm over ${d.days} days',
-                style: AppText.captionMuted),
-          ],
-        )),
-      ]),
-      const SizedBox(height: Sp.x3),
-      Text(improving
-          ? 'A falling resting heart rate usually means your fitness is improving.'
-          : flat
-              ? 'Your resting heart rate has been stable.'
-              : 'A rising resting heart rate can mean fatigue, stress or illness — '
-                'worth keeping an eye on.',
-          style: AppText.bodySoft),
-    ]));
-  }
-
-  Widget _records() {
-    final defs = <(String, String, IconData)>[
-      ('lowest_rhr', 'Lowest resting HR', Ic.heart),
-      ('lowest_sleeping_hr', 'Lowest sleeping HR', Ic.moon),
-      ('top_strain', 'Biggest day strain', Ic.strain),
-      ('top_workout', 'Top workout strain', Ic.run),
-      ('longest_sleep', 'Longest sleep', Ic.bed),
-      ('best_efficiency', 'Best sleep efficiency', Ic.sleep),
-      ('most_steps', 'Most steps', Ic.run),
-      ('top_readiness', 'Top readiness', Ic.recovery),
-    ];
-    final tiles = <Widget>[];
-    for (final (key, label, icon) in defs) {
-      final rec = _r.record(key);
-      if (rec == null) continue;
-      tiles.add(_recordTile(icon, label, _fmt(key, rec.value, rec.type),
-          _prettyDate(rec.date), rec.type));
-    }
-    if (tiles.isEmpty) {
-      return ProCard(child: Text('No records yet.', style: AppText.bodySoft));
-    }
-    // 2-column grid.
-    final rows = <Widget>[];
-    for (int i = 0; i < tiles.length; i += 2) {
-      rows.add(Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Expanded(child: tiles[i]),
-        const SizedBox(width: Sp.x3),
-        Expanded(child: i + 1 < tiles.length ? tiles[i + 1] : const SizedBox()),
-      ]));
-      if (i + 2 < tiles.length) rows.add(const SizedBox(height: Sp.x3));
-    }
-    return Column(children: rows);
-  }
-
-  Widget _recordTile(IconData icon, String label, String value, String date, String? type) {
-    return ProCard(
-      padding: const EdgeInsets.all(Sp.x4),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-        Row(children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-                color: AppColors.coralSoft, borderRadius: BorderRadius.circular(R.chip)),
-            child: AppIcon(icon, size: 15, color: AppColors.coralDeep),
+    return BentoTile(
+      tone: BentoTone.soft,
+      accent: DomainAccent.heart,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TileHeader(
+            'Resting HR trend',
+            trailing: InfoDot(
+              title: 'Resting-HR trend',
+              body: improving
+                  ? 'A falling resting heart rate usually means your fitness '
+                      'is improving.'
+                  : flat
+                      ? 'Your resting heart rate has been stable.'
+                      : 'A rising resting heart rate can mean fatigue, stress '
+                          'or illness — worth keeping an eye on.',
+              methodNote:
+                  'Mean of the newest 7 nightly RHR values vs ~30 days back '
+                  '(${d.days} days of history).',
+            ),
           ),
-          const SizedBox(width: Sp.x2),
-          Expanded(child: Text(label, style: AppText.overline, maxLines: 2, overflow: TextOverflow.ellipsis)),
-        ]),
-        const SizedBox(height: Sp.x3),
-        Text(value, style: AppText.metric.copyWith(fontSize: 22), maxLines: 1, overflow: TextOverflow.ellipsis),
-        const SizedBox(height: 2),
-        Text(type != null && type.isNotEmpty ? '${_titleCase(type)} · $date' : date,
-            style: AppText.captionMuted, maxLines: 1, overflow: TextOverflow.ellipsis),
-      ]),
+          const SizedBox(height: Sp.x2),
+          BigStat(
+            value: d.now.toStringAsFixed(0),
+            unit: 'bpm',
+            caption: '$headline · from ${d.then.toStringAsFixed(0)}',
+            captionAccent: !flat && !improving,
+          ),
+          if (rhrSpark.length >= 2) ...[
+            const SizedBox(height: Sp.x3),
+            Sparkline(
+              rhrSpark,
+              color: DomainAccent.heart,
+              height: 44,
+              area: true,
+              baseline: d.then,
+            ),
+          ],
+        ],
+      ),
     );
   }
 
-  String _titleCase(String s) => s.isEmpty ? s
-      : s.split(RegExp(r'[ _/]')).where((w) => w.isNotEmpty)
-          .map((w) => '${w[0].toUpperCase()}${w.substring(1)}').join(' ');
+  // ── streak flames ─────────────────────────────────────────────────────────
 
-  Widget _loading() => ProCard(
-        padding: const EdgeInsets.all(Sp.x6),
-        child: SizedBox(height: 320,
-            child: Center(child: CircularProgressIndicator(color: AppColors.coral))),
-      );
+  static const _streakDefs = <(String, String, Color Function())>[
+    ('wear', 'Wear', _accentBrand),
+    ('sleep', 'Sleep', _accentSleep),
+    ('strain_target', 'Strain target', _accentStrain),
+  ];
 
-  Widget _stateCard(IconData icon, String title, String message) => ProCard(
-        padding: const EdgeInsets.all(Sp.x6),
-        child: Column(children: [
-          Container(
-            padding: const EdgeInsets.all(Sp.x4),
-            decoration: BoxDecoration(color: AppColors.coralSoft, shape: BoxShape.circle),
-            child: AppIcon(icon, size: 30, color: AppColors.coralDeep),
+  static Color _accentBrand() => AppColors.accent;
+  static Color _accentSleep() => DomainAccent.sleep;
+  static Color _accentStrain() => DomainAccent.strain;
+
+  List<Widget> _streakSection() {
+    final tiles = <Widget>[];
+    for (final (key, label, accentOf) in _streakDefs) {
+      final s = r.streak(key);
+      if (s == null) continue;
+      final active = s.current > 0;
+      tiles.add(
+        BentoTile(
+          tone: active ? BentoTone.soft : BentoTone.paper,
+          accent: accentOf(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TileHeader('$label streak',
+                  icon: active ? OsIcon.calories : OsIcon.wear,
+                  // Streak art only while the streak is alive — a broken
+                  // streak keeps the quiet watch glyph.
+                  ),
+              const SizedBox(height: Sp.x2),
+              BigStat(
+                value: '${s.current}',
+                unit: s.current == 1 ? 'day' : 'days',
+                caption: s.label,
+              ),
+            ],
           ),
-          const SizedBox(height: Sp.x4),
-          Text(title, style: AppText.h2, textAlign: TextAlign.center),
-          const SizedBox(height: Sp.x2),
-          Text(message, style: AppText.bodySoft, textAlign: TextAlign.center),
-          const SizedBox(height: Sp.x5),
-          OutlinedButton(onPressed: _load, child: const Text('Try again')),
-        ]),
+        ),
       );
+    }
+    if (tiles.isEmpty) return const [];
+    final left = <Widget>[], right = <Widget>[];
+    for (var i = 0; i < tiles.length; i++) {
+      (i.isEven ? left : right).add(tiles[i]);
+    }
+    return [
+      const SizedBox(height: Sp.x3),
+      BentoColumns(left: left, right: right, entrance: false),
+    ];
+  }
 }

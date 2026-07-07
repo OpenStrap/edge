@@ -14,10 +14,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../sync/background_sync.dart';
+import '../sync/headless_gate.dart';
 
 class IosBleRestore {
   static const _ch = MethodChannel('openstrap/ble_restore');
-  static bool _busy = false;
 
   /// Set true while the app holds a live foreground session (BleEngine connected).
   /// A wake-triggered headless sync would otherwise fight flutter_blue_plus for the
@@ -33,16 +33,19 @@ class IosBleRestore {
         await _done();
         return null;
       }
-      if (_busy) return null;
-      _busy = true;
-      try {
-        await runHeadlessSync();
-      } catch (e) {
-        debugPrint('[ios-restore] headless sync threw: $e');
-      } finally {
-        _busy = false;
-        await _done();
-      }
+      // Shared gate with the BGProcessingTask/BGAppRefreshTask entry points
+      // (HeadlessSyncGate): if another headless sync is mid-flight, skip this
+      // wake — matching the old private-_busy semantics (no syncDone signal;
+      // the running entry point completes its own cycle).
+      await HeadlessSyncGate.tryRun<void>('ble_restore_wake', () async {
+        try {
+          await runHeadlessSync();
+        } catch (e) {
+          debugPrint('[ios-restore] headless sync threw: $e');
+        } finally {
+          await _done();
+        }
+      });
       return null;
     });
     try {
@@ -78,6 +81,21 @@ class IosBleRestore {
     if (!Platform.isIOS) return;
     try {
       await _ch.invokeMethod('arm', remoteId);
+    } catch (_) {}
+  }
+
+  /// Atomic recovery hand-off for the hot disconnect path: combines
+  /// [setOwnsBand]\(false\) + [arm] into ONE native round trip instead of two
+  /// separately-awaited calls. Two calls left a window — a process suspension
+  /// between them — where `appOwnsBand` could already be false with nothing
+  /// armed to replace it, i.e. no one left watching for the band at all. The
+  /// native side also wraps this in a short `beginBackgroundTask` extension.
+  /// See `AppState._armRecovery`.
+  static Future<void> armRecoveryNow(String remoteId) async {
+    if (!Platform.isIOS) return;
+    foregroundActive = false;
+    try {
+      await _ch.invokeMethod('armRecoveryNow', remoteId);
     } catch (_) {}
   }
 

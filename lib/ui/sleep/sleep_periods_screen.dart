@@ -1,16 +1,15 @@
-// Sleep periods (v2) — every sleep of the day, one card each. A nap is not a
-// special case: it's just a shorter sleep. Slept once → one card; napped twice →
-// three cards. Backed by /day/v2/sleep (additive; the single-night /day/sleep
-// screen is untouched). "Ember on Paper" design.
+// Sleep periods (v2) — every sleep of the day, one bento card each, on the NEW
+// design language. A nap is not a special case: it's just a shorter sleep.
+// Slept once → one card; napped twice → three cards. The day total is an ink
+// hero tile; every period card carries its own mini hypnogram + StageBars on
+// the ONE DomainAccent stage palette. Backed by /day/v2/sleep.
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
+import '../design/design.dart';
 
 class SleepPeriodsScreen extends StatefulWidget {
   final String date; // 'YYYY-MM-DD'
@@ -36,10 +35,16 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
   Future<void> _load() async {
     final api = context.read<AppState>().repo;
     if (api == null) {
-      setState(() { _phase = _Phase.error; _error = 'Not signed in.'; });
+      setState(() {
+        _phase = _Phase.error;
+        _error = 'Not signed in.';
+      });
       return;
     }
-    setState(() { _phase = _Phase.loading; _error = null; });
+    setState(() {
+      _phase = _Phase.loading;
+      _error = null;
+    });
     try {
       final res = await api.getDaySleepV2(widget.date);
       if (!mounted) return;
@@ -60,7 +65,9 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
   num? _num(Object? v) => v is num ? v : (v is String ? num.tryParse(v) : null);
   List<Map<String, dynamic>> get _periods {
     final p = _data['periods'];
-    if (p is List) return p.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+    if (p is List) {
+      return p.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+    }
     return const [];
   }
 
@@ -70,72 +77,94 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          onRefresh: _load,
-          color: AppColors.coral,
-          child: ListView(
-          // AlwaysScrollable so pull-to-refresh fires even when content is short
-          // (loading / empty / error) — the common "refresh doesn't work" cause.
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
-          children: [
-            const SizedBox(height: Sp.x4),
-            _topBar(),
-            const SizedBox(height: Sp.x6),
-            if (_phase == _Phase.loading)
-              _stateCard(Ic.moon, 'Loading…', 'Fetching your sleep periods.')
-            else if (_phase == _Phase.empty)
-              _stateCard(Ic.bed, 'No sleep detected',
-                  'Wear your strap overnight (and through any naps) and sync to '
-                  'see each sleep here.')
-            else if (_phase == _Phase.error)
-              _stateCard(Ic.cloud, "Couldn't load sleep", _error ?? 'Please try again.')
-            else ...[
-              _summary(),
-              const SizedBox(height: Sp.x6),
-              for (final p in _periods) ...[
-                _periodCard(p),
-                const SizedBox(height: Sp.x4),
-              ],
-              const SizedBox(height: Sp.x2),
-              Text(
-                'Stages are a beta estimate from heart rate + motion (no EEG). A '
-                'nap is scored the same way as a full night — just shorter.',
-                style: AppText.caption.copyWith(color: AppColors.inkMuted),
-              ),
-            ],
-            const SizedBox(height: 40),
-          ],
+    return AppScaffold(
+      title: 'Sleep periods',
+      subtitle: 'Every sleep, naps included',
+      body: RefreshIndicator(
+        onRefresh: _load,
+        color: AppColors.accent,
+        child: ListView(
+          // AlwaysScrollable so pull-to-refresh fires even when content is
+          // short (loading / empty / error).
+          physics: const BouncingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
           ),
+          padding:
+              const EdgeInsets.fromLTRB(Sp.screen, Sp.x2, Sp.screen, Sp.x10),
+          children: [
+            if (_phase == _Phase.loading) ...[
+              Skeleton.hero(),
+              const SizedBox(height: Sp.x3),
+              Skeleton.tileRow(rows: 2),
+            ] else if (_phase == _Phase.empty)
+              const StateCard(
+                icon: OsIcon.bedtime,
+                title: 'No sleep detected',
+                message:
+                    'Wear your strap overnight (and through any naps) and sync '
+                    'to see each sleep here.',
+              )
+            else if (_phase == _Phase.error)
+              StateCard(
+                icon: OsIcon.sync,
+                title: "Couldn't load sleep",
+                message: _error ?? 'Please try again.',
+                actionLabel: 'Try again',
+                onAction: _load,
+              )
+            else
+              ...dsStaggered([
+                _summary(),
+                const SizedBox(height: Sp.x3),
+                for (final p in _periods) ...[
+                  _periodCard(p),
+                  const SizedBox(height: Sp.x3),
+                ],
+              ]),
+          ],
         ),
       ),
     );
   }
 
-  // Day summary: total asleep across all periods vs need.
+  // Day hero: total asleep across all periods vs need — the board's ink tile.
   Widget _summary() {
     final n = _periods.length;
-    return GlowCard(
+    final t = _needMin <= 0
+        ? double.nan
+        : (_totalAsleep / _needMin).clamp(0.0, 1.0).toDouble();
+    return BentoTile(
+      tone: BentoTone.ink,
+      accent: DomainAccent.sleep,
+      padding: const EdgeInsets.all(Sp.x5),
       child: Row(
         children: [
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Total sleep', style: AppText.label.copyWith(color: AppColors.inkSoft)),
+                const TileHeader('Total sleep'),
                 const SizedBox(height: Sp.x2),
-                Text(_hm(_totalAsleep), style: AppText.metric.copyWith(fontSize: 40)),
-                const SizedBox(height: 2),
-                Text('need ${_hm(_needMin)} · $n sleep${n == 1 ? '' : 's'}',
-                    style: AppText.caption.copyWith(color: AppColors.inkSoft)),
+                BigStat(
+                  value: _hm(_totalAsleep),
+                  size: BigStatSize.xl,
+                  caption: 'need ${_hm(_needMin)} · $n sleep${n == 1 ? '' : 's'}',
+                ),
               ],
             ),
           ),
-          AppIcon(Ic.moon, size: 30, color: AppColors.coral),
+          const SizedBox(width: Sp.x3),
+          ArcGauge(
+            value: t,
+            color: DomainAccent.sleep,
+            size: 96,
+            stroke: 10,
+            sweepFraction: 0.75,
+            endDot: !t.isNaN,
+            valueText: t.isNaN ? '—' : '${(t * 100).round()}%',
+            label: 'of need',
+          ),
         ],
       ),
     );
@@ -148,126 +177,88 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
     final dur = _num(p['duration_min'])?.toInt() ?? 0;
     final eff = _num(p['efficiency'])?.toDouble();
     final conf = _num(p['confidence'])?.toDouble() ?? 0;
-    final stages = (p['stages'] is Map) ? (p['stages'] as Map).cast<String, dynamic>() : null;
+    final stages = (p['stages'] is Map)
+        ? (p['stages'] as Map).cast<String, dynamic>()
+        : null;
+    final hypno = hypnoSegmentsFromPoints(
+        (p['hypnogram'] is List) ? p['hypnogram'] as List : const []);
 
-    return ProCard(
+    return BentoTile(
+      tone: isMain ? BentoTone.paper : BentoTone.soft,
+      accent: DomainAccent.sleep,
+      padding: const EdgeInsets.all(Sp.x4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              AppIcon(isMain ? Ic.moon : Ic.bed,
-                  size: 20, color: isMain ? AppColors.coral : AppColors.inkSoft),
-              const SizedBox(width: Sp.x2),
-              Text(isMain ? 'Main sleep' : 'Nap', style: AppText.h2),
-              const SizedBox(width: Sp.x2),
-              if (_beta) Tag('beta', color: AppColors.coral),
-              const Spacer(),
+              Expanded(
+                child: TileHeader(
+                  isMain ? 'Main sleep' : 'Nap',
+                  icon: isMain ? OsIcon.sleep : OsIcon.bedtime,
+                  trailing: _beta ? const Tag('est') : null,
+                ),
+              ),
               ConfDot(conf),
+              InfoDot(
+                title: isMain ? 'Main sleep' : 'Nap',
+                body:
+                    'Stages are a wrist estimate from heart rate + motion (no '
+                    'EEG). The dot shows detection confidence for this window.',
+              ),
             ],
           ),
-          const SizedBox(height: Sp.x3),
+          const SizedBox(height: Sp.x2),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(_hm(dur), style: AppText.metric.copyWith(fontSize: 32)),
-              const SizedBox(width: Sp.x3),
+              Expanded(
+                child: BigStat(
+                  value: _hm(dur),
+                  caption: (onset != null && wake != null)
+                      ? '${_clock(onset)} – ${_clock(wake)}'
+                      : null,
+                ),
+              ),
               if (eff != null)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Text('${(eff * 100).round()}% efficiency',
-                      style: AppText.caption.copyWith(color: AppColors.inkSoft)),
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: StatusChip(
+                    '${(eff * 100).round()}% efficient',
+                    tone: ChipTone.positive,
+                  ),
                 ),
             ],
           ),
-          if (onset != null && wake != null) ...[
-            const SizedBox(height: 2),
-            Text('${_clock(onset)} – ${_clock(wake)}',
-                style: AppText.label.copyWith(color: AppColors.inkSoft)),
-          ],
-          if (_hypList(p).isNotEmpty) ...[
+          if (hypno.isNotEmpty) ...[
             const SizedBox(height: Sp.x4),
-            // Per-nap hypnogram — the same banded timeline as the main sleep, so a
-            // nap shows its own stage progression (only rendered when present).
-            _HypnoStrip(segments: _hypList(p), colorOf: _stageColor),
+            // Per-period stepped hypnogram — same component + palette as the
+            // main Sleep screen, compact and unlabelled.
+            Hypnogram(hypno, height: 56, labels: false),
           ],
           if (stages != null) ...[
-            const SizedBox(height: Sp.x4),
-            _stageBar(stages),
             const SizedBox(height: Sp.x3),
-            _stageLegend(stages),
+            _stageBars(stages),
           ],
         ],
       ),
     );
   }
 
-  // Per-period hypnogram points [{t, stage}] from /day/v2/sleep (empty if none).
-  List<Map<String, dynamic>> _hypList(Map<String, dynamic> p) {
-    final h = p['hypnogram'];
-    if (h is List) return h.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
-    return const [];
-  }
-
-  // 4-class wrist stages (estimate): Awake / Light / Deep / REM. Deep + Light
-  // split NREM (no EEG); Deep is a low-confidence overlay. Falls back to the
-  // legacy combined nrem_min (rendered as Light) when light/deep are absent.
-  Widget _stageBar(Map<String, dynamic> s) {
-    var light = (_num(s['light_min']) ?? 0).toDouble();
-    final deep = (_num(s['deep_min']) ?? 0).toDouble();
-    final rem = (_num(s['rem_min']) ?? 0).toDouble();
-    if (light <= 0 && deep <= 0) light = (_num(s['nrem_min']) ?? 0).toDouble();
-    final total = light + deep + rem;
-    if (total <= 0) return const SizedBox.shrink();
-    Widget seg(double v, Color c) =>
-        v <= 0 ? const SizedBox.shrink() : Expanded(flex: (v * 100).round(), child: Container(color: c));
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(R.chip),
-      child: SizedBox(
-        height: 14,
-        child: Row(children: [
-          seg(deep, _stageColor('deep')),
-          seg(light, _stageColor('light')),
-          seg(rem, _stageColor('rem')),
-        ]),
-      ),
+  /// StageBars from the period's stage minutes. Falls back to the legacy
+  /// combined nrem_min (rendered as Light) when the light/deep split is absent.
+  Widget _stageBars(Map<String, dynamic> s) {
+    var light = (_num(s['light_min']) ?? 0).round();
+    final deep = (_num(s['deep_min']) ?? 0).round();
+    final rem = (_num(s['rem_min']) ?? 0).round();
+    if (light <= 0 && deep <= 0) light = (_num(s['nrem_min']) ?? 0).round();
+    if (light + deep + rem <= 0) return const SizedBox.shrink();
+    return StageBars(
+      lightMin: light,
+      deepMin: deep,
+      remMin: rem,
+      height: 10,
     );
-  }
-
-  Widget _stageLegend(Map<String, dynamic> s) {
-    Widget item(String label, String key, Color c) {
-      final v = _num(s['${key}_min'])?.toInt() ?? 0;
-      return Row(mainAxisSize: MainAxisSize.min, children: [
-        Container(width: 9, height: 9, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
-        const SizedBox(width: 5),
-        Text('$label ${_hm(v)}', style: AppText.caption.copyWith(color: AppColors.inkSoft)),
-      ]);
-    }
-    final hasSplit =
-        (_num(s['light_min']) ?? 0) > 0 || (_num(s['deep_min']) ?? 0) > 0;
-    return Wrap(spacing: Sp.x4, runSpacing: Sp.x2, children: [
-      if (hasSplit) ...[
-        item('Deep', 'deep', _stageColor('deep')),
-        item('Light', 'light', _stageColor('light')),
-      ] else
-        item('Core (NREM)', 'nrem', _stageColor('light')),
-      item('REM', 'rem', _stageColor('rem')),
-    ]);
-  }
-
-  // Same stage palette as the single-night detail screen (4-class).
-  Color _stageColor(String stage) {
-    switch (stage) {
-      case 'rem':
-        return AppColors.coral;
-      case 'deep':
-        return AppColors.coralDeep;
-      case 'light':
-      case 'nrem':
-        return kLightStageColor;
-      default:
-        return AppColors.inkMuted;
-    }
   }
 
   String _hm(int minutes) {
@@ -285,72 +276,4 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
     if (h == 0) h = 12;
     return '$h:${d.minute.toString().padLeft(2, '0')} $ampm';
   }
-
-  Widget _stateCard(IconData icon, String title, String body) => ProCard(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          AppIcon(icon, size: 26, color: AppColors.inkSoft),
-          const SizedBox(height: Sp.x3),
-          Text(title, style: AppText.h2),
-          const SizedBox(height: Sp.x2),
-          Text(body, style: AppText.body.copyWith(color: AppColors.inkSoft)),
-        ]),
-      );
-
-  Widget _topBar() => Row(children: [
-        RoundIconButton(Ic.arrowLeft, onTap: () => Navigator.of(context).maybePop()),
-        const SizedBox(width: Sp.x3),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Sleep periods', style: AppText.h1),
-              Text('Every sleep, naps included',
-                  style: AppText.caption.copyWith(color: AppColors.inkSoft)),
-            ],
-          ),
-        ),
-      ]);
-}
-
-/// Compact per-nap hypnogram: each downsampled {t, stage} point drawn as a band at
-/// its sleep-depth row (awake top → deep bottom). Self-contained; colors injected.
-class _HypnoStrip extends StatelessWidget {
-  final List<Map<String, dynamic>> segments;
-  final Color Function(String) colorOf;
-  const _HypnoStrip({required this.segments, required this.colorOf});
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-        height: 40,
-        width: double.infinity,
-        child: CustomPaint(painter: _HypnoPainter(segments, colorOf)),
-      );
-}
-
-class _HypnoPainter extends CustomPainter {
-  final List<Map<String, dynamic>> pts;
-  final Color Function(String) colorOf;
-  _HypnoPainter(this.pts, this.colorOf);
-  // 4-class lanes: Awake (top) / REM / Light / Deep (bottom). 'nrem' (legacy
-  // combined Core) shares the Light lane.
-  static const _rank = {'awake': 0, 'rem': 1, 'light': 2, 'nrem': 2, 'deep': 3};
-
-  @override
-  void paint(Canvas c, Size s) {
-    if (pts.length < 2) return;
-    final n = pts.length;
-    final bandH = s.height / 4;
-    final w = s.width / (n - 1);
-    final paint = Paint();
-    for (int i = 0; i < n - 1; i++) {
-      final st = (pts[i]['stage'] as String?) ?? 'light';
-      final r = (_rank[st] ?? 2).toDouble();
-      paint.color = colorOf(st);
-      c.drawRect(Rect.fromLTWH(i * w, r * bandH, w + 0.5, bandH - 1), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_HypnoPainter old) => old.pts != pts;
 }

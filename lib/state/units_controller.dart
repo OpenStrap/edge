@@ -16,6 +16,8 @@ class UnitsController extends ChangeNotifier {
   static const String _kUnits = 'units_system'; // 'metric' | 'imperial'
   static const double _kgPerLb = 0.45359237;
   static const double _cmPerIn = 2.54;
+  static const double _metersPerKm = 1000.0;
+  static const double _metersPerMile = 1609.344;
 
   UnitSystem _system;
   UnitsController._(this._system);
@@ -57,6 +59,70 @@ class UnitsController extends ChangeNotifier {
     if (!isImperial) return '${_trim(cm)} cm';
     final totalIn = (cm / _cmPerIn).round();
     return "${totalIn ~/ 12}′${totalIn % 12}″";
+  }
+
+  // ── distance + pace (GPS workout routes) ───────────────────────────────────
+  /// Length of one distance unit in metres (km or mi) for the current system.
+  double get distanceUnitMeters => isImperial ? _metersPerMile : _metersPerKm;
+
+  /// "km" / "mi".
+  String get distanceUnit => isImperial ? 'mi' : 'km';
+
+  /// Distance value in the user's unit (km or mi), unformatted.
+  double distanceValue(double meters) => meters / distanceUnitMeters;
+
+  /// "5.24 km" / "3.25 mi" / "—".
+  String distance(double? meters, {int decimals = 2}) {
+    if (meters == null) return '—';
+    return '${distanceValue(meters).toStringAsFixed(decimals)} $distanceUnit';
+  }
+
+  /// "/km" / "/mi".
+  String get paceUnit => '/$distanceUnit';
+
+  /// Format a pace given as seconds-per-unit → "m:ss" (e.g. "5:30"). Infinite /
+  /// non-finite (a zero-distance split) shows "—".
+  String formatPace(double secPerUnit) {
+    if (!secPerUnit.isFinite || secPerUnit <= 0) return '—';
+    final total = secPerUnit.round();
+    final m = total ~/ 60;
+    final s = total % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  /// "5:30 /km" from total metres + total seconds.
+  String pace(double? meters, int? seconds) {
+    if (meters == null || seconds == null || meters <= 0 || seconds <= 0) {
+      return '—';
+    }
+    final secPerUnit = seconds / (meters / distanceUnitMeters);
+    return '${formatPace(secPerUnit)} $paceUnit';
+  }
+
+  /// "km/h" / "mph" — the unit for INSTANTANEOUS speed (cycling reads more
+  /// naturally as a speed than a pace; the live map shows both).
+  String get speedUnit => isImperial ? 'mph' : 'km/h';
+
+  /// Instantaneous speed (m/s) → "18.4 km/h" / "11.4 mph". "—" for
+  /// null/non-finite/negative (no fix yet, or GPS hasn't reported speed).
+  String speed(double? metersPerSec, {int decimals = 1}) {
+    if (metersPerSec == null || !metersPerSec.isFinite || metersPerSec < 0) {
+      return '—';
+    }
+    final perHour = metersPerSec * 3600 / distanceUnitMeters;
+    return '${perHour.toStringAsFixed(decimals)} $speedUnit';
+  }
+
+  /// Instantaneous pace from a live speed (m/s) → "5:30 /km" — the LIVE
+  /// counterpart to [pace] (which needs a whole distance+duration). Used for
+  /// a live "current pace" readout that updates every fix instead of only
+  /// reflecting the run's average so far.
+  String paceFromSpeed(double? metersPerSec) {
+    if (metersPerSec == null || !metersPerSec.isFinite || metersPerSec <= 0) {
+      return '—';
+    }
+    final secPerUnit = distanceUnitMeters / metersPerSec;
+    return '${formatPace(secPerUnit)} $paceUnit';
   }
 
   // ── edit-field helpers (display ↔ metric for storage) ──────────────────────

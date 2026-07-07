@@ -124,12 +124,11 @@ void main() {
       bool complete = false,
       bool linkDown = false,
       int sinceStartS = 1,
-    }) =>
-        e.evaluate(
-          complete: complete,
-          linkDown: linkDown,
-          sinceStart: Duration(seconds: sinceStartS),
-        );
+    }) => e.evaluate(
+      complete: complete,
+      linkDown: linkDown,
+      sinceStart: Duration(seconds: sinceStartS),
+    );
 
     test('keeps going while the offload is still streaming', () {
       // The KEY behaviour change: a still-running offload never stops on its own —
@@ -162,51 +161,193 @@ void main() {
     });
   });
 
+  group('RecordGate (shared plausibility gate + frontier)', () {
+    const wall = 1750000000; // plausible "now"
+
+    test('plausible records are admitted and advance the frontier', () {
+      final g = RecordGate();
+      expect(g.admit(wall - 3600, wallNow: wall), isTrue);
+      expect(g.frontierTs, wall - 3600);
+      expect(g.admit(wall - 60, wallNow: wall), isTrue);
+      expect(g.frontierTs, wall - 60);
+      expect(g.dropped, 0);
+    });
+
+    test('an older (but plausible) record never lowers the frontier', () {
+      final g = RecordGate(frontierTs: wall - 100);
+      expect(g.admit(wall - 5000, wallNow: wall), isTrue); // stored fine
+      expect(g.frontierTs, wall - 100); // frontier is a high-water mark
+    });
+
+    test('implausible records are dropped, counted, and freeze nothing', () {
+      final g = RecordGate(frontierTs: wall - 100);
+      // Pre-2023 junk (unset RTC of a previous owner).
+      expect(g.admit(1000000000, wallNow: wall), isFalse);
+      // Absurd future (the garbage year-2034 class of bug).
+      expect(g.admit(wall + 10 * 86400, wallNow: wall), isFalse);
+      expect(g.dropped, 2);
+      expect(g.frontierTs, wall - 100); // untouched by rejects
+    });
+
+    test('records with no decodable ts are kept and do not move the frontier',
+        () {
+      final g = RecordGate(frontierTs: wall - 100);
+      expect(g.admit(null, wallNow: wall), isTrue);
+      expect(g.admit(0, wallNow: wall), isTrue);
+      expect(g.frontierTs, wall - 100);
+      expect(g.dropped, 0);
+    });
+
+    test('session GET_DATA_RANGE window tightens the gate (±7 days)', () {
+      final g = RecordGate();
+      final oldest = wall - 3 * 86400;
+      final newest = wall - 600;
+      // Inside the window (± margin) → admitted.
+      expect(
+        g.admit(oldest - 86400,
+            wallNow: wall, sessionOldestUnix: oldest, sessionNewestUnix: newest),
+        isTrue,
+      );
+      // More than 7 days before the strap's own oldest → wandering-clock junk.
+      expect(
+        g.admit(oldest - 8 * 86400,
+            wallNow: wall, sessionOldestUnix: oldest, sessionNewestUnix: newest),
+        isFalse,
+      );
+      expect(g.dropped, 1);
+    });
+
+    test('frontier seed from the durable cursor is honoured', () {
+      final g = RecordGate(frontierTs: wall - 50);
+      expect(g.frontierTs, wall - 50);
+      expect(g.admit(wall - 10, wallNow: wall), isTrue);
+      expect(g.frontierTs, wall - 10);
+    });
+  });
+
+  group('AckRetryPolicy (verified batch-ACK writes)', () {
+    const p = AckRetryPolicy(
+      maxAttempts: 3,
+      baseDelay: Duration(milliseconds: 200),
+    );
+
+    test('allows exactly maxAttempts attempts', () {
+      expect(p.shouldRetry(0), isTrue); // no failures yet → first try allowed
+      expect(p.shouldRetry(1), isTrue);
+      expect(p.shouldRetry(2), isTrue);
+      expect(p.shouldRetry(3), isFalse); // 3 failures → give up (bounce link)
+      expect(p.shouldRetry(10), isFalse);
+    });
+
+    test('backoff grows linearly from the base delay', () {
+      expect(p.delayFor(1).inMilliseconds, 200);
+      expect(p.delayFor(2).inMilliseconds, 400);
+      expect(p.delayFor(3).inMilliseconds, 600);
+      expect(p.delayFor(0).inMilliseconds, 200); // clamped to attempt 1
+    });
+  });
+
   group('DeriveDebouncer coalesce logic', () {
     const d = DeriveDebouncer(
-      quietPeriod: Duration(seconds: 12),
-      maxWait: Duration(seconds: 90),
+      staleQuietPeriod: Duration(seconds: 12),
+      staleMaxWait: Duration(seconds: 90),
+      freshQuietPeriod: Duration(minutes: 1),
+      freshMaxWait: Duration(minutes: 5),
+      staleThreshold: Duration(minutes: 30),
     );
 
     test('never derives with nothing pending', () {
       expect(
-          d.shouldDerive(
-            hasPending: false,
-            sinceLastRecord: const Duration(seconds: 30),
-            sinceFirstPending: const Duration(seconds: 30),
-          ),
-          isFalse);
+        d.shouldDerive(
+          hasPending: false,
+          sinceLastRecord: const Duration(seconds: 30),
+          sinceFirstPending: const Duration(seconds: 30),
+          dataStaleness: const Duration(hours: 2),
+        ),
+        isFalse,
+      );
     });
 
     test('holds while records are still arriving (not yet quiet)', () {
       expect(
-          d.shouldDerive(
-            hasPending: true,
-            sinceLastRecord: const Duration(seconds: 3),
-            sinceFirstPending: const Duration(seconds: 5),
-          ),
-          isFalse);
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 3),
+          sinceFirstPending: const Duration(seconds: 5),
+          dataStaleness: const Duration(hours: 2),
+        ),
+        isFalse,
+      );
     });
 
-    test('fires once the inbound stream goes quiet', () {
+    test('stale mode fires once the inbound stream goes quiet', () {
       expect(
-          d.shouldDerive(
-            hasPending: true,
-            sinceLastRecord: const Duration(seconds: 12),
-            sinceFirstPending: const Duration(seconds: 20),
-          ),
-          isTrue);
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 12),
+          sinceFirstPending: const Duration(seconds: 20),
+          dataStaleness: const Duration(hours: 2),
+        ),
+        isTrue,
+      );
     });
 
-    test('never-quiet stream still derives at the maxWait floor', () {
+    test('stale mode never-quiet stream still derives at the maxWait floor', () {
       // Records keep landing (only 2s quiet) but the dirty run is 90s old → derive.
       expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 2),
+          sinceFirstPending: const Duration(seconds: 90),
+          dataStaleness: const Duration(hours: 2),
+        ),
+        isTrue,
+      );
+    });
+
+    test('fresh mode waits longer before deriving', () {
+      expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(seconds: 20),
+          sinceFirstPending: const Duration(seconds: 90),
+          dataStaleness: const Duration(minutes: 5),
+        ),
+        isFalse,
+      );
+      expect(
+        d.shouldDerive(
+          hasPending: true,
+          sinceLastRecord: const Duration(minutes: 1),
+          sinceFirstPending: const Duration(minutes: 2),
+          dataStaleness: const Duration(minutes: 5),
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+      'fresh mode never-quiet stream derives at the calmer 5 minute floor',
+      () {
+        expect(
           d.shouldDerive(
             hasPending: true,
             sinceLastRecord: const Duration(seconds: 2),
-            sinceFirstPending: const Duration(seconds: 90),
+            sinceFirstPending: const Duration(minutes: 4, seconds: 59),
+            dataStaleness: const Duration(minutes: 5),
           ),
-          isTrue);
-    });
+          isFalse,
+        );
+        expect(
+          d.shouldDerive(
+            hasPending: true,
+            sinceLastRecord: const Duration(seconds: 2),
+            sinceFirstPending: const Duration(minutes: 5),
+            dataStaleness: const Duration(minutes: 5),
+          ),
+          isTrue,
+        );
+      },
+    );
   });
 }

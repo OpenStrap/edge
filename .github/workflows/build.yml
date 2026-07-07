@@ -20,7 +20,15 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          # PINNED, not `channel: stable` — that floats forward every run and
+          # has twice broken this exact release pipeline on version drift:
+          # a newer Flutter removed/moved CupertinoPageTransitionsBuilder
+          # (theme.dart wouldn't compile) and changed how --no-codesign
+          # propagates to the Watch companion target (iOS build demanded a
+          # signing team despite --no-codesign). This version is verified
+          # against the current codebase (376 tests + a local release build
+          # of both platforms). Bump deliberately, not by drift.
+          flutter-version: '3.41.6'
 
       # The single companion URL (announcements, OTA, telemetry, import) comes
       # from a repo secret, written into .env and baked in via --dart-define.
@@ -78,7 +86,15 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          # PINNED, not `channel: stable` — that floats forward every run and
+          # has twice broken this exact release pipeline on version drift:
+          # a newer Flutter removed/moved CupertinoPageTransitionsBuilder
+          # (theme.dart wouldn't compile) and changed how --no-codesign
+          # propagates to the Watch companion target (iOS build demanded a
+          # signing team despite --no-codesign). This version is verified
+          # against the current codebase (376 tests + a local release build
+          # of both platforms). Bump deliberately, not by drift.
+          flutter-version: '3.41.6'
 
       - name: Write .env
         run: echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" > .env

@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+
 // Real-data sleep probe — NOT shipped. Decodes a dumped R24 hex file into the
 // real Substrate, runs the EXACT pipeline detectors, and prints, per night:
 //   • van Hees window (ACCEL ONLY) — onset/offset/SPT
@@ -7,7 +9,6 @@
 // so we can see whether van Hees fragmentation or the HR-dip trim is what shoves
 // onset to 02:41. Run: dart run tool/sleep_probe.dart [/tmp/r24_0626_hex.txt]
 import 'dart:io';
-import 'dart:math' as math;
 import 'package:openstrap_edge/compute/substrate.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 

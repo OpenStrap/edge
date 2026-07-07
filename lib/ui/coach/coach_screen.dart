@@ -1,191 +1,255 @@
-// Coach — the day's strain target and ranked suggestions. Computed on the server.
+// Coach — the day's strain target and ranked suggestions, on the design
+// language: a quiet narrative hero, the strain target as a soft bento tile
+// with the aim band, and each suggestion as a clean card whose "why" evidence
+// reads as chips. Rule-based and deterministic — the honesty note lives
+// behind the (i), not on the board.
 
 import 'package:flutter/material.dart';
 
 import '../../models/payloads.dart';
-import '../../theme/theme.dart';
-import '../../theme/tokens.dart';
-import '../kit/kit.dart';
+import '../design/design.dart';
+import '../kit/os_icons.dart';
 
 class CoachScreen extends StatelessWidget {
   final CoachData coach;
   const CoachScreen({super.key, required this.coach});
 
+  @override
+  Widget build(BuildContext context) {
+    return AppScaffold(
+      title: 'Your plan',
+      subtitle: 'Built from your own data',
+      actions: [
+        InfoDot(
+          title: 'How this plan is made',
+          body:
+              'Simple, deterministic rules over your own recovery, sleep and '
+              'load — no AI, no server. Every suggestion shows the exact '
+              'numbers that fired it.',
+          methodNote: 'Rule-based · on-device · updates with each sync',
+        ),
+      ],
+      children: [CoachPlanContent(coach: coach), const SizedBox(height: Sp.x8)],
+    );
+  }
+}
+
+/// The pure plan board — testable with a sample /coach payload.
+class CoachPlanContent extends StatelessWidget {
+  final CoachData coach;
+  CoachPlanContent({super.key, required this.coach});
+
   // Severity → colour: 3 urgent, 2 caution, 1 nudge, 0 affirming.
   Color _sevColor(int s) => switch (s) {
-        3 => AppColors.bad,
-        2 => AppColors.warn,
-        1 => AppColors.coral,
-        _ => AppColors.good,
-      };
-  IconData _catIcon(String c) => switch (c) {
-        'recovery' => Ic.recovery,
-        'sleep' => Ic.moon,
-        'load' => Ic.strain,
-        'health' => Ic.heart,
-        _ => Ic.run,
-      };
+    3 => AppColors.bad,
+    2 => AppColors.warn,
+    1 => AppColors.accent,
+    _ => AppColors.good,
+  };
+  /// Illustrated counterpart of [_catIcon] — the severity colour stays on the
+  /// chip background (the art itself is never tinted).
+  OsIcon _catOsIcon(String c) => switch (c) {
+    'recovery' => OsIcon.recovery,
+    'sleep' => OsIcon.sleep,
+    'load' => OsIcon.bodyStrain,
+    'health' => OsIcon.heart,
+    _ => OsIcon.workouts,
+  };
 
   @override
   Widget build(BuildContext context) {
     final tgt = coach.strainTarget;
     final plan = coach.plan;
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: Sp.screen),
-          children: [
-            const SizedBox(height: Sp.x4),
-            Row(children: [
-              RoundIconButton(Ic.arrowLeft, onTap: () => Navigator.maybePop(context)),
-              const SizedBox(width: Sp.x3),
-              Text('Your plan', style: AppText.h1),
-            ]),
-            const SizedBox(height: Sp.x5),
-
-            // Narrative.
-            if (coach.summary.isNotEmpty)
-              GlowCard(
-                child: Row(children: [
-                  AppIcon(Ic.info, size: 20, color: AppColors.coralDeep),
-                  const SizedBox(width: Sp.x3),
-                  Expanded(child: Text(coach.summary, style: AppText.title)),
-                ]),
-              ),
-            const SizedBox(height: Sp.x4),
-
-            // Strain target.
-            if (tgt != null) _strainTarget(tgt),
-            if (tgt != null) const SizedBox(height: Sp.x6),
-
-            SectionHeader('What to do today'),
-            if (plan.isEmpty)
-              ProCard(
-                child: Row(children: [
-                  AppIcon(Ic.check, size: 22, color: AppColors.good),
-                  const SizedBox(width: Sp.x3),
-                  Expanded(
-                      child: Text('Nothing flagged — carry on with your day.',
-                          style: AppText.bodySoft)),
-                ]),
-              )
-            else
-              for (final s in plan) ...[
-                _suggestion(s),
-                const SizedBox(height: Sp.x3),
-              ],
-
-            const SizedBox(height: Sp.x4),
-            Row(children: [
-              AppIcon(Ic.shield, size: 14, color: AppColors.inkMuted),
-              const SizedBox(width: Sp.x2),
-              Expanded(
-                child: Text(
-                  'Built from your own data with simple rules. '
-                  'Every suggestion shows why it fired.',
-                  style: AppText.captionMuted,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Narrative — the one-line read on the day.
+        if (coach.summary.isNotEmpty)
+          SurfaceCard(
+            level: 2,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(1),
+                  decoration: BoxDecoration(
+                    color: AppColors.accentSoft,
+                    borderRadius: BorderRadius.circular(R.chip),
+                  ),
+                  child: OsAppIcon(OsIcon.today, size: 34),
                 ),
-              ),
-            ]),
-            const SizedBox(height: 40),
+                const SizedBox(width: Sp.x3),
+                Expanded(
+                  child: Text(
+                    coach.summary,
+                    style: AppText.title.copyWith(height: 1.35),
+                  ),
+                ),
+              ],
+            ),
+          ).dsEnter(index: 0),
+
+        // Strain target — a soft strain-domain tile with the aim band.
+        if (tgt != null) ...[
+          const SizedBox(height: Sp.x3),
+          _StrainTargetTile(t: tgt).dsEnter(index: 1),
+        ],
+
+        const SizedBox(height: Sp.x6),
+        const SectionHeader('What to do today'),
+        if (plan.isEmpty)
+          SurfaceCard(
+            child: Row(
+              children: [
+                AppIcon(OsIcon.check, size: 22, color: AppColors.good),
+                const SizedBox(width: Sp.x3),
+                Expanded(
+                  child: Text(
+                    'Nothing flagged — carry on with your day.',
+                    style: AppText.bodySoft,
+                  ),
+                ),
+              ],
+            ),
+          ).dsEnter(index: 2)
+        else
+          for (var i = 0; i < plan.length; i++) ...[
+            _SuggestionCard(
+              s: plan[i],
+              color: _sevColor(plan[i].severity),
+              icon: _catOsIcon(plan[i].category),
+            ).dsEnter(index: 2 + i),
+            if (i != plan.length - 1) const SizedBox(height: Sp.x3),
           ],
-        ),
+      ],
+    );
+  }
+}
+
+class _StrainTargetTile extends StatelessWidget {
+  final ({double value, double low, double high, String rationale}) t;
+  const _StrainTargetTile({required this.t});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = DomainAccent.strain;
+    return BentoTile(
+      tone: BentoTone.soft,
+      accent: accent,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TileHeader(
+            "Today's strain target",
+            trailing: InfoDot(
+              title: 'Strain target',
+              body:
+                  'How hard to go today, on the 0–21 strain scale, given your '
+                  'recovery and recent load. The band is the aim zone — the '
+                  'number is its centre.',
+              methodNote: t.rationale.isEmpty ? null : t.rationale,
+            ),
+          ),
+          const SizedBox(height: Sp.x2),
+          BigStat(
+            value: t.value.toStringAsFixed(1),
+            unit: 'of 21',
+            caption:
+                'aim ${t.low.toStringAsFixed(0)}–${t.high.toStringAsFixed(0)}',
+            captionAccent: true,
+          ),
+          const SizedBox(height: Sp.x3),
+          // The aim band on a 0..21 track.
+          LayoutBuilder(
+            builder: (context, c) {
+              final w = c.maxWidth;
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(R.pill),
+                child: SizedBox(
+                  height: 8,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: ColoredBox(color: AppColors.surfaceAlt),
+                      ),
+                      Positioned(
+                        left: (t.low / 21).clamp(0.0, 1.0) * w,
+                        width: ((t.high - t.low) / 21).clamp(0.0, 1.0) * w,
+                        top: 0,
+                        bottom: 0,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: accent,
+                            borderRadius: BorderRadius.circular(R.pill),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
+}
 
-  Widget _strainTarget(({double value, double low, double high, String rationale}) t) {
-    return ProCard(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          AppIcon(Ic.strain, size: 19, color: AppColors.coral),
-          const SizedBox(width: Sp.x2),
-          Text("Today's strain target", style: AppText.h2),
-        ]),
-        const SizedBox(height: Sp.x4),
-        Row(crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic, children: [
-          Text(t.value.toStringAsFixed(1), style: AppText.display.copyWith(color: AppColors.coral)),
-          const SizedBox(width: Sp.x2),
-          Padding(
-            padding: const EdgeInsets.only(bottom: Sp.x2),
-            child: Text('aim ${t.low.toStringAsFixed(0)}–${t.high.toStringAsFixed(0)} of 21',
-                style: AppText.caption.copyWith(color: AppColors.inkMuted)),
-          ),
-        ]),
-        const SizedBox(height: Sp.x3),
-        // Target band on a 0..21 track.
-        LayoutBuilder(builder: (context, c) {
-          final w = c.maxWidth;
-          return SizedBox(
-            height: 10,
-            child: Stack(children: [
-              Container(decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt, borderRadius: BorderRadius.circular(R.pill))),
-              Positioned(
-                left: (t.low / 21) * w,
-                width: ((t.high - t.low) / 21) * w,
-                top: 0, bottom: 0,
-                child: Container(decoration: BoxDecoration(
-                    color: AppColors.coral, borderRadius: BorderRadius.circular(R.pill))),
+class _SuggestionCard extends StatelessWidget {
+  final CoachSuggestion s;
+  final Color color;
+  final OsIcon icon;
+  const _SuggestionCard({
+    required this.s,
+    required this.color,
+    required this.icon,
+    });
+
+  @override
+  Widget build(BuildContext context) {
+    return SurfaceCard(
+      padding: const EdgeInsets.all(Sp.x4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: EdgeInsets.all(Sp.x2),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(R.chip),
+                ),
+                child: OsAppIcon(icon, size: 34),
               ),
-            ]),
-          );
-        }),
-        const SizedBox(height: Sp.x3),
-        Text(t.rationale, style: AppText.caption),
-      ]),
-    );
-  }
-
-  Widget _suggestion(CoachSuggestion s) {
-    final c = _sevColor(s.severity);
-    return ProCard(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-                color: c.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(R.chip)),
-            child: AppIcon(_catIcon(s.category), size: 18, color: c),
+              const SizedBox(width: Sp.x3),
+              Expanded(child: Text(s.title, style: AppText.title)),
+            ],
           ),
-          const SizedBox(width: Sp.x3),
-          Expanded(child: Text(s.title, style: AppText.title)),
-        ]),
-        const SizedBox(height: Sp.x3),
-        Text(s.body, style: AppText.bodySoft),
-        if (s.target != null) ...[
           const SizedBox(height: Sp.x3),
-          Row(children: [
-            AppIcon(Ic.strain, size: 15, color: AppColors.coralDeep),
-            const SizedBox(width: 6),
-            Text(s.target!, style: AppText.label.copyWith(color: AppColors.coralDeep)),
-          ]),
+          Text(s.body, style: AppText.bodySoft),
+          if (s.target != null) ...[
+            const SizedBox(height: Sp.x3),
+            StatusChip(s.target!, tone: ChipTone.accent),
+          ],
+          if (s.why.isNotEmpty) ...[
+            const SizedBox(height: Sp.x3),
+            Wrap(
+              spacing: Sp.x2,
+              runSpacing: Sp.x2,
+              children: [
+                for (final w in s.why)
+                  StatusChip(
+                    '${w.label} ${w.value}'
+                    '${(w.detail?.isNotEmpty ?? false) ? ' · ${w.detail}' : ''}',
+                  ),
+              ],
+            ),
+          ],
         ],
-        if (s.why.isNotEmpty) ...[
-          const SizedBox(height: Sp.x4),
-          Wrap(spacing: Sp.x2, runSpacing: Sp.x2, children: [
-            for (final w in s.why) _whyChip(w),
-          ]),
-        ],
-      ]),
-    );
-  }
-
-  Widget _whyChip(({String label, String value, String? detail}) w) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Sp.x3, vertical: 6),
-      decoration: BoxDecoration(
-          color: AppColors.surfaceAlt, borderRadius: BorderRadius.circular(R.chip)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text('${w.label}: ', style: AppText.caption),
-        Text(w.value, style: AppText.caption.copyWith(
-            color: AppColors.ink, fontWeight: FontWeight.w700)),
-        if (w.detail != null && w.detail!.isNotEmpty)
-          Text('  ${w.detail}', style: AppText.captionMuted),
-      ]),
+      ),
     );
   }
 }

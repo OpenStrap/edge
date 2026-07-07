@@ -75,6 +75,8 @@ class NotificationService {
   static const int idWindDown = 2002; // scheduled daily ("time to sleep")
   static const int idWeeklyRecap = 2003; // scheduled weekly
   static const int idJournalLog = 2004; // scheduled daily ("log your day")
+  static const int idMorningBrief = 2005; // scheduled daily (AI morning briefing)
+  static const int idEveningBrief = 2006; // scheduled daily (AI evening recap)
 
   /// Hydration reminders occupy a contiguous slot band [idWaterBase ..
   /// idWaterBase + maxWaterSlots) — one daily-repeating slot per fire time across
@@ -230,14 +232,26 @@ class NotificationService {
     required int hour,
     required int minute,
     String? route,
+    bool skipToday = false,
   }) async {
     try {
       if (!await ensurePermission()) return;
+      var when = _nextInstanceOf(hour, minute);
+      // skipToday: tonight's instance is already handled (e.g. the journal was
+      // logged before the prompt time) — start the daily repeat tomorrow.
+      if (skipToday) {
+        final now = tz.TZDateTime.now(tz.local);
+        if (when.year == now.year &&
+            when.month == now.month &&
+            when.day == now.day) {
+          when = when.add(const Duration(days: 1));
+        }
+      }
       await _plugin.zonedSchedule(
         id,
         title,
         body,
-        _nextInstanceOf(hour, minute),
+        when,
         _details(category),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:

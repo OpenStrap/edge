@@ -312,19 +312,18 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           inputs_used: ['resp_rate_series'],
         );
 
-  // Relative ODI over the SLEEP window's spo2 channels (desaturation screen).
+  // SpO2 is intentionally disabled for now. We keep carrying the raw red/IR
+  // channels through the pipeline for observability and future decoding work
+  // (validated against real hardware captures), but we do not publish any
+  // derived oxygen metric.
   final odiRed = [for (final v in d.sleepSpo2Red) v.toDouble()];
   final odiIr = [for (final v in d.sleepSpo2Ir) v.toDouble()];
   final odiTs = [for (final t in d.sleepTsSec) t.toDouble()];
-  final odi =
-      (odiRed.length == odiIr.length &&
-          odiRed.length == odiTs.length &&
-          odiRed.length >= 60)
-      ? relativeOdi(odiRed, odiIr, odiTs)
-      : const Metric<RelativeOdiResult>.absent(
-          tier: Tier.relative,
-          inputs_used: ['spo2_red_raw', 'spo2_ir_raw'],
-        );
+  const odi = Metric<RelativeOdiResult>.absent(
+    tier: Tier.relative,
+    inputs_used: ['spo2_red_raw', 'spo2_ir_raw'],
+    note: 'temporarily disabled pending hardware-verified packet decoding',
+  );
 
   // ── WELLNESS: relative skin-temp deviation (z) vs personal baseline ────────
   // STEP 1 — today's RAW mean sleep-window skin-temp ADC. ALWAYS computable when
@@ -611,37 +610,31 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
 
   // ── SpO₂ (RELATIVE only): overnight oxygen-dip screening from the red/IR ADC
   //    channels. Never absolute %SpO₂; this is a relative overnight signal.
-  final odiPerHour = odi.present ? odi.value!.odiPerHour : null;
-  final dipCount = odi.present ? odi.value!.dipCount : null;
-  final meanDipPct = odi.present ? odi.value!.meanDipPct : null;
-  final maxDipPct = odi.present ? odi.value!.maxDipPct : null;
-  final longestDipSec = odi.present ? odi.value!.longestDipSec : null;
-  final burdenPct = odi.present ? odi.value!.burdenPct : null;
-  final signalCoverage = odi.present ? odi.value!.signalCoverage : null;
-  final trustedCoverage = odi.present ? odi.value!.trustedCoverage : null;
   final rejectCounts = odi.present ? odi.value!.rejectCounts : null;
   final severityCounts = odi.present ? odi.value!.severityCounts : null;
   final spo2Block = <String, dynamic>{
-    'value': odiPerHour == null ? '—' : _round(odiPerHour, 2),
-    'odi_per_hour': odiPerHour == null ? null : _round(odiPerHour, 2),
-    'dip_count': dipCount,
-    'mean_dip_pct': meanDipPct == null ? null : _round(meanDipPct, 2),
-    'max_dip_pct': maxDipPct == null ? null : _round(maxDipPct, 2),
-    'longest_dip_sec': longestDipSec,
-    'burden_pct': burdenPct == null ? null : _round(burdenPct, 2),
-    'signal_coverage': signalCoverage == null
-        ? null
-        : _round(signalCoverage, 4),
-    'trusted_coverage': trustedCoverage == null
-        ? null
-        : _round(trustedCoverage, 4),
+    'disabled': true,
+    'value': null,
+    'odi_per_hour': null,
+    'dip_count': null,
+    'analyzed_hours': null,
+    'mean_dip_pct': null,
+    'max_dip_pct': null,
+    'longest_dip_sec': null,
+    'burden_pct': null,
+    'signal_coverage': null,
+    'trusted_coverage': null,
     'reject_counts': rejectCounts,
     'severity_counts': severityCounts,
-    'confidence': odi.present ? _round(odi.confidence, 4) : 0,
+    'confidence': 0,
     'tier': Tier.relative,
     'inputs_used': const ['spo2_red_raw', 'spo2_ir_raw'],
-    'note':
-        'relative overnight oxygen-dip screen (dips/h); no absolute %SpO₂ from this band',
+    'note': 'temporarily disabled pending hardware-verified packet decoding',
+    'debug': <String, dynamic>{
+      'sleep_samples': odiTs.length,
+      'red_non_zero': odiRed.where((v) => v > 0).length,
+      'ir_non_zero': odiIr.where((v) => v > 0).length,
+    },
   };
 
   // ── NOCTURNAL detail: sleeping-HR nadir + waking HR. Both computable today
@@ -782,12 +775,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'sdnn': hrvT.present ? hrvT.value!.sdnn : null,
       'dip_pct': dip.present ? dip.value!.dipPct : null,
       'trimp': trimp.present ? trimp.value : null,
-      'odi_per_hour': odi.present ? odi.value!.odiPerHour : null,
+      'odi_per_hour': null,
       'cpc_ratio': cpc.present ? cpc.value!.cpcRatio : null,
-      // Stress score (0–100) + SI for trends; spo2 relative desaturation index.
+      // Stress score (0–100) + SI for trends.
       'stress': stressScore,
       'stress_si': si,
-      'spo2': odiPerHour,
+      'spo2': null,
       // Active calories (Keytel) + nocturnal HR detail (nadir / waking HR).
       'calories': caloriesKcal == null ? null : _round(caloriesKcal, 0),
       'sleeping_hr_nadir': nadir,
@@ -802,8 +795,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'lf_hf': lfhf == null ? null : _round(lfhf, 3),
       'hrv_cv': hrvCv == null ? null : _round(hrvCv, 1),
       // 24/7 irregular-rhythm screen flag (1/0) → drives trend + notification.
-      'irregular_rhythm_flag':
-          irregular24h.present ? (irregular24h.value!.flag ? 1.0 : 0.0) : null,
+      'irregular_rhythm_flag': irregular24h.present
+          ? (irregular24h.value!.flag ? 1.0 : 0.0)
+          : null,
       // Breathing-rate variability (CV) + Theil-Sen trend slope.
       'brv_cv': brv.present ? _round(brv.value!.cv, 4) : null,
       'brv_slope': brv.present && brv.value!.trendSlope != null

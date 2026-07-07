@@ -60,7 +60,7 @@ class _UpdateCard extends StatelessWidget {
               color: AppColors.surface.withValues(alpha: 0.6),
               borderRadius: BorderRadius.circular(R.chip),
             ),
-            child: AppIcon(Ic.cloud, size: 20, color: AppColors.coralDeep),
+            child: AppIcon(OsIcon.sync, size: 20, color: AppColors.coralDeep),
           ),
           const SizedBox(width: Sp.x4),
           Expanded(
@@ -212,14 +212,14 @@ class _AlertCard extends StatelessWidget {
   final VoidCallback onDismiss;
   const _AlertCard({required this.banner, required this.onDismiss});
 
-  ({Color bg, Color fg, IconData icon}) get _style {
+  ({Color bg, Color fg, OsIcon icon}) get _style {
     switch (banner.level) {
       case BannerLevel.critical:
-        return (bg: AppColors.warnSoft, fg: AppColors.coralDeep, icon: Ic.shield);
+        return (bg: AppColors.warnSoft, fg: AppColors.coralDeep, icon: OsIcon.activity);
       case BannerLevel.warn:
-        return (bg: AppColors.warnSoft, fg: AppColors.warn, icon: Ic.bell);
+        return (bg: AppColors.warnSoft, fg: AppColors.warn, icon: OsIcon.activity);
       case BannerLevel.info:
-        return (bg: AppColors.coralSoft, fg: AppColors.coralDeep, icon: Ic.info);
+        return (bg: AppColors.coralSoft, fg: AppColors.coralDeep, icon: OsIcon.activity);
     }
   }
 
@@ -259,7 +259,7 @@ class _AlertCard extends StatelessWidget {
                   Row(mainAxisSize: MainAxisSize.min, children: [
                     Text('Open', style: AppText.label.copyWith(color: s.fg, fontWeight: FontWeight.w700)),
                     const SizedBox(width: 3),
-                    AppIcon(Ic.arrowRight, size: 14, color: s.fg),
+                    AppIcon(OsIcon.arrowRight, size: 14, color: s.fg),
                   ]),
                 ],
               ],
@@ -271,7 +271,7 @@ class _AlertCard extends StatelessWidget {
               behavior: HitTestBehavior.opaque,
               child: Padding(
                 padding: const EdgeInsets.only(left: Sp.x2),
-                child: AppIcon(Ic.cancel, size: 18, color: AppColors.inkMuted),
+                child: AppIcon(OsIcon.cancel, size: 18, color: AppColors.inkMuted),
               ),
             ),
         ],

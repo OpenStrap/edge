@@ -36,7 +36,13 @@ class CloudImporter {
   /// (AppState) persists the profile and flips the onboarding choice.
   static Future<CloudImportResult> run(BackendClient api,
       {int days = defaultDays}) async {
-    final now = DateTime.now().toUtc();
+    // LOCAL dates. Locally-derived day_ids are LOCAL calendar labels
+    // (LocalDb/day_label.dart); the import must key days the same way or the
+    // "real 1 Hz day overwrites the imported snapshot" REPLACE guarantee breaks
+    // (same day under two day_ids). The cloud rows' own `date` strings are
+    // passed through as day_ids; the query range is anchored on the local
+    // today so the current local day is never excluded.
+    final now = DateTime.now();
     final fromD = now.subtract(Duration(days: days));
     final from = _ymd(fromD), to = _ymd(now);
 

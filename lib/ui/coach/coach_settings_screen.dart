@@ -99,7 +99,7 @@ class _CoachSettingsScreenState extends State<CoachSettingsScreen> {
         Padding(
           padding: const EdgeInsets.only(bottom: Sp.x2),
           child: Row(children: [
-            AppIcon(Ic.check, size: 14, color: AppColors.coral),
+            AppIcon(OsIcon.check, size: 14, color: AppColors.coral),
             const SizedBox(width: Sp.x2),
             Expanded(child: Text('Using: $_model',
                 style: AppText.caption.copyWith(color: AppColors.coralInk))),
@@ -128,12 +128,12 @@ class _CoachSettingsScreenState extends State<CoachSettingsScreen> {
         padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x3),
         child: Row(children: [
           if (custom) ...[
-            AppIcon(Ic.edit, size: 13, color: AppColors.inkMuted),
+            AppIcon(OsIcon.edit, size: 13, color: AppColors.inkMuted),
             const SizedBox(width: Sp.x2),
           ],
           Expanded(child: Text(custom ? 'Use “$id”' : id,
               style: AppText.body.copyWith(color: selected ? AppColors.coralInk : AppColors.ink))),
-          if (selected) AppIcon(Ic.check, size: 18, color: AppColors.coral),
+          if (selected) AppIcon(OsIcon.check, size: 18, color: AppColors.coral),
         ]),
       ),
     );
@@ -150,14 +150,14 @@ class _CoachSettingsScreenState extends State<CoachSettingsScreen> {
           children: [
             const SizedBox(height: Sp.x4),
             Row(children: [
-              RoundIconButton(Ic.arrowLeft, onTap: () => Navigator.of(context).pop()),
+              RoundIconButton(OsIcon.arrowLeft, onTap: () => Navigator.of(context).pop()),
               const SizedBox(width: Sp.x3),
               Text('AI Coach', style: AppText.h1),
             ]),
             const SizedBox(height: Sp.x5),
 
             ProCard(child: Row(children: [
-              AppIcon(Ic.shield, size: 18, color: AppColors.good),
+              AppIcon(OsIcon.shield, size: 18, color: AppColors.good),
               const SizedBox(width: Sp.x3),
               Expanded(child: Text('Your key is stored only on this device and is sent '
                   'directly to your provider — never to OpenStrap.', style: AppText.captionMuted)),
@@ -179,7 +179,7 @@ class _CoachSettingsScreenState extends State<CoachSettingsScreen> {
               decoration: InputDecoration(
                 labelText: 'API key',
                 suffixIcon: IconButton(
-                  icon: AppIcon(_obscure ? Ic.info : Ic.check, size: 18, color: AppColors.inkMuted),
+                  icon: AppIcon(_obscure ? OsIcon.info : OsIcon.check, size: 18, color: AppColors.inkMuted),
                   onPressed: () => setState(() => _obscure = !_obscure),
                 ),
               ),

@@ -197,8 +197,12 @@ class _BeatingHeart extends StatelessWidget {
                 ),
               Transform.scale(
                 scale: s,
-                child: AppIcon(Ic.heart, size: 38,
-                    color: live ? accent : AppColors.inkMuted),
+                // Illustrated heart — full colour, so live/idle is expressed
+                // with opacity (the art can't be tinted to inkMuted).
+                // 48px in the 64px stage: the max lub-dub scale (~1.33×) then
+                // peaks exactly at the stage bounds — bigger art, no bleed.
+                child: OsAppIcon(OsIcon.heartRate,
+                    size: 48, opacity: live ? 1.0 : 0.35),
               ),
             ],
           );

@@ -1,7 +1,14 @@
-// OpenStrap theme — Space Grotesk display + Inter body, ember-coral on paper
-// (day) or char (night). `AppText` is the type scale; numbers use Space Grotesk
-// with tabular figures, body/labels use Inter. Text colours resolve through the
-// live `AppColors` getters, so the type scale follows the active mode for free.
+// OpenStrap theme — ONE type family (Manrope), ember-coral on paper (day) or
+// char (night). `AppText` is the type scale; every numeric/metric style carries
+// tabular figures so big numbers align and count-ups don't jitter. Text colours
+// resolve through the live `AppColors` getters, so the type scale follows the
+// active mode for free.
+//
+// Why Manrope: a single family must do three jobs here — hero numerals with
+// real presence (w800, tight tracking), dense small labels that stay legible,
+// and body copy that reads effortlessly. Manrope covers 200–800 with true
+// tabular figures, so the whole app speaks one voice (the old Space Grotesk +
+// Inter pairing is consolidated away).
 //
 // `buildOpenStrapTheme(palette)` builds a full ThemeData from an explicit
 // [Palette] (not the live getters) so the light + dark ThemeData objects are
@@ -9,71 +16,123 @@
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'page_transitions.dart';
 import 'tokens.dart';
 
-/// Type scale. Display + numerics → Space Grotesk; body/labels → Inter.
+/// Type scale — one family (Manrope). Numerics carry tabular figures.
 /// Colours come from the live [AppColors] getters → they track the active mode.
 class AppText {
   AppText._();
 
   static const _tnum = [FontFeature.tabularFigures()];
 
-  // ── Display / numerics (Space Grotesk) ──
-  static TextStyle get hero => GoogleFonts.spaceGrotesk(
-        fontSize: 64, fontWeight: FontWeight.w700, height: 0.98,
-        letterSpacing: -2, color: AppColors.ink, fontFeatures: _tnum);
-  static TextStyle get display => GoogleFonts.spaceGrotesk(
-        fontSize: 44, fontWeight: FontWeight.w700, height: 1.0,
-        letterSpacing: -1.2, color: AppColors.ink, fontFeatures: _tnum);
-  static TextStyle get metric => GoogleFonts.spaceGrotesk(
-        fontSize: 30, fontWeight: FontWeight.w700, height: 1.0,
-        letterSpacing: -0.6, color: AppColors.ink, fontFeatures: _tnum);
-  static TextStyle get metricSm => GoogleFonts.spaceGrotesk(
-        fontSize: 22, fontWeight: FontWeight.w700, height: 1.0,
-        letterSpacing: -0.3, color: AppColors.ink, fontFeatures: _tnum);
+  // ── Display / numerics — heavy, tight, tabular ──
+  static TextStyle get hero => GoogleFonts.manrope(
+    fontSize: 64,
+    fontWeight: FontWeight.w800,
+    height: 0.98,
+    letterSpacing: -2.4,
+    color: AppColors.ink,
+    fontFeatures: _tnum,
+  );
+  static TextStyle get display => GoogleFonts.manrope(
+    fontSize: 44,
+    fontWeight: FontWeight.w800,
+    height: 1.0,
+    letterSpacing: -1.4,
+    color: AppColors.ink,
+    fontFeatures: _tnum,
+  );
+  static TextStyle get metric => GoogleFonts.manrope(
+    fontSize: 30,
+    fontWeight: FontWeight.w800,
+    height: 1.0,
+    letterSpacing: -0.7,
+    color: AppColors.ink,
+    fontFeatures: _tnum,
+  );
+  static TextStyle get metricSm => GoogleFonts.manrope(
+    fontSize: 22,
+    fontWeight: FontWeight.w800,
+    height: 1.0,
+    letterSpacing: -0.35,
+    color: AppColors.ink,
+    fontFeatures: _tnum,
+  );
 
-  // ── Headings (Space Grotesk) ──
-  static TextStyle get h1 => GoogleFonts.spaceGrotesk(
-        fontSize: 28, fontWeight: FontWeight.w700, height: 1.05,
-        letterSpacing: -0.6, color: AppColors.ink);
-  static TextStyle get h2 => GoogleFonts.spaceGrotesk(
-        fontSize: 20, fontWeight: FontWeight.w700, height: 1.1,
-        letterSpacing: -0.3, color: AppColors.ink);
+  // ── Headings ──
+  static TextStyle get h1 => GoogleFonts.manrope(
+    fontSize: 28,
+    fontWeight: FontWeight.w800,
+    height: 1.05,
+    letterSpacing: -0.7,
+    color: AppColors.ink,
+  );
+  static TextStyle get h2 => GoogleFonts.manrope(
+    fontSize: 20,
+    fontWeight: FontWeight.w700,
+    height: 1.1,
+    letterSpacing: -0.35,
+    color: AppColors.ink,
+  );
 
-  // ── Body / labels (Inter) ──
-  static TextStyle get title => GoogleFonts.inter(
-        fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.ink);
-  static TextStyle get body => GoogleFonts.inter(
-        fontSize: 14.5, fontWeight: FontWeight.w400, height: 1.45,
-        color: AppColors.ink);
-  static TextStyle get bodySoft => GoogleFonts.inter(
-        fontSize: 14.5, fontWeight: FontWeight.w400, height: 1.45,
-        color: AppColors.inkSoft);
-  static TextStyle get label => GoogleFonts.inter(
-        fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.inkSoft,
-        letterSpacing: 0.1);
-  static TextStyle get caption => GoogleFonts.inter(
-        fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.inkSoft);
-  static TextStyle get captionMuted => GoogleFonts.inter(
-        fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.inkMuted);
-  static TextStyle get overline => GoogleFonts.inter(
-        fontSize: 11.5, fontWeight: FontWeight.w700, letterSpacing: 1.4,
-        color: AppColors.inkMuted);
+  // ── Body / labels ──
+  static TextStyle get title => GoogleFonts.manrope(
+    fontSize: 16,
+    fontWeight: FontWeight.w700,
+    letterSpacing: -0.15,
+    color: AppColors.ink,
+  );
+  static TextStyle get body => GoogleFonts.manrope(
+    fontSize: 14.5,
+    fontWeight: FontWeight.w500,
+    height: 1.45,
+    color: AppColors.ink,
+  );
+  static TextStyle get bodySoft => GoogleFonts.manrope(
+    fontSize: 14.5,
+    fontWeight: FontWeight.w500,
+    height: 1.45,
+    color: AppColors.inkSoft,
+  );
+  static TextStyle get label => GoogleFonts.manrope(
+    fontSize: 13,
+    fontWeight: FontWeight.w700,
+    color: AppColors.inkSoft,
+    letterSpacing: 0.1,
+  );
+  static TextStyle get caption => GoogleFonts.manrope(
+    fontSize: 12,
+    fontWeight: FontWeight.w600,
+    color: AppColors.inkSoft,
+  );
+  static TextStyle get captionMuted => GoogleFonts.manrope(
+    fontSize: 12,
+    fontWeight: FontWeight.w600,
+    color: AppColors.inkMuted,
+  );
+  static TextStyle get overline => GoogleFonts.manrope(
+    fontSize: 11,
+    fontWeight: FontWeight.w800,
+    letterSpacing: 1.5,
+    color: AppColors.inkMuted,
+  );
 }
 
 /// Build the full theme from an explicit [Palette] so light/dark are each
 /// self-consistent. Call with [kLightPalette] / [kDarkPalette].
 ThemeData buildOpenStrapTheme(Palette p) {
-  final scheme = ColorScheme.fromSeed(
-    seedColor: p.coral,
-    brightness: p.brightness,
-  ).copyWith(
-    surface: p.surface,
-    onSurface: p.ink,
-    primary: p.coral,
-    onPrimary: Colors.white,
-    secondary: p.coralDeep,
-  );
+  final scheme =
+      ColorScheme.fromSeed(
+        seedColor: p.coral,
+        brightness: p.brightness,
+      ).copyWith(
+        surface: p.surface,
+        onSurface: p.ink,
+        primary: p.coral,
+        onPrimary: Colors.white,
+        secondary: p.coralDeep,
+      );
 
   final base = ThemeData(
     useMaterial3: true,
@@ -83,9 +142,23 @@ ThemeData buildOpenStrapTheme(Palette p) {
     dividerColor: p.divider,
     splashColor: p.coral.withValues(alpha: 0.08),
     highlightColor: p.coral.withValues(alpha: 0.05),
-    textTheme: GoogleFonts.interTextTheme().apply(
+    textTheme: GoogleFonts.manropeTextTheme().apply(
       bodyColor: p.ink,
       displayColor: p.ink,
+    ),
+    // Page transitions live HERE (not in a custom PageRouteBuilder) so pushed
+    // routes stay MaterialPageRoutes: iOS keeps the native slide transition
+    // AND the interactive edge-swipe-back gesture; Android-likes get the
+    // app's shared-axis fade-through. See page_transitions.dart.
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: SharedAxisPageTransitionsBuilder(),
+        TargetPlatform.fuchsia: SharedAxisPageTransitionsBuilder(),
+        TargetPlatform.linux: SharedAxisPageTransitionsBuilder(),
+        TargetPlatform.windows: SharedAxisPageTransitionsBuilder(),
+        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+      },
     ),
   );
 
@@ -96,19 +169,31 @@ ThemeData buildOpenStrapTheme(Palette p) {
       foregroundColor: p.ink,
       elevation: 0,
       centerTitle: false,
-      titleTextStyle: GoogleFonts.spaceGrotesk(
-          fontSize: 20, fontWeight: FontWeight.w700, height: 1.1,
-          letterSpacing: -0.3, color: p.ink),
+      titleTextStyle: GoogleFonts.manrope(
+        fontSize: 20,
+        fontWeight: FontWeight.w700,
+        height: 1.1,
+        letterSpacing: -0.35,
+        color: p.ink,
+      ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: p.surface,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: Sp.x5, vertical: Sp.x4),
-      hintStyle: GoogleFonts.inter(
-          fontSize: 14.5, fontWeight: FontWeight.w400, color: p.inkMuted),
-      labelStyle: GoogleFonts.inter(
-          fontSize: 14.5, fontWeight: FontWeight.w400, color: p.inkSoft),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: Sp.x5,
+        vertical: Sp.x4,
+      ),
+      hintStyle: GoogleFonts.manrope(
+        fontSize: 14.5,
+        fontWeight: FontWeight.w500,
+        color: p.inkMuted,
+      ),
+      labelStyle: GoogleFonts.manrope(
+        fontSize: 14.5,
+        fontWeight: FontWeight.w500,
+        color: p.inkSoft,
+      ),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(R.cardSm),
         borderSide: BorderSide(color: p.divider),
@@ -129,9 +214,13 @@ ThemeData buildOpenStrapTheme(Palette p) {
         disabledBackgroundColor: p.inkMuted.withValues(alpha: 0.35),
         minimumSize: const Size(0, 56),
         elevation: 0,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.pill)),
-        textStyle: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(R.pill),
+        ),
+        textStyle: GoogleFonts.manrope(
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
@@ -139,22 +228,31 @@ ThemeData buildOpenStrapTheme(Palette p) {
         foregroundColor: p.ink,
         minimumSize: const Size(0, 56),
         side: BorderSide(color: p.divider, width: 1.5),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.pill)),
-        textStyle: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(R.pill),
+        ),
+        textStyle: GoogleFonts.manrope(
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: p.coralDeep,
-        textStyle: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600),
+        textStyle: GoogleFonts.manrope(
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       backgroundColor: p.isDark ? p.surfaceAlt : AppColors.night,
-      contentTextStyle: GoogleFonts.inter(color: AppColors.onNight),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.chip)),
+      contentTextStyle: GoogleFonts.manrope(color: AppColors.onNight),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(R.chip),
+      ),
     ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: p.surface,
