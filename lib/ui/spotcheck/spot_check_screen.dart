@@ -99,7 +99,7 @@ class SpotCheckView extends StatelessWidget {
             padding: const EdgeInsets.all(Sp.x4),
             child: Row(
               children: [
-                AppIcon(Ic.info, size: 16, color: DomainAccent.recovery),
+                AppIcon(OsIcon.info, size: 16, color: DomainAccent.recovery),
                 const SizedBox(width: Sp.x3),
                 Expanded(
                   child: Text(
@@ -115,7 +115,7 @@ class SpotCheckView extends StatelessWidget {
           _resultBento(result!).dsEnter(index: 1)
         else if (error != null)
           StateCard(
-            icon: Ic.pulse,
+            icon: OsIcon.heartRate,
             title: "Couldn't get a clean read",
             message: error!,
           ).dsEnter(index: 1),
@@ -123,7 +123,7 @@ class SpotCheckView extends StatelessWidget {
         if (!active)
           FilledButton.icon(
             onPressed: connected ? onStart : null,
-            icon: const AppIcon(Ic.pulse, size: 18, color: Colors.white),
+            icon: const AppIcon(OsIcon.heartRate, size: 18, color: Colors.white),
             label: Text(result == null ? 'Start 60-second scan' : 'Scan again'),
           ).dsEnter(index: 2)
         else
@@ -188,7 +188,7 @@ class SpotCheckView extends StatelessWidget {
       color: color,
       size: 200,
       stroke: 15,
-      center: AppIcon(Ic.pulse, size: 52, color: AppColors.inkMuted),
+      center: AppIcon(OsIcon.heartRate, size: 52, color: AppColors.inkMuted),
     );
   }
 

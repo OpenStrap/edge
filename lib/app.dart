@@ -330,7 +330,7 @@ class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderState
             const SizedBox(width: Sp.x3),
             Text('LIVE · ${w.type.toUpperCase()}', style: AppText.overline.copyWith(color: Colors.white70)),
             const Spacer(),
-            AppIcon(Ic.heart, size: 15, color: AppColors.coral),
+            AppIcon(OsIcon.heart, size: 15, color: AppColors.coral),
             const SizedBox(width: 4),
             Text(w.currentHr > 0 ? '${w.currentHr}' : '—',
                 style: AppText.metricSm.copyWith(color: Colors.white, fontSize: 16)),
@@ -338,7 +338,7 @@ class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderState
             Text(_fmt(w.elapsed), style: AppText.metricSm.copyWith(
                 color: Colors.white60, fontSize: 15, fontFeatures: [const FontFeature.tabularFigures()])),
             const SizedBox(width: Sp.x2),
-            const AppIcon(Ic.arrowRight, size: 16, color: Colors.white38),
+            const AppIcon(OsIcon.arrowRight, size: 16, color: Colors.white38),
           ]),
         ),
       ),

@@ -70,10 +70,9 @@ String? infoFor(String key) => kMetricInfo[key];
 /// strain_detail_screen.dart don't need touching — this is the one place to
 /// change if that decision ever reverses.
 class MetricRow extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
 
   /// Illustrated variant — takes precedence over [icon] inside the chip.
-  final OsIcon? osIcon;
   final Color? accent;
   final String label;
   final String? info;
@@ -84,7 +83,6 @@ class MetricRow extends StatelessWidget {
   const MetricRow({
     super.key,
     required this.icon,
-    this.osIcon,
     required this.label,
     required this.value,
     this.info,
@@ -150,7 +148,7 @@ class MetricRow extends StatelessWidget {
                 ],
                 if (onTap != null) ...[
                   const SizedBox(width: Sp.x2),
-                  AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
+                  AppIcon(OsIcon.arrowRight, size: 16, color: AppColors.inkMuted),
                 ],
               ],
             ),

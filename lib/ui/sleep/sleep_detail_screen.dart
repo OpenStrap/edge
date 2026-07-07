@@ -178,7 +178,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
     if (_phase == _Phase.empty) {
       return [
         StateCard(
-          icon: Ic.moon,
+          icon: OsIcon.sleep,
           title: 'No sleep recorded for this night',
           message: 'Wear your strap overnight and sync — your breakdown '
               'appears once a night has been recorded.',
@@ -190,7 +190,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
     if (_phase == _Phase.error) {
       return [
         StateCard(
-          icon: Ic.cloud,
+          icon: OsIcon.sync,
           title: "Couldn't load this night",
           message: _error ?? 'Please try again.',
           actionLabel: 'Try again',
@@ -224,7 +224,7 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
       actions: [
         // All sleeps of the day (naps included) — the multi-period view.
         RoundIconButton(
-          Ic.bed,
+          OsIcon.bedtime,
           onTap: () => Navigator.of(context).push(
             themedRoute((_) => SleepPeriodsScreen(date: widget.date)),
           ),
@@ -477,7 +477,7 @@ class SleepNightContent extends StatelessWidget {
     return SurfaceCard(
       padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
       child: Row(children: [
-        AppIcon(Ic.check, size: 16, color: AppColors.positive),
+        AppIcon(OsIcon.check, size: 16, color: AppColors.positive),
         const SizedBox(width: Sp.x3),
         Expanded(
           child: Text(
@@ -602,8 +602,7 @@ class SleepNightContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const TileHeader('To bed',
-                  icon: Ic.moon, osIcon: OsIcon.bedtime),
+              const TileHeader('To bed'),
               const SizedBox(height: Sp.x2),
               BigStat(value: onset == null ? null : _clock(onset)),
             ],
@@ -621,7 +620,7 @@ class SleepNightContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const TileHeader('Efficiency', icon: Ic.chart),
+              const TileHeader('Efficiency'),
               const SizedBox(height: Sp.x2),
               Row(
                 children: [
@@ -654,7 +653,7 @@ class SleepNightContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const TileHeader('Sleep debt', icon: Ic.bed),
+              const TileHeader('Sleep debt'),
               const SizedBox(height: Sp.x2),
               BigStat(
                 value: debt == null ? null : (noDebt ? 'None' : _hm(debt)),
@@ -675,7 +674,7 @@ class SleepNightContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const TileHeader('Woke', icon: Ic.clock, osIcon: OsIcon.awake),
+              const TileHeader('Woke'),
               const SizedBox(height: Sp.x2),
               BigStat(value: wake == null ? null : _clock(wake)),
             ],
@@ -691,7 +690,7 @@ class SleepNightContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const TileHeader('Awake', icon: Ic.clock),
+              const TileHeader('Awake'),
               const SizedBox(height: Sp.x2),
               BigStat(value: _awakeMin == null ? null : _hm(_awakeMin)),
             ],
@@ -708,7 +707,7 @@ class SleepNightContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const TileHeader('Consistency', icon: Ic.calendar),
+              const TileHeader('Consistency'),
               const SizedBox(height: Sp.x2),
               BigStat(
                 value: reg == null ? null : '${reg.round()}',
@@ -882,8 +881,6 @@ class SleepNightContent extends StatelessWidget {
             children: [
               Expanded(
                 child: TileHeader('Cycles',
-                    icon: Ic.pulse,
-                    osIcon: OsIcon.sleepHypnogram,
                     trailing: Tag('beta', color: AppColors.coral)),
               ),
               InfoDot(
@@ -1025,8 +1022,7 @@ class SleepNightContent extends StatelessWidget {
           Row(
             children: [
               const Expanded(
-                  child: TileHeader('Sleeping HR',
-                      icon: Ic.heart, osIcon: OsIcon.heart)),
+                  child: TileHeader('Sleeping HR')),
               if (dip != null)
                 StatusChip('dip ${(dip * 100).round()}%',
                     tone: ChipTone.positive),
@@ -1059,7 +1055,7 @@ class SleepNightContent extends StatelessWidget {
             Row(
               children: [
                 const StatusChip('Above baseline overnight',
-                    icon: Icons.trending_up_rounded, tone: ChipTone.warn),
+                    icon: OsIcon.activity, tone: ChipTone.warn),
                 InfoDot(
                   title: 'Elevated overnight HR',
                   body:
@@ -1129,7 +1125,7 @@ class SleepNightContent extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            AppIcon(Ic.watch, size: 18, color: AppColors.inkMuted),
+            AppIcon(OsIcon.wear, size: 18, color: AppColors.inkMuted),
             const SizedBox(width: Sp.x3),
             Expanded(
                 child: Text(_prettyOrientation(dominant), style: AppText.title)),
@@ -1167,8 +1163,7 @@ class SleepNightContent extends StatelessWidget {
   Widget _trends() {
     return MetricGroup([
       TrendMetricRow(
-          icon: Ic.moon,
-          osIcon: OsIcon.sleep,
+          icon: OsIcon.sleep,
           accent: DomainAccent.sleep,
           label: 'Time asleep',
           info: infoFor('sleep'),
@@ -1178,7 +1173,7 @@ class SleepNightContent extends StatelessWidget {
           valueFmt: (v) => v == 0 ? '' : (v / 60).toStringAsFixed(1)),
       if (_efficiency != null)
         TrendMetricRow(
-            icon: Ic.chart,
+            icon: OsIcon.activity,
             accent: AppColors.good,
             label: 'Efficiency',
             info: infoFor('efficiency'),
@@ -1188,8 +1183,7 @@ class SleepNightContent extends StatelessWidget {
             trendTitle: 'Sleep efficiency'),
       if (_lightMin != null)
         TrendMetricRow(
-            icon: Ic.pulse,
-            osIcon: OsIcon.lightSleep,
+            icon: OsIcon.lightSleep,
             accent: DomainAccent.stageLight,
             label: 'Light sleep',
             info: infoFor('light'),
@@ -1198,8 +1192,7 @@ class SleepNightContent extends StatelessWidget {
             trendTitle: 'Light sleep'),
       if (_deepMin != null)
         TrendMetricRow(
-            icon: Ic.pulse,
-            osIcon: OsIcon.deepSleep,
+            icon: OsIcon.deepSleep,
             accent: DomainAccent.stageDeep,
             label: 'Deep sleep',
             info: infoFor('deep'),
@@ -1208,7 +1201,7 @@ class SleepNightContent extends StatelessWidget {
             trendTitle: 'Deep sleep'),
       if (_remMin != null)
         TrendMetricRow(
-            icon: Ic.pulse,
+            icon: OsIcon.heartRate,
             accent: DomainAccent.stageRem,
             label: 'REM sleep',
             info: infoFor('rem'),
@@ -1217,7 +1210,7 @@ class SleepNightContent extends StatelessWidget {
             trendTitle: 'REM sleep'),
       if (_regularity != null)
         TrendMetricRow(
-            icon: Ic.calendar,
+            icon: OsIcon.calendar,
             accent: AppColors.good,
             label: 'Consistency',
             info: infoFor('regularity'),
@@ -1227,7 +1220,7 @@ class SleepNightContent extends StatelessWidget {
       else
         // Honest gated state: SRI needs several nights of sleep timing.
         MetricRow(
-            icon: Ic.calendar,
+            icon: OsIcon.calendar,
             accent: AppColors.inkSoft,
             label: 'Consistency',
             info: infoFor('regularity'),

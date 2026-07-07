@@ -62,7 +62,7 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
       actions: [
         if (ctrl != null)
           RoundIconButton(
-            dark ? Ic.fire : Ic.moon,
+            dark ? OsIcon.calories : OsIcon.sleep,
             onTap: () => _toggleTheme(ctrl),
           ),
       ],
@@ -199,32 +199,28 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
           onTap: () {},
           satellites: [
             OrbitSatellite(
-              icon: Ic.moon,
-              osIcon: OsIcon.sleep,
+              icon: OsIcon.sleep,
               label: 'Sleep',
               value: '7h 42m',
               color: DomainAccent.sleep,
               onTap: () {},
             ),
             OrbitSatellite(
-              icon: Ic.heart,
-              osIcon: OsIcon.heart,
+              icon: OsIcon.heart,
               label: 'Heart',
               value: '48 ms',
               color: DomainAccent.heart,
               onTap: () {},
             ),
             OrbitSatellite(
-              icon: Ic.strain,
-              osIcon: OsIcon.bodyStrain,
+              icon: OsIcon.bodyStrain,
               label: 'Strain',
               value: '12.4',
               color: DomainAccent.strain,
               onTap: () {},
             ),
             OrbitSatellite(
-              icon: Ic.pulse,
-              osIcon: OsIcon.stress,
+              icon: OsIcon.stress,
               label: 'Stress',
               value: '34',
               color: DomainAccent.stress,
@@ -246,7 +242,7 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const TileHeader('HRV', icon: Ic.pulse, osIcon: OsIcon.hrv,
+                  const TileHeader('HRV',
                       trailing: ConfDot(0.85)),
                   const SizedBox(height: Sp.x2),
                   const BigStat(value: '48', unit: 'ms'),
@@ -269,7 +265,7 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const TileHeader('Sleep', icon: Ic.moon, osIcon: OsIcon.sleep),
+                  const TileHeader('Sleep'),
                   const SizedBox(height: Sp.x2),
                   const BigStat(value: '7h 42m', caption: 'of 8h 00m need'),
                   const SizedBox(height: Sp.x3),
@@ -292,8 +288,7 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const TileHeader('Resting HR',
-                      icon: Ic.heart, osIcon: OsIcon.restingHeartRate),
+                  const TileHeader('Resting HR'),
                   const SizedBox(height: Sp.x2),
                   const BigStat(
                     value: '52',
@@ -319,7 +314,7 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TileHeader('Calories', icon: Ic.fire, osIcon: OsIcon.calories),
+                  TileHeader('Calories'),
                   SizedBox(height: Sp.x2),
                   BigStat(value: '640', unit: 'kcal', caption: 'active burn'),
                 ],
@@ -331,7 +326,7 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  TileHeader('O₂ dips', icon: Ic.droplet),
+                  TileHeader('O₂ dips'),
                   SizedBox(height: Sp.x2),
                   BigStat.dash(), // honest em-dash
                 ],
@@ -454,8 +449,6 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
               MetricCard(
                 hero: true,
                 label: 'Readiness',
-                icon: Ic.recovery,
-                osIcon: OsIcon.recovery,
                 value: '82',
                 unit: '%',
                 animateFrom: 82,
@@ -480,8 +473,6 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
             BentoItem(
               MetricCard(
                 label: 'Resting HR',
-                icon: Ic.heart,
-                osIcon: OsIcon.restingHeartRate,
                 value: '52',
                 unit: 'bpm',
                 animateFrom: 52,
@@ -502,8 +493,6 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
             BentoItem(
               MetricCard(
                 label: 'HRV',
-                icon: Ic.pulse,
-                osIcon: OsIcon.hrv,
                 value: '48',
                 unit: 'ms',
                 animateFrom: 48,
@@ -521,8 +510,6 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
             BentoItem(
               MetricCard(
                 label: 'Sleep',
-                icon: Ic.moon,
-                osIcon: OsIcon.sleep,
                 value: '7:42',
                 delta: const DeltaChip(6.5),
                 onTap: () {},
@@ -531,8 +518,6 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
             const BentoItem(
               MetricCard(
                 label: 'Skin temp',
-                icon: Ic.thermometer,
-                osIcon: OsIcon.skinTemperature,
                 value: null, // honest null → em-dash
               ),
             ),
@@ -702,7 +687,7 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
           child: Column(
             children: [
               ListRow(
-                icon: Ic.watch,
+                icon: OsIcon.wear,
                 iconColor: AppColors.accent,
                 title: 'WHOOP 4.0',
                 subtitle: 'Connected · 74%',
@@ -710,15 +695,14 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
                 onTap: () {},
               ),
               ListRow(
-                icon: Ic.bed,
-                osIcon: OsIcon.sleep,
+                icon: OsIcon.sleep,
                 title: 'Sleep',
                 value: '7 h 42 m',
                 divider: true,
                 onTap: () {},
               ),
               ListRow(
-                icon: Ic.run,
+                icon: OsIcon.run,
                 title: 'Morning run',
                 subtitle: '5.2 km · 27:40',
                 trailing: const StatusChip('Zone 4', tone: ChipTone.accent),
@@ -734,7 +718,7 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
         Skeleton.tileRow(rows: 1),
         const SizedBox(height: Sp.x3),
         StateCard(
-          icon: Ic.bluetooth,
+          icon: OsIcon.bluetooth,
           title: 'Nothing yet',
           message: 'Wear your strap tonight and sync in the morning.',
           actionLabel: 'Sync now',

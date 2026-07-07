@@ -1147,7 +1147,7 @@ class SegmentBar extends StatelessWidget {
 /// Composite stat tile: icon + label, big number + unit, optional delta + spark.
 /// Renders "—" muted when [value] is null. Confidence dot + honesty tag optional.
 class StatTile extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
   final String label;
   final String? value;
   final String? unit;

@@ -171,21 +171,18 @@ class _TodayScreenState extends State<TodayScreen>
       actions: [
         _bellButton(),
         RoundIconButton(
-          Ic.edit,
-          osIcon: OsIcon.edit,
+          OsIcon.edit,
           onTap: () => _push(() => const JournalScreen()),
         ),
         // Profile / settings.
         RoundIconButton(
-          Ic.profile,
-          osIcon: OsIcon.profile,
+          OsIcon.profile,
           onTap: () => _push(() => const ProfileScreen()),
         ),
         // Recap: plain surface like its siblings — the full-colour art would
         // clash on the old coral fill.
         RoundIconButton(
-          Ic.chart,
-          osIcon: OsIcon.recap,
+          OsIcon.activity,
           onTap: () => _push(() => const RecapScreen()),
         ),
       ],
@@ -214,7 +211,7 @@ class _TodayScreenState extends State<TodayScreen>
               _emptyOrProcessing(app)
             else if (phase == LoadPhase.error)
               StateCard(
-                icon: Ic.cloud,
+                icon: OsIcon.sync,
                 title: "Couldn't load today",
                 message: errorText ?? 'Pull down to retry.',
                 actionLabel: 'Retry',
@@ -236,8 +233,7 @@ class _TodayScreenState extends State<TodayScreen>
       clipBehavior: Clip.none,
       children: [
         RoundIconButton(
-          Ic.bell,
-          osIcon: OsIcon.notifications,
+          OsIcon.notifications,
           onTap: () async {
             await Navigator.of(
               context,
@@ -431,7 +427,7 @@ class _TodayScreenState extends State<TodayScreen>
         : 'Recovery signal';
     return Row(
       children: [
-        StatusChip(title, icon: Icons.error_outline, tone: ChipTone.warn),
+        StatusChip(title, icon: OsIcon.activity, tone: ChipTone.warn),
         InfoDot(
           title: title,
           body: note,
@@ -449,8 +445,7 @@ class _TodayScreenState extends State<TodayScreen>
     return SurfaceCard(
       padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
       child: ListRow(
-        icon: Ic.recovery,
-        osIcon: OsIcon.today,
+        icon: OsIcon.today,
         iconColor: AppColors.accent,
         title: "Today's plan",
         subtitle: top?.title ??
@@ -490,7 +485,7 @@ class _TodayScreenState extends State<TodayScreen>
               const OsAppIcon(OsIcon.heartRate, size: 34),
               const SizedBox(width: Sp.x2),
               Expanded(child: Text('LOOKBACK', style: AppText.overline)),
-              AppIcon(Ic.arrowRight, size: 15, color: AppColors.onSurfaceFaint),
+              AppIcon(OsIcon.arrowRight, size: 15, color: AppColors.onSurfaceFaint),
             ],
           ),
           const SizedBox(height: Sp.x3),
@@ -571,7 +566,7 @@ class _TodayScreenState extends State<TodayScreen>
     }
     if (raw > 0) {
       return StateCard(
-        icon: Ic.history,
+        icon: OsIcon.history,
         title: 'Data collected — not analyzed yet',
         message:
             'Stored $raw raw record${raw == 1 ? '' : 's'} from your strap. '
@@ -581,7 +576,7 @@ class _TodayScreenState extends State<TodayScreen>
       );
     }
     return const StateCard(
-      icon: Ic.watch,
+      icon: OsIcon.wear,
       title: 'Wear + sync to see today',
       message:
           'Put your strap on and keep the app open. Your daily metrics '
@@ -645,7 +640,7 @@ class _TodayScreenState extends State<TodayScreen>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AppIcon(Ic.info, size: 18, color: AppColors.coralDeep),
+          AppIcon(OsIcon.info, size: 18, color: AppColors.coralDeep),
           const SizedBox(width: Sp.x3),
           Expanded(child: Text('$label$extra', style: AppText.bodySoft)),
         ],
@@ -768,15 +763,14 @@ class TodayVitals extends StatelessWidget {
           child: Column(
             children: [
               ListRow(
-                icon: Ic.watch,
+                icon: OsIcon.wear,
                 title: 'Wear time',
                 value: _hm(t.wearTime) ?? '—',
                 divider: true,
                 onTap: () => onOpen('wear'),
               ),
               ListRow(
-                icon: Ic.recovery,
-                osIcon: OsIcon.records,
+                icon: OsIcon.records,
                 title: 'Records & streaks',
                 onTap: () => onOpen('records'),
               ),
@@ -806,7 +800,7 @@ class TodayVitals extends StatelessWidget {
               'is shown${status.overnightDay != null ? ' (${status.overnightDay})' : ''}.';
     return Row(
       children: [
-        StatusChip(label, icon: Icons.hourglass_top_rounded,
+        StatusChip(label, icon: OsIcon.activity,
             tone: building ? ChipTone.warn : ChipTone.neutral),
         InfoDot(title: label, body: body),
         const Spacer(),
@@ -868,32 +862,28 @@ class TodayVitals extends StatelessWidget {
       // Each satellite carries its metric's number so the hero reads at a glance.
       satellites: [
         OrbitSatellite(
-          icon: Ic.moon,
-          osIcon: OsIcon.sleep,
+          icon: OsIcon.sleep,
           label: 'Sleep',
           value: t.sleepDuration.isEmpty ? null : _hm(t.sleepDuration),
           color: DomainAccent.sleep,
           onTap: () => onOpen('sleep'),
         ),
         OrbitSatellite(
-          icon: Ic.heart,
-          osIcon: OsIcon.heart,
+          icon: OsIcon.heart,
           label: 'Heart',
           value: _int(t.restingHr),
           color: DomainAccent.heart,
           onTap: () => onOpen('heart'),
         ),
         OrbitSatellite(
-          icon: Ic.strain,
-          osIcon: OsIcon.bodyStrain,
+          icon: OsIcon.bodyStrain,
           label: 'Strain',
           value: t.strain.isEmpty ? null : t.strain.value!.toStringAsFixed(1),
           color: DomainAccent.strain,
           onTap: () => onOpen('body'),
         ),
         OrbitSatellite(
-          icon: Ic.pulse,
-          osIcon: OsIcon.stress,
+          icon: OsIcon.stress,
           label: 'Stress',
           value: t.stress?.score?.toString(),
           color: DomainAccent.stress,
@@ -939,8 +929,6 @@ class TodayVitals extends StatelessWidget {
         children: [
           TileHeader(
             'HRV',
-            icon: Ic.pulse,
-            osIcon: OsIcon.hrv,
             trailing: hrv == null ? null : ConfDot(hrv.confidence),
           ),
           const SizedBox(height: Sp.x2),
@@ -982,8 +970,7 @@ class TodayVitals extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const TileHeader('Resting HR',
-              icon: Ic.heart, osIcon: OsIcon.restingHeartRate),
+          const TileHeader('Resting HR'),
           const SizedBox(height: Sp.x2),
           BigStat(
             value: _int(t.restingHr),
@@ -1021,7 +1008,7 @@ class TodayVitals extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const TileHeader('Sleep', icon: Ic.moon, osIcon: OsIcon.sleep),
+          const TileHeader('Sleep'),
           const SizedBox(height: Sp.x2),
           BigStat(
             value: _hm(t.sleepDuration),
@@ -1065,8 +1052,7 @@ class TodayVitals extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const TileHeader('Strain',
-              icon: Ic.strain, osIcon: OsIcon.bodyStrain),
+          const TileHeader('Strain'),
           const SizedBox(height: Sp.x2),
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -1106,8 +1092,7 @@ class TodayVitals extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const TileHeader('Steps',
-              icon: Ic.run, osIcon: OsIcon.steps, trailing: Tag('est')),
+          const TileHeader('Steps', trailing: Tag('est')),
           const SizedBox(height: Sp.x2),
           BigStat(
             value: steps > 0 ? '$steps' : null,
@@ -1136,7 +1121,7 @@ class TodayVitals extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const TileHeader('Calories', icon: Ic.fire, osIcon: OsIcon.calories),
+          const TileHeader('Calories', icon: OsIcon.calories),
           const SizedBox(height: Sp.x2),
           BigStat(
             value: _int(t.calories),
@@ -1158,8 +1143,7 @@ class TodayVitals extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const TileHeader('Stress',
-              icon: Ic.pulse, osIcon: OsIcon.stress, trailing: Tag('est')),
+          const TileHeader('Stress', icon: OsIcon.stress, trailing: Tag('est')),
           const SizedBox(height: Sp.x2),
           BigStat(
             value: stress?.score?.toString(),
@@ -1184,7 +1168,6 @@ class TodayVitals extends StatelessWidget {
         children: [
           TileHeader(
             'O₂ dips',
-            icon: Ic.droplet,
             trailing: Tag('rel', color: AppColors.loadDetraining),
           ),
           const SizedBox(height: Sp.x2),
@@ -1382,7 +1365,7 @@ class _RecoveryStoryState extends State<_RecoveryStory>
     if (widget.planTitle != null) {
       panels.add(() => _panel(
             overline: 'TODAY’S PLAN',
-            gauge: const AppIcon(Ic.ai, size: 56, color: Colors.white),
+            gauge: const AppIcon(OsIcon.ai, size: 56, color: Colors.white),
             line: widget.planTitle!,
             sub: widget.planBody,
           ));

@@ -3,6 +3,7 @@
 // text OFF the main view (it opens an InfoSheet instead).
 
 import 'package:flutter/material.dart';
+import '../kit/os_icons.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -112,7 +113,7 @@ enum ChipTone { neutral, accent, positive, warn, critical }
 /// "Synced", "In zone 3", "Low battery".
 class StatusChip extends StatelessWidget {
   final String text;
-  final IconData? icon;
+  final OsIcon? icon;
   final ChipTone tone;
   const StatusChip(
     this.text, {
@@ -140,7 +141,7 @@ class StatusChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 13, color: fg),
+            OsAppIcon(icon!, size: 13),
             const SizedBox(width: 4),
           ],
           Flexible(

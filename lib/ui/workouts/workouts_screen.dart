@@ -287,7 +287,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
               ],
               if (list.isEmpty)
                 StateCard(
-                  icon: Ic.run,
+                  icon: OsIcon.run,
                   title: 'No workouts',
                   message: 'Tap Start, or an effort will be auto-detected.',
                   actionLabel: 'Start a workout',
@@ -621,8 +621,7 @@ class TrainingSummaryCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                  child: TileHeader('Training · $range',
-                      icon: Ic.strain, osIcon: OsIcon.workouts)),
+                  child: TileHeader('Training · $range')),
               InfoDot(
                 title: 'Training summary',
                 body:
@@ -809,7 +808,7 @@ class WorkoutFeedCard extends StatelessWidget {
                   const Tag('auto'),
                 ],
                 const Spacer(),
-                AppIcon(Ic.arrowRight, size: 15, color: tone.fgFaint),
+                AppIcon(OsIcon.arrowRight, size: 15, color: tone.fgFaint),
               ],
             ),
             const SizedBox(height: Sp.x3),
@@ -917,7 +916,7 @@ class WorkoutDetailScreen extends StatelessWidget {
       title: 'Workout',
       largeTitle: false,
       actions: [
-        RoundIconButton(Ic.trash, onTap: () => _delete(context)),
+        RoundIconButton(OsIcon.trash, onTap: () => _delete(context)),
       ],
       body: _WorkoutDetailBody(id: id),
     );
@@ -1115,8 +1114,7 @@ class WorkoutDetailContent extends StatelessWidget {
               vertical: Sp.x2,
             ),
             child: ListRow(
-              icon: Ic.heart,
-              osIcon: OsIcon.heartRateRecovery,
+              icon: OsIcon.heartRateRecovery,
               title: 'HR recovery (60s)',
               value: '−${d['hrr60']} bpm',
             ),
@@ -1186,7 +1184,7 @@ class WorkoutDetailContent extends StatelessWidget {
                     onTap: onCorrectType,
                     child: Padding(
                       padding: const EdgeInsets.all(4),
-                      child: AppIcon(Ic.edit, size: 16, color: tone.fgMuted),
+                      child: AppIcon(OsIcon.edit, size: 16, color: tone.fgMuted),
                     ),
                   ),
                 ],

@@ -87,7 +87,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
           Skeleton.chart(height: 160),
         ] else if (_phase == _Phase.empty)
           StateCard(
-            icon: Ic.calendar,
+            icon: OsIcon.calendar,
             title: 'Nothing recorded',
             message:
                 'No heart rate or workouts were captured for this day. Wear '
@@ -97,7 +97,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
           )
         else if (_phase == _Phase.error)
           StateCard(
-            icon: Ic.cloud,
+            icon: OsIcon.sync,
             title: "Couldn't load your day",
             message: _error ?? 'Please try again.',
             actionLabel: 'Try again',
@@ -248,10 +248,9 @@ class JourneyContent extends StatelessWidget {
         children: [
           const TileHeader(
             'Movement',
-            icon: Ic.activity,
             // Generic movement fraction, not steps — the activity art is the
             // honest match.
-            osIcon: OsIcon.activity,
+
             trailing: InfoDot(
               title: 'Movement',
               body:
@@ -295,8 +294,7 @@ class JourneyContent extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            TileHeader('Workouts · ${sessions.length}',
-                icon: Ic.run, osIcon: OsIcon.workouts),
+            TileHeader('Workouts · ${sessions.length}'),
             const SizedBox(height: Sp.x1),
             for (var i = 0; i < sessions.length; i++)
               _workoutRow(sessions[i], divider: i < sessions.length - 1),
@@ -319,8 +317,7 @@ class JourneyContent extends StatelessWidget {
       if (max != null) 'max $max bpm',
     ].join(' · ');
     return ListRow(
-      icon: workoutTypeIcon(type),
-      osIcon: workoutTypeOsIcon(type) ?? OsIcon.workouts,
+      icon: workoutTypeOsIcon(type) ?? OsIcon.workouts,
       iconColor: DomainAccent.strain,
       title: type.isEmpty ? 'Workout' : _titleCase(type),
       subtitle: meta,

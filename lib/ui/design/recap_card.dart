@@ -63,11 +63,9 @@ class RecapCard extends StatelessWidget {
         children: [
           TileHeader(
             title,
-            icon: Ic.chart,
-            osIcon: OsIcon.recap,
             trailing: onTap == null
                 ? null
-                : AppIcon(Ic.arrowRight, size: 14, color: AppColors.inkMuted),
+                : AppIcon(OsIcon.arrowRight, size: 14, color: AppColors.inkMuted),
           ),
           if (highlight != null) ...[
             const SizedBox(height: Sp.x3),
@@ -187,7 +185,7 @@ class MedalCard extends StatelessWidget {
             ),
           ),
           if (onTap != null)
-            AppIcon(Ic.arrowRight, size: 15, color: AppColors.onNightSoft),
+            AppIcon(OsIcon.arrowRight, size: 15, color: AppColors.onNightSoft),
         ],
       ),
     );

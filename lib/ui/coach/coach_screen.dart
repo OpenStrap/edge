@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/payloads.dart';
 import '../design/design.dart';
+import '../kit/os_icons.dart';
 
 class CoachScreen extends StatelessWidget {
   final CoachData coach;
@@ -36,7 +37,7 @@ class CoachScreen extends StatelessWidget {
 /// The pure plan board — testable with a sample /coach payload.
 class CoachPlanContent extends StatelessWidget {
   final CoachData coach;
-  const CoachPlanContent({super.key, required this.coach});
+  CoachPlanContent({super.key, required this.coach});
 
   // Severity → colour: 3 urgent, 2 caution, 1 nudge, 0 affirming.
   Color _sevColor(int s) => switch (s) {
@@ -45,15 +46,6 @@ class CoachPlanContent extends StatelessWidget {
     1 => AppColors.accent,
     _ => AppColors.good,
   };
-
-  IconData _catIcon(String c) => switch (c) {
-    'recovery' => Ic.recovery,
-    'sleep' => Ic.moon,
-    'load' => Ic.strain,
-    'health' => Ic.heart,
-    _ => Ic.run,
-  };
-
   /// Illustrated counterpart of [_catIcon] — the severity colour stays on the
   /// chip background (the art itself is never tinted).
   OsIcon _catOsIcon(String c) => switch (c) {
@@ -84,7 +76,7 @@ class CoachPlanContent extends StatelessWidget {
                     color: AppColors.accentSoft,
                     borderRadius: BorderRadius.circular(R.chip),
                   ),
-                  child: const OsAppIcon(OsIcon.today, size: 34),
+                  child: OsAppIcon(OsIcon.today, size: 34),
                 ),
                 const SizedBox(width: Sp.x3),
                 Expanded(
@@ -109,7 +101,7 @@ class CoachPlanContent extends StatelessWidget {
           SurfaceCard(
             child: Row(
               children: [
-                AppIcon(Ic.check, size: 22, color: AppColors.good),
+                AppIcon(OsIcon.check, size: 22, color: AppColors.good),
                 const SizedBox(width: Sp.x3),
                 Expanded(
                   child: Text(
@@ -125,8 +117,7 @@ class CoachPlanContent extends StatelessWidget {
             _SuggestionCard(
               s: plan[i],
               color: _sevColor(plan[i].severity),
-              icon: _catIcon(plan[i].category),
-              osIcon: _catOsIcon(plan[i].category),
+              icon: _catOsIcon(plan[i].category),
             ).dsEnter(index: 2 + i),
             if (i != plan.length - 1) const SizedBox(height: Sp.x3),
           ],
@@ -151,8 +142,6 @@ class _StrainTargetTile extends StatelessWidget {
         children: [
           TileHeader(
             "Today's strain target",
-            icon: Ic.strain,
-            osIcon: OsIcon.bodyStrain,
             trailing: InfoDot(
               title: 'Strain target',
               body:
@@ -211,14 +200,12 @@ class _StrainTargetTile extends StatelessWidget {
 class _SuggestionCard extends StatelessWidget {
   final CoachSuggestion s;
   final Color color;
-  final IconData icon;
-  final OsIcon? osIcon;
+  final OsIcon icon;
   const _SuggestionCard({
     required this.s,
     required this.color,
     required this.icon,
-    this.osIcon,
-  });
+    });
 
   @override
   Widget build(BuildContext context) {
@@ -230,14 +217,12 @@ class _SuggestionCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: EdgeInsets.all(osIcon != null ? 1 : Sp.x2),
+                padding: EdgeInsets.all(Sp.x2),
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(R.chip),
                 ),
-                child: osIcon != null
-                    ? OsAppIcon(osIcon!, size: 34)
-                    : AppIcon(icon, size: 18, color: color),
+                child: OsAppIcon(icon, size: 34),
               ),
               const SizedBox(width: Sp.x3),
               Expanded(child: Text(s.title, style: AppText.title)),
@@ -247,7 +232,7 @@ class _SuggestionCard extends StatelessWidget {
           Text(s.body, style: AppText.bodySoft),
           if (s.target != null) ...[
             const SizedBox(height: Sp.x3),
-            StatusChip(s.target!, icon: Ic.strain, tone: ChipTone.accent),
+            StatusChip(s.target!, tone: ChipTone.accent),
           ],
           if (s.why.isNotEmpty) ...[
             const SizedBox(height: Sp.x3),

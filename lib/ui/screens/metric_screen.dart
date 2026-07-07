@@ -24,10 +24,9 @@ const _mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oc
 class MetricScreen extends StatefulWidget {
   final String title;
   final String metric; // /trend key for the bars
-  final IconData icon;
+  final OsIcon icon;
 
   /// Illustrated domain icon — shown (over [icon]) on the trend board header.
-  final OsIcon? osIcon;
   final Color accent;
   final String Function(double v)? valueFmt;
   final DetailBuilder todayDetail;
@@ -38,7 +37,6 @@ class MetricScreen extends StatefulWidget {
     required this.title,
     required this.metric,
     required this.icon,
-    this.osIcon,
     required this.accent,
     required this.todayDetail,
     required this.dayDetail,
@@ -96,7 +94,6 @@ class _MetricScreenState extends State<MetricScreen> {
                 key: ValueKey('$scale-$_refresh-root'),
                 title: widget.title,
                 icon: widget.icon,
-                osIcon: widget.osIcon,
                 metric: widget.metric,
                 scale: scale,
                 anchor: null,
@@ -116,8 +113,7 @@ class _MetricScreenState extends State<MetricScreen> {
 /// at week, the day detail — inline below the board.
 class _DrillLevel extends StatefulWidget {
   final String title;
-  final IconData icon;
-  final OsIcon? osIcon;
+  final OsIcon icon;
   final String metric;
   final String scale; // 'week' | 'month' | 'quarter'
   final String? anchor;
@@ -128,7 +124,6 @@ class _DrillLevel extends StatefulWidget {
     super.key,
     required this.title,
     required this.icon,
-    this.osIcon,
     required this.metric,
     required this.scale,
     required this.anchor,
@@ -191,7 +186,7 @@ class _DrillLevelState extends State<_DrillLevel> {
       } else {
         _child = _DrillLevel(
           key: ValueKey('${widget.scale}-$lastDay'),
-          title: widget.title, icon: widget.icon, osIcon: widget.osIcon,
+          title: widget.title, icon: widget.icon,
           metric: widget.metric,
           scale: widget.scale == 'quarter' ? 'month' : 'week',
           anchor: lastDay, accent: widget.accent,
@@ -212,7 +207,6 @@ class _DrillLevelState extends State<_DrillLevel> {
           data: _data ?? const {},
           title: widget.title,
           icon: widget.icon,
-          osIcon: widget.osIcon,
           metric: widget.metric,
           scale: widget.scale,
           accent: widget.accent,
@@ -254,8 +248,7 @@ class TrendBoard extends StatelessWidget {
   /// The raw /trend payload ({buckets, unit, label, summary}).
   final Map<String, dynamic> data;
   final String title;
-  final IconData icon;
-  final OsIcon? osIcon;
+  final OsIcon icon;
   final String metric;
   final String scale; // 'week' | 'month' | 'quarter'
   final Color accent;
@@ -268,7 +261,6 @@ class TrendBoard extends StatelessWidget {
     required this.data,
     required this.title,
     required this.icon,
-    this.osIcon,
     required this.metric,
     required this.scale,
     required this.accent,
@@ -324,7 +316,6 @@ class TrendBoard extends StatelessWidget {
           TileHeader(
             '$label · $_period',
             icon: icon,
-            osIcon: osIcon,
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [

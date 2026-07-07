@@ -107,8 +107,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
           Skeleton.chart(),
         ] else if (_phase == _Phase.empty)
           StateCard(
-            icon: Ic.recovery,
-            osIcon: OsIcon.records,
+            icon: OsIcon.records,
             title: 'Nothing logged yet',
             message:
                 'Wear and sync for a few days. Your records, streaks and '
@@ -118,7 +117,7 @@ class _RecordsScreenState extends State<RecordsScreen> {
           )
         else if (_phase == _Phase.error)
           StateCard(
-            icon: Ic.cloud,
+            icon: OsIcon.sync,
             title: "Couldn't load your records",
             message: _error ?? 'Please try again.',
             actionLabel: 'Try again',
@@ -265,15 +264,15 @@ class RecordsContent extends StatelessWidget {
 
   // ── the rest of the PRs: per-domain BigStat bento ─────────────────────────
 
-  static const _recordDefs = <(String, String, IconData, OsIcon)>[
-    ('lowest_rhr', 'Lowest resting HR', Ic.heart, OsIcon.restingHeartRate),
-    ('lowest_sleeping_hr', 'Lowest sleeping HR', Ic.moon, OsIcon.sleep),
-    ('top_strain', 'Biggest day strain', Ic.strain, OsIcon.bodyStrain),
-    ('top_workout', 'Top workout strain', Ic.run, OsIcon.workouts),
-    ('longest_sleep', 'Longest sleep', Ic.bed, OsIcon.bedtime),
-    ('best_efficiency', 'Sleep efficiency', Ic.sleep, OsIcon.sleep),
-    ('most_steps', 'Most steps', Ic.run, OsIcon.steps),
-    ('top_readiness', 'Top readiness', Ic.recovery, OsIcon.recovery),
+  static const _recordDefs = <(String, String, OsIcon, OsIcon?)>[
+    ('lowest_rhr', 'Lowest resting HR', OsIcon.heart, OsIcon.restingHeartRate),
+    ('lowest_sleeping_hr', 'Lowest sleeping HR', OsIcon.sleep, OsIcon.sleep),
+    ('top_strain', 'Biggest day strain', OsIcon.bodyStrain, OsIcon.bodyStrain),
+    ('top_workout', 'Top workout strain', OsIcon.run, OsIcon.workouts),
+    ('longest_sleep', 'Longest sleep', OsIcon.bedtime, OsIcon.bedtime),
+    ('best_efficiency', 'Sleep efficiency', OsIcon.sleep, OsIcon.sleep),
+    ('most_steps', 'Most steps', OsIcon.run, OsIcon.steps),
+    ('top_readiness', 'Top readiness', OsIcon.recovery, OsIcon.recovery),
   ];
 
   static Color _accentOf(String key) => switch (key) {
@@ -304,7 +303,7 @@ class RecordsContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              TileHeader(label, icon: icon, osIcon: osIcon),
+              TileHeader(label, icon: icon),
               const SizedBox(height: Sp.x2),
               BigStat(
                 value: value,
@@ -337,8 +336,7 @@ class RecordsContent extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const TileHeader('Resting HR trend',
-                icon: Ic.heart, osIcon: OsIcon.restingHeartRate),
+            const TileHeader('Resting HR trend'),
             const SizedBox(height: Sp.x2),
             const BigStat.dash(caption: 'Needs ~3 weeks of nights'),
           ],
@@ -361,8 +359,6 @@ class RecordsContent extends StatelessWidget {
         children: [
           TileHeader(
             'Resting HR trend',
-            icon: Ic.heart,
-            osIcon: OsIcon.restingHeartRate,
             trailing: InfoDot(
               title: 'Resting-HR trend',
               body: improving
@@ -426,10 +422,10 @@ class RecordsContent extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               TileHeader('$label streak',
-                  icon: active ? Ic.fire : Ic.watch,
+                  icon: active ? OsIcon.calories : OsIcon.wear,
                   // Streak art only while the streak is alive — a broken
                   // streak keeps the quiet watch glyph.
-                  osIcon: active ? OsIcon.streak : null),
+                  ),
               const SizedBox(height: Sp.x2),
               BigStat(
                 value: '${s.current}',

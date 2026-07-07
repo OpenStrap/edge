@@ -74,13 +74,13 @@ class PairingInstructionContent extends StatelessWidget {
           child: Column(
             children: const [
               ListRow(
-                icon: Ic.watch,
+                icon: OsIcon.wear,
                 title: 'Wake the strap',
                 subtitle: 'Place it on its charger so it powers up.',
                 divider: true,
               ),
               ListRow(
-                icon: Ic.bluetooth,
+                icon: OsIcon.bluetooth,
                 title: 'Enter pairing mode',
                 subtitle:
                     'Follow the WHOOP unpair/reset steps so it advertises to a '
@@ -97,7 +97,7 @@ class PairingInstructionContent extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppIcon(Ic.info, size: 18, color: AppColors.warn),
+              AppIcon(OsIcon.info, size: 18, color: AppColors.warn),
               const SizedBox(width: Sp.x3),
               Expanded(
                 child: Text(
@@ -116,7 +116,7 @@ class PairingInstructionContent extends StatelessWidget {
             children: const [
               Text('My strap is in pairing mode'),
               SizedBox(width: Sp.x2),
-              AppIcon(Ic.arrowRight, size: 20, color: Colors.white),
+              AppIcon(OsIcon.arrowRight, size: 20, color: Colors.white),
             ],
           ),
         ),
@@ -159,7 +159,7 @@ class _StrapPlaceholder extends StatelessWidget {
         ),
       ),
       child: const Center(
-        child: AppIcon(Ic.watch, size: 76, color: Colors.white),
+        child: AppIcon(OsIcon.wear, size: 76, color: Colors.white),
       ),
     );
   }
@@ -343,7 +343,7 @@ class PairingStateView extends StatelessWidget {
                 const Spacer(),
                 if (error != null) ...[
                   Row(children: [
-                    AppIcon(Ic.info, size: 18, color: AppColors.critical),
+                    AppIcon(OsIcon.info, size: 18, color: AppColors.critical),
                     const SizedBox(width: Sp.x2),
                     Expanded(
                       child: Text(error!,
@@ -374,7 +374,7 @@ class PairingStateView extends StatelessWidget {
             height: 132,
             decoration: BoxDecoration(
                 color: AppColors.surfaceAlt, shape: BoxShape.circle),
-            child: AppIcon(Ic.watch, size: 56, color: AppColors.inkMuted),
+            child: AppIcon(OsIcon.wear, size: 56, color: AppColors.inkMuted),
           ),
         );
       case PairPhase.scanning:
@@ -397,7 +397,7 @@ class PairingStateView extends StatelessWidget {
             children: const [
               Text('Pair'),
               SizedBox(width: Sp.x2),
-              AppIcon(Ic.bluetooth, size: 20, color: Colors.white),
+              AppIcon(OsIcon.bluetooth, size: 20, color: Colors.white),
             ],
           ),
         );
@@ -441,7 +441,7 @@ class _FoundDeviceTile extends StatelessWidget {
                 color: AppColors.accent,
                 borderRadius: BorderRadius.circular(R.cardSm),
               ),
-              child: const AppIcon(Ic.watch, size: 30, color: Colors.white),
+              child: const AppIcon(OsIcon.wear, size: 30, color: Colors.white),
             ),
             const SizedBox(height: Sp.x4),
             Text(
@@ -451,7 +451,7 @@ class _FoundDeviceTile extends StatelessWidget {
             ),
             const SizedBox(height: Sp.x3),
             const StatusChip('Ready to pair',
-                icon: Icons.bluetooth_rounded, tone: ChipTone.positive),
+                icon: OsIcon.activity, tone: ChipTone.positive),
           ],
         );
       }),
@@ -501,7 +501,7 @@ class _PulseRingsState extends State<_PulseRings>
                     boxShadow: AppColors.isDark ? const [] : Shadows.coral,
                   ),
                   child:
-                      const AppIcon(Ic.bluetooth, size: 40, color: Colors.white),
+                      const AppIcon(OsIcon.bluetooth, size: 40, color: Colors.white),
                 ),
               ],
             ),

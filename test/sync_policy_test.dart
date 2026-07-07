@@ -449,4 +449,25 @@ void main() {
       expect(corrected, isNull);
     });
   });
+
+  group('isLinkStale (background zombie-link guard)', () {
+    test('fresh data (well under the bar) is NOT stale', () {
+      expect(isLinkStale(const Duration(seconds: 5)), isFalse);
+      expect(isLinkStale(const Duration(seconds: 29)), isFalse);
+    });
+
+    test('at or over kLinkFreshnessSeconds is stale', () {
+      expect(isLinkStale(const Duration(seconds: kLinkFreshnessSeconds)), isTrue);
+      expect(isLinkStale(const Duration(seconds: 31)), isTrue);
+      expect(isLinkStale(const Duration(minutes: 10)), isTrue);
+    });
+
+    test('is strictly tighter than the in-session liveness fuse', () {
+      // Deliberately different bars for different jobs (see doc comment on
+      // kLinkFreshnessSeconds): this guards "should I trust a connection I
+      // didn't just watch tick over" (resume / BG-task wake / headless entry),
+      // kLivenessFuseSeconds guards "should an ACTIVE session bounce itself".
+      expect(kLinkFreshnessSeconds, lessThan(kLivenessFuseSeconds));
+    });
+  });
 }

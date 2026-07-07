@@ -16,6 +16,13 @@ class GpsSample {
   final double lng;
   final double? alt;
   final double? accuracy; // horizontal accuracy in metres (smaller = better)
+  /// Platform-reported instantaneous ground speed (m/s), when available.
+  /// Usually Doppler-derived on real GPS chips — more accurate for
+  /// INSTANTANEOUS speed than differentiating two position fixes over a
+  /// short interval (which amplifies fix jitter). May be null/0 on some
+  /// Android devices or the first few fixes.
+  final double? speed;
+  final double? speedAccuracy; // m/s; smaller = better, when reported
   final int tsMs; // epoch milliseconds
 
   const GpsSample({
@@ -23,6 +30,8 @@ class GpsSample {
     required this.lng,
     this.alt,
     this.accuracy,
+    this.speed,
+    this.speedAccuracy,
     required this.tsMs,
   });
 }
@@ -35,6 +44,9 @@ class RoutePoint {
   final double lng;
   final double? alt;
   final double? accuracy;
+  /// Smoothed instantaneous speed (m/s) at this point, or null if never
+  /// available. See [GpsSample.speed] / RouteTracker's EMA smoothing.
+  final double? speed;
 
   const RoutePoint({
     required this.seq,
@@ -43,6 +55,7 @@ class RoutePoint {
     required this.lng,
     this.alt,
     this.accuracy,
+    this.speed,
   });
 
   LatLng get latLng => LatLng(lat, lng);
@@ -56,6 +69,7 @@ class RoutePoint {
         'lng': lng,
         'alt': alt,
         'accuracy': accuracy,
+        'speed': speed,
       };
 
   factory RoutePoint.fromRow(Map<String, Object?> r) => RoutePoint(
@@ -65,6 +79,7 @@ class RoutePoint {
         lng: (r['lng'] as num).toDouble(),
         alt: (r['alt'] as num?)?.toDouble(),
         accuracy: (r['accuracy'] as num?)?.toDouble(),
+        speed: (r['speed'] as num?)?.toDouble(),
       );
 }
 

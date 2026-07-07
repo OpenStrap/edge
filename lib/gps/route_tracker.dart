@@ -10,6 +10,7 @@
 
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -51,6 +52,15 @@ class RouteTracker {
   /// map. Optional; when null, vertices are drawn in the neutral colour.
   final int Function()? zoneNow;
 
+  /// No accepted fix for this long while running → [stalled] flips true. This
+  /// is DISTINCT from [error] (an explicit stream error): geolocator can just
+  /// stop delivering fixes silently (OS killed the location service, screen
+  /// locked on iOS, permission revoked in Settings mid-run) without ever
+  /// erroring the stream — the previous design only reacted to explicit
+  /// errors, so that silent-stall case looked like "GPS works sometimes,
+  /// mostly doesn't" with zero explanation to the user.
+  final Duration stallAfter;
+
   RouteTracker({
     required this.sink,
     this.batchSize = 8,
@@ -59,6 +69,7 @@ class RouteTracker {
     this.maxSpeedMps = rmath.kMaxPlausibleSpeedMps,
     this.rejectStreakLimit = 3,
     this.zoneNow,
+    this.stallAfter = const Duration(seconds: 15),
   });
 
   /// The full path so far, coloured by live zone — drives the live map.
@@ -71,11 +82,21 @@ class RouteTracker {
   /// Cumulative distance in metres.
   final ValueNotifier<double> distanceMeters = ValueNotifier<double>(0);
 
+  /// Smoothed instantaneous speed (m/s) — see [rmath.emaSpeed]. Null until the
+  /// first usable fix (platform speed or a fallback derived from two fixes).
+  final ValueNotifier<double?> currentSpeedMps = ValueNotifier<double?>(null);
+
+  /// True when no fix has been ACCEPTED for [stallAfter] while running — see
+  /// [stallAfter]'s doc. Distinct from [error]: a stall has no exception to
+  /// report, just silence.
+  final ValueNotifier<bool> stalled = ValueNotifier<bool>(false);
+
   /// Non-null after the GPS stream errored (location service died mid-run).
   /// The live map surfaces this instead of showing "Waiting for GPS…" forever.
   final ValueNotifier<String?> error = ValueNotifier<String?>(null);
 
   StreamSubscription<GpsSample>? _sub;
+  Timer? _watchdog;
   final List<RoutePoint> _buffer = [];
   final List<RouteVertex> _vertices = [];
   int _seq = 0;
@@ -83,6 +104,7 @@ class RouteTracker {
   int _rejectStreak = 0;
   int _movingMs = 0;
   bool _stopped = false;
+  DateTime _lastFixAt = clock.now();
 
   bool get isRunning => _sub != null && !_stopped;
   int get pointCount => _seq;
@@ -96,6 +118,7 @@ class RouteTracker {
   void start(Stream<GpsSample> source) {
     if (_sub != null) return;
     _stopped = false;
+    _lastFixAt = clock.now();
     _sub = source.listen(
       _onSample,
       onError: (Object e) {
@@ -106,6 +129,14 @@ class RouteTracker {
       },
       cancelOnError: false,
     );
+    // Proactive watchdog — a stalled (not errored) stream never fires onError,
+    // so this is the only way to detect "fixes just stopped arriving" instead
+    // of waiting forever with a stale last-known position.
+    _watchdog = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_stopped) return;
+      final quiet = clock.now().difference(_lastFixAt) >= stallAfter;
+      if (quiet != stalled.value) stalled.value = quiet;
+    });
   }
 
   void _onSample(GpsSample s) {
@@ -113,6 +144,8 @@ class RouteTracker {
     if (s.accuracy != null && s.accuracy! > maxAccuracyM) return;
     if (s.lat.isNaN || s.lng.isNaN) return;
     if (error.value != null) error.value = null; // fixes flowing again
+    _lastFixAt = clock.now();
+    if (stalled.value) stalled.value = false;
 
     var gapBefore = false;
     final prev = _last;
@@ -135,6 +168,17 @@ class RouteTracker {
       }
     }
 
+    // Prefer the platform's own (Doppler-derived) speed; fall back to a
+    // fix-to-fix derivation only when the platform doesn't report one. A
+    // fresh segment anchor (gapBefore) has no meaningful "speed since last
+    // point" — don't let a big time/distance gap produce a bogus spike.
+    final rawSpeed = s.speed ?? (gapBefore ? null : rmath.fallbackSpeedMps(prev, RoutePoint(
+      seq: _seq, tsMs: s.tsMs, lat: s.lat, lng: s.lng,
+    )));
+    if (rawSpeed != null && rawSpeed.isFinite && rawSpeed >= 0) {
+      currentSpeedMps.value = rmath.emaSpeed(currentSpeedMps.value, rawSpeed);
+    }
+
     final p = RoutePoint(
       seq: _seq++,
       tsMs: s.tsMs,
@@ -142,6 +186,7 @@ class RouteTracker {
       lng: s.lng,
       alt: s.alt,
       accuracy: s.accuracy,
+      speed: currentSpeedMps.value,
     );
     _last = p;
     _buffer.add(p);
@@ -175,6 +220,8 @@ class RouteTracker {
   Future<void> stop() async {
     if (_stopped) return;
     _stopped = true;
+    _watchdog?.cancel();
+    _watchdog = null;
     await _sub?.cancel();
     _sub = null;
     await _flush();
@@ -182,9 +229,12 @@ class RouteTracker {
   }
 
   void dispose() {
+    _watchdog?.cancel();
     path.dispose();
     current.dispose();
     distanceMeters.dispose();
+    currentSpeedMps.dispose();
+    stalled.dispose();
     error.dispose();
   }
 }

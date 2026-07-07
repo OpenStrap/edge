@@ -105,7 +105,7 @@ class _StressScreenState extends State<StressScreen> {
           Skeleton.tileRow(rows: 2),
         ] else if (_phase == _Phase.empty)
           StateCard(
-            icon: Ic.pulse,
+            icon: OsIcon.heartRate,
             title: 'No stress reading for this day',
             message:
                 'Stress is computed from your overnight HRV (beat-to-beat '
@@ -117,7 +117,7 @@ class _StressScreenState extends State<StressScreen> {
           )
         else if (_phase == _Phase.error)
           StateCard(
-            icon: Ic.cloud,
+            icon: OsIcon.sync,
             title: "Couldn't load stress",
             message: _error ?? 'Please try again.',
             actionLabel: 'Try again',
@@ -244,7 +244,7 @@ class StressDayContent extends StatelessWidget {
           children: [
             StatusChip(
               level,
-              icon: Icons.self_improvement_rounded,
+              icon: OsIcon.recovery,
               tone: v < 50
                   ? ChipTone.positive
                   : v < 75
@@ -308,8 +308,6 @@ class StressDayContent extends StatelessWidget {
           children: [
             TileHeader(
               'Stress index',
-              icon: Ic.strain,
-              osIcon: OsIcon.stress,
               trailing: InfoDot(
                 title: 'Stress index (Baevsky)',
                 body:
@@ -331,8 +329,6 @@ class StressDayContent extends StatelessWidget {
             children: [
               TileHeader(
                 'RMSSD',
-                icon: Ic.pulse,
-                osIcon: OsIcon.hrv,
                 trailing: InfoDot(title: 'RMSSD', body: infoFor('rmssd')!),
               ),
               const SizedBox(height: Sp.x2),
@@ -351,8 +347,6 @@ class StressDayContent extends StatelessWidget {
             children: [
               TileHeader(
                 'LF / HF',
-                icon: Ic.pulse,
-                osIcon: OsIcon.calm,
                 trailing: InfoDot(
                   title: 'Sympatho-vagal balance',
                   body: infoFor('lf_hf')!,
@@ -373,7 +367,6 @@ class StressDayContent extends StatelessWidget {
             children: [
               TileHeader(
                 'Daytime HRV',
-                icon: Ic.chart,
                 trailing: InfoDot(
                   title: 'Daytime HRV',
                   body:
@@ -419,8 +412,6 @@ class StressDayContent extends StatelessWidget {
           children: [
             TileHeader(
               'Through the day',
-              icon: Ic.pulse,
-              osIcon: OsIcon.stress,
               trailing: InfoDot(
                 title: 'Through the day',
                 body:
@@ -467,8 +458,6 @@ class StressDayContent extends StatelessWidget {
               children: [
                 TileHeader(
                   'Sleep stress',
-                  icon: Ic.moon,
-                  osIcon: OsIcon.sleep,
                   trailing: InfoDot(
                     title: 'Sleep stress',
                     body:
@@ -498,7 +487,6 @@ class StressDayContent extends StatelessWidget {
                 children: [
                   TileHeader(
                     'Restlessness',
-                    icon: Ic.activity,
                     trailing: InfoDot(
                       title: 'Restlessness',
                       body:

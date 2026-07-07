@@ -219,4 +219,47 @@ void main() {
       );
     });
   });
+
+  group('emaSpeed', () {
+    test('first sample with no prior average is passed through unsmoothed',
+        () {
+      expect(emaSpeed(null, 3.2), 3.2);
+    });
+
+    test('smooths toward the new sample without jumping straight to it', () {
+      final smoothed = emaSpeed(3.0, 5.0, alpha: 0.25);
+      expect(smoothed, closeTo(3.5, 1e-9)); // 3.0 + 0.25*(5.0-3.0)
+      expect(smoothed, greaterThan(3.0));
+      expect(smoothed, lessThan(5.0));
+    });
+
+    test('a single noisy spike moves the average only a little', () {
+      var v = 3.0;
+      v = emaSpeed(v, 3.05); // realistic run-pace jitter
+      v = emaSpeed(v, 30.0); // one wild GPS spike
+      // alpha=0.25 default: 3.0125 + 0.25*(30-3.0125) ≈ 9.76 — damped, not 30.
+      expect(v, lessThan(10));
+      expect(v, greaterThan(3));
+    });
+  });
+
+  group('fallbackSpeedMps', () {
+    test('null when there is no previous point', () {
+      expect(fallbackSpeedMps(null, _line(count: 1).first), isNull);
+    });
+
+    test('derives speed from distance / time between two fixes', () {
+      // 100 m in 30 s ≈ 3.33 m/s (matches the _line() helper's default pace).
+      final pts = _line(count: 2, stepMeters: 100, stepSec: 30);
+      final v = fallbackSpeedMps(pts[0], pts[1]);
+      expect(v, isNotNull);
+      expect(v!, closeTo(100 / 30, 0.05));
+    });
+
+    test('null (not a divide-by-zero) for a non-positive time delta', () {
+      final a = _line(count: 1).first;
+      final b = RoutePoint(seq: 1, tsMs: a.tsMs, lat: a.lat, lng: a.lng);
+      expect(fallbackSpeedMps(a, b), isNull);
+    });
+  });
 }

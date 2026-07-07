@@ -120,7 +120,7 @@ class _StepGoalScreenState extends State<StepGoalScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  RoundIconButton(Ic.down,
+                  RoundIconButton(OsIcon.down,
                       bg: AppColors.surfaceAlt,
                       onTap: _saving ? null : () => _set(_goal - _step)),
                   Column(
@@ -132,7 +132,7 @@ class _StepGoalScreenState extends State<StepGoalScreen> {
                               .copyWith(color: AppColors.inkMuted)),
                     ],
                   ),
-                  RoundIconButton(Ic.up,
+                  RoundIconButton(OsIcon.up,
                       bg: AppColors.surfaceAlt,
                       onTap: _saving ? null : () => _set(_goal + _step)),
                 ],

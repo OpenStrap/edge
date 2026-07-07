@@ -10,6 +10,7 @@
 //   )
 
 import 'package:flutter/material.dart';
+import '../kit/os_icons.dart';
 
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
@@ -19,7 +20,7 @@ import 'pressable.dart';
 class StateChip {
   final String label;
   final String? emoji;
-  final IconData? icon;
+  final OsIcon? icon;
   const StateChip(this.label, {this.emoji, this.icon});
 }
 

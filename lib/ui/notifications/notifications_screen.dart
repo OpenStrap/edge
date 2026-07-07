@@ -73,8 +73,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           Skeleton.tileRow(rows: 4)
         else if (_phase == _Phase.empty)
           StateCard(
-            icon: Ic.check,
-            osIcon: OsIcon.notifications,
+            icon: OsIcon.notifications,
             title: 'All clear',
             message:
                 'Personalized nudges from your own data show up here — '
@@ -84,8 +83,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           )
         else if (_phase == _Phase.error)
           StateCard(
-            icon: Ic.bell,
-            osIcon: OsIcon.notifications,
+            icon: OsIcon.notifications,
             title: "Couldn't load notifications",
             message: _error ?? 'Please try again.',
             actionLabel: 'Retry',
@@ -100,7 +98,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ]),
           const SizedBox(height: Sp.x2),
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            AppIcon(Ic.shield, size: 14, color: AppColors.inkMuted),
+            AppIcon(OsIcon.shield, size: 14, color: AppColors.inkMuted),
             const SizedBox(width: Sp.x2),
             Expanded(
               child: Text(

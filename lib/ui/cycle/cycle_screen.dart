@@ -156,7 +156,7 @@ class _CycleScreenState extends State<CycleScreen> {
           children: [
             if (_noApi)
               const StateCard(
-                icon: Ic.calendar,
+                icon: OsIcon.calendar,
                 title: 'Cycle tracking unavailable',
                 message:
                     'Pair your strap to log periods and see predictions. '
@@ -168,7 +168,7 @@ class _CycleScreenState extends State<CycleScreen> {
               Skeleton.tileRow(rows: 2),
             ] else if (_error != null)
               StateCard(
-                icon: Ic.cloud,
+                icon: OsIcon.sync,
                 title: "Couldn't load cycle",
                 message: _error!,
                 actionLabel: 'Try again',
@@ -248,7 +248,7 @@ class CycleContent extends StatelessWidget {
     final d = data;
     if (d['enabled'] == false) {
       return StateCard(
-        icon: Ic.calendar,
+        icon: OsIcon.calendar,
         title: 'Cycle tracking is off',
         message: (d['note'] as String?) ??
             'Enable it in your profile to start tracking.',
@@ -286,7 +286,7 @@ class CycleContent extends StatelessWidget {
             child: Column(
               children: [
                 DetailRow(
-                  icon: Ic.droplet,
+                  icon: OsIcon.hydration,
                   label: 'Next period',
                   value: daysUntil != null && daysUntil >= 0
                       ? 'in ${daysUntil.round()} days'
@@ -294,13 +294,13 @@ class CycleContent extends StatelessWidget {
                 ),
                 if (fertileStart != null && fertileEnd != null)
                   DetailRow(
-                    icon: Ic.heart,
+                    icon: OsIcon.heart,
                     label: 'Fertile window',
                     value: '${_md(fertileStart)} – ${_md(fertileEnd)}',
                   ),
                 if (ovulation != null)
                   DetailRow(
-                    icon: Ic.up,
+                    icon: OsIcon.up,
                     label: 'Estimated ovulation',
                     value: _md(ovulation),
                   ),
@@ -375,7 +375,7 @@ class CycleContent extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   backgroundColor: DomainAccent.cycle,
                 ),
-                icon: const AppIcon(Ic.droplet, size: 18, color: Colors.white),
+                icon: const AppIcon(OsIcon.hydration, size: 18, color: Colors.white),
                 label: const Text('Period started today'),
               ),
             ),
@@ -396,13 +396,13 @@ class CycleContent extends StatelessWidget {
               children: [
                 for (final l in logs.take(12))
                   DetailRow(
-                    icon: Ic.droplet,
+                    icon: OsIcon.hydration,
                     label: '${l['date']}',
                     value: '${l['kind']}',
                     trailing: onDelete == null
                         ? null
                         : IconButton(
-                            icon: AppIcon(Ic.cancel,
+                            icon: AppIcon(OsIcon.cancel,
                                 size: 16, color: AppColors.inkMuted),
                             onPressed: () => onDelete!('${l['date']}'),
                             visualDensity: VisualDensity.compact,
@@ -440,12 +440,11 @@ class CycleContent extends StatelessWidget {
                             .copyWith(color: AppColors.inkMuted)),
                   ],
                 )
-              : AppIcon(Ic.calendar, size: 42, color: AppColors.inkMuted),
+              : AppIcon(OsIcon.calendar, size: 42, color: AppColors.inkMuted),
         ),
         const SizedBox(height: Sp.x3),
         StatusChip(
           _phaseLabel[phase] ?? 'Cycle',
-          icon: Ic.calendar,
           tone: ChipTone.neutral,
         ),
         const SizedBox(height: Sp.x2),
@@ -487,8 +486,7 @@ class CycleContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const TileHeader('Skin temp',
-                  icon: Ic.thermometer, osIcon: OsIcon.skinTemperature),
+              const TileHeader('Skin temp'),
               const SizedBox(height: Sp.x2),
               BigStat(value: signed(temp), unit: 'Δ', caption: 'vs baseline'),
             ],
@@ -500,7 +498,7 @@ class CycleContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const TileHeader('HRV', icon: Ic.pulse, osIcon: OsIcon.hrv),
+              const TileHeader('HRV'),
               const SizedBox(height: Sp.x2),
               BigStat(
                 value: hrv?.round().toString(),
@@ -518,8 +516,7 @@ class CycleContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              const TileHeader('Resting HR',
-                  icon: Ic.heart, osIcon: OsIcon.restingHeartRate),
+              const TileHeader('Resting HR'),
               const SizedBox(height: Sp.x2),
               BigStat(
                 value: rhr?.round().toString(),

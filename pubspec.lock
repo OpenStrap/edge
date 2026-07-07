@@ -122,7 +122,7 @@ packages:
     source: hosted
     version: "0.4.2"
   clock:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: clock
       sha256: fddb70d9b5277016c77a80201021d40a2247104d9f4aa7bab7157b7e3f05b84b
@@ -250,7 +250,7 @@ packages:
     source: hosted
     version: "2.0.8"
   fake_async:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: fake_async
       sha256: "5368f224a74523e8d2e7399ea1638b37aecfca824a3cc4dfdf77bf1fa905ac44"
@@ -859,29 +859,23 @@ packages:
   openstrap_analytics:
     dependency: "direct main"
     description:
-      path: "."
-      ref: main
-      resolved-ref: "743c3d7a1b511c016c86c14c8981ae1fdb46a98c"
-      url: "https://github.com/OpenStrap/analytics.git"
-    source: git
+      path: "../openstrap-analytics-onehz"
+      relative: true
+    source: path
     version: "1.0.0"
   openstrap_icons:
     dependency: "direct main"
     description:
-      path: "."
-      ref: main
-      resolved-ref: "7c297e680342a53737fe17d676d92371e4e81569"
-      url: "https://github.com/OpenStrap/icons.git"
-    source: git
+      path: "../openstrap_icons"
+      relative: true
+    source: path
     version: "0.1.0"
   openstrap_protocol:
     dependency: "direct main"
     description:
-      path: "."
-      ref: main
-      resolved-ref: d2a4fa51693a8d1d790d0f3281c7e2c5db27eac7
-      url: "https://github.com/OpenStrap/protocol.git"
-    source: git
+      path: "../openstrap-protocol-dart"
+      relative: true
+    source: path
     version: "1.0.0"
   ota_update:
     dependency: "direct main"

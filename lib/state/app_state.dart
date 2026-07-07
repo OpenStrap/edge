@@ -62,6 +62,7 @@ import '../sync/band_ownership.dart';
 import '../sync/high_freq_wake_window.dart';
 import '../sync/ios_bg_task.dart';
 import '../sync/paired_device.dart';
+import '../sync/sync_policy.dart' show isLinkStale;
 import '../sync/update_service.dart';
 import '../telemetry/telemetry_service.dart';
 import '../telemetry/health_uploader.dart';
@@ -1271,11 +1272,16 @@ class AppState extends ChangeNotifier {
 
   /// iOS recovery: release the band to the native restore central's no-timeout pending
   /// connect so the OS relaunches us when the band is reachable again.
+  ///
+  /// Uses [IosBleRestore.armRecoveryNow] — ONE native round trip — rather than a
+  /// separately-awaited `setOwnsBand(false)` + `arm(...)` pair. The two-call form
+  /// left a real window: if the process got suspended between the two awaits, we
+  /// could land with `appOwnsBand == false` (app no longer holding the band) but
+  /// nothing armed to replace it — i.e. NOTHING left watching for the band at all,
+  /// which is indistinguishable from "never tries to reconnect" from the outside.
   Future<void> _armRecovery() async {
     if (!Platform.isIOS || paired == null) return;
-    IosBleRestore.foregroundActive = false;
-    await IosBleRestore.setOwnsBand(false);
-    await IosBleRestore.arm(paired!.remoteId);
+    await IosBleRestore.armRecoveryNow(paired!.remoteId);
   }
 
   // Historical singles only now (live frames go through _onLiveFrame and are
@@ -1528,11 +1534,19 @@ class AppState extends ChangeNotifier {
       if (_keepAlive && isPaired && !_reconnecting && !device.autoReconnectPaused) {
         _log('Connection dropped — reconnecting…');
         _stopBackfillTimer();
-        // If we're backgrounded, also arm the iOS restore path: if the in-process
-        // reconnect can't reach the band (out of range / about to be jettisoned), the
-        // OS will relaunch us when it returns.
-        if (_background) unawaited(_armRecovery());
-        _reconnect();
+        if (_background) {
+          // Backgrounded: arm the OS-durable restore path FIRST and wait for it to
+          // confirm-armed before spending any Dart cycles on the in-process retry —
+          // the restore central's no-timeout pending connect is the only piece of
+          // this that survives a full process suspension, so it must land before we
+          // risk `_reconnect()`'s own delay/backoff getting cut off mid-flight (that
+          // loop needs the Dart run loop to keep being scheduled; the armed native
+          // connect does not). Still fire-and-forget from the caller's perspective —
+          // `_onEngineState` itself stays synchronous.
+          unawaited(_armRecovery().then((_) => _reconnect()));
+        } else {
+          _reconnect();
+        }
       } else {
         _releaseForegroundLease();
       }
@@ -1919,7 +1933,7 @@ class AppState extends ChangeNotifier {
       // notification arrived recently the link is genuinely live → keep the fast reclaim.
       // Otherwise it's stale → tear it down and fall through to a clean reconnect, which
       // re-subscribes (the only place setNotifyValue runs) and drains the gap.
-      if (engine.sinceLastRx < const Duration(seconds: 30)) {
+      if (!isLinkStale(engine.sinceLastRx)) {
         // Healthy link → fast reclaim. But the fast path skips the band polls the full
         // connect path runs, so the cached battery %/charging/strap-name go stale.
         // Re-poll them in the background so the UI stays current. Non-blocking.
@@ -2170,8 +2184,31 @@ class AppState extends ChangeNotifier {
   /// connection, floored at 90 s by [BackfillTrigger.foreground] so rapid app
   /// switching (or repeated OS wakes) can't hammer the strap. No-ops when
   /// disconnected, when a burst is already in flight, or when floored.
+  ///
+  /// This is the ONE call site an iOS BGAppRefreshTask/BGProcessingTask wake
+  /// reaches when it fires while the foreground session still "owns" the band
+  /// (`IosBgTask.foregroundPull = foregroundCatchUp`, wired below) — i.e. the
+  /// zombie-link scenario `openSession` already guards against (see the
+  /// comment there) can ALSO surface here, except this call site never gets a
+  /// user-triggered resume to notice it. Apply the same `isLinkStale` bar: if
+  /// the flag says connected but nothing has actually arrived recently, don't
+  /// trust it — force a real teardown, which flows through `_onEngineState`'s
+  /// disconnect branch and re-arms the OS-level (iOS restore central)
+  /// recovery + the in-process reconnect loop exactly like a genuine link
+  /// drop would. Without this, a zombie link that dies while the foreground
+  /// app is backgrounded is invisible to every independent OS wake path —
+  /// which is the bug this guards against ("strap disconnects and never
+  /// tries to reconnect").
   Future<void> foregroundCatchUp() async {
     if (!engine.isConnected) return;
+    if (isLinkStale(engine.sinceLastRx)) {
+      _log(
+        'Foreground catch-up: no BLE data for ${engine.sinceLastRx.inSeconds}s '
+        '— zombie link, forcing reconnect instead of a stale-link pull.',
+      );
+      await engine.disconnect();
+      return;
+    }
     if (_syncBurst != null) return; // a burst is already pulling the same flash
     try {
       // The engine applies the 90 s foreground floor and (if allowed) re-arms

@@ -4,7 +4,7 @@
 //   AppScaffold(
 //     title: 'Sleep',
 //     subtitle: 'Last night',
-//     actions: [RoundIconButton(Ic.calendar, onTap: …)],
+//     actions: [RoundIconButton(OsIcon.calendar, onTap: …)],
 //     children: [ …cards… ],          // scrolling list with screen gutters
 //   )
 //
@@ -13,6 +13,7 @@
 // route can pop (override with [showBack]).
 
 import 'package:flutter/material.dart';
+import '../kit/os_icons.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme/theme.dart';
@@ -51,7 +52,7 @@ class AppBackButton extends StatelessWidget {
             boxShadow: Elevation.shadows(1),
           ),
           child: Center(
-            child: AppIcon(Ic.arrowLeft, size: 18, color: AppColors.ink),
+            child: OsAppIcon(OsIcon.arrowLeft, size: 18),
           ),
         ),
       ),

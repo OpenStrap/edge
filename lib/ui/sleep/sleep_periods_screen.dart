@@ -98,7 +98,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
               Skeleton.tileRow(rows: 2),
             ] else if (_phase == _Phase.empty)
               const StateCard(
-                icon: Ic.bed,
+                icon: OsIcon.bedtime,
                 title: 'No sleep detected',
                 message:
                     'Wear your strap overnight (and through any naps) and sync '
@@ -106,7 +106,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
               )
             else if (_phase == _Phase.error)
               StateCard(
-                icon: Ic.cloud,
+                icon: OsIcon.sync,
                 title: "Couldn't load sleep",
                 message: _error ?? 'Please try again.',
                 actionLabel: 'Try again',
@@ -144,8 +144,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const TileHeader('Total sleep',
-                    icon: Ic.moon, osIcon: OsIcon.sleep),
+                const TileHeader('Total sleep'),
                 const SizedBox(height: Sp.x2),
                 BigStat(
                   value: _hm(_totalAsleep),
@@ -196,8 +195,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
               Expanded(
                 child: TileHeader(
                   isMain ? 'Main sleep' : 'Nap',
-                  icon: isMain ? Ic.moon : Ic.bed,
-                  osIcon: isMain ? OsIcon.sleep : OsIcon.bedtime,
+                  icon: isMain ? OsIcon.sleep : OsIcon.bedtime,
                   trailing: _beta ? const Tag('est') : null,
                 ),
               ),

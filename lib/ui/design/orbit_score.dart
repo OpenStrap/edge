@@ -10,7 +10,7 @@
 //     word: 'Primed',
 //     color: AppColors.scoreColor(0.82),
 //     satellites: [
-//       OrbitSatellite(icon: Ic.moon, label: 'Sleep', onTap: …),
+//       OrbitSatellite(icon: OsIcon.sleep, label: 'Sleep', onTap: …),
 //       …up to 4, rendered at staggered orbit anchors…
 //     ],
 //   )
@@ -27,11 +27,10 @@ import 'motion.dart';
 import 'pressable.dart';
 
 class OrbitSatellite {
-  final IconData icon;
+  final OsIcon icon;
 
   /// Optional illustrated icon — replaces the tinted [icon] glyph when the
   /// domain has full-colour art (rendered as-is, never tinted).
-  final OsIcon? osIcon;
   final String label;
 
   /// Optional tiny value shown after the label ('48 ms').
@@ -40,7 +39,6 @@ class OrbitSatellite {
   final VoidCallback? onTap;
   const OrbitSatellite({
     required this.icon,
-    this.osIcon,
     required this.label,
     this.value,
     this.color,
@@ -233,18 +231,7 @@ class _SatelliteChip extends StatelessWidget {
             // The illustrations carry built-in transparent padding, so they
             // need a larger canvas (34) than the 28px glyph disc to read at
             // the same visual weight inside the pill.
-            if (s.osIcon != null)
-              OsAppIcon(s.osIcon!, size: 34)
-            else
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: c.withValues(alpha: 0.14),
-                  shape: BoxShape.circle,
-                ),
-                child: Center(child: AppIcon(s.icon, size: 13, color: c)),
-              ),
+            OsAppIcon(s.icon, size: 34),
             const SizedBox(width: Sp.x2),
             Flexible(
               child: Text(

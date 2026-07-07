@@ -99,6 +99,32 @@ class UnitsController extends ChangeNotifier {
     return '${formatPace(secPerUnit)} $paceUnit';
   }
 
+  /// "km/h" / "mph" — the unit for INSTANTANEOUS speed (cycling reads more
+  /// naturally as a speed than a pace; the live map shows both).
+  String get speedUnit => isImperial ? 'mph' : 'km/h';
+
+  /// Instantaneous speed (m/s) → "18.4 km/h" / "11.4 mph". "—" for
+  /// null/non-finite/negative (no fix yet, or GPS hasn't reported speed).
+  String speed(double? metersPerSec, {int decimals = 1}) {
+    if (metersPerSec == null || !metersPerSec.isFinite || metersPerSec < 0) {
+      return '—';
+    }
+    final perHour = metersPerSec * 3600 / distanceUnitMeters;
+    return '${perHour.toStringAsFixed(decimals)} $speedUnit';
+  }
+
+  /// Instantaneous pace from a live speed (m/s) → "5:30 /km" — the LIVE
+  /// counterpart to [pace] (which needs a whole distance+duration). Used for
+  /// a live "current pace" readout that updates every fix instead of only
+  /// reflecting the run's average so far.
+  String paceFromSpeed(double? metersPerSec) {
+    if (metersPerSec == null || !metersPerSec.isFinite || metersPerSec <= 0) {
+      return '—';
+    }
+    final secPerUnit = distanceUnitMeters / metersPerSec;
+    return '${formatPace(secPerUnit)} $paceUnit';
+  }
+
   // ── edit-field helpers (display ↔ metric for storage) ──────────────────────
   String get weightLabel => isImperial ? 'Weight (lb)' : 'Weight (kg)';
   String get heightLabel => isImperial ? 'Height (in)' : 'Height (cm)';

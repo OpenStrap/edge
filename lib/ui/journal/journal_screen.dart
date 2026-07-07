@@ -157,8 +157,7 @@ class _JournalScreenState extends State<JournalScreen> {
       actions: [
         // Talk-it-through entry point (manual + AI chat compose).
         RoundIconButton(
-          Ic.ai,
-          osIcon: OsIcon.ai,
+          OsIcon.ai,
           onTap: () => Navigator.of(context)
               .push(themedRoute((_) => const JournalComposeScreen()))
               .then((_) => _load()),
@@ -176,7 +175,7 @@ class _JournalScreenState extends State<JournalScreen> {
           children: [
             if (_noApi)
               StateCard(
-                icon: Ic.profile,
+                icon: OsIcon.profile,
                 title: 'Journal unavailable',
                 message: 'Pair your strap to log tags and unlock insights '
                     'from your own data.',
@@ -187,7 +186,7 @@ class _JournalScreenState extends State<JournalScreen> {
               Skeleton.tileRow(rows: 2),
             ] else if (_error != null)
               StateCard(
-                icon: Ic.cloud,
+                icon: OsIcon.sync,
                 title: "Couldn't load journal",
                 message: _error!,
                 actionLabel: 'Try again',
@@ -305,7 +304,7 @@ class _JournalScreenState extends State<JournalScreen> {
     if (_rows.isEmpty) {
       return [
         const StateCard(
-          icon: Ic.calendar,
+          icon: OsIcon.calendar,
           title: 'No entries yet',
           message: 'Tag today above and your recent days will appear here.',
         ),
@@ -331,7 +330,7 @@ class _JournalScreenState extends State<JournalScreen> {
     if (_insights.isEmpty) {
       return const [
         StateCard(
-          icon: Ic.chart,
+          icon: OsIcon.activity,
           title: 'Insights build over time',
           message:
               'Tag at least 3 days with how you lived, and OpenStrap starts '
@@ -477,7 +476,7 @@ class JournalInsightCard extends StatelessWidget {
         const SizedBox(width: Sp.x3),
         StatusChip(
           pct,
-          icon: better ? Ic.up : Ic.down,
+          icon: better ? OsIcon.up : OsIcon.down,
           tone: better ? ChipTone.positive : ChipTone.critical,
         ),
         if (nWith > 0) ...[

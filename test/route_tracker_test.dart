@@ -4,18 +4,25 @@
 
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/gps/route_models.dart';
 import 'package:openstrap_edge/gps/route_tracker.dart';
 
 const double _mPerDegLngAtEq = 111319.49;
 
-GpsSample _fix(int i, {double stepMeters = 20, double? accuracy}) => GpsSample(
-      lat: 0,
-      lng: i * (stepMeters / _mPerDegLngAtEq),
-      tsMs: i * 1000,
-      accuracy: accuracy,
-    );
+GpsSample _fix(
+  int i, {
+  double stepMeters = 20,
+  double? accuracy,
+  double? speed,
+}) => GpsSample(
+  lat: 0,
+  lng: i * (stepMeters / _mPerDegLngAtEq),
+  tsMs: i * 1000,
+  accuracy: accuracy,
+  speed: speed,
+);
 
 void main() {
   test('flushes a batch once batchSize points buffer', () async {
@@ -274,5 +281,99 @@ void main() {
 
     await t.stop();
     await ctrl.close();
+  });
+
+  test('currentSpeedMps smooths the platform-reported speed', () async {
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(sink: (_) async {}, batchSize: 100);
+    t.start(ctrl.stream);
+
+    ctrl.add(_fix(0, speed: 3.0));
+    await pumpEventQueue();
+    expect(t.currentSpeedMps.value, 3.0); // first sample, unsmoothed
+
+    ctrl.add(_fix(1, speed: 30.0)); // one wild spike
+    await pumpEventQueue();
+    // Damped by the EMA, not jumped straight to 30.
+    expect(t.currentSpeedMps.value, isNotNull);
+    expect(t.currentSpeedMps.value!, lessThan(15));
+    expect(t.currentSpeedMps.value!, greaterThan(3.0));
+
+    await t.stop();
+    await ctrl.close();
+  });
+
+  test(
+    'currentSpeedMps falls back to a fix-to-fix derivation when the '
+    'platform reports none',
+    () async {
+      final ctrl = StreamController<GpsSample>();
+      final t = RouteTracker(sink: (_) async {}, batchSize: 100);
+      t.start(ctrl.stream);
+
+      // No `speed` on either fix — platform doesn't report it.
+      ctrl.add(_fix(0, stepMeters: 20));
+      ctrl.add(_fix(1, stepMeters: 40)); // 20 m in 1 s ≈ 20 m/s
+      await pumpEventQueue();
+
+      expect(t.currentSpeedMps.value, isNotNull);
+      expect(t.currentSpeedMps.value!, greaterThan(0));
+
+      await t.stop();
+      await ctrl.close();
+    },
+  );
+
+  test('stalled flips true after stallAfter with no accepted fix, and '
+      'clears the moment a fix resumes', () {
+    fakeAsync((async) {
+      final ctrl = StreamController<GpsSample>();
+      final t = RouteTracker(
+        sink: (_) async {},
+        batchSize: 100,
+        stallAfter: const Duration(seconds: 15),
+      );
+      t.start(ctrl.stream);
+
+      ctrl.add(_fix(0));
+      async.flushMicrotasks();
+      expect(t.stalled.value, isFalse);
+
+      // Silence for longer than stallAfter — no error, just nothing arriving
+      // (exactly the "silently stopped, never errored" gap this closes).
+      async.elapse(const Duration(seconds: 16));
+      expect(t.stalled.value, isTrue);
+      expect(t.error.value, isNull); // NOT an error — distinct signal
+
+      // A fix arrives again → clears immediately, no need to wait out the
+      // watchdog's next poll.
+      ctrl.add(GpsSample(lat: 0, lng: 0.001, tsMs: 16000));
+      async.flushMicrotasks();
+      expect(t.stalled.value, isFalse);
+
+      unawaited(t.stop());
+      async.flushMicrotasks();
+      unawaited(ctrl.close());
+    });
+  });
+
+  test('stalled never trips for a session shorter than stallAfter', () {
+    fakeAsync((async) {
+      final ctrl = StreamController<GpsSample>();
+      final t = RouteTracker(
+        sink: (_) async {},
+        batchSize: 100,
+        stallAfter: const Duration(seconds: 15),
+      );
+      t.start(ctrl.stream);
+
+      ctrl.add(_fix(0));
+      async.elapse(const Duration(seconds: 5));
+      expect(t.stalled.value, isFalse);
+
+      unawaited(t.stop());
+      async.flushMicrotasks();
+      unawaited(ctrl.close());
+    });
   });
 }

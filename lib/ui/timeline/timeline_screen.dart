@@ -67,7 +67,7 @@ class _Band {
   final Color color;
   final double start;
   final double end;
-  final IconData icon;
+  final OsIcon icon;
   const _Band(this.label, this.color, this.start, this.end, this.icon);
 }
 
@@ -119,7 +119,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
           Skeleton.chart(height: 280),
         ] else if (_phase == _Phase.empty)
           StateCard(
-            icon: Ic.pulse,
+            icon: OsIcon.heartRate,
             title: 'No timeline yet',
             message:
                 'Wear the strap through the day and your merged vitals '
@@ -129,7 +129,7 @@ class _TimelineScreenState extends State<TimelineScreen> {
           )
         else if (_phase == _Phase.error)
           StateCard(
-            icon: Ic.cloud,
+            icon: OsIcon.sync,
             title: "Couldn't load your timeline",
             message: 'Please try again.',
             actionLabel: 'Try again',
@@ -233,14 +233,14 @@ class _TimelineContentState extends State<TimelineContent>
     return out;
   }
 
-  static IconData _sportIcon(String type) {
-    if (type.contains('run') || type.contains('walk')) return Ic.run;
+  static OsIcon _sportIcon(String type) {
+    if (type.contains('run') || type.contains('walk')) return OsIcon.run;
     if (type.contains('cycl') ||
         type.contains('bike') ||
         type.contains('ride')) {
-      return Ic.activity;
+      return OsIcon.activity;
     }
-    return Ic.strain;
+    return OsIcon.bodyStrain;
   }
 
   void _build(Map<String, dynamic> d) {
@@ -268,7 +268,7 @@ class _TimelineContentState extends State<TimelineContent>
         final on = (s['onset_ts'] as num?)?.toDouble();
         final off = (s['wake_ts'] as num?)?.toDouble();
         if (on != null && off != null) {
-          bands.add(_Band('Sleep', DomainAccent.sleep, on, off, Ic.moon));
+          bands.add(_Band('Sleep', DomainAccent.sleep, on, off, OsIcon.sleep));
         }
       }
     }
@@ -277,7 +277,7 @@ class _TimelineContentState extends State<TimelineContent>
         final st = (n['start'] as num?)?.toDouble();
         final en = (n['end'] as num?)?.toDouble();
         if (st != null && en != null) {
-          bands.add(_Band('Nap', AppColors.cool, st, en, Ic.moon));
+          bands.add(_Band('Nap', AppColors.cool, st, en, OsIcon.sleep));
         }
       }
     }
@@ -327,7 +327,7 @@ class _TimelineContentState extends State<TimelineContent>
   Widget build(BuildContext context) {
     if (_vitals.isEmpty || _t1 <= _t0) {
       return const StateCard(
-        icon: Ic.pulse,
+        icon: OsIcon.heartRate,
         title: 'No timeline yet',
         message:
             'Wear the strap through the day and your merged vitals timeline '
@@ -571,7 +571,7 @@ class _TimelineContentState extends State<TimelineContent>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const TileHeader('Events', icon: Ic.calendar),
+            const TileHeader('Events'),
             const SizedBox(height: Sp.x1),
             for (var i = 0; i < _bands.length; i++)
               ListRow(
@@ -635,7 +635,7 @@ class _ChartPainter extends CustomPainter {
           Paint()..color = b.color.withValues(alpha: 0.7)..strokeWidth = 2);
       if (progress > 0.6) {
         final cx = ((x0 + x1) / 2).clamp(leftPad + 8, size.width - 8);
-        _icon(canvas, b.icon, Offset(cx - 7, plotTop - 15), b.color, 14);
+        canvas.drawCircle(Offset(cx, plotTop - 8), 4, Paint()..color = b.color);
       }
     }
 
@@ -797,20 +797,6 @@ class _ChartPainter extends CustomPainter {
     tp.paint(canvas, at);
   }
 
-  void _icon(Canvas canvas, IconData ic, Offset at, Color color, double size) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: String.fromCharCode(ic.codePoint),
-        style: TextStyle(
-            fontFamily: ic.fontFamily,
-            package: ic.fontPackage,
-            fontSize: size,
-            color: color),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, at);
-  }
 
   static String _hhmm(double epochSec) {
     final t = DateTime.fromMillisecondsSinceEpoch(epochSec.round() * 1000);

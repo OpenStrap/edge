@@ -136,21 +136,19 @@ class FloatingNavPill extends StatelessWidget {
 class NavPillAction extends StatelessWidget {
   /// Material/HugeIcons glyph, rendered on the ember circle. Ignored when
   /// [osIcon] is set.
-  final IconData? icon;
+  final OsIcon? icon;
 
   /// Illustrated action (e.g. [OsIcon.add]). The art is itself a soft-3D
   /// button coin, so it renders as-is — no ember circle behind it.
-  final OsIcon? osIcon;
   final VoidCallback onTap;
   final String semanticLabel;
 
   const NavPillAction({
     super.key,
     this.icon,
-    this.osIcon,
     required this.onTap,
     this.semanticLabel = 'Start',
-  }) : assert(icon != null || osIcon != null, 'Provide icon or osIcon');
+  }) : assert(icon != null);
 
   @override
   Widget build(BuildContext context) {
@@ -161,12 +159,12 @@ class NavPillAction extends StatelessWidget {
         // Pressable fires the selection haptic itself.
         pressedScale: 0.9,
         onTap: onTap,
-        child: osIcon != null
+        child: true
             // The illustrated coin IS the button — same 46px footprint.
             ? SizedBox(
                 width: 46,
                 height: 46,
-                child: OsAppIcon(osIcon!, size: 46),
+                child: OsAppIcon(icon!, size: 46),
               )
             : Container(
                 width: 46,
@@ -178,7 +176,7 @@ class NavPillAction extends StatelessWidget {
                 ),
                 // Plain Icon (not the kit AppIcon): the center glyph may be a
                 // Material icon (▶), not just a HugeIcons stroke.
-                child: Center(child: Icon(icon, size: 24, color: Colors.white)),
+                child: Center(child: OsAppIcon(icon!, size: 24)),
               ),
       ),
     );

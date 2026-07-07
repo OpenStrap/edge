@@ -147,7 +147,7 @@ class _AdvancedDataScreenState extends State<AdvancedDataScreen> {
             Row(
               children: [
                 RoundIconButton(
-                  Ic.arrowLeft,
+                  OsIcon.arrowLeft,
                   onTap: () => Navigator.of(context).maybePop(),
                 ),
                 const SizedBox(width: Sp.x3),
@@ -181,7 +181,7 @@ class _AdvancedDataScreenState extends State<AdvancedDataScreen> {
               child: Column(
                 children: [
                   DetailRow(
-                    icon: Ic.history,
+                    icon: OsIcon.history,
                     label: 'Recompute selected days',
                     value: _selected.isEmpty ? 'Select first' : 'Run',
                     onTap: _busy || _selected.isEmpty
@@ -190,7 +190,7 @@ class _AdvancedDataScreenState extends State<AdvancedDataScreen> {
                   ),
                   const Divider(height: 1),
                   DetailRow(
-                    icon: Ic.history,
+                    icon: OsIcon.history,
                     label: 'Recompute all days',
                     value: _busy ? 'Working…' : 'Run',
                     onTap: _busy ? null : _reanalyzeAll,

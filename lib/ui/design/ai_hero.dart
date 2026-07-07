@@ -137,7 +137,7 @@ class AiHero extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: Sp.x2),
                   child: AppIcon(
-                    Ic.arrowRight,
+                    OsIcon.arrowRight,
                     size: 15,
                     color: AppColors.onSurfaceFaint,
                   ),
@@ -184,7 +184,7 @@ class AiHero extends StatelessWidget {
                       ),
                       child: Center(
                         child: AppIcon(
-                          Ic.arrowRight,
+                          OsIcon.arrowRight,
                           size: 13,
                           color: AppColors.surface,
                         ),

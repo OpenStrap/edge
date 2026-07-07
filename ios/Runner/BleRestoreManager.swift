@@ -141,6 +141,33 @@ class BleRestoreManager: NSObject {
           self.armIfAppropriate()
         }
         result(nil)
+      case "armRecoveryNow":
+        // Atomic combination of setOwnsBand(false) + arm(uuid) in ONE round trip —
+        // used on the hot disconnect-recovery path (AppState._armRecovery). Two
+        // separate awaited channel calls left a window where a process suspension
+        // between them could drop appOwnsBand to false with nothing armed to
+        // replace it (worst of both: app no longer owns the band, AND no pending
+        // connect is watching for it). Doing both under one delegate callback,
+        // wrapped in a short background-task extension, removes that window.
+        if let s = call.arguments as? String, let uuid = UUID(uuidString: s) {
+          self.beginBackground()
+          self.saveBandUUID(uuid)
+          self.bandUUID = uuid
+          self.appOwnsBand = false
+          self.ensureCentral()
+          self.handedOff = false
+          self.idleAfterSync = false
+          self.armIfAppropriate()
+          NSLog("[ble-restore] armRecoveryNow — recovery armed atomically")
+          // The actual recovery (the no-timeout pending connect) is now held by
+          // bluetoothd itself and survives full app suspension; the background-task
+          // extension only needed to cover this method's own synchronous work, so
+          // release it shortly rather than holding it for the full ~30s budget.
+          DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.endBackground()
+          }
+        }
+        result(nil)
       case "disarm":
         self.disarm()
         result(nil)

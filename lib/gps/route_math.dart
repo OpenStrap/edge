@@ -37,6 +37,30 @@ bool isImplausibleSegment(
   return meters > allowed;
 }
 
+/// Exponential moving average for instantaneous speed. Raw GPS speed (even
+/// the platform's Doppler-derived value) jitters fix-to-fix; a live "current
+/// pace" readout built straight off it visibly flickers. [alpha] is the
+/// weight given to the new sample — lower = smoother but slower to react to a
+/// genuine pace change. 0.25 settles a step change in ~4 fixes (~4×5m at
+/// running cadence) while still damping single-fix noise.
+double emaSpeed(double? prevSmoothed, double raw, {double alpha = 0.25}) {
+  if (prevSmoothed == null) return raw;
+  return prevSmoothed + alpha * (raw - prevSmoothed);
+}
+
+/// Instantaneous speed (m/s) derived from two consecutive fixes, for when the
+/// platform doesn't report `Position.speed` (some Android devices, or the
+/// first fix). Less accurate than a real Doppler speed — position-fix jitter
+/// is amplified by dividing a short distance by a short time — so callers
+/// should prefer [GpsSample.speed] when present and only fall back to this.
+double? fallbackSpeedMps(RoutePoint? prev, RoutePoint cur) {
+  if (prev == null) return null;
+  final dtSec = (cur.tsMs - prev.tsMs) / 1000.0;
+  if (dtSec <= 0) return null;
+  final m = haversineMeters(prev.lat, prev.lng, cur.lat, cur.lng);
+  return m / dtSec;
+}
+
 /// Great-circle distance in metres between two lat/lng points.
 double haversineMeters(double lat1, double lng1, double lat2, double lng2) {
   const deg2rad = math.pi / 180.0;

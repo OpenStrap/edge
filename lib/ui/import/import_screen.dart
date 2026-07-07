@@ -110,21 +110,21 @@ class _ImportScreenState extends State<ImportScreen> {
       children: [
         ...dsStaggered([
           ImportOptionCard(
-            icon: Ic.pulse,
+            icon: OsIcon.heartRate,
             title: 'Import from NOOP',
             body: 'Raw 1 Hz CSV — re-analyzed end-to-end on this phone.',
             onTap: _busy ? null : _importNoop,
           ),
           const SizedBox(height: Sp.x3),
           ImportOptionCard(
-            icon: Ic.server,
+            icon: OsIcon.server,
             title: 'Import from Edge backup',
             body: 'A .db exported from another OpenStrap device.',
             onTap: _busy ? null : _importEdge,
           ),
           const SizedBox(height: Sp.x3),
           ImportOptionCard(
-            icon: Ic.history,
+            icon: OsIcon.history,
             title: 'Import from WHOOP',
             tag: 'BETA',
             body: 'WHOOP export CSVs — derived summaries only.',
@@ -178,7 +178,7 @@ class _ImportScreenState extends State<ImportScreen> {
             color: AppColors.positiveSoft,
             padding: const EdgeInsets.all(Sp.x4),
             child: Row(children: [
-              AppIcon(Ic.check, size: 18, color: AppColors.positive),
+              AppIcon(OsIcon.check, size: 18, color: AppColors.positive),
               const SizedBox(width: Sp.x3),
               Expanded(
                   child: Text(_result!,
@@ -214,7 +214,7 @@ class _ImportScreenState extends State<ImportScreen> {
 
 /// One import source — SurfaceCard + ListRow; disabled while a run is busy.
 class ImportOptionCard extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
   final String title;
   final String body;
   final VoidCallback? onTap;
@@ -250,7 +250,7 @@ class ImportOptionCard extends StatelessWidget {
                 Tag(tag!, color: AppColors.warn),
                 const SizedBox(width: Sp.x2),
               ],
-              AppIcon(Ic.arrowRight,
+              AppIcon(OsIcon.arrowRight,
                   size: 16, color: AppColors.onSurfaceFaint),
             ],
           ),

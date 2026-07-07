@@ -281,8 +281,7 @@ class _JournalComposeScreenState extends State<JournalComposeScreen> {
       return [
         const SizedBox(height: Sp.x4),
         StateCard(
-          icon: Ic.ai,
-          osIcon: OsIcon.ai,
+          icon: OsIcon.ai,
           title: 'Bring your own AI',
           message:
               'Add your AI key to talk through your day and have it logged '
@@ -361,7 +360,7 @@ class _JournalComposeScreenState extends State<JournalComposeScreen> {
         ),
         const SizedBox(width: Sp.x2),
         RoundIconButton(
-          Icons.arrow_upward_rounded,
+          OsIcon.activity,
           bg: AppColors.ink,
           fg: AppColors.surface,
           onTap: _chatBusy ? null : _sendChat,

@@ -152,7 +152,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                             Expanded(
                                 child: Text('Use my bedtime',
                                     style: AppText.title)),
-                            AppIcon(Ic.clock,
+                            AppIcon(OsIcon.history,
                                 size: 16, color: AppColors.inkSoft),
                           ]),
                         ),
@@ -185,17 +185,17 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
       onTap: () => Navigator.of(context)
           .push(themedRoute((_) => const CoachSettingsScreen())),
       child: ListRow(
-        icon: ok ? Ic.check : Ic.ai,
+        icon: ok ? OsIcon.check : OsIcon.ai,
         // Spark art only in the "add a key" state — the connected state keeps
         // its green check.
-        osIcon: ok ? null : OsIcon.ai,
+
         iconColor: ok ? AppColors.positive : AppColors.inkSoft,
         title: ok ? 'AI key connected' : 'Add your AI key',
         subtitle: ok
             ? 'Using ${cfg.model.isEmpty ? 'your provider' : cfg.model}. Tap to change.'
             : 'Briefings and journal chat need your own AI key. Tap to add one.',
         trailing:
-            AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
+            AppIcon(OsIcon.arrowRight, size: 16, color: AppColors.inkMuted),
       ),
     );
   }
@@ -242,7 +242,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
             Text(valueOverride ?? _fmt(min),
                 style: AppText.title.copyWith(color: AppColors.accent)),
             const SizedBox(width: Sp.x2),
-            AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkSoft),
+            AppIcon(OsIcon.arrowRight, size: 16, color: AppColors.inkSoft),
           ]),
         ),
       );

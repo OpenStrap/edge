@@ -149,7 +149,7 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
                           Navigator.pop(sheetCtx);
                           _newChat();
                         },
-                        icon: AppIcon(Ic.plus, size: 16, color: AppColors.accent),
+                        icon: AppIcon(OsIcon.plus, size: 16, color: AppColors.accent),
                         label: Text('New chat',
                             style:
                                 AppText.label.copyWith(color: AppColors.accent)),
@@ -174,8 +174,7 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
                         children: [
                           for (var i = 0; i < sessions.length; i++)
                             ListRow(
-                              icon: Ic.ai,
-                              osIcon: OsIcon.ai,
+                              icon: OsIcon.ai,
                               iconColor: AppColors.accent,
                               title: sessions[i].title.isEmpty
                                   ? 'Untitled chat'
@@ -191,7 +190,7 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
                                 _openSession(sessions[i].id);
                               },
                               trailing: IconButton(
-                                icon: AppIcon(Ic.trash,
+                                icon: AppIcon(OsIcon.trash,
                                     size: 16, color: AppColors.inkMuted),
                                 onPressed: () async {
                                   final s = sessions[i];
@@ -268,9 +267,9 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
       subtitle: cfg.configured ? cfg.model : 'Not configured',
       largeTitle: false,
       actions: [
-        RoundIconButton(Ic.history, onTap: _openSessions),
-        RoundIconButton(Ic.plus, onTap: _newChat),
-        RoundIconButton(Ic.settings, onTap: _openSettings),
+        RoundIconButton(OsIcon.history, onTap: _openSessions),
+        RoundIconButton(OsIcon.plus, onTap: _newChat),
+        RoundIconButton(OsIcon.settings, onTap: _openSettings),
       ],
       body: Column(
         children: [
@@ -294,8 +293,7 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
         padding: const EdgeInsets.fromLTRB(Sp.screen, Sp.x4, Sp.screen, Sp.x6),
         children: [
           StateCard(
-            icon: Ic.ai,
-            osIcon: OsIcon.ai,
+            icon: OsIcon.ai,
             title: 'Bring your own AI',
             message:
                 'Use any OpenAI-compatible provider with your own API key. Your '
@@ -390,7 +388,7 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
             ),
             const SizedBox(width: Sp.x2),
             RoundIconButton(
-              Icons.arrow_upward_rounded,
+              OsIcon.activity,
               bg: AppColors.ink,
               fg: AppColors.surface,
               onTap: _busy ? null : () => _send(_input.text),
@@ -458,7 +456,7 @@ class CoachBubble extends StatelessWidget {
             padding: const EdgeInsets.all(Sp.x3),
             child: Row(
               children: [
-                AppIcon(Ic.info, size: 16, color: AppColors.warn),
+                AppIcon(OsIcon.info, size: 16, color: AppColors.warn),
                 const SizedBox(width: Sp.x3),
                 Expanded(
                     child: Text(item.text ?? '', style: AppText.captionMuted)),

@@ -33,11 +33,9 @@ import 'metric_screen.dart';
 class SleepScreen extends StatelessWidget {
   const SleepScreen({super.key});
   @override
-  Widget build(BuildContext context) => MetricScreen(
+  Widget build(BuildContext context) => MetricScreen(icon: OsIcon.activity, 
     title: 'Sleep',
     metric: 'sleep',
-    icon: Ic.moon,
-    osIcon: OsIcon.sleep,
     accent: DomainAccent.sleep,
     valueFmt: (v) =>
         v == 0 ? '' : (v / 60).toStringAsFixed(1), // minutes → hours on bars
@@ -57,11 +55,9 @@ class SleepScreen extends StatelessWidget {
 class HeartScreen extends StatelessWidget {
   const HeartScreen({super.key});
   @override
-  Widget build(BuildContext context) => MetricScreen(
+  Widget build(BuildContext context) => MetricScreen(icon: OsIcon.activity, 
     title: 'Heart',
     metric: 'resting_hr',
-    icon: Ic.heart,
-    osIcon: OsIcon.heart,
     accent: DomainAccent.heart,
     todayDetail: (ctx) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -81,10 +77,9 @@ class HeartScreen extends StatelessWidget {
 class OxygenScreen extends StatelessWidget {
   const OxygenScreen({super.key});
   @override
-  Widget build(BuildContext context) => MetricScreen(
+  Widget build(BuildContext context) => MetricScreen(icon: OsIcon.activity, 
     title: 'Overnight oxygen',
     metric: 'spo2',
-    icon: Ic.droplet,
     accent: DomainAccent.oxygen,
     valueFmt: (v) => v == 0 ? '0' : v.toStringAsFixed(1),
     todayDetail: (ctx) => OxygenDayCard(date: todayLabel()),
@@ -98,10 +93,9 @@ class OxygenScreen extends StatelessWidget {
 class WearScreen extends StatelessWidget {
   const WearScreen({super.key});
   @override
-  Widget build(BuildContext context) => MetricScreen(
+  Widget build(BuildContext context) => MetricScreen(icon: OsIcon.activity, 
     title: 'Wear time',
     metric: 'wear',
-    icon: Ic.watch,
     accent: AppColors.coralDeep,
     valueFmt: (v) =>
         v == 0 ? '' : (v / 60).toStringAsFixed(1), // minutes → hours on bars
@@ -117,11 +111,9 @@ class WearScreen extends StatelessWidget {
 class BodyScreen extends StatelessWidget {
   const BodyScreen({super.key});
   @override
-  Widget build(BuildContext context) => MetricScreen(
+  Widget build(BuildContext context) => MetricScreen(icon: OsIcon.activity, 
     title: 'Body',
     metric: 'strain',
-    icon: Ic.strain,
-    osIcon: OsIcon.bodyStrain,
     accent: DomainAccent.strain,
     action: Builder(
       builder: (ctx) => Pressable(
@@ -139,7 +131,7 @@ class BodyScreen extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const AppIcon(Ic.ai, size: 16, color: Colors.white),
+              const AppIcon(OsIcon.ai, size: 16, color: Colors.white),
               const SizedBox(width: 6),
               Text(
                 'AI Coach',
@@ -284,8 +276,6 @@ class WeekLoadWheelTile extends StatelessWidget {
       children: [
         TileHeader(
           'Week load',
-          icon: Ic.strain,
-          osIcon: OsIcon.bodyStrain,
           trailing: InfoDot(
             title: 'Week load',
             body:
@@ -319,11 +309,9 @@ class WeekLoadWheelTile extends StatelessWidget {
 class ActivityScreen extends StatelessWidget {
   const ActivityScreen({super.key});
   @override
-  Widget build(BuildContext context) => MetricScreen(
+  Widget build(BuildContext context) => MetricScreen(icon: OsIcon.activity, 
     title: 'Steps',
     metric: 'steps',
-    icon: Ic.run,
-    osIcon: OsIcon.steps,
     accent: DomainAccent.steps,
     valueFmt: (v) => v == 0 ? '' : v.toStringAsFixed(0),
     todayDetail: (ctx) => const _ActivityDetail(),
@@ -462,8 +450,7 @@ class StepsDayContent extends StatelessWidget {
             children: [
               TileHeader(
                 'Steps',
-                icon: Ic.run,
-                osIcon: OsIcon.steps,
+                icon: OsIcon.steps,
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -519,7 +506,7 @@ class StepsDayContent extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const TileHeader('This week', icon: Ic.calendar),
+                const TileHeader('This week'),
                 const SizedBox(height: Sp.x3),
                 RingWeek(
                   values: ringValues,
@@ -542,7 +529,7 @@ class StepsDayContent extends StatelessWidget {
           child: Column(
             children: [
               ListRow(
-                icon: Ic.strain,
+                icon: OsIcon.bodyStrain,
                 iconColor: accent,
                 title: 'Daily step goal',
                 value: goal == null ? 'Set' : '$goal',
@@ -550,7 +537,7 @@ class StepsDayContent extends StatelessWidget {
                 onTap: onSetGoal,
               ),
               ListRow(
-                icon: Ic.run,
+                icon: OsIcon.run,
                 iconColor: accent,
                 title: 'Calibrate steps',
                 subtitle: 'Walk ~250 steps with the app open',
@@ -572,8 +559,7 @@ class SpotCheckEntryCard extends StatelessWidget {
     return SurfaceCard(
       padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
       child: ListRow(
-        icon: Ic.pulse,
-        osIcon: OsIcon.hrv,
+        icon: OsIcon.hrv,
         iconColor: DomainAccent.recovery,
         title: 'Live HRV spot check',
         subtitle: 'A quick 60-second reading, any time',
@@ -601,7 +587,7 @@ class CycleEntryCard extends StatelessWidget {
       child: SurfaceCard(
         padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
         child: ListRow(
-          icon: Ic.calendar,
+          icon: OsIcon.calendar,
           iconColor: DomainAccent.heart,
           title: 'Cycle tracking',
           subtitle: 'Phase, next period & fertile window',

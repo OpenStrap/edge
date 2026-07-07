@@ -8,7 +8,6 @@ export 'os_icons.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:hugeicons/hugeicons.dart';
 import 'package:provider/provider.dart';
 import '../../theme/theme.dart';
 import '../../theme/theme_controller.dart';
@@ -17,64 +16,64 @@ import '../../theme/tokens.dart';
 import '../../models/metric.dart';
 import 'os_icons.dart';
 
-/// Thin wrapper over HugeIcon so call sites stay short and consistent.
+/// Thin wrapper over OsIcon so call sites stay short and consistent.
 class AppIcon extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
   final double size;
-  final Color? color;
+  final Color? color; // Kept for API compatibility, but ignored by illustrated icons
   const AppIcon(this.icon, {super.key, this.size = 22, this.color});
   @override
   Widget build(BuildContext context) =>
-      HugeIcon(icon: icon, size: size, color: color ?? AppColors.ink);
+      OsAppIcon(icon, size: size);
 }
 
-/// Common icon set, named once so screens don't reach into HugeIcons directly.
+/// Common icon set, mapped to OsIcon.
 class Ic {
   Ic._();
-  static const home = HugeIcons.strokeRoundedHome01;
-  static const sleep = HugeIcons.strokeRoundedMoon02;
-  static const activity = HugeIcons.strokeRoundedActivity01;
-  static const stats = HugeIcons.strokeRoundedAnalytics01;
-  static const profile = HugeIcons.strokeRoundedUserCircle;
-  static const strain = HugeIcons.strokeRoundedEnergy;
-  static const recovery = HugeIcons.strokeRoundedChampion;
-  static const heart = HugeIcons.strokeRoundedFavourite;
-  static const pulse = HugeIcons.strokeRoundedPulseRectangle01;
-  static const fire = HugeIcons.strokeRoundedFire;
-  static const bed = HugeIcons.strokeRoundedBed;
-  static const moon = HugeIcons.strokeRoundedMoon02;
-  static const clock = HugeIcons.strokeRoundedClock01;
-  static const calendar = HugeIcons.strokeRoundedCalendar03;
-  static const watch = HugeIcons.strokeRoundedSmartWatch01;
-  static const bluetooth = HugeIcons.strokeRoundedBluetooth;
-  static const battery = HugeIcons.strokeRoundedBatteryFull;
-  static const settings = HugeIcons.strokeRoundedSettings01;
-  static const logout = HugeIcons.strokeRoundedLogout01;
-  static const edit = HugeIcons.strokeRoundedEdit02;
-  static const server = HugeIcons.strokeRoundedServerStack01;
-  static const cloud = HugeIcons.strokeRoundedCloudServer;
-  static const shield = HugeIcons.strokeRoundedShieldEnergy;
-  static const info = HugeIcons.strokeRoundedInformationCircle;
-  static const check = HugeIcons.strokeRoundedCheckmarkCircle02;
-  static const cancel = HugeIcons.strokeRoundedCancel01;
-  static const arrowRight = HugeIcons.strokeRoundedArrowRight01;
-  static const arrowLeft = HugeIcons.strokeRoundedArrowLeft01;
-  static const up = HugeIcons.strokeRoundedArrowUp01;
-  static const down = HugeIcons.strokeRoundedArrowDown01;
-  static const chart = HugeIcons.strokeRoundedChartLineData01;
-  static const droplet = HugeIcons.strokeRoundedDroplet;
-  static const run = HugeIcons.strokeRoundedRunningShoes;
-  static const weights = HugeIcons.strokeRoundedDumbbell01;
-  static const bell = HugeIcons.strokeRoundedNotification03;
-  static const thermometer = HugeIcons.strokeRoundedTemperature;
-  static const ai = HugeIcons.strokeRoundedAiMagic;
-  static const plus = HugeIcons.strokeRoundedAdd01;
-  static const history = HugeIcons.strokeRoundedClock04;
-  static const trash = HugeIcons.strokeRoundedDelete02;
-  static const github = HugeIcons.strokeRoundedGithub;
-  static const discord = HugeIcons.strokeRoundedDiscord;
-  static const reddit = HugeIcons.strokeRoundedReddit;
-  static const twitter = HugeIcons.strokeRoundedNewTwitter;
+  static const home = OsIcon.today;
+  static const sleep = OsIcon.sleep;
+  static const activity = OsIcon.activity;
+  static const stats = OsIcon.records;
+  static const profile = OsIcon.profile;
+  static const strain = OsIcon.bodyStrain;
+  static const recovery = OsIcon.recovery;
+  static const heart = OsIcon.heart;
+  static const pulse = OsIcon.heartRate;
+  static const fire = OsIcon.calories;
+  static const bed = OsIcon.bedtime;
+  static const moon = OsIcon.sleep;
+  static const clock = OsIcon.history;
+  static const calendar = OsIcon.calendar;
+  static const watch = OsIcon.wear;
+  static const bluetooth = OsIcon.bluetooth;
+  static const battery = OsIcon.battery;
+  static const settings = OsIcon.settings;
+  static const logout = OsIcon.logout;
+  static const edit = OsIcon.edit;
+  static const server = OsIcon.server;
+  static const cloud = OsIcon.sync;
+  static const shield = OsIcon.shield;
+  static const info = OsIcon.info;
+  static const check = OsIcon.check;
+  static const cancel = OsIcon.cancel;
+  static const arrowRight = OsIcon.arrowRight;
+  static const arrowLeft = OsIcon.arrowLeft;
+  static const up = OsIcon.up;
+  static const down = OsIcon.down;
+  static const chart = OsIcon.activity;
+  static const droplet = OsIcon.hydration;
+  static const run = OsIcon.run;
+  static const weights = OsIcon.strength;
+  static const bell = OsIcon.notifications;
+  static const thermometer = OsIcon.skinTemperature;
+  static const ai = OsIcon.ai;
+  static const plus = OsIcon.plus;
+  static const history = OsIcon.history;
+  static const trash = OsIcon.trash;
+  static const github = OsIcon.github;
+  static const discord = OsIcon.discord;
+  static const reddit = OsIcon.reddit;
+  static const twitter = OsIcon.twitter;
 }
 
 /// White rounded card with soft warm shadow. The base surface for everything.
@@ -325,7 +324,7 @@ class SectionHeader extends StatelessWidget {
                     style: AppText.label.copyWith(color: AppColors.coralDeep),
                   ),
                   const SizedBox(width: 2),
-                  AppIcon(Ic.arrowRight, size: 16, color: AppColors.coralDeep),
+                  AppIcon(OsIcon.arrowRight, size: 16, color: AppColors.coralDeep),
                 ],
               ),
             ),
@@ -421,7 +420,7 @@ class DeltaChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AppIcon(up ? Ic.up : Ic.down, size: 13, color: c),
+          AppIcon(up ? OsIcon.up : OsIcon.down, size: 13, color: c),
           const SizedBox(width: 2),
           Flexible(
             child: Text(
@@ -597,23 +596,19 @@ class _BetaTag extends StatelessWidget {
 
 /// Compact round icon button (top-bar actions, like the ref's circular buttons).
 class RoundIconButton extends StatelessWidget {
-  final IconData icon;
-
-  /// Illustrated variant — takes precedence over [icon]. Rendered at 26px
-  /// (padding shrinks so the button diameter stays identical to the glyph
-  /// form). Full-colour art: [fg] is ignored, [bg] still applies.
-  final OsIcon? osIcon;
+  final OsIcon icon;
   final VoidCallback? onTap;
   final Color? bg;
-  final Color? fg;
+  final Color? fg; // Ignored for illustrated icons, kept for API compat
+  
   const RoundIconButton(
     this.icon, {
     super.key,
-    this.osIcon,
     this.onTap,
     this.bg,
     this.fg,
   });
+  
   @override
   Widget build(BuildContext context) => Material(
     color: bg ?? AppColors.surface,
@@ -623,11 +618,8 @@ class RoundIconButton extends StatelessWidget {
       customBorder: const CircleBorder(),
       onTap: onTap,
       child: Padding(
-        // Glyph: 12 + 20 + 12; art: 9 + 26 + 9 — same 44px button either way.
-        padding: EdgeInsets.all(osIcon != null ? Sp.x3 - 3 : Sp.x3),
-        child: osIcon != null
-            ? OsAppIcon(osIcon!, size: 26)
-            : AppIcon(icon, size: 20, color: fg ?? AppColors.ink),
+        padding: const EdgeInsets.all(Sp.x3 - 3),
+        child: OsAppIcon(icon, size: 26),
       ),
     ),
   );
@@ -635,7 +627,7 @@ class RoundIconButton extends StatelessWidget {
 
 /// A label/value list row used in detail sheets and profile sections.
 class DetailRow extends StatelessWidget {
-  final IconData? icon;
+  final OsIcon? icon;
   final String label;
   final String value;
   final VoidCallback? onTap;
@@ -686,7 +678,7 @@ class DetailRow extends StatelessWidget {
               trailing!,
             ] else if (onTap != null) ...[
               const SizedBox(width: Sp.x2),
-              AppIcon(Ic.arrowRight, size: 16, color: AppColors.inkMuted),
+              AppIcon(OsIcon.arrowRight, size: 16, color: AppColors.inkMuted),
             ],
           ],
         ),
@@ -729,7 +721,7 @@ class DetailRetentionNote extends StatelessWidget {
   Widget build(BuildContext context) => ProCard(
     child: Row(
       children: [
-        AppIcon(Ic.clock, size: 20, color: AppColors.inkMuted),
+        AppIcon(OsIcon.history, size: 20, color: AppColors.inkMuted),
         const SizedBox(width: Sp.x3),
         Expanded(
           child: Text(

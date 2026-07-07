@@ -111,6 +111,10 @@ class GpsSource {
         lng: p.longitude,
         alt: p.altitude,
         accuracy: p.accuracy,
+        // Negative speed is a known platform artifact (bad fix) — treat as
+        // unknown rather than a real negative pace.
+        speed: (p.speed.isFinite && p.speed >= 0) ? p.speed : null,
+        speedAccuracy: p.speedAccuracy.isFinite ? p.speedAccuracy : null,
         tsMs: p.timestamp.millisecondsSinceEpoch,
       );
 }

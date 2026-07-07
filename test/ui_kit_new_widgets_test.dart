@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/ui/kit/skeleton.dart';
 import 'package:openstrap_edge/ui/kit/state_card.dart';
+import 'package:openstrap_edge/ui/kit/os_icons.dart';
 import 'package:openstrap_edge/ui/kit/charts.dart';
 
 Widget _host(Widget child) => MaterialApp(
@@ -30,7 +31,7 @@ void main() {
   testWidgets('StateCard shows title + message; action fires', (t) async {
     var tapped = 0;
     await t.pumpWidget(_host(StateCard(
-      icon: Icons.cloud,
+      icon: OsIcon.activity,
       title: 'Nothing yet',
       message: 'Wear and sync.',
       actionLabel: 'Try again',
@@ -46,8 +47,8 @@ void main() {
   });
 
   testWidgets('StateCard hides action when not provided', (t) async {
-    await t.pumpWidget(_host(const StateCard(
-      icon: Icons.info,
+    await t.pumpWidget(_host(StateCard(
+      icon: OsIcon.activity,
       title: 'Empty',
       message: 'No data.',
     )));

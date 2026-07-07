@@ -11,12 +11,14 @@ import '../kit/os_icons.dart';
 import 'pressable.dart';
 
 class ListRow extends StatelessWidget {
-  final IconData? icon;
+  /// Monochrome stroke glyph — the default. Rendered at 18px via [AppIcon].
+  final OsIcon? icon;
 
   /// Illustrated variant — takes precedence over [icon] inside the chip.
-  /// Rendered at 38px (the art carries built-in transparent padding, so it
+  /// Rendered at 46px (the art carries built-in transparent padding, so it
   /// needs a larger canvas than a stroke glyph to read at the same weight).
   final OsIcon? osIcon;
+
   final Color? iconColor;
   final String title;
   final String? subtitle;
@@ -55,7 +57,7 @@ class ListRow extends StatelessWidget {
           children: [
             if (osIcon != null || icon != null) ...[
               Container(
-                padding: EdgeInsets.all(osIcon != null ? 1 : Sp.x2),
+                padding: EdgeInsets.all(Sp.x2),
                 decoration: BoxDecoration(
                   color: (iconColor ?? AppColors.onSurfaceMuted).withValues(
                     alpha: 0.1,
@@ -63,7 +65,7 @@ class ListRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(R.chip),
                 ),
                 child: osIcon != null
-                    ? OsAppIcon(osIcon!, size: 38)
+                    ? OsAppIcon(osIcon!, size: 46)
                     : AppIcon(
                         icon!,
                         size: 18,
@@ -107,7 +109,7 @@ class ListRow extends StatelessWidget {
               trailing!,
             ] else if (onTap != null) ...[
               const SizedBox(width: Sp.x2),
-              AppIcon(Ic.arrowRight, size: 16, color: AppColors.onSurfaceFaint),
+              AppIcon(OsIcon.arrowRight, size: 16, color: AppColors.onSurfaceFaint),
             ],
           ],
         ),

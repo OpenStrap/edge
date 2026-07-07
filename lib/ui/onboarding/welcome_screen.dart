@@ -158,7 +158,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         Text('How do you want to start?', style: AppText.h2),
         const SizedBox(height: Sp.x4),
         WelcomeOptionCard(
-          icon: Ic.cloud,
+          icon: OsIcon.sync,
           title: 'I used OpenStrap before',
           body: 'Sign in and pull your history onto this phone.',
           onTap: () => _set(() {
@@ -168,7 +168,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         ),
         const SizedBox(height: Sp.x3),
         WelcomeOptionCard(
-          icon: Ic.history,
+          icon: OsIcon.history,
           title: 'Import from a file',
           body: 'NOOP CSV, Edge backup, or a WHOOP export.',
           onTap: () =>
@@ -176,7 +176,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         ),
         const SizedBox(height: Sp.x3),
         WelcomeOptionCard(
-          icon: Ic.profile,
+          icon: OsIcon.profile,
           title: 'I’m new',
           body: 'A few basics and you’re in.',
           accent: true,
@@ -355,7 +355,7 @@ class WelcomeHero extends StatelessWidget {
                 boxShadow: AppColors.isDark ? const [] : Shadows.coral,
               ),
               child: const Center(
-                child: AppIcon(Ic.watch, size: 24, color: Colors.white),
+                child: AppIcon(OsIcon.wear, size: 24, color: Colors.white),
               ),
             ),
             const SizedBox(height: Sp.x5),
@@ -378,7 +378,7 @@ class WelcomeHero extends StatelessWidget {
 /// One onboarding choice — a SurfaceCard row: icon-in-tile, title, one quiet
 /// line, chevron. [accent] marks the recommended path with the ember tint.
 class WelcomeOptionCard extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
   final String title;
   final String body;
   final VoidCallback onTap;
@@ -406,7 +406,7 @@ class WelcomeOptionCard extends StatelessWidget {
         // ListRow shows the chevron itself when onTap is null and trailing is
         // null — force it here since the CARD owns the tap.
         trailing:
-            AppIcon(Ic.arrowRight, size: 16, color: AppColors.onSurfaceFaint),
+            AppIcon(OsIcon.arrowRight, size: 16, color: AppColors.onSurfaceFaint),
       ),
     );
   }

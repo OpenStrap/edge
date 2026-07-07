@@ -261,11 +261,18 @@ class LocalDb {
           // bump). Pruned with its session.
           await _createWorkoutRoute(db);
         }
+        if (oldV < 23) {
+          // Additive: per-point smoothed instantaneous speed (m/s), captured
+          // for the live speed/pace readout and kept with the point for a
+          // future finished-route speed graph. Existing rows get null (no
+          // speed was ever recorded for them) — never backfilled/guessed.
+          await _ensureWorkoutRouteSpeed(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
       },
-      version: 22,
+      version: 23,
     );
   }
 
@@ -311,6 +318,7 @@ class LocalDb {
     await _createWorkoutSuggestions(db);
     await _createSleepOverride(db);
     await _createWorkoutRoute(db);
+    await _ensureWorkoutRouteSpeed(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
@@ -3404,6 +3412,22 @@ class LocalDb {
       'CREATE INDEX IF NOT EXISTS idx_workout_route_session '
       'ON workout_route(session_id, seq)',
     );
+  }
+
+  /// Additive: add the `speed` column (smoothed instantaneous m/s) to an
+  /// existing workout_route table. Guarded — fresh installs get it from
+  /// _createWorkoutRoute directly once that's updated; ALTER … ADD COLUMN
+  /// throws if it's already there.
+  static Future<void> _ensureWorkoutRouteSpeed(Database db) async {
+    final info = await db.rawQuery('PRAGMA table_info(workout_route)');
+    final has = info.any((c) => c['name'] == 'speed');
+    if (!has) {
+      try {
+        await db.execute('ALTER TABLE workout_route ADD COLUMN speed REAL');
+      } catch (_) {
+        /* another opener won the race — column now exists */
+      }
+    }
   }
 
   /// Append a batch of route rows (INSERT OR REPLACE — idempotent on

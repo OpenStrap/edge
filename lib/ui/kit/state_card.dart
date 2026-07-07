@@ -9,11 +9,7 @@ import '../../theme/tokens.dart';
 import 'kit.dart';
 
 class StateCard extends StatefulWidget {
-  final IconData icon;
-
-  /// Illustrated variant — takes precedence over [icon] inside the breathing
-  /// circle. Full-colour art, never tinted; the circle bg stays.
-  final OsIcon? osIcon;
+  final OsIcon icon;
   final String title;
   final String message;
 
@@ -24,7 +20,6 @@ class StateCard extends StatefulWidget {
   const StateCard({
     super.key,
     required this.icon,
-    this.osIcon,
     required this.title,
     required this.message,
     this.actionLabel,
@@ -63,14 +58,12 @@ class _StateCardState extends State<StateCard>
             scale: _scale,
             child: Container(
               // Glyph: 16 + 30 + 16; art: 11 + 40 + 11 — same 62px circle.
-              padding: EdgeInsets.all(widget.osIcon != null ? 11 : Sp.x4),
+              padding: const EdgeInsets.all(11),
               decoration: BoxDecoration(
                 color: AppColors.coralSoft,
                 shape: BoxShape.circle,
               ),
-              child: widget.osIcon != null
-                  ? OsAppIcon(widget.osIcon!, size: 40)
-                  : AppIcon(widget.icon, size: 30, color: AppColors.coralDeep),
+              child: OsAppIcon(widget.icon, size: 40),
             ),
           ),
           const SizedBox(height: Sp.x4),

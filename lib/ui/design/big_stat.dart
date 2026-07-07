@@ -13,7 +13,6 @@ import 'package:flutter/material.dart';
 
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
-import '../kit/kit.dart' show AppIcon;
 import '../kit/os_icons.dart';
 import 'bento.dart';
 
@@ -140,26 +139,17 @@ class BigStat extends StatelessWidget {
 /// keeps bento tiles aligned without every caller re-building the same Row.
 class TileHeader extends StatelessWidget {
   final String label;
-  final IconData? icon;
-
-  /// Illustrated variant — takes precedence over [icon]. Rendered at 36px:
-  /// the art carries built-in transparent padding, so it needs a visibly
-  /// larger canvas than a 14px stroke glyph to read at the same weight.
-  final OsIcon? osIcon;
+  final OsIcon? icon;
   final Widget? trailing;
-  const TileHeader(this.label,
-      {super.key, this.icon, this.osIcon, this.trailing});
+  const TileHeader(this.label, {super.key, this.icon, this.trailing});
 
   @override
   Widget build(BuildContext context) {
     final tone = ToneScope.of(context);
     return Row(
       children: [
-        if (osIcon != null) ...[
-          OsAppIcon(osIcon!, size: 36),
-          const SizedBox(width: Sp.x2),
-        ] else if (icon != null) ...[
-          AppIcon(icon!, size: 14, color: tone.accent),
+        if (icon != null) ...[
+          OsAppIcon(icon!, size: 36),
           const SizedBox(width: Sp.x2),
         ],
         Expanded(

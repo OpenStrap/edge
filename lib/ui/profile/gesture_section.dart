@@ -25,12 +25,12 @@ class GestureSettingsCard extends StatelessWidget {
               const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
           onTap: () => _pick(context, settings),
           child: ListRow(
-            icon: Ic.watch,
+            icon: OsIcon.wear,
             iconColor: AppColors.accent,
             title: 'Double-tap your band',
             subtitle: settings.doubleTap.label,
             trailing:
-                AppIcon(Ic.arrowRight, size: 16, color: AppColors.onSurfaceFaint),
+                AppIcon(OsIcon.arrowRight, size: 16, color: AppColors.onSurfaceFaint),
           ),
         );
       },
@@ -65,7 +65,7 @@ class GestureSettingsCard extends StatelessWidget {
                     title: a.label,
                     subtitle: a.blurb,
                     trailing: selected
-                        ? AppIcon(Ic.check, size: 20, color: AppColors.positive)
+                        ? AppIcon(OsIcon.check, size: 20, color: AppColors.positive)
                         : const SizedBox(width: 20),
                     onTap: () {
                       settings.setDoubleTap(a);

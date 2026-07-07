@@ -35,11 +35,11 @@ class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
   // Community links. Editable here; swap any URL and rebuild — no backend needed.
-  static const List<({String label, IconData icon, String url})> _socials = [
-    (label: 'GitHub', icon: Ic.github, url: 'https://github.com/OpenStrap'),
-    (label: 'Discord', icon: Ic.discord, url: 'https://discord.gg/dUXds5MWkd'),
-    (label: 'Reddit', icon: Ic.reddit, url: 'https://reddit.com/r/openstrap'),
-    (label: 'X', icon: Ic.twitter, url: 'https://x.com/OpenStrap'),
+  static const List<({String label, OsIcon icon, String url})> _socials = [
+    (icon: OsIcon.activity, label: 'GitHub', url: 'https://github.com/OpenStrap'),
+    (icon: OsIcon.activity, label: 'Discord', url: 'https://discord.gg/dUXds5MWkd'),
+    (icon: OsIcon.activity, label: 'Reddit', url: 'https://reddit.com/r/openstrap'),
+    (icon: OsIcon.activity, label: 'X', url: 'https://x.com/OpenStrap'),
   ];
 
   static Future<void> _openUrl(String url) async {
@@ -65,8 +65,7 @@ class ProfileScreen extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
       actions: [
-        RoundIconButton(Ic.edit,
-            osIcon: OsIcon.edit,
+        RoundIconButton(OsIcon.edit,
             onTap: () => _editProfileSheet(context, app)),
       ],
       children: [
@@ -124,8 +123,7 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('Goals'),
           _SettingsCard(rows: [
             ListRow(
-              icon: Ic.run,
-              osIcon: OsIcon.steps,
+              icon: OsIcon.steps,
               title: 'Daily step goal',
               value: user['step_goal'] != null
                   ? '${user['step_goal']} steps'
@@ -146,7 +144,7 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('Data'),
           _SettingsCard(rows: [
             ListRow(
-              icon: Ic.history,
+              icon: OsIcon.history,
               title: 'Import data',
               value: 'NOOP · Edge · WHOOP',
               divider: true,
@@ -155,7 +153,7 @@ class ProfileScreen extends StatelessWidget {
               ).push(themedRoute((_) => const ImportScreen())),
             ),
             ListRow(
-              icon: Ic.cloud,
+              icon: OsIcon.sync,
               title: 'Companion URL',
               value: app.companionConfigured
                   ? _shortUrl(app.companionUrl)
@@ -164,7 +162,7 @@ class ProfileScreen extends StatelessWidget {
               onTap: () => _editCompanionUrl(context, app),
             ),
             ListRow(
-              icon: Ic.chart,
+              icon: OsIcon.activity,
               title: 'Re-analyze data',
               value: app.reanalyzing
                   ? (app.reanalyzeProgress.isEmpty
@@ -192,7 +190,7 @@ class ProfileScreen extends StatelessWidget {
             // device ("Import from Edge"), or sharing for debugging.
             Builder(
               builder: (rowCtx) => ListRow(
-                icon: Ic.server,
+                icon: OsIcon.server,
                 title: 'Export data (.db)',
                 value: 'Share',
                 onTap: () async {
@@ -218,7 +216,7 @@ class ProfileScreen extends StatelessWidget {
             ),
             // Per-day data manager (browse, export, delete stored days).
             ListRow(
-              icon: Ic.history,
+              icon: OsIcon.history,
               title: 'Data history',
               value: 'Manage',
               divider: advancedDebugMode,
@@ -229,7 +227,7 @@ class ProfileScreen extends StatelessWidget {
             // Debug-build-only deep inspection tools (raw stores, sync ledger).
             if (advancedDebugMode)
               ListRow(
-                icon: Ic.settings,
+                icon: OsIcon.settings,
                 title: 'Advanced data',
                 value: 'Debug tools',
                 onTap: () => Navigator.of(
@@ -277,7 +275,7 @@ class ProfileScreen extends StatelessWidget {
           // ── Cycle tracking (explicit opt-in) ─────────────────────────
           const SectionHeader('Cycle tracking'),
           _ToggleCard(
-            icon: Ic.calendar,
+            icon: OsIcon.calendar,
             iconColor: DomainAccent.cycle,
             title: 'Track menstrual cycle',
             subtitle:
@@ -296,7 +294,7 @@ class ProfileScreen extends StatelessWidget {
           // ── Privacy (opt-in companion data — also offered at onboarding) ──
           const SectionHeader('Privacy'),
           _ToggleCard(
-            icon: Ic.info,
+            icon: OsIcon.info,
             title: 'Send anonymous diagnostics',
             subtitle:
                 'Crash/error reports plus basic device info. No health data. '
@@ -306,7 +304,7 @@ class ProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: Sp.x3),
           _ToggleCard(
-            icon: Ic.activity,
+            icon: OsIcon.activity,
             title: 'Contribute my health data',
             subtitle:
                 'Periodically upload your on-device database (over Wi-Fi, '
@@ -334,8 +332,7 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('Notifications'),
           _SettingsCard(rows: [
             ListRow(
-              icon: Ic.bell,
-              osIcon: OsIcon.notifications,
+              icon: OsIcon.notifications,
               title: 'Alerts & reminders',
               value: 'Manage',
               onTap: () => Navigator.of(
@@ -354,8 +351,7 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('AI briefings & journaling'),
           _SettingsCard(rows: [
             ListRow(
-              icon: Ic.ai,
-              osIcon: OsIcon.ai,
+              icon: OsIcon.ai,
               title: 'Briefings & journal',
               value: 'Manage',
               onTap: () => Navigator.of(context)
@@ -408,7 +404,7 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('Reset'),
           _SettingsCard(rows: [
             ListRow(
-              icon: Ic.logout,
+              icon: OsIcon.logout,
               iconColor: AppColors.critical,
               title: 'Reset profile',
               onTap: () => _confirmSignOut(context, app),
@@ -421,7 +417,7 @@ class ProfileScreen extends StatelessWidget {
           const SectionHeader('Developer'),
           _SettingsCard(rows: [
             ListRow(
-              icon: Ic.edit,
+              icon: OsIcon.edit,
               title: 'Design gallery',
               value: 'All components',
               onTap: () => Navigator.of(context)
@@ -440,7 +436,7 @@ class ProfileScreen extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    AppIcon(Ic.shield, size: 18, color: AppColors.inkSoft),
+                    AppIcon(OsIcon.shield, size: 18, color: AppColors.inkSoft),
                     const SizedBox(width: Sp.x2),
                     Text('How your metrics are made', style: AppText.label),
                   ],
@@ -473,7 +469,7 @@ class ProfileScreen extends StatelessWidget {
       return SurfaceCard(
         child: Row(
           children: [
-            AppIcon(Ic.watch, size: 22, color: AppColors.inkMuted),
+            AppIcon(OsIcon.wear, size: 22, color: AppColors.inkMuted),
             const SizedBox(width: Sp.x3),
             Expanded(child: Text('No strap paired.', style: AppText.bodySoft)),
           ],
@@ -648,7 +644,7 @@ class _CardNote extends StatelessWidget {
 
 /// A titled toggle card (icon tile + title + one-liner + Switch).
 class _ToggleCard extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
   final Color? iconColor;
   final String title;
   final String subtitle;
@@ -768,7 +764,7 @@ class _DeviceTileState extends State<DeviceTile> {
                     borderRadius: BorderRadius.circular(R.chip),
                   ),
                   child:
-                      AppIcon(Ic.watch, size: 24, color: AppColors.onNight),
+                      AppIcon(OsIcon.wear, size: 24, color: AppColors.onNight),
                 ),
                 const SizedBox(width: Sp.x4),
                 Expanded(
@@ -787,17 +783,17 @@ class _DeviceTileState extends State<DeviceTile> {
                   ),
                 ),
                 if (widget.onTap != null)
-                  AppIcon(Ic.arrowRight, size: 18, color: tone.fgMuted),
+                  AppIcon(OsIcon.arrowRight, size: 18, color: tone.fgMuted),
               ],
             ),
             const SizedBox(height: Sp.x5),
             Row(
               children: [
                 Expanded(
-                  child: _fact(Ic.battery, 'Battery', widget.battery, tone),
+                  child: _fact(OsIcon.battery, 'Battery', widget.battery, tone),
                 ),
                 Expanded(
-                  child: _fact(Ic.pulse, 'Wrist', widget.wrist, tone),
+                  child: _fact(OsIcon.heartRate, 'Wrist', widget.wrist, tone),
                 ),
               ],
             ),
@@ -805,7 +801,7 @@ class _DeviceTileState extends State<DeviceTile> {
             Row(
               children: [
                 Expanded(
-                  child: _fact(Ic.info, 'Serial', widget.serial, tone),
+                  child: _fact(OsIcon.info, 'Serial', widget.serial, tone),
                 ),
                 if (widget.onSyncNow != null)
                   Pressable(
@@ -850,7 +846,7 @@ class _DeviceTileState extends State<DeviceTile> {
     );
   }
 
-  Widget _fact(IconData icon, String label, String value, ToneColors tone) {
+  Widget _fact(OsIcon icon, String label, String value, ToneColors tone) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -936,7 +932,7 @@ class _HealthSection extends StatelessWidget {
                   color: AppColors.accentSoft,
                   borderRadius: BorderRadius.circular(R.chip),
                 ),
-                child: AppIcon(Ic.heart, size: 18, color: AppColors.onAccentSoft),
+                child: AppIcon(OsIcon.heart, size: 18, color: AppColors.onAccentSoft),
               ),
               const SizedBox(width: Sp.x3),
               Expanded(
@@ -1007,7 +1003,7 @@ class _HealthSection extends StatelessWidget {
       children: [
         Row(
           children: [
-            AppIcon(Ic.check, size: 16, color: AppColors.positive),
+            AppIcon(OsIcon.check, size: 16, color: AppColors.positive),
             const SizedBox(width: Sp.x2),
             Expanded(
               child: Text('Syncing to $store.', style: AppText.captionMuted),
@@ -1109,12 +1105,12 @@ class _KeepAliveRowState extends State<_KeepAliveRow> {
         const SizedBox(height: Sp.x3),
         _SettingsCard(rows: [
           ListRow(
-            icon: Ic.battery,
+            icon: OsIcon.battery,
             title: 'Keep alive in background',
             subtitle: 'So overnight tracking isn’t frozen by the OS',
             value: _exempt == null ? '…' : (_exempt! ? 'On' : 'Allow'),
             trailing: _exempt == true
-                ? AppIcon(Ic.check, size: 18, color: AppColors.positive)
+                ? AppIcon(OsIcon.check, size: 18, color: AppColors.positive)
                 : null,
             onTap: _exempt == true
                 ? null
@@ -1151,16 +1147,14 @@ class _DeviceSheet extends StatelessWidget {
         if (!connected)
           _Notice('Connect to your strap to rename it or change the alarm.'),
         ListRow(
-          icon: Ic.edit,
-          osIcon: OsIcon.edit,
+          icon: OsIcon.edit,
           title: 'Rename strap',
           value: live.strapName ?? 'OpenStrap',
           divider: true,
           onTap: connected ? () => _rename(context, live) : null,
         ),
         ListRow(
-          icon: Ic.clock,
-          osIcon: OsIcon.alarm,
+          icon: OsIcon.alarm,
           title: 'Smart alarm',
           value: alarm != null ? _fmtAlarm(alarm) : 'Off',
           onTap: connected ? () => _setAlarm(context, live) : null,
@@ -1190,7 +1184,7 @@ class _DeviceSheet extends StatelessWidget {
                     if (context.mounted) _snack(context, 'Buzz failed: $e');
                   }
                 },
-                icon: const AppIcon(Ic.bell, size: 18),
+                icon: const AppIcon(OsIcon.notifications, size: 18),
                 label: const Text('Test buzz'),
               ),
               const SizedBox(width: Sp.x2),
@@ -1206,14 +1200,14 @@ class _DeviceSheet extends StatelessWidget {
                     if (context.mounted) _snack(context, 'Clear failed: $e');
                   }
                 },
-                icon: const AppIcon(Ic.cancel, size: 18),
+                icon: const AppIcon(OsIcon.cancel, size: 18),
                 label: const Text('Clear alarm'),
               ),
             ]),
           ),
         Divider(height: Sp.x4, thickness: 1, color: AppColors.divider),
         ListRow(
-          icon: Ic.info,
+          icon: OsIcon.info,
           title: 'Serial',
           value: live.device.serial ?? live.paired?.serial ?? '—',
         ),
@@ -1229,7 +1223,7 @@ class _DeviceSheet extends StatelessWidget {
               ),
             ),
             onPressed: () => _forget(context, live),
-            icon: AppIcon(Ic.cancel, size: 18, color: AppColors.critical),
+            icon: AppIcon(OsIcon.cancel, size: 18, color: AppColors.critical),
             label: const Text('Forget device'),
           ),
         ),
@@ -1527,7 +1521,7 @@ class _Notice extends StatelessWidget {
     ),
     child: Row(
       children: [
-        AppIcon(Ic.info, size: 18, color: AppColors.warn),
+        AppIcon(OsIcon.info, size: 18, color: AppColors.warn),
         const SizedBox(width: Sp.x2),
         Expanded(child: Text(text, style: AppText.caption)),
       ],

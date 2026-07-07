@@ -102,7 +102,7 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
       title: widget.period.title,
       actions: [
         if (_phase == _Phase.ready)
-          RoundIconButton(Icons.refresh_rounded, onTap: _generate),
+          RoundIconButton(OsIcon.activity, onTap: _generate),
       ],
       children: switch (_phase) {
         _Phase.noKey => _noKey(),
@@ -118,8 +118,7 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
   List<Widget> _noKey() => [
         const SizedBox(height: Sp.x6),
         StateCard(
-          icon: Ic.ai,
-          osIcon: OsIcon.ai,
+          icon: OsIcon.ai,
           title: 'Bring your own AI',
           message:
               'Add your AI key to enable daily briefings. Your health data '
@@ -166,7 +165,7 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
   List<Widget> _err() => [
         const SizedBox(height: Sp.x6),
         StateCard(
-          icon: Ic.cancel,
+          icon: OsIcon.cancel,
           title: 'Couldn\'t reach your AI provider',
           message: _error.isEmpty
               ? 'Check your connection and try again — nothing is lost, your '
@@ -239,24 +238,23 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
   /// Map the inputs snapshot to MetricCards. Only keys that exist render —
   /// same honesty as the prompt itself.
   List<Widget> _metricTiles(Map<String, dynamic> inputs) {
-    Widget? tile(String key, String label, IconData icon,
-        {OsIcon? osIcon, String? unit, String Function(num)? fmt}) {
+    Widget? tile(String key, String label, OsIcon icon,
+        { String? unit, String Function(num)? fmt}) {
       final v = inputs[key];
       if (v is! num) return null;
       return MetricCard(
         label: label,
         icon: icon,
-        osIcon: osIcon,
         value: fmt != null ? fmt(v) : _trim(v),
         unit: unit,
       );
     }
 
-    Widget? textTile(String key, String label, IconData icon,
-        {OsIcon? osIcon}) {
+    Widget? textTile(String key, String label, OsIcon icon,
+        ) {
       final v = inputs[key];
       if (v is! String || v.isEmpty) return null;
-      return MetricCard(label: label, icon: icon, osIcon: osIcon, value: v);
+      return MetricCard(label: label, icon: icon, value: v);
     }
 
     String hm(num min) {
@@ -265,23 +263,21 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
     }
 
     final tiles = <Widget?>[
-      tile('readiness', 'Readiness', Ic.recovery, osIcon: OsIcon.recovery),
-      tile('hrv_rmssd', 'HRV', Ic.pulse, osIcon: OsIcon.hrv, unit: 'ms'),
-      tile('resting_hr', 'Resting HR', Ic.heart,
-          osIcon: OsIcon.restingHeartRate, unit: 'bpm'),
-      tile('sleep_min', 'Sleep', Ic.sleep, osIcon: OsIcon.sleep, fmt: hm),
-      tile('sleep_efficiency_pct', 'Efficiency', Ic.bed, unit: '%'),
-      tile('deep_min', 'Deep', Ic.moon, osIcon: OsIcon.deepSleep, fmt: hm),
-      tile('rem_min', 'REM', Ic.moon, fmt: hm),
-      tile('sleep_debt_min', 'Sleep debt', Ic.clock, fmt: hm),
-      textTile('bedtime', 'Bedtime', Ic.bed, osIcon: OsIcon.bedtime),
-      textTile('wake_time', 'Wake', Ic.clock, osIcon: OsIcon.awake),
-      tile('strain_0_21', 'Strain', Ic.strain, osIcon: OsIcon.bodyStrain),
-      tile('steps', 'Steps', Ic.run, osIcon: OsIcon.steps),
-      tile('calories_total_kcal', 'Calories', Ic.fire,
-          osIcon: OsIcon.calories, unit: 'kcal'),
-      tile('stress_0_100', 'Stress', Ic.activity, osIcon: OsIcon.stress),
-      tile('wear_min', 'Wear time', Ic.watch, fmt: hm),
+      tile('readiness', 'Readiness', OsIcon.recovery),
+      tile('hrv_rmssd', 'HRV', OsIcon.hrv, unit: 'ms'),
+      tile('resting_hr', 'Resting HR', OsIcon.restingHeartRate, unit: 'bpm'),
+      tile('sleep_min', 'Sleep', OsIcon.sleep, fmt: hm),
+      tile('sleep_efficiency_pct', 'Efficiency', OsIcon.bedtime, unit: '%'),
+      tile('deep_min', 'Deep', OsIcon.deepSleep, fmt: hm),
+      tile('rem_min', 'REM', OsIcon.sleep, fmt: hm),
+      tile('sleep_debt_min', 'Sleep debt', OsIcon.history, fmt: hm),
+      textTile('bedtime', 'Bedtime', OsIcon.bedtime),
+      textTile('wake_time', 'Wake', OsIcon.awake),
+      tile('strain_0_21', 'Strain', OsIcon.bodyStrain),
+      tile('steps', 'Steps', OsIcon.steps),
+      tile('calories_total_kcal', 'Calories', OsIcon.calories, unit: 'kcal'),
+      tile('stress_0_100', 'Stress', OsIcon.stress),
+      tile('wear_min', 'Wear time', OsIcon.wear, fmt: hm),
     ];
     final out = tiles.whereType<Widget>().toList();
 
@@ -289,8 +285,6 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
     if (w is List && w.isNotEmpty) {
       out.add(MetricCard(
         label: 'Workouts',
-        icon: Ic.weights,
-        osIcon: OsIcon.workouts,
         value: '${w.length}',
       ));
     }

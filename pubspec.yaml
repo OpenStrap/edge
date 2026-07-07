@@ -79,6 +79,12 @@ dependencies:
   # AnimationControllers in every component. See lib/ui/design/motion.dart.
   flutter_animate: ^4.5.2
 
+  # Injectable clock (RouteTracker's stall watchdog) — was a transitive dep via
+  # fake_async/flutter_test; declared directly since lib/ code now imports it.
+  # `clock.now()` instead of raw DateTime.now() lets fakeAsync tests control
+  # time deterministically instead of needing a real multi-second sleep.
+  clock: ^1.1.2
+
   # Cold-start splash video (assets/splash/splashscreen.mp4) shown while AppState
   # initializes; dismissed the instant the route gate resolves. See
   # lib/ui/splash/boot_splash.dart.
@@ -142,6 +148,9 @@ dev_dependencies:
   test: ^1.25.8
   flutter_launcher_icons: ^0.13.1
   sqflite_common_ffi: ^2.4.0+3
+  # RouteTracker's stall-watchdog tests drive virtual time (was a transitive
+  # dep via flutter_test; declared directly since test/ now imports it).
+  fake_async: ^1.3.1
 
 flutter_launcher_icons:
   android: "launcher_icon"

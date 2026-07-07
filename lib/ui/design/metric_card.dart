@@ -7,7 +7,7 @@
 // on the card itself.
 //
 //   MetricCard(
-//     label: 'Resting HR', icon: Ic.heart,
+//     label: 'Resting HR',
 //     value: '52', unit: 'bpm', animateFrom: 52,
 //     delta: BaselineDeltaChip(-2, unit: 'bpm', goodIsUp: false),
 //     spark: rhr7d,
@@ -19,7 +19,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
-import '../kit/kit.dart' show AppIcon, ConfDot, metricDash;
+import '../kit/kit.dart' show ConfDot, metricDash;
 import '../kit/os_icons.dart';
 import 'controls.dart';
 import 'motion.dart';
@@ -43,11 +43,7 @@ class MetricInfo {
 class MetricCard extends StatelessWidget {
   /// Tiny overline label ("RESTING HR").
   final String label;
-  final IconData? icon;
-
-  /// Illustrated variant — takes precedence over [icon] inside the chip.
-  /// Rendered at 32px (the art carries built-in transparent padding).
-  final OsIcon? osIcon;
+  final OsIcon? icon;
 
   /// The formatted value ("52", "7:42"). Null renders the honest em-dash.
   final String? value;
@@ -92,7 +88,6 @@ class MetricCard extends StatelessWidget {
     super.key,
     required this.label,
     this.icon,
-    this.osIcon,
     required this.value,
     this.unit,
     this.animateFrom,
@@ -118,16 +113,14 @@ class MetricCard extends StatelessWidget {
 
     final header = Row(
       children: [
-        if (osIcon != null || icon != null) ...[
+        if (icon != null) ...[
           Container(
-            padding: EdgeInsets.all(osIcon != null ? 1 : 6),
+            padding: const EdgeInsets.all(1),
             decoration: BoxDecoration(
               color: a.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(R.chip),
             ),
-            child: osIcon != null
-                ? OsAppIcon(osIcon!, size: 32)
-                : AppIcon(icon!, size: 15, color: a),
+            child: OsAppIcon(icon!, size: 32),
           ),
           const SizedBox(width: Sp.x2),
         ],

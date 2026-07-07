@@ -1,16 +1,31 @@
 // RouteMapView — the shared map widget for GPS workout routes.
 //
-// Renders an OpenStreetMap raster base layer with the route polyline SEGMENTED
-// and COLOURED BY HR ZONE (AppColors.zone), plus an optional pulsing
-// current-position marker. Two modes:
-//   • interactive: pan/zoom, live marker, expandable attribution (for the
-//     full-screen map + the live session).
-//   • thumbnail:   non-interactive, fit-to-bounds, compact attribution (for the
-//     finish card + workout detail card).
+// OUR OWN LOOK, not stock OpenStreetMap: raw OSM raster tiles are the only
+// source that needs no API key / no Google-Mapbox account, but their default
+// light, busy, multicoloured style clashes with the app's warm-dark ember
+// design language and doesn't read as "OpenStrap" — so every tile is passed
+// through a fixed ColorFilter (see [_kMapTileMatrix]) that desaturates the
+// whole basemap to a warm charcoal-to-cream monochrome (inverted luminance,
+// tinted toward AppColors.night / onNight — the SAME invariant dark hero
+// surface the live-workout screen itself uses). The map reads as ONE
+// consistent dark, branded surface everywhere it appears — live session,
+// finish card, workout detail — regardless of the surrounding screen's light/
+// dark theme. Against that quiet monochrome base, the route line (vivid,
+// HR-zone-coloured, glow-backed) and the coral position dot are the only
+// colour — a deliberate one-accent-colour map style (Nike Run Club / Strava's
+// minimal map, not a busy street atlas).
+//
+// Renders the route polyline SEGMENTED and COLOURED BY HR ZONE
+// (AppColors.zone), plus an optional pulsing current-position marker. Two
+// modes:
+//   • interactive: pan/zoom, live marker (full-screen map + the live session).
+//   • thumbnail:   non-interactive, fit-to-bounds (finish card + workout
+//     detail card).
 //
 // LOCAL-FIRST: tiles come straight from OpenStreetMap (no API key, no Google /
-// Mapbox); the route points are on-device only. The "© OpenStreetMap
-// contributors" attribution is always shown, per the OSM tile-usage policy.
+// Mapbox); the route points are on-device only. A minimal "© OSM" credit is
+// always shown (required by the OSM tile-usage policy) as a small tucked-away
+// text badge, not the stock flutter_map attribution box.
 
 import 'package:flutter/material.dart' hide Split;
 import 'package:flutter_map/flutter_map.dart';
@@ -27,6 +42,20 @@ import 'kit.dart';
 
 const String _kOsmTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const String _kUserAgent = 'wtf.openstrap.edge';
+
+/// Desaturate + invert-luminance + warm-tint every tile pixel in one pass:
+/// each output channel is `-(0.2126R + 0.7152G + 0.0722B) + offset`, with the
+/// offset solved so a typical OSM land/background luminance (~240) lands on
+/// [AppColors.night] and a typical dark label/road-outline luminance (~20)
+/// lands on [AppColors.onNight] — i.e. the basemap's own light/dark ends are
+/// pinned to the app's real invariant dark-hero palette, not a generic
+/// grayscale. `0,0,0,1,0` on the alpha row leaves transparency untouched.
+const List<double> _kMapTileMatrix = [
+  -0.2126, -0.7152, -0.0722, 0, 264,
+  -0.2126, -0.7152, -0.0722, 0, 261,
+  -0.2126, -0.7152, -0.0722, 0, 256,
+  0, 0, 0, 1, 0,
+];
 
 class RouteMapView extends StatelessWidget {
   /// Route vertices in order, each already tagged with its HR zone (0..5) or
@@ -71,7 +100,11 @@ class RouteMapView extends StatelessWidget {
   /// polyline starts at the previous segment's last point so the path is
   /// visually continuous — EXCEPT across a recording gap (`gapBefore`), where
   /// the line breaks instead of drawing a straight edge across the gap.
-  List<Polyline> _polylines() {
+  /// [glow] draws the same segmentation wider + faded, for a soft backlit
+  /// look under the crisp line — the only colour against the monochrome
+  /// basemap, so it needs to read as unmistakably "the route", not a thin
+  /// GPS-app line lost against a busy street atlas.
+  List<Polyline> _polylines({bool glow = false}) {
     final v = vertices;
     if (v.length < 2) return const [];
     final out = <Polyline>[];
@@ -90,7 +123,13 @@ class RouteMapView extends StatelessWidget {
         pts.add(v[j + 1].pos);
         j++;
       }
-      out.add(Polyline(points: pts, color: c, strokeWidth: width));
+      out.add(Polyline(
+        points: pts,
+        color: glow ? c.withValues(alpha: 0.35) : c,
+        strokeWidth: glow ? width * 3.2 : width,
+        strokeCap: StrokeCap.round,
+        strokeJoin: StrokeJoin.round,
+      ));
       i = j;
     }
     return out;
@@ -130,11 +169,19 @@ class RouteMapView extends StatelessWidget {
       mapController: controller,
       options: options,
       children: [
-        TileLayer(
-          urlTemplate: _kOsmTileUrl,
-          userAgentPackageName: _kUserAgent,
-          maxZoom: 19,
+        // Our own look, not stock OSM — see the file header + _kMapTileMatrix.
+        ColorFiltered(
+          colorFilter: const ColorFilter.matrix(_kMapTileMatrix),
+          child: TileLayer(
+            urlTemplate: _kOsmTileUrl,
+            userAgentPackageName: _kUserAgent,
+            maxZoom: 19,
+          ),
         ),
+        // Glow pass BEHIND the crisp line — the route is the only colour
+        // against the monochrome basemap; it needs to read unmistakably as
+        // "the route" at a glance, not a thin GPS-app line.
+        PolylineLayer(polylines: _polylines(glow: true)),
         PolylineLayer(polylines: _polylines()),
         if (current != null)
           MarkerLayer(
@@ -158,26 +205,26 @@ class RouteMapView extends StatelessWidget {
     return height == null ? clipped : SizedBox(height: height, child: clipped);
   }
 
-  Widget _attribution() {
-    if (interactive) {
-      return RichAttributionWidget(
-        attributions: [
-          TextSourceAttribution(
-            'OpenStreetMap contributors',
-            onTap: () => launchUrl(
-              Uri.parse('https://www.openstreetmap.org/copyright'),
-              mode: LaunchMode.externalApplication,
+  /// A minimal, tucked-away credit — required by the OSM tile-usage policy,
+  /// but styled as a small text badge that blends into our own dark map
+  /// rather than flutter_map's stock boxed attribution widget.
+  Widget _attribution() => Positioned(
+        right: 6,
+        bottom: 6,
+        child: GestureDetector(
+          onTap: () => launchUrl(
+            Uri.parse('https://www.openstreetmap.org/copyright'),
+            mode: LaunchMode.externalApplication,
+          ),
+          child: Text(
+            '© OpenStreetMap',
+            style: AppText.captionMuted.copyWith(
+              color: AppColors.onNightSoft,
+              fontSize: 9,
             ),
           ),
-        ],
+        ),
       );
-    }
-    // Compact, always-visible credit for thumbnails.
-    return SimpleAttributionWidget(
-      source: const Text('© OpenStreetMap'),
-      backgroundColor: Colors.black54,
-    );
-  }
 }
 
 /// Full-screen interactive map (tapped from a route thumbnail).
@@ -277,6 +324,18 @@ class RouteCard extends StatelessWidget {
     }
     final bestPaceText =
         bestPace == null ? '—' : '${units.formatPace(bestPace)} ${units.paceUnit}';
+    // Avg/max speed from the per-point recorded speeds — a Strava-style stat
+    // distinct from pace (more natural for cycling, and "max speed" a
+    // descent/sprint peak that avg-pace/best-split don't surface at all).
+    final speeds = [
+      for (final p in route.points)
+        if (p.speed != null && p.speed! >= 0) p.speed!,
+    ];
+    final avgSpeedMps = speeds.isEmpty
+        ? null
+        : speeds.reduce((a, b) => a + b) / speeds.length;
+    final maxSpeedMps =
+        speeds.isEmpty ? null : speeds.reduce((a, b) => a > b ? a : b);
     return ProCard(
       padding: const EdgeInsets.all(Sp.x4),
       child: Column(
@@ -284,7 +343,7 @@ class RouteCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              AppIcon(Ic.activity, size: 16, color: AppColors.coral),
+              AppIcon(OsIcon.activity, size: 16, color: AppColors.coral),
               const SizedBox(width: Sp.x2),
               Text('ROUTE', style: AppText.overline),
             ],
@@ -312,6 +371,23 @@ class RouteCard extends StatelessWidget {
               Expanded(child: _RouteStat(bestPaceText, 'best pace')),
             ],
           ),
+          // Speed is only meaningful when the platform actually reported it
+          // for this route (older recordings / some Android devices may
+          // have none) — omit the row entirely rather than show a row of "—".
+          if (speeds.isNotEmpty) ...[
+            const SizedBox(height: Sp.x4),
+            Row(
+              children: [
+                Expanded(
+                  child: _RouteStat(units.speed(avgSpeedMps), 'avg speed'),
+                ),
+                Expanded(
+                  child: _RouteStat(units.speed(maxSpeedMps), 'max speed'),
+                ),
+                const Expanded(child: SizedBox.shrink()),
+              ],
+            ),
+          ],
         ],
       ),
     );

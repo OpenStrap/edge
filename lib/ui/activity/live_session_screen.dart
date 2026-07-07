@@ -97,7 +97,31 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
   final List<_Particle> _confetti = [];
   final _rand = math.Random();
   bool _ending = false;
-  bool _showMap = false; // live map mode toggle (run/ride/walk only)
+  // Map is the PRIMARY view once a route is discovered (the first GPS fix
+  // lands) — no toggle-hunting required. `_showMap` still exists as the
+  // user's explicit override once they've tapped the toggle at least once;
+  // until then the effective visibility just follows whether a route exists
+  // (see `_mapVisible`).
+  bool _showMap = false;
+  bool _userToggledMap = false;
+  RouteTracker? _observedTracker;
+
+  /// Attach a one-time listener to whichever [RouteTracker] instance is
+  /// currently live, so the map can auto-switch to primary the moment a
+  /// route is discovered (first GPS fix) without the user having to find and
+  /// tap a toggle. Cheap identity check — a no-op after the first attach for
+  /// a given tracker instance.
+  void _attachRouteObserverIfNeeded(RouteTracker? tracker) {
+    if (tracker == null || tracker == _observedTracker) return;
+    _observedTracker = tracker;
+    tracker.path.addListener(_onRoutePathTick);
+  }
+
+  void _onRoutePathTick() {
+    if (_userToggledMap || !mounted) return;
+    final hasRoute = _observedTracker?.path.value.isNotEmpty ?? false;
+    if (hasRoute != _showMap) setState(() => _showMap = hasRoute);
+  }
 
   @override
   void initState() {
@@ -116,6 +140,7 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
   @override
   void dispose() {
     _app?.removeListener(_onTick);
+    _observedTracker?.path.removeListener(_onRoutePathTick);
     _beat.dispose();
     _hold.dispose();
     _fx.dispose();
@@ -260,6 +285,7 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
     final app = context.read<AppState>();
     final w = app.activeWorkout;
     if (w == null) return const Scaffold(backgroundColor: AppColors.night);
+    _attachRouteObserverIfNeeded(app.routeTracker);
     final hr = w.currentHr;
     final zone = _zoneFor(hr);
     final z = _zones[zone];
@@ -310,7 +336,7 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
               ),
               if (_redStreak.inSeconds >= 5) ...[
                 const SizedBox(height: Sp.x2),
-                _pill(AppIcon(Ic.fire, size: 14, color: AppColors.coral),
+                _pill(AppIcon(OsIcon.calories, size: 14, color: AppColors.coral),
                     '${_fmt(_redStreak)} in the red', tint: AppColors.coral),
               ],
             ]),
@@ -445,7 +471,10 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
               top: MediaQuery.of(context).padding.top + Sp.x5,
               right: Sp.x5,
               child: GestureDetector(
-                onTap: () => setState(() => _showMap = !_showMap),
+                onTap: () => setState(() {
+                  _showMap = !_showMap;
+                  _userToggledMap = true; // respect the explicit choice now
+                }),
                 behavior: HitTestBehavior.opaque,
                 child: Container(
                   width: 44,
@@ -603,13 +632,13 @@ class _ControlPanel extends StatelessWidget {
               border: Border.all(color: Colors.white10),
             ),
             child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              _Stat(label: 'CALORIES', value: workout.calories.round().toString(), unit: 'kcal', icon: Ic.fire),
-              _Stat(label: 'STRAIN', value: workout.strain.toStringAsFixed(1), unit: '', icon: Ic.strain),
+              _Stat(icon: OsIcon.activity, label: 'CALORIES', value: workout.calories.round().toString(), unit: 'kcal'),
+              _Stat(icon: OsIcon.activity, label: 'STRAIN', value: workout.strain.toStringAsFixed(1), unit: ''),
               // Real steps counted on the live 100 Hz stream, scoped to THIS
               // workout (resets at start, not at connection).
-              _Stat(label: 'STEPS',
+              _Stat(icon: OsIcon.activity, label: 'STEPS',
                   value: context.watch<AppState>().workoutSteps.toString(),
-                  unit: '', icon: Ic.run),
+                  unit: ''),
             ]),
           ),
         ),
@@ -641,7 +670,7 @@ class _ControlPanel extends StatelessWidget {
                         borderRadius: BorderRadius.circular(R.pill))),
                   )),
                   Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    AppIcon(Ic.cancel, size: 20, color: Color.lerp(Colors.white24, Colors.white, val)),
+                    AppIcon(OsIcon.cancel, size: 20, color: Color.lerp(Colors.white24, Colors.white, val)),
                     const SizedBox(width: Sp.x3),
                     Text(ending ? 'FINISHING…' : 'HOLD TO FINISH', style: AppText.label.copyWith(
                         color: Color.lerp(Colors.white38, Colors.white, val),
@@ -659,7 +688,7 @@ class _ControlPanel extends StatelessWidget {
 
 class _Stat extends StatelessWidget {
   final String label, value, unit;
-  final IconData icon;
+  final OsIcon icon;
   const _Stat({required this.label, required this.value, required this.unit, required this.icon});
   @override
   Widget build(BuildContext context) {
@@ -1147,7 +1176,7 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              AppIcon(Ic.activity, size: 22, color: AppColors.inkMuted),
+              AppIcon(OsIcon.activity, size: 22, color: AppColors.inkMuted),
               const SizedBox(height: Sp.x2),
               Text('No route recorded', style: AppText.captionMuted),
             ],
@@ -1319,6 +1348,22 @@ class _LiveRouteMapState extends State<_LiveRouteMap> {
     });
   }
 
+  /// Waiting for the first fix / actively stalled / an explicit stream error
+  /// — three distinct states, not just "waiting vs error", because a stalled
+  /// (silently dead) stream and an errored one need different next steps from
+  /// the athlete (wait vs check Settings) and looked IDENTICAL before ("Hit
+  /// or miss, never worked" — a stall with no error just sat on "Waiting for
+  /// GPS…" forever with zero explanation).
+  String _statusText(bool empty, bool stalled, String? err) {
+    if (err != null) return 'GPS signal lost — check that location is on';
+    if (stalled) {
+      return empty
+          ? 'Still waiting for a GPS fix — move to open sky if indoors'
+          : 'GPS signal weak — your route may show a gap here';
+    }
+    return 'Waiting for GPS…';
+  }
+
   @override
   Widget build(BuildContext context) {
     final units = context.watch<UnitsController>();
@@ -1332,36 +1377,94 @@ class _LiveRouteMapState extends State<_LiveRouteMap> {
               valueListenable: tracker.path,
               builder: (context, path, _) {
                 if (path.isEmpty) {
-                  return ValueListenableBuilder<String?>(
-                    valueListenable: tracker.error,
-                    builder: (context, err, _) => Container(
-                      color: AppColors.nightAlt,
-                      alignment: Alignment.center,
-                      child: Text(
-                          err == null
-                              ? 'Waiting for GPS…'
-                              : 'GPS signal lost — check that location is on',
-                          textAlign: TextAlign.center,
-                          style: AppText.bodySoft
-                              .copyWith(color: Colors.white54)),
+                  return ValueListenableBuilder<bool>(
+                    valueListenable: tracker.stalled,
+                    builder: (context, stalled, _) =>
+                        ValueListenableBuilder<String?>(
+                      valueListenable: tracker.error,
+                      builder: (context, err, _) => Container(
+                        color: AppColors.night,
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.symmetric(horizontal: Sp.x6),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Colors.white38,
+                              ),
+                            ),
+                            const SizedBox(height: Sp.x3),
+                            Text(
+                              _statusText(true, stalled, err),
+                              textAlign: TextAlign.center,
+                              style: AppText.bodySoft
+                                  .copyWith(color: Colors.white54),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   );
                 }
                 _follow(path);
-                return ValueListenableBuilder<LatLng?>(
-                  valueListenable: tracker.current,
-                  builder: (context, cur, _) => RouteMapView(
-                    vertices: path,
-                    current: cur,
-                    interactive: true,
-                    controller: _map,
-                    onUserPan: () {
-                      if (!_userPanned) {
-                        setState(() => _userPanned = true);
-                      }
-                    },
-                    borderRadius: BorderRadius.zero,
-                  ),
+                return Stack(
+                  children: [
+                    ValueListenableBuilder<LatLng?>(
+                      valueListenable: tracker.current,
+                      builder: (context, cur, _) => RouteMapView(
+                        vertices: path,
+                        current: cur,
+                        interactive: true,
+                        controller: _map,
+                        onUserPan: () {
+                          if (!_userPanned) {
+                            setState(() => _userPanned = true);
+                          }
+                        },
+                        borderRadius: BorderRadius.zero,
+                      ),
+                    ),
+                    // A signal stall/error AFTER the route is already
+                    // underway — a thin top banner, not a full takeover, so
+                    // the map (and stats so far) stay visible.
+                    ValueListenableBuilder<bool>(
+                      valueListenable: tracker.stalled,
+                      builder: (context, stalled, _) =>
+                          ValueListenableBuilder<String?>(
+                        valueListenable: tracker.error,
+                        builder: (context, err, _) {
+                          if (!stalled && err == null) {
+                            return const SizedBox.shrink();
+                          }
+                          return Positioned(
+                            top: Sp.x3,
+                            left: Sp.x3,
+                            right: Sp.x3,
+                            child: Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: Sp.x3, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: AppColors.warn.withValues(alpha: 0.85),
+                                  borderRadius: BorderRadius.circular(R.chip),
+                                ),
+                                child: Text(
+                                  _statusText(false, stalled, err),
+                                  textAlign: TextAlign.center,
+                                  style: AppText.captionMuted
+                                      .copyWith(color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 );
               },
             ),
@@ -1391,7 +1494,7 @@ class _LiveRouteMapState extends State<_LiveRouteMap> {
           if (_userPanned)
             Positioned(
               right: Sp.x3,
-              bottom: Sp.x3,
+              bottom: 84,
               child: GestureDetector(
                 onTap: () {
                   setState(() {
@@ -1411,46 +1514,107 @@ class _LiveRouteMapState extends State<_LiveRouteMap> {
                 ),
               ),
             ),
-          // Distance + live pace overlay. Pace uses MOVING time (time between
-          // fixes, gaps excluded) — not total elapsed, which counts the
-          // pre-first-fix wait and pauses.
+          // Strava-style live stat bar: distance, live pace (from smoothed
+          // instantaneous speed, not the run average), and speed. Pace/
+          // distance-based-avg-pace uses MOVING time (gaps excluded) — not
+          // total elapsed, which counts the pre-first-fix wait and pauses.
           Positioned(
-            left: Sp.x3,
-            bottom: Sp.x3,
-            child: ValueListenableBuilder<double>(
-              valueListenable: tracker.distanceMeters,
-              builder: (context, meters, _) {
-                final movingSec = tracker.movingSeconds;
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: Sp.x3, vertical: Sp.x2),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.55),
-                    borderRadius: BorderRadius.circular(R.chip),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(units.distance(meters),
-                          style: AppText.label
-                              .copyWith(color: Colors.white)),
-                      const SizedBox(width: Sp.x3),
-                      Text(
-                          units.pace(
-                              meters,
-                              movingSec > 0
-                                  ? movingSec
-                                  : widget.elapsed.inSeconds),
-                          style: AppText.label
-                              .copyWith(color: AppColors.coral)),
-                    ],
-                  ),
-                );
-              },
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(Sp.x4, Sp.x3, Sp.x4, Sp.x3),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0),
+                    Colors.black.withValues(alpha: 0.68),
+                  ],
+                ),
+              ),
+              child: ValueListenableBuilder<double>(
+                valueListenable: tracker.distanceMeters,
+                builder: (context, meters, _) =>
+                    ValueListenableBuilder<double?>(
+                  valueListenable: tracker.currentSpeedMps,
+                  builder: (context, speedMps, _) {
+                    final movingSec = tracker.movingSeconds;
+                    final avgPace = units.pace(
+                      meters,
+                      movingSec > 0 ? movingSec : widget.elapsed.inSeconds,
+                    );
+                    final livePace = units.paceFromSpeed(speedMps);
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: _RouteLiveStat(
+                            value: units.distance(meters),
+                            label: 'distance',
+                          ),
+                        ),
+                        Expanded(
+                          child: _RouteLiveStat(
+                            // Live (instantaneous) pace when we have a fresh
+                            // speed reading; falls back to the run's average
+                            // pace so the field is never blank.
+                            value: livePace == '—' ? avgPace : livePace,
+                            label: 'pace',
+                            valueColor: AppColors.coral,
+                          ),
+                        ),
+                        Expanded(
+                          child: _RouteLiveStat(
+                            value: units.speed(speedMps),
+                            label: 'speed',
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// One stat in the live map's bottom bar — big tabular value + small overline
+/// label, matching [_Stat]'s vocabulary elsewhere on this screen.
+class _RouteLiveStat extends StatelessWidget {
+  final String value;
+  final String label;
+  final Color? valueColor;
+  const _RouteLiveStat({
+    required this.value,
+    required this.label,
+    this.valueColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: AppText.metric.copyWith(
+            color: valueColor ?? Colors.white,
+            fontSize: 20,
+            fontFeatures: [const FontFeature.tabularFigures()],
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label.toUpperCase(),
+          style: AppText.overline
+              .copyWith(color: Colors.white38, fontSize: 9, letterSpacing: 1),
+        ),
+      ],
     );
   }
 }

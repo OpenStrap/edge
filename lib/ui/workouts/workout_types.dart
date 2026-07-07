@@ -13,28 +13,28 @@ import '../design/design.dart';
 /// (key, label, glyph fallback, illustrated OsIcon). The type string is
 /// whatever `sport`/`type`/`detected_type` carries from the repo — manual
 /// start keys AND the auto-detector's output share this one vocabulary.
-const kWorkoutTypes = <(String, String, IconData, OsIcon?)>[
-  ('run', 'Run', Ic.run, OsIcon.run),
-  ('cycle', 'Cycle', Ic.activity, OsIcon.cycling),
-  ('strength', 'Strength', Ic.weights, OsIcon.strength),
-  ('walk', 'Walk', Ic.run, OsIcon.walk),
-  ('swim', 'Swim', Ic.activity, OsIcon.swim),
-  ('cardio', 'Cardio', Ic.pulse, OsIcon.cardio),
-  ('yoga', 'Yoga', Ic.heart, OsIcon.yoga),
-  ('hiit', 'HIIT', Ic.pulse, OsIcon.hiit),
-  ('other', 'Other', Ic.activity, OsIcon.workoutOther),
+const kWorkoutTypes = <(String, String, OsIcon, OsIcon?)>[
+  ('run', 'Run', OsIcon.run, OsIcon.run),
+  ('cycle', 'Cycle', OsIcon.activity, OsIcon.cycling),
+  ('strength', 'Strength', OsIcon.strength, OsIcon.strength),
+  ('walk', 'Walk', OsIcon.run, OsIcon.walk),
+  ('swim', 'Swim', OsIcon.activity, OsIcon.swim),
+  ('cardio', 'Cardio', OsIcon.heartRate, OsIcon.cardio),
+  ('yoga', 'Yoga', OsIcon.heart, OsIcon.yoga),
+  ('hiit', 'HIIT', OsIcon.heartRate, OsIcon.hiit),
+  ('other', 'Other', OsIcon.activity, OsIcon.workoutOther),
 ];
 
 /// Glyph fallback for a workout type — always returns something renderable,
 /// even for autodetected/unrecognized types.
-IconData workoutTypeIcon(String? type) {
+OsIcon workoutTypeIcon(String? type) {
   final raw = (type ?? '').toLowerCase();
-  if (raw.contains('autodetected')) return Ic.weights;
-  if (raw.contains('workout')) return Ic.weights;
+  if (raw.contains('autodetected')) return OsIcon.strength;
+  if (raw.contains('workout')) return OsIcon.strength;
   for (final e in kWorkoutTypes) {
     if (e.$1 == type) return e.$3;
   }
-  return Ic.weights;
+  return OsIcon.strength;
 }
 
 /// Illustrated art for a workout type — null only for autodetected/unknown

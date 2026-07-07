@@ -84,6 +84,21 @@ class IosBleRestore {
     } catch (_) {}
   }
 
+  /// Atomic recovery hand-off for the hot disconnect path: combines
+  /// [setOwnsBand]\(false\) + [arm] into ONE native round trip instead of two
+  /// separately-awaited calls. Two calls left a window — a process suspension
+  /// between them — where `appOwnsBand` could already be false with nothing
+  /// armed to replace it, i.e. no one left watching for the band at all. The
+  /// native side also wraps this in a short `beginBackgroundTask` extension.
+  /// See `AppState._armRecovery`.
+  static Future<void> armRecoveryNow(String remoteId) async {
+    if (!Platform.isIOS) return;
+    foregroundActive = false;
+    try {
+      await _ch.invokeMethod('armRecoveryNow', remoteId);
+    } catch (_) {}
+  }
+
   /// Stop restoration (sign-out / unpair).
   static Future<void> disarm() async {
     if (!Platform.isIOS) return;

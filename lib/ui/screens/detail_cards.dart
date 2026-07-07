@@ -114,7 +114,7 @@ class _FetchState extends State<_Fetch> {
 /// A quiet honest-state tile (building baseline / nothing recorded) — one icon
 /// chip + title + short line. Shared by the watch cards + empty leaves.
 class _QuietState extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
   final String title;
   final String message;
   const _QuietState({
@@ -254,8 +254,7 @@ class HeartDayContent extends StatelessWidget {
             children: [
               TileHeader(
                 rec != null ? 'Recovery' : 'Resting HR',
-                icon: rec != null ? Ic.recovery : Ic.heart,
-                osIcon: rec != null ? OsIcon.recovery : OsIcon.restingHeartRate,
+                icon: rec != null ? OsIcon.recovery : OsIcon.restingHeartRate,
                 trailing: InfoDot(
                   title: rec != null ? 'Recovery' : 'Resting heart rate',
                   body: rec != null
@@ -301,17 +300,15 @@ class HeartDayContent extends StatelessWidget {
               accent: DomainAccent.recovery,
               onTap: hrv == null
                   ? null
-                  : () => openTrend(context,
+                  : () => openTrend(context, icon: OsIcon.activity, 
                       title: 'HRV (RMSSD)',
                       metric: 'hrv',
-                      icon: Ic.pulse,
-                      osIcon: OsIcon.hrv,
                       accent: DomainAccent.recovery),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const TileHeader('HRV', icon: Ic.pulse, osIcon: OsIcon.hrv),
+                  const TileHeader('HRV'),
                   const SizedBox(height: Sp.x2),
                   BigStat(
                     value: hrv?['rmssd']?.toString(),
@@ -339,17 +336,15 @@ class HeartDayContent extends StatelessWidget {
               accent: DomainAccent.heart,
               onTap: dipPct == null
                   ? null
-                  : () => openTrend(context,
+                  : () => openTrend(context, icon: OsIcon.activity, 
                       title: 'Nocturnal HR dip',
                       metric: 'dip',
-                      icon: Ic.down,
                       accent: DomainAccent.heart),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const TileHeader('Sleeping HR',
-                      icon: Ic.moon, osIcon: OsIcon.sleep),
+                  const TileHeader('Sleeping HR'),
                   const SizedBox(height: Sp.x2),
                   BigStat(
                     value: sleepingHr == null ? null : '${sleepingHr.round()}',
@@ -371,8 +366,7 @@ class HeartDayContent extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const TileHeader('Resting HR',
-                      icon: Ic.heart, osIcon: OsIcon.restingHeartRate),
+                  const TileHeader('Resting HR'),
                   const SizedBox(height: Sp.x2),
                   BigStat(
                     value: rhr == null ? null : '${rhr.round()}',
@@ -395,8 +389,6 @@ class HeartDayContent extends StatelessWidget {
               children: [
                 TileHeader(
                   'Heart rate',
-                  icon: Ic.pulse,
-                  osIcon: OsIcon.heartRate,
                   trailing: InfoDot(
                     title: 'Heart rate',
                     body:
@@ -451,8 +443,6 @@ class HeartDayContent extends StatelessWidget {
               children: [
                 TileHeader(
                   'Effort zones',
-                  icon: Ic.strain,
-                  osIcon: OsIcon.intensity,
                   trailing: InfoDot(
                     title: 'Effort zones',
                     body: 'Minutes spent in each heart-rate zone today, '
@@ -498,10 +488,10 @@ class HeartDayContent extends StatelessWidget {
           const SectionHeader('Heart-rate variability'),
           MetricGroup([
             TrendMetricRow(
-              icon: Ic.pulse,
+              icon: OsIcon.heartRate,
               // The headline HRV number gets the illustrated icon; the sibling
               // SDNN/LF-HF rows stay monochrome so the group doesn't repeat art.
-              osIcon: OsIcon.hrv,
+
               accent: DomainAccent.recovery,
               label: 'RMSSD',
               info: infoFor('rmssd'),
@@ -512,7 +502,7 @@ class HeartDayContent extends StatelessWidget {
             ),
             if (hrv['sdnn'] != null)
               TrendMetricRow(
-                icon: Ic.pulse,
+                icon: OsIcon.heartRate,
                 accent: DomainAccent.recovery,
                 label: 'SDNN',
                 info: infoFor('sdnn'),
@@ -523,7 +513,7 @@ class HeartDayContent extends StatelessWidget {
               ),
             if (hrv['lf_hf'] != null)
               TrendMetricRow(
-                icon: Ic.pulse,
+                icon: OsIcon.heartRate,
                 accent: DomainAccent.recovery,
                 label: 'LF / HF',
                 info: infoFor('lf_hf'),
@@ -533,7 +523,7 @@ class HeartDayContent extends StatelessWidget {
               ),
             if (hrv['cv'] != null)
               TrendMetricRow(
-                icon: Ic.chart,
+                icon: OsIcon.activity,
                 accent: DomainAccent.recovery,
                 label: 'HRV stability',
                 info: infoFor('hrv_cv'),
@@ -544,7 +534,7 @@ class HeartDayContent extends StatelessWidget {
               ),
             if (hrv['baseline'] != null)
               MetricRow(
-                icon: Ic.chart,
+                icon: OsIcon.activity,
                 accent: AppColors.inkSoft,
                 label: 'Your baseline',
                 info: 'Your typical RMSSD — recovery is measured against this.',
@@ -553,7 +543,7 @@ class HeartDayContent extends StatelessWidget {
               ),
             if (brvHas)
               TrendMetricRow(
-                icon: Ic.chart,
+                icon: OsIcon.activity,
                 accent: DomainAccent.recovery,
                 label: 'Breathing variability',
                 info: 'How much your breathing rate varied overnight '
@@ -574,7 +564,7 @@ class HeartDayContent extends StatelessWidget {
         Builder(builder: (context) {
           if (irr24v == null) {
             return const _QuietState(
-              icon: Ic.pulse,
+              icon: OsIcon.heartRate,
               title: 'Not enough clean beats today',
               message:
                   'The 24/7 rhythm screen needs more artifact-free beat data '
@@ -600,8 +590,8 @@ class HeartDayContent extends StatelessWidget {
                       child: StatusChip(
                         flag ? 'Irregular pattern today' : 'Normal',
                         icon: flag
-                            ? Icons.error_outline
-                            : Icons.check_circle_outline,
+                            ? OsIcon.activity
+                            : OsIcon.check,
                         tone: flag ? ChipTone.warn : ChipTone.positive,
                       ),
                     ),
@@ -690,7 +680,7 @@ class HeartDayContent extends StatelessWidget {
           MetricGroup([
             if (resp != null)
               MetricRow(
-                icon: Ic.activity,
+                icon: OsIcon.activity,
                 accent: DomainAccent.oxygen,
                 label: 'Respiratory rate',
                 info: infoFor('resp'),
@@ -699,7 +689,7 @@ class HeartDayContent extends StatelessWidget {
               ),
             if (spo2 != null)
               TrendMetricRow(
-                icon: Ic.droplet,
+                icon: OsIcon.hydration,
                 accent: DomainAccent.oxygen,
                 label: 'Oxygen dips',
                 info: infoFor('spo2'),
@@ -711,7 +701,7 @@ class HeartDayContent extends StatelessWidget {
             // Overnight desaturation screen (RELATIVE, not diagnostic).
             if (dmap['desaturation'] is Map)
               MetricRow(
-                icon: Ic.droplet,
+                icon: OsIcon.hydration,
                 accent: AppColors.warn,
                 label: 'Desaturation dips',
                 info:
@@ -731,8 +721,7 @@ class HeartDayContent extends StatelessWidget {
             if (d['skin_temp'] is Map &&
                 _n((d['skin_temp'] as Map)['value']) != null)
               TrendMetricRow(
-                icon: Ic.thermometer,
-                osIcon: OsIcon.temperatureDeviation,
+                icon: OsIcon.temperatureDeviation,
                 accent: AppColors.coralDeep,
                 label: 'Skin temp vs baseline',
                 info: infoFor('skin_temp'),
@@ -745,8 +734,7 @@ class HeartDayContent extends StatelessWidget {
               // No value yet → honest "Need N more nights" from the
               // need_baseline note, instead of a bare "—".
               MetricRow(
-                icon: Ic.thermometer,
-                osIcon: OsIcon.temperatureDeviation,
+                icon: OsIcon.temperatureDeviation,
                 accent: AppColors.inkSoft,
                 label: 'Skin temp vs baseline',
                 info: infoFor('skin_temp'),
@@ -958,7 +946,7 @@ class OxygenNightContent extends StatelessWidget {
 
     if (spo2 == null) {
       return const _QuietState(
-        icon: Ic.droplet,
+        icon: OsIcon.hydration,
         title: 'No overnight oxygen signal yet',
         message:
             'Wear the strap through the night — the red/IR channels need a '
@@ -977,7 +965,6 @@ class OxygenNightContent extends StatelessWidget {
             children: [
               TileHeader(
                 'Overnight oxygen',
-                icon: Ic.droplet,
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1169,7 +1156,6 @@ class OxygenNightContent extends StatelessWidget {
             children: [
               TileHeader(
                 'Overnight dip signal',
-                icon: Ic.chart,
                 trailing: InfoDot(
                   title: 'Overnight dip signal',
                   body:
@@ -1242,7 +1228,7 @@ class OxygenNightContent extends StatelessWidget {
         const SectionHeader('The numbers'),
         MetricGroup([
           MetricRow(
-            icon: Ic.droplet,
+            icon: OsIcon.hydration,
             accent: accent,
             label: 'Oxygen dips',
             info: infoFor('spo2'),
@@ -1250,7 +1236,7 @@ class OxygenNightContent extends StatelessWidget {
             unit: '/h',
           ),
           MetricRow(
-            icon: Ic.chart,
+            icon: OsIcon.activity,
             accent: AppColors.warn,
             label: 'Dip burden',
             info: 'Share of the analyzed overnight signal spent in dip events.',
@@ -1258,7 +1244,7 @@ class OxygenNightContent extends StatelessWidget {
             unit: '%',
           ),
           MetricRow(
-            icon: Ic.activity,
+            icon: OsIcon.activity,
             accent: AppColors.good,
             label: 'Mean dip depth',
             info:
@@ -1268,7 +1254,7 @@ class OxygenNightContent extends StatelessWidget {
             unit: '%',
           ),
           MetricRow(
-            icon: Ic.chart,
+            icon: OsIcon.activity,
             accent: accent,
             label: 'Strongest dip',
             info:
@@ -1278,7 +1264,7 @@ class OxygenNightContent extends StatelessWidget {
             unit: '%',
           ),
           MetricRow(
-            icon: Ic.watch,
+            icon: OsIcon.wear,
             accent: AppColors.inkSoft,
             label: 'Signal coverage',
             info:
@@ -1290,7 +1276,7 @@ class OxygenNightContent extends StatelessWidget {
             unit: '%',
           ),
           MetricRow(
-            icon: Ic.watch,
+            icon: OsIcon.wear,
             accent: AppColors.inkMuted,
             label: 'Trusted coverage',
             info:
@@ -1303,7 +1289,7 @@ class OxygenNightContent extends StatelessWidget {
           ),
           if (resp?['value'] != null)
             MetricRow(
-              icon: Ic.activity,
+              icon: OsIcon.activity,
               accent: AppColors.good,
               label: 'Respiratory rate',
               info: infoFor('resp'),
@@ -1589,7 +1575,7 @@ class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
     final present = buckets.where((b) => b['has'] == true).toList();
     if (present.isEmpty) {
       return const _QuietState(
-        icon: Ic.droplet,
+        icon: OsIcon.hydration,
         title: 'No recent oxygen trend yet',
         message: 'A few more nights of wear build the 7-night pattern.',
       );
@@ -1610,7 +1596,6 @@ class _OxygenRecentStripState extends State<_OxygenRecentStrip> {
         children: [
           TileHeader(
             'Last 7 nights',
-            icon: Ic.calendar,
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1679,7 +1664,7 @@ class _IllnessCard extends StatelessWidget {
           ? 'Need $needNights more night${needNights == 1 ? '' : 's'} of wear to start.'
           : 'It needs about 7 nights of wear to start.';
       return _QuietState(
-        icon: Ic.info,
+        icon: OsIcon.info,
         title: needNights != null
             ? 'Need $needNights more night${needNights == 1 ? '' : 's'}'
             : 'Building your baseline',
@@ -1709,8 +1694,8 @@ class _IllnessCard extends StatelessWidget {
                 child: StatusChip(
                   title,
                   icon: signal
-                      ? Icons.error_outline
-                      : Icons.check_circle_outline,
+                      ? OsIcon.activity
+                      : OsIcon.check,
                   tone: signal ? ChipTone.warn : ChipTone.positive,
                 ),
               ),
@@ -1755,7 +1740,7 @@ class _IrregularCard extends StatelessWidget {
     // No usable nocturnal RR yet → honest "building" state.
     if (irr == null || conf <= 0) {
       return const _QuietState(
-        icon: Ic.info,
+        icon: OsIcon.info,
         title: 'Listening for your rhythm',
         message:
             'This screens your beat-to-beat (RR) timing overnight for '
@@ -1778,8 +1763,8 @@ class _IrregularCard extends StatelessWidget {
                 child: StatusChip(
                   flag ? 'Irregular rhythm pattern' : 'Rhythm looks regular',
                   icon: flag
-                      ? Icons.error_outline
-                      : Icons.check_circle_outline,
+                      ? OsIcon.activity
+                      : OsIcon.check,
                   tone: flag ? ChipTone.warn : ChipTone.positive,
                 ),
               ),
@@ -1859,7 +1844,7 @@ class WearDayContent extends StatelessWidget {
 
     if (worn == 0) {
       return const _QuietState(
-        icon: Ic.watch,
+        icon: OsIcon.wear,
         title: 'Not worn on this day',
         message: 'No wrist contact was recorded — nothing to analyze.',
       );
@@ -1876,7 +1861,6 @@ class WearDayContent extends StatelessWidget {
             children: [
               TileHeader(
                 'Time worn',
-                icon: Ic.watch,
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1963,7 +1947,7 @@ class WearDayContent extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const TileHeader('First put on', icon: Ic.up),
+                  const TileHeader('First put on'),
                   const SizedBox(height: Sp.x2),
                   BigStat(value: _clock(firstOn), size: BigStatSize.md),
                 ],
@@ -1976,7 +1960,7 @@ class WearDayContent extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const TileHeader('Wear stretches', icon: Ic.activity),
+                  const TileHeader('Wear stretches'),
                   const SizedBox(height: Sp.x2),
                   BigStat(value: '$segments', size: BigStatSize.md),
                 ],
@@ -1990,7 +1974,7 @@ class WearDayContent extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const TileHeader('Last worn', icon: Ic.down),
+                  const TileHeader('Last worn'),
                   const SizedBox(height: Sp.x2),
                   BigStat(value: _clock(lastOn), size: BigStatSize.md),
                 ],
@@ -2003,7 +1987,7 @@ class WearDayContent extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const TileHeader('Longest off', icon: Ic.clock),
+                  const TileHeader('Longest off'),
                   const SizedBox(height: Sp.x2),
                   BigStat(
                     value: longestOff > 0 ? hm(longestOff) : 'none',
@@ -2121,7 +2105,7 @@ class _SectionExtrasState extends State<SectionExtras> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                TileHeader(c.$2, icon: Ic.recovery),
+                TileHeader(c.$2),
                 const SizedBox(height: Sp.x2),
                 BigStat(value: _fmt(v, c.$3), size: BigStatSize.md),
               ],
@@ -2148,7 +2132,7 @@ class _SectionExtrasState extends State<SectionExtras> {
             value:
                 '${em['label']} ${pct >= 0 ? '+' : ''}${pct.toStringAsFixed(0)}%',
             trailing: AppIcon(
-              better ? Ic.up : Ic.down,
+              better ? OsIcon.up : OsIcon.down,
               size: 16,
               color: better ? AppColors.good : AppColors.warn,
             ),

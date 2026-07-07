@@ -163,7 +163,7 @@ class _DataHistoryScreenState extends State<DataHistoryScreen> {
             Row(
               children: [
                 RoundIconButton(
-                  Ic.arrowLeft,
+                  OsIcon.arrowLeft,
                   onTap: () => Navigator.of(context).maybePop(),
                 ),
                 const SizedBox(width: Sp.x3),
@@ -209,21 +209,21 @@ class _DataHistoryScreenState extends State<DataHistoryScreen> {
               child: Column(
                 children: [
                   DetailRow(
-                    icon: Ic.cloud,
+                    icon: OsIcon.sync,
                     label: 'Export full database',
                     value: 'Share .db',
                     onTap: _busy ? null : _shareWholeDb,
                   ),
                   const Divider(height: 1),
                   DetailRow(
-                    icon: Ic.history,
+                    icon: OsIcon.history,
                     label: 'Export selected days',
                     value: selected == 0 ? 'Select first' : 'Share .db',
                     onTap: _busy || selected == 0 ? null : _shareSelected,
                   ),
                   const Divider(height: 1),
                   DetailRow(
-                    icon: Ic.trash,
+                    icon: OsIcon.trash,
                     label: 'Delete selected days',
                     value: selected == 0 ? 'Select first' : 'Remove local data',
                     onTap: _busy || selected == 0 ? null : _deleteSelected,

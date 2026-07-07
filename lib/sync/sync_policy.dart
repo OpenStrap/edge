@@ -20,6 +20,26 @@ const int kHistoricalSendFloorSeconds = 5; // official app floors 0x16 to 5s
 const int kHistoricalAbortRetryDelaySeconds =
     3; // official app retries 3s after abort
 
+/// iOS can hand back a peripheral that still reports `connected` while its
+/// GATT notifications actually died during suspension (the "zombie link" —
+/// see `BleEngine._keepAliveFire` and `AppState.openSession`). This is the
+/// ONE shared freshness bar for "trust the connected flag or not": under it,
+/// treat `sinceLastRx` as proof of a genuinely live link; at/over it, the flag
+/// is not to be trusted and the caller must force a real teardown+reconnect
+/// instead of doing lightweight work (a catch-up pull, a fast reclaim) over
+/// what may be a dead radio session. Deliberately tighter than
+/// [kLivenessFuseSeconds] (which decides when an ACTIVE session bounces
+/// itself) because every site that reads this is instead deciding whether to
+/// trust a connection it did not just watch tick over — a resume, a BG-task
+/// wake, a headless entry point.
+const int kLinkFreshnessSeconds = 30;
+
+/// True when a connection reporting "connected" should NOT be trusted because
+/// no data has actually arrived within [kLinkFreshnessSeconds]. Pure — callers
+/// own the actual teardown/reconnect. See [kLinkFreshnessSeconds].
+bool isLinkStale(Duration sinceLastRx) =>
+    sinceLastRx.inSeconds >= kLinkFreshnessSeconds;
+
 // ── plausibility gates (unix seconds) ────────────────────────────────────────
 const int kMinPlausibleUnix = 1700000000; // 2023-11 floor
 const int kFutureMargin = 86400; // +1 day

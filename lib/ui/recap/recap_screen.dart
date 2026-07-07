@@ -153,7 +153,7 @@ class _RecapScreenState extends State<RecapScreen> {
           Skeleton.chart(),
         ] else if (_phase == _Phase.empty)
           StateCard(
-            icon: Ic.calendar,
+            icon: OsIcon.calendar,
             title: 'Not enough data yet',
             message:
                 'Wear your strap for a few days. Your recap appears once '
@@ -163,7 +163,7 @@ class _RecapScreenState extends State<RecapScreen> {
           )
         else if (_phase == _Phase.error)
           StateCard(
-            icon: Ic.cloud,
+            icon: OsIcon.sync,
             title: "Couldn't load your recap",
             message: _error ?? 'Please try again.',
             actionLabel: 'Try again',
@@ -202,7 +202,7 @@ class _RecapScreenState extends State<RecapScreen> {
                 color: Colors.white,
               ),
             )
-          : const AppIcon(Ic.arrowRight, size: 20, color: Colors.white),
+          : const AppIcon(OsIcon.arrowRight, size: 20, color: Colors.white),
       label: Text(_sharing ? 'Preparing…' : 'Share my recap'),
     );
   }
@@ -387,7 +387,7 @@ class RecapShareCard extends StatelessWidget {
                   color: AppColors.accent,
                   borderRadius: BorderRadius.circular(R.chip),
                 ),
-                child: const AppIcon(Ic.strain, size: 14, color: Colors.white),
+                child: const AppIcon(OsIcon.bodyStrain, size: 14, color: Colors.white),
               ),
               const SizedBox(width: Sp.x2),
               Text(
@@ -536,7 +536,7 @@ class RecapShareCard extends StatelessWidget {
                           workoutTypeOsIcon(top['type']?.toString())!,
                           size: 20,
                         )
-                      : AppIcon(Ic.run, size: 16, color: DomainAccent.strain),
+                      : AppIcon(OsIcon.run, size: 16, color: DomainAccent.strain),
                   const SizedBox(width: Sp.x2),
                   Expanded(
                     child: Text(
@@ -570,7 +570,7 @@ class RecapShareCard extends StatelessWidget {
           // Footer.
           Row(
             children: [
-              AppIcon(Ic.shield, size: 13, color: AppColors.onNightSoft),
+              AppIcon(OsIcon.shield, size: 13, color: AppColors.onNightSoft),
               const SizedBox(width: 6),
               Text(
                 'your data · your device · openstrap',

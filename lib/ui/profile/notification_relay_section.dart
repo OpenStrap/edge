@@ -40,12 +40,11 @@ class NotificationRelaySection extends StatelessWidget {
           onTap: () => Navigator.of(context).push(
               themedRoute((_) => const NotificationRelayScreen())),
           child: ListRow(
-            icon: Ic.bell,
-            osIcon: OsIcon.notifications,
+            icon: OsIcon.notifications,
             iconColor: AppColors.accent,
             title: 'Buzz on app notifications',
             subtitle: subtitle,
-            trailing: AppIcon(Ic.arrowRight,
+            trailing: AppIcon(OsIcon.arrowRight,
                 size: 16, color: AppColors.onSurfaceFaint),
           ),
         );
@@ -288,7 +287,7 @@ class _AppRow extends StatelessWidget {
                 ? Image.memory(icon, width: 34, height: 34, gaplessPlayback: true)
                 : Container(
                     width: 34, height: 34, color: AppColors.surfaceAlt,
-                    child: AppIcon(Ic.bell, size: 18, color: AppColors.inkMuted)),
+                    child: AppIcon(OsIcon.notifications, size: 18, color: AppColors.inkMuted)),
           ),
           const SizedBox(width: Sp.x4),
           Expanded(

@@ -89,7 +89,7 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
       children: [
         if (_error != null)
           StateCard(
-            icon: Ic.run,
+            icon: OsIcon.run,
             title: "Couldn't start calibration",
             message: _error!,
             actionLabel: 'Try again',
@@ -134,8 +134,7 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const TileHeader('How to calibrate',
-                      icon: Ic.run, osIcon: OsIcon.steps),
+                  const TileHeader('How to calibrate'),
                   const SizedBox(height: Sp.x3),
                   Text(
                       'Walk on flat, open ground at your normal pace with the '
@@ -173,7 +172,7 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
                 color: AppColors.positiveSoft,
                 shape: BoxShape.circle,
               ),
-              child: AppIcon(Ic.check, size: 22, color: AppColors.positive),
+              child: AppIcon(OsIcon.check, size: 22, color: AppColors.positive),
             ),
             const SizedBox(width: Sp.x3),
             Text('Calibrated', style: AppText.h2),

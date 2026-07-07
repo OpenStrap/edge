@@ -126,7 +126,7 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
     final need = _val(_coach?['need']);
     if (need == null) {
       return _CoachEmpty(
-        icon: Ic.moon,
+        icon: OsIcon.sleep,
         accent: AppColors.loadDetraining,
         title: 'Sleep Coach',
         body: 'A few more nights of sleep data and your personal sleep need, '
@@ -171,18 +171,16 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
         ]),
         const SizedBox(height: Sp.x4),
         if (bedMin != null)
-          _row(Ic.moon, accent, 'Recommended bedtime', _hhmm(bedMin),
-              osIcon: OsIcon.bedtime),
+          _row(OsIcon.sleep, accent, 'Recommended bedtime', _hhmm(bedMin)),
         if (wakeMin != null)
-          _row(Ic.bell, AppColors.coral, 'Wake (cycle-aligned)', _hhmm(wakeMin),
-              osIcon: OsIcon.alarm),
+          _row(OsIcon.notifications, AppColors.coral, 'Wake (cycle-aligned)', _hhmm(wakeMin)),
         if (wakeMin != null) ...[
           const SizedBox(height: Sp.x3),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
               onPressed: () => _setAlarm(wakeMin.toDouble()),
-              icon: const AppIcon(Ic.bell, size: 16, color: Colors.white),
+              icon: const AppIcon(OsIcon.notifications, size: 16, color: Colors.white),
               label: Text('Set band alarm for ${_hhmm(wakeMin)}'),
             ),
           ),
@@ -203,15 +201,11 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
     );
   }
 
-  Widget _row(IconData icon, Color accent, String label, String value,
-          {OsIcon? osIcon}) =>
+  Widget _row(OsIcon icon, Color accent, String label, String value) =>
       Padding(
         padding: const EdgeInsets.symmetric(vertical: Sp.x2),
         child: Row(children: [
-          if (osIcon != null)
-            OsAppIcon(osIcon, size: 28)
-          else
-            AppIcon(icon, size: 15, color: accent),
+          OsAppIcon(icon, size: 28),
           const SizedBox(width: Sp.x3),
           Expanded(child: Text(label, style: AppText.body)),
           Text(value, style: AppText.label),
@@ -340,7 +334,7 @@ class _WhoopAgeCardState extends State<WhoopAgeCard> {
     if (_loading) return const SizedBox.shrink();
     if (_age == null && _vo2 == null) {
       return _CoachEmpty(
-        icon: Ic.pulse,
+        icon: OsIcon.heartRate,
         accent: AppColors.good,
         title: 'Fitness age',
         body: 'Your VO₂max and physiological age build from resting heart rate, '
@@ -440,7 +434,7 @@ class _PerformanceAssessmentCardState
     return ProCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          AppIcon(Ic.chart, size: 16, color: AppColors.coral),
+          AppIcon(OsIcon.activity, size: 16, color: AppColors.coral),
           const SizedBox(width: Sp.x2),
           Text('PERFORMANCE ASSESSMENT', style: AppText.overline),
         ]),
@@ -459,7 +453,7 @@ class _PerformanceAssessmentCardState
     final helped = i['helped'] == true;
     final accent = helped ? AppColors.good : AppColors.coral;
     final pct = (i['delta_pct'] as num?)?.abs().toStringAsFixed(0) ?? '—';
-    final dir = helped ? Ic.up : Ic.down;
+    final dir = helped ? OsIcon.up : OsIcon.down;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: Sp.x2),
       child: Row(children: [
@@ -479,7 +473,7 @@ class _PerformanceAssessmentCardState
 // ── shared empty state ───────────────────────────────────────────────────────
 
 class _CoachEmpty extends StatelessWidget {
-  final IconData icon;
+  final OsIcon icon;
   final Color accent;
   final String title;
   final String body;
