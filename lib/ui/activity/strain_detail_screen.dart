@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme.dart';
@@ -304,7 +305,16 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
     final load = _map(_data['load']);
     final fitness = _data['fitness_trend']?.toString();
     final cals = _num(_data['calories']);
-    final steps = _num(_data['steps']);
+    // Same steps figure as Today + the Steps screen: finalized day estimate
+    // + today's in-flight live fold-in, so all three never disagree.
+    final rawSteps = _num(_data['steps']);
+    final isToday = widget.date == todayLabel();
+    final liveSteps = isToday
+        ? context.select<AppState, int>((a) => a.liveSteps)
+        : 0;
+    final steps = (rawSteps == null && liveSteps == 0)
+        ? null
+        : (rawSteps?.toDouble() ?? 0) + liveSteps;
     final effort = _num(_data['effort']);
     final hasLoad =
         load.isNotEmpty ||

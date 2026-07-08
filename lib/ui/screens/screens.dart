@@ -5,7 +5,7 @@
 //
 //   Sleep → indigo, the redesigned night board (sleep_detail_screen)
 //   Heart → coral, recovery/RHR BigStat hero (detail_cards.HeartDayContent)
-//   Body  → amber, week-load RadialHeatmap hero over the strain detail
+//   Body  → amber, the rich strain detail (no duplicate week-load hero)
 //   Steps → teal, goal ArcGauge + RingWeek week strip
 //   Oxygen→ slate, ODI + signal-coverage gauge (detail_cards)
 //   Wear  → coverage gauge + hourly bars (detail_cards)
@@ -27,7 +27,6 @@ import '../spotcheck/spot_check_screen.dart';
 import '../today/step_calibration_screen.dart';
 import '../today/step_goal_screen.dart';
 import 'detail_cards.dart';
-import 'metric_row.dart' show infoFor;
 import 'metric_screen.dart';
 
 class SleepScreen extends StatelessWidget {
@@ -105,9 +104,9 @@ class WearScreen extends StatelessWidget {
 }
 
 /// Body — strain / training load / calories / steps / activity. Bars track
-/// daily strain (amber); the Today leaf opens with the week-load radial hero,
-/// then the rich strain detail. (Respiratory rate + SpO₂ live under Sleep +
-/// Heart; Lungs is no longer a tab.)
+/// daily strain (amber); the Today leaf opens straight into the rich strain
+/// detail. (Respiratory rate + SpO₂ live under Sleep + Heart; Lungs is no
+/// longer a tab.)
 class BodyScreen extends StatelessWidget {
   const BodyScreen({super.key});
   @override
@@ -147,8 +146,6 @@ class BodyScreen extends StatelessWidget {
       children: [
         const StrainCoachCard(),
         const SizedBox(height: Sp.x3),
-        const BodyWeekLoadHero(),
-        const SizedBox(height: Sp.x3),
         StrainDetailScreen(date: todayLabel(), embedded: true),
         const SizedBox(height: Sp.x3),
         const WhoopAgeCard(),
@@ -159,145 +156,6 @@ class BodyScreen extends StatelessWidget {
       ],
     ),
     dayDetail: (ctx, date) => StrainDetailScreen(date: date, embedded: true),
-  );
-}
-
-/// BodyWeekLoadHero — the Body domain's hero visual: the CURRENT week's
-/// training load (Mon→Sun) as a RadialHeatmap, one labelled segment per day
-/// filled by strain/21; missing/future days stay honest empties. Deliberately
-/// number-free — the day's strain figure lives exactly once on the Body
-/// screen, in the strain detail hero below. Hides itself until at least one
-/// day this week has loaded (no fake wheel).
-class BodyWeekLoadHero extends StatefulWidget {
-  const BodyWeekLoadHero({super.key});
-  @override
-  State<BodyWeekLoadHero> createState() => _BodyWeekLoadHeroState();
-}
-
-class _BodyWeekLoadHeroState extends State<BodyWeekLoadHero> {
-  Map<String, dynamic>? _trend;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final api = context.read<AppState>().repo;
-    if (api == null) return;
-    try {
-      // Anchor the 7-day trend window on this week's Sunday so the wheel is
-      // always the current Mon→Sun calendar week. The unanchored default ends
-      // at the LAST DATA DAY, i.e. a rolling window whose segments drift
-      // around the wheel — which is what rendered as a lone mislabelled day.
-      final now = DateTime.now();
-      final sunday = DateTime(
-        now.year,
-        now.month,
-        now.day + (DateTime.daysPerWeek - now.weekday),
-      );
-      final t = await api.getTrend(
-        'strain',
-        scale: 'week',
-        anchor: dayLabelOf(sunday),
-      );
-      if (mounted) setState(() => _trend = t);
-    } catch (_) {}
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final wheel = weekLoadWheelData(_trend);
-    if (wheel.values.whereType<double>().isEmpty) {
-      return const SizedBox.shrink();
-    }
-    return WeekLoadWheelTile(
-      values: wheel.values,
-      labels: wheel.labels,
-    ).dsEnter();
-  }
-}
-
-/// Pure mapper for the week-load wheel: a /trend week payload → one segment
-/// per bucket (strain/21, null = no data) plus its weekday label derived from
-/// the bucket's own `t_start` (so labels can never drift from the data).
-@visibleForTesting
-({List<double?> values, List<String> labels}) weekLoadWheelData(
-  Map<String, dynamic>? trend,
-) {
-  const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  final buckets = ((trend?['buckets'] as List?) ?? const [])
-      .whereType<Map>()
-      .toList();
-  final values = <double?>[];
-  final labels = <String>[];
-  for (final b in buckets) {
-    values.add(
-      b['has'] == true
-          ? (((b['value'] as num?)?.toDouble() ?? 0) / 21).clamp(0.0, 1.0)
-          : null,
-    );
-    final ts = (b['t_start'] as num?)?.toInt();
-    labels.add(
-      ts == null
-          ? ''
-          : wd[(DateTime.fromMillisecondsSinceEpoch(
-                      ts * 1000,
-                      isUtc: true,
-                    ).weekday -
-                    1) %
-                7],
-    );
-  }
-  return (values: values, labels: labels);
-}
-
-/// Pure presentation of the week-load wheel: the RadialHeatmap alone with all
-/// day segments labelled — no strain BigStat here, so the Body screen keeps
-/// exactly one strain figure (the strain detail hero).
-@visibleForTesting
-class WeekLoadWheelTile extends StatelessWidget {
-  final List<double?> values;
-  final List<String> labels;
-  const WeekLoadWheelTile({
-    super.key,
-    required this.values,
-    required this.labels,
-  });
-
-  @override
-  Widget build(BuildContext context) => BentoTile(
-    accent: DomainAccent.strain,
-    padding: const EdgeInsets.all(Sp.x5),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        TileHeader(
-          'Week load',
-          trailing: InfoDot(
-            title: 'Week load',
-            body:
-                'Each spoke is one day of this week, Monday through Sunday, '
-                'filled by its strain (0–21). A balanced wheel means steady '
-                'training; one hot spoke is a spike day; empty spokes have '
-                'no data yet.',
-            methodNote: infoFor('strain'),
-          ),
-        ),
-        const SizedBox(height: Sp.x3),
-        Center(
-          child: RadialHeatmap(
-            values: values,
-            rings: 3,
-            color: DomainAccent.strain,
-            size: 176,
-            labels: labels,
-          ),
-        ),
-      ],
-    ),
   );
 }
 
