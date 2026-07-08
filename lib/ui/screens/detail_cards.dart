@@ -931,17 +931,19 @@ class OxygenNightContent extends StatelessWidget {
     final sleepStart = (sleepWindow?['start'] as num?)?.toDouble();
     final sleepEnd = (sleepWindow?['end'] as num?)?.toDouble();
     final odiPerHour = (spo2?['odi_per_hour'] as num?)?.toDouble();
+    final dipCount = (spo2?['dip_count'] as num?)?.toInt() ?? events.length;
     final verdict = _oxygenVerdict({
       'trusted_coverage': trustedCoverage,
       'signal_coverage': signalCoverage,
       'reject_total': rejectTotal,
-      'dip_count': (spo2?['dip_count'] as num?)?.toInt() ?? events.length,
+      'dip_count': dipCount,
     });
     final severity = _oxygenSeverity(
       odiPerHour: odiPerHour,
       maxDipPct: maxDipPct,
       burdenPct: burdenPct,
       trustedCoverage: trustedCoverage,
+      dipCount: dipCount,
     );
 
     if (spo2 == null) {
@@ -951,6 +953,15 @@ class OxygenNightContent extends StatelessWidget {
         message:
             'Wear the strap through the night — the red/IR channels need a '
             'full night of stable contact to read.',
+      );
+    }
+    if (spo2['disabled'] == true) {
+      return const _QuietState(
+        icon: OsIcon.hydration,
+        title: 'Overnight oxygen tracking is off',
+        message:
+            'This screen is temporarily disabled pending hardware-verified '
+            'decoding — it will come back once that lands.',
       );
     }
 
@@ -1408,6 +1419,7 @@ Widget _legendPill(String label, Color color) {
   required double? maxDipPct,
   required double? burdenPct,
   required double? trustedCoverage,
+  required int dipCount,
 }) {
   final trusted = trustedCoverage ?? 0;
   if (trusted < 0.6) {
@@ -1440,7 +1452,10 @@ Widget _legendPill(String label, Color color) {
           'Tonight has a noticeable oxygen-dip load, but not an extreme one.',
     );
   }
-  if (odi > 0 || maxDip > 0 || burden > 0) {
+  // Require a repeated pattern (>=2 dips) plus a real per-hour rate/burden
+  // before calling anything out — a single stray dip is common PPG/motion
+  // noise, not a finding, and used to fire "Mild" on almost every night.
+  if (dipCount >= 2 && (odi >= 1 || maxDip >= 2 || burden >= 0.5)) {
     return (
       label: 'Mild',
       color: AppColors.good,
