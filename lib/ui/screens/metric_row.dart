@@ -40,10 +40,8 @@ const Map<String, String> kMetricInfo = {
       'How far your heart rate falls in sleep — a bigger dip is better.',
   'sleeping_hr': 'Average heart rate while you slept.',
   'resp': 'Breaths per minute, derived from heart-rate variability.',
-  'spo2':
-      'TODO. Blood O₂ is temporarily disabled while the packet decode is re-validated from raw captures.',
-  'skin_temp':
-      'Skin temperature vs your personal overnight baseline. Relative (Δ), not an absolute thermometer.',
+  'spo2': 'Relative blood-oxygen dip signal from your PPG — not an absolute reading.',
+  'skin_temp': 'Skin temperature vs your personal overnight baseline — relative, not absolute.',
   'hrr60':
       'How fast your HR drops a minute after peak effort — fitness marker.',
   'illness':

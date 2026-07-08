@@ -149,8 +149,9 @@ String briefingSystemPrompt(BriefingPeriod period) {
       'Line 1: one plain-text sentence, max 140 characters — the whole story '
       'at a glance. No markdown.\n'
       'Line 2: ---\n'
-      'Then 3-5 short markdown bullet points (each starting with "- "), one '
-      'glanceable fact or gentle nudge per bullet, grounded in the numbers.';
+      'Then 3-5 markdown bullet points (each starting with "- "), max 14 words '
+      'each, one glanceable fact or gentle nudge per bullet, grounded in the '
+      'numbers. No filler openers ("It\'s worth noting", "Additionally").';
 }
 
 String buildBriefingUserPrompt(

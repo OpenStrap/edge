@@ -378,14 +378,14 @@ class CoachEngine {
       final content = (reply['content'] as String?)?.trim();
 
       if (toolCalls.isEmpty) {
-        if (content != null && content.isNotEmpty) emit(CoachItem.assistant(content));
+        if (content != null && content.isNotEmpty) _emitAssistantText(content, emit);
         _history.add({'role': 'assistant', 'content': content ?? ''});
         onStatus(null);
         return;
       }
 
       // Assistant turn that requested tools (echo any interim text).
-      if (content != null && content.isNotEmpty) emit(CoachItem.assistant(content));
+      if (content != null && content.isNotEmpty) _emitAssistantText(content, emit);
       _history.add({'role': 'assistant', 'content': content ?? '', 'tool_calls': toolCalls});
 
       for (final tcRaw in toolCalls) {
@@ -410,6 +410,42 @@ class CoachEngine {
     }
     emit(CoachItem.assistant('I dug through several steps but couldn’t wrap that up — try narrowing the question.'));
     onStatus(null);
+  }
+
+  // Some providers (esp. ones with shaky tool-calling) sometimes answer with a
+  // fenced JSON code block instead of actually calling plot_chart/render — that
+  // renders as an unexplained grey code block in the UI (GptMarkdown's default
+  // code-field styling), not a chart. Detect a chart/render JSON payload inside
+  // any fence and draw it as a real figure instead; leave real code fences (rare,
+  // the coach is told never to write code) or non-figure JSON untouched.
+  static void _emitAssistantText(String content, void Function(CoachItem) emit) {
+    final fence = RegExp(r'```[a-zA-Z0-9_-]*\n([\s\S]*?)```');
+    final figures = <CoachItem>[];
+    final cleaned = content.replaceAllMapped(fence, (m) {
+      try {
+        final decoded = jsonDecode((m.group(1) ?? '').trim());
+        if (decoded is Map && decoded['type'] != null) {
+          final j = decoded.cast<String, dynamic>();
+          final type = j['type'].toString().toLowerCase();
+          if ((type == 'bar' || type == 'line' || type == 'area') && j['series'] != null) {
+            final spec = ChartSpec.tryParse(j);
+            if (spec != null) {
+              figures.add(CoachItem.chart(spec));
+              return '';
+            }
+          }
+          figures.add(CoachItem.render(j));
+          return '';
+        }
+      } catch (_) {
+        // not JSON / not a figure — leave the fence as-is.
+      }
+      return m.group(0) ?? '';
+    }).trim();
+    if (cleaned.isNotEmpty) emit(CoachItem.assistant(cleaned));
+    for (final f in figures) {
+      emit(f);
+    }
   }
 
   // ── provider call ────────────────────────────────────────────────────────────
