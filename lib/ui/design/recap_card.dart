@@ -12,7 +12,7 @@ import 'package:flutter/material.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/charts.dart' show MiniBars;
-import '../kit/kit.dart' show AppIcon, Ic, OsIcon;
+import '../kit/kit.dart' show AppIcon, OsIcon;
 import 'bento.dart';
 import 'big_stat.dart';
 

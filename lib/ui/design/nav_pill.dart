@@ -159,25 +159,8 @@ class NavPillAction extends StatelessWidget {
         // Pressable fires the selection haptic itself.
         pressedScale: 0.9,
         onTap: onTap,
-        child: true
-            // The illustrated coin IS the button — same 46px footprint.
-            ? SizedBox(
-                width: 46,
-                height: 46,
-                child: OsAppIcon(icon!, size: 46),
-              )
-            : Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: AppColors.accent,
-                  shape: BoxShape.circle,
-                  boxShadow: AppColors.isDark ? const [] : Shadows.coral,
-                ),
-                // Plain Icon (not the kit AppIcon): the center glyph may be a
-                // Material icon (▶), not just a HugeIcons stroke.
-                child: Center(child: OsAppIcon(icon!, size: 24)),
-              ),
+        // The illustrated coin IS the button — same 46px footprint.
+        child: SizedBox(width: 46, height: 46, child: OsAppIcon(icon!, size: 46)),
       ),
     );
   }

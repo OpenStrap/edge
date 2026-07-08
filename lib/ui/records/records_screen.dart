@@ -289,7 +289,7 @@ class RecordsContent extends StatelessWidget {
 
   Widget _recordsBento({String? medalKey}) {
     final tiles = <Widget>[];
-    for (final (key, label, icon, osIcon) in _recordDefs) {
+    for (final (key, label, icon, _) in _recordDefs) {
       if (key == medalKey) continue; // already the medal
       final rec = r.record(key);
       if (rec == null) continue;

@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 
 import '../../models/payloads.dart';
 import '../design/design.dart';
-import '../kit/os_icons.dart';
 
 class CoachScreen extends StatelessWidget {
   final CoachData coach;
@@ -37,7 +36,7 @@ class CoachScreen extends StatelessWidget {
 /// The pure plan board — testable with a sample /coach payload.
 class CoachPlanContent extends StatelessWidget {
   final CoachData coach;
-  CoachPlanContent({super.key, required this.coach});
+  const CoachPlanContent({super.key, required this.coach});
 
   // Severity → colour: 3 urgent, 2 caution, 1 nudge, 0 affirming.
   Color _sevColor(int s) => switch (s) {

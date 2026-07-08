@@ -18,7 +18,6 @@ import 'package:flutter/services.dart';
 
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
-import '../kit/kit.dart' show AppIcon, Ic;
 import 'pressable.dart';
 
 /// The standard circular back button (also usable stand-alone in custom

@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
-import '../kit/kit.dart' show AppIcon, Ic;
+import '../kit/kit.dart' show AppIcon;
 import '../kit/os_icons.dart';
 import 'pressable.dart';
 

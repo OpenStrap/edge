@@ -21,7 +21,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
-import '../kit/kit.dart' show AppIcon, OsAppIcon, OsIcon;
+import '../kit/kit.dart' show OsAppIcon, OsIcon;
 import 'arc_gauge.dart';
 import 'motion.dart';
 import 'pressable.dart';
@@ -212,7 +212,6 @@ class _SatelliteChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = s.color ?? AppColors.accent;
     return Pressable(
       pressedScale: 0.92,
       onTap: s.onTap,

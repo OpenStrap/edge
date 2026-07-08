@@ -16,7 +16,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
-import '../kit/kit.dart' show AppIcon, Ic, OsAppIcon, OsIcon;
+import '../kit/kit.dart' show AppIcon, OsAppIcon, OsIcon;
 import 'pressable.dart';
 
 class AiHero extends StatelessWidget {
