@@ -75,6 +75,14 @@ class ProfileScreen extends StatelessWidget {
           // Android: battery-optimization (Doze) exemption — without it the OS
           // can freeze the background BLE session between events overnight.
           if (Platform.isAndroid) const _KeepAliveRow(),
+          // iOS: force-quitting the app is an unrecoverable OS contract — no
+          // background relaunch of any kind (CoreBluetooth restoration,
+          // BGTaskScheduler) fires again until the user manually reopens it
+          // once. Not fixable in code; this is the one-time explanation so
+          // "why did my data stop updating" has an answer, tied to the
+          // staleness notification (checkSyncStaleness) that eventually
+          // prompts the user to do exactly that.
+          if (Platform.isIOS) const _ForceQuitInfoRow(),
 
           const SizedBox(height: Sp.x6),
 
@@ -1085,16 +1093,28 @@ class _KeepAliveRow extends StatefulWidget {
 
 class _KeepAliveRowState extends State<_KeepAliveRow> {
   bool? _exempt; // null = still checking
+  // Some OEMs (Xiaomi/Huawei/Honor/Oppo/Vivo/OnePlus) gate background survival
+  // behind a SEPARATE autostart/protected-apps allowlist the stock battery
+  // exemption above doesn't cover — see AndroidBackground.needsOemAutostartSettings.
+  // There's no OS-queryable "is it allowed" state for this (unlike the battery
+  // exemption), so this row is a one-shot action, not a toggle.
+  bool _showOemRow = false;
 
   @override
   void initState() {
     super.initState();
     _refresh();
+    _checkOem();
   }
 
   Future<void> _refresh() async {
     final v = await context.read<AppState>().isIgnoringBatteryOptimizations();
     if (mounted) setState(() => _exempt = v);
+  }
+
+  Future<void> _checkOem() async {
+    final v = await context.read<AppState>().needsOemAutostartSettings();
+    if (mounted) setState(() => _showOemRow = v);
   }
 
   @override
@@ -1122,6 +1142,59 @@ class _KeepAliveRowState extends State<_KeepAliveRow> {
                     await Future.delayed(const Duration(seconds: 1));
                     await _refresh();
                   },
+          ),
+          if (_showOemRow)
+            ListRow(
+              icon: OsIcon.battery,
+              title: 'Allow auto-start',
+              subtitle: 'Your phone maker needs one more step to keep '
+                  'syncing overnight — tap to open it',
+              onTap: () => context.read<AppState>().openOemAutostartSettings(),
+            ),
+        ]),
+      ],
+    );
+  }
+}
+
+// ── iOS "force-quit" explainer ──────────────────────────────────────────────
+// Swiping OpenStrap away in the app switcher is an unrecoverable OS contract:
+// it explicitly opts the app out of ALL background relaunch — CoreBluetooth
+// restoration, BGProcessingTask, BGAppRefreshTask — until the user manually
+// reopens it once. There's no code fix for this; the best we can do is make
+// sure the user understands why, since the eventual staleness notification
+// (see sync/background_sync.dart's checkSyncStaleness) tells them WHAT to do
+// ("reopen OpenStrap") but not WHY it stopped in the first place.
+class _ForceQuitInfoRow extends StatelessWidget {
+  const _ForceQuitInfoRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: Sp.x3),
+        _SettingsCard(rows: [
+          ListRow(
+            icon: OsIcon.battery,
+            title: 'Force-quitting pauses background sync',
+            subtitle: 'If you swipe OpenStrap away, reopen it once to resume',
+            onTap: () => showInfoSheet(
+              context,
+              title: 'Force-quitting pauses background sync',
+              body: 'Swiping OpenStrap away in the app switcher tells iOS to '
+                  'stop it completely — including background sync. This is '
+                  'an iOS rule that applies to every app, not something '
+                  'OpenStrap can change.',
+              bullets: const [
+                'Your data is never lost — the band keeps recording, and '
+                    'the next sync catches everything up.',
+                'To resume background syncing, just open OpenStrap once — '
+                    'you don\'t need to do anything else.',
+                'If you get a "hasn\'t synced in a while" notification, '
+                    'this is usually why.',
+              ],
+            ),
           ),
         ]),
       ],

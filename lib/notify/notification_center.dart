@@ -22,7 +22,21 @@ class NotificationCenter {
   static final NotificationCenter instance = NotificationCenter._();
 
   /// Persist to the feed and (if allowed) present to the OS. Never throws.
-  Future<void> emit(NotificationEvent e) async {
+  ///
+  /// [allowPermissionPrompt]: Apple's notification docs document that
+  /// authorization must be requested IN CONTEXT, from an active foreground
+  /// scene — never from a background execution context (a headless
+  /// BGTaskScheduler run or Dart background isolate has none to present
+  /// from). Callers that know they're running headless (see
+  /// background_sync.dart's checkSyncStaleness) MUST pass `false`, so a
+  /// not-yet-decided permission is checked, not requested, and never gets
+  /// permanently mis-cached as "denied" by a background attempt. The in-app
+  /// feed write above is unaffected either way — it's always written,
+  /// independent of OS permission.
+  Future<void> emit(
+    NotificationEvent e, {
+    bool allowPermissionPrompt = true,
+  }) async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     // Feed first — INSERT OR IGNORE keyed on dedupeKey, so re-runs don't dup.
     try {
@@ -34,7 +48,10 @@ class NotificationCenter {
       final now = DateTime.now();
       final minuteOfDay = now.hour * 60 + now.minute;
       if (prefs.shouldFireOs(e, minuteOfDay)) {
-        await NotificationService.instance.presentEvent(e);
+        await NotificationService.instance.presentEvent(
+          e,
+          allowPermissionPrompt: allowPermissionPrompt,
+        );
       }
     } catch (_) {/* OS present best-effort */}
   }

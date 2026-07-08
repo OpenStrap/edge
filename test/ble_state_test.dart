@@ -225,6 +225,64 @@ void main() {
     });
   });
 
+  group('CounterRegressionDetector (band-reboot signal)', () {
+    test('ascending counters never trip', () {
+      final d = CounterRegressionDetector();
+      expect(d.feed(1), isFalse);
+      expect(d.feed(100), isFalse);
+      expect(d.feed(101), isFalse);
+      expect(d.regressions, 0);
+    });
+
+    test('equal counters (duplicate/retried frame) do not trip', () {
+      final d = CounterRegressionDetector();
+      expect(d.feed(50), isFalse);
+      expect(d.feed(50), isFalse);
+      expect(d.regressions, 0);
+    });
+
+    test('a real drop (band reboot) trips and is counted', () {
+      final d = CounterRegressionDetector();
+      d.feed(5000);
+      expect(d.feed(3), isTrue);
+      expect(d.regressions, 1);
+      // Keeps counting further regressions (not one-shot — every reboot matters).
+      d.feed(10);
+      expect(d.feed(4), isTrue);
+      expect(d.regressions, 2);
+    });
+
+    test('u32 wraparound near the top of the range is not a regression', () {
+      final d = CounterRegressionDetector();
+      d.feed(0xFFFFFFFF - 500000);
+      expect(d.feed(200), isFalse); // wrapped, not rebooted
+      expect(d.regressions, 0);
+    });
+
+    test('seeding from the durable counter_hw cursor catches a regression '
+        'across a reconnect', () {
+      final d = CounterRegressionDetector(seedCounter: 9000);
+      expect(d.feed(12), isTrue); // first record after reconnect already low
+      expect(d.regressions, 1);
+    });
+
+    test('first feed after construction with no seed never trips', () {
+      final d = CounterRegressionDetector();
+      expect(d.feed(0), isFalse);
+      expect(d.regressions, 0);
+    });
+
+    test('reseed replaces the last-seen counter without resetting the '
+        'lifetime regression count', () {
+      final d = CounterRegressionDetector(seedCounter: 100);
+      d.feed(10); // regression #1
+      expect(d.regressions, 1);
+      d.reseed(500);
+      expect(d.feed(600), isFalse); // ascending from the new seed
+      expect(d.regressions, 1); // lifetime count untouched by reseed
+    });
+  });
+
   group('AckRetryPolicy (verified batch-ACK writes)', () {
     const p = AckRetryPolicy(
       maxAttempts: 3,
@@ -244,6 +302,54 @@ void main() {
       expect(p.delayFor(2).inMilliseconds, 400);
       expect(p.delayFor(3).inMilliseconds, 600);
       expect(p.delayFor(0).inMilliseconds, 200); // clamped to attempt 1
+    });
+  });
+
+  group('ChunkFailureLedger (persistent-per-token ACK failure tracking)', () {
+    test('a token that never fails never quarantines', () {
+      final l = ChunkFailureLedger();
+      expect(l.failureCount('tok-a'), 0);
+      expect(l.shouldQuarantine('tok-a'), isFalse);
+    });
+
+    test('failures accumulate per-token, independent of other tokens', () {
+      final l = ChunkFailureLedger(quarantineThreshold: 3);
+      expect(l.recordFailure('tok-a'), 1);
+      expect(l.recordFailure('tok-a'), 2);
+      expect(l.recordFailure('tok-b'), 1); // independent counter
+      expect(l.failureCount('tok-a'), 2);
+      expect(l.failureCount('tok-b'), 1);
+      expect(l.shouldQuarantine('tok-a'), isFalse);
+    });
+
+    test('crosses the quarantine threshold on the Nth consecutive failure',
+        () {
+      final l = ChunkFailureLedger(quarantineThreshold: 3);
+      l.recordFailure('tok-a');
+      l.recordFailure('tok-a');
+      expect(l.shouldQuarantine('tok-a'), isFalse);
+      l.recordFailure('tok-a');
+      expect(l.shouldQuarantine('tok-a'), isTrue);
+    });
+
+    test('a success clears tracking for that token only', () {
+      final l = ChunkFailureLedger(quarantineThreshold: 2);
+      l.recordFailure('tok-a');
+      l.recordFailure('tok-a');
+      l.recordFailure('tok-b');
+      expect(l.shouldQuarantine('tok-a'), isTrue);
+      l.recordSuccess('tok-a');
+      expect(l.failureCount('tok-a'), 0);
+      expect(l.shouldQuarantine('tok-a'), isFalse);
+      // tok-b untouched by tok-a's success.
+      expect(l.failureCount('tok-b'), 1);
+    });
+
+    test('a token can re-accumulate failures after a prior success', () {
+      final l = ChunkFailureLedger(quarantineThreshold: 2);
+      l.recordFailure('tok-a');
+      l.recordSuccess('tok-a');
+      expect(l.recordFailure('tok-a'), 1); // starts fresh, not from 1 again
     });
   });
 

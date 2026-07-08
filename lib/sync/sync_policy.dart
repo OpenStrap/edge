@@ -1,12 +1,14 @@
 // sync_policy.dart — pure, I/O-free reconnect/offload policy.
-// Value-typed state machines covering the six detectors + BackfillPolicy +
-// clock/plausibility gates. NOTHING here touches BLE, the DB, or Flutter —
-// every type is exhaustively unit-testable and the engine just feeds it
-// observations and reads back decisions.
+// Value-typed state machines covering the reconnect/offload detectors +
+// BackfillPolicy + clock/plausibility gates. NOTHING here touches BLE, the
+// DB, or Flutter — every type is exhaustively unit-testable and the engine
+// just feeds it observations and reads back decisions.
 //
-// WHOOP 4.0 only (the only family OpenStrap supports). The WHOOP-5-specific
-// Whoop5EmptyOffloadTracker is included for completeness but is not wired by
-// the engine.
+// WHOOP 4.0 only (the only family OpenStrap supports). A prior speculative
+// Whoop5EmptyOffloadTracker was removed — unwired, untested dead code with no
+// real WHOOP5 offload path to integrate with. Write its real equivalent
+// alongside actual WHOOP5 support when that's built; it won't be identical
+// to the speculative shape anyway once real integration requirements exist.
 
 import 'dart:math' as math;
 
@@ -16,6 +18,15 @@ const int kKeepAliveIntervalSeconds =
     30; // re-arm realtime, poll battery, watchdog
 const int kBackfillIdleTimeoutSeconds = 60; // strap went silent mid-offload
 const int kLivenessFuseSeconds = 120; // no data for >fuse ⇒ bounce the link
+// Every existing RTC recheck is symptom-triggered (drift detected on the ONE
+// GET_CLOCK read at connect, or a defensive SET_CLOCK on StuckStrapDetector
+// tripping). A connection that stays open for many hours (iOS's
+// bluetooth-central background mode keeps links open indefinitely) had NO
+// independent proactive recheck. This re-arms a plain GET_CLOCK on a healthy
+// long-lived link; the existing clock_epoch response handler already does
+// the drift comparison + bounded SET_CLOCK re-issue, so this only supplies
+// the missing periodic trigger, not new drift-correction logic.
+const int kRtcReverifyIntervalSeconds = 6 * 3600; // 6h
 const int kHistoricalSendFloorSeconds = 5; // official app floors 0x16 to 5s
 const int kHistoricalAbortRetryDelaySeconds =
     3; // official app retries 3s after abort
@@ -66,6 +77,19 @@ bool isPlausibleUnix(
   }
   return true;
 }
+
+/// A stricter, single-purpose sanity check for a band-reported "newest
+/// record" timestamp (GET_DATA_RANGE's `range_newest`) that sits implausibly
+/// far in the future — the signature of a corrupt/never-set strap RTC.
+/// Deliberately narrower than [isPlausibleUnix] (which also enforces the
+/// historical floor and the strap's own ±7-day session band): this is an
+/// EARLY gate on the raw band-reported value itself, before it's trusted
+/// enough to tighten the per-record plausibility window for the rest of the
+/// session — GET_DATA_RANGE responses are documented to occasionally carry
+/// junk at unstable offsets, and today nothing sanity-checks them before they
+/// feed [RecordGate]'s session window.
+bool isCorruptFutureRtc(int reportedUnix, int wallNow) =>
+    reportedUnix > wallNow + kFutureMargin;
 
 // ── clock correlation ────────────────────────────────────────────────────────
 /// Correlates the strap's RTC epoch with wall-clock at the instant of GET_CLOCK.
@@ -263,6 +287,57 @@ class MarginalRadioDetector {
   }
 }
 
+// ── detector 1b: frame corruption ────────────────────────────────────────────
+/// [MarginalRadioDetector] only ever sees *timeouts* — a link that stops
+/// responding. A degrading radio can instead keep responding promptly while
+/// corrupting an increasing fraction of frames (CRC8 length-byte or CRC32
+/// payload mismatch in `framing.dart`) — which looks identical to a healthy
+/// link on every timeout-based diagnostic. This tracks a rolling window of
+/// frame validity and trips once the corruption rate within the window
+/// crosses [rateThreshold], driving the SAME standard-HR fallback action as
+/// marginal-radio — same remedy (drop the raw live stream, keep 1 Hz decode),
+/// independent failure signature. [minSamples] avoids tripping on a tiny,
+/// noisy sample right after connect.
+class FrameCorruptionDetector {
+  final int windowSize;
+  final double rateThreshold;
+  final int minSamples;
+
+  FrameCorruptionDetector({
+    this.windowSize = 50,
+    this.rateThreshold = 0.2,
+    this.minSamples = 20,
+  });
+
+  final List<bool> _window = []; // true = valid frame
+  int _invalidInWindow = 0;
+  bool tripped = false;
+
+  /// Feed one frame's validity. Returns true exactly once, on the call that
+  /// crosses the threshold.
+  bool feed(bool valid) {
+    _window.add(valid);
+    if (!valid) _invalidInWindow++;
+    if (_window.length > windowSize) {
+      final removed = _window.removeAt(0);
+      if (!removed) _invalidInWindow--;
+    }
+    if (tripped || _window.length < minSamples) return false;
+    final rate = _invalidInWindow / _window.length;
+    if (rate >= rateThreshold) {
+      tripped = true;
+      return true;
+    }
+    return false;
+  }
+
+  void reset() {
+    _window.clear();
+    _invalidInWindow = 0;
+    tripped = false;
+  }
+}
+
 // ── detector 2: post-bond timeout loop (#617) ────────────────────────────────
 /// Bond succeeds then dies ~1s later, re-scans, repeats. Consecutive
 /// bond→quick-timeout cycles. Trips once; action = surface the re-pair guide.
@@ -372,34 +447,6 @@ class EmptySyncTracker {
   void reset() => _consecutive = 0;
 }
 
-// ── detector 4: WHOOP-5 empty offload (#580) — NOT wired (no WHOOP5) ──────────
-class Whoop5EmptyOffloadTracker {
-  final int quietThreshold;
-  Whoop5EmptyOffloadTracker({this.quietThreshold = 2});
-
-  int _consecutive = 0;
-  bool historyEmpty = false;
-
-  bool recordOffload({required bool bankedRecords}) {
-    if (bankedRecords) {
-      _consecutive = 0;
-      historyEmpty = false;
-      return false;
-    }
-    _consecutive++;
-    if (!historyEmpty && _consecutive >= quietThreshold) {
-      historyEmpty = true;
-      return true;
-    }
-    return false;
-  }
-
-  void reset() {
-    _consecutive = 0;
-    historyEmpty = false;
-  }
-}
-
 // ── detector 5: stuck strap ──────────────────────────────────────────────────
 /// The strap reports newer data than us but our persisted frontier hasn't moved
 /// for ≥10 min while the strap is >5 min ahead ⇒ stuck; action = defensive
@@ -439,4 +486,60 @@ class StuckStrapDetector {
     _lastFrontierTs = null;
     _lastAdvanceWall = null;
   }
+}
+
+// ── meta-layer: staleness escalation ─────────────────────────────────────────
+/// Every mechanism above (reconnect backoff, keep-alive, periodic backfill,
+/// the OS-level wake sources on both platforms) can fail in SEQUENCE with
+/// nothing noticing — an aggressive OEM battery killer, a lost race between
+/// background wake sources, a band left out of BLE range for days. This is
+/// the top-of-the-ladder backstop: watches how long it's been since we last
+/// durably banked a record (the `rec_ts_hw` cursor — the same "honest
+/// frontier" RecordGate/backfill policies already trust) and escalates in
+/// tiers, ultimately driving the one universal backstop on both platforms —
+/// a human reopening the app.
+enum StalenessTier {
+  /// Recently synced — nothing to show.
+  fresh,
+
+  /// Quiet in-app signal only (no OS notification) — long enough to be
+  /// worth a subtle indicator, not long enough to interrupt the user.
+  quiet,
+
+  /// Long enough that a silent failure is more likely than "just hasn't
+  /// had new data" — worth an OS notification asking the user to reopen
+  /// the app (the only thing that can restart every wake mechanism at once).
+  notify,
+}
+
+const int kStalenessQuietSeconds = 12 * 3600; // 12h
+const int kStalenessNotifySeconds = 48 * 3600; // 48h
+
+/// Tier for [secondsSinceLastRecord] (wall-now minus the `rec_ts_hw` cursor).
+/// Pure threshold lookup — callers own actually presenting the signal/
+/// notification and any de-duplication/cooldown around repeated firing.
+StalenessTier stalenessTierFor(int secondsSinceLastRecord) {
+  if (secondsSinceLastRecord >= kStalenessNotifySeconds) {
+    return StalenessTier.notify;
+  }
+  if (secondsSinceLastRecord >= kStalenessQuietSeconds) {
+    return StalenessTier.quiet;
+  }
+  return StalenessTier.fresh;
+}
+
+/// Whether enough time has passed since the last staleness OS notification to
+/// fire another one. Distinct from [stalenessTierFor]'s threshold: a band
+/// that stays lost for a week shouldn't get a notification every single
+/// background cycle (which can run every ~15 min) — but SHOULD get reminded
+/// periodically rather than only once, since a single missed/dismissed
+/// notification shouldn't be the only chance to recover. [renotifyAfter]
+/// defaults to the same width as the notify threshold itself.
+bool shouldRenotifyStaleness(
+  DateTime? lastNotifiedAt,
+  DateTime now, {
+  Duration renotifyAfter = const Duration(seconds: kStalenessNotifySeconds),
+}) {
+  if (lastNotifiedAt == null) return true;
+  return now.difference(lastNotifiedAt) >= renotifyAfter;
 }

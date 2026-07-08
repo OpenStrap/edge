@@ -18,9 +18,12 @@ import '../ble/ble_engine.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
+import '../notify/notification_center.dart';
+import '../notify/notification_event.dart';
 import 'band_ownership.dart';
 import 'high_freq_wake_window.dart';
 import 'paired_device.dart';
+import 'sync_policy.dart';
 
 /// Load the local profile (no Provider in the headless isolate).
 Future<Profile> _loadProfile() async {
@@ -68,7 +71,9 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       onRecordsBatch: LocalDb.insertRecordsBatch,
       onCommitBatch: (raws, samples, trimTokenHex, {archives}) =>
           LocalDb.commitSyncBatch(raws, samples,
-              trimToken: trimTokenHex, archives: archives),
+              trimToken: trimTokenHex,
+              archives: archives,
+              onCheckpoint: (msg) => debugPrint('[bgsync][COMMIT] $msg')),
       onArchiveRecord: LocalDb.archiveRawRecord,
       cursorReader: LocalDb.getCursorInt,
       // Mark this as the background drainer: if the foreground app engine already
@@ -85,6 +90,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       debugPrint(
         '[bgsync] strap not reachable this cycle — will catch up next time.',
       );
+      await checkSyncStaleness();
       return true;
     }
     try {
@@ -122,6 +128,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       debugPrint('[bgsync] derive skipped: $e');
     }
     debugPrint('[bgsync] done (local drain + light derive).');
+    await checkSyncStaleness();
     return true;
   } catch (e) {
     debugPrint('[bgsync] error (ignored): $e');
@@ -132,5 +139,61 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       '(${BandOwnership.debugState})',
     );
     BandOwnership.release(ownedLease);
+  }
+}
+
+// ── staleness escalation (meta-layer over the whole reconnect/sync ladder) ──
+// See sync_policy.dart's stalenessTierFor doc. Evaluated at the end of every
+// headless cycle (success OR a failed connect attempt — both are meaningful
+// signals here), independent of THIS cycle's outcome: it reads the durable
+// `rec_ts_hw` cursor, which reflects the full sync history, not just this run.
+const String _kLastStalenessNotifiedMs = 'last_staleness_notified_ms';
+
+/// [allowPermissionPrompt] defaults to `false` because this function's
+/// PRIMARY callers (below, inside [runHeadlessSync]) run headless — see
+/// NotificationCenter.emit's doc on why a background context must never
+/// trigger the OS's interactive authorization prompt. app_state.dart's
+/// foreground call (via runCadenceChecks, a genuinely contextual moment)
+/// passes `true` explicitly.
+Future<void> checkSyncStaleness({bool allowPermissionPrompt = false}) async {
+  try {
+    final recTsHw = await LocalDb.getCursorInt('rec_ts_hw');
+    // Never synced at all (e.g. freshly paired, first drain still pending) —
+    // nothing to escalate; that's a distinct, already-visible onboarding
+    // state, not silent staleness.
+    if (recTsHw == null || recTsHw <= 0) return;
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final tier = stalenessTierFor(nowSec - recTsHw);
+    if (tier != StalenessTier.notify) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final lastMs = prefs.getInt(_kLastStalenessNotifiedMs);
+    final lastAt =
+        lastMs == null ? null : DateTime.fromMillisecondsSinceEpoch(lastMs);
+    final now = DateTime.now();
+    if (!shouldRenotifyStaleness(lastAt, now)) return;
+
+    await prefs.setInt(_kLastStalenessNotifiedMs, now.millisecondsSinceEpoch);
+    final hoursStale = (nowSec - recTsHw) ~/ 3600;
+    await NotificationCenter.instance.emit(
+      NotificationEvent(
+        // Date-bucketed so a legitimate re-fire after the cooldown isn't
+        // blocked by putNotification's INSERT-OR-IGNORE dedupe.
+        dedupeKey: '${now.toIso8601String().substring(0, 10)}:sync_stale',
+        category: NotifCategory.device,
+        priority: NotifPriority.normal, // respects quiet hours — not urgent
+        title: "Your band hasn't synced in a while",
+        body: 'No new data for about $hoursStale hours. Open OpenStrap to '
+            'reconnect — background sync may have stalled.',
+        date: now.toIso8601String().substring(0, 10),
+        route: '/today',
+      ),
+      allowPermissionPrompt: allowPermissionPrompt,
+    );
+    debugPrint(
+      '[bgsync] staleness notification fired (hours_stale=$hoursStale).',
+    );
+  } catch (e) {
+    debugPrint('[bgsync] staleness check skipped: $e');
   }
 }

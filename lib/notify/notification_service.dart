@@ -146,9 +146,25 @@ class NotificationService {
   }
 
   /// Request notification permission once (iOS always; Android 13+). Cached.
-  Future<bool> ensurePermission() async {
+  ///
+  /// [allowPrompt] gates whether this may show the OS's interactive
+  /// authorization dialog. Apple's notification docs ("Asking permission to
+  /// use notifications") document that authorization should be requested in
+  /// CONTEXT — the interactive prompt assumes an active foreground scene to
+  /// present from — never automatically, and never from a background
+  /// execution context (a headless BGTaskScheduler/BGAppRefreshTask run or a
+  /// Dart background isolate has no such scene). Callers that know they're
+  /// running headless (see background_sync.dart's checkSyncStaleness) must
+  /// pass `allowPrompt: false`; every foreground/contextual caller keeps the
+  /// default `true`. With `false` and no prior decision cached, this checks
+  /// (never requests) via `checkPermissions()` and fails closed to `false`
+  /// rather than attempting to prompt — matching the "in-app feed is ALWAYS
+  /// written, OS presentation is best-effort" contract in NotificationCenter.
+  Future<bool> ensurePermission({bool allowPrompt = true}) async {
     await init();
     if (_granted != null) return _granted!;
+    if (!allowPrompt) return hasPermission();
+
     bool granted = true;
     final ios = _plugin.resolvePlatformSpecificImplementation<
         IOSFlutterLocalNotificationsPlugin>();
@@ -164,6 +180,28 @@ class NotificationService {
     }
     _granted = granted;
     return granted;
+  }
+
+  /// Non-mutating: whether notifications are currently enabled, WITHOUT ever
+  /// showing the OS authorization prompt. Safe to call from any context,
+  /// including headless/background. Does not populate [_granted] — a
+  /// not-yet-decided status here shouldn't get permanently cached as
+  /// "denied" just because a background check happened to run first.
+  Future<bool> hasPermission() async {
+    try {
+      await init();
+      final ios = _plugin.resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin>();
+      if (ios != null) return (await ios.checkPermissions())?.isEnabled ?? false;
+      final android = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (android != null) {
+        return await android.areNotificationsEnabled() ?? false;
+      }
+      return true; // other platforms (macOS/Linux) — no gating here
+    } catch (_) {
+      return false;
+    }
   }
 
   NotificationDetails _details(NotifCategory c) {
@@ -183,9 +221,15 @@ class NotificationService {
 
   /// Present a NotificationEvent on its category channel. Same osId replaces, so
   /// re-firing the same logical event never stacks duplicates. Never throws.
-  Future<void> presentEvent(NotificationEvent e) async {
+  ///
+  /// [allowPermissionPrompt] — see [ensurePermission]'s doc. Pass `false` from
+  /// any caller that knows it's running headless/in the background.
+  Future<void> presentEvent(
+    NotificationEvent e, {
+    bool allowPermissionPrompt = true,
+  }) async {
     try {
-      if (!await ensurePermission()) return;
+      if (!await ensurePermission(allowPrompt: allowPermissionPrompt)) return;
       await _plugin.show(
         e.osId,
         e.title,

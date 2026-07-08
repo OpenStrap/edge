@@ -84,6 +84,12 @@ enum BackgroundTaskManager {
 
     /// Submit (or renew) the next BGProcessingTaskRequest. Safe to call multiple
     /// times — if a request is already pending, the OS silently replaces it.
+    ///
+    /// `earliestBeginDate` is documented as a floor, never a promise: "the system
+    /// doesn't guarantee launching the task at the specified date, but only that
+    /// it won't begin sooner" (BGTaskRequest.earliestBeginDate). Apple's own
+    /// sample code uses the identical `Date(timeIntervalSinceNow: 15 * 60)`
+    /// pattern — confirmed this matches, not an assumption.
     static func schedule() {
         let req = BGProcessingTaskRequest(identifier: taskIdentifier)
         req.earliestBeginDate = Date(timeIntervalSinceNow: retryInterval)

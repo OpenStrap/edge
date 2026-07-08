@@ -176,4 +176,142 @@ void main() {
     // New day → imported.
     expect(await payload('2026-06-30'), '{"src":"foreign"}');
   });
+
+  group('sync_ledger real per-chunk rows + sync_quarantine reader', () {
+    test('distinct chunk_ids do not collide (the old "capture"-only bug)',
+        () async {
+      // Previously every call site defaulted to chunk_id='capture', so two
+      // different historical batches would overwrite the same row instead of
+      // each getting their own history.
+      await LocalDb.upsertSyncLedgerEntry(
+        chunkId: 'batch:aa',
+        kind: 'historical_batch',
+        status: 'acked',
+        metaPatch: {'records': 10},
+      );
+      await LocalDb.upsertSyncLedgerEntry(
+        chunkId: 'batch:bb',
+        kind: 'historical_batch',
+        status: 'ack_failed',
+        lastError: 'ack_write_exhausted',
+        metaPatch: {'ack_failures': 2},
+      );
+
+      final a = await LocalDb.syncLedgerEntry('batch:aa');
+      final b = await LocalDb.syncLedgerEntry('batch:bb');
+      expect(a, isNotNull);
+      expect(b, isNotNull);
+      expect(a!['status'], 'acked');
+      expect(b!['status'], 'ack_failed');
+
+      final all = await LocalDb.syncLedger();
+      expect(
+        all.where((r) => r['chunk_id'] == 'batch:aa'
+            || r['chunk_id'] == 'batch:bb').length,
+        2,
+      );
+    });
+
+    test('a chunk_id survives repeated updates (persistent failure trail)',
+        () async {
+      await LocalDb.upsertSyncLedgerEntry(
+        chunkId: 'batch:cc',
+        kind: 'historical_batch',
+        status: 'ack_failed',
+        metaPatch: {'ack_failures': 1},
+      );
+      await LocalDb.upsertSyncLedgerEntry(
+        chunkId: 'batch:cc',
+        kind: 'historical_batch',
+        status: 'ack_failed',
+        metaPatch: {'ack_failures': 2},
+      );
+      await LocalDb.upsertSyncLedgerEntry(
+        chunkId: 'batch:cc',
+        kind: 'historical_batch',
+        status: 'ack_failed',
+        metaPatch: {'ack_failures': 3},
+      );
+
+      final row = await LocalDb.syncLedgerEntry('batch:cc');
+      expect(row, isNotNull);
+      // meta_json patches merge (shallow), so the latest failure count wins
+      // while created_at is preserved across the updates.
+      expect(row!['status'], 'ack_failed');
+      final meta = row['meta_json'] as String;
+      expect(meta.contains('"ack_failures":3'), isTrue);
+    });
+
+    test('quarantined chunks are retrievable (previously write-only)',
+        () async {
+      await LocalDb.quarantineSyncChunk(
+        kind: 'historical_batch',
+        payloadJson: '{"token":"deadbeef","ack_failures":3}',
+        reason: 'persistent_ack_failure',
+      );
+      final quarantined = await LocalDb.quarantinedSyncChunks();
+      expect(quarantined, isNotEmpty);
+      expect(
+        quarantined.any((r) => r['reason'] == 'persistent_ack_failure'),
+        isTrue,
+      );
+    });
+  });
+
+  group('commitSyncBatch onCheckpoint (per-phase diagnostic logging)', () {
+    test('fires all three checkpoints in order on a normal commit', () async {
+      const ts = 1790000000;
+      final messages = <String>[];
+      await LocalDb.commitSyncBatch(
+        [_raw(ts, 9001)],
+        [_sample(ts, 9001, [800])],
+        trimToken: 'deadbeef',
+        onCheckpoint: messages.add,
+      );
+      expect(messages.length, 3);
+      expect(messages[0], startsWith('decoded_archive_queued'));
+      expect(messages[1], 'decoded_archive_committed');
+      expect(messages[2], startsWith('cursor_advanced'));
+      expect(messages[2], contains('trim=true'));
+
+      // The commit itself actually happened — checkpoints are observability,
+      // not a gate.
+      final db = await LocalDb.instance;
+      final rows =
+          await db.query('decoded_onehz', where: 'counter = ?', whereArgs: [9001]);
+      expect(rows, isNotEmpty);
+    });
+
+    test('a throwing onCheckpoint callback never aborts the commit', () async {
+      const ts = 1790000100;
+      var calls = 0;
+      await LocalDb.commitSyncBatch(
+        [_raw(ts, 9002)],
+        [_sample(ts, 9002, [810])],
+        onCheckpoint: (_) {
+          calls++;
+          throw StateError('a misbehaving logger must not break the commit');
+        },
+      );
+      expect(calls, 3); // still fired at every phase despite always throwing
+
+      final db = await LocalDb.instance;
+      final rows =
+          await db.query('decoded_onehz', where: 'counter = ?', whereArgs: [9002]);
+      expect(rows, isNotEmpty); // the commit succeeded regardless
+    });
+
+    test('with no onCheckpoint given, nothing is called and commit still works',
+        () async {
+      const ts = 1790000200;
+      await LocalDb.commitSyncBatch(
+        [_raw(ts, 9003)],
+        [_sample(ts, 9003, [820])],
+      );
+      final db = await LocalDb.instance;
+      final rows =
+          await db.query('decoded_onehz', where: 'counter = ?', whereArgs: [9003]);
+      expect(rows, isNotEmpty);
+    });
+  });
 }

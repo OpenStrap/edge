@@ -226,6 +226,48 @@ class RecordGate {
   }
 }
 
+/// Explicit, observable signal for "the band's hardware record counter went
+/// backwards" — the signature of a band reboot mid-offload (its onboard
+/// counter resets). Recovery already happens correctly and silently at the
+/// DB layer (`decoded_onehz` REPLACE-by-rec_ts + orphan-cascade delete on the
+/// evicted counter's RR beats) — this adds NO new recovery behavior, only an
+/// observable event, so a regression (and any future regression in how it's
+/// handled) doesn't go unnoticed the way CRC failures used to before they
+/// were counted. Seed [seedCounter] from the durable `counter_hw` cursor so a
+/// regression is caught even across the reconnect that a reboot itself
+/// usually causes — the two events are correlated, not sequential.
+class CounterRegressionDetector {
+  int? _lastCounter;
+
+  /// Regressions observed since construction (never reset by [reset] — reset
+  /// only clears the last-seen counter for reseeding at a fresh connect).
+  int regressions = 0;
+
+  CounterRegressionDetector({int? seedCounter}) : _lastCounter = seedCounter;
+
+  /// Feed the next record's raw hardware counter (u32, may wrap on a
+  /// sufficiently long-running band). Returns true exactly when this counter
+  /// is a genuine regression against the previous one (not benign u32
+  /// wraparound near the top of the range).
+  bool feed(int counter) {
+    final prev = _lastCounter;
+    _lastCounter = counter;
+    if (prev == null || counter >= prev) return false;
+    // Wraparound guard: prev near the top of u32, counter near 0 is normal
+    // roll-over on an extremely long-running band, not a reboot.
+    const wrapGuard = 0xFFFFFFFF - 1000000;
+    if (prev >= wrapGuard && counter < 1000000) return false;
+    regressions++;
+    return true;
+  }
+
+  /// Re-seed for a fresh connection (does not clear the lifetime [regressions]
+  /// count — that's diagnostics across the engine's lifetime).
+  void reseed(int? seedCounter) {
+    _lastCounter = seedCounter;
+  }
+}
+
 /// Pure retry schedule for the HISTORY_END batch-ACK write.
 ///
 /// The safe-trim invariant commits raw+samples+cursor DURABLY BEFORE the ACK,
@@ -252,6 +294,42 @@ class AckRetryPolicy {
   Duration delayFor(int attempt) {
     final n = attempt < 1 ? 1 : attempt;
     return baseDelay * n;
+  }
+}
+
+/// Tracks ACK-write failures per historical-batch token ACROSS RECONNECTS —
+/// a chunk whose ACK keeps failing for the SAME token (the "Groundhog Day"
+/// re-flood signature: the band never trims, so it re-sends the identical
+/// batch next session) is a persistent, diagnosable problem distinct from a
+/// one-off bounce. Pure counter + threshold; the caller owns actually
+/// writing to sync_ledger/sync_quarantine and bouncing the link — which
+/// already happens regardless of this class, since the data is safe either
+/// way (durably committed before the ACK was ever attempted). This only adds
+/// visibility into a chunk that's stuck, where previously nothing recorded
+/// that the SAME token had failed before.
+class ChunkFailureLedger {
+  final int quarantineThreshold;
+  ChunkFailureLedger({this.quarantineThreshold = 3});
+
+  final Map<String, int> _failures = {};
+
+  /// Record another ACK failure for [tokenHex]. Returns the new failure count.
+  int recordFailure(String tokenHex) {
+    final n = (_failures[tokenHex] ?? 0) + 1;
+    _failures[tokenHex] = n;
+    return n;
+  }
+
+  /// Current failure count for [tokenHex] (0 if never failed / already cleared).
+  int failureCount(String tokenHex) => _failures[tokenHex] ?? 0;
+
+  /// Whether [tokenHex] has just crossed the quarantine threshold.
+  bool shouldQuarantine(String tokenHex) =>
+      (_failures[tokenHex] ?? 0) >= quarantineThreshold;
+
+  /// Clear tracking for [tokenHex] once it finally ACKs successfully.
+  void recordSuccess(String tokenHex) {
+    _failures.remove(tokenHex);
   }
 }
 

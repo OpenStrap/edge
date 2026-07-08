@@ -279,6 +279,85 @@ void main() {
     });
   });
 
+  group('FrameCorruptionDetector', () {
+    test('does not trip below minSamples even at 100% invalid', () {
+      final d = FrameCorruptionDetector(minSamples: 20);
+      for (var i = 0; i < 19; i++) {
+        expect(d.feed(false), isFalse);
+      }
+      expect(d.tripped, isFalse);
+    });
+
+    test('trips once the window crosses the corruption-rate threshold', () {
+      final d = FrameCorruptionDetector(
+        windowSize: 50,
+        rateThreshold: 0.2,
+        minSamples: 20,
+      );
+      // 20 valid frames — enough samples, 0% corrupt, must not trip.
+      for (var i = 0; i < 20; i++) {
+        expect(d.feed(true), isFalse);
+      }
+      expect(d.tripped, isFalse);
+      // Now push the rate over 20% within the window.
+      bool trippedNow = false;
+      for (var i = 0; i < 10; i++) {
+        if (d.feed(false)) trippedNow = true;
+      }
+      expect(trippedNow, isTrue);
+      expect(d.tripped, isTrue);
+    });
+
+    test('one-shot — does not re-report after tripping', () {
+      final d = FrameCorruptionDetector(
+        windowSize: 10,
+        rateThreshold: 0.2,
+        minSamples: 5,
+      );
+      for (var i = 0; i < 5; i++) {
+        d.feed(false);
+      }
+      // First feed past minSamples at 100% invalid trips.
+      var tripCount = 0;
+      for (var i = 0; i < 5; i++) {
+        if (d.feed(false)) tripCount++;
+      }
+      expect(tripCount, lessThanOrEqualTo(1));
+      expect(d.tripped, isTrue);
+    });
+
+    test('a healthy link (occasional blip under threshold) never trips', () {
+      final d = FrameCorruptionDetector(
+        windowSize: 50,
+        rateThreshold: 0.2,
+        minSamples: 20,
+      );
+      // 100 frames, ~5% corrupt — well under the 20% threshold.
+      for (var i = 0; i < 100; i++) {
+        final valid = i % 20 != 0; // 1 in 20 invalid = 5%
+        expect(d.feed(valid), isFalse);
+      }
+      expect(d.tripped, isFalse);
+    });
+
+    test('reset clears the window and tripped state', () {
+      final d = FrameCorruptionDetector(
+        windowSize: 10,
+        rateThreshold: 0.2,
+        minSamples: 5,
+      );
+      for (var i = 0; i < 10; i++) {
+        d.feed(false);
+      }
+      expect(d.tripped, isTrue);
+      d.reset();
+      expect(d.tripped, isFalse);
+      for (var i = 0; i < 4; i++) {
+        expect(d.feed(false), isFalse); // below minSamples again
+      }
+    });
+  });
+
   group('PostBondTimeoutLoopDetector', () {
     test('trips after 2 bond→quick(<=8s)-timeouts', () {
       final d = PostBondTimeoutLoopDetector();
@@ -468,6 +547,78 @@ void main() {
       // didn't just watch tick over" (resume / BG-task wake / headless entry),
       // kLivenessFuseSeconds guards "should an ACTIVE session bounce itself".
       expect(kLinkFreshnessSeconds, lessThan(kLivenessFuseSeconds));
+    });
+  });
+
+  group('isCorruptFutureRtc (GET_DATA_RANGE sanity gate)', () {
+    const wall = 1750000000;
+
+    test('a plausible newest timestamp is not corrupt', () {
+      expect(isCorruptFutureRtc(wall - 3600, wall), isFalse);
+      expect(isCorruptFutureRtc(wall, wall), isFalse);
+    });
+
+    test('exactly at the future margin is not corrupt', () {
+      expect(isCorruptFutureRtc(wall + kFutureMargin, wall), isFalse);
+    });
+
+    test('past the future margin is flagged corrupt', () {
+      expect(isCorruptFutureRtc(wall + kFutureMargin + 1, wall), isTrue);
+      expect(isCorruptFutureRtc(wall + 365 * 86400, wall), isTrue); // a year out
+    });
+  });
+
+  group('stalenessTierFor (meta-layer: staleness escalation)', () {
+    test('recently synced is fresh', () {
+      expect(stalenessTierFor(0), StalenessTier.fresh);
+      expect(stalenessTierFor(3600), StalenessTier.fresh);
+      expect(stalenessTierFor(kStalenessQuietSeconds - 1), StalenessTier.fresh);
+    });
+
+    test('12h-48h is the quiet in-app tier', () {
+      expect(stalenessTierFor(kStalenessQuietSeconds), StalenessTier.quiet);
+      expect(stalenessTierFor(24 * 3600), StalenessTier.quiet);
+      expect(
+        stalenessTierFor(kStalenessNotifySeconds - 1),
+        StalenessTier.quiet,
+      );
+    });
+
+    test('48h+ escalates to an OS notification', () {
+      expect(stalenessTierFor(kStalenessNotifySeconds), StalenessTier.notify);
+      expect(stalenessTierFor(7 * 86400), StalenessTier.notify); // a week gone
+    });
+  });
+
+  group('shouldRenotifyStaleness (re-fire cooldown)', () {
+    final now = DateTime(2026, 1, 10, 12);
+
+    test('never notified before → always fires', () {
+      expect(shouldRenotifyStaleness(null, now), isTrue);
+    });
+
+    test('within the cooldown window → does not re-fire', () {
+      final last = now.subtract(const Duration(hours: 1));
+      expect(shouldRenotifyStaleness(last, now), isFalse);
+    });
+
+    test('past the cooldown window → fires again', () {
+      final last = now.subtract(const Duration(hours: 49));
+      expect(shouldRenotifyStaleness(last, now), isTrue);
+    });
+
+    test('a custom cooldown is honoured', () {
+      final last = now.subtract(const Duration(hours: 2));
+      expect(
+        shouldRenotifyStaleness(last, now,
+            renotifyAfter: const Duration(hours: 1)),
+        isTrue,
+      );
+      expect(
+        shouldRenotifyStaleness(last, now,
+            renotifyAfter: const Duration(hours: 3)),
+        isFalse,
+      );
     });
   });
 }

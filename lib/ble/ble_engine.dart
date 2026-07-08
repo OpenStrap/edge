@@ -36,6 +36,7 @@
 // bursts), so the compute trigger survives the move to continuous listening.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -601,8 +602,19 @@ class BleEngine {
   // caller pauses the auto-reconnect loop instead of pinning the radio forever.
   // A single successful bond clears it (see the createBond block below).
   final BondRefusalGiveUp _bondGiveUp = BondRefusalGiveUp();
+  // Real per-chunk failure tracking (see ChunkFailureLedger doc) — persists
+  // across reconnects like marginal-radio/post-bond-loop/bond-give-up, since
+  // the whole point is catching the SAME token failing across sessions.
+  final ChunkFailureLedger _chunkFailures = ChunkFailureLedger();
   EmptySyncTracker _emptySync = EmptySyncTracker();
   StuckStrapDetector _stuckStrap = StuckStrapDetector();
+  // Detector 1b: sustained frame corruption (CRC8/CRC32 failures) — an
+  // independent failure axis from marginal-radio, which only ever sees
+  // timeouts. Per-connection like empty-sync/stuck-strap: a new link starts
+  // with fresh radio conditions.
+  FrameCorruptionDetector _frameCorruption = FrameCorruptionDetector();
+  int _crcFailuresTotal = 0; // across the engine's lifetime (diagnostics)
+  int _crcFailuresThisSession = 0; // reset on each connect
 
   ClockRef? _clockRef; // strap-RTC ↔ wall correlation (set from GET_CLOCK)
   /// Latest strap-RTC ↔ wall correlation, or null until GET_CLOCK is answered.
@@ -612,8 +624,14 @@ class BleEngine {
   /// back, and the GET_CLOCK handler re-issues on drift — so cap the retries or
   /// a firmware that never latches either payload form would loop forever.
   int _clockCorrectTries = 0;
+  // Proactive RTC recheck timestamp for long-lived connections — see
+  // kRtcReverifyIntervalSeconds. Every other clock recheck is symptom-driven.
+  DateTime? _lastClockVerifyAt;
   int? _sessionOldestUnix; // strap's banked-data window (GET_DATA_RANGE)
   int? _sessionNewestUnix;
+  // Lifetime count of GET_DATA_RANGE reads rejected by isCorruptFutureRtc —
+  // see the range_oldest/range_newest handler below.
+  int _corruptDataRangeCount = 0;
   DateTime? _bondTime; // when the handshake completed (bond confirmed)
   DateTime? _armTime; // when live (R10/R11) streams were last armed
   int _autoContinueCount = 0; // consecutive auto-continues this connection
@@ -624,11 +642,23 @@ class BleEngine {
   // EVERY historical-record path — see RecordGate in ble_state.dart. Re-seeded
   // on each connect from the durable cursor.
   RecordGate _recordGate = RecordGate();
+  // Explicit, observable "band reboot" signal (see CounterRegressionDetector
+  // doc). Re-seeded from the durable counter_hw cursor on each connect, same
+  // pattern as _recordGate's frontierTs seed below.
+  CounterRegressionDetector _counterRegression = CounterRegressionDetector();
   // Snapshot of `_recordGate.dropped` at the last HISTORY_START — lets the
   // HISTORY_END validator (below) tell "the band sent fewer packets than it
   // said" apart from "we correctly, silently rejected some as implausible
   // (stale-clock block) and never tallied them." See _handleSyncMarker.
   int _burstDroppedAtStart = 0;
+  // Band-truth reconciliation: `expectedPacketCount` mismatches are advisory
+  // (see the comment at the validation site — treating a single mismatch as
+  // fatal was actively harmful and was reverted), but a mismatch that keeps
+  // recurring burst after burst is a real signal worth surfacing over time
+  // rather than only as a single overwritten sync_ledger row. Pure
+  // observability — does NOT gate or retry anything.
+  int _burstMismatchTotal = 0; // across the engine's lifetime
+  int _burstMismatchStreak = 0; // consecutive mismatched bursts, reset by connect + by a clean burst
   // Per-revision packet accounting for the historical drain (gap detection +
   // honest per-version counts surfaced to the debug screens).
   final Map<int, int> _historicalVersionCounts = <int, int>{};
@@ -753,6 +783,21 @@ class BleEngine {
     // packet count before comparing against the band's expectedPacketCount.
     'gate_dropped_total': _recordGate.dropped,
     'gate_dropped_this_burst': _recordGate.dropped - _burstDroppedAtStart,
+    // CRC8/CRC32 frame failures — previously silent (see `_subscribe`). A
+    // rising count with a healthy `gate_dropped_*` is the signature of a
+    // degrading radio corrupting frames rather than a stale/implausible band.
+    'crc_failures_total': _crcFailuresTotal,
+    'crc_failures_this_session': _crcFailuresThisSession,
+    'frame_corruption_tripped': _frameCorruption.tripped,
+    // Band-truth reconciliation: expectedPacketCount vs. what we actually
+    // committed — advisory only (see the comment at the validation site), but
+    // a *streak* of mismatches is a real signal worth watching over time.
+    'burst_mismatch_total': _burstMismatchTotal,
+    'burst_mismatch_streak': _burstMismatchStreak,
+    // Band-reboot signal — see CounterRegressionDetector. Observability only;
+    // recovery already happens automatically at the DB layer.
+    'counter_regressions_total': _counterRegression.regressions,
+    'corrupt_data_ranges_total': _corruptDataRangeCount,
     'history_requests': _historyRequests,
     'history_completions': _historyCompletions,
     'successful_bursts': _successfulBursts,
@@ -964,7 +1009,9 @@ class BleEngine {
       }
 
       _setPhase(BleConnState.discovering);
-      final services = await device.discoverServices();
+      final services = await device
+          .discoverServices()
+          .timeout(_serviceDiscoveryTimeout);
       BluetoothService? svc;
       for (final s in services) {
         if (s.uuid.str.toLowerCase().startsWith('61080001')) svc = s;
@@ -1007,11 +1054,15 @@ class BleEngine {
       // connect). Records stamped after this carry real unix time.
       _clockCorrectTries = 0; // fresh retry budget for this connection
       await setClock();
+      _lastClockVerifyAt = DateTime.now();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
       // here — they count consecutive bad cycles across reconnects and self-reset on
       // a healthy disconnect. Empty-sync + stuck are per-connection.
       _emptySync = EmptySyncTracker();
       _stuckStrap = StuckStrapDetector();
+      _frameCorruption = FrameCorruptionDetector();
+      _crcFailuresThisSession = 0;
+      _burstMismatchStreak = 0;
       _autoContinueCount = 0;
       _lastBackfillAt = 0;
       _successfulBursts = 0;
@@ -1031,6 +1082,12 @@ class BleEngine {
       // continuation detectors are correct on the first offload after a restart.
       _recordGate =
           RecordGate(frontierTs: (await cursorReader?.call('rec_ts_hw')) ?? 0);
+      // Re-seed the counter-regression watch from the durable counter_hw
+      // cursor so a reboot is caught even across the reconnect it usually
+      // causes, instead of only within a single unbroken connection.
+      _counterRegression = CounterRegressionDetector(
+        seedCounter: await cursorReader?.call('counter_hw'),
+      );
 
       // Heartbeat: keep the link alive (~10s LINK_VALID). Owned by the session, so a
       // disconnect cancels it — no zombie timer firing into a dead characteristic.
@@ -1100,6 +1157,19 @@ class BleEngine {
     }
     if (shouldPauseMaintenanceTraffic(offloadActive: _offloadActive)) {
       return;
+    }
+    // Proactive RTC recheck: every other clock verification is symptom-driven
+    // (see kRtcReverifyIntervalSeconds doc). A long-lived link (e.g. iOS's
+    // bluetooth-central background mode, which can stay open indefinitely)
+    // gets an independent periodic GET_CLOCK; the existing clock_epoch
+    // response handler does the actual drift comparison + bounded re-issue.
+    final lastVerify = _lastClockVerifyAt;
+    if (lastVerify == null ||
+        DateTime.now().difference(lastVerify).inSeconds >=
+            kRtcReverifyIntervalSeconds) {
+      _lastClockVerifyAt = DateTime.now();
+      _log('[SYNC] Periodic RTC re-verify (long-lived connection).');
+      unawaited(getClock());
     }
     if (_liveEnabled) {
       // Re-arm ONLY what the current live mode wants: re-sending the high-rate
@@ -1208,14 +1278,33 @@ class BleEngine {
     BluetoothCharacteristic c,
     String role,
   ) async {
-    await c.setNotifyValue(true);
+    await c.setNotifyValue(true).timeout(_notifySetupTimeout);
     session.subs.add(
       c.onValueReceived.listen((chunk) {
         // Ignore notifications from a session we've already torn down.
         if (_session != session || !session.connected) return;
         _lastRx = DateTime.now();
         for (final frame in session.asm[role]!.feed(chunk)) {
-          if (frame.valid) _onFrame(role, frame);
+          if (frame.valid) {
+            _onFrame(role, frame);
+          } else {
+            // Previously silent: a degrading radio corrupting frames looked
+            // identical to a healthy one everywhere. Now counted (surfaced in
+            // offloadSnapshot) and fed to an independent corruption-rate
+            // detector below, alongside RecordGate.dropped for plausibility
+            // rejections.
+            _crcFailuresTotal++;
+            _crcFailuresThisSession++;
+          }
+          if (_frameCorruption.feed(frame.valid)) {
+            state.standardHrFallback = true;
+            onState(state);
+            _log(
+              '[RECONNECT] frame-corruption tripped '
+              '($_crcFailuresThisSession CRC failures this session) — '
+              'standard-HR fallback enabled.',
+            );
+          }
         }
       }),
     );
@@ -1290,6 +1379,15 @@ class BleEngine {
   // and silently re-floods the same chunk forever. The per-write timeout stops
   // a hung write-with-response from stalling the whole write chain / drain.
   static const Duration _writeTimeout = Duration(seconds: 8);
+  // Every other step in the connect chain is timed (connect() itself: 20s,
+  // ACK writes: 8s). discoverServices()/setNotifyValue() previously had none —
+  // a wedged BLE stack here would hang connect() forever and never trip the
+  // outer catch-all that tears the session down, silently jamming the whole
+  // reconnect ladder above it (OS reconnect / restore-central / BG tasks never
+  // get a chance to help because we never reach a failure state). Timing these
+  // out lets the existing `catch (e)` in `_doConnect` do its job.
+  static const Duration _serviceDiscoveryTimeout = Duration(seconds: 15);
+  static const Duration _notifySetupTimeout = Duration(seconds: 15);
 
   Future<bool> _write(Uint8List raw) {
     final session = _session;
@@ -1546,6 +1644,17 @@ class BleEngine {
     if (pt != PacketType.historicalData) return;
     final recType = frame.inner.length > 1 ? frame.inner[1] : -1;
     final counter = _counterFromInner(frame.inner);
+    // Explicit, observable band-reboot signal — see CounterRegressionDetector.
+    // 0 is _counterFromInner's fallback for a too-short frame, not a real
+    // counter value, so it's excluded to avoid a false regression report.
+    if (counter > 0 && _counterRegression.feed(counter)) {
+      _log(
+        '[SYNC] Record counter regressed (band likely rebooted): '
+        'counter=$counter, regressions_total=${_counterRegression.regressions}. '
+        'Recovery is automatic (REPLACE-by-rec_ts + orphan cascade) — this is '
+        'observability only.',
+      );
+    }
     // Decode the record FIRST so we can stamp its REAL time onto rec_ts. The
     // DerivationEngine buckets/windows days by rec_ts, so a multi-day flash
     // backfill (all received in one sync) splits into correct per-real-day
@@ -1707,11 +1816,29 @@ class BleEngine {
       }
     }
     if (f.containsKey('range_oldest') && f.containsKey('range_newest')) {
-      _sessionOldestUnix = f['range_oldest'] as int;
-      _sessionNewestUnix = f['range_newest'] as int;
-      state.dataRangeOldest = _sessionOldestUnix;
-      state.dataRangeNewest = _sessionNewestUnix;
-      onState(state);
+      final oldest = f['range_oldest'] as int;
+      final newest = f['range_newest'] as int;
+      // GET_DATA_RANGE responses are documented to occasionally carry junk at
+      // unstable offsets. Nothing previously sanity-checked `range_newest`
+      // before it tightened RecordGate's session window for the whole
+      // connection — a corrupt "newest" implausibly far in the future would
+      // silently poison that window. Reject and fall back to the broad
+      // absolute floor/ceiling instead.
+      if (isCorruptFutureRtc(newest, _wallSecs().round())) {
+        _corruptDataRangeCount++;
+        _log(
+          '[SYNC] GET_DATA_RANGE newest=$newest is implausibly far in the '
+          'future — treating as a corrupt strap RTC read; NOT tightening '
+          'this session\'s plausibility window '
+          '(corrupt_ranges_total=$_corruptDataRangeCount).',
+        );
+      } else {
+        _sessionOldestUnix = oldest;
+        _sessionNewestUnix = newest;
+        state.dataRangeOldest = oldest;
+        state.dataRangeNewest = newest;
+        onState(state);
+      }
     }
     if (d.kind == 'cmd_response' && f['hello'] is HelloInfo) {
       final h = f['hello'] as HelloInfo;
@@ -1870,9 +1997,12 @@ class BleEngine {
       // progress, "last data" frozen indefinitely. Log the mismatch (still
       // useful signal — see the sync-diagnostics screen) and commit anyway.
       if (!validated) {
+        _burstMismatchTotal++;
+        _burstMismatchStreak++;
         _log(
           '[SYNC] Burst packet-count mismatch (advisory, NOT blocking commit) '
-          '(attempt ${d.consecutiveValidationFailures}): expected=$expected, '
+          '(attempt ${d.consecutiveValidationFailures}, '
+          'streak=$_burstMismatchStreak): expected=$expected, '
           'actual=${d.currentBurstPacketCount}, '
           'dropped_this_burst=$droppedThisBurst, '
           'historical=${d.currentBurstHistoricalPacketCount}, '
@@ -1892,6 +2022,8 @@ class BleEngine {
             'burst_breakdown': d.currentBurstBreakdown,
           },
         );
+      } else {
+        _burstMismatchStreak = 0;
       }
       _successfulBursts++;
       _mergeValidatedBurst(d);
@@ -1923,9 +2055,48 @@ class BleEngine {
       // link — the committed data is safe, and the next session's re-delivery
       // is dedup-safe (decoded rows REPLACE by rec_ts).
       if (!await _writeAckVerified(ack)) {
+        // Real per-chunk ledger row, keyed by the token itself — previously
+        // every ledger write here collapsed onto one shared 'capture' row,
+        // so a token that kept failing ACROSS reconnects (the "Groundhog
+        // Day" re-flood signature) left no trace distinguishing it from a
+        // one-off bounce. This does not change behavior — the bounce below
+        // is unconditional either way, and the data is already safe (durably
+        // committed above, before the ACK was ever attempted) — it only adds
+        // visibility, plus an explicit quarantine escalation once the SAME
+        // token has failed enough times to be a real, diagnosable problem.
+        final failCount = _chunkFailures.recordFailure(tokenHex);
+        await LocalDb.upsertSyncLedgerEntry(
+          chunkId: 'batch:$tokenHex',
+          kind: 'historical_batch',
+          status: 'ack_failed',
+          lastError: 'ack_write_exhausted',
+          metaPatch: {
+            'batch_id': m.batchId,
+            'records': d.records,
+            'ack_failures': failCount,
+          },
+        );
+        if (_chunkFailures.shouldQuarantine(tokenHex)) {
+          await LocalDb.quarantineSyncChunk(
+            kind: 'historical_batch',
+            payloadJson: jsonEncode({
+              'token': tokenHex,
+              'batch_id': m.batchId,
+              'ack_failures': failCount,
+            }),
+            reason: 'persistent_ack_failure',
+          );
+          _log(
+            '[SYNC] Batch token=$tokenHex has failed ACK $failCount times '
+            'across reconnects — quarantined for diagnosis. Data is safe '
+            '(already committed); this only means the band has not yet '
+            'been told to trim, so it keeps re-sending the same batch.',
+          );
+        }
         _log('[SYNC] BATCH-ACK FAILED after '
-            '${ackRetryPolicy.maxAttempts} attempts (token=$tokenHex) — '
-            'bouncing the link; data is committed and the band will re-send.');
+            '${ackRetryPolicy.maxAttempts} attempts (token=$tokenHex, '
+            'failures_for_this_token=$failCount) — bouncing the link; data '
+            'is committed and the band will re-send.');
         unawaited(
           _teardownSession(intentional: false).then((_) {
             _setPhase(BleConnState.idle); // caller's reconnect loop takes over
@@ -1933,6 +2104,7 @@ class BleEngine {
         );
         return;
       }
+      _chunkFailures.recordSuccess(tokenHex);
       d.noteBatchAcked(); // ACKed and KEEP listening
       await LocalDb.upsertSyncLedgerEntry(
         status: 'acknowledged',
@@ -1944,6 +2116,18 @@ class BleEngine {
           'last_ack_batches': d.batches,
           'strap_history_oldest_ts': _strapHistoryOldestTs,
           'strap_history_newest_ts': _strapHistoryNewestTs,
+        },
+      );
+      // Same event, but a REAL per-chunk row keyed by the token — closes out
+      // whatever ack_failed history this token accumulated above.
+      await LocalDb.upsertSyncLedgerEntry(
+        chunkId: 'batch:$tokenHex',
+        kind: 'historical_batch',
+        status: 'acked',
+        ackedAt: DateTime.now().millisecondsSinceEpoch,
+        metaPatch: {
+          'batch_id': m.batchId,
+          'records': d.records,
         },
       );
       _noteStored(); // a banked batch → schedule a (debounced) derive

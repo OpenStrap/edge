@@ -21,6 +21,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:isolate';
 import 'dart:math' as math;
 
@@ -296,6 +297,55 @@ class _BaselineHistoryCache {
 /// older days simply aren't in the substrate and are naturally excluded.
 const int _rescanWindowDays = 21;
 
+/// Per-day-local page/row accumulator for the prepare stage (see
+/// `_prepareTargetDay`/`_loadSubstrateRange`). Deliberately NOT shared
+/// `_diag` state — under concurrent per-day processing, multiple days
+/// resetting/incrementing the same shared counters would race and produce
+/// garbage diagnostics. Each day gets its own instance; only the final
+/// per-day total is merged into the shared running max, once.
+class _PrepareStats {
+  int pages = 0;
+  int rows = 0;
+}
+
+/// Run [worker] over [items] with at most [concurrency] running at once. Each
+/// of up to [concurrency] "lanes" pulls the next unclaimed item as soon as
+/// it's free — a mix of fast (empty/mostly-empty day) and slow (heavy
+/// backlog day) items keeps every lane continuously busy, rather than
+/// lock-stepping in fixed-size batches where one slow item stalls an entire
+/// batch. Pure orchestration: no DB/isolate awareness of its own — every
+/// caller in this file catches errors INSIDE [worker] itself (a day that
+/// fails is marked skipped and processing continues), so a throwing [worker]
+/// is not part of the normal contract here, but note that (per
+/// `Future.wait`'s default behavior) an uncaught throw would propagate out
+/// and NOT stop already-in-flight sibling lanes from completing their
+/// current item first.
+///
+/// This is the ONE place run()/runDays()/rescanRecent() get their real,
+/// multi-core parallelism from — replacing what used to be a fully
+/// sequential `for` loop that left every core but one idle during a
+/// multi-day backlog sweep.
+@visibleForTesting
+Future<void> runWithConcurrency<T>(
+  List<T> items,
+  int concurrency,
+  Future<void> Function(T item) worker,
+) async {
+  if (items.isEmpty) return;
+  final poolSize = math.min(concurrency, items.length).clamp(1, items.length);
+  var nextIndex = 0;
+  Future<void> lane() async {
+    while (true) {
+      final myIndex = nextIndex;
+      if (myIndex >= items.length) return;
+      nextIndex++; // no `await` since the read above — atomic claim
+      await worker(items[myIndex]);
+    }
+  }
+
+  await Future.wait(List.generate(poolSize, (_) => lane()));
+}
+
 class DerivationEngine {
   DerivationEngine({this.log});
   final void Function(String)? log;
@@ -312,19 +362,18 @@ class DerivationEngine {
     'duration_ms': null,
     'raw_pages': 0,
     'raw_rows': 0,
-    'day_raw_pages': 0,
-    'day_raw_rows': 0,
     'max_day_raw_pages': 0,
     'max_day_raw_rows': 0,
-    'range_from_rec_ts': null,
-    'range_to_rec_ts': null,
     'scope_days': 0,
     'scope_reason': null,
     'prepared_days': 0,
     'todo_days': 0,
     'done_days': 0,
     'skipped_days': 0,
-    'active_day': null,
+    // List, not a single day — several days can be in flight concurrently
+    // (see run()'s bounded worker pool).
+    'active_days': <String>[],
+    'concurrency': 1,
     'last_error': null,
   };
 
@@ -354,19 +403,16 @@ class DerivationEngine {
       ..['duration_ms'] = null
       ..['raw_pages'] = 0
       ..['raw_rows'] = 0
-      ..['day_raw_pages'] = 0
-      ..['day_raw_rows'] = 0
       ..['max_day_raw_pages'] = 0
       ..['max_day_raw_rows'] = 0
-      ..['range_from_rec_ts'] = null
-      ..['range_to_rec_ts'] = null
       ..['scope_days'] = 0
       ..['scope_reason'] = null
       ..['prepared_days'] = 0
       ..['todo_days'] = 0
       ..['done_days'] = 0
       ..['skipped_days'] = 0
-      ..['active_day'] = null
+      ..['active_days'] = <String>[]
+      ..['concurrency'] = _deriveConcurrency
       ..['last_error'] = null;
     try {
       final scope = await _deriveScope(heavy: heavy, force: force);
@@ -405,16 +451,37 @@ class DerivationEngine {
             : heavy
             ? "heavy"
             : "light"}; '
-        '${scope.reason}; v$kAlgoVersion)',
+        '${scope.reason}; v$kAlgoVersion; '
+        'concurrency=$_deriveConcurrency)',
       );
 
+      // Newest-first: `scope.targetDays` sorts ascending (oldest first), which
+      // is exactly backwards from what the user actually wants when they open
+      // the app after a backlog — today/most-recent should be among the very
+      // FIRST days dispatched, not the last one a long sweep gets to. A no-op
+      // for the light path (0-1 days), so always safe to apply.
+      final orderedDays = todoDays.reversed.toList();
+
       var done = 0;
+      var completed = 0;
+      final activeDays = <String>{};
       _diag['stage'] = 'per_day';
-      for (var i = 0; i < todoDays.length; i++) {
-        final dayId = todoDays[i];
-        _diag['active_day'] = dayId;
+      _diag['active_days'] = const <String>[];
+
+      // One day's full prepare→compute→persist body (identical to the old
+      // sequential loop's per-iteration work) — extracted so it can run as a
+      // unit inside the worker pool below. Concurrency-safe: everything it
+      // touches is either (a) day_id-keyed DB rows (independent across days),
+      // (b) the read-only `history` snapshot (frozen before this loop starts,
+      // refreshed only after it ends — see `_BaselineHistoryCache`), or (c)
+      // shared counters mutated via single, non-`await`-split statements,
+      // which Dart's cooperative single-threaded scheduler makes atomic
+      // relative to the other concurrent workers even though the actual
+      // isolate CPU work they await genuinely runs in parallel across cores.
+      Future<void> processDay(String dayId) async {
+        activeDays.add(dayId);
+        _diag['active_days'] = activeDays.toList();
         try {
-          _diag['stage'] = 'prepare';
           final prepared = await _prepareTargetDay(dayId);
           // Override day whose raw has been pruned (≥14 d): re-deriving would
           // produce an empty/absent result and clobber the user's manual sleep.
@@ -423,12 +490,8 @@ class DerivationEngine {
               prepared.daySub.isEmpty &&
               overrideDays.contains(dayId)) {
             _log('derive day $dayId skipped: override day, raw pruned — kept');
-            onDayDone?.call(dayId, i + 1, todoDays.length);
-            continue;
-          }
-          if (prepared != null) {
+          } else if (prepared != null) {
             _diag['prepared_days'] = (_diag['prepared_days'] as int) + 1;
-            _diag['stage'] = 'per_day';
             await _derivePreparedDay(prepared, profile, dataNowSec, history);
             done++;
             _diag['done_days'] = done;
@@ -455,8 +518,13 @@ class DerivationEngine {
           _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
           _diag['last_error'] = '$e';
         }
-        onDayDone?.call(dayId, i + 1, todoDays.length);
+        activeDays.remove(dayId);
+        _diag['active_days'] = activeDays.toList();
+        completed++;
+        onDayDone?.call(dayId, completed, orderedDays.length);
       }
+
+      await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
 
       // 4. Cross-day rollup + notifications (best-effort).
       if (done > 0) {
@@ -483,7 +551,7 @@ class DerivationEngine {
       _diag
         ..['running'] = false
         ..['stage'] = 'idle'
-        ..['active_day'] = null
+        ..['active_days'] = const <String>[]
         ..['finished_at'] = finishedAt
         ..['duration_ms'] = finishedAt - startedAt;
     }
@@ -509,19 +577,16 @@ class DerivationEngine {
       ..['duration_ms'] = null
       ..['raw_pages'] = 0
       ..['raw_rows'] = 0
-      ..['day_raw_pages'] = 0
-      ..['day_raw_rows'] = 0
       ..['max_day_raw_pages'] = 0
       ..['max_day_raw_rows'] = 0
-      ..['range_from_rec_ts'] = null
-      ..['range_to_rec_ts'] = null
       ..['scope_days'] = days.length
       ..['scope_reason'] = 'selected-days'
       ..['prepared_days'] = 0
       ..['todo_days'] = 0
       ..['done_days'] = 0
       ..['skipped_days'] = 0
-      ..['active_day'] = null
+      ..['active_days'] = <String>[]
+      ..['concurrency'] = _deriveConcurrency
       ..['last_error'] = null;
     try {
       final scope = _scopeForDays(days.toList(), reason: 'selected-days');
@@ -541,10 +606,17 @@ class DerivationEngine {
       }
       _diag['todo_days'] = todoDays.length;
       final history = await _BaselineHistoryCache.load();
+      // Same bounded worker-pool pattern as run() — see its doc for why this
+      // is safe (independent day_id-keyed writes + a frozen baseline shared
+      // read-only across the whole batch).
+      final orderedDays = todoDays.reversed.toList();
       var done = 0;
-      for (var i = 0; i < todoDays.length; i++) {
-        final dayId = todoDays[i];
-        _diag['active_day'] = dayId;
+      var completed = 0;
+      final activeDays = <String>{};
+
+      Future<void> processDay(String dayId) async {
+        activeDays.add(dayId);
+        _diag['active_days'] = activeDays.toList();
         try {
           final prepared = await _prepareTargetDay(dayId);
           if (prepared != null) {
@@ -561,8 +633,13 @@ class DerivationEngine {
           _diag['skipped_days'] = (_diag['skipped_days'] as int) + 1;
           _diag['last_error'] = '$e';
         }
-        onDayDone?.call(dayId, i + 1, todoDays.length);
+        activeDays.remove(dayId);
+        _diag['active_days'] = activeDays.toList();
+        completed++;
+        onDayDone?.call(dayId, completed, orderedDays.length);
       }
+
+      await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
       if (done > 0) {
         await _refreshBaselines(history);
         await _runCrossDay(profile);
@@ -588,33 +665,49 @@ class DerivationEngine {
   static const int _maxDayRawPages = 300;
 
   Future<PreparedDerivationDay?> _prepareTargetDay(String dayId) async {
-    _diag
-      ..['day_raw_pages'] = 0
-      ..['day_raw_rows'] = 0;
-    _diag['stage'] = 'sleep_candidate';
-    final candidate = await _sleepCandidateForDay(dayId);
+    // Per-day page/row totals used to live in the shared `_diag` map (reset
+    // then accumulated across this day's 2-3 substrate loads). Under
+    // concurrent per-day processing (see `run()`), multiple days resetting/
+    // incrementing the SAME shared fields would race and produce garbage
+    // diagnostics (never a correctness issue for the derived VALUES — this
+    // is telemetry-only). Each day now gets its own local accumulator,
+    // merged into the shared running max exactly once, below.
+    final stats = _PrepareStats();
+    final candidate = await _sleepCandidateForDay(dayId, stats: stats);
     final dayStart = _localDayLabelToSec(dayId);
     final dayEnd = dayStart + 86400;
-    _diag['stage'] = 'day_sub';
     final daySub = await _loadSubstrateRange(
       dayStart,
       dayEnd - 1,
       dayId: dayId,
+      stats: stats,
     );
     Substrate sleepSub = Substrate.empty;
     if (candidate.present &&
         candidate.sleepOffsetSec > candidate.sleepOnsetSec) {
-      _diag['stage'] = 'sleep_sub';
       sleepSub = await _loadSubstrateRange(
         candidate.sleepOnsetSec,
         candidate.sleepOffsetSec - 1,
         dayId: dayId,
+        stats: stats,
       );
+    }
+    // Single safe merge into the shared max-tracking diagnostics — one
+    // statement, no `await` in between, so it's atomic relative to any other
+    // concurrently-running day's identical merge.
+    if (stats.pages > (_diag['max_day_raw_pages'] as int)) {
+      _diag['max_day_raw_pages'] = stats.pages;
+    }
+    if (stats.rows > (_diag['max_day_raw_rows'] as int)) {
+      _diag['max_day_raw_rows'] = stats.rows;
     }
     return candidate.toPreparedDay(daySub: daySub, sleepSub: sleepSub);
   }
 
-  Future<SleepSessionCandidate> _sleepCandidateForDay(String dayId) async {
+  Future<SleepSessionCandidate> _sleepCandidateForDay(
+    String dayId, {
+    _PrepareStats? stats,
+  }) async {
     // A user sleep override is the source of truth — never serve the cached auto
     // candidate, and don't cache the override result (so a later edit / clear is
     // not shadowed by a stale artifact). The auto path keeps its finalized cache.
@@ -652,6 +745,7 @@ class DerivationEngine {
       range.$1,
       range.$2,
       dayId: dayId,
+      stats: stats,
     );
     final candidate = prepareSleepSessionCandidate(
       searchSub,
@@ -672,6 +766,7 @@ class DerivationEngine {
     int fromRecTs,
     int toRecTs, {
     required String dayId,
+    _PrepareStats? stats,
   }) async {
     if (toRecTs < fromRecTs) return Substrate.empty;
     final port = ReceivePort();
@@ -710,9 +805,6 @@ class DerivationEngine {
       int? afterCursor;
       var rangePages = 0;
       var rangeRows = 0;
-      _diag
-        ..['range_from_rec_ts'] = fromRecTs
-        ..['range_to_rec_ts'] = toRecTs;
       while (true) {
         final decodedRows = await LocalDb.decodedOneHzBatchByRecTsRange(
           limit: _rawDecodeBatchSize,
@@ -725,6 +817,10 @@ class DerivationEngine {
           _trackPrepareBatch(decodedRows.length);
           rangePages += 1;
           rangeRows += decodedRows.length;
+          if (stats != null) {
+            stats.pages += 1;
+            stats.rows += decodedRows.length;
+          }
           _enforcePrepareBudget(
             dayId: dayId,
             fromRecTs: fromRecTs,
@@ -759,17 +855,14 @@ class DerivationEngine {
     }
   }
 
+  // Cumulative across the WHOLE run — safe under concurrent per-day
+  // processing since each field is a simple, non-`await`-split increment
+  // (order across days doesn't matter for a total). Per-day max tracking
+  // moved to `_PrepareStats` + the single merge at the end of
+  // `_prepareTargetDay`, since that DOES need per-day isolation.
   void _trackPrepareBatch(int rows) {
     _diag['raw_pages'] = (_diag['raw_pages'] as int) + 1;
     _diag['raw_rows'] = (_diag['raw_rows'] as int) + rows;
-    _diag['day_raw_pages'] = (_diag['day_raw_pages'] as int) + 1;
-    _diag['day_raw_rows'] = (_diag['day_raw_rows'] as int) + rows;
-    if ((_diag['day_raw_pages'] as int) > (_diag['max_day_raw_pages'] as int)) {
-      _diag['max_day_raw_pages'] = _diag['day_raw_pages'];
-    }
-    if ((_diag['day_raw_rows'] as int) > (_diag['max_day_raw_rows'] as int)) {
-      _diag['max_day_raw_rows'] = _diag['day_raw_rows'];
-    }
   }
 
   void _enforcePrepareBudget({
@@ -897,21 +990,31 @@ class DerivationEngine {
       );
 
       final history = await _BaselineHistoryCache.load();
+      // Same bounded worker-pool pattern as run()/runDays — up to
+      // _rescanWindowDays (21) days is exactly the kind of sweep that used
+      // to run fully sequentially for no reason (independent day_id-keyed
+      // writes + one frozen baseline snapshot shared read-only here).
+      final orderedDays = todoDays.reversed.toList();
       var done = 0;
-      for (var i = 0; i < todoDays.length; i++) {
-        final dayId = todoDays[i];
+      var completed = 0;
+
+      Future<void> processDay(String dayId) async {
         try {
           final prepared = await _prepareTargetDay(dayId);
-          if (prepared == null) continue;
-          await _derivePreparedDay(prepared, profile, dataNowSec, history);
-          done++;
+          if (prepared != null) {
+            await _derivePreparedDay(prepared, profile, dataNowSec, history);
+            done++;
+          }
         } catch (e) {
           _log('rescan day $dayId FAILED/skipped: $e');
           // Do NOT mark-skipped here — a finalized day already has a good row;
           // overwriting it with a skip marker would DISCARD real structure.
         }
-        onDayDone?.call(dayId, i + 1, todoDays.length);
+        completed++;
+        onDayDone?.call(dayId, completed, orderedDays.length);
       }
+
+      await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
 
       await _refreshBaselines(history);
       // Cross-day rollup + notifications reflect the refreshed scalars.
@@ -957,6 +1060,31 @@ class DerivationEngine {
   /// Max wall-clock for ONE day's off-isolate compute. On timeout the day is
   /// skipped so the sweep always makes progress.
   static const Duration _perDayTimeout = Duration(seconds: 90);
+
+  /// Bounded worker-pool size for concurrent per-day derivation. Days within
+  /// a single run share ONE frozen baseline snapshot (`_BaselineHistoryCache`
+  /// is loaded once before the loop, refreshed once after — see `run()`) and
+  /// each writes to an independent, day_id-keyed `day_result` row — there is
+  /// no cross-day ordering dependency within a run. A multi-day backlog sweep
+  /// was previously fully sequential (one day's prepare-isolate + prepare
+  /// substrate loads + compute-isolate all finishing before the next day even
+  /// started), which wastes every core beyond the one doing the current day's
+  /// work. Running several days' isolate work genuinely concurrently gets
+  /// real wall-clock speedup from the device's other cores. Capped
+  /// conservatively — this is a phone doing background/foreground compute,
+  /// not a server batch job — rather than using every available core.
+  static const int _maxDeriveConcurrency = 3;
+
+  int get _deriveConcurrency {
+    try {
+      return math.max(
+        1,
+        math.min(_maxDeriveConcurrency, Platform.numberOfProcessors),
+      );
+    } catch (_) {
+      return 1; // Platform unavailable on this target — sequential fallback
+    }
+  }
 
   // ── imports (derive from a pre-built substrate, not from stored raw) ─────────
 

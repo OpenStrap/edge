@@ -57,12 +57,14 @@ import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
 import '../notify/tap_router.dart';
 import '../notify/water_buzzer.dart';
+import '../sync/background_sync.dart' show checkSyncStaleness;
 import '../sync/edge_tracking.dart';
 import '../sync/band_ownership.dart';
 import '../sync/high_freq_wake_window.dart';
 import '../sync/ios_bg_task.dart';
 import '../sync/paired_device.dart';
-import '../sync/sync_policy.dart' show isLinkStale;
+import '../sync/sync_policy.dart'
+    show isLinkStale, StalenessTier, stalenessTierFor;
 import '../sync/update_service.dart';
 import '../telemetry/telemetry_service.dart';
 import '../telemetry/health_uploader.dart';
@@ -600,7 +602,9 @@ class AppState extends ChangeNotifier {
       // from the durable high-water on (re)connect.
       onCommitBatch: (raws, samples, trimTokenHex, {archives}) =>
           LocalDb.commitSyncBatch(raws, samples,
-              trimToken: trimTokenHex, archives: archives),
+              trimToken: trimTokenHex,
+              archives: archives,
+              onCheckpoint: (msg) => _log('[COMMIT] $msg')),
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: LocalDb.archiveRawRecord,
       cursorReader: LocalDb.getCursorInt,
@@ -793,6 +797,16 @@ class AppState extends ChangeNotifier {
       await _maybeNotifyStepGoal();
       await _maybeNotifyInactivity();
       await _maybeGenerateBriefing();
+      unawaited(_checkSchemaHealth()); // throttled internally to 24h
+      // Staleness-escalation meta-layer: the SAME check the headless path
+      // runs (shared cooldown via SharedPreferences, so foreground and
+      // background never double-fire) — a foreground open is exactly when a
+      // background wake-source failure streak should finally surface.
+      // allowPermissionPrompt:true is correct HERE (unlike the headless
+      // default) — runCadenceChecks only ever runs from an active foreground
+      // scene (app.dart's didChangeAppLifecycleState), so this is a genuinely
+      // contextual moment to ask, per Apple's/Android's notification docs.
+      unawaited(checkSyncStaleness(allowPermissionPrompt: true));
     } catch (e) {
       _log('[notify] cadence checks skipped: $e');
     }
@@ -1143,6 +1157,8 @@ class AppState extends ChangeNotifier {
     unawaited(gestureSettings.bootstrap());
     // Notification relay (Android only; inert + invisible elsewhere). Best-effort.
     unawaited(notificationRelay.bootstrap());
+    // DB integrity check — see _checkSchemaHealth doc. Best-effort, non-blocking.
+    unawaited(_checkSchemaHealth());
     initialized = true;
     notifyListeners();
     // Companion (anonymous telemetry + health-data contribution) — best-effort,
@@ -1203,6 +1219,37 @@ class AppState extends ChangeNotifier {
     FileLog.write(line);
     logLines.insert(0, line);
     if (logLines.length > 200) logLines.removeLast();
+  }
+
+  /// `LocalDb.schemaHealth()` (real `PRAGMA integrity_check` + schema
+  /// presence check) was previously fully implemented but never called
+  /// anywhere in the app — corruption or schema drift could accumulate
+  /// silently forever with nothing to notice it. Wired here: once at
+  /// startup, and at most once per [_schemaHealthCheckInterval] thereafter
+  /// via the existing foreground cadence (runCadenceChecks) so it doesn't
+  /// need its own timer infrastructure. Best-effort, never blocks boot.
+  static const Duration _schemaHealthCheckInterval = Duration(hours: 24);
+  Map<String, dynamic>? schemaHealth;
+  DateTime? _lastSchemaHealthCheckAt;
+
+  Future<void> _checkSchemaHealth({bool force = false}) async {
+    final last = _lastSchemaHealthCheckAt;
+    if (!force &&
+        last != null &&
+        DateTime.now().difference(last) < _schemaHealthCheckInterval) {
+      return;
+    }
+    _lastSchemaHealthCheckAt = DateTime.now();
+    try {
+      final health = await LocalDb.schemaHealth();
+      schemaHealth = health;
+      if (health['ok'] != true) {
+        _log('[db] schemaHealth FAILED: $health');
+      }
+      notifyListeners();
+    } catch (e) {
+      _log('[db] schemaHealth check skipped: $e');
+    }
   }
 
   void _bumpInsightsRevision() {
@@ -1760,6 +1807,18 @@ class AppState extends ChangeNotifier {
   Future<void> requestIgnoreBatteryOptimizations() =>
       AndroidBackground.requestIgnoreBatteryOptimizations();
 
+  /// True when this device's OEM (Xiaomi/Huawei/Honor/Oppo/Vivo/OnePlus) is
+  /// known to gate background survival behind an extra autostart/protected-
+  /// apps allowlist the stock battery-optimization exemption doesn't cover.
+  /// Always false on iOS.
+  Future<bool> needsOemAutostartSettings() =>
+      AndroidBackground.needsOemAutostartSettings();
+
+  /// Open this OEM's autostart allowlist screen (falls back to the app's
+  /// standard settings page if none exists on this device).
+  Future<void> openOemAutostartSettings() =>
+      AndroidBackground.openOemAutostartSettings();
+
   Future<void> unpair() async {
     _keepAlive = false;
     BandOwnership.markForegroundIntent(false);
@@ -2302,6 +2361,18 @@ class AppState extends ChangeNotifier {
   DateTime? get lastRecordAt => _lastRecTs == null
       ? null
       : DateTime.fromMillisecondsSinceEpoch(_lastRecTs! * 1000);
+
+  /// The quiet in-app half of the staleness-escalation meta-layer (see
+  /// sync_policy.dart's stalenessTierFor doc + checkSyncStaleness, which
+  /// drives the louder OS-notification half). A never-synced band reads as
+  /// [StalenessTier.fresh] — that's a distinct, already-visible onboarding
+  /// state, not silent staleness. Always computed fresh against wall-clock
+  /// now, so any screen can read it without needing its own refresh timer.
+  StalenessTier get syncStalenessTier {
+    final last = lastRecordAt;
+    if (last == null) return StalenessTier.fresh;
+    return stalenessTierFor(DateTime.now().difference(last).inSeconds);
+  }
 
   void _setBusy(bool b) {
     busy = b;

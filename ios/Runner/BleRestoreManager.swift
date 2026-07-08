@@ -7,6 +7,14 @@ import Flutter
 /// reachable — the mechanism WHOOP/Garmin use on iOS (CoreBluetooth State Preservation
 /// & Restoration). No persistent notification, no foreground service.
 ///
+/// Running this as a SEPARATE CBCentralManager (distinct restoration identifier) from
+/// the "live" central flutter_blue_plus drives is an Apple-documented, supported pattern,
+/// not an inferred workaround: "Because apps can have multiple instances of
+/// CBCentralManager... be sure each restoration identifier is unique, so that the system
+/// can properly distinguish one central... from another" (Core Bluetooth Background
+/// Processing for iOS Apps). Confirmed directly against that doc — this is not a deviation
+/// from a single-manager model Apple only describes for the simple case.
+///
 /// It does NOT drain data. flutter_blue_plus owns the real GATT session, and two
 /// CBCentralManagers can't share a peripheral connection. This is a trigger only: it
 /// holds a no-timeout pending connect to the band (under a restore identifier) so iOS
@@ -21,6 +29,16 @@ import Flutter
 /// Dart reports the drain done (`syncDone`), we go IDLE and do NOT re-arm. We re-arm only
 /// on the next explicit request from Dart (a fresh disconnect). Arming only happens while
 /// backgrounded; in the foreground flutter_blue_plus owns the band.
+///
+/// Verified against Apple's official docs ("Core Bluetooth Background Processing for iOS
+/// Apps"): a state-restoration relaunch is a BOUNDED wake, not indefinite runtime — "an app
+/// has around 10 seconds to complete a task... apps that spend too much time executing in
+/// the background can be throttled back by the system or killed," and even a fully
+/// backgrounded app "can't run forever... the system may need to terminate your app to free
+/// up memory." This is exactly why the headless sync this triggers (background_sync.dart's
+/// runHeadlessSync) is designed to make partial progress safely on every wake — commit
+/// whatever it drained before the window closes, resume from the durable cursor next time —
+/// rather than assuming it gets to run to completion in one continuous background session.
 class BleRestoreManager: NSObject {
   static let shared = BleRestoreManager()
 

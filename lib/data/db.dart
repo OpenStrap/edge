@@ -565,13 +565,30 @@ class LocalDb {
   /// continuation cursor in ONE transaction. This is the durable half of the
   /// safe-trim invariant — it MUST return before the engine writes the ACK frame.
   /// Advances counter_hw / rec_ts_hw to the batch max so a restart resumes cleanly.
+  ///
+  /// [onCheckpoint], if given, is called synchronously at each of the three
+  /// phases (decoded+archive queued, decoded+archive committed, cursor
+  /// advanced) — field diagnosability without giving up the single-txn
+  /// atomicity: the checkpoint calls are pure logging, wrapped so a
+  /// misbehaving callback can never abort a real commit. db.dart itself stays
+  /// logging-framework-free (no Flutter dependency); callers pass their own
+  /// logger (e.g. ble_engine.dart's `_log`, background_sync.dart's `debugPrint`).
   static Future<void> commitSyncBatch(
     List<RawRecord> raws,
     List<Sample?> samples, {
     String? trimToken,
     Map<String, String>? extraCursors,
     List<ArchiveRecord>? archives,
+    void Function(String)? onCheckpoint,
   }) async {
+    void checkpoint(String msg) {
+      try {
+        onCheckpoint?.call(msg);
+      } catch (_) {
+        /* a logging callback must never affect the commit */
+      }
+    }
+
     final db = await instance;
     await db.transaction((txn) async {
       // Read the existing high-water THROUGH the txn — never via the global db
@@ -608,7 +625,12 @@ class LocalDb {
         if (raw.counter > maxCounter) maxCounter = raw.counter;
         if (recTs > maxRecTs) maxRecTs = recTs;
       }
+      checkpoint(
+        'decoded_archive_queued raws=${raws.length} '
+        'archives=${archives?.length ?? 0}',
+      );
       await batch.commit(noResult: true);
+      checkpoint('decoded_archive_committed');
       await setCursor('counter_hw', '$maxCounter', txn: txn);
       await setCursor('rec_ts_hw', '$maxRecTs', txn: txn);
       if (trimToken != null) await setCursor('strap_trim', trimToken, txn: txn);
@@ -617,6 +639,10 @@ class LocalDb {
           await setCursor(e.key, e.value, txn: txn);
         }
       }
+      checkpoint(
+        'cursor_advanced counter_hw=$maxCounter rec_ts_hw=$maxRecTs '
+        'trim=${trimToken != null}',
+      );
     });
     await _writeCaptureFreshness(raws);
   }
@@ -1928,6 +1954,17 @@ class LocalDb {
       'reason': reason,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     });
+  }
+
+  /// Previously write-only: `quarantineSyncChunk` had no reader anywhere,
+  /// so a persistently-stuck batch was recorded but never actually
+  /// retrievable for diagnosis. Append-only audit trail (like `raw_archive`)
+  /// — never pruned here, resolution is implicit once the same token finally
+  /// ACKs (see the `batch:$tokenHex` sync_ledger row transitioning to
+  /// `acked`), not a deletion of the quarantine record.
+  static Future<List<Map<String, dynamic>>> quarantinedSyncChunks() async {
+    final db = await instance;
+    return db.query('sync_quarantine', orderBy: 'created_at DESC');
   }
 
   static Future<List<Sample>> samplesInRange(int fromTs, int toTs) async {
