@@ -207,10 +207,15 @@ Substrate decodeSubstrate(List<String> hexes) {
   // Collect per-record tuples, then sort by ts to guarantee monotonicity.
   final recs = <_Rec>[];
   final looseRr = <_Beat>[]; // RR-only live frames
+  // One shared decoder for the whole page: legacy decoder first, firmware-
+  // fallback chain second (see FirmwareAwareR24Decoder) — sharing it across
+  // the batch means a firmware quirk detected on the first record isn't
+  // re-probed for every subsequent one in this page.
+  final decoder = proto.FirmwareAwareR24Decoder();
   for (final hex in hexes) {
     proto.R24? r;
     try {
-      r = proto.parseR24(proto.hexToBytes(hex));
+      r = decoder.decode(proto.hexToBytes(hex));
     } catch (_) {
       r = null;
     }

@@ -653,6 +653,14 @@ class BleEngine {
   // doc). Re-seeded from the durable counter_hw cursor on each connect, same
   // pattern as _recordGate's frontierTs seed below.
   CounterRegressionDetector _counterRegression = CounterRegressionDetector();
+  // Firmware-aware R24 decoder (see openstrap_protocol's
+  // FirmwareAwareR24Decoder doc): tries the original hardware-validated
+  // decoder first, falls back to newer-firmware layouts only if that fails,
+  // and remembers per-version which one actually worked so a long offload
+  // doesn't re-probe every record. Reset alongside _recordGate/
+  // _counterRegression on each (re)connect — a re-pair shouldn't carry a
+  // stale detection from a different physical band.
+  FirmwareAwareR24Decoder _firmwareDecoder = FirmwareAwareR24Decoder();
   // Snapshot of `_recordGate.dropped` at the last HISTORY_START — lets the
   // HISTORY_END validator (below) tell "the band sent fewer packets than it
   // said" apart from "we correctly, silently rejected some as implausible
@@ -1096,6 +1104,7 @@ class BleEngine {
       _counterRegression = CounterRegressionDetector(
         seedCounter: await cursorReader?.call('counter_hw'),
       );
+      _firmwareDecoder = FirmwareAwareR24Decoder();
 
       // Heartbeat: keep the link alive (~10s LINK_VALID). Owned by the session, so a
       // disconnect cancels it — no zombie timer firing into a dead characteristic.
@@ -1669,7 +1678,9 @@ class BleEngine {
     // buckets instead of collapsing into one "today".
     Sample? sample;
     if (recType == Record.r24) {
-      final r = parseR24(frame.inner);
+      // Legacy decoder first, firmware-fallback chain second, undecodable
+      // archive last — see FirmwareAwareR24Decoder.
+      final r = _firmwareDecoder.decode(frame.inner);
       if (r != null) {
         _logHistoricalOptics(frame.inner, r);
         sample = Sample(

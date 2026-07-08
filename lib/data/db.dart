@@ -1454,7 +1454,13 @@ class LocalDb {
   static Sample? _decodeOneHzSample(RawRecord raw, {Sample? preferred}) {
     if (preferred != null && preferred.hasDecodedOneHz) return preferred;
     try {
-      final r = proto.parseR24(proto.hexToBytes(raw.hex));
+      // Legacy decoder first, firmware-fallback chain second — see
+      // FirmwareAwareR24Decoder. This path only runs when no pre-decoded
+      // `preferred` sample was supplied (e.g. a raw-hex import/merge), so a
+      // fresh per-call instance is fine — no session state to preserve.
+      final r = proto.FirmwareAwareR24Decoder().decode(
+        proto.hexToBytes(raw.hex),
+      );
       if (r == null || r.tsEpoch <= 0) return null;
       return Sample(
         tsEpoch: r.tsEpoch,
