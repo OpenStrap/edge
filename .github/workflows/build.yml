@@ -124,6 +124,9 @@ jobs:
       - name: Write .env
         run: echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" > .env
 
+      - name: Install flutterfire (required by Crashlytics Xcode build phase)
+        run: dart pub global activate flutterfire_cli 1.4.0
+
       - run: flutter pub get
 
       - name: Mount Firebase Secrets
