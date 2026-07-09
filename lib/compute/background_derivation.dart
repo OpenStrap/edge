@@ -30,6 +30,8 @@ import 'dart:io';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
+import 'package:firebase_core/firebase_core.dart';
+import '../firebase_options.dart';
 
 import 'derivation_engine.dart';
 import 'profile.dart';
@@ -43,6 +45,12 @@ const String _kProfileKey = 'local_profile_json'; // mirrors AppState._kProfile
 void derivationDispatcher() {
   Workmanager().executeTask((task, _) async {
     WidgetsFlutterBinding.ensureInitialized();
+    try {
+      if (Firebase.apps.isEmpty) {
+        await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+      }
+    } catch (_) {}
+    
     try {
       final profile = await _loadProfile();
       final engine = DerivationEngine(log: (m) => debugPrint('[bg-derive] $m'));

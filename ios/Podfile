@@ -1,5 +1,5 @@
 # workmanager_apple requires iOS 14+; ActivityKit Live Activities gate at 16.2 in code.
-platform :ios, '14.0'
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -42,8 +42,8 @@ post_install do |installer|
     target.build_configurations.each do |config|
       # Keep every pod at >= 14.0 so workmanager_apple resolves.
       current = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f
-      if current < 14.0
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
+      if current < 15.0
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
       end
     end
   end

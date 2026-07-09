@@ -15,9 +15,20 @@ import 'sync/headless_boot.dart';
 import 'sync/ios_bg_task.dart';
 import 'theme/theme_controller.dart';
 import 'widget/widget_service.dart';
-
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize Firebase (overridden by dummy values until flutterfire configure)
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Firebase init failed (run flutterfire configure!): $e');
+  }
+
   // Install crash/error hooks (FlutterError.onError + PlatformDispatcher.onError)
   // BEFORE anything else. Capture is always-on and LOCAL; nothing transmits until
   // the user opts in (TelemetryService.enabled). No custom zone — these two hooks

@@ -134,6 +134,10 @@ dependencies:
   installed_apps: ^2.1.1
   flutter_secure_storage: ^10.3.1
   gpt_markdown: ^1.1.7
+  firebase_core: ^4.11.0
+  firebase_crashlytics: ^5.2.4
+  firebase_performance: ^0.11.4+3
+  firebase_analytics: ^12.4.3
 
 # NOTE: to build against the in-tree sibling packages during local development,
 # create a (gitignored) pubspec_overrides.yaml — pub auto-detects it. Keeping the

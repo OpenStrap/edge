@@ -19,6 +19,10 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:firebase_performance/firebase_performance.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
 
 import '../cloud/companion_client.dart';
 
@@ -35,7 +39,18 @@ class TelemetryService {
 
   /// Transmission gate — set from the user's telemetry consent. Capture happens
   /// regardless; we only POST when this is true.
-  bool enabled = false;
+  bool _enabled = false;
+  bool get enabled => _enabled;
+  set enabled(bool value) {
+    _enabled = value;
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(value);
+        FirebasePerformance.instance.setPerformanceCollectionEnabled(value);
+        FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(value);
+      }
+    } catch (_) {}
+  }
 
   /// Anchors + version stamped onto each batch (AppState sets these on load).
   String? deviceId;
@@ -58,6 +73,11 @@ class TelemetryService {
     final prior = FlutterError.onError;
     FlutterError.onError = (FlutterErrorDetails details) {
       prior?.call(details);
+      try {
+        if (Firebase.apps.isNotEmpty && _enabled) {
+          FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+        }
+      } catch (_) {}
       record(
         kind: 'crash',
         level: 'error',
@@ -67,6 +87,11 @@ class TelemetryService {
       );
     };
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+      try {
+        if (Firebase.apps.isNotEmpty && _enabled) {
+          FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        }
+      } catch (_) {}
       record(kind: 'crash', level: 'error', message: '$error', stack: '$stack');
       return false; // let the platform also see it
     };
@@ -84,6 +109,7 @@ class TelemetryService {
     String? stack,
     Map<String, dynamic>? context,
   }) {
+    // Local outbox persist
     _outbox.add({
       'kind': kind,
       ...?level == null ? null : {'level': level},
@@ -92,6 +118,27 @@ class TelemetryService {
       ...?context == null ? null : {'context': context},
       'ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
     });
+    
+    // Remote Firebase Analytics integration (only if event)
+    try {
+      if (Firebase.apps.isNotEmpty && _enabled && kind == 'event' && message != null) {
+        final params = <String, Object>{};
+        if (context != null) {
+          context.forEach((k, v) {
+            if (v is num || v is String) {
+              params[k] = v;
+            } else {
+              params[k] = v.toString();
+            }
+          });
+        }
+        FirebaseAnalytics.instance.logEvent(
+          name: message.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_'),
+          parameters: params,
+        );
+      }
+    } catch (_) {}
+
     while (_outbox.length > _maxOutbox) {
       _outbox.removeAt(0);
     }

@@ -67,3 +67,9 @@ dist/
 
 # Local-only dependency overrides (sibling path linking); never commit.
 pubspec_overrides.yaml
+
+# Firebase configurations
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+lib/firebase_options.dart
+firebase.json

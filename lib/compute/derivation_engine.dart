@@ -27,6 +27,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_performance/firebase_performance.dart';
 
 import '../data/db.dart';
 import '../notify/notification_center.dart';
@@ -434,6 +436,16 @@ class DerivationEngine {
       ..['active_days'] = <String>[]
       ..['concurrency'] = _deriveConcurrency
       ..['last_error'] = null;
+      
+    Trace? runTrace;
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        runTrace = FirebasePerformance.instance.newTrace('derivation_engine_run');
+        await runTrace.start();
+        runTrace.putAttribute('mode', force ? 'force' : (heavy ? 'heavy' : 'light'));
+      }
+    } catch (_) {}
+
     try {
       final scope = await _deriveScope(heavy: heavy, force: force);
       _diag
@@ -574,6 +586,8 @@ class DerivationEngine {
         ..['active_days'] = const <String>[]
         ..['finished_at'] = finishedAt
         ..['duration_ms'] = finishedAt - startedAt;
+      
+      try { await runTrace?.stop(); } catch (_) {}
     }
   }
 
