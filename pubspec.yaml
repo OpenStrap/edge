@@ -23,7 +23,7 @@ dependencies:
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
-      ref: fix/step-regression
+      ref: main
 
   # Illustrated icon set — theme-aware full-colour WebP icons (nav tabs, domain
   # heroes, metric tiles). Path dep for local dev; a release build would need
