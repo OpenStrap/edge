@@ -137,7 +137,27 @@ import 'substrate.dart';
 // rows are absent — so previously-quarantined days now have data. Bump so those
 // days (and any finalized day derived while data was missing) recompute against
 // the recovered substrate.
-const int kAlgoVersion = 31;
+// v32: SLEEP-STAGE fix — the REM detector depended on a respiration signal
+// (`resp`) that no real caller ever supplied (WHOOP 4's R24 record has no
+// respiration-ADC channel), so it was unconditionally NaN and the primary
+// REM rule could never fire — nights collapsed to almost-all-light. Also
+// resolved a three-implementation ambiguity (`cardioStager` vs
+// `AdvancedSleepStager` v1/v2 — only v1 was ever actually wired, despite
+// `cardioStager` being the one documented as fixing Walch 2019's WAKE-bias)
+// via a head-to-head comparison; `cardioStager` (StagingMethod.cardio) is now
+// the wired default. ALSO in this same (unshipped) bump: `dailyStepEstimate`'s
+// doc had always promised a "run of >= minBoutMin consecutive ambulatory
+// minutes" bout gate that was never actually implemented — every minute that
+// individually passed the ENMO+HR gate summed directly into steps, so a
+// handful of scattered, non-contiguous minutes overnight (a brief HR lift
+// during a turn-over) could report several thousand phantom steps the moment
+// someone woke up having never walked. `minBoutMin` (default 3) is now a real
+// gate. Bumping re-derives non-finalized days so past nights/days restage;
+// ALREADY-FINALIZED history needs "Re-analyze data" to pick up BOTH corrected
+// staging and corrected steps — this is the one bump so far where that's
+// worth actually telling users about, since it affects months of history,
+// not just going forward.
+const int kAlgoVersion = 33;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;

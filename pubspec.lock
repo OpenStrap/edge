@@ -859,23 +859,29 @@ packages:
   openstrap_analytics:
     dependency: "direct main"
     description:
-      path: "../openstrap-analytics-onehz"
-      relative: true
-    source: path
+      path: "."
+      ref: main
+      resolved-ref: "184d14da07b013329d86e366778252b376b50d56"
+      url: "https://github.com/OpenStrap/analytics.git"
+    source: git
     version: "1.0.0"
   openstrap_icons:
     dependency: "direct main"
     description:
-      path: "../openstrap_icons"
-      relative: true
-    source: path
+      path: "."
+      ref: main
+      resolved-ref: "91f0309a4f1dcd36df2c504b5170f76c6e5ce767"
+      url: "https://github.com/OpenStrap/icons.git"
+    source: git
     version: "0.1.0"
   openstrap_protocol:
     dependency: "direct main"
     description:
-      path: "../openstrap-protocol-dart"
-      relative: true
-    source: path
+      path: "."
+      ref: main
+      resolved-ref: eb07a9aa2b46594a69efc852e1599e32f54dccb2
+      url: "https://github.com/OpenStrap/protocol.git"
+    source: git
     version: "1.0.0"
   ota_update:
     dependency: "direct main"
