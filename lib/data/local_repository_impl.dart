@@ -741,6 +741,22 @@ class LocalRepositoryImpl extends LocalRepository {
     // EWMA-ACWR training load lives in the cross-day rollup (acute/chronic over a
     // history window); the strain detail's "Training load (ACWR)" row reads it.
     final cd = await _crossDay();
+    // STEPS is a live-accumulating count, not a "show last settled day" metric —
+    // unlike strain/zones/HR/curve above (where falling back to yesterday's
+    // finished bundle via _bundleForDate is the correct "still settling" UX),
+    // showing yesterday's step count as "today's steps" is actively wrong, not
+    // just stale. When today's own row hasn't been derived yet, use today's
+    // interim wake_day_features estimate instead of whatever _bundleForDate
+    // fell back to (same source getToday() uses for the Today screen) — the
+    // caller (strain_detail_screen.dart) folds AppState.liveSteps on top of
+    // this, matching Today's base+live composition exactly.
+    num? stepsBase;
+    if (_isTodayLabel(date) && await _bundle(date) == null) {
+      final wf = await _wakeFeatures(date);
+      stepsBase = wf?['steps'] as num?;
+    } else {
+      stepsBase = _scalar(b, 'steps');
+    }
     return {
       // Headline 0–21 strain (the detail screen clamps to 0..21). Raw Banister
       // TRIMP is kept as the secondary "training load" figure.
@@ -767,7 +783,7 @@ class LocalRepositoryImpl extends LocalRepository {
       'calories': _scalar(b, 'calories')?.round(),
       // Total daily energy (TDEE) + 24/7 step ESTIMATE (live pedometer tunes it).
       'calories_total': _scalar(b, 'calories_total')?.round(),
-      'steps': _scalar(b, 'steps')?.round(),
+      'steps': stepsBase?.round(),
       'hr': {
         'max': (hrStats?['max'] as num?)?.toInt(),
         'avg': (hrStats?['avg'] as num?)?.toInt(),
