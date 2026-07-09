@@ -338,7 +338,6 @@ extension BleRestoreManager: CBCentralManagerDelegate {
   func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
     NSLog("[ble-restore] didConnect — handing off to flutter_blue_plus")
     handedOff = true
-    cancelPending()      // free the band so flutter_blue_plus can own a fresh connection
     signalWake()
   }
 
