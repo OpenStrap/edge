@@ -96,6 +96,17 @@ class IosBgTask {
           } catch (e) {
             debugPrint('[ios-bgtask] heavy derive skipped: $e');
           }
+        } else {
+          // Honest best attempt: run a light derive pass during BGAppRefreshTask.
+          // This keeps today's metrics fresh without tripping the CPU watchdog.
+          try {
+            final profile = await _loadProfile();
+            final engine = DerivationEngine(
+                log: (l) => debugPrint('[ios-bgrefresh-derive] $l'));
+            await engine.run(profile, heavy: false);
+          } catch (e) {
+            debugPrint('[ios-bgrefresh] light derive skipped: $e');
+          }
         }
         debugPrint('[ios-bgtask] done (syncOnly=$syncOnly)');
         return true;
