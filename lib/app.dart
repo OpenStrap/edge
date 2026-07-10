@@ -40,6 +40,9 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<AppState>().attachCoachConfig(context.read<CoachConfig>());
+      
+      final app = context.read<AppState>();
+      if (app.isPaired) app.openSession();
     });
   }
 

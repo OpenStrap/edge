@@ -23,6 +23,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/widgets.dart';
 
 import '../ai/ai_prefs.dart';
 import '../ai/briefing.dart';
@@ -159,7 +160,7 @@ class AppState extends ChangeNotifier {
 
   bool get isPaired => paired != null;
 
-  static const Duration _backfillInterval = Duration(minutes: 15);
+  static const Duration _backfillInterval = Duration(minutes: 10);
 
   // ── local profile (was server-side; now device-local) ───────────────────────
   // CLOUD EXCISED: the user's name/sex/age/height/weight + prefs (track_cycle,
@@ -587,6 +588,15 @@ class AppState extends ChangeNotifier {
   }
 
   AppState() {
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    final isHeadless = views.isEmpty || 
+                       lifecycle == AppLifecycleState.detached || 
+                       lifecycle == null || 
+                       lifecycle == AppLifecycleState.paused || 
+                       lifecycle == AppLifecycleState.hidden;
+    _background = isHeadless;
+
     _gestureDispatcher = GestureDispatcher(
       settings: gestureSettings,
       log: _log,
@@ -1200,7 +1210,28 @@ class AppState extends ChangeNotifier {
     // Register the recurring wall-clock nudges as real OS-scheduled notifications
     // (wind-down, weekly recap) so they fire even when the app is closed.
     if (isPaired) unawaited(_ensureRemindersScheduled());
-    if (isPaired) openSession();
+    if (isPaired) {
+      if (_background) {
+        _keepAlive = true;
+        if (Platform.isAndroid) EdgeTracking.start();
+        if (Platform.isIOS) {
+          IosBleRestore.foregroundActive = true;
+          IosBleRestore.arm(paired!.remoteId);
+        }
+        _log('===== BACKGROUND SESSION START =====');
+        try {
+          await _ensureForegroundLease();
+          if (await engine.connectToRemoteId(paired!.remoteId)) {
+            _maybeDowngradeLiveForBackground();
+            _startBackfillTimer();
+          }
+        } catch (e) {
+          _log('[init] bg connect failed: $e');
+        }
+      } else {
+        openSession();
+      }
+    }
   }
 
   /// (Re)register standing scheduled reminders per the user's prefs. Idempotent;

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import '../data/db.dart';
 
@@ -86,9 +87,11 @@ class DeriveScheduler {
   /// compute on a background BLE wake gets the app killed by the OS). Queued jobs
   /// stay durable and drain when we come back to the foreground.
   void setBackground(bool background) {
-    if (_background == background) return;
-    _background = background;
-    if (background) {
+    // Only defer derivation on iOS. Android has a foreground service, so we have OS budget.
+    final effectiveBackground = Platform.isIOS ? background : false;
+    if (_background == effectiveBackground) return;
+    _background = effectiveBackground;
+    if (_background) {
       _timer?.cancel();
       _timer = null;
       log('[derive-scheduler] backgrounded — deferring derive to foreground');

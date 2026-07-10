@@ -62,9 +62,6 @@ Future<void> main() async {
   await _safeInit('HeadlessBoot', maybeHeadlessBoot);
   await _safeInit('WidgetService', WidgetService.init);
   await _safeInit('NotificationService', NotificationService.instance.init);
-  // Schedule the heavy nightly derivation (Android WorkManager; iOS now also has a
-  // BGProcessingTask via BackgroundTasks.swift — see background_derivation.dart).
-  await _safeInit('BackgroundDerivation', BackgroundDerivation.init);
   // Cache SharedPreferences so UI screens can synchronously RESTORE saved
   // selections (tab, range toggles) in initState with no async flash.
   await _safeInit('Prefs', Prefs.ensureLoaded);
@@ -103,7 +100,7 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AppState()),
+        ChangeNotifierProvider(create: (_) => AppState(), lazy: false),
         ChangeNotifierProvider<ThemeController>.value(value: theme),
         ChangeNotifierProvider<UnitsController>.value(value: units),
         ChangeNotifierProvider<CoachConfig>.value(value: coachConfig),
