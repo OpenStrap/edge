@@ -188,18 +188,31 @@ class Substrate {
         ((m[k] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
     List<double> dbls(String k) =>
         ((m[k] as List?) ?? const []).map((e) => (e as num).toDouble()).toList();
+        
+    final tsSec = _i(m, 'ts_sec');
+    final n = tsSec.length;
+    
+    List<int> _safeI(String k) {
+      final l = _i(m, k);
+      return (l.isEmpty && n > 0) ? List<int>.filled(n, 0) : l;
+    }
+    List<double> _safeD(String k) {
+      final l = dbls(k);
+      return (l.isEmpty && n > 0) ? List<double>.filled(n, 0.0) : l;
+    }
+
     return Substrate(
-      tsSec: _i(m, 'ts_sec'),
-      hr: _i(m, 'hr'),
-      rrTsMs: dbls('rr_ts_ms'),
+      tsSec: tsSec,
+      hr: _safeI('hr'),
+      rrTsMs: dbls('rr_ts_ms'), // rrTsMs and rrMs don't have to match n
       rrMs: dbls('rr_ms'),
-      ax: dbls('ax'),
-      ay: dbls('ay'),
-      az: dbls('az'),
-      spo2Red: _i(m, 'spo2_red'),
-      spo2Ir: _i(m, 'spo2_ir'),
-      skinTemp: _i(m, 'skin_temp'),
-      skinContact: _i(m, 'skin_contact'),
+      ax: _safeD('ax'),
+      ay: _safeD('ay'),
+      az: _safeD('az'),
+      spo2Red: _safeI('spo2_red'),
+      spo2Ir: _safeI('spo2_ir'),
+      skinTemp: _safeI('skin_temp'),
+      skinContact: _safeI('skin_contact'),
     );
   }
 }
