@@ -35,8 +35,10 @@ import '../firebase_options.dart';
 
 import 'derivation_engine.dart';
 import 'profile.dart';
+import '../sync/background_sync.dart';
 
 const String _kHeavyTask = 'openstrap.derive.heavy';
+const String _kSyncTask = 'openstrap.sync';
 const String _kProfileKey = 'local_profile_json'; // mirrors AppState._kProfile
 
 /// The WorkManager entry point. MUST be a top-level / static fn with the
@@ -52,16 +54,24 @@ void derivationDispatcher() {
     } catch (_) {}
     
     try {
-      final profile = await _loadProfile();
-      final engine = DerivationEngine(log: (m) => debugPrint('[bg-derive] $m'));
-      await engine.run(profile, heavy: true);
-      // Baseline-dirty rescan on the scheduled tick: refresh baseline-dependent
-      // scalars on recent finalized days when the rolling baseline has moved.
-      // Cheap no-op when the baseline signature is unchanged.
-      await engine.rescanRecent(profile);
+      if (task == _kSyncTask) {
+        debugPrint('[bg-sync] triggered by WorkManager');
+        await runHeadlessSync();
+        return true;
+      } else if (task == _kHeavyTask) {
+        debugPrint('[bg-derive] triggered by WorkManager');
+        final profile = await _loadProfile();
+        final engine = DerivationEngine(log: (m) => debugPrint('[bg-derive] $m'));
+        await engine.run(profile, heavy: true);
+        // Baseline-dirty rescan on the scheduled tick: refresh baseline-dependent
+        // scalars on recent finalized days when the rolling baseline has moved.
+        // Cheap no-op when the baseline signature is unchanged.
+        await engine.rescanRecent(profile);
+        return true;
+      }
       return true;
     } catch (e, st) {
-      debugPrint('[bg-derive] failed: $e\n$st');
+      debugPrint('[bg-task] failed: $e\n$st');
       return true; // don't thrash retries; the next run catches up.
     }
   });
@@ -79,7 +89,7 @@ Future<Profile> _loadProfile() async {
   }
 }
 
-/// Initialize + schedule the heavy derivation. Call once at app startup.
+/// Initialize + schedule the heavy derivation and sync. Call once at app startup.
 /// No-op-safe: failures are swallowed (compute still happens on drain hooks +
 /// on foreground).
 class BackgroundDerivation {
@@ -89,21 +99,34 @@ class BackgroundDerivation {
     if (!Platform.isAndroid) return;
     try {
       await Workmanager().initialize(derivationDispatcher);
+      
+      // Schedule Sync Task (every 15 min - Android minimum)
+      await Workmanager().registerPeriodicTask(
+        _kSyncTask,
+        _kSyncTask,
+        frequency: const Duration(minutes: 15),
+        constraints: Constraints(
+          networkType: NetworkType.notRequired,
+          requiresBatteryNotLow: false,
+          requiresCharging: false,
+        ),
+        existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      );
+
+      // Schedule Analyze/Derivation Task (every 15 min - Android minimum)
       await Workmanager().registerPeriodicTask(
         _kHeavyTask,
         _kHeavyTask,
-        frequency: const Duration(hours: 6),
+        frequency: const Duration(minutes: 15),
         constraints: Constraints(
           networkType: NetworkType.notRequired,
-          requiresBatteryNotLow: true,
-          // Prefer running while charging/idle so heavy 24-h spectra + staging
-          // don't tax the battery during active use.
+          requiresBatteryNotLow: false,
           requiresCharging: false,
         ),
         existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
       );
     } catch (e) {
-      debugPrint('[bg-derive] schedule failed: $e');
+      debugPrint('[bg-task] schedule failed: $e');
     }
   }
 }
