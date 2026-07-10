@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 
 import '../../theme/theme.dart';
@@ -64,15 +65,13 @@ List<HypnoSeg> hypnoSegmentsFromPoints(List<dynamic> points) {
   return segs;
 }
 
-class _SteppedHypnogramPainter extends CustomPainter {
+class _GanttPainter extends CustomPainter {
   final List<HypnoSeg> segments;
-  _SteppedHypnogramPainter(this.segments);
+  _GanttPainter(this.segments);
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (segments.isEmpty) return;
-    
-    final rowH = size.height / 3;
+    final rowH = size.height / 4;
 
     int stageToY(SleepStage s) {
       switch (s) {
@@ -89,52 +88,42 @@ class _SteppedHypnogramPainter extends CustomPainter {
 
     // Draw subtle grid lines
     final gridPaint = Paint()
-      ..color = AppColors.divider.withValues(alpha: 0.2)
+      ..color = AppColors.divider.withValues(alpha: 0.3)
       ..strokeWidth = 1;
-    for (var i = 0; i < 4; i++) {
+    for (var i = 1; i < 4; i++) {
       final y = i * rowH;
       canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
     }
 
-    // Draw the continuous stepped line
-    double? lastY;
-    double? lastX;
-
+    // Draw the segments as progress bar blocks
     for (final seg in segments) {
-      final y = stageToY(seg.stage) * rowH;
-      final x1 = seg.start * size.width;
-      final x2 = seg.end * size.width;
+      final yIdx = stageToY(seg.stage);
+      final top = yIdx * rowH;
+      final bottom = top + rowH;
+      final left = seg.start * size.width;
+      final right = seg.end * size.width;
 
-      if (x2 <= x1) continue;
+      if (right <= left) continue;
 
-      // Draw vertical step if needed
-      if (lastX != null && lastY != null && (lastY - y).abs() > 0.01) {
-        final stepPaint = Paint()
-          ..color = AppColors.inkMuted.withValues(alpha: 0.3)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5;
-        canvas.drawLine(Offset(x1, lastY), Offset(x1, y), stepPaint);
-      }
-
-      // Draw horizontal segment colored by stage
-      final linePaint = Paint()
+      final paint = Paint()
         ..color = stageColor(seg.stage)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3
-        ..strokeCap = StrokeCap.round;
-        
-      canvas.drawLine(Offset(x1, y), Offset(x2, y), linePaint);
+        ..style = PaintingStyle.fill;
 
-      lastX = x2;
-      lastY = y;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTRB(left, top + 2, right, bottom - 2),
+          const Radius.circular(2),
+        ),
+        paint,
+      );
     }
   }
 
   @override
-  bool shouldRepaint(covariant _SteppedHypnogramPainter old) => true;
+  bool shouldRepaint(covariant _GanttPainter old) => true;
 }
 
-/// A beautiful continuous stepped hypnogram.
+/// A beautiful Gantt chart hypnogram showing each stage on separated colored progress bars.
 class Hypnogram extends StatelessWidget {
   final List<HypnoSeg> segments;
   final double height;
@@ -145,7 +134,7 @@ class Hypnogram extends StatelessWidget {
   const Hypnogram(
     this.segments, {
     super.key,
-    this.height = 120,
+    this.height = 100,
     this.labels = true,
     this.startLabel,
     this.endLabel,
@@ -159,7 +148,7 @@ class Hypnogram extends StatelessWidget {
       height: height,
       child: CustomPaint(
         size: Size.infinite,
-        painter: _SteppedHypnogramPainter(segments),
+        painter: _GanttPainter(segments),
       ),
     );
 
@@ -174,7 +163,7 @@ class Hypnogram extends StatelessWidget {
                 width: 46,
                 height: height,
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('Awake', style: AppText.captionMuted.copyWith(fontSize: 10)),
@@ -184,17 +173,11 @@ class Hypnogram extends StatelessWidget {
                   ],
                 ),
               ),
-              Expanded(child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: plot,
-              )),
+              Expanded(child: plot),
             ],
           )
         else
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: plot,
-          ),
+          plot,
         if (startLabel != null || endLabel != null) ...[
           const SizedBox(height: Sp.x1),
           Padding(
@@ -219,6 +202,7 @@ class StageBars extends StatelessWidget {
   final int? remMin;
   final int? lightMin;
   final int? deepMin;
+  final double height;
   final bool legend;
 
   const StageBars({
@@ -227,6 +211,7 @@ class StageBars extends StatelessWidget {
     this.remMin,
     this.lightMin,
     this.deepMin,
+    this.height = 10,
     this.legend = true,
   });
 
@@ -282,7 +267,7 @@ class StageBars extends StatelessWidget {
         ClipRRect(
           borderRadius: BorderRadius.circular(R.pill),
           child: SizedBox(
-            height: 12,
+            height: height, // <-- Used the height parameter here
             child: Row(
               children: [
                 Expanded(

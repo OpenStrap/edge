@@ -777,7 +777,6 @@ class SleepNightContent extends StatelessWidget {
   /// em-dash and says WHY (Deep: low-confidence overlay) — never an invisible
   /// gap the user reads as broken.
   Widget _stageBreakdown() {
-    final inBed = _inBedMin;
     int? mi(num? v) => v?.round();
     return BentoTile(
       accent: DomainAccent.sleep,
@@ -792,78 +791,12 @@ class SleepNightContent extends StatelessWidget {
             height: 12,
             legend: false,
           ),
-          const SizedBox(height: Sp.x4),
-          _stageRow(SleepStage.deep, _deepMin, inBed,
-              absentNote: 'none detected · low-confidence estimate'),
-          const SizedBox(height: Sp.x4),
-          _stageRow(SleepStage.light, _lightMin, inBed),
-          const SizedBox(height: Sp.x4),
-          _stageRow(SleepStage.rem, _remMin, inBed),
-          const SizedBox(height: Sp.x4),
-          _stageRow(SleepStage.awake, _awakeMin, inBed),
         ],
       ),
     );
   }
 
-  Widget _stageRow(SleepStage stage, num? minutes, num? inBed,
-      {String? absentNote}) {
-    final color = stageColor(stage);
-    final absent = minutes == null || minutes.round() <= 0;
-    final pct = (!absent && inBed != null && inBed > 0)
-        ? (minutes / inBed).clamp(0.0, 1.0).toDouble()
-        : null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
-            const SizedBox(width: Sp.x3),
-            Expanded(
-              child: Row(
-                children: [
-                  Text(stageName(stage), style: AppText.title),
-                  if (stage == SleepStage.deep) ...[
-                    const SizedBox(width: Sp.x2),
-                    const Tag('low conf'),
-                  ],
-                ],
-              ),
-            ),
-            Text(
-              absent ? '—' : _hm(minutes),
-              style: AppText.metricSm.copyWith(
-                fontSize: 18,
-                color: absent ? AppColors.inkMuted : AppColors.ink,
-              ),
-            ),
-            const SizedBox(width: Sp.x3),
-            SizedBox(
-              width: 44,
-              child: Text(
-                pct == null ? '' : '${(pct * 100).round()}%',
-                textAlign: TextAlign.right,
-                style: AppText.captionMuted,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: Sp.x2),
-        if (absent && absentNote != null)
-          Text(absentNote, style: AppText.captionMuted)
-        else
-          ProgressPill(pct ?? 0, color: color, height: 6),
-      ],
-    );
-  }
+
 
   // ── sleep cycles (fractal-cycle method on HRV) ─────────────────────────────
 
