@@ -27,6 +27,18 @@ void main() {
     try {
       await de.run(const Profile(), force: true);
       print('Engine run completed');
+      
+      final repo = LocalRepository();
+      final today = await repo.getToday();
+      print('Today readiness: ${today.readiness}');
+      
+      final db = await sqlite3.open('/Users/abdulsahil-garden/Downloads/openstrap_export_1783651054606.db');
+      final results = db.select('SELECT day_id, readiness, payload_json FROM day_result');
+      for (final r in results) {
+        print('DAY ${r['day_id']}:');
+        print('  readiness DB: ${r['readiness']}');
+        print('  payload: ${r['payload_json']}');
+      }
     } catch (e, s) {
       print('Engine crashed: $e');
       print(s);
