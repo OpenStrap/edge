@@ -80,23 +80,40 @@ class UnitsController extends ChangeNotifier {
   /// "/km" / "/mi".
   String get paceUnit => '/$distanceUnit';
 
-  /// Format a pace given as seconds-per-unit → "m:ss" (e.g. "5:30"). Infinite /
-  /// non-finite (a zero-distance split) shows "—".
+  /// Above this, a "pace" is meaningless noise, not a real number — e.g. a
+  /// few metres of GPS jitter (stationary) divided into real elapsed time
+  /// produces something like 1000 min/km. 60 min/km is already far slower
+  /// than any real walk/run/ride; treat anything beyond it as "no
+  /// meaningful pace yet" rather than showing the raw absurd number.
+  static const double _kMaxSanePaceSecPerUnit = 60 * 60;
+
+  /// Format a pace given as seconds-per-unit → "m:ss" (e.g. "5:30"). Infinite
+  /// / non-finite (a zero-distance split) or an absurdly slow value (see
+  /// [_kMaxSanePaceSecPerUnit]) shows "—".
   String formatPace(double secPerUnit) {
-    if (!secPerUnit.isFinite || secPerUnit <= 0) return '—';
+    if (!secPerUnit.isFinite ||
+        secPerUnit <= 0 ||
+        secPerUnit > _kMaxSanePaceSecPerUnit) {
+      return '—';
+    }
     final total = secPerUnit.round();
     final m = total ~/ 60;
     final s = total % 60;
     return '$m:${s.toString().padLeft(2, '0')}';
   }
 
-  /// "5:30 /km" from total metres + total seconds.
+  /// "5:30 /km" from total metres + total seconds. Bare "—" (no unit
+  /// suffix) whenever there's no meaningful pace — including the absurd-
+  /// pace case (see [_kMaxSanePaceSecPerUnit]), not just meters<=0 — so
+  /// callers can reliably check `== '—'` and callers see one consistent
+  /// "no data" string, not "— /km".
   String pace(double? meters, int? seconds) {
     if (meters == null || seconds == null || meters <= 0 || seconds <= 0) {
       return '—';
     }
     final secPerUnit = seconds / (meters / distanceUnitMeters);
-    return '${formatPace(secPerUnit)} $paceUnit';
+    final formatted = formatPace(secPerUnit);
+    return formatted == '—' ? '—' : '$formatted $paceUnit';
   }
 
   /// "km/h" / "mph" — the unit for INSTANTANEOUS speed (cycling reads more
@@ -122,7 +139,8 @@ class UnitsController extends ChangeNotifier {
       return '—';
     }
     final secPerUnit = distanceUnitMeters / metersPerSec;
-    return '${formatPace(secPerUnit)} $paceUnit';
+    final formatted = formatPace(secPerUnit);
+    return formatted == '—' ? '—' : '$formatted $paceUnit';
   }
 
   // ── edit-field helpers (display ↔ metric for storage) ──────────────────────
