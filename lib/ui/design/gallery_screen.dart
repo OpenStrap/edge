@@ -8,9 +8,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../gps/route_math.dart' as rmath;
 import '../../theme/theme_controller.dart';
 import '../../theme/theme_switcher.dart';
+import '../activity/live_session_screen.dart'
+    show GpsLiveMapView, WorkoutFinishScreen, WorkoutFinishSnapshot;
 import 'design.dart';
+import 'fake_route_fixture.dart';
 
 class DesignGalleryScreen extends StatefulWidget {
   const DesignGalleryScreen({super.key});
@@ -726,6 +730,65 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
         ),
         const SizedBox(height: Sp.x6),
 
+        // ── Workout preview (GPS route) ──────────────────────────────
+        // Full-screen previews of the GPS live-map layout + the finish
+        // screen's route hero, fed with a deterministic FAKE route
+        // (fake_route_fixture.dart) — for reviewing the map/BPM/zone
+        // layout and the Strava-style hero-map redesign without a live
+        // device, GPS fix, or BLE connection. Placed BEFORE FloatingNavPill
+        // (not after) so FloatingNavPill stays the true last section —
+        // design_system_test.dart's scroll-to-bottom regression asserts on
+        // that.
+        const SectionHeader('Workout preview (fake GPS route)'),
+        const SizedBox(height: Sp.x2),
+        Text(
+          'Static fake run (~3.2 km, 20 min) — not a real recording. '
+          'Reviews the live map + BPM/zone stat bar, and the finish '
+          'screen’s route-hero layout. The Share button on the finish '
+          'screen is the REAL share flow (opens the OS share sheet with '
+          'this fake workout\'s card) — same as production, not a preview.',
+          style: AppText.captionMuted,
+        ),
+        const SizedBox(height: Sp.x3),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const _GpsLiveMapPreviewScreen(),
+                  ),
+                ),
+                child: const Text('Live GPS map'),
+              ),
+            ),
+            const SizedBox(width: Sp.x3),
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => WorkoutFinishScreen(
+                      id: 'preview-run',
+                      previewRoute: fakeRunRoute(),
+                      previewMaxHr: 190,
+                      snapshot: WorkoutFinishSnapshot(
+                        type: 'run',
+                        duration: const Duration(minutes: 20, seconds: 6),
+                        peakHr: 166,
+                        calories: 284,
+                        strain: 11.6,
+                        steps: 4312,
+                      ),
+                    ),
+                  ),
+                ),
+                child: const Text('Finish screen'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: Sp.x6),
+
         // ── Nav pill ──────────────────────────────────────────────────
         // Mirrors the shipped shell: five even tabs, no center action.
         const SectionHeader('FloatingNavPill'),
@@ -770,6 +833,54 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Static preview of the GPS live-map layout (map + unified distance/
+/// duration/pace/BPM stat bar) — the same [GpsLiveMapView] the real live
+/// session uses in map mode, fed with the deterministic fake route instead
+/// of a live RouteTracker. No animation/growth — just the composed layout,
+/// for reviewing spacing/z-order without a live device.
+class _GpsLiveMapPreviewScreen extends StatelessWidget {
+  const _GpsLiveMapPreviewScreen();
+
+  static const _maxHr = 190;
+
+  @override
+  Widget build(BuildContext context) {
+    final route = fakeRunRoute();
+    final vertices = rmath.buildVertices(route.points, route.hr, _maxHr);
+    final lastHr = route.hr.isEmpty ? 150 : route.hr.last.hr;
+    return Scaffold(
+      backgroundColor: AppColors.night,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GpsLiveMapView(
+                vertices: vertices,
+                current: vertices.isEmpty ? null : vertices.last.pos,
+                distanceMeters: route.distanceMeters,
+                currentSpeedMps: route.distanceMeters /
+                    (route.movingSec == 0 ? 1 : route.movingSec),
+                movingSeconds: route.movingSec,
+                elapsed: Duration(seconds: route.movingSec),
+                hr: lastHr,
+                zoneIndex: rmath.zoneForHr(lastHr, _maxHr),
+              ),
+            ),
+            Positioned(
+              top: Sp.x2,
+              left: Sp.x2,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

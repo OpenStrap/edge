@@ -347,8 +347,11 @@ void main() {
           expect(find.text('Design system'), findsOneWidget);
           // Scroll to the bottom in steps, building (and layout-checking)
           // every section. StateCard's breathe loop repeats → plain pumps.
+          // 15 steps (not 12): the "Workout preview" section added real
+          // height below FloatingNavPill, so fewer steps stopped short of
+          // the new bottom and let it fall out of the Sliver's cache extent.
           final list = find.byType(ListView).first;
-          for (var i = 0; i < 12; i++) {
+          for (var i = 0; i < 15; i++) {
             await t.drag(list, const Offset(0, -500));
             await t.pump(const Duration(milliseconds: 350));
             expect(t.takeException(), isNull, reason: 'overflow at step $i');

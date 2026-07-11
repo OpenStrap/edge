@@ -60,6 +60,14 @@ const String _kOsmTileUrl =
 const List<String> _kTileSubdomains = ['a', 'b', 'c', 'd'];
 const String _kUserAgent = 'wtf.openstrap.edge';
 
+/// Ceiling for any bounds-fit auto-zoom (initial fit AND live camera-follow).
+/// z17 shows a few blocks of real context — enough to read the route against
+/// its surroundings. Without a cap, a tight/small bounding box (early in a
+/// workout, a short/slow route, a stationary spell) fits to near-max zoom
+/// (19 — individual rooftops), which reads as "the map is broken/too zoomed
+/// in" even though it's technically "fitting" correctly.
+const double kRouteMapMaxAutoZoom = 17.0;
+
 /// Desaturate + invert-luminance + warm-tint every tile pixel in one pass:
 /// each output channel is `-(0.2126R + 0.7152G + 0.0722B) + offset`, with the
 /// offset solved so a typical OSM land/background luminance (~240) lands on
@@ -167,6 +175,12 @@ class RouteMapView extends StatelessWidget {
             initialCameraFit: CameraFit.bounds(
               bounds: LatLngBounds.fromPoints(pts),
               padding: const EdgeInsets.all(28),
+              // Cap how far bounds-fit will zoom in. Without this, a route
+              // whose points are all still close together (early in a
+              // workout, a short/slow route, or a tight loop) fits to a
+              // near-zero-size box and zooms in to the tile layer's max
+              // (19 — rooftop level) instead of a sane street-scale view.
+              maxZoom: kRouteMapMaxAutoZoom,
             ),
             onPositionChanged: onPositionChanged,
             interactionOptions: InteractionOptions(
