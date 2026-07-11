@@ -144,11 +144,13 @@ class Hypnogram extends StatelessWidget {
   Widget build(BuildContext context) {
     if (segments.isEmpty) return const SizedBox.shrink();
 
-    final plot = SizedBox(
-      height: height,
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: _GanttPainter(segments),
+    final plot = RepaintBoundary(
+      child: SizedBox(
+        height: height,
+        child: CustomPaint(
+          size: Size.infinite,
+          painter: _GanttPainter(segments),
+        ),
       ),
     );
 
@@ -250,16 +252,26 @@ class StageBars extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              stageName(stage),
-              style: AppText.body.copyWith(
-                color: stageColor(stage),
-                fontWeight: FontWeight.w600,
+            Flexible(
+              child: Text(
+                stageName(stage),
+                style: AppText.body.copyWith(
+                  color: stageColor(stage),
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            Text(
-              '$pct% (${hm(mins)})',
-              style: AppText.captionMuted,
+            const SizedBox(width: Sp.x2),
+            Flexible(
+              child: Text(
+                '$pct% (${hm(mins)})',
+                style: AppText.captionMuted,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+              ),
             ),
           ],
         ),
