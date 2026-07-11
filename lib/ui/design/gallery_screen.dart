@@ -744,7 +744,9 @@ class _DesignGalleryScreenState extends State<DesignGalleryScreen> {
         Text(
           'Static fake run (~3.2 km, 20 min) — not a real recording. '
           'Reviews the live map + BPM/zone stat bar, and the finish '
-          'screen’s route-hero layout.',
+          'screen’s route-hero layout. On the finish screen, tap Share to '
+          'preview the EXACT PNG social-share card in-app (shows the real '
+          'capture, not the OS share sheet — safe with fake data).',
           style: AppText.captionMuted,
         ),
         const SizedBox(height: Sp.x3),

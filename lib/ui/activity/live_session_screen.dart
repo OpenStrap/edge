@@ -1310,10 +1310,28 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
       final ByteData? bytes =
           await image.toByteData(format: ui.ImageByteFormat.png);
       if (bytes == null) throw StateError('Failed to encode image');
+      final pngBytes = bytes.buffer.asUint8List();
+
+      // Preview mode (Design Gallery / a previewRoute-injected screen): show
+      // the EXACT captured PNG in-app instead of invoking the real OS share
+      // sheet. Same capture code path either way — this just swaps the last
+      // step, so what's shown is guaranteed pixel-identical to what would
+      // actually be shared. Also means a fake preview workout can never
+      // accidentally get shared to a real social account.
+      if (widget.previewRoute != null) {
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => _SharedCardPreviewScreen(pngBytes: pngBytes),
+          ),
+        );
+        return;
+      }
+
       final dir = await getTemporaryDirectory();
       final file = File(
           '${dir.path}/openstrap_workout_${DateTime.now().millisecondsSinceEpoch}.png');
-      await file.writeAsBytes(bytes.buffer.asUint8List());
+      await file.writeAsBytes(pngBytes);
       await Share.shareXFiles(
         [XFile(file.path)],
         text: 'My OpenStrap workout',
@@ -1326,6 +1344,34 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
     } finally {
       if (mounted) setState(() => _sharing = false);
     }
+  }
+}
+
+/// Preview-only viewer for the exact PNG the real "Share" button would hand
+/// to the OS share sheet — see [_WorkoutFinishScreenState._share]'s preview
+/// branch. Scrollable/zoomable since the captured card can be taller than one
+/// screen (it's the whole finish card, not a cropped square).
+class _SharedCardPreviewScreen extends StatelessWidget {
+  final Uint8List pngBytes;
+  const _SharedCardPreviewScreen({required this.pngBytes});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: const Text('Share card preview'),
+      ),
+      body: Center(
+        child: InteractiveViewer(
+          minScale: 0.3,
+          maxScale: 4,
+          child: Image.memory(pngBytes),
+        ),
+      ),
+    );
   }
 }
 
