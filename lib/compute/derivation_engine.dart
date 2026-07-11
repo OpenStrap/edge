@@ -159,7 +159,28 @@ import 'substrate.dart';
 // staging and corrected steps — this is the one bump so far where that's
 // worth actually telling users about, since it affects months of history,
 // not just going forward.
-const int kAlgoVersion = 36;
+// v37: SLEEP-STAGE fix #2 (real-device root cause, not synthetic) — v32 fixed
+// the dead REM path but a real overnight capture showed cardioStager still
+// massively over-called WAKE (~6h on a night truth was ~3min) and under-
+// called REM (~40min vs a ~2h42m truth). Root cause: BOTH the motion
+// ("gravity 1 g reference") and HR ("sleeping HR baseline") features were
+// single WHOLE-NIGHT scalars. This real device's decoded gravity-vector
+// magnitude is NOT perfectly orientation-invariant — different STATIC sleep
+// postures read up to ~13% apart in |accel| despite near-zero within-epoch
+// variance (i.e. genuinely still), so 389/421 "big move" epochs that night
+// were this artifact, not real movement, and produced WAKE blocks too long
+// for Webster rescore to bridge back. Separately, the whole-night HR arousal
+// threshold misread the sleep-onset HR-decay transient (elevated HR for the
+// first ~60-90 min while settling) as sustained arousal. `cardio_stager.dart`
+// now computes both references as LOCALLY-ADAPTIVE rolling windows, plus a
+// local p25 (not median) floor specifically for the REM gate — REM recurs on
+// ~90 min ultradian cycles and is a minority of any local window, so a local
+// MEDIAN self-dilutes from REM's own periodic elevation. Verified on the real
+// capture: wake 294->1 min, light 173->337 min, deep 26->58 min, rem 41->139
+// min, against an Apple Watch Ultra ground truth of wake=3 light=330 deep=38
+// rem=162 min for the same night. Bump so this genuinely different (much more
+// accurate) staging recomputes; "Re-analyze data" needed for finalized nights.
+const int kAlgoVersion = 37;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;
