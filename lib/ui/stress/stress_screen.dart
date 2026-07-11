@@ -15,6 +15,8 @@ import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../design/design.dart';
 import '../screens/metric_row.dart' show infoFor;
+import '../../notify/notification_event.dart';
+import '../../notify/notification_service.dart';
 import 'calm_breathing_screen.dart';
 
 class StressScreen extends StatefulWidget {
@@ -71,6 +73,21 @@ class _StressScreenState extends State<StressScreen> {
         final hasStress = stress['score'] is num;
         final hasSleep = sleep['score'] is num;
         _phase = (hasStress || hasSleep) ? _Phase.ready : _Phase.empty;
+
+        if (hasStress) {
+          final score = (stress['score'] as num).toInt();
+          if (score > 70) {
+            NotificationService.instance.presentEvent(
+              NotificationEvent(
+                dedupeKey: '${widget.date}:high_stress',
+                category: NotifCategory.health,
+                title: 'High Stress Detected',
+                body: 'Your stress score is $score. Consider taking a moment to breathe.',
+                date: widget.date,
+              ),
+            );
+          }
+        }
       });
     } catch (e) {
       if (!mounted) return;
@@ -209,7 +226,7 @@ class StressDayContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (score != null) ...[
-          _hero(score).dsEnter(),
+          _hero(context, score).dsEnter(),
           const SizedBox(height: Sp.x2),
         ],
         _bento(context),
@@ -221,7 +238,7 @@ class StressDayContent extends StatelessWidget {
   }
 
   // ── hero — the gauge floats directly on the page, no card chrome ──────────
-  Widget _hero(int v) {
+  Widget _hero(BuildContext context, int v) {
     final color = _scoreColor(v);
     final level = (_stress['level']?.toString().trim().isNotEmpty ?? false)
         ? _cap(_stress['level'].toString())
@@ -286,12 +303,9 @@ class StressDayContent extends StatelessWidget {
           ),
         ),
         const SizedBox(height: Sp.x4),
-        if (v >= 50)
-          Padding(
+        Padding(
             padding: const EdgeInsets.symmetric(horizontal: Sp.x8),
-            child: OsButton(
-              label: 'Calm yourself',
-              type: OsButtonType.primary,
+            child: FilledButton(
               onPressed: () {
                 Navigator.push(
                   context,
@@ -300,6 +314,7 @@ class StressDayContent extends StatelessWidget {
                   ),
                 );
               },
+              child: const Text('Calm yourself'),
             ),
           ),
         const SizedBox(height: Sp.x2),

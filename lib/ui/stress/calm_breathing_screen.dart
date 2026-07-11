@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'dart:math' as math;
 
-import '../../state/app_state.dart';
 import '../design/design.dart';
 
 class CalmBreathingScreen extends StatefulWidget {
@@ -79,7 +77,7 @@ class _CalmBreathingScreenState extends State<CalmBreathingScreen>
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const OsAppIcon(OsIcon.close, size: 24),
+          icon: const Icon(Icons.close, size: 24),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -99,7 +97,7 @@ class _CalmBreathingScreenState extends State<CalmBreathingScreen>
               textAlign: TextAlign.center,
             ),
           ),
-          const SizedBox(height: Sp.x16),
+          const SizedBox(height: 64),
           Center(
             child: AnimatedBuilder(
               animation: _controller,
@@ -113,7 +111,7 @@ class _CalmBreathingScreenState extends State<CalmBreathingScreen>
                     height: 120,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: DomainAccent.recovery.withOpacity(0.2 + (_controller.value * 0.3)),
+                      color: DomainAccent.recovery.withValues(alpha: 0.2 + (_controller.value * 0.3)),
                       border: Border.all(
                         color: DomainAccent.recovery,
                         width: 2,
@@ -124,7 +122,7 @@ class _CalmBreathingScreenState extends State<CalmBreathingScreen>
                       scale: 1.0 / scale, // keep text unscaled
                       child: Text(
                         _isActive ? _phaseText : "Ready",
-                        style: AppText.h3.copyWith(
+                        style: AppText.h2.copyWith(
                           color: DomainAccent.recovery,
                         ),
                       ),
@@ -134,7 +132,7 @@ class _CalmBreathingScreenState extends State<CalmBreathingScreen>
               },
             ),
           ),
-          const SizedBox(height: Sp.x16),
+          const SizedBox(height: 64),
           if (_isActive) ...[
             Text(
               'Coherence Score',
@@ -148,16 +146,14 @@ class _CalmBreathingScreenState extends State<CalmBreathingScreen>
               ),
             ),
             const SizedBox(height: Sp.x8),
-            OsButton(
-              label: 'Stop Session',
+            OutlinedButton(
               onPressed: _stopBreathing,
-              type: OsButtonType.secondary,
+              child: const Text('Stop Session'),
             ),
           ] else
-            OsButton(
-              label: 'Begin 2-Minute Session',
+            FilledButton(
               onPressed: _startBreathing,
-              type: OsButtonType.primary,
+              child: const Text('Begin 2-Minute Session'),
             ),
         ],
       ),
