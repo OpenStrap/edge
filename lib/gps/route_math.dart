@@ -41,9 +41,12 @@ bool isImplausibleSegment(
 /// the platform's Doppler-derived value) jitters fix-to-fix; a live "current
 /// pace" readout built straight off it visibly flickers. [alpha] is the
 /// weight given to the new sample — lower = smoother but slower to react to a
-/// genuine pace change. 0.25 settles a step change in ~4 fixes (~4×5m at
-/// running cadence) while still damping single-fix noise.
-double emaSpeed(double? prevSmoothed, double raw, {double alpha = 0.25}) {
+/// genuine pace change. 0.15 settles a step change in ~6-7 fixes while
+/// damping single-fix Doppler/multipath noise harder than 0.25 did — a real
+/// user report of transient implausible live-pace readings (e.g. "1:45/km"
+/// for a jog) showed 0.25 still let a single noisy fix swing the displayed
+/// pace too far for one fix's worth of real signal.
+double emaSpeed(double? prevSmoothed, double raw, {double alpha = 0.15}) {
   if (prevSmoothed == null) return raw;
   return prevSmoothed + alpha * (raw - prevSmoothed);
 }

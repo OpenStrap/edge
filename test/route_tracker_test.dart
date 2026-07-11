@@ -303,6 +303,30 @@ void main() {
     await ctrl.close();
   });
 
+  test('currentSpeedMps clamps an implausible platform-reported speed '
+      'before smoothing, not just after', () async {
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(sink: (_) async {}, batchSize: 100);
+    t.start(ctrl.stream);
+
+    ctrl.add(_fix(0, speed: 3.0));
+    await pumpEventQueue();
+
+    // A platform-reported speed way beyond any plausible run/ride/walk —
+    // a Doppler/multipath glitch, not real motion.
+    ctrl.add(_fix(1, speed: 50.0));
+    await pumpEventQueue();
+
+    // Clamped to kMaxPlausibleSpeedMps (25) BEFORE the EMA runs, so the
+    // result is bounded by smoothing toward 25, never toward 50.
+    final v = t.currentSpeedMps.value!;
+    final maxIfClampedFirst = 3.0 + 0.15 * (25.0 - 3.0); // ~6.3
+    expect(v, lessThanOrEqualTo(maxIfClampedFirst + 0.01));
+
+    await t.stop();
+    await ctrl.close();
+  });
+
   test(
     'currentSpeedMps falls back to a fix-to-fix derivation when the '
     'platform reports none',
@@ -355,6 +379,92 @@ void main() {
       async.flushMicrotasks();
       unawaited(ctrl.close());
     });
+  });
+
+  test('drops GPS-noise-floor jitter: no distance, no new vertex, anchor '
+      'unchanged', () async {
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(
+      sink: (_) async {},
+      batchSize: 100,
+      minMovementM: 5,
+    );
+    t.start(ctrl.stream);
+
+    ctrl.add(_fix(0, stepMeters: 0)); // anchor at lng=0
+    // Three fixes jittering back and forth within 5 m of the anchor —
+    // classic stationary multipath drift (e.g. lying in bed).
+    ctrl.add(GpsSample(lat: 0, lng: 2 / _mPerDegLngAtEq, tsMs: 1000));
+    ctrl.add(GpsSample(lat: 0, lng: -1 / _mPerDegLngAtEq, tsMs: 2000));
+    ctrl.add(GpsSample(lat: 0, lng: 3 / _mPerDegLngAtEq, tsMs: 3000));
+    await pumpEventQueue();
+
+    // Only the anchor itself was accepted — every jitter fix was dropped.
+    expect(t.pointCount, 1);
+    expect(t.distanceMeters.value, 0);
+    expect(t.path.value.length, 1);
+
+    await t.stop();
+    await ctrl.close();
+  });
+
+  test('genuine slow movement still accumulates across noise-floor drops, '
+      'captured coarsely once it clears the floor', () async {
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(
+      sink: (_) async {},
+      batchSize: 100,
+      minMovementM: 5,
+    );
+    t.start(ctrl.stream);
+
+    ctrl.add(_fix(0, stepMeters: 0)); // anchor
+    // Each step is only 2 m from the PREVIOUS raw fix, but since dropped
+    // fixes never advance the anchor, distance-from-anchor keeps growing:
+    // 2 m, 4 m (still < 5 m floor, both dropped)... then 6 m clears it.
+    ctrl.add(GpsSample(lat: 0, lng: 2 / _mPerDegLngAtEq, tsMs: 1000));
+    ctrl.add(GpsSample(lat: 0, lng: 4 / _mPerDegLngAtEq, tsMs: 2000));
+    ctrl.add(GpsSample(lat: 0, lng: 6 / _mPerDegLngAtEq, tsMs: 3000));
+    await pumpEventQueue();
+
+    // The anchor + the one fix that finally cleared the floor.
+    expect(t.pointCount, 2);
+    expect(t.distanceMeters.value, closeTo(6, 0.5)); // full distance kept
+    expect(t.path.value.length, 2);
+
+    await t.stop();
+    await ctrl.close();
+  });
+
+  test('a route dominated by stationary jitter keeps a tight, real bounding '
+      'box (no phantom vertices to inflate it)', () async {
+    // Regression for the map-zoom bug: a stationary period used to add a
+    // vertex per jittery fix, which could make the route's LatLngBounds
+    // degenerate. With the noise floor, a long stationary spell before real
+    // movement starts contributes exactly ONE vertex (the anchor), not one
+    // per fix.
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(sink: (_) async {}, batchSize: 100, minMovementM: 5);
+    t.start(ctrl.stream);
+
+    ctrl.add(_fix(0, stepMeters: 0));
+    for (var i = 1; i <= 20; i++) {
+      // Small pseudo-random jitter, all within the floor.
+      final jitter = (i.isEven ? 1 : -1) * (1 + (i % 3));
+      ctrl.add(GpsSample(lat: 0, lng: jitter / _mPerDegLngAtEq, tsMs: i * 1000));
+    }
+    await pumpEventQueue();
+
+    expect(t.path.value.length, 1); // still just the anchor
+
+    // Now real movement starts — should be captured normally.
+    ctrl.add(GpsSample(lat: 0, lng: 500 / _mPerDegLngAtEq, tsMs: 21000));
+    await pumpEventQueue();
+    expect(t.path.value.length, 2);
+    expect(t.distanceMeters.value, closeTo(500, 5));
+
+    await t.stop();
+    await ctrl.close();
   });
 
   test('stalled never trips for a session shorter than stallAfter', () {

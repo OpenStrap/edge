@@ -9,6 +9,7 @@
 // LOCAL-FIRST: the sink writes to the on-device `workout_route` table only.
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
@@ -38,6 +39,26 @@ class RouteTracker {
   /// spike is still rejected.
   final double maxJumpM;
 
+  /// GPS noise floor (metres): a fix within this distance of the last
+  /// ACCEPTED point is dropped — not added to distance or the route polyline.
+  /// Consumer GPS commonly drifts a few metres between fixes from multipath
+  /// alone, even while genuinely stationary (indoors, or before a workout's
+  /// real movement starts) and even with a "good" reported accuracy well
+  /// under [maxAccuracyM]. Without this floor, that drift silently
+  /// accumulates into real-looking phantom distance, AND — separately —
+  /// pollutes the route's bounding box with a tight jittery cluster, which
+  /// made the map's fit-to-bounds zoom in to near-max trying to "fit" it.
+  ///
+  /// Deliberately does NOT advance the anchor when a fix is dropped: the next
+  /// fix is compared against the SAME last-accepted point, so genuine slow
+  /// movement still accumulates and gets captured (just in coarser steps)
+  /// the moment its cumulative distance from the anchor clears the floor —
+  /// only fixes that never net a real displacement (isolated back-and-forth
+  /// jitter) are dropped for good. An engineering choice tuned to typical
+  /// phone-GPS drift, not a cited scientific threshold — same convention as
+  /// [maxJumpM]/[maxSpeedMps].
+  final double minMovementM;
+
   /// Fastest plausible sustained speed (m/s) for the jump allowance.
   final double maxSpeedMps;
 
@@ -66,6 +87,7 @@ class RouteTracker {
     this.batchSize = 8,
     this.maxAccuracyM = 50,
     this.maxJumpM = 200,
+    this.minMovementM = 4,
     this.maxSpeedMps = rmath.kMaxPlausibleSpeedMps,
     this.rejectStreakLimit = 3,
     this.zoneNow,
@@ -161,6 +183,13 @@ class RouteTracker {
         // fresh segment anchor: no distance for the jump, polyline breaks here.
         _rejectStreak = 0;
         gapBefore = true;
+      } else if (jump < minMovementM) {
+        // Below the GPS noise floor — not implausible, just too small to be
+        // real movement (multipath drift while stationary). Drop it WITHOUT
+        // advancing `_last`: the next fix still compares against this SAME
+        // anchor, so genuine slow movement accumulates across drops and gets
+        // captured, coarsely, once it clears the floor — see [minMovementM].
+        return;
       } else {
         _rejectStreak = 0;
         distanceMeters.value = distanceMeters.value + jump;
@@ -176,7 +205,14 @@ class RouteTracker {
       seq: _seq, tsMs: s.tsMs, lat: s.lat, lng: s.lng,
     )));
     if (rawSpeed != null && rawSpeed.isFinite && rawSpeed >= 0) {
-      currentSpeedMps.value = rmath.emaSpeed(currentSpeedMps.value, rawSpeed);
+      // Clamp before smoothing, not just after: a single wild Doppler/
+      // multipath spike (or a fallback speed inflated by two fixes arriving
+      // unusually close together) shouldn't get to pull the EMA toward it
+      // AT ALL beyond this ceiling, even damped — a real user report of a
+      // transient implausible live pace (e.g. "1:45/km" mid-jog) showed a
+      // single such reading still visibly swayed the displayed number.
+      final clamped = math.min(rawSpeed, rmath.kMaxPlausibleSpeedMps);
+      currentSpeedMps.value = rmath.emaSpeed(currentSpeedMps.value, clamped);
     }
 
     final p = RoutePoint(
