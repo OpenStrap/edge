@@ -14,9 +14,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
@@ -2310,7 +2308,13 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       _log('Reconnect failed: $e');
     } finally {
-      if (!_keepAlive) {
+      // this used to only check !_keepAlive, but the while loop above can
+      // ALSO exit because device.autoReconnectPaused flipped true mid-loop
+      // (bond-refusal give-up) while _keepAlive is still true - that path
+      // left foreground intent stuck on forever, which blocks every
+      // headless background-sync entry point (BandOwnership.tryAcquireHeadless
+      // gates on this being off). same bug shape as the foregroundActive fix.
+      if (!_keepAlive || device.autoReconnectPaused) {
         BandOwnership.markForegroundIntent(false);
         _log('[OWNERSHIP] reconnect intent off (${BandOwnership.debugState})');
       }

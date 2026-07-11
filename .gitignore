@@ -73,3 +73,12 @@ android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 lib/firebase_options.dart
 firebase.json
+
+# one-off local debug scratch files - had a handful of these lying around
+# untracked for a while (fetch_apps.js, scratch_check_db.py, test_db2.dart,
+# etc), gitignoring the common naming patterns so it doesn't happen again.
+# not trying to catch every possible name, just the obvious ones.
+scratch_*
+**/scratch_test*.dart
+**/*_db2.dart
+/fetch_apps.js

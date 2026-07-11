@@ -48,6 +48,18 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
     setState(() => _saving = true);
     final cadence = await context.read<AppState>().finishStepCalibration();
     if (!mounted) return;
+    if (cadence == null) {
+      // used to just silently fall through here - gauge would reset with
+      // nothing telling the user their walk didn't save. reusing the same
+      // _error/StateCard the start-failure path already has, "try again"
+      // re-arms a fresh walk which is the right recovery either way.
+      setState(() {
+        _saving = false;
+        _error = "That walk wasn't steady enough to learn from — try again "
+            'on flatter, less crowded ground.';
+      });
+      return;
+    }
     setState(() {
       _saving = false;
       _learnedCadence = cadence;

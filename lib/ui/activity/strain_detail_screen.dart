@@ -36,14 +36,42 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
   _Phase _phase = _Phase.loading;
   String? _error;
   Map<String, dynamic> _data = const {};
+  // same fix as HeartDayCard/OxygenDayCard/WearDayCard's shared _Fetch widget
+  // (detail_cards.dart) and SleepDetailScreen - this fetched once at mount
+  // and never again, so it'd keep showing stale strain if a background
+  // derive finished while the screen was open.
+  AppState? _app;
+  VoidCallback? _insightsListener;
+  int _lastInsightsRevision = -1;
 
   @override
   void initState() {
     super.initState();
+    _app = context.read<AppState>();
+    _lastInsightsRevision = _app!.insightsRevision.value;
+    _insightsListener = () {
+      final app = _app;
+      if (!mounted || app == null) return;
+      final next = app.insightsRevision.value;
+      if (next == _lastInsightsRevision) return;
+      _lastInsightsRevision = next;
+      _load(background: true);
+    };
+    _app!.insightsRevision.addListener(_insightsListener!);
     _load();
   }
 
-  Future<void> _load() async {
+  @override
+  void dispose() {
+    final listener = _insightsListener;
+    final app = _app;
+    if (listener != null && app != null) {
+      app.insightsRevision.removeListener(listener);
+    }
+    super.dispose();
+  }
+
+  Future<void> _load({bool background = false}) async {
     final api = context.read<AppState>().repo;
     if (api == null) {
       setState(() {
@@ -52,10 +80,12 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
       });
       return;
     }
-    setState(() {
-      _phase = _Phase.loading;
-      _error = null;
-    });
+    if (!background) {
+      setState(() {
+        _phase = _Phase.loading;
+        _error = null;
+      });
+    }
     try {
       final res = await api.getDayStrain(widget.date);
       if (!mounted) return;

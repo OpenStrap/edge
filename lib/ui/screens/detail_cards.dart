@@ -69,10 +69,40 @@ class _Fetch extends StatefulWidget {
 class _FetchState extends State<_Fetch> {
   Map<String, dynamic>? _d;
   bool _loading = true;
+  // this used to just fetch once at mount and never again - unlike
+  // ScreenLoaderMixin (Today screen), nothing here listened for
+  // insightsRevision, so Heart/Oxygen/Wear (all three go through this one
+  // shared widget) would silently keep showing a stale day if a background
+  // derive completed while the screen was open. same fix, same pattern.
+  AppState? _app;
+  VoidCallback? _insightsListener;
+  int _lastInsightsRevision = -1;
+
   @override
   void initState() {
     super.initState();
+    _app = context.read<AppState>();
+    _lastInsightsRevision = _app!.insightsRevision.value;
+    _insightsListener = () {
+      final app = _app;
+      if (!mounted || app == null) return;
+      final next = app.insightsRevision.value;
+      if (next == _lastInsightsRevision) return;
+      _lastInsightsRevision = next;
+      _go(); // _loading is already false by now, so this refreshes quietly
+    };
+    _app!.insightsRevision.addListener(_insightsListener!);
     _go();
+  }
+
+  @override
+  void dispose() {
+    final listener = _insightsListener;
+    final app = _app;
+    if (listener != null && app != null) {
+      app.insightsRevision.removeListener(listener);
+    }
+    super.dispose();
   }
 
   Future<void> _go() async {
@@ -228,15 +258,10 @@ class HeartDayContent extends StatelessWidget {
         : null;
     final brvHas = (d['brv'] is Map) && ((d['brv'] as Map)['value'] is Map);
     final baselines = (d['baselines'] as Map?);
-    final dmap = (d['drivers'] as Map?) ?? const {};
-    final heartDrivers =
-        [
-              ...((dmap['recovery'] as List?) ?? const []),
-              ...((dmap['stress'] as List?) ?? const []),
-            ]
-            .whereType<Map>()
-            .where((dr) => (dr['label']?.toString() ?? '').isNotEmpty)
-            .toList();
+    // used to also read a top-level d['drivers'] map here for a "what
+    // affected this" section + a desaturation row, but getDayHeart() never
+    // actually sets that key - it was permanently dead code, removed rather
+    // than force-fitting a fake driver split just to have something to show.
     final latest = hr.isEmpty ? null : hr.last;
     final peak = hr.isEmpty ? null : hr.reduce((a, b) => a.y >= b.y ? a : b);
     final low = hr.isEmpty ? null : hr.reduce((a, b) => a.y <= b.y ? a : b);
@@ -674,7 +699,7 @@ class HeartDayContent extends StatelessWidget {
         ],
 
         // ── Respiratory + skin temperature ───────────────────────────────────
-        if (resp != null || spo2 != null || dmap['desaturation'] is Map) ...[
+        if (resp != null || spo2 != null) ...[
           const SizedBox(height: Sp.x6),
           const SectionHeader('Respiratory'),
           MetricGroup([
@@ -697,19 +722,6 @@ class HeartDayContent extends StatelessWidget {
                 unit: '/h',
                 metric: 'spo2',
                 trendTitle: 'Overnight oxygen dips',
-              ),
-            // Overnight desaturation screen (RELATIVE, not diagnostic).
-            if (dmap['desaturation'] is Map)
-              MetricRow(
-                icon: OsIcon.hydration,
-                accent: AppColors.warn,
-                label: 'Desaturation dips',
-                info:
-                    'Number of relative blood-oxygen dips overnight (per hour). '
-                    'A screen, not a diagnosis — talk to a clinician if it '
-                    'stays high.',
-                value: '${(dmap['desaturation'] as Map)['events'] ?? 0}',
-                unit: '· ${(dmap['desaturation'] as Map)['odi'] ?? 0}/h',
               ),
           ]),
         ],
@@ -756,27 +768,6 @@ class HeartDayContent extends StatelessWidget {
         const SizedBox(height: Sp.x6),
         const SectionHeader('Irregular-beat watch'),
         _IrregularCard(d['irregular'] is Map ? d['irregular'] as Map : null),
-
-        // ── What affected this — display-only ───────────────────────────────
-        if (heartDrivers.isNotEmpty) ...[
-          const SizedBox(height: Sp.x6),
-          const SectionHeader('What affected this'),
-          SurfaceCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: Sp.x4,
-              vertical: Sp.x2,
-            ),
-            child: Column(
-              children: [
-                for (final dr in heartDrivers)
-                  DetailRow(
-                    label: dr['label']?.toString() ?? '',
-                    value: dr['detail']?.toString() ?? '',
-                  ),
-              ],
-            ),
-          ),
-        ],
       ],
     );
   }

@@ -190,6 +190,11 @@ class _ActivityDetailState extends State<_ActivityDetail> {
   double? _steps;
   List<double?> _week = const [];
   List<String> _weekLabels = const [];
+  // same insightsRevision staleness fix as the other detail screens - this
+  // fetched once at mount and never again.
+  AppState? _app;
+  VoidCallback? _insightsListener;
+  int _lastInsightsRevision = -1;
 
   bool get _isToday => widget.date == null;
   String get _day => widget.date ?? todayLabel();
@@ -197,7 +202,28 @@ class _ActivityDetailState extends State<_ActivityDetail> {
   @override
   void initState() {
     super.initState();
+    _app = context.read<AppState>();
+    _lastInsightsRevision = _app!.insightsRevision.value;
+    _insightsListener = () {
+      final app = _app;
+      if (!mounted || app == null) return;
+      final next = app.insightsRevision.value;
+      if (next == _lastInsightsRevision) return;
+      _lastInsightsRevision = next;
+      _load();
+    };
+    _app!.insightsRevision.addListener(_insightsListener!);
     _load();
+  }
+
+  @override
+  void dispose() {
+    final listener = _insightsListener;
+    final app = _app;
+    if (listener != null && app != null) {
+      app.insightsRevision.removeListener(listener);
+    }
+    super.dispose();
   }
 
   Future<void> _load() async {

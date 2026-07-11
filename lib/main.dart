@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'app.dart';
 import 'telemetry/telemetry_service.dart';
 import 'ble/ios_ble_restore.dart';
-import 'compute/background_derivation.dart';
 import 'notify/notification_service.dart';
 import 'coach/coach_config.dart';
 import 'state/app_state.dart';
@@ -62,6 +61,12 @@ Future<void> main() async {
   await _safeInit('HeadlessBoot', maybeHeadlessBoot);
   await _safeInit('WidgetService', WidgetService.init);
   await _safeInit('NotificationService', NotificationService.instance.init);
+  // note: BackgroundDerivation.init() (compute/background_derivation.dart,
+  // Android WorkManager periodic heavy-derive/sync) is intentionally NOT
+  // called here anymore - it was deliberately removed to fix a real
+  // background-sync/analyze isolate collision with AppState's own
+  // persistent-connection background session. don't re-add this without
+  // understanding why it was pulled first.
   // Cache SharedPreferences so UI screens can synchronously RESTORE saved
   // selections (tab, range toggles) in initState with no async flash.
   await _safeInit('Prefs', Prefs.ensureLoaded);

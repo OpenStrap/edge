@@ -268,11 +268,23 @@ class LocalDb {
           // speed was ever recorded for them) — never backfilled/guessed.
           await _ensureWorkoutRouteSpeed(db);
         }
+        if (oldV < 24) {
+          // day_result rows written by _markDaySkipped (a day whose
+          // derivation threw) look identical to a real derived day to
+          // anything just checking "is there a row at this algo_version" -
+          // which is exactly what the raw-pruning guard does. that let a day
+          // that failed to derive get treated as safe-to-prune, deleting its
+          // raw substrate for good. this column lets the guard tell the two
+          // apart. existing rows default to 0 (not skipped) - can't know in
+          // hindsight which old rows were skip markers, but going forward
+          // this is right.
+          await _ensureDayResultSkippedColumn(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
       },
-      version: 23,
+      version: 24,
     );
   }
 
@@ -319,10 +331,25 @@ class LocalDb {
     await _createSleepOverride(db);
     await _createWorkoutRoute(db);
     await _ensureWorkoutRouteSpeed(db);
+    await _ensureDayResultSkippedColumn(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
+  }
+
+  static Future<void> _ensureDayResultSkippedColumn(Database db) async {
+    final info = await db.rawQuery('PRAGMA table_info(day_result)');
+    final has = info.any((c) => c['name'] == 'skipped');
+    if (!has) {
+      try {
+        await db.execute(
+          'ALTER TABLE day_result ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0',
+        );
+      } catch (_) {
+        /* another opener won the race — column now exists */
+      }
+    }
   }
 
   // ── MENSTRUAL SYMPTOM LOG ──────────────────────────────────────────────────
@@ -711,6 +738,7 @@ class LocalDb {
         rhr REAL,
         rmssd REAL,
         readiness REAL,
+        skipped INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (day_id, algo_version)
       )
     ''');
@@ -2118,6 +2146,7 @@ class LocalDb {
     required String payloadJson,
     required String windowJson,
     bool finalized = false,
+    bool skipped = false,
     double? rhr,
     double? rmssd,
     double? readiness,
@@ -2133,6 +2162,7 @@ class LocalDb {
         'window_json': windowJson,
         'computed_at': now,
         'finalized': finalized ? 1 : 0,
+        'skipped': skipped ? 1 : 0,
         'rhr': rhr,
         'rmssd': rmssd,
         'readiness': readiness,
@@ -2181,13 +2211,17 @@ class LocalDb {
     return [for (final r in rows) _withDate(r)];
   }
 
-  /// The set of day_id labels that already have a result at [algoVersion].
+  /// The set of day_id labels that already have a REAL (non-skipped) result
+  /// at [algoVersion]. Used by the raw-pruning guard to decide what's safe
+  /// to prune - a day that only ever got a skip-marker (its derivation
+  /// threw) must NOT count as "derived" here, or its raw substrate gets
+  /// pruned with no way left to ever compute it correctly.
   static Future<Set<String>> dayResultIds(int algoVersion) async {
     final db = await instance;
     final rows = await db.query(
       'day_result',
       columns: ['day_id'],
-      where: 'algo_version = ?',
+      where: 'algo_version = ? AND skipped = 0',
       whereArgs: [algoVersion],
     );
     return {for (final r in rows) r['day_id'] as String};
@@ -3597,15 +3631,18 @@ class LocalDb {
   /// TIME (epoch seconds) is strictly before [cutoffSec].
   static Future<int> pruneDecodedBeforeRecTs(int cutoffSec) async {
     final db = await instance;
+    // `deleted` used to just stay 0 forever - none of the txn.delete() calls'
+    // return values (rows actually deleted) were ever added to it, so the
+    // caller's `if (deleted > 0) log(...)` never fired even on a real prune.
     int deleted = 0;
     await db.transaction((txn) async {
-      await txn.delete(
+      deleted += await txn.delete(
         'decoded_rr',
         where:
             'counter IN (SELECT counter FROM decoded_onehz WHERE rec_ts < ?)',
         whereArgs: [cutoffSec],
       );
-      await txn.delete(
+      deleted += await txn.delete(
         'decoded_onehz',
         where: 'rec_ts < ?',
         whereArgs: [cutoffSec],
@@ -3616,16 +3653,20 @@ class LocalDb {
       // those. Their rr_ts_ms is the colliding second, so once the window is
       // pruned they're strictly before the cutoff; delete any beat in the
       // pruned window whose counter no longer exists in decoded_onehz.
-      await txn.delete(
+      deleted += await txn.delete(
         'decoded_rr',
         where:
             'rr_ts_ms < ? AND counter NOT IN (SELECT counter FROM decoded_onehz)',
         whereArgs: [cutoffSec * 1000],
       );
-      await txn.delete('samples', where: 'ts < ?', whereArgs: [cutoffSec]);
-      await txn.delete('events', where: 'ts < ?', whereArgs: [cutoffSec]);
-      await txn.delete('band_events', where: 'ts < ?', whereArgs: [cutoffSec]);
-      await txn.delete('band_battery', where: 'ts < ?', whereArgs: [cutoffSec]);
+      deleted +=
+          await txn.delete('samples', where: 'ts < ?', whereArgs: [cutoffSec]);
+      deleted +=
+          await txn.delete('events', where: 'ts < ?', whereArgs: [cutoffSec]);
+      deleted += await txn.delete('band_events',
+          where: 'ts < ?', whereArgs: [cutoffSec]);
+      deleted += await txn.delete('band_battery',
+          where: 'ts < ?', whereArgs: [cutoffSec]);
     });
     return deleted;
   }

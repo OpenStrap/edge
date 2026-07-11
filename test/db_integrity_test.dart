@@ -109,12 +109,41 @@ void main() {
     const keepTs = 1780000500;
     await LocalDb.insertRecord(_raw(keepTs, 7), _sample(keepTs, 7, [700]));
 
-    await LocalDb.pruneDecodedBeforeRecTs(oldTs + 1000);
+    final deleted = await LocalDb.pruneDecodedBeforeRecTs(oldTs + 1000);
 
     final orphan = await db.query('decoded_rr', where: 'counter = ?', whereArgs: [999999]);
     expect(orphan, isEmpty, reason: 'orphan sweep must clean the leaked beat');
     final kept = await db.query('decoded_rr', where: 'counter = ?', whereArgs: [7]);
     expect(kept.length, 1);
+    // used to always come back 0 even when rows genuinely got pruned - none
+    // of the txn.delete() counts were ever added up.
+    expect(deleted, greaterThan(0),
+        reason: 'the returned count must reflect the rows actually deleted');
+  });
+
+  test('dayResultIds excludes skipped days - a failed derivation must not look "done" to the pruning guard', () async {
+    const v = 9001; // scratch version, wont collide with other tests in this file
+    await LocalDb.putDayResult(
+      dayId: '2026-08-01',
+      algoVersion: v,
+      payloadJson: '{"real": true}',
+      windowJson: '{}',
+    );
+    await LocalDb.putDayResult(
+      dayId: '2026-08-02',
+      algoVersion: v,
+      payloadJson: '{"skipped": true, "reason": "test threw"}',
+      windowJson: '{}',
+      skipped: true,
+    );
+
+    final ids = await LocalDb.dayResultIds(v);
+    expect(ids.contains('2026-08-01'), isTrue,
+        reason: 'a real derived day must still count as derived');
+    expect(ids.contains('2026-08-02'), isFalse,
+        reason: 'a skip-marker day must NOT count as derived - counting it '
+            'is exactly the bug that let the pruning guard delete raw data '
+            'for a day that never actually finished deriving');
   });
 
   test('importFromDbFile never overwrites a locally-FINALIZED day_result', () async {

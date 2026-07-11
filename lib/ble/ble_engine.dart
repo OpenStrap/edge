@@ -40,8 +40,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_performance/firebase_performance.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 import '../data/db.dart';
@@ -1630,26 +1628,34 @@ class BleEngine {
   }
 
   Future<void> _drainOffloadFrames() async {
-    while (_offloadFrames.isNotEmpty) {
-      final count = _offloadFrames.length > 64 ? 64 : _offloadFrames.length;
-      final batch = _offloadFrames.sublist(0, count);
-      _offloadFrames.removeRange(0, count);
-      // Records are flowing → the strap is still draining. Armed per drained
-      // batch (bounded rate) instead of per record — same watchdog semantics,
-      // no Timer churn at flood rates. Markers re-arm it in _handleSyncMarker.
-      _armIdleWatchdog();
-      for (final frame in batch) {
-        if (frame.packetType == PacketType.metadata) {
-          await _handleSyncMarker(frame);
-        } else {
-          _ingestHistoricalFrame(frame);
+    // this used to have no try/finally, so if anything inside the loop threw
+    // (a couple of the ledger writes in _handleSyncMarker weren't guarded),
+    // _drainingOffloadFrames never got reset back to false and every future
+    // _enqueueOffloadFrame call would just silently no-op forever - zero
+    // sync progress until a full disconnect/reconnect.
+    try {
+      while (_offloadFrames.isNotEmpty) {
+        final count = _offloadFrames.length > 64 ? 64 : _offloadFrames.length;
+        final batch = _offloadFrames.sublist(0, count);
+        _offloadFrames.removeRange(0, count);
+        // Records are flowing → the strap is still draining. Armed per drained
+        // batch (bounded rate) instead of per record — same watchdog semantics,
+        // no Timer churn at flood rates. Markers re-arm it in _handleSyncMarker.
+        _armIdleWatchdog();
+        for (final frame in batch) {
+          if (frame.packetType == PacketType.metadata) {
+            await _handleSyncMarker(frame);
+          } else {
+            _ingestHistoricalFrame(frame);
+          }
+        }
+        if (_offloadFrames.isNotEmpty) {
+          await Future<void>.delayed(Duration.zero);
         }
       }
-      if (_offloadFrames.isNotEmpty) {
-        await Future<void>.delayed(Duration.zero);
-      }
+    } finally {
+      _drainingOffloadFrames = false;
     }
-    _drainingOffloadFrames = false;
   }
 
   /// THE single historical-record processing path — used by BOTH the queued
@@ -1964,6 +1970,21 @@ class BleEngine {
     );
   }
 
+  /// Best-effort write for the sync_ledger diagnostics (sync-diagnostics
+  /// screen) — never correctness-critical. These used to be plain unguarded
+  /// awaits inside _handleSyncMarker, so a transient sqlite busy/locked
+  /// error on one of them could abort mid-marker, skipping whatever
+  /// actually-important step (the commit, the ACK, the link-bounce recovery)
+  /// was still queued after it. A diagnostic write failing should never take
+  /// the real sync logic down with it.
+  Future<void> _bestEffortLedgerWrite(Future<void> Function() write) async {
+    try {
+      await write();
+    } catch (e) {
+      _log('[SYNC] ledger write failed (non-fatal, continuing): $e');
+    }
+  }
+
   Future<void> _handleSyncMarker(Frame frame) async {
     final m = parseMetadata(frame.inner);
     if (m == null) return;
@@ -2037,7 +2058,7 @@ class BleEngine {
           'traffic=${d.currentBurstTrafficCount}, '
           'breakdown=${d.currentBurstBreakdown}',
         );
-        await LocalDb.upsertSyncLedgerEntry(
+        await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
           status: 'validated_with_mismatch',
           lastError: 'burst_packet_mismatch',
           metaPatch: {
@@ -2049,7 +2070,7 @@ class BleEngine {
             'burst_validation_failures': d.consecutiveValidationFailures,
             'burst_breakdown': d.currentBurstBreakdown,
           },
-        );
+        ));
       } else {
         _burstMismatchStreak = 0;
       }
@@ -2093,7 +2114,7 @@ class BleEngine {
         // visibility, plus an explicit quarantine escalation once the SAME
         // token has failed enough times to be a real, diagnosable problem.
         final failCount = _chunkFailures.recordFailure(tokenHex);
-        await LocalDb.upsertSyncLedgerEntry(
+        await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
           chunkId: 'batch:$tokenHex',
           kind: 'historical_batch',
           status: 'ack_failed',
@@ -2103,9 +2124,9 @@ class BleEngine {
             'records': d.records,
             'ack_failures': failCount,
           },
-        );
+        ));
         if (_chunkFailures.shouldQuarantine(tokenHex)) {
-          await LocalDb.quarantineSyncChunk(
+          await _bestEffortLedgerWrite(() => LocalDb.quarantineSyncChunk(
             kind: 'historical_batch',
             payloadJson: jsonEncode({
               'token': tokenHex,
@@ -2113,7 +2134,7 @@ class BleEngine {
               'ack_failures': failCount,
             }),
             reason: 'persistent_ack_failure',
-          );
+          ));
           _log(
             '[SYNC] Batch token=$tokenHex has failed ACK $failCount times '
             'across reconnects — quarantined for diagnosis. Data is safe '
@@ -2134,7 +2155,7 @@ class BleEngine {
       }
       _chunkFailures.recordSuccess(tokenHex);
       d.noteBatchAcked(); // ACKed and KEEP listening
-      await LocalDb.upsertSyncLedgerEntry(
+      await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
         status: 'acknowledged',
         ackedAt: DateTime.now().millisecondsSinceEpoch,
         metaPatch: {
@@ -2145,10 +2166,10 @@ class BleEngine {
           'strap_history_oldest_ts': _strapHistoryOldestTs,
           'strap_history_newest_ts': _strapHistoryNewestTs,
         },
-      );
+      ));
       // Same event, but a REAL per-chunk row keyed by the token — closes out
       // whatever ack_failed history this token accumulated above.
-      await LocalDb.upsertSyncLedgerEntry(
+      await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
         chunkId: 'batch:$tokenHex',
         kind: 'historical_batch',
         status: 'acked',
@@ -2157,7 +2178,7 @@ class BleEngine {
           'batch_id': m.batchId,
           'records': d.records,
         },
-      );
+      ));
       _noteStored(); // a banked batch → schedule a (debounced) derive
     } else if (m.sub == SyncMeta.historyComplete) {
       final d = _drain;
@@ -2176,7 +2197,7 @@ class BleEngine {
       d.onComplete();
       _historyCompletions++;
       _session?.idleWatchdog?.cancel();
-      await LocalDb.upsertSyncLedgerEntry(
+      await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
         status: 'complete',
         metaPatch: {
           'history_complete_at': DateTime.now().millisecondsSinceEpoch,
@@ -2187,7 +2208,7 @@ class BleEngine {
           'strap_history_oldest_ts': _strapHistoryOldestTs,
           'strap_history_newest_ts': _strapHistoryNewestTs,
         },
-      );
+      ));
       _log(
         '[SYNC] HistoryComplete — backlog drained (${d.records} records, '
         '${_recordGate.dropped} dropped). Still listening for live records.',
@@ -2286,8 +2307,17 @@ class BleEngine {
       _autoContinueCount++;
       _log('[SYNC] auto-continue #$_autoContinueCount — more backlog remains.');
       await _triggerBackfill(BackfillTrigger.autoContinue);
-    } else if (!complete && _lastHpsTerminal == null) {
-      _setHpsTerminal(_HpsTerminalKind.timeout, drain: d);
+    } else {
+      // nothing left to continue - this offload cycle is genuinely done
+      // either way (clean completion or not), so maintenance traffic
+      // (heartbeat/keepalive/RTC re-verify/live re-arm/battery poll) can
+      // resume. this used to only clear on the !complete sub-case below,
+      // so an ordinary clean completion with no more backlog left
+      // maintenance traffic silently paused for the rest of the connection.
+      _setOffloadActive(false);
+      if (!complete && _lastHpsTerminal == null) {
+        _setHpsTerminal(_HpsTerminalKind.timeout, drain: d);
+      }
     }
   }
 

@@ -552,7 +552,7 @@ class DerivationEngine {
             _log('derive day $dayId skipped: no bounded window payload');
             await _markDaySkipped(
               dayId,
-              _localDayLabelToSec(dayId) + 86400,
+              _localNextDayLabelToSec(dayId),
               dataNowSec,
               reason: 'no_bounded_window_payload',
             );
@@ -561,7 +561,7 @@ class DerivationEngine {
           }
         } catch (e) {
           _log('derive day $dayId FAILED/skipped: $e');
-          final dayEndSec = _localDayLabelToSec(dayId) + 86400;
+          final dayEndSec = _localNextDayLabelToSec(dayId);
           await _markDaySkipped(
             dayId,
             dayEndSec,
@@ -730,7 +730,7 @@ class DerivationEngine {
     final stats = _PrepareStats();
     final candidate = await _sleepCandidateForDay(dayId, stats: stats);
     final dayStart = _localDayLabelToSec(dayId);
-    final dayEnd = dayStart + 86400;
+    final dayEnd = _localNextDayLabelToSec(dayId);
     final daySub = await _loadSubstrateRange(
       dayStart,
       dayEnd - 1,
@@ -1032,7 +1032,7 @@ class DerivationEngine {
       final cutoffSec = dataNowSec - _rescanWindowDays * 86400;
       final todoDays = [
         for (final dayId in rawByDay.keys)
-          if ((_localDayLabelToSec(dayId) + 86400) >= cutoffSec) dayId,
+          if (_localNextDayLabelToSec(dayId) >= cutoffSec) dayId,
       ]..sort();
       if (todoDays.isEmpty) {
         _log('rescan: no recent decoded-backed days');
@@ -1589,6 +1589,7 @@ class DerivationEngine {
         payloadJson: jsonEncode({'skipped': true, 'reason': reason}),
         windowJson: '{}',
         finalized: (dayEndSec + _finalizationSec) < dataNowSec,
+        skipped: true,
       );
     } catch (_) {
       /* best-effort */
@@ -2138,15 +2139,16 @@ class DerivationEngine {
         }
       }
       zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
-      if (true) {
-        calories = _keytelCaloriesWake(
-          perMin,
-          age,
-          weightKg,
-          hrMax,
-          sex == 'f',
-        );
-      }
+      // age/weightKg always have a value by this point (defaulted above), so
+      // this used to be a dead "if (age != null && weightKg != null && ...)"
+      // that flutter analyze flagged - there was never actually a gate here.
+      calories = _keytelCaloriesWake(
+        perMin,
+        age,
+        weightKg,
+        hrMax,
+        sex == 'f',
+      );
     }
     if (motion.isNotEmpty) {
       final stepMetric = ana.dailyStepEstimate(
@@ -2157,7 +2159,9 @@ class DerivationEngine {
       if (stepMetric.present && stepMetric.value != null) {
         steps = stepMetric.value!.steps.toDouble();
       }
-      if (age != null && weightKg != null && profile.heightCm != null) {
+      // same story - age/weightKg can't be null here, heightCm is the only
+      // field that actually still needs a null check.
+      if (profile.heightCm != null) {
         final energy = ana.Calories.dailyEnergy(
           hrPerMinAll,
           profile: ana.WorkoutUserProfile(
@@ -2943,6 +2947,18 @@ class DerivationEngine {
     return DateTime(d.year, d.month, d.day).millisecondsSinceEpoch ~/ 1000;
   }
 
+  // was `_localDayLabelToSec(day) + 86400` at every call site - assumes every
+  // local day is exactly 24h, which is wrong on the two DST-transition days a
+  // year (23h/25h). DateTime normalizes the day+1 overflow itself and
+  // .millisecondsSinceEpoch already respects local DST rules, so just asking
+  // for the START of the NEXT day gets this right without hardcoding a
+  // day length.
+  int _localNextDayLabelToSec(String day) {
+    final d = DateTime.tryParse(day);
+    if (d == null) return 0;
+    return DateTime(d.year, d.month, d.day + 1).millisecondsSinceEpoch ~/ 1000;
+  }
+
   String _skipReasonForError(Object error) {
     final msg = error.toString();
     if (msg.contains('day_prepare_budget_exceeded')) {
@@ -2956,7 +2972,7 @@ class DerivationEngine {
 
   (int, int) _targetDayWindow(String dayId) {
     final startSec = _localDayLabelToSec(dayId);
-    final endSec = startSec + 86400;
+    final endSec = _localNextDayLabelToSec(dayId);
     return (math.max(0, startSec - 6 * 3600), endSec - 1);
   }
 

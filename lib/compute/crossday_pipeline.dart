@@ -421,9 +421,13 @@ ana.Metric<ana.SriResult> _crossDaySri(List<Map<String, dynamic>> days) {
         final stage = seg['stage'] as String?;
         if (start == null || end == null) continue;
         // Segment bounds are epoch SECONDS; map to clock-minute-of-day [0,1440).
-        final startMin = ((start % 86400.0) / 60.0).floor();
+        // this was using `start % 86400` directly, which is the UTC
+        // time-of-day, not the user's wall clock - the exact mistake
+        // _localTodMin (right here in this same file, used correctly at
+        // line ~100) already exists to avoid.
+        final startMin = _localTodMin(start.round()).floor();
         // end is exclusive of the segment's trailing edge; cover [start,end).
-        final endMin = ((end % 86400.0) / 60.0).ceil();
+        final endMin = _localTodMin(end.round()).ceil();
         final asleepSeg = stage != null && stage != 'wake';
         for (var m = startMin; m < endMin; m++) {
           // Guard wrap: a segment that crosses midnight just clamps into grid.
