@@ -957,7 +957,7 @@ packages:
     description:
       path: "."
       ref: main
-      resolved-ref: "8d2d697e0a56356b33b75f30727e52b5eda0c743"
+      resolved-ref: "168d97677570cbb97a2d1504d80df7029476f327"
       url: "https://github.com/OpenStrap/analytics.git"
     source: git
     version: "1.0.0"
