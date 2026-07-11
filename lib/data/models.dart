@@ -163,5 +163,16 @@ class DeviceState {
   int? dataRangeOldest;
   int? dataRangeNewest;
 
+  /// Last GET_BODY_LOCATION_AND_STATUS (0x54) response, user-triggered only
+  /// (never sent automatically). Raw ints — the UI resolves [bodyLocationRaw]
+  /// via openstrap_protocol's GarmentDeviceLocation.fromValue. Confidence and
+  /// status are raw firmware bytes with no confirmed scale/enum yet (APK
+  /// ground-truth only surfaced the command + field layout, not their exact
+  /// semantics) — shown as-is, never re-interpreted into a fabricated label.
+  int? bodyLocationRaw;
+  int? bodyLocationConfidence;
+  int? bodyLocationStatus;
+  int? bodyLocationCheckedAt; // epoch sec of the last successful read
+
   DeviceState({this.connection = 'disconnected'});
 }

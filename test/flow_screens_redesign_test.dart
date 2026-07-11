@@ -214,6 +214,7 @@ void main() {
   for (final (label, palette) in [('light', kLightPalette), ('dark', kDarkPalette)]) {
     testWidgets('device tile renders + sync action runs ($label)', (t) async {
       var synced = 0;
+      var checked = 0;
       await t.pumpWidget(_host(
         DeviceTile(
           name: 'My Strap',
@@ -222,8 +223,10 @@ void main() {
           battery: '82%',
           wrist: 'On wrist',
           serial: '4A0XXXX',
+          wearLocation: 'Not checked',
           onTap: () {},
           onSyncNow: () async => synced++,
+          onCheckWearLocation: () async => checked++,
         ),
         palette: palette,
       ));
@@ -234,6 +237,7 @@ void main() {
       expect(find.text('82%'), findsOneWidget);
       expect(find.text('On wrist'), findsOneWidget);
       expect(find.text('4A0XXXX'), findsOneWidget);
+      expect(find.text('Not checked'), findsOneWidget);
       // No sync-anxiety copy on the tile.
       expect(find.textContaining('stored to'), findsNothing);
       expect(find.textContaining('every ~15'), findsNothing);
@@ -241,10 +245,14 @@ void main() {
       await t.tap(find.text('Sync now'));
       await t.pump(const Duration(milliseconds: 300));
       expect(synced, 1);
+
+      await t.tap(find.text('Check'));
+      await t.pump(const Duration(milliseconds: 300));
+      expect(checked, 1);
     });
   }
 
-  testWidgets('device tile hides sync action when disconnected', (t) async {
+  testWidgets('device tile hides sync + wear-location check actions when disconnected', (t) async {
     await t.pumpWidget(_host(
       const DeviceTile(
         name: 'My Strap',
@@ -253,10 +261,12 @@ void main() {
         battery: '—',
         wrist: '—',
         serial: '4A0XXXX',
+        wearLocation: 'Not checked',
       ),
     ));
     await _pumpTwice(t);
     expect(find.text('Sync now'), findsNothing);
+    expect(find.text('Check'), findsNothing);
     expect(find.text('Disconnected'), findsOneWidget);
   });
 

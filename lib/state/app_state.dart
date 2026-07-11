@@ -2011,6 +2011,42 @@ class AppState extends ChangeNotifier {
   /// [disableAlarm] (the DISABLE_ALARM opcode).
   Future<void> clearAlarm() => disableAlarm();
 
+  /// User-triggered wear-location check (GET_BODY_LOCATION_AND_STATUS = 0x54).
+  /// Deliberately not sent automatically on connect — see engine docs. Result
+  /// lands on `device.bodyLocation*` via the normal engine-state flow.
+  Future<void> checkBodyLocation() async {
+    if (!isConnected) throw Exception('Connect to your strap first');
+    await engine.getBodyLocationAndStatus();
+  }
+
+  /// Friendly label for the last wear-location check. Never fabricates: if we
+  /// haven't checked yet, says so plainly rather than guessing "Wrist" (the
+  /// only garment most users own, but not something we've actually verified).
+  String get bodyLocationLabel {
+    if (device.bodyLocationCheckedAt == null) return 'Not checked';
+    final loc = proto.GarmentDeviceLocation.fromValue(
+      device.bodyLocationRaw ?? -1,
+    );
+    switch (loc) {
+      case proto.GarmentDeviceLocation.wrist:
+        return 'Wrist';
+      case proto.GarmentDeviceLocation.bicep:
+        return 'Bicep';
+      case proto.GarmentDeviceLocation.calf:
+        return 'Calf';
+      case proto.GarmentDeviceLocation.sideTorso:
+        return 'Side torso';
+      case proto.GarmentDeviceLocation.glute:
+        return 'Glute';
+      case proto.GarmentDeviceLocation.ankle:
+        return 'Ankle';
+      default:
+        // unknown / notConclusive / unknownGarment / unmapped raw byte —
+        // the firmware itself couldn't confidently classify it.
+        return 'Not conclusive';
+    }
+  }
+
   /// Strap alarm-lifecycle events (56 set / 57–58 fired / 59 disabled). This is
   /// the authoritative confirmation the SET write actually took. The edge DOES see
   /// the protocol EventId names (strapDrivenAlarmSet == 56, …); the pure state

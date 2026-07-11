@@ -471,9 +471,14 @@ class ProfileScreen extends StatelessWidget {
           : '${d.batteryPct!.round()}%${d.charging == true ? ' ⚡' : ''}',
       wrist: d.wristOn == null ? '—' : (d.wristOn! ? 'On wrist' : 'Off wrist'),
       serial: d.serial ?? app.paired?.serial ?? '—',
+      wearLocation: app.bodyLocationLabel,
       // Manual pull: anything the strap flashed that we don't hold yet, over
       // the CURRENT connection (no reconnect). Only offered while connected.
       onSyncNow: conn == 'connected' ? () => app.forceResync() : null,
+      // On-demand only (GET_BODY_LOCATION_AND_STATUS isn't sent automatically
+      // on connect — see AppState.checkBodyLocation).
+      onCheckWearLocation:
+          conn == 'connected' ? () => app.checkBodyLocation() : null,
       onTap: () => _openDeviceSheet(context, app),
     );
   }
@@ -686,8 +691,10 @@ class DeviceTile extends StatefulWidget {
   final String battery;
   final String wrist;
   final String serial;
+  final String wearLocation;
   final VoidCallback? onTap;
   final Future<void> Function()? onSyncNow;
+  final Future<void> Function()? onCheckWearLocation;
 
   const DeviceTile({
     super.key,
@@ -697,8 +704,10 @@ class DeviceTile extends StatefulWidget {
     required this.battery,
     required this.wrist,
     required this.serial,
+    required this.wearLocation,
     this.onTap,
     this.onSyncNow,
+    this.onCheckWearLocation,
   });
 
   @override
@@ -707,6 +716,7 @@ class DeviceTile extends StatefulWidget {
 
 class _DeviceTileState extends State<DeviceTile> {
   bool _syncing = false;
+  bool _checkingWearLocation = false;
 
   Future<void> _sync() async {
     final run = widget.onSyncNow;
@@ -716,6 +726,17 @@ class _DeviceTileState extends State<DeviceTile> {
       await run();
     } finally {
       if (mounted) setState(() => _syncing = false);
+    }
+  }
+
+  Future<void> _checkWearLocation() async {
+    final run = widget.onCheckWearLocation;
+    if (run == null || _checkingWearLocation) return;
+    setState(() => _checkingWearLocation = true);
+    try {
+      await run();
+    } finally {
+      if (mounted) setState(() => _checkingWearLocation = false);
     }
   }
 
@@ -807,6 +828,54 @@ class _DeviceTileState extends State<DeviceTile> {
                           ],
                           Text(
                             _syncing ? 'Syncing…' : 'Sync now',
+                            style: AppText.caption.copyWith(color: tone.fg),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: Sp.x4),
+            Row(
+              children: [
+                Expanded(
+                  child: _fact(
+                    OsIcon.wear,
+                    'Wear location',
+                    widget.wearLocation,
+                    tone,
+                  ),
+                ),
+                if (widget.onCheckWearLocation != null)
+                  Pressable(
+                    pressedScale: 0.95,
+                    borderRadius: BorderRadius.circular(R.pill),
+                    onTap: _checkingWearLocation ? null : _checkWearLocation,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: Sp.x3 + 2, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: AppColors.nightAlt,
+                        borderRadius: BorderRadius.circular(R.pill),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_checkingWearLocation) ...[
+                            SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 1.6,
+                                color: tone.fgMuted,
+                              ),
+                            ),
+                            const SizedBox(width: Sp.x2),
+                          ],
+                          Text(
+                            _checkingWearLocation ? 'Checking…' : 'Check',
                             style: AppText.caption.copyWith(color: tone.fg),
                           ),
                         ],

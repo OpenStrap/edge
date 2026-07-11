@@ -1815,6 +1815,15 @@ class BleEngine {
       state.wristOn = f['on_wrist'] as bool;
       onState(state);
     }
+    if (f.containsKey('body_location_status')) {
+      final b = f['body_location_status'] as BodyLocationStatusResponse;
+      state.bodyLocationRaw = b.locationRaw;
+      state.bodyLocationConfidence = b.confidence;
+      state.bodyLocationStatus = b.status;
+      state.bodyLocationCheckedAt =
+          DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      onState(state);
+    }
     if (f.containsKey('clock_epoch')) {
       final dev = f['clock_epoch'] as int;
       final wall = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -2412,6 +2421,17 @@ class BleEngine {
   /// Read the strap RTC. The response carries `clock_epoch`, handled where we
   /// verify drift and re-correlate the strap-RTC ↔ wall clock.
   Future<void> getClock() => _send(Cmd.getClock, const <int>[]);
+
+  /// On-demand wear-location check (GET_BODY_LOCATION_AND_STATUS = 0x54,
+  /// non-dangerous). WHOOP garments beyond the wrist strap (bicep band,
+  /// apparel pocket) mean the band itself classifies which body location
+  /// it's currently docked in — response carries `body_location_status`,
+  /// handled in _absorbState. Deliberately NOT sent automatically on every
+  /// connect/handshake — this project's own BLE discipline is to never add
+  /// anything to the sync-critical connect path that doesn't need to be
+  /// there; this is a user-triggered diagnostic only.
+  Future<void> getBodyLocationAndStatus() =>
+      _send(Cmd.getBodyLocationAndStatus, const <int>[]);
 
   /// On-device wake alarm (SET_ALARM_TIME = 0x42) — the RICH 20-byte form that
   /// actually FIRES on WHOOP 4.0:
