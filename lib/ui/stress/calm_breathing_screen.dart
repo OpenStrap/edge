@@ -1,21 +1,72 @@
-import 'package:flutter/material.dart';
-import 'dart:math' as math;
+// Guided resonance breathing — a paced-breathing circle (5.5 breaths/min,
+// the classic HRV-resonance pace) with a REAL cardiac-coherence readout.
+//
+// The coherence score is computed on-device from live beat-to-beat RR
+// (McCraty & Zayas 2014 — see openstrap_analytics's cardiacCoherence) via
+// AppState.startBreathingSession/breathingResult — never fabricated. Before
+// enough clean live data has accumulated, the screen honestly says so
+// ("Calibrating…") instead of showing a placeholder number.
+//
+// Container (this file's CalmBreathingScreen) wires Provider; CalmBreathingView
+// is the pure, testable presentation — the breathing-circle animation is
+// local UI state (just paces the visual), the score is a prop.
 
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../state/app_state.dart';
 import '../design/design.dart';
 
-class CalmBreathingScreen extends StatefulWidget {
+class CalmBreathingScreen extends StatelessWidget {
   const CalmBreathingScreen({super.key});
 
   @override
-  State<CalmBreathingScreen> createState() => _CalmBreathingScreenState();
+  Widget build(BuildContext context) {
+    final app = context.watch<AppState>();
+    return CalmBreathingView(
+      connected: app.isConnected,
+      active: app.breathingActive,
+      result: app.breathingResult,
+      error: app.breathingError,
+      onStart: app.startBreathingSession,
+      onStop: app.stopBreathingSession,
+      onBack: () {
+        if (app.breathingActive) app.stopBreathingSession();
+        Navigator.of(context).maybePop();
+      },
+    );
+  }
 }
 
-class _CalmBreathingScreenState extends State<CalmBreathingScreen>
+/// The pure breathing board — testable with plain values, no AppState.
+class CalmBreathingView extends StatefulWidget {
+  final bool connected;
+  final bool active;
+  final Map? result;
+  final String? error;
+  final VoidCallback? onStart;
+  final VoidCallback? onStop;
+  final VoidCallback? onBack;
+
+  const CalmBreathingView({
+    super.key,
+    required this.connected,
+    required this.active,
+    this.result,
+    this.error,
+    this.onStart,
+    this.onStop,
+    this.onBack,
+  });
+
+  @override
+  State<CalmBreathingView> createState() => _CalmBreathingViewState();
+}
+
+class _CalmBreathingViewState extends State<CalmBreathingView>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   String _phaseText = "Inhale";
-  double _coherenceScore = 0.0;
-  bool _isActive = false;
 
   @override
   void initState() {
@@ -34,16 +85,21 @@ class _CalmBreathingScreenState extends State<CalmBreathingScreen>
         _controller.reverse();
       } else if (status == AnimationStatus.dismissed) {
         setState(() => _phaseText = "Inhale");
-        // Simulate increasing coherence as they breathe
-        if (_isActive && _coherenceScore < 95.0) {
-          setState(() {
-            _coherenceScore += 5.0 + (math.Random().nextDouble() * 5);
-            if (_coherenceScore > 100) _coherenceScore = 100.0;
-          });
-        }
         _controller.forward();
       }
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant CalmBreathingView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active && !oldWidget.active) {
+      _controller.forward();
+    } else if (!widget.active && oldWidget.active) {
+      _controller.stop();
+      _controller.value = 0.0;
+      setState(() => _phaseText = "Inhale");
+    }
   }
 
   @override
@@ -52,22 +108,10 @@ class _CalmBreathingScreenState extends State<CalmBreathingScreen>
     super.dispose();
   }
 
-  void _startBreathing() {
-    setState(() {
-      _isActive = true;
-      _coherenceScore = 40.0; // Starting baseline
-    });
-    _controller.forward();
-  }
-
-  void _stopBreathing() {
-    setState(() {
-      _isActive = false;
-    });
-    _controller.stop();
-    _controller.value = 0.0;
-    setState(() => _phaseText = "Inhale");
-  }
+  bool get _hasResult => widget.result?['ok'] == true;
+  // Coherence isn't a published 0-100 scale (see cardiacCoherence's own
+  // honesty note) — this threshold is a display choice, not a cited boundary.
+  bool _isGood(num score) => score > 60;
 
   @override
   Widget build(BuildContext context) {
@@ -78,7 +122,7 @@ class _CalmBreathingScreenState extends State<CalmBreathingScreen>
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.close, size: 24),
-          onPressed: () => Navigator.pop(context),
+          onPressed: widget.onBack,
         ),
       ),
       body: Column(
@@ -121,7 +165,7 @@ class _CalmBreathingScreenState extends State<CalmBreathingScreen>
                     child: Transform.scale(
                       scale: 1.0 / scale, // keep text unscaled
                       child: Text(
-                        _isActive ? _phaseText : "Ready",
+                        widget.active ? _phaseText : "Ready",
                         style: AppText.h2.copyWith(
                           color: DomainAccent.recovery,
                         ),
@@ -133,28 +177,48 @@ class _CalmBreathingScreenState extends State<CalmBreathingScreen>
             ),
           ),
           const SizedBox(height: 64),
-          if (_isActive) ...[
+          if (widget.active) ...[
             Text(
               'Coherence Score',
               style: AppText.caption,
             ),
             const SizedBox(height: Sp.x2),
-            Text(
-              '${_coherenceScore.toInt()}%',
-              style: AppText.h1.copyWith(
-                color: _coherenceScore > 80 ? AppColors.good : AppColors.warn,
+            if (_hasResult)
+              Text(
+                '${(widget.result!['score'] as num).round()}%',
+                style: AppText.h1.copyWith(
+                  color: _isGood(widget.result!['score'] as num)
+                      ? AppColors.good
+                      : AppColors.warn,
+                ),
+              )
+            else
+              // Honest: no fabricated number until enough clean live RR has
+              // accumulated (first recompute lands ~20s in — see AppState's
+              // _breathingRecomputeInterval).
+              Text(
+                'Calibrating…',
+                style: AppText.h2.copyWith(color: AppColors.inkMuted),
               ),
-            ),
             const SizedBox(height: Sp.x8),
             OutlinedButton(
-              onPressed: _stopBreathing,
+              onPressed: widget.onStop,
               child: const Text('Stop Session'),
             ),
-          ] else
+          ] else ...[
             FilledButton(
-              onPressed: _startBreathing,
+              onPressed: widget.connected ? widget.onStart : null,
               child: const Text('Begin 2-Minute Session'),
             ),
+            if (!widget.connected || widget.error != null) ...[
+              const SizedBox(height: Sp.x3),
+              Text(
+                widget.error ?? 'Connect your band to start a session.',
+                style: AppText.captionMuted,
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ],
         ],
       ),
     );

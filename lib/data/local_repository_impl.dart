@@ -2398,6 +2398,46 @@ class LocalRepositoryImpl extends LocalRepository {
     };
   }
 
+  @override
+  Future<Map<String, dynamic>> breathingCoherence(
+    List<String> records, {
+    double? pacedHz,
+  }) async {
+    // Decode RR from the live RR-bearing frames (0x28 / R10) — same seam
+    // spotCheck uses — then run McCraty & Zayas 2014 cardiac coherence.
+    final rrMs = <double>[];
+    for (final hex in records) {
+      final rr = proto.realtimeRr(hex);
+      if (rr != null) {
+        for (final v in rr.rrMs) {
+          if (v > 0) rrMs.add(v.toDouble());
+        }
+      }
+    }
+    if (rrMs.length < 20) {
+      return {'ok': false, 'n_beats': rrMs.length};
+    }
+    final cleaned = ana.correctRr(rrMs);
+    final m = ana.cardiacCoherence(cleaned.nn, cleaned.nnTimesMs, pacedHz: pacedHz);
+    if (!m.present) {
+      return {
+        'ok': false,
+        'n_beats': cleaned.nn.length,
+        'note': m.note,
+      };
+    }
+    return {
+      'ok': true,
+      'ratio': m.value!.ratio,
+      'score': m.value!.score.round(),
+      'peak_hz': m.value!.peakHz,
+      'n_beats': cleaned.nn.length,
+      'confidence': m.confidence,
+      'tier': m.tier,
+      'note': m.note,
+    };
+  }
+
   // ── small series helpers ─────────────────────────────────────────────────────
 
   Future<double?> _seriesMean(String key) async {

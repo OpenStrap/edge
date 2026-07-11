@@ -1375,9 +1375,9 @@ class AppState extends ChangeNotifier {
   }
 
   /// True while some foreground feature is actively consuming the live streams
-  /// (workout coach, HRV spot check, step-calibration walk).
+  /// (workout coach, HRV spot check, step-calibration walk, breathing session).
   bool get _hasLiveConsumer =>
-      activeWorkout != null || spotActive || _stepCalActive;
+      activeWorkout != null || spotActive || _stepCalActive || breathingActive;
 
   /// Downgrade live to HR-only when backgrounded with no live consumer. The
   /// keep-alive re-arm respects the HR-only mode, so the downgrade sticks until
@@ -1423,6 +1423,9 @@ class AppState extends ChangeNotifier {
     // STORED record (the data edge), which only _onRecord advances.
     if (spotActive && (pt == 0x28 || pt == 0x2B)) {
       if (_spotFrames.length < 8000) _spotFrames.add(hex);
+    }
+    if (breathingActive && (pt == 0x28 || pt == 0x2B)) {
+      if (_breathingFrames.length < 8000) _breathingFrames.add(hex);
     }
     // LIVE STEP COUNTER. The dedicated 0x33 IMU stream is the high-rate live
     // accel — it arrives ~10 frames/s (10 samples each), so it drives a smooth,
@@ -2571,6 +2574,93 @@ class AppState extends ChangeNotifier {
       unawaited(engine.disableLiveStreams());
     }
     _spotEnabledStreams = false;
+  }
+
+  // ── guided-breathing cardiac coherence ──────────────────────────────────────
+  // User taps "begin breathing session": enable live RR-bearing streams,
+  // collect frames continuously in _breathingFrames (tapped from _onLiveFrame,
+  // same seam spot-check uses), and periodically recompute McCraty & Zayas
+  // 2014 coherence over the FULL accumulated series so far — not a sliding
+  // window, so the score stabilizes as more clean data comes in rather than
+  // jittering on a short recent slice. Replaces the screen's old
+  // Random()-fabricated score. Ephemeral — nothing persisted.
+  //
+  // 5.5 breaths/min == CalmBreathingScreen's 5450ms inhale/exhale half-cycle
+  // (10900ms per full breath).
+  static const double breathingPacedHz = 1000.0 / 10900.0;
+  static const Duration _breathingRecomputeInterval = Duration(seconds: 20);
+  bool breathingActive = false;
+  Map<String, dynamic>?
+  breathingResult; // last {ok, ratio, score, peak_hz, n_beats, confidence, tier, note}
+  String? breathingError;
+  final List<String> _breathingFrames = [];
+  Timer? _breathingRecomputeTimer;
+  bool _breathingEnabledStreams = false;
+
+  /// Begin a guided-breathing session. Requires a connected band.
+  Future<void> startBreathingSession() async {
+    if (breathingActive) return;
+    if (!isConnected) {
+      breathingError = 'Connect your band first.';
+      notifyListeners();
+      return;
+    }
+    breathingActive = true;
+    breathingResult = null;
+    breathingError = null;
+    _breathingFrames.clear();
+    notifyListeners();
+    try {
+      // OWNERSHIP: same rule as spot-check — only claim "we enabled it" when
+      // live was actually OFF, so ending the session can never turn off
+      // streams the open session still expects on.
+      if (!engine.liveEnabled) {
+        await engine.enableLiveStreams();
+        _breathingEnabledStreams = true;
+      } else if (engine.liveHrOnly) {
+        await engine.enableLiveStreams();
+      }
+    } catch (_) {
+      /* best-effort; we still collect whatever arrives */
+    }
+    _breathingRecomputeTimer?.cancel();
+    _breathingRecomputeTimer = Timer.periodic(_breathingRecomputeInterval, (_) {
+      unawaited(_recomputeBreathingCoherence());
+    });
+  }
+
+  /// End the guided-breathing session.
+  Future<void> stopBreathingSession() async {
+    if (!breathingActive) return;
+    _breathingRecomputeTimer?.cancel();
+    _breathingRecomputeTimer = null;
+    breathingActive = false;
+    _stopBreathingStreams();
+    notifyListeners();
+  }
+
+  Future<void> _recomputeBreathingCoherence() async {
+    if (!breathingActive || repo == null) return;
+    final frames = List<String>.from(_breathingFrames);
+    if (frames.isEmpty) return;
+    try {
+      final res = await repo!.breathingCoherence(
+        frames,
+        pacedHz: breathingPacedHz,
+      );
+      if (!breathingActive) return; // session ended while we awaited
+      breathingResult = res;
+      notifyListeners();
+    } catch (_) {
+      /* best-effort; keep the last good result on screen rather than erroring */
+    }
+  }
+
+  void _stopBreathingStreams() {
+    if (_breathingEnabledStreams && activeWorkout == null) {
+      unawaited(engine.disableLiveStreams());
+    }
+    _breathingEnabledStreams = false;
   }
 
   // ── guided step calibration (open-road walk) ────────────────────────────────

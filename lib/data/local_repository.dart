@@ -131,4 +131,14 @@ abstract class LocalRepository {
   /// computes this on-device via openstrap_protocol.realtimeRr + openstrap_analytics.
   Future<Map<String, dynamic>> spotCheck(List<String> records) =>
       throw UnimplementedError('re-layer: spotCheck');
+
+  // ── guided-breathing cardiac coherence ────────────────────────────────────────
+  /// Decode live RR frames collected during a guided-breathing session and
+  /// compute McCraty & Zayas 2014 cardiac coherence on-device. [pacedHz] is
+  /// the guided pacing frequency (e.g. 5.5 breaths/min == 0.0917 Hz).
+  Future<Map<String, dynamic>> breathingCoherence(
+    List<String> records, {
+    double? pacedHz,
+  }) =>
+      throw UnimplementedError('re-layer: breathingCoherence');
 }
