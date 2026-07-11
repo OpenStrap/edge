@@ -194,6 +194,25 @@ class WidgetService {
     return null;
   }
 
+  /// True once (and clears) if the BREATHING Live Activity's stop button was
+  /// tapped. A separate flag (`end_breathing_session`) from the workout's
+  /// `end_session` — EndBreathingIntent in OpenStrapBreathingLiveActivity.swift
+  /// sets it; two independent Live Activities must never share one flag.
+  static Future<bool> consumeEndBreathingFlag() async {
+    try {
+      await init();
+      final v = await HomeWidget.getWidgetData<bool>(
+        'end_breathing_session',
+        defaultValue: false,
+      );
+      if (v == true) {
+        await HomeWidget.saveWidgetData<bool>('end_breathing_session', false);
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   static String _coachLine(CoachData? c) {
     if (c == null) return '';
     if (c.plan.isNotEmpty) return c.plan.first.title;

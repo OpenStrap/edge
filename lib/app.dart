@@ -67,6 +67,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
     final app = context.read<AppState>();
     if (state == AppLifecycleState.resumed) {
       app.maybeFinishFromLiveActivity();
+      unawaited(app.maybeStopBreathingFromLiveActivity());
       app.refreshAppStatus(); // re-check OTA + admin banner on every foreground
       app.runCadenceChecks(); // evening wind-down / weekly recap nudges (best-effort)
       // A Siri "start breathing" App Intent may have just foregrounded an

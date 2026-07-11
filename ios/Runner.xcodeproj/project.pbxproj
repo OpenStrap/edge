@@ -18,6 +18,7 @@
 		5348973F2FDC19C80033A4D9 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5348973E2FDC19C80033A4D9 /* SwiftUI.framework */; };
 		5348974E2FDC19C90033A4D9 /* OpenStrapWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5348973B2FDC19C80033A4D9 /* OpenStrapWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		534897A72FDC2B310033A4D9 /* LiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534897A62FDC2B310033A4D9 /* LiveActivityBridge.swift */; };
+		BEEF00000000000000000002 /* BreathingLiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEF00000000000000000001 /* BreathingLiveActivityBridge.swift */; };
 		53962E962FF6EE120061A61B /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53962E952FF6EE120061A61B /* WatchBridge.swift */; };
 		53962E972FF6EE120061A61B /* OpenStrapIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53962E942FF6EE120061A61B /* OpenStrapIntents.swift */; };
 		630172CC9317145AD5F8F3B7 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2C721EA0C8D31A3834E66203 /* Pods_RunnerTests.framework */; };
@@ -104,6 +105,7 @@
 		534897562FDC1A450033A4D9 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		534897572FDC1A610033A4D9 /* OpenStrapWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OpenStrapWidgetExtension.entitlements; sourceTree = "<group>"; };
 		534897A62FDC2B310033A4D9 /* LiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityBridge.swift; sourceTree = "<group>"; };
+		BEEF00000000000000000001 /* BreathingLiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathingLiveActivityBridge.swift; sourceTree = "<group>"; };
 		53962E942FF6EE120061A61B /* OpenStrapIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenStrapIntents.swift; sourceTree = "<group>"; };
 		53962E952FF6EE120061A61B /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		53962EBE2FF6EF790061A61B /* OpenStrapWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "OpenStrapWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -248,6 +250,7 @@
 				53962E942FF6EE120061A61B /* OpenStrapIntents.swift */,
 				53962E952FF6EE120061A61B /* WatchBridge.swift */,
 				534897A62FDC2B310033A4D9 /* LiveActivityBridge.swift */,
+				BEEF00000000000000000001 /* BreathingLiveActivityBridge.swift */,
 				534897572FDC1A610033A4D9 /* OpenStrapWidgetExtension.entitlements */,
 				6A2B37C32FDD000100000001 /* Config */,
 				9740EEB11CF90186004384FC /* Flutter */,
@@ -639,6 +642,7 @@
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				534897A72FDC2B310033A4D9 /* LiveActivityBridge.swift in Sources */,
+				BEEF00000000000000000002 /* BreathingLiveActivityBridge.swift in Sources */,
 				53962E962FF6EE120061A61B /* WatchBridge.swift in Sources */,
 				53962E972FF6EE120061A61B /* OpenStrapIntents.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,

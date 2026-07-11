@@ -64,6 +64,11 @@ import BackgroundTasks
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LiveActivityBridge") {
       LiveActivityBridge.register(messenger: registrar.messenger())
     }
+    // Breathing-session Live Activity — separate channel/attributes type from
+    // the workout one (BreathingLiveActivityBridge.swift, Runner target).
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BreathingLiveActivityBridge") {
+      BreathingLiveActivityBridge.register(messenger: registrar.messenger())
+    }
     // BLE-restore channel: native wake (band reconnected) → Dart headless sync.
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BleRestoreManager") {
       BleRestoreManager.shared.attach(messenger: registrar.messenger())
