@@ -1,7 +1,7 @@
 name: openstrap_edge
 description: "OpenStrap — open-source WHOOP 4.0 companion. BLE drain → raw-first local store → cloud sync."
 publish_to: 'none'
-version: 0.9.9+42
+version: 0.9.10+43
 
 environment:
   sdk: ^3.11.4
