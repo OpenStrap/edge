@@ -1817,11 +1817,20 @@ class BleEngine {
     }
     if (f.containsKey('body_location_status')) {
       final b = f['body_location_status'] as BodyLocationStatusResponse;
+      state.bodyLocationRevision = b.revision;
       state.bodyLocationRaw = b.locationRaw;
       state.bodyLocationConfidence = b.confidence;
       state.bodyLocationStatus = b.status;
       state.bodyLocationCheckedAt =
           DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      // Logged unconditionally (not just on an unmapped value) — this command
+      // is new and user-triggered rarely, so a real-world raw-byte trail is
+      // worth keeping regardless of whether GarmentDeviceLocation resolves it.
+      _log(
+        'GET_BODY_LOCATION_AND_STATUS: rev=${b.revision} '
+        'locationRaw=${b.locationRaw} (${b.location?.name ?? "UNMAPPED"}) '
+        'confidence=${b.confidence} status=${b.status}',
+      );
       onState(state);
     }
     if (f.containsKey('clock_epoch')) {

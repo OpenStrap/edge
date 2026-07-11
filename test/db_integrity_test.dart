@@ -62,6 +62,46 @@ void main() {
     expect(health['ok'], isTrue, reason: '$health');
   });
 
+  group('body_location_checks (GET_BODY_LOCATION_AND_STATUS raw history)', () {
+    test('persists a check and reads it back verbatim', () async {
+      await LocalDb.insertBodyLocationCheck(
+        ts: 1790000300,
+        revision: 1,
+        locationRaw: 1, // wrist
+        confidence: 200,
+        status: 3,
+      );
+      final rows = await LocalDb.recentBodyLocationChecks(limit: 10);
+      final row = rows.firstWhere((r) => r['ts'] == 1790000300);
+      expect(row['revision'], 1);
+      expect(row['location_raw'], 1);
+      expect(row['confidence'], 200);
+      expect(row['status'], 3);
+    });
+
+    test('keeps a full history, not just the latest', () async {
+      await LocalDb.insertBodyLocationCheck(
+        ts: 1790000400,
+        revision: 1,
+        locationRaw: 128, // notConclusive
+        confidence: 10,
+        status: 0,
+      );
+      await LocalDb.insertBodyLocationCheck(
+        ts: 1790000401,
+        revision: 1,
+        locationRaw: 200, // an unmapped byte — deliberately unrecognized
+        confidence: 5,
+        status: 0,
+      );
+      final rows = await LocalDb.recentBodyLocationChecks(limit: 10);
+      final byTs = {for (final r in rows) r['ts']: r};
+      // Both checks survive independently — never collapsed into "the latest".
+      expect(byTs[1790000400]?['location_raw'], 128);
+      expect(byTs[1790000401]?['location_raw'], 200);
+    });
+  });
+
   test('rec_ts collision leaves no orphaned decoded_rr beats', () async {
     const ts = 1780000000;
     // Pre-reboot record: high counter, THREE beats.

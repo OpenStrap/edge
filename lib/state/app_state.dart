@@ -151,6 +151,7 @@ class AppState extends ChangeNotifier {
   int? _storedBatteryPct;
   bool? _storedBatteryCharging;
   bool? _storedBatteryWristOn;
+  int? _storedBodyLocationCheckedAt;
   bool initialized = false;
 
   /// True while the app is backgrounded. On iOS we KEEP the BLE connection alive in
@@ -1638,6 +1639,25 @@ class AppState extends ChangeNotifier {
         ),
       );
     }
+    // Persist every GET_BODY_LOCATION_AND_STATUS raw byte trail (not just on
+    // change — each check is its own user-triggered event, and confidence/
+    // status semantics aren't confirmed yet, so keeping the full history lets
+    // real device captures correct the decode later if it's wrong). Guarded
+    // on checkedAt so we don't re-insert the same response if _onEngineState
+    // fires again for an unrelated field change.
+    if (s.bodyLocationCheckedAt != null &&
+        s.bodyLocationCheckedAt != _storedBodyLocationCheckedAt) {
+      _storedBodyLocationCheckedAt = s.bodyLocationCheckedAt;
+      unawaited(
+        LocalDb.insertBodyLocationCheck(
+          ts: s.bodyLocationCheckedAt!,
+          revision: s.bodyLocationRevision ?? -1,
+          locationRaw: s.bodyLocationRaw ?? -1,
+          confidence: s.bodyLocationConfidence ?? -1,
+          status: s.bodyLocationStatus ?? -1,
+        ),
+      );
+    }
     // Heal a stale/garbled persisted serial: once the band reports a clean serial
     // (HELLO body, fixed offset), persist it so the disconnected display stops
     // showing any old "?*" junk left by a previous build.
@@ -2022,11 +2042,20 @@ class AppState extends ChangeNotifier {
   /// Friendly label for the last wear-location check. Never fabricates: if we
   /// haven't checked yet, says so plainly rather than guessing "Wrist" (the
   /// only garment most users own, but not something we've actually verified).
+  ///
+  /// IMPORTANT: does NOT collapse every non-wrist case into one bucket. Raw
+  /// byte 0 ("unknown"), 128 ("notConclusive"), 160 ("unknownGarment"), and a
+  /// byte that matches NONE of the reverse-engineered enum values are four
+  /// DIFFERENT situations — the last one specifically means our protocol
+  /// enum table may be incomplete (or something's off in parsing), which is
+  /// exactly the kind of gap this project's honesty rule says to surface,
+  /// not paper over with a single reassuring-sounding label.
   String get bodyLocationLabel {
     if (device.bodyLocationCheckedAt == null) return 'Not checked';
-    final loc = proto.GarmentDeviceLocation.fromValue(
-      device.bodyLocationRaw ?? -1,
-    );
+    final raw = device.bodyLocationRaw;
+    final loc = raw == null
+        ? null
+        : proto.GarmentDeviceLocation.fromValue(raw);
     switch (loc) {
       case proto.GarmentDeviceLocation.wrist:
         return 'Wrist';
@@ -2040,10 +2069,21 @@ class AppState extends ChangeNotifier {
         return 'Glute';
       case proto.GarmentDeviceLocation.ankle:
         return 'Ankle';
-      default:
-        // unknown / notConclusive / unknownGarment / unmapped raw byte —
-        // the firmware itself couldn't confidently classify it.
+      case proto.GarmentDeviceLocation.notConclusive:
+        // The band itself reports it couldn't confidently classify — a real,
+        // meaningful signal (e.g. too little recent motion data yet).
         return 'Not conclusive';
+      case proto.GarmentDeviceLocation.unknownGarment:
+        // Different from notConclusive: it DID detect a garment, just not one
+        // in the known set.
+        return 'Unrecognized garment';
+      case proto.GarmentDeviceLocation.unknown:
+        return 'Unknown';
+      case null:
+        // Raw byte matched NOTHING in GarmentDeviceLocation — surface the
+        // actual value rather than hiding it, so this can be reported/added
+        // to the enum instead of silently misreported as "not conclusive".
+        return 'Unrecognized (raw: $raw)';
     }
   }
 

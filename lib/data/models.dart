@@ -169,6 +169,7 @@ class DeviceState {
   /// status are raw firmware bytes with no confirmed scale/enum yet (APK
   /// ground-truth only surfaced the command + field layout, not their exact
   /// semantics) — shown as-is, never re-interpreted into a fabricated label.
+  int? bodyLocationRevision;
   int? bodyLocationRaw;
   int? bodyLocationConfidence;
   int? bodyLocationStatus;

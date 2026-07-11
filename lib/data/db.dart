@@ -93,6 +93,7 @@ class LocalDb {
         await _createWorkoutSuggestions(db);
         await _createSleepOverride(db);
         await _createWorkoutRoute(db);
+        await _createBodyLocationChecks(db);
         await _ensureCoachViews(db);
       },
       onUpgrade: (db, oldV, newV) async {
@@ -268,11 +269,18 @@ class LocalDb {
           // speed was ever recorded for them) — never backfilled/guessed.
           await _ensureWorkoutRouteSpeed(db);
         }
+        if (oldV < 24) {
+          // GET_BODY_LOCATION_AND_STATUS (0x54) raw-byte history — additive,
+          // user-triggered only. Kept so real device captures of the raw
+          // confidence/status bytes (whose exact scale isn't confirmed yet)
+          // can be exported and used to correct the decode later.
+          await _createBodyLocationChecks(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
       },
-      version: 23,
+      version: 24,
     );
   }
 
@@ -316,6 +324,7 @@ class LocalDb {
     await _ensureSessionSchema(db);
     await _ensureSyncStateSchema(db);
     await _createWorkoutSuggestions(db);
+    await _createBodyLocationChecks(db);
     await _createSleepOverride(db);
     await _createWorkoutRoute(db);
     await _ensureWorkoutRouteSpeed(db);
@@ -1605,6 +1614,51 @@ class LocalDb {
     );
   }
 
+  /// GET_BODY_LOCATION_AND_STATUS (0x54) raw-byte history. `confidence`/
+  /// `status` are unconfirmed-scale firmware bytes — APK ground-truth only
+  /// surfaced the command + field layout, not their exact semantics. Stored
+  /// RAW (never re-interpreted) specifically so real device captures can be
+  /// exported and the enum/scale corrected later if a raw byte doesn't match
+  /// GarmentDeviceLocation. Every check kept (not just latest) — a small,
+  /// rarely-written, user-triggered-only table.
+  static Future<void> _createBodyLocationChecks(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS body_location_checks (
+        ts INTEGER PRIMARY KEY,
+        revision INTEGER,
+        location_raw INTEGER,
+        confidence INTEGER,
+        status INTEGER
+      )
+    ''');
+  }
+
+  static Future<void> insertBodyLocationCheck({
+    required int ts,
+    required int revision,
+    required int locationRaw,
+    required int confidence,
+    required int status,
+  }) async {
+    final db = await instance;
+    await db.insert('body_location_checks', {
+      'ts': ts,
+      'revision': revision,
+      'location_raw': locationRaw,
+      'confidence': confidence,
+      'status': status,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Full raw history (newest first) — for export/inspection while the
+  /// confidence/status byte semantics are still unconfirmed.
+  static Future<List<Map<String, dynamic>>> recentBodyLocationChecks({
+    int limit = 100,
+  }) async {
+    final db = await instance;
+    return db.query('body_location_checks', orderBy: 'ts DESC', limit: limit);
+  }
+
   /// Additive: add the `millivolts` column to an existing band_battery table.
   /// Guarded — the column already exists on fresh installs (see _createBandSignals)
   /// and ALTER … ADD COLUMN throws if it's already there.
@@ -2802,6 +2856,7 @@ class LocalDb {
       'wake_day_features',
       'live_coverage',
       'workout_route',
+      'body_location_checks',
     ];
 
     final missingTables = <String>[];
