@@ -1,12 +1,12 @@
-# Edge
+# Openstrap Edge
 
-An app that makes a WHOOP 4.0 useful without a WHOOP subscription. Connects to the band
-directly over Bluetooth, computes everything on your phone, no cloud account required.
-iOS and Android.
+An app that makes a WHOOP 4.0 useful without a WHOOP subscription. Connects to the band over Bluetooth, computes everything on your phone locally iOS and Android.
 
 > Not affiliated with WHOOP. Not a clone of their app or their scores — see below.
 
-## Why I made this
+<img width="1774" height="887" alt="image" src="https://github.com/user-attachments/assets/66653a25-ac97-4f8c-8be1-6c9fceeaf08b" />
+
+## What made me build this app 
 
 My subscription lapsed and a perfectly good sensor turned into a bracelet. The hardware
 never stopped working, only the app that made it useful did. So I reverse-engineered
@@ -15,7 +15,7 @@ scratch off published research instead of guessing at WHOOP's formulas, and buil
 around the result. Now it works without them, and anyone else stuck with the same
 drawer-bracelet problem can use it, or go dig through the code themselves.
 
-## Before you use it
+## Checklist
 
 - **WHOOP 4.0 only.** Haven't touched a WHOOP 5, don't know if it even shares a protocol.
 - Not affiliated with WHOOP, doesn't talk to their servers.
@@ -43,7 +43,7 @@ couple of Siri shortcuts.
 |:--:|:--:|:--:|
 | <img src="screenshots/widget.jpg" width="300"><br>**Widget** | <img src="screenshots/battery-widget.jpg" width="200"><br>**Battery widget** | <img src="screenshots/live-activity.jpg" width="300"><br>**Live Activity** |
 
-Every screenshot above is real output from a WHOOP 4.0, not a mockup.
+Every screenshot above is real output from a WHOOP 4.0. 
 
 ## What works
 
@@ -62,8 +62,7 @@ shortcuts.
 
 - iOS background sync is best-effort. Apple doesn't give third-party apps a real
   background-service option, so syncing while you haven't opened the app in a while is
-  "usually," not "always." Android's the reliable one here.
-- No offline map tiles for GPS routes yet.
+  "usually," not "always." 
 - Metrics are approximations off published research — not medical-grade, not validated
   against a lab, don't treat any of it as a diagnosis.
 - Sideload only right now — not on the App Store or Play Store. You're installing an APK
@@ -96,7 +95,7 @@ WHOOP band → Bluetooth → protocol decoder → local storage → analytics �
   update never silently overwrites old results), background sync, the UI.
 - everything that matters stays on the phone.
 
-## The weird Bluetooth bit
+## Complex Bluetooth protocol
 
 The band doesn't have a normal documented API — it's a proprietary protocol, and getting
 it to behave reliably took a while. Short version: the clock ships unset (skip setting it
