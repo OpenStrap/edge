@@ -170,7 +170,26 @@ class _StrapPlaceholder extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Public so the pure [PairingStateView] can be rendered per-state in tests.
-enum PairPhase { scanning, found, notFound, pairing, askReady }
+enum PairPhase { scanning, found, notFound, pairing, askReady, bluetoothOff }
+
+/// Turns whatever a BLE plugin throws into something a normal person can act
+/// on. flutter_blue_plus/AccessorySetupKit exceptions come through as raw
+/// PlatformException text — nobody should ever see that on screen.
+String humanizePairError(Object e) {
+  final msg = e.toString().toLowerCase();
+  if (msg.contains('permission') ||
+      msg.contains('denied') ||
+      msg.contains('unauthorized')) {
+    return "OpenStrap needs Bluetooth permission to find your strap. Check "
+        "your phone's settings and try again.";
+  }
+  if (msg.contains('timeout') || msg.contains('timed out')) {
+    return "That took too long. Make sure the strap is nearby, awake, and "
+        "in pairing mode, then try again.";
+  }
+  return "Couldn't pair with your strap. Make sure it's awake and nearby, "
+      "then try again.";
+}
 
 class _ScanStep extends StatefulWidget {
   final VoidCallback onBack;
@@ -191,6 +210,12 @@ class _ScanStepState extends State<_ScanStep> {
     // discovery + selection) so the band is provisioned for iOS-26 background relaunch.
     // On Android / iOS < 18 we use the service-filtered scan flow.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      if (!await context.read<AppState>().bluetoothReady()) {
+        if (!mounted) return;
+        setState(() => _phase = PairPhase.bluetoothOff);
+        return;
+      }
       if (!mounted) return;
       final ask = await context.read<AppState>().accessorySetupSupported();
       if (!mounted) return;
@@ -218,20 +243,32 @@ class _ScanStepState extends State<_ScanStep> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = humanizePairError(e);
         _phase = PairPhase.askReady;
       });
     }
   }
 
   Future<void> _scan() async {
+    final app = context.read<AppState>(); // capture before async gaps
+    // Bluetooth being off is the #1 reason a scan silently finds nothing —
+    // check it explicitly instead of letting a swallowed platform error
+    // through as a misleading "no strap found."
+    if (!await app.bluetoothReady()) {
+      if (!mounted) return;
+      setState(() {
+        _phase = PairPhase.bluetoothOff;
+        _error = null;
+      });
+      return;
+    }
     setState(() {
       _phase = PairPhase.scanning;
       _device = null;
       _error = null;
     });
     try {
-      final d = await context.read<AppState>().scanForBand();
+      final d = await app.scanForBand();
       if (!mounted) return;
       setState(() {
         _device = d;
@@ -240,7 +277,7 @@ class _ScanStepState extends State<_ScanStep> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = humanizePairError(e);
         _phase = PairPhase.notFound;
       });
     }
@@ -261,7 +298,7 @@ class _ScanStepState extends State<_ScanStep> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = humanizePairError(e);
         _phase = PairPhase.found;
       });
     }
@@ -320,6 +357,7 @@ class PairingStateView extends StatelessWidget {
                     PairPhase.notFound => 'No strap found.',
                     PairPhase.askReady => 'Pair your\nstrap.',
                     PairPhase.found => 'Strap found.',
+                    PairPhase.bluetoothOff => 'Bluetooth is off.',
                     _ => 'Finding your\nstrap.',
                   },
                   style: AppText.display,
@@ -336,6 +374,9 @@ class PairingStateView extends StatelessWidget {
                     PairPhase.askReady =>
                       'Tap Pair, then choose your WHOOP in the system sheet. '
                           'This lets OpenStrap reconnect in the background.',
+                    PairPhase.bluetoothOff =>
+                      'Turn on Bluetooth in Settings or Control Center, then '
+                          'try again.',
                   },
                   style: AppText.bodySoft,
                 ),
@@ -378,6 +419,18 @@ class PairingStateView extends StatelessWidget {
             child: AppIcon(OsIcon.wear, size: 56, color: AppColors.inkMuted),
           ),
         );
+      case PairPhase.bluetoothOff:
+        return Opacity(
+          opacity: 0.45,
+          child: Container(
+            width: 132,
+            height: 132,
+            decoration: BoxDecoration(
+                color: AppColors.surfaceAlt, shape: BoxShape.circle),
+            child:
+                AppIcon(OsIcon.bluetooth, size: 56, color: AppColors.inkMuted),
+          ),
+        );
       case PairPhase.scanning:
       case PairPhase.pairing:
       case PairPhase.askReady:
@@ -416,6 +469,11 @@ class PairingStateView extends StatelessWidget {
         return OutlinedButton(
           onPressed: onRetry,
           child: const Text('Scan again'),
+        );
+      case PairPhase.bluetoothOff:
+        return OutlinedButton(
+          onPressed: onRetry,
+          child: const Text('Check again'),
         );
     }
   }

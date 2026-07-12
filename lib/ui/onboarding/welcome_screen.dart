@@ -170,7 +170,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         WelcomeOptionCard(
           icon: OsIcon.history,
           title: 'Import from a file',
-          body: 'NOOP CSV, Edge backup, or a WHOOP export.',
+          body: 'A backup from this app, or an export from another one.',
           onTap: () =>
               Navigator.of(context).push(themedRoute((_) => const ImportScreen())),
         ),

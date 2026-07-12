@@ -66,7 +66,10 @@ shortcuts.
 - Metrics are approximations off published research — not medical-grade, not validated
   against a lab, don't treat any of it as a diagnosis.
 - Sideload only right now — not on the App Store or Play Store. You're installing an APK
-  or an unsigned IPA straight off Releases.
+  or an unsigned IPA straight off Releases. Android's just "allow unknown sources" and
+  you're done. iOS needs one extra tool — see
+  [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md) if you just want the app and aren't
+  planning to build it yourself.
 
 ## Run it
 

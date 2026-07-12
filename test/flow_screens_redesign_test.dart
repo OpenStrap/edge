@@ -131,6 +131,9 @@ void main() {
             expect(find.byType(CircularProgressIndicator), findsWidgets);
           case PairPhase.askReady:
             expect(find.text('Pair'), findsOneWidget);
+          case PairPhase.bluetoothOff:
+            expect(find.text('Bluetooth is off.'), findsOneWidget);
+            expect(find.text('Check again'), findsOneWidget);
         }
       }
     }

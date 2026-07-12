@@ -498,7 +498,10 @@ class _TodayScreenState extends State<TodayScreen>
       title: 'Wear + sync to see today',
       message:
           'Put your strap on and keep the app open. Your daily metrics '
-          'appear after the next sync and analytics run.',
+          'appear after the next sync and analytics run. If your strap has '
+          'been recording for a while, the first sync can take a few '
+          "minutes — it's just pulling everything it's been holding onto. "
+          'After that, syncs are quick.',
     );
   }
 
