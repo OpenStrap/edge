@@ -39,10 +39,21 @@ deterministic Coach, a BYOK text-based AI assistant, a shareable weekly Recap, O
 Pairing, and Profile. Every metric drills through the same shared trend screen
 (Today/Week/Month/3M with inline drill-down), so it looks and behaves the same everywhere.
 
+| | | |
+|:--:|:--:|:--:|
+| <img src="screenshots/today.png" width="230"><br>**Today** | <img src="screenshots/sleep.png" width="230"><br>**Sleep** | <img src="screenshots/heart.png" width="230"><br>**Heart** |
+| <img src="screenshots/stress.png" width="230"><br>**Stress** | <img src="screenshots/breathing.png" width="230"><br>**Breathing** | <img src="screenshots/body.png" width="230"><br>**Body** |
+| <img src="screenshots/steps.png" width="230"><br>**Steps** | <img src="screenshots/workouts.png" width="230"><br>**Workouts** | <img src="screenshots/records.png" width="230"><br>**Records** |
+| <img src="screenshots/recap.png" width="230"><br>**Recap** | <img src="screenshots/profile.png" width="230"><br>**Profile** | |
+
 iOS also gets a home-screen widget, a lock-screen/Dynamic Island Live Activity (workouts
 and, more recently, live coherence during a guided breathing session), and a couple of
 Siri intents (check your recovery/strain/sleep, start a breathing session) via App
 Intents.
+
+| | | |
+|:--:|:--:|:--:|
+| <img src="screenshots/widget.jpg" width="300"><br>**Widget** | <img src="screenshots/battery-widget.jpg" width="200"><br>**Battery widget** | <img src="screenshots/live-activity.jpg" width="300"><br>**Live Activity** |
 
 > Numbers shown are real output from a WHOOP 4.0. Every figure carries a confidence and
 > estimates are labelled as such — see the two analytics repos this depends on for the
