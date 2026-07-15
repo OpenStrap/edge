@@ -170,12 +170,60 @@ class HealthExporter {
   /// over the contiguous finalized-and-exported prefix; the recent tail is
   /// re-written on each call. [reset] re-exports the whole retained window.
   /// Returns the number of days written. Never throws.
+  // Per-day export retry state, keyed by date, persisted as JSON in the same
+  // sync_cursor key-value table exportAll() already uses for its cursor (no
+  // schema migration needed): {date: {attempts, last_ms}}.
+  //
+  // Design rationale (why bounded retry-with-backoff, not indefinite block):
+  // exportAll() runs on EVERY drain/derive pass (light + heavy — see
+  // AppState), so a naive "retry every call until it succeeds" would hammer
+  // HealthKit/Health Connect many times an hour. And blocking the cursor
+  // indefinitely on one bad day would freeze every later day's export too,
+  // forever, over one persistently-failing write. This codebase already has
+  // precedent against indefinite blocking for exactly this class of problem:
+  // derivation_engine.dart marks a pathological day with a skip marker
+  // "so it isn't retried forever" and caps per-day compute so "the sweep
+  // always makes progress"; the BLE layer's BondRefusalGiveUp does the same
+  // (give up after N refusals rather than retry forever). We follow that
+  // convention: back off with growing spacing, and after _kMaxExportAttempts
+  // give up on that specific day (log it, let the cursor advance past it)
+  // rather than wedge the pipeline. Note this only matters for genuine
+  // thrown errors — an ungranted health permission doesn't throw (writes
+  // silently no-op, see the comment above _ensureConfigured), so it never
+  // enters this retry path or gets "given up on" by it.
+  static const _kRetryCursor = 'health_export_retry_state';
+  static const _kMaxExportAttempts = 6;
+  static const _kRetryBackoff = [
+    Duration(minutes: 5),
+    Duration(minutes: 30),
+    Duration(hours: 2),
+    Duration(hours: 6),
+    Duration(hours: 24),
+  ];
+  Duration _backoffFor(int attempts) =>
+      _kRetryBackoff[attempts.clamp(0, _kRetryBackoff.length - 1)];
+
+  Future<Map<String, dynamic>> _loadRetryState() async {
+    final raw = await LocalDb.getCursor(_kRetryCursor);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      return (jsonDecode(raw) as Map).cast<String, dynamic>();
+    } catch (_) {
+      return {};
+    }
+  }
+
   Future<int> exportAll({bool reset = false, void Function(int days)? onProgress}) async {
     await _ensureConfigured();
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
     try {
-      if (reset) await LocalDb.setCursor('health_export_through', '');
+      if (reset) {
+        await LocalDb.setCursor('health_export_through', '');
+        await LocalDb.setCursor(_kRetryCursor, '');
+      }
       final cursor = await LocalDb.getCursor('health_export_through') ?? '';
+      final retryState = await _loadRetryState();
+      var retryStateDirty = false;
       final rows = await LocalDb.recentDayResults(400); // newest-first
       final ascending = rows.reversed.toList();
       var done = 0;
@@ -193,14 +241,50 @@ class HealthExporter {
           if (!finalized) prefixContiguous = false;
           continue;
         }
-        final ok = await _exportDay(date, bundle); // delete-then-write (idempotent)
+
+        final entry = (retryState[date] as Map?)?.cast<String, dynamic>();
+        final attempts = (entry?['attempts'] as num?)?.toInt() ?? 0;
+        final lastAttemptMs = (entry?['last_ms'] as num?)?.toInt();
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+
+        var ok = false;
+        var giveUp = false;
+        if (attempts >= _kMaxExportAttempts) {
+          giveUp = true;
+        } else if (lastAttemptMs != null &&
+            nowMs - lastAttemptMs < _backoffFor(attempts).inMilliseconds) {
+          // Not due for retry yet — don't hammer the health store on every
+          // drain/derive pass; counts as "not done" for the cursor below.
+        } else {
+          ok = await _exportDay(date, bundle); // delete-then-write (idempotent)
+          if (ok) {
+            if (entry != null) {
+              retryState.remove(date);
+              retryStateDirty = true;
+            }
+          } else {
+            final nextAttempts = attempts + 1;
+            retryState[date] = {'attempts': nextAttempts, 'last_ms': nowMs};
+            retryStateDirty = true;
+            debugPrint(
+                '[health] day $date export incomplete (attempt $nextAttempts/$_kMaxExportAttempts)');
+            if (nextAttempts >= _kMaxExportAttempts) {
+              debugPrint(
+                  '[health] day $date exceeded $_kMaxExportAttempts export attempts — giving up, will stop blocking newer days');
+            }
+          }
+        }
+
         if (ok) {
           done++;
           onProgress?.call(done);
         }
-        // Advance the cursor only while the finalized prefix stays unbroken; the
-        // first non-finalized day stops it (that day re-exports next pass).
-        if (prefixContiguous && finalized) {
+        // Advance the cursor only while the finalized prefix stays unbroken —
+        // a non-finalized day, a still-backing-off retry, or a day still
+        // under the attempt cap all stop it (re-checked next pass); a
+        // given-up day counts alongside a genuine success so it can't wedge
+        // every later day's cursor forever.
+        if (prefixContiguous && finalized && (ok || giveUp)) {
           newCursor = date;
         } else {
           prefixContiguous = false;
@@ -208,6 +292,9 @@ class HealthExporter {
       }
       if (newCursor != cursor) {
         await LocalDb.setCursor('health_export_through', newCursor);
+      }
+      if (retryStateDirty) {
+        await LocalDb.setCursor(_kRetryCursor, jsonEncode(retryState));
       }
       debugPrint('[health] exported $done day(s); finalized-cursor=$newCursor');
       return done;
@@ -222,7 +309,17 @@ class HealthExporter {
   Future<bool> _exportDay(String date, Map<String, dynamic> b) async {
     final dayStart = _localMidnight(date);
     if (dayStart == null) return false;
-    final dayEnd = dayStart.add(const Duration(days: 1));
+    // DST-safe next local midnight (calendar-field construction, NOT +24h of
+    // absolute Duration — the latter overshoots/undershoots by an hour on the
+    // two DST-transition days/year, spilling hourly buckets into the wrong day).
+    final dayEnd = DateTime(dayStart.year, dayStart.month, dayStart.day + 1);
+
+    // Aggregate success across every write below: a day is only "exported" if
+    // everything we attempted actually landed. Any per-write/per-query failure
+    // flips this to false so exportAll()'s cursor won't mark the day done —
+    // see the retry/backoff logic there. We still attempt every remaining
+    // write on failure (best-effort, idempotent re-export corrects it later).
+    var success = true;
 
     // Idempotency: remove OUR previously-written samples for this day (HealthKit /
     // Health Connect only let an app delete its own data), then re-write fresh.
@@ -231,6 +328,7 @@ class HealthExporter {
         await _health.delete(type: t, startTime: dayStart, endTime: dayEnd);
       } catch (e) {
         debugPrint('[health] delete ${t.name}: $e');
+        success = false;
       }
     }
 
@@ -247,7 +345,7 @@ class HealthExporter {
 
     Future<void> writeAt(HealthDataType type, num? v, HealthDataUnit unit,
         DateTime t) async {
-      if (v == null || v <= 0) return;
+      if (v == null || v <= 0) return; // absent input, not a failure
       try {
         await _health.writeHealthData(
             value: v.toDouble(),
@@ -257,6 +355,7 @@ class HealthExporter {
             unit: unit);
       } catch (e) {
         debugPrint('[health] write ${type.name}: $e');
+        success = false;
       }
     }
 
@@ -267,35 +366,53 @@ class HealthExporter {
     await writeAt(HealthDataType.RESPIRATORY_RATE, sc('resp_rate'),
         HealthDataUnit.RESPIRATIONS_PER_MINUTE, mid);
 
+    // Hourly buckets spanning [dayStart, dayEnd), shared by the active/basal
+    // energy writers below. Built from the real dayEnd boundary (not fixed
+    // 1-hour Durations from dayStart) so every bucket — including the last —
+    // stays inside the correct calendar day on DST-transition days.
+    final bucketSpan = dayEnd.difference(dayStart) ~/ 24;
+    final bucketBounds = List<DateTime>.generate(
+        25, (i) => i == 24 ? dayEnd : dayStart.add(bucketSpan * i));
+
     // Active energy: chunked into hourly buckets over the day.
     // We subtract workout calories to prevent double-counting, because workouts
-    // are exported separately.
+    // are exported separately (their totalEnergyBurned already covers it).
+    // Upper bound is exclusive (dayEnd - 1s): sessionsInRange is inclusive on
+    // both ends, so a workout starting exactly at midnight would otherwise be
+    // double-subtracted from both this day and the next.
     var cal = sc('calories')?.toDouble() ?? 0.0;
     try {
       final rows = await LocalDb.sessionsInRange(
           dayStart.millisecondsSinceEpoch ~/ 1000,
-          dayEnd.millisecondsSinceEpoch ~/ 1000);
+          (dayEnd.millisecondsSinceEpoch ~/ 1000) - 1);
       var workoutCal = 0.0;
       for (final r in rows) {
         if ((r['status']?.toString() ?? '') == 'live') continue;
         workoutCal += (r['calories'] as num?)?.toDouble() ?? 0.0;
       }
       cal = (cal > workoutCal) ? cal - workoutCal : 0.0;
-    } catch (_) {}
+    } catch (e) {
+      // Unknown whether cal is workout-adjusted — still write our best guess
+      // below (idempotent re-export corrects it once this query succeeds),
+      // but flag the day so it isn't marked done on this pass.
+      debugPrint('[health] workout-calorie query: $e');
+      success = false;
+    }
 
     if (cal > 0) {
-      try {
-        final calPerHour = cal / 24;
-        for (int i = 0; i < 24; i++) {
+      final calPerHour = cal / 24;
+      for (int i = 0; i < 24; i++) {
+        try {
           await _health.writeHealthData(
               value: calPerHour,
               type: HealthDataType.ACTIVE_ENERGY_BURNED,
-              startTime: dayStart.add(Duration(hours: i)),
-              endTime: dayStart.add(Duration(hours: i + 1)),
+              startTime: bucketBounds[i],
+              endTime: bucketBounds[i + 1],
               unit: HealthDataUnit.KILOCALORIE);
+        } catch (e) {
+          debugPrint('[health] write energy bucket $i: $e');
+          success = false;
         }
-      } catch (e) {
-        debugPrint('[health] write energy: $e');
       }
     }
 
@@ -303,50 +420,59 @@ class HealthExporter {
     final calTotal = sc('calories_total');
     final rawCal = sc('calories');
     if (calTotal != null && rawCal != null && calTotal > rawCal) {
-      try {
-        final basal = (calTotal - rawCal).toDouble();
-        final basalPerHour = basal / 24;
-        for (int i = 0; i < 24; i++) {
+      final basal = (calTotal - rawCal).toDouble();
+      final basalPerHour = basal / 24;
+      for (int i = 0; i < 24; i++) {
+        try {
           await _health.writeHealthData(
               value: basalPerHour,
               type: HealthDataType.BASAL_ENERGY_BURNED,
-              startTime: dayStart.add(Duration(hours: i)),
-              endTime: dayStart.add(Duration(hours: i + 1)),
+              startTime: bucketBounds[i],
+              endTime: bucketBounds[i + 1],
               unit: HealthDataUnit.KILOCALORIE);
+        } catch (e) {
+          debugPrint('[health] write basal energy bucket $i: $e');
+          success = false;
         }
-      } catch (e) {
-        debugPrint('[health] write basal energy: $e');
       }
     }
 
     // Continuous Heart Rate (minute-by-minute average).
+    List<Map<String, Object?>>? hrRows;
     try {
       final db = await LocalDb.instance;
       final startTs = dayStart.millisecondsSinceEpoch ~/ 1000;
       final endTs = dayEnd.millisecondsSinceEpoch ~/ 1000;
       // Group by minute to downsample
-      final hrRows = await db.rawQuery(
+      hrRows = await db.rawQuery(
           'SELECT (rec_ts / 60) * 60 AS minute_ts, AVG(hr) as avg_hr '
           'FROM decoded_onehz '
           'WHERE rec_ts >= ? AND rec_ts < ? AND hr > 0 '
           'GROUP BY minute_ts',
           [startTs, endTs]);
-      
+    } catch (e) {
+      debugPrint('[health] query continuous hr: $e');
+      success = false;
+    }
+    if (hrRows != null) {
       for (final r in hrRows) {
         final minuteTs = (r['minute_ts'] as num).toInt();
         final avgHr = (r['avg_hr'] as num).toDouble();
         if (avgHr > 0) {
           final t = DateTime.fromMillisecondsSinceEpoch(minuteTs * 1000);
-          await _health.writeHealthData(
-              value: avgHr,
-              type: HealthDataType.HEART_RATE,
-              startTime: t,
-              endTime: t.add(const Duration(minutes: 1)),
-              unit: HealthDataUnit.BEATS_PER_MINUTE);
+          try {
+            await _health.writeHealthData(
+                value: avgHr,
+                type: HealthDataType.HEART_RATE,
+                startTime: t,
+                endTime: t.add(const Duration(minutes: 1)),
+                unit: HealthDataUnit.BEATS_PER_MINUTE);
+          } catch (e) {
+            debugPrint('[health] write continuous hr @$minuteTs: $e');
+            success = false;
+          }
         }
       }
-    } catch (e) {
-      debugPrint('[health] write continuous hr: $e');
     }
 
     // Steps (24/7 estimate) over the whole day.
@@ -361,6 +487,7 @@ class HealthExporter {
             unit: HealthDataUnit.COUNT);
       } catch (e) {
         debugPrint('[health] write steps: $e');
+        success = false;
       }
     }
 
@@ -382,32 +509,45 @@ class HealthExporter {
             endTime: DateTime.fromMillisecondsSinceEpoch(en * 1000));
       } catch (e) {
         debugPrint('[health] write sleep ${type.name}: $e');
+        success = false;
       }
     }
 
-    // Workouts (manual/live/detected) finalized in this calendar day.
+    // Workouts (manual/live/detected) finalized in this calendar day. Upper
+    // bound is exclusive (dayEnd - 1s) for the same midnight-boundary reason
+    // as the active-energy query above — otherwise a workout starting exactly
+    // at midnight gets written into both this day and the next.
     {
+      List<Map<String, Object?>>? rows;
       try {
-        final rows = await LocalDb.sessionsInRange(
+        rows = await LocalDb.sessionsInRange(
             dayStart.millisecondsSinceEpoch ~/ 1000,
-            dayEnd.millisecondsSinceEpoch ~/ 1000);
+            (dayEnd.millisecondsSinceEpoch ~/ 1000) - 1);
+      } catch (e) {
+        debugPrint('[health] query workouts: $e');
+        success = false;
+      }
+      if (rows != null) {
         for (final r in rows) {
           if ((r['status']?.toString() ?? '') == 'live') continue;
           final st = (r['start_ts'] as num?)?.toInt();
           final en = (r['end_ts'] as num?)?.toInt();
           if (st == null || en == null || en <= st) continue;
-          await _health.writeWorkoutData(
-            activityType: _activity(r['type']?.toString()),
-            start: DateTime.fromMillisecondsSinceEpoch(st * 1000),
-            end: DateTime.fromMillisecondsSinceEpoch(en * 1000),
-            totalEnergyBurned: (r['calories'] as num?)?.round(),
-          );
+          try {
+            await _health.writeWorkoutData(
+              activityType: _activity(r['type']?.toString()),
+              start: DateTime.fromMillisecondsSinceEpoch(st * 1000),
+              end: DateTime.fromMillisecondsSinceEpoch(en * 1000),
+              totalEnergyBurned: (r['calories'] as num?)?.round(),
+            );
+          } catch (e) {
+            debugPrint('[health] write workout @$st: $e');
+            success = false;
+          }
         }
-      } catch (e) {
-        debugPrint('[health] write workouts: $e');
       }
     }
-    return true;
+    return success;
   }
 
   HealthDataType? _sleepType(String stage) {
