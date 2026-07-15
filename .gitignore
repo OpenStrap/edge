@@ -71,7 +71,7 @@ pubspec_overrides.yaml
 # Firebase configurations
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
-lib/firebase_options.dart
+
 firebase.json
 
 # one-off local debug scratch files - had a handful of these lying around
