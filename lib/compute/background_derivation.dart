@@ -37,8 +37,13 @@ import 'derivation_engine.dart';
 import 'profile.dart';
 import '../sync/background_sync.dart';
 
-const String _kHeavyTask = 'openstrap.derive.heavy';
-const String _kSyncTask = 'openstrap.sync';
+// Public (not `_`-prefixed): main.dart needs these unique names to scope its
+// startup cancelByUniqueName() cleanup to exactly these two tasks, without
+// touching unrelated WorkManager jobs (e.g. the native KeepAliveWorker
+// watchdog, which shares the same OS-level WorkManager instance and would
+// otherwise get wiped by an unscoped cancelAll()).
+const String kHeavyDeriveTaskName = 'openstrap.derive.heavy';
+const String kSyncTaskName = 'openstrap.sync';
 const String _kProfileKey = 'local_profile_json'; // mirrors AppState._kProfile
 
 /// The WorkManager entry point. MUST be a top-level / static fn with the
@@ -54,11 +59,11 @@ void derivationDispatcher() {
     } catch (_) {}
     
     try {
-      if (task == _kSyncTask) {
+      if (task == kSyncTaskName) {
         debugPrint('[bg-sync] triggered by WorkManager');
         await runHeadlessSync();
         return true;
-      } else if (task == _kHeavyTask) {
+      } else if (task == kHeavyDeriveTaskName) {
         debugPrint('[bg-derive] triggered by WorkManager');
         final profile = await _loadProfile();
         final engine = DerivationEngine(log: (m) => debugPrint('[bg-derive] $m'));
@@ -102,8 +107,8 @@ class BackgroundDerivation {
       
       // Schedule Sync Task (every 10 min - note Android clamps to 15 min minimum)
       await Workmanager().registerPeriodicTask(
-        _kSyncTask,
-        _kSyncTask,
+        kSyncTaskName,
+        kSyncTaskName,
         frequency: const Duration(minutes: 10),
         constraints: Constraints(
           networkType: NetworkType.notRequired,
@@ -115,8 +120,8 @@ class BackgroundDerivation {
 
       // Schedule Analyze/Derivation Task (every 10 min - note Android clamps to 15 min minimum)
       await Workmanager().registerPeriodicTask(
-        _kHeavyTask,
-        _kHeavyTask,
+        kHeavyDeriveTaskName,
+        kHeavyDeriveTaskName,
         frequency: const Duration(minutes: 10),
         constraints: Constraints(
           networkType: NetworkType.notRequired,
