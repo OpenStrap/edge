@@ -193,7 +193,22 @@ import 'substrate.dart';
 // `_localNextDayLabelToSec` asks DateTime for the actual start of the next
 // day. Bump so recent days recompute onto the corrected readiness baseline;
 // only matters for history on the rare day that crossed a DST transition.
-const int kAlgoVersion = 38;
+// v39: night-tail sleep runs shorter than the 60-min standalone floor are no
+// longer dropped when they continue the overnight chain (advanced_stager
+// detectSleep) — a pre-dawn arousal that split off a <60-min tail was
+// truncating the sleep-window offset at the arousal. Bump so affected days
+// recompute the corrected (later) offset and downstream sleep/readiness metrics.
+// v42: PERSONALIZED, self-improving cardio stager. (1) REM feature upgrades in
+// cardioStager — LF/HF from the RR Lomb–Scargle spectrum + R(k)=mean|ΔIHR|,
+// OR-combined with the RMSSD drop and gated by atonia + an HR floor (recovers
+// under-called REM), plus a 3-epoch median flicker filter. (2) A rolling
+// per-user sleep profile (baselines key `sleep_user_profile`) EWMA-folded after
+// each finalized night and blended (bounded ≤0.5, growing with nights, 0 at
+// cold start) with tonight's per-night-local baselines — so staging gets better
+// over time while per-night-local always leads. Deep stays a low-confidence
+// NREM sub-split (deep_low_confidence). The profile self-seeds across this
+// re-derivation sweep; no explicit migration. Bump so every day re-stages.
+const int kAlgoVersion = 42;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;
@@ -815,19 +830,67 @@ class DerivationEngine {
       dayId: dayId,
       stats: stats,
     );
+    // PERSONALIZED STAGER (v42): arm the sleeper's rolling profile before
+    // staging, and record this night's observed baselines for the fold below.
+    // `cardioStager` (inside segmentSleep) reads the ambient profile and blends
+    // it — bounded ≤0.5 — with tonight's per-night-local baselines. Runs in the
+    // main isolate here, so the ambient globals are in-scope for the call.
+    await _loadSleepUserProfile();
+    ana.cardioRecordObservations = true;
+    ana.resetCardioObservations();
     final candidate = prepareSleepSessionCandidate(
       searchSub,
       targetDay: dayId,
       override: override,
     );
+    ana.cardioRecordObservations = false;
     if (override == null) {
       await LocalDb.putSleepSessionCandidate(
         dayId: dayId,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode(candidate.toJson()),
       );
+      // Fold the MAIN sleep (most epochs) of a freshly-staged night into the
+      // rolling profile. Skipped for overrides and cached reuse (this branch is
+      // the fresh-stage path). EWMA self-seeds across the v42 re-derivation
+      // sweep, so no explicit migration is needed.
+      await _foldSleepUserProfile();
+    } else {
+      ana.resetCardioObservations();
     }
     return candidate;
+  }
+
+  /// Load the persisted per-user sleep profile into the analytics ambient slot
+  /// (`baselines` key `sleep_user_profile`). Absent/corrupt ⇒ cold start (null).
+  Future<void> _loadSleepUserProfile() async {
+    ana.cardioUserProfile = null;
+    final row = await LocalDb.baseline('sleep_user_profile');
+    final raw = row?['payload_json'];
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          ana.cardioUserProfile =
+              ana.SleepUserProfile.fromJson(decoded.cast<String, dynamic>());
+        }
+      } catch (_) {
+        // Cold start on unreadable payload.
+      }
+    }
+  }
+
+  /// EWMA-fold the just-staged main sleep into the per-user profile and persist.
+  Future<void> _foldSleepUserProfile() async {
+    final obs = ana.takeCardioObservations();
+    if (obs.isEmpty) return;
+    obs.sort((a, b) => b.epochs.compareTo(a.epochs));
+    final main = obs.first;
+    if (main.epochs < 120) return; // require ≥60 min — not a nap
+    final base = ana.cardioUserProfile ?? const ana.SleepUserProfile();
+    final updated = base.fold(main);
+    await LocalDb.putBaseline(
+        'sleep_user_profile', jsonEncode(updated.toJson()));
   }
 
   Future<Substrate> _loadSubstrateRange(
