@@ -16,6 +16,10 @@ import 'theme/theme_controller.dart';
 import 'widget/widget_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
+import 'package:workmanager/workmanager.dart';
+import 'dart:io';
+import 'compute/background_derivation.dart' show kHeavyDeriveTaskName, kSyncTaskName;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
@@ -34,6 +38,28 @@ Future<void> main() async {
   // catch framework + uncaught async errors on their own, and a custom root zone
   // is a known source of release-startup fragility.
   TelemetryService.instance.installErrorHandlers();
+
+  // Android: Cancel the two legacy WorkManager tasks by unique name. A previous
+  // version scheduled heavy derivation passes in the background, but they were
+  // pulled due to isolate collisions/deadlocks with the main UI's database access.
+  // We must explicitly cancel them here otherwise they survive app updates and
+  // cause the app to hang on the loading screen (buffering circle) when they fire
+  // concurrently with AppState._init().
+  //
+  // IMPORTANT: this MUST be scoped by unique name, never Workmanager().cancelAll().
+  // AndroidX WorkManager is a single OS-wide instance shared by every caller —
+  // the Dart workmanager plugin's cancelAll() maps straight to the native
+  // WorkManager.cancelAllWork(), which is NOT scoped to jobs the plugin itself
+  // registered. EdgeApplication.onCreate() (native Kotlin) schedules the
+  // KeepAliveWorker FGS-restart watchdog via that same WorkManager instance
+  // BEFORE this Dart main() runs — an unscoped cancelAll() here wipes that
+  // watchdog out on every single cold start, silently disabling it.
+  if (Platform.isAndroid) {
+    try {
+      await Workmanager().cancelByUniqueName(kHeavyDeriveTaskName);
+      await Workmanager().cancelByUniqueName(kSyncTaskName);
+    } catch (_) {}
+  }
 
   // iOS CoreBluetooth State Preservation & Restoration: opt the flutter_blue_plus
   // central (the one that actually subscribes to the band's HR/event characteristics)

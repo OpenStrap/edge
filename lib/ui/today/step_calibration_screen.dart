@@ -28,9 +28,12 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
   double? _learnedCadence;
   String? _error;
 
+  late final AppState _appState;
+
   @override
   void initState() {
     super.initState();
+    _appState = context.read<AppState>();
     WidgetsBinding.instance.addPostFrameCallback((_) => _start());
   }
 
@@ -70,7 +73,7 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
   void dispose() {
     // If we leave without saving, stop the stream + drop the partial walk.
     if (_learnedCadence == null) {
-      context.read<AppState>().cancelStepCalibration();
+      _appState.cancelStepCalibration();
     }
     super.dispose();
   }

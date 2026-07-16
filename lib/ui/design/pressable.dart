@@ -76,9 +76,9 @@ class _PressableState extends State<Pressable> {
     }
 
     return Listener(
-      onPointerDown: (_) => setState(() => _down = true),
-      onPointerUp: (_) => setState(() => _down = false),
-      onPointerCancel: (_) => setState(() => _down = false),
+      onPointerDown: (_) { if (mounted) setState(() => _down = true); },
+      onPointerUp: (_) { if (mounted) setState(() => _down = false); },
+      onPointerCancel: (_) { if (mounted) setState(() => _down = false); },
       child: AnimatedScale(
         scale: _down ? widget.pressedScale : 1.0,
         duration: Motion.fast,
