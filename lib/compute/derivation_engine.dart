@@ -1377,11 +1377,25 @@ class DerivationEngine {
         _loggedReadinessAbsentFor != day.date) {
       _loggedReadinessAbsentFor = day.date;
       TelemetryService.instance.breadcrumb('readiness absent: $absentDiag');
+      // Flattened, not the raw nested map: record()'s Analytics forwarding
+      // only keeps num/String values as-is and stringifies everything else,
+      // so passing {'hrv': {'value': ..., 'baseline_n': ...}, ...} directly
+      // would turn each input into one unqueryable "{value: true, ...}"
+      // string instead of separately filterable fields.
+      final diag = (absentDiag as Map).cast<String, dynamic>();
+      final flat = <String, dynamic>{};
+      for (final key in ['hrv', 'rhr', 'resp', 'temp']) {
+        final v = (diag[key] as Map?)?.cast<String, dynamic>();
+        if (v == null) continue;
+        flat['${key}_value'] = v['value'];
+        flat['${key}_baseline_n'] = v['baseline_n'];
+      }
+      flat['note'] = diag['note'];
       TelemetryService.instance.record(
         kind: 'event',
         level: 'warn',
         message: 'readiness_absent',
-        context: (absentDiag as Map).cast<String, dynamic>(),
+        context: flat,
       );
     }
 

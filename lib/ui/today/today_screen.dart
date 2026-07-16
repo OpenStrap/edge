@@ -206,9 +206,14 @@ class _TodayScreenState extends State<TodayScreen>
   }
 
   // Builder-based so themedRoute reconstructs the screen on a theme flip (a
-  // prebuilt instance would be returned unchanged and never re-colour).
-  void _push(Widget Function() build) =>
-      Navigator.of(context).push(themedRoute((_) => build()));
+  // prebuilt instance would be returned unchanged and never re-colour). We
+  // still call build() once up front, throwaway, just to read its runtime
+  // type for the route name (current_screen on a crash/ANR report) — the
+  // real navigation still goes through the fresh builder each time.
+  void _push(Widget Function() build) {
+    final name = build().runtimeType.toString();
+    Navigator.of(context).push(themedRoute((_) => build(), name: name));
+  }
 
   // ── content ──────────────────────────────────────────────────────────────────
 

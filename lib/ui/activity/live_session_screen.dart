@@ -266,7 +266,8 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
     if (!mounted) return;
     if (id != null) {
       Navigator.of(context).pushReplacement(
-        themedRoute((_) => WorkoutFinishScreen(id: id, snapshot: snap)),
+        themedRoute((_) => WorkoutFinishScreen(id: id, snapshot: snap),
+            name: 'WorkoutFinishScreen'),
       );
     } else {
       Navigator.of(context).pop();
@@ -1449,7 +1450,8 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
           Expanded(
             child: FilledButton(
               onPressed: () => Navigator.of(context).pushReplacement(
-                themedRoute((_) => WorkoutDetailScreen(id: widget.id)),
+                themedRoute((_) => WorkoutDetailScreen(id: widget.id),
+                    name: 'WorkoutDetailScreen'),
               ),
               child: const Text('Full breakdown'),
             ),

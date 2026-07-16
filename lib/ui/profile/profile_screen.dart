@@ -151,6 +151,7 @@ class ProfileScreen extends StatelessWidget {
                   (_) => StepGoalScreen(
                     goal: (user['step_goal'] as num?)?.toInt(),
                   ),
+                  name: 'StepGoalScreen',
                 ),
               ),
             ),
@@ -168,7 +169,7 @@ class ProfileScreen extends StatelessWidget {
               divider: true,
               onTap: () => Navigator.of(
                 context,
-              ).push(themedRoute((_) => const ImportScreen())),
+              ).push(themedRoute((_) => const ImportScreen(), name: 'ImportScreen')),
             ),
             ListRow(
               icon: OsIcon.sync,
@@ -240,7 +241,8 @@ class ProfileScreen extends StatelessWidget {
               divider: advancedDebugMode,
               onTap: () => Navigator.of(
                 context,
-              ).push(themedRoute((_) => const DataHistoryScreen())),
+              ).push(themedRoute((_) => const DataHistoryScreen(),
+                  name: 'DataHistoryScreen')),
             ),
             // Debug-build-only deep inspection tools (raw stores, sync ledger).
             if (advancedDebugMode)
@@ -250,7 +252,8 @@ class ProfileScreen extends StatelessWidget {
                 value: 'Debug tools',
                 onTap: () => Navigator.of(
                   context,
-                ).push(themedRoute((_) => const AdvancedDataScreen())),
+                ).push(themedRoute((_) => const AdvancedDataScreen(),
+                    name: 'AdvancedDataScreen')),
               ),
           ]),
 
@@ -355,7 +358,8 @@ class ProfileScreen extends StatelessWidget {
               value: 'Manage',
               onTap: () => Navigator.of(
                 context,
-              ).push(themedRoute((_) => const NotificationSettingsScreen())),
+              ).push(themedRoute((_) => const NotificationSettingsScreen(),
+                  name: 'NotificationSettingsScreen')),
             ),
           ]),
           // Notification relay (Android only — self-hides on iOS).
@@ -372,8 +376,8 @@ class ProfileScreen extends StatelessWidget {
               icon: OsIcon.ai,
               title: 'Briefings & journal',
               value: 'Manage',
-              onTap: () => Navigator.of(context)
-                  .push(themedRoute((_) => const AiSettingsScreen())),
+              onTap: () => Navigator.of(context).push(themedRoute(
+                  (_) => const AiSettingsScreen(), name: 'AiSettingsScreen')),
             ),
           ]),
           const SizedBox(height: Sp.x6),
@@ -438,8 +442,9 @@ class ProfileScreen extends StatelessWidget {
               icon: OsIcon.edit,
               title: 'Design gallery',
               value: 'All components',
-              onTap: () => Navigator.of(context)
-                  .push(themedRoute((_) => const DesignGalleryScreen())),
+              onTap: () => Navigator.of(context).push(themedRoute(
+                  (_) => const DesignGalleryScreen(),
+                  name: 'DesignGalleryScreen')),
             ),
           ]),
 

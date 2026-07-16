@@ -202,7 +202,8 @@ class _ShellState extends State<_Shell> {
       _ => null,
     };
     if (screen == null) return;
-    Navigator.of(context).push(themedRoute((_) => screen));
+    Navigator.of(context)
+        .push(themedRoute((_) => screen, name: screen.runtimeType.toString()));
   }
 
   // Built fresh on every build (not const) so a theme flip re-colours every tab,
@@ -346,7 +347,8 @@ class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderState
         onTap: () {
           HapticFeedback.selectionClick();
           Navigator.of(context).push(themedRoute(
-            (_) => LiveSessionScreen(workoutId: w.workoutId, type: w.type)));
+            (_) => LiveSessionScreen(workoutId: w.workoutId, type: w.type),
+            name: 'LiveSessionScreen'));
         },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x3),

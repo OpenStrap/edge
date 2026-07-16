@@ -182,8 +182,9 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
     final ok = cfg.configured;
     return SurfaceCard(
       padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
-      onTap: () => Navigator.of(context)
-          .push(themedRoute((_) => const CoachSettingsScreen())),
+      onTap: () => Navigator.of(context).push(themedRoute(
+          (_) => const CoachSettingsScreen(),
+          name: 'CoachSettingsScreen')),
       child: ListRow(
         icon: ok ? OsIcon.check : OsIcon.ai,
         // Spark art only in the "add a key" state — the connected state keeps

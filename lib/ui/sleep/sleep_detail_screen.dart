@@ -259,7 +259,8 @@ class _SleepDetailScreenState extends State<SleepDetailScreen> {
         RoundIconButton(
           OsIcon.bedtime,
           onTap: () => Navigator.of(context).push(
-            themedRoute((_) => SleepPeriodsScreen(date: widget.date)),
+            themedRoute((_) => SleepPeriodsScreen(date: widget.date),
+                name: 'SleepPeriodsScreen'),
           ),
         ),
       ],

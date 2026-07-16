@@ -254,8 +254,9 @@ class _AiCoachScreenState extends State<AiCoachScreen> {
     });
   }
 
-  void _openSettings() => Navigator.of(context)
-      .push(themedRoute((_) => const CoachSettingsScreen()));
+  void _openSettings() => Navigator.of(context).push(themedRoute(
+      (_) => const CoachSettingsScreen(),
+      name: 'CoachSettingsScreen'));
 
   @override
   Widget build(BuildContext context) {

@@ -171,8 +171,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           icon: OsIcon.history,
           title: 'Import from a file',
           body: 'A backup from this app, or an export from another one.',
-          onTap: () =>
-              Navigator.of(context).push(themedRoute((_) => const ImportScreen())),
+          onTap: () => Navigator.of(context).push(
+              themedRoute((_) => const ImportScreen(), name: 'ImportScreen')),
         ),
         const SizedBox(height: Sp.x3),
         WelcomeOptionCard(
