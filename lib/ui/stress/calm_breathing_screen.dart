@@ -28,7 +28,12 @@ class CalmBreathingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final app = context.watch<AppState>();
+    // Was context.watch<AppState>() — select the 4 fields actually rendered
+    // instead of rebuilding on all 67 notifyListeners() sources.
+    context.select<AppState, (bool, bool, Map<String, dynamic>?, String?)>(
+      (a) => (a.isConnected, a.breathingActive, a.breathingResult, a.breathingError),
+    );
+    final app = context.read<AppState>();
     if (autoStart && !app.breathingActive && app.isConnected) {
       // Guarded by breathingActive so this only ever fires once per mount —
       // startBreathingSession() flips breathingActive true and notifies,

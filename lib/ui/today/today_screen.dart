@@ -124,7 +124,18 @@ class _TodayScreenState extends State<TodayScreen>
 
   @override
   Widget build(BuildContext context) {
-    final app = context.watch<AppState>();
+    // SELECT the 3 fields _emptyOrProcessing actually reads, not the whole
+    // AppState — this screen used to fully rebuild on EVERY notifyListeners()
+    // (67 call sites incl. per-second timers and every derive-day callback),
+    // which is exactly what made a multi-day backfill/reanalyze visibly
+    // freeze this screen (several notifications in quick succession, each one
+    // forcing a full ListView rebuild while a screen switch might also be
+    // in flight). `app` itself is still the live, same-instance object (read,
+    // not watch) — only the REBUILD TRIGGER is now scoped.
+    context.select<AppState, (Map<String, int>, bool, String)>(
+      (a) => (a.dbCounts, a.reanalyzing, a.reanalyzeProgress),
+    );
+    final app = context.read<AppState>();
     final t = TodayData.fromJson(data);
 
     return AppScaffold(
@@ -195,9 +206,14 @@ class _TodayScreenState extends State<TodayScreen>
   }
 
   // Builder-based so themedRoute reconstructs the screen on a theme flip (a
-  // prebuilt instance would be returned unchanged and never re-colour).
-  void _push(Widget Function() build) =>
-      Navigator.of(context).push(themedRoute((_) => build()));
+  // prebuilt instance would be returned unchanged and never re-colour). We
+  // still call build() once up front, throwaway, just to read its runtime
+  // type for the route name (current_screen on a crash/ANR report) — the
+  // real navigation still goes through the fresh builder each time.
+  void _push(Widget Function() build) {
+    final name = build().runtimeType.toString();
+    Navigator.of(context).push(themedRoute((_) => build(), name: name));
+  }
 
   // ── content ──────────────────────────────────────────────────────────────────
 

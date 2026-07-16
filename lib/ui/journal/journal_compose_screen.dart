@@ -288,8 +288,9 @@ class _JournalComposeScreenState extends State<JournalComposeScreen> {
               'Add your AI key to talk through your day and have it logged '
               'for you. Quick log works without one.',
           actionLabel: 'Add your AI key',
-          onAction: () => Navigator.of(context)
-              .push(themedRoute((_) => const CoachSettingsScreen())),
+          onAction: () => Navigator.of(context).push(themedRoute(
+              (_) => const CoachSettingsScreen(),
+              name: 'CoachSettingsScreen')),
         ).dsEnter(index: 2),
       ];
     }

@@ -131,7 +131,13 @@ class _AdvancedDataScreenState extends State<AdvancedDataScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final app = context.watch<AppState>();
+    // Was context.watch<AppState>() — the same reanalyzing/reanalyzeProgress
+    // pair as today_screen.dart's dev-tools card; this screen IS the "analyze
+    // your data" dev tool, so this select matters exactly during a backfill.
+    context.select<AppState, (bool, String)>(
+      (a) => (a.reanalyzing, a.reanalyzeProgress),
+    );
+    final app = context.read<AppState>();
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(

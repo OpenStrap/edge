@@ -127,8 +127,9 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
               'provider, with your own key.',
           actionLabel: 'Add your AI key',
           onAction: () async {
-            await Navigator.of(context)
-                .push(themedRoute((_) => const CoachSettingsScreen()));
+            await Navigator.of(context).push(themedRoute(
+                (_) => const CoachSettingsScreen(),
+                name: 'CoachSettingsScreen'));
             if (mounted) _load(); // re-check on return
           },
         ).dsEnter(),

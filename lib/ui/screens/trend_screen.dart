@@ -26,6 +26,7 @@ void openTrend(
   Navigator.of(context).push(themedRoute((_) => GenericTrendScreen(
       title: title, metric: metric, icon: icon,
       accent: accent, valueFmt: valueFmt),
+    name: 'GenericTrendScreen:$metric',
   ));
 }
 

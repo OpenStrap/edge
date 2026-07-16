@@ -38,6 +38,10 @@ Future<void> main() async {
   // catch framework + uncaught async errors on their own, and a custom root zone
   // is a known source of release-startup fragility.
   TelemetryService.instance.installErrorHandlers();
+  // Turns real frame-level jank into Crashlytics non-fatal reports — Crashlytics
+  // otherwise has zero visibility into "the app froze while scrolling" since
+  // freezing isn't a crash. See installJankWatchdog's doc for the threshold.
+  TelemetryService.instance.installJankWatchdog();
 
   // Android: Cancel the two legacy WorkManager tasks by unique name. A previous
   // version scheduled heavy derivation passes in the background, but they were

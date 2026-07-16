@@ -37,8 +37,9 @@ class NotificationRelaySection extends StatelessWidget {
         return SurfaceCard(
           padding:
               const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
-          onTap: () => Navigator.of(context).push(
-              themedRoute((_) => const NotificationRelayScreen())),
+          onTap: () => Navigator.of(context).push(themedRoute(
+              (_) => const NotificationRelayScreen(),
+              name: 'NotificationRelayScreen')),
           child: ListRow(
             icon: OsIcon.notifications,
             iconColor: AppColors.accent,

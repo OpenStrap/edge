@@ -159,7 +159,8 @@ class _JournalScreenState extends State<JournalScreen> {
         RoundIconButton(
           OsIcon.ai,
           onTap: () => Navigator.of(context)
-              .push(themedRoute((_) => const JournalComposeScreen()))
+              .push(themedRoute((_) => const JournalComposeScreen(),
+                  name: 'JournalComposeScreen'))
               .then((_) => _load()),
         ),
       ],

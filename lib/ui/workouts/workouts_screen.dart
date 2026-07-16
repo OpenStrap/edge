@@ -109,7 +109,8 @@ Future<void> startWorkoutFlow(BuildContext context) async {
     app.startWorkout(workoutId: id, type: type);
     Navigator.of(
       context,
-    ).push(themedRoute((_) => LiveSessionScreen(workoutId: id, type: type)));
+    ).push(themedRoute((_) => LiveSessionScreen(workoutId: id, type: type),
+        name: 'LiveSessionScreen'));
   } catch (_) {
     /* surfaced as no-op; user can retry */
   }
@@ -374,7 +375,8 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
         mostSteps: mostSteps,
         entranceIndex: index,
         onTap: () => Navigator.of(context).push(
-          themedRoute((_) => WorkoutDetailScreen(id: w['id'] as String)),
+          themedRoute((_) => WorkoutDetailScreen(id: w['id'] as String),
+              name: 'WorkoutDetailScreen'),
         ),
         onLongPress: w['status'] == 'live' ? null : () => _exportCard(w),
       ),
@@ -425,6 +427,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
     Navigator.of(context).push(
       themedRoute(
         (_) => WorkoutFinishScreen(id: w['id'] as String, snapshot: snap),
+        name: 'WorkoutFinishScreen',
       ),
     );
   }

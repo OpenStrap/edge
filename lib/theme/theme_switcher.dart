@@ -29,11 +29,18 @@ import 'tokens.dart';
 /// fade-through transition therefore lives in the theme's pageTransitionsTheme
 /// instead (see buildOpenStrapTheme + page_transitions.dart): Android-likes
 /// keep the fade-through, iOS/macOS get the Cupertino slide WITH swipe-back.
+/// [name] shows up as `current_screen` on the next Crashlytics crash/ANR
+/// report (see TelemetryNavigatorObserver) — without it, every push here
+/// falls back to a generic `MaterialPageRoute<...>` label, which isn't useful
+/// for figuring out which screen a report actually happened on. Pass the
+/// destination screen's name at each call site.
 PageRoute<T> themedRoute<T>(
   WidgetBuilder builder, {
   bool fullscreenDialog = false,
+  String? name,
 }) => MaterialPageRoute<T>(
   fullscreenDialog: fullscreenDialog,
+  settings: RouteSettings(name: name),
   builder: (ctx) => _ThemeReactive(builder: builder),
 );
 
