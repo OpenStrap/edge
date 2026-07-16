@@ -18,19 +18,27 @@ class SpotCheckScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final app = context.watch<AppState>();
-    final active = app.spotActive;
-    final remaining = app.spotRemaining;
+    // Was context.watch<AppState>() — rebuilt on all 67 notifyListeners()
+    // sources even while idle. Selecting the 6 fields actually rendered means
+    // this only rebuilds on real spot-check state changes (still every
+    // second WHILE a scan is active — that's correct, the countdown needs it)
+    // instead of also on unrelated BLE drains/derive passes/other timers.
+    final (connected, active, remaining, liveHr, result, error) =
+        context.select<AppState, (bool, bool, int, int?, Map<String, dynamic>?, String?)>(
+      (a) => (a.isConnected, a.spotActive, a.spotRemaining, a.device.liveHr,
+          a.spotResult, a.spotError),
+    );
+    final app = context.read<AppState>();
     return SpotCheckView(
-      connected: app.isConnected,
+      connected: connected,
       active: active,
       remaining: remaining,
       progress: active
           ? (AppState.spotDuration - remaining) / AppState.spotDuration
           : 0.0,
-      liveHr: app.device.liveHr,
-      result: app.spotResult,
-      error: app.spotError,
+      liveHr: liveHr,
+      result: result,
+      error: error,
       onStart: app.startSpotCheck,
       onCancel: app.cancelSpotCheck,
       onBack: () {

@@ -31,8 +31,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_performance/firebase_performance.dart';
 
 import '../data/db.dart';
+import '../data/day_label.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
+import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_prepare.dart';
 import 'onehz_pipeline.dart';
@@ -1198,6 +1200,10 @@ class DerivationEngine {
   /// skipped so the sweep always makes progress.
   static const Duration _perDayTimeout = Duration(seconds: 90);
 
+  /// Throttle for the readiness-absent diagnostic log — one per calendar day
+  /// so repeated light-pass re-derives of today don't spam the outbox.
+  String? _loggedReadinessAbsentFor;
+
   /// Bounded worker-pool size for concurrent per-day derivation. Days within
   /// a single run share ONE frozen baseline snapshot (`_BaselineHistoryCache`
   /// is loaded once before the loop, refreshed once after — see `run()`) and
@@ -1359,6 +1365,25 @@ class DerivationEngine {
       () => deriveDayBundle(withHistory),
     ).timeout(_perDayTimeout);
     _logSpo2Diagnostics(day, input, bundle);
+    // Readiness came back absent for TODAY specifically (not a historical
+    // backfill day, which would just be noise) — log why. This ran inside
+    // Isolate.run so it couldn't call Firebase itself; it just returned the
+    // per-input diagnostic (see onehz_pipeline.dart's readinessAbsentDiag).
+    // Throttled to once/day so repeated light-pass re-derives of today don't
+    // spam the outbox with the same finding.
+    final absentDiag = bundle['readiness_absent_diag'];
+    if (absentDiag != null &&
+        day.date == todayLabel() &&
+        _loggedReadinessAbsentFor != day.date) {
+      _loggedReadinessAbsentFor = day.date;
+      TelemetryService.instance.breadcrumb('readiness absent: $absentDiag');
+      TelemetryService.instance.record(
+        kind: 'event',
+        level: 'warn',
+        message: 'readiness_absent',
+        context: (absentDiag as Map).cast<String, dynamic>(),
+      );
+    }
 
     // Where this day's sleep window came from (auto / auto_fallback / manual /
     // confirmed) — drives the Sleep screen's "is this right?" prompt + the
@@ -1711,10 +1736,16 @@ class DerivationEngine {
         return;
       }
       final profileMap = profile.toMap();
-      final bundle = await Isolate.run(
-        () => buildCrossDayBundle(days, profileMap),
+      // Encode INSIDE the isolate too — a real ~3.5-4.7s main-isolate hang was
+      // caught in production (Crashlytics jank_watchdog, correlated with a
+      // heavy derive pass) coming from jsonEncode-ing this bundle back on the
+      // main isolate after Isolate.run returned it. Returning the already-
+      // encoded string avoids both the main-isolate encode cost AND transfers
+      // a flat string across the isolate boundary instead of a large nested Map.
+      final bundleJson = await Isolate.run(
+        () => jsonEncode(buildCrossDayBundle(days, profileMap)),
       ).timeout(_crossDayTimeout);
-      await LocalDb.putBaseline('crossday', jsonEncode(bundle));
+      await LocalDb.putBaseline('crossday', bundleJson);
       _log('crossday: stored over ${days.length} day(s)');
     } catch (e) {
       _log('crossday FAILED/skipped: $e');
@@ -1744,19 +1775,26 @@ class DerivationEngine {
   }
 
   Future<List<Map<String, dynamic>>> _refreshCrossDayInputArtifact() async {
+    // The DB read itself must stay on the main isolate (sqflite), but
+    // decoding up to _crossDayWindow (90) full day payloads + re-encoding
+    // them was previously ALL synchronous main-isolate work with zero
+    // offloading — this is the confirmed source of the ~3.5-4.7s production
+    // hang (Crashlytics jank_watchdog), since _refreshBaselines calls this
+    // unconditionally on every heavy pass. _decodeBundle/_crossDayRecord are
+    // both static, so this whole transform+encode step is isolate-safe.
     final rows = await LocalDb.recentDayResults(_crossDayWindow);
-    final days = <Map<String, dynamic>>[];
-    for (final row in rows.reversed) {
-      final payload = _decodeBundle(row['payload_json']);
-      if (payload == null) continue;
-      if (payload['skipped'] == true) continue;
-      final rec = _crossDayRecord(row, payload);
-      if (rec != null) days.add(rec);
-    }
-    await LocalDb.putBaseline(
-      'crossday_input',
-      jsonEncode({'algo_version': kAlgoVersion, 'days': days}),
-    );
+    final (days, json) = await Isolate.run(() {
+      final days = <Map<String, dynamic>>[];
+      for (final row in rows.reversed) {
+        final payload = _decodeBundle(row['payload_json']);
+        if (payload == null) continue;
+        if (payload['skipped'] == true) continue;
+        final rec = _crossDayRecord(row, payload);
+        if (rec != null) days.add(rec);
+      }
+      return (days, jsonEncode({'algo_version': kAlgoVersion, 'days': days}));
+    });
+    await LocalDb.putBaseline('crossday_input', json);
     return days;
   }
 

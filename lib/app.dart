@@ -26,6 +26,7 @@ import 'ui/activity/live_session_screen.dart';
 import 'ui/ai/ai_breakdown_screen.dart';
 import 'ui/journal/journal_compose_screen.dart';
 import 'ui/stress/calm_breathing_screen.dart';
+import 'telemetry/telemetry_service.dart';
 
 class OpenStrapApp extends StatefulWidget {
   const OpenStrapApp({super.key});
@@ -93,6 +94,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       themeMode: theme.materialThemeMode,
       builder: (context, child) =>
           ThemeSwitchOverlay(key: themeSwitchKey, child: child!),
+      navigatorObservers: [TelemetryNavigatorObserver()],
       home: const _Gate(),
     );
   }
@@ -100,6 +102,10 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
 
 /// Onboarding gate: pairing → app. CLOUD EXCISED — the old backend / auth /
 /// profile gate states are gone; once a band is paired we go straight to the shell.
+/// Telemetry-only: the last AppRoute we logged, so _Gate's build() (which also
+/// re-runs on a plain theme flip, not just a route change) doesn't double-log.
+AppRoute? _telemetryLastRoute;
+
 class _Gate extends StatelessWidget {
   const _Gate();
   @override
@@ -109,6 +115,11 @@ class _Gate extends StatelessWidget {
     // here used to repaint the entire home stack every second, which starved the
     // background BLE connection on long idle stretches (lost overnight data).
     final route = context.select<AppState, AppRoute>((a) => a.route);
+    if (route != _telemetryLastRoute) {
+      _telemetryLastRoute = route;
+      TelemetryService.instance.setContext('app_route', route.name);
+      TelemetryService.instance.breadcrumb('route: ${route.name}');
+    }
     // Depend on the theme too → the whole home stack (onboarding screens, the
     // shell + its tabs) rebuilds with fresh colours the instant the mode flips.
     context.watch<ThemeController>();

@@ -52,6 +52,16 @@ class ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // REVERTED to watch(): this class reads 12+ AppState fields across many
+    // private helper methods (_deviceTile, the privacy toggles, companion
+    // config, etc.) spread over 600 lines. A prior attempt at scoping this to
+    // context.select() only covered 4 of those 12 fields — telemetryConsent
+    // wasn't one of them, so toggling it called notifyListeners() but this
+    // screen no longer rebuilt on that signal, leaving the switch showing its
+    // stale value (looked like the toggle "automatically turning back on").
+    // Profile is a low-frequency settings screen, not part of the
+    // scrolling/live-workout hot path the notifyListeners() storm actually
+    // hurt — the safety of watch() here is worth more than the optimization.
     final app = context.watch<AppState>();
     final units = context.watch<UnitsController>();
     final user = app.user ?? const {};
@@ -1176,8 +1186,15 @@ class _DeviceSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Rebuild when device state changes (alarm/name/connection).
-    final live = context.watch<AppState>();
+    // Rebuild when device state changes (alarm/name/connection) — was a
+    // blanket watch() before; select the fields actually used instead. (Prior
+    // pass here missed `device`/`paired` — re-audited against every `live.`
+    // touchpoint in this class after finding the same gap cost a real bug in
+    // the main ProfileScreen build above.)
+    context.select<AppState, (bool, int?, String?, dynamic, dynamic)>(
+      (a) => (a.isConnected, a.alarmEpoch, a.strapName, a.device, a.paired),
+    );
+    final live = context.read<AppState>();
     final connected = live.isConnected;
     final alarm = live.alarmEpoch;
 

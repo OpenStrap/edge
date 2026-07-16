@@ -20,7 +20,15 @@ class StatusBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final app = context.watch<AppState>();
+    // Was context.watch<AppState>() — this sits at the top of Today's ListView
+    // (rendered on every visit), so rebuilding it on all 67 notifyListeners()
+    // sources mattered a lot. activeBanner/updateAvailable/update/mandatory
+    // change rarely (an admin push or an OTA check), unlike almost everything
+    // else in AppState.
+    context.select<AppState, (BannerInfo?, bool, UpdateInfo?, bool)>(
+      (a) => (a.activeBanner, a.updateAvailable, a.update, a.updateMandatory),
+    );
+    final app = context.read<AppState>();
     final banner = app.activeBanner;
     final showUpdate = app.updateAvailable;
     if (banner == null && !showUpdate) return const SizedBox.shrink();

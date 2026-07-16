@@ -105,6 +105,12 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
 
   @override
   Widget build(BuildContext context) {
+    // Rebuild only on the 3 alarm fields _alarmCaption reads — was two
+    // separate context.watch<AppState>() calls below (each one subscribing
+    // to ALL 67 notifyListeners() sources, not just alarm state).
+    context.select<AppState, (int?, bool, bool)>(
+      (a) => (a.alarmEpoch, a.alarmConfirmed, a.alarmPending),
+    );
     if (_loading) return const SizedBox.shrink();
     final need = _val(_coach?['need']);
     if (need == null) {
@@ -167,9 +173,9 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
               label: Text('Set band alarm for ${_hhmm(wakeMin)}'),
             ),
           ),
-          if (_alarmCaption(context.watch<AppState>()) != null) ...[
+          if (_alarmCaption(context.read<AppState>()) != null) ...[
             const SizedBox(height: Sp.x2),
-            Text(_alarmCaption(context.watch<AppState>())!,
+            Text(_alarmCaption(context.read<AppState>())!,
                 style: AppText.captionMuted),
           ],
         ],

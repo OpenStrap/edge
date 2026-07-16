@@ -360,6 +360,23 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     // pass raw values + their raw baselines).
     tempInput(skinTempAdc, d.skinTempAdcHistory),
   ]);
+  // Diagnostic only — populated when readiness comes back absent, so the main
+  // isolate can log WHY to Crashlytics instead of a bare null (this runs
+  // inside Isolate.run, so it can't call Firebase directly; it just returns
+  // data). Per-input value-presence + baseline length lets us distinguish
+  // "no value" / "baseline too short" from "everything present but MAD was
+  // degenerate" by elimination (readinessComposite doesn't surface the last
+  // case in its own note — see readiness_composite.dart's robustZ() null path).
+  Map<String, dynamic>? readinessAbsentDiag;
+  if (!composite.present) {
+    readinessAbsentDiag = {
+      'hrv': {'value': lnToday != null, 'baseline_n': d.lnRmssdHistory.length},
+      'rhr': {'value': rhrToday != null, 'baseline_n': d.rhrHistory.length},
+      'resp': {'value': respToday != null, 'baseline_n': d.respHistory.length},
+      'temp': {'value': skinTempAdc != null, 'baseline_n': d.skinTempAdcHistory.length},
+      'note': composite.note,
+    };
+  }
   // Plews lnRMSSD readiness over the trailing history INCLUDING today.
   final lnHist = [...d.lnRmssdHistory, ?lnToday];
   final lnReadiness = lnHist.length >= 4
@@ -754,6 +771,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'clean_fraction': _round(corrected.cleanFraction, 4),
       'sleep_seconds': inBedSec ?? 0,
     },
+    'readiness_absent_diag': ?readinessAbsentDiag,
     'scalars': {
       'rhr': rhrScalar,
       // Headline RMSSD (robust nocturnal, NREM). Whole-window kept separately.

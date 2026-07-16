@@ -700,10 +700,18 @@ class AppState extends ChangeNotifier {
   /// sweep. Best-effort + non-blocking — never throws into the BLE path.
   /// Refreshes the UI when results land so screens re-read the fresh derived rows.
   Future<void> _afterDrain({bool heavy = false}) async {
+    final mode = heavy ? 'heavy' : 'light';
     try {
+      // Context for whatever crash/ANR report comes next — the derivation
+      // engine's heavy per-day compute is isolate-offloaded, but the
+      // assembly/UI-refresh wiring around it still runs on the main isolate,
+      // so this is real signal if a freeze/ANR correlates with a derive pass.
+      TelemetryService.instance.setContext('derive_mode', mode);
+      TelemetryService.instance.setContext('derive_active', true);
+      TelemetryService.instance.breadcrumb('derive: $mode start');
       // Refresh the UI after EACH day so Today/trends fill in as the sweep runs,
       // not only at the end (a multi-day backfill can be many days of work).
-      await _derive.run(
+      await TelemetryService.instance.traced('derive_$mode', () => _derive.run(
         _profile,
         heavy: heavy,
         onDayDone: (day, index, total) async {
@@ -712,7 +720,8 @@ class AppState extends ChangeNotifier {
             notifyListeners();
           }
         },
-      );
+      ));
+      TelemetryService.instance.breadcrumb('derive: $mode done');
       await LocalDb.refreshComputeFreshness();
       _bumpInsightsRevision();
       notifyListeners(); // screens re-fetch from the derived store
@@ -756,8 +765,14 @@ class AppState extends ChangeNotifier {
       if (heavy && healthShareConsent) {
         unawaited(HealthUploader.instance.maybeUpload(consented: true));
       }
-    } catch (e) {
+    } catch (e, st) {
       _log('[derive] post-drain failed: $e');
+      // Was silently swallowed before — this is a real pipeline failure
+      // (derive/health-export/etc.) that Firebase never saw. Non-fatal, not
+      // fatal: the app keeps running, but this is worth knowing about.
+      TelemetryService.instance.recordNonFatal(e, st, reason: 'post_drain_failed');
+    } finally {
+      TelemetryService.instance.setContext('derive_active', false);
     }
   }
 

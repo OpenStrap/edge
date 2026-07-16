@@ -17,6 +17,8 @@ import 'dart:io';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/widgets.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -95,6 +97,127 @@ class TelemetryService {
       record(kind: 'crash', level: 'error', message: '$error', stack: '$stack');
       return false; // let the platform also see it
     };
+  }
+
+  // ── observability surface: breadcrumbs, context, non-fatals, traces ────────
+  //
+  // Crashlytics only ever sees FATAL errors on its own (installErrorHandlers
+  // above) — it has zero visibility into freezes/jank or into errors that get
+  // caught-and-swallowed today. These helpers are how we get real signal out
+  // of Firebase for exactly those blind spots:
+  //   - breadcrumb()/setContext(): attached automatically to whatever crash OR
+  //     ANR report comes next from this session — the log() calls and the
+  //     currently-set custom keys both ride along, no extra wiring needed.
+  //   - recordNonFatal(): promotes a caught-and-swallowed error to a real
+  //     Crashlytics issue instead of vanishing into debugPrint.
+  //   - traced(): a Firebase Performance custom trace around a span of code —
+  //     the only way to get real-world timing for BLE drains/derivation
+  //     passes/health export, since Performance doesn't auto-instrument
+  //     arbitrary Flutter rebuild cost.
+  // All best-effort + silently no-op before Firebase is configured or before
+  // the user has opted in, same gate as the rest of this file.
+
+  /// Attach a breadcrumb log line to whatever Crashlytics report (crash OR
+  /// ANR) comes next from this session. Cheap; call liberally at lifecycle
+  /// transitions (screen changes, BLE state changes, derivation passes).
+  void breadcrumb(String message) {
+    try {
+      if (Firebase.apps.isNotEmpty && _enabled) {
+        FirebaseCrashlytics.instance.log(message);
+      }
+    } catch (_) {}
+  }
+
+  /// Set a persistent custom key visible on every subsequent Crashlytics
+  /// report until overwritten — e.g. current_screen, ble_state, derive_mode.
+  /// Unlike breadcrumb(), this is STATE (last-write-wins), not an event log.
+  void setContext(String key, Object value) {
+    try {
+      if (Firebase.apps.isNotEmpty && _enabled) {
+        FirebaseCrashlytics.instance.setCustomKey(key, value);
+      }
+    } catch (_) {}
+  }
+
+  /// Report a caught error as a Crashlytics NON-FATAL issue — for the many
+  /// `catch (e) { debugPrint(...) }` sites where a real problem currently just
+  /// vanishes into a debug console nobody in production ever reads.
+  void recordNonFatal(Object error, StackTrace stack, {String? reason}) {
+    try {
+      if (Firebase.apps.isNotEmpty && _enabled) {
+        FirebaseCrashlytics.instance.recordError(
+          error,
+          stack,
+          fatal: false,
+          reason: reason,
+        );
+      }
+    } catch (_) {}
+  }
+
+  final Map<String, Trace> _activeTraces = {};
+
+  /// Wrap [body] in a named Firebase Performance trace. Safe to nest under
+  /// different names; a given [name] running concurrently with itself is not
+  /// supported (the later start wins) — use distinct names per call site.
+  Future<T> traced<T>(String name, Future<T> Function() body) async {
+    Trace? trace;
+    try {
+      if (Firebase.apps.isNotEmpty && _enabled) {
+        trace = FirebasePerformance.instance.newTrace(name);
+        await trace.start();
+        _activeTraces[name] = trace;
+      }
+    } catch (_) {
+      trace = null;
+    }
+    try {
+      return await body();
+    } finally {
+      try {
+        await trace?.stop();
+      } catch (_) {}
+      _activeTraces.remove(name);
+    }
+  }
+
+  Timer? _jankThrottle;
+
+  /// Turn invisible UI jank into real Crashlytics non-fatal reports. Flutter
+  /// itself already measures every frame's build+raster cost — we just have
+  /// to listen. A frame at/above [thresholdMs] reads as a visible stutter to
+  /// the user; this is what actually answers "the app froze while scrolling"
+  /// reports, which Crashlytics otherwise never sees at all (freezing isn't a
+  /// crash). Throttled to at most one report per [minGapSeconds] so a rough
+  /// patch (e.g. a long scroll over a busy screen) doesn't spam the outbox —
+  /// still enough to catch the pattern without drowning it.
+  void installJankWatchdog({int thresholdMs = 700, int minGapSeconds = 30}) {
+    SchedulerBinding.instance.addTimingsCallback((List<FrameTiming> timings) {
+      if (_jankThrottle != null) return;
+      for (final t in timings) {
+        final totalMs = t.totalSpan.inMilliseconds;
+        if (totalMs < thresholdMs) continue;
+        _jankThrottle = Timer(Duration(seconds: minGapSeconds), () {
+          _jankThrottle = null;
+        });
+        final buildMs = t.buildDuration.inMilliseconds;
+        final rasterMs = t.rasterDuration.inMilliseconds;
+        breadcrumb(
+          'slow_frame total=${totalMs}ms build=${buildMs}ms raster=${rasterMs}ms',
+        );
+        recordNonFatal(
+          Exception('Slow frame: ${totalMs}ms (build=$buildMs raster=$rasterMs)'),
+          StackTrace.current,
+          reason: 'jank_watchdog',
+        );
+        record(kind: 'event', level: 'warn', message: 'slow_frame', context: {
+          'total_ms': totalMs,
+          'build_ms': buildMs,
+          'raster_ms': rasterMs,
+        });
+        break; // one report per callback batch is enough signal
+      }
+    });
   }
 
   /// Record an uncaught zone error (called from runZonedGuarded in main).
@@ -237,4 +360,35 @@ class TelemetryService {
   }
 
   String _clip(String s, int n) => s.length <= n ? s : s.substring(0, n);
+}
+
+/// Wire into MaterialApp's `navigatorObservers` so every real Navigator.push/
+/// pop (drill-down screens, modals, settings) sets `current_screen` +
+/// breadcrumbs it — free "what screen were they on" context on every future
+/// crash/ANR report. Note this only sees Navigator-based transitions; the
+/// app's top-level AppRoute switch (loading/pairing/profile/shell) and any
+/// IndexedStack-based tab switching inside the shell are NOT Navigator pushes
+/// and need their own hook (see _Gate in app.dart for the top-level one).
+class TelemetryNavigatorObserver extends NavigatorObserver {
+  String? _nameOf(Route<dynamic>? route) =>
+      route?.settings.name ?? route?.runtimeType.toString();
+
+  void _report(String event, Route<dynamic>? route) {
+    final name = _nameOf(route);
+    if (name == null) return;
+    TelemetryService.instance.setContext('current_screen', name);
+    TelemetryService.instance.breadcrumb('nav: $event $name');
+  }
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _report('push', route);
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      _report('pop', previousRoute);
+
+  @override
+  void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) =>
+      _report('replace', newRoute);
 }

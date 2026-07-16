@@ -725,7 +725,9 @@ class _ControlPanel extends StatelessWidget {
               // Real steps counted on the live 100 Hz stream, scoped to THIS
               // workout (resets at start, not at connection).
               _Stat(icon: OsIcon.activity, label: 'STEPS',
-                  value: context.watch<AppState>().workoutSteps.toString(),
+                  // select, not watch — this was subscribing the whole row to
+                  // every AppState notifyListeners(), not just workoutSteps.
+                  value: context.select<AppState, int>((a) => a.workoutSteps).toString(),
                   unit: ''),
               ]),
             ]),
@@ -1669,6 +1671,17 @@ class _GpsLiveMapViewState extends State<GpsLiveMapView> {
     _followedCount = path.length;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _userPanned) return;
+      // Guard against a zero-sized viewport: fitCamera() computes zoom as a
+      // ratio against the map's current rendered pixel size, and flutter_map
+      // only clamps NEGATIVE size, not exactly-zero. If this runs before the
+      // FlutterMap widget has actually laid out (a real race even inside a
+      // postFrameCallback, e.g. right as this screen appears), that division
+      // can produce a NaN/Infinite zoom that fitCamera() happily ASSIGNS
+      // without throwing — the crash only surfaces a frame later, async, when
+      // the tile layer next reacts to the camera and tries to use that zoom.
+      // The try/catch below can't catch that; this check prevents it instead.
+      final size = _map.camera.nonRotatedSize;
+      if (size.x <= 0 || size.y <= 0) return; // next fix retries
       try {
         _map.fitCamera(
           CameraFit.bounds(

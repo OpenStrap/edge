@@ -268,8 +268,11 @@ class _ActivityDetailState extends State<_ActivityDetail> {
     final live = _isToday
         ? context.select<AppState, int>((a) => a.liveSteps)
         : 0;
-    final app = context.watch<AppState>();
-    final goal = (app.user?['step_goal'] as num?)?.toInt();
+    // Was context.watch<AppState>() — rebuilt this whole board on every one of
+    // AppState's 67 notifyListeners() sources. Only `user` (for step_goal) is
+    // actually read below.
+    final user = context.select<AppState, Map<String, dynamic>?>((a) => a.user);
+    final goal = (user?['step_goal'] as num?)?.toInt();
     return StepsDayContent(
       steps: (_steps?.round() ?? 0) + live,
       goal: goal,

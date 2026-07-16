@@ -124,7 +124,18 @@ class _TodayScreenState extends State<TodayScreen>
 
   @override
   Widget build(BuildContext context) {
-    final app = context.watch<AppState>();
+    // SELECT the 3 fields _emptyOrProcessing actually reads, not the whole
+    // AppState — this screen used to fully rebuild on EVERY notifyListeners()
+    // (67 call sites incl. per-second timers and every derive-day callback),
+    // which is exactly what made a multi-day backfill/reanalyze visibly
+    // freeze this screen (several notifications in quick succession, each one
+    // forcing a full ListView rebuild while a screen switch might also be
+    // in flight). `app` itself is still the live, same-instance object (read,
+    // not watch) — only the REBUILD TRIGGER is now scoped.
+    context.select<AppState, (Map<String, int>, bool, String)>(
+      (a) => (a.dbCounts, a.reanalyzing, a.reanalyzeProgress),
+    );
+    final app = context.read<AppState>();
     final t = TodayData.fromJson(data);
 
     return AppScaffold(
