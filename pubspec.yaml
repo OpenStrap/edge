@@ -1,5 +1,5 @@
 name: openstrap_edge
-description: "OpenStrap — open-source WHOOP 4.0 companion. BLE drain → raw-first local store → cloud sync."
+description: "Open-source, local-first fitness tracking companion for WHOOP 4.0 hardware. Not affiliated with WHOOP, Inc."
 publish_to: 'none'
 version: 0.9.14+47
 

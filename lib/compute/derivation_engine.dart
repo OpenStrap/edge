@@ -101,7 +101,7 @@ import 'substrate.dart';
 /// also tunes this estimate. Bumping re-derives non-finalized days so they fill.
 // v20: principled nap detection (van Hees immobility + HR-dip) → `naps` block +
 // `nap_min` scalar; cross-day Sleep Coach (need/bedtime/cycle-wake/performance),
-// Strain Coach (recovery-gated target), VO₂max + WHOOP-Age, all in the crossday
+// Strain Coach (recovery-gated target), VO₂max + Fitness Age, all in the crossday
 // bundle.
 // v21: all-day HRV line (`series.hrv_day`, epoch rolling RMSSD over 24/7 RR).
 // v22: all-day RESP line (`series.resp_day`, rolling RSA br/min) + relative
@@ -1978,7 +1978,7 @@ class DerivationEngine {
       'skin_temp_z': sc('skin_temp_z'),
       'trimp': sc('trimp'),
       // Headline 0–21 strain, daily steps, nap minutes — feed Sleep/Strain Coach
-      // + VO₂max/WHOOP-Age in the cross-day rollup.
+      // + VO₂max/Fitness Age in the cross-day rollup.
       'strain': sc('strain'),
       'steps': sc('steps'),
       'nap_min': sc('nap_min'),

@@ -148,7 +148,7 @@ class BodyScreen extends StatelessWidget {
         const SizedBox(height: Sp.x3),
         StrainDetailScreen(date: todayLabel(), embedded: true),
         const SizedBox(height: Sp.x3),
-        const WhoopAgeCard(),
+        const FitnessAgeCard(),
         const SizedBox(height: Sp.x3),
         const PerformanceAssessmentCard(),
         const CycleEntryCard(),

@@ -154,6 +154,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       physics: const BouncingScrollPhysics(),
       children: dsStaggered([
         const WelcomeHero(),
+        const SizedBox(height: Sp.x4),
+        const AffiliationDisclaimer(),
         const SizedBox(height: Sp.x6),
         Text('How do you want to start?', style: AppText.h2),
         const SizedBox(height: Sp.x4),
@@ -372,6 +374,24 @@ class WelcomeHero extends StatelessWidget {
         );
       }),
     );
+  }
+}
+
+/// Legal/affiliation disclaimer shown once at first run (and mirrored in
+/// Settings → About — see [AboutScreen]). Attorney-reviewed wording; don't
+/// paraphrase without re-running it past the same review.
+class AffiliationDisclaimer extends StatelessWidget {
+  const AffiliationDisclaimer({super.key});
+
+  static const String text =
+      'Edge is an independent, open-source project. It is not affiliated '
+      'with, sponsored by, or endorsed by WHOOP, Inc. You must own a genuine '
+      'WHOOP 4.0 band to use this app. Health metrics are wellness estimates '
+      'from published research methods — not medical diagnoses.';
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(text, style: AppText.captionMuted);
   }
 }
 

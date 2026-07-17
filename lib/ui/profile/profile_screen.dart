@@ -25,6 +25,7 @@ import '../design/design.dart';
 import '../design/gallery_screen.dart';
 import '../import/import_screen.dart';
 import '../today/step_goal_screen.dart';
+import 'about_screen.dart';
 import 'advanced_data_screen.dart';
 import 'data_history_screen.dart';
 import 'gesture_section.dart';
@@ -419,6 +420,20 @@ class ProfileScreen extends StatelessWidget {
           ),
           const _CardNote(
               'Join the community, report bugs, or peek at the source.'),
+
+          const SizedBox(height: Sp.x6),
+
+          // ── About ────────────────────────────────────────────────────
+          const SectionHeader('About'),
+          _SettingsCard(rows: [
+            ListRow(
+              icon: OsIcon.activity,
+              title: 'About Edge',
+              subtitle: 'Affiliation, privacy policy, licenses',
+              onTap: () => Navigator.of(context).push(
+                  themedRoute((_) => const AboutScreen(), name: 'AboutScreen')),
+            ),
+          ]),
 
           const SizedBox(height: Sp.x6),
 
