@@ -59,25 +59,34 @@ class GestureSettingsCard extends StatelessWidget {
                 Text('What happens when you double-tap the band.',
                     style: AppText.captionMuted),
                 const SizedBox(height: Sp.x4),
-                ...options.map((a) {
-                  final selected = a == settings.doubleTap;
-                  return ListRow(
-                    title: a.label,
-                    subtitle: a.blurb,
-                    trailing: selected
-                        ? AppIcon(OsIcon.check, size: 20, color: AppColors.positive)
-                        : const SizedBox(width: 20),
-                    onTap: () {
-                      settings.setDoubleTap(a);
-                      Navigator.of(sheetCtx).pop();
-                    },
-                  );
-                }),
-                if (options.length <= 1) ...[
-                  const SizedBox(height: Sp.x3),
-                  Text('No band actions are available on this device yet.',
-                      style: AppText.caption),
-                ],
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ...options.map((a) {
+                          final selected = a == settings.doubleTap;
+                          return ListRow(
+                            title: a.label,
+                            subtitle: a.blurb,
+                            trailing: selected
+                                ? AppIcon(OsIcon.check, size: 20, color: AppColors.positive)
+                                : const SizedBox(width: 20),
+                            onTap: () {
+                              settings.setDoubleTap(a);
+                              Navigator.of(sheetCtx).pop();
+                            },
+                          );
+                        }),
+                        if (options.length <= 1) ...[
+                          const SizedBox(height: Sp.x3),
+                          Text('No band actions are available on this device yet.',
+                              style: AppText.caption),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

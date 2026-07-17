@@ -29,6 +29,7 @@ object NativeChannels {
     private const val EDGE_TRACKING_CHANNEL = "openstrap/edge_tracking"
     private const val DEVICE_ACTIONS_CHANNEL = "openstrap/device_actions"
     private const val ANDROID_BG_CHANNEL = "openstrap/android_background"
+    const val ACTION_DOUBLE_TAP = "wtf.openstrap.openstrap_edge.DOUBLE_TAP"
 
     private var torchOn = false
 
@@ -107,7 +108,8 @@ object NativeChannels {
                     "capabilities" -> result.success(
                         listOf(
                             "media_play_pause", "media_next", "media_prev",
-                            "volume_up", "volume_down", "ring_phone", "torch"
+                            "volume_up", "volume_down", "ring_phone", "torch",
+                            "broadcast_to_tasker"
                         )
                     )
                     "perform" -> result.success(perform(app, call.argument<String>("action") ?: ""))
@@ -126,6 +128,7 @@ object NativeChannels {
                 "volume_down" -> adjustVolume(ctx, AudioManager.ADJUST_LOWER)
                 "ring_phone" -> ringPhone(ctx)
                 "torch" -> toggleTorch(ctx)
+                "broadcast_to_tasker" -> sendTaskerBroadcast(ctx)
                 else -> return false
             }
             true
@@ -321,4 +324,17 @@ object NativeChannels {
             vibrator.vibrate(500)
         }
     }
+
+    /** Send a broadcast intent so Tasker (or any automation app) can subscribe
+     * to band double-taps. The intent action is
+     * `wtf.openstrap.openstrap_edge.DOUBLE_TAP`; Tasker listens via
+     * Event → Intent Received.
+     */
+    private fun sendTaskerBroadcast(ctx: Context) {
+        val intent = Intent(ACTION_DOUBLE_TAP).apply {
+            addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+        }
+        ctx.sendBroadcast(intent)
+    }
+
 }

@@ -10,6 +10,7 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -352,17 +353,46 @@ class ProfileScreen extends StatelessWidget {
           // ── Automation (Tasker) ──────────────────────────────────────
           const SectionHeader('Automation'),
           _SettingsCard(rows: [
-            ListRow(
-              icon: OsIcon.activity,
-              title: 'Tasker buzz strap',
-              subtitle: 'wtf.openstrap.openstrap_edge.BUZZ_STRAP',
-              onTap: null,
+            GestureDetector(
+              onLongPress: () {
+                Clipboard.setData(
+                  const ClipboardData(text: 'wtf.openstrap.openstrap_edge.BUZZ_STRAP'),
+                );
+                _snack(context, 'Copied BUZZ_STRAP action.');
+              },
+              child: ListRow(
+                icon: OsIcon.activity,
+                title: 'Tasker buzz strap',
+                subtitle: 'wtf.openstrap.openstrap_edge.BUZZ_STRAP',
+                onTap: null,
+              ),
             ),
           ]),
           const _CardNote(
             'Send a Broadcast intent from Tasker or any automation app to '
             'vibrate your WHOOP strap. On Android 12+, set Package to '
             'wtf.openstrap.openstrap_edge. Optional int extra "pattern" (default 2).',
+          ),
+          const SizedBox(height: Sp.x3),
+          _SettingsCard(rows: [
+            GestureDetector(
+              onLongPress: () {
+                Clipboard.setData(
+                  const ClipboardData(text: 'wtf.openstrap.openstrap_edge.DOUBLE_TAP'),
+                );
+                _snack(context, 'Copied DOUBLE_TAP action.');
+              },
+              child: ListRow(
+                icon: OsIcon.activity,
+                title: 'Double-tap broadcast',
+                subtitle: 'wtf.openstrap.openstrap_edge.DOUBLE_TAP',
+                onTap: null,
+              ),
+            ),
+          ]),
+          const _CardNote(
+            'Set double-tap gesture to "Broadcast to Tasker", then create '
+            'a Tasker profile: Event → Intent Received → action above.',
           ),
 
           const SizedBox(height: Sp.x6),
