@@ -2508,8 +2508,10 @@ class BleEngine {
 
   Future<void> getBattery() => _send(Cmd.getBatteryLevel, const []);
   Future<void> getHello() => _send(Cmd.getHelloHarvard, const [0x00]);
-  Future<void> buzz() =>
-      _send(Cmd.runHapticsPattern, const [hapticShortPulse, 0, 0, 0, 0]);
+  Future<void> buzz() => buzzPattern(hapticShortPulse);
+
+  Future<void> buzzPattern(int pattern) =>
+      _send(Cmd.runHapticsPattern, [pattern, 0, 0, 0, 0]);
 
   /// Enable live foreground streams (makes the band emit live R10/R11 + optical).
   /// Optical stays WRIST-GATED (0x6B only). This sends the toggle commands but

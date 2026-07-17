@@ -51,6 +51,7 @@ import '../health/health_export.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
+import '../platform/tasker_bridge.dart';
 import '../data/models.dart';
 import '../live/live_activity.dart';
 import '../live/breathing_live_activity.dart';
@@ -124,6 +125,12 @@ class AppState extends ChangeNotifier {
   late final WaterBuzzer _waterBuzzer = WaterBuzzer(
     buzz: () => engine.buzz(),
     isConnected: () => engine.isConnected,
+  );
+
+  /// Tasker integration bridge — listens for Android broadcast intents from
+  /// Tasker and buzzes the strap. Wired in the constructor.
+  late final TaskerBridge taskerBridge = TaskerBridge(
+    buzzPattern: (p) => engine.buzzPattern(p),
   );
   Sample? lastSynced;
   // REAL device time (epoch SECONDS) of the newest record we hold — the band's
@@ -1272,6 +1279,15 @@ class AppState extends ChangeNotifier {
         openSession();
       }
     }
+    unawaited(_checkPendingTaskerBuzz());
+  }
+
+  Future<void> _checkPendingTaskerBuzz() async {
+    if (!Platform.isAndroid) return;
+    final pattern = await TaskerBridge.consumePendingBuzz();
+    if (pattern == null) return;
+    _log('[tasker] consuming pending buzz (pattern=$pattern) from headless intent');
+    await engine.buzzPattern(pattern);
   }
 
   /// (Re)register standing scheduled reminders per the user's prefs. Idempotent;
@@ -2020,6 +2036,11 @@ class AppState extends ChangeNotifier {
   Future<void> testAlarmBuzz() async {
     if (!isConnected) throw Exception('Connect to your strap first');
     await engine.runAlarm();
+  }
+
+  Future<void> testBuzzPattern(int pattern) async {
+    if (!isConnected) throw Exception('Connect to your strap first');
+    await engine.buzzPattern(pattern);
   }
 
   Future<void> disableAlarm() async {

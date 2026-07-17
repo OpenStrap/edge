@@ -349,6 +349,23 @@ class ProfileScreen extends StatelessWidget {
 
           const SizedBox(height: Sp.x6),
 
+          // ── Automation (Tasker) ──────────────────────────────────────
+          const SectionHeader('Automation'),
+          _SettingsCard(rows: [
+            ListRow(
+              icon: OsIcon.activity,
+              title: 'Tasker buzz strap',
+              subtitle: 'wtf.openstrap.openstrap_edge.BUZZ_STRAP',
+              onTap: null,
+            ),
+          ]),
+          const _CardNote(
+            'Send a Broadcast intent from Tasker or any automation app to '
+            'vibrate your WHOOP strap. Optional int extra "pattern" (default 2).',
+          ),
+
+          const SizedBox(height: Sp.x6),
+
           // ── Notifications ────────────────────────────────────────────
           const SectionHeader('Notifications'),
           _SettingsCard(rows: [
@@ -1267,6 +1284,40 @@ class _DeviceSheet extends StatelessWidget {
               ),
             ]),
           ),
+        if (connected) ...[
+          const SizedBox(height: Sp.x2),
+          Text('Buzz patterns', style: AppText.captionMuted),
+          const SizedBox(height: Sp.x2),
+          Wrap(
+            spacing: Sp.x2,
+            runSpacing: Sp.x2,
+            children: [
+              for (final p in [0, 1, 2, 3, 4, 5, 6, 7])
+                SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: OutlinedButton(
+                    onPressed: () async {
+                      try {
+                        await live.testBuzzPattern(p);
+                        if (context.mounted) {
+                          _snack(context, 'Pattern $p sent.');
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          _snack(context, 'Pattern $p failed: $e');
+                        }
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                    ),
+                    child: Text('$p', style: AppText.body),
+                  ),
+                ),
+            ],
+          ),
+        ],
         Divider(height: Sp.x4, thickness: 1, color: AppColors.divider),
         ListRow(
           icon: OsIcon.info,
