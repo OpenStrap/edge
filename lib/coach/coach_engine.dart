@@ -330,9 +330,16 @@ class CoachEngine {
     while (b.endsWith('/')) {
       b = b.substring(0, b.length - 1);
     }
+    // Anthropic's native Models API authenticates with x-api-key +
+    // anthropic-version (a bearer token is rejected) and paginates, but its
+    // response shape (data[].id) matches OpenAI's — only headers differ.
+    final isAnthropic =
+        (Uri.tryParse(b)?.host ?? '').endsWith('anthropic.com');
     final resp = await http.get(
-      Uri.parse('$b/models'),
-      headers: {'Authorization': 'Bearer $apiKey'},
+      Uri.parse(isAnthropic ? '$b/models?limit=1000' : '$b/models'),
+      headers: isAnthropic
+          ? {'x-api-key': apiKey, 'anthropic-version': '2023-06-01'}
+          : {'Authorization': 'Bearer $apiKey'},
     ).timeout(const Duration(seconds: 20));
     if (resp.statusCode != 200) {
       throw CoachException('Models request failed (${resp.statusCode}): ${_short(resp.body)}');
@@ -468,6 +475,17 @@ class CoachEngine {
     http.Client? client,
   }) async {
     final c = client ?? http.Client();
+    // Anthropic's recent models (Opus 4.7/4.8, Sonnet 5, Fable 5) reject
+    // sampling params with a 400 through their OpenAI-compatible endpoint.
+    // Omitting them is valid on every Claude model, so strip rather than
+    // tracking per-version cutoffs.
+    final model = body['model'] as String? ?? '';
+    if (model.startsWith('claude')) {
+      body = {...body}
+        ..remove('temperature')
+        ..remove('top_p')
+        ..remove('top_k');
+    }
     try {
       final resp = await c
           .post(
