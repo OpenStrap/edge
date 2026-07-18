@@ -22,6 +22,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Band-gesture "ring my phone" haptic. Normal permission, no runtime prompt. -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Incoming-call strap buzz: observe the RINGING/OFFHOOK/IDLE call state only.
+         Runtime permission; numbers are never read (no READ_CALL_LOG). -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <!-- Reboot survival: restart EdgeTrackingService + headless auto-connect after device reboot. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- CompanionDeviceManager: association makes us a "companion app" (exempt from the

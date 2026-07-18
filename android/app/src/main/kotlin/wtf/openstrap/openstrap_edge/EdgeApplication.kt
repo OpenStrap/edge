@@ -34,6 +34,7 @@ class EdgeApplication : Application() {
         // Register platform channels on the engine BEFORE Dart starts, so they exist even
         // when no Activity is attached (headless calls like EdgeTracking.start must work).
         NativeChannels.register(engine, applicationContext)
+        CallStateBridge.register(engine, applicationContext)
         engine.dartExecutor.executeDartEntrypoint(
             DartExecutor.DartEntrypoint.createDefault()
         )

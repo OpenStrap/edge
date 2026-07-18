@@ -55,6 +55,7 @@ import '../data/models.dart';
 import '../live/live_activity.dart';
 import '../live/breathing_live_activity.dart';
 import '../notify/device_alerts.dart';
+import '../notify/call_buzzer.dart';
 import '../notify/notification_relay.dart';
 import '../notify/notification_service.dart';
 import '../notify/tap_router.dart';
@@ -115,6 +116,13 @@ class AppState extends ChangeNotifier {
   /// Relay selected phone-app notifications to the strap as a buzz (Android only).
   /// Exposed for the settings UI; buzzes via the live BLE engine when connected.
   late final NotificationRelay notificationRelay = NotificationRelay(
+    buzz: () => engine.buzz(),
+    isConnected: () => engine.isConnected,
+  );
+
+  /// Repeat a strap buzz while the phone is ringing (Android only). Exposed for
+  /// the settings UI; buzzes via the live BLE engine when connected.
+  late final CallBuzzer callBuzzer = CallBuzzer(
     buzz: () => engine.buzz(),
     isConnected: () => engine.isConnected,
   );
@@ -1222,6 +1230,8 @@ class AppState extends ChangeNotifier {
     unawaited(gestureSettings.bootstrap());
     // Notification relay (Android only; inert + invisible elsewhere). Best-effort.
     unawaited(notificationRelay.bootstrap());
+    // Incoming-call buzz (Android only; inert + invisible elsewhere). Best-effort.
+    unawaited(callBuzzer.bootstrap());
     // DB integrity check — see _checkSchemaHealth doc. Best-effort, non-blocking.
     unawaited(_checkSchemaHealth());
     initialized = true;

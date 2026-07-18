@@ -10,6 +10,7 @@ import 'package:installed_apps/app_info.dart';
 import 'package:installed_apps/installed_apps.dart';
 import 'package:provider/provider.dart';
 
+import '../../notify/call_buzzer.dart';
 import '../../notify/notification_relay.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme_switcher.dart';
@@ -22,18 +23,26 @@ class NotificationRelaySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final relay = context.read<AppState>().notificationRelay;
+    final app = context.read<AppState>();
+    final relay = app.notificationRelay;
+    final calls = app.callBuzzer;
     if (!relay.supported) return const SizedBox.shrink();
     return AnimatedBuilder(
-      animation: relay,
+      animation: Listenable.merge([relay, calls]),
       builder: (context, _) {
-        final subtitle = !relay.enabled
-            ? 'Off'
-            : !relay.permissionGranted
-                ? 'Needs notification access'
-                : relay.appCount == 0
-                    ? 'On · no apps selected'
-                    : 'On · ${relay.appCount} app${relay.appCount == 1 ? '' : 's'}';
+        final String subtitle;
+        if (!relay.enabled && !calls.active) {
+          subtitle = 'Off';
+        } else if (relay.enabled && !relay.permissionGranted) {
+          subtitle = 'Needs notification access';
+        } else if (!relay.enabled) {
+          subtitle = 'On · calls only';
+        } else {
+          final apps = relay.appCount == 0
+              ? 'no apps selected'
+              : '${relay.appCount} app${relay.appCount == 1 ? '' : 's'}';
+          subtitle = 'On · $apps${calls.active ? ' · calls' : ''}';
+        }
         return SurfaceCard(
           padding:
               const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
@@ -85,17 +94,19 @@ class _NotificationRelayScreenState extends State<NotificationRelayScreen>
     // Coming back from the system Settings page → re-check the grant.
     if (state == AppLifecycleState.resumed && mounted) {
       context.read<AppState>().notificationRelay.refreshPermission();
+      context.read<AppState>().callBuzzer.refreshPermission();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final relay = context.read<AppState>().notificationRelay;
+    final calls = context.read<AppState>().callBuzzer;
     return AppScaffold(
       title: 'Band notifications',
       subtitle: 'Buzz the strap when an app notifies',
       body: AnimatedBuilder(
-        animation: relay,
+        animation: Listenable.merge([relay, calls]),
         builder: (context, _) {
           final showApps = relay.enabled && relay.permissionGranted;
           return Column(
@@ -112,6 +123,8 @@ class _NotificationRelayScreenState extends State<NotificationRelayScreen>
                       const SizedBox(height: Sp.x3),
                       _GrantCard(relay: relay),
                     ],
+                    const SizedBox(height: Sp.x3),
+                    _CallBuzzCard(calls: calls),
                     if (showApps) ...[
                       const SizedBox(height: Sp.x5),
                       Text('APPS',
@@ -198,6 +211,74 @@ class _GrantCard extends StatelessWidget {
               child: const Text('Grant access'),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Incoming-call buzz — independent of the app relay above: ringing is not an
+/// observable notification (dialers post it ONGOING, which the relay skips, and
+/// the dialer is a hidden system app), so it rides READ_PHONE_STATE + a native
+/// telephony bridge instead and works even with "Relay notifications" off.
+class _CallBuzzCard extends StatelessWidget {
+  final CallBuzzer calls;
+  const _CallBuzzCard({required this.calls});
+  @override
+  Widget build(BuildContext context) {
+    return SurfaceCard(
+      padding: const EdgeInsets.symmetric(horizontal: Sp.x4, vertical: Sp.x2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: AppColors.accentSoft,
+                  borderRadius: BorderRadius.circular(R.chip),
+                ),
+                child: const OsAppIcon(OsIcon.notifications, size: 30),
+              ),
+              const SizedBox(width: Sp.x3),
+              Expanded(
+                  child: Text('Buzz on incoming calls', style: AppText.title)),
+              Switch.adaptive(
+                value: calls.enabled,
+                activeTrackColor: AppColors.accent,
+                onChanged: (v) async {
+                  await calls.setEnabled(v);
+                  // Ask for the (state-only) phone permission the moment the
+                  // feature is switched on, not at some later surprise point.
+                  if (v && !calls.permissionGranted) {
+                    await calls.requestPermission();
+                  }
+                },
+              ),
+            ],
+          ),
+          if (calls.enabled && !calls.permissionGranted) ...[
+            const SizedBox(height: Sp.x2),
+            Text(
+              'Android needs the phone permission to know when the phone is '
+              'ringing. Only the ringing state is read — never numbers or calls.',
+              style: AppText.captionMuted,
+            ),
+            const SizedBox(height: Sp.x3),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton(
+                onPressed: () => calls.requestPermission(),
+                style: FilledButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  minimumSize: const Size(0, 44),
+                ),
+                child: const Text('Grant permission'),
+              ),
+            ),
+            const SizedBox(height: Sp.x2),
+          ],
         ],
       ),
     );
