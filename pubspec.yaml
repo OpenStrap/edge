@@ -1,6 +1,11 @@
 name: openstrap_edge
 description: "Open-source, local-first fitness tracking companion for WHOOP 4.0 hardware. Not affiliated with WHOOP, Inc."
 publish_to: 'none'
+# NOTE: bumping this also requires manually bumping MARKETING_VERSION/
+# CURRENT_PROJECT_VERSION for the OpenStrapWidget(Extension) and "OpenStrapWatch
+# Watch App" targets in ios/Runner.xcodeproj/project.pbxproj — they aren't wired
+# to FLUTTER_BUILD_NAME/FLUTTER_BUILD_NUMBER. See guides/IOS_INSTALLATION.md
+# "Version Numbers".
 version: 0.9.14+47
 
 environment:

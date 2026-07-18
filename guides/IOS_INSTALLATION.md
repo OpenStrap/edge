@@ -126,6 +126,22 @@ For a signed release-style device install:
 flutter run --release -d <device-id> --dart-define-from-file=.env
 ```
 
+## Version Numbers
+
+`Runner`'s `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` track `pubspec.yaml`'s
+`version:` automatically via `$(FLUTTER_BUILD_NAME)`/`$(FLUTTER_BUILD_NUMBER)`
+(Flutter writes these into `ios/Flutter/Generated.xcconfig` on every build).
+
+The **`OpenStrapWidget`/`OpenStrapWidgetExtension`** and **`OpenStrapWatch Watch
+App`** targets are NOT wired to that mechanism — they don't include
+`Generated.xcconfig`, so those Flutter variables aren't available to them, and
+`MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` are hardcoded per-target in
+`project.pbxproj` instead. **Bump these by hand to match `pubspec.yaml`'s
+`version:` every time it changes** — App Store Connect validates that a host
+app's embedded extensions and companion Watch app carry compatible version
+numbers, so letting these drift is a real upload-time risk, not just cosmetic
+inconsistency.
+
 ## Debug Builds and Home-Screen Relaunch
 
 Flutter debug builds on iOS must be launched by Flutter tooling or Xcode. If you
