@@ -13,10 +13,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../design/design.dart';
 import '../onboarding/welcome_screen.dart' show AffiliationDisclaimer;
 
-/// TODO(legal): both app stores require a *hosted* URL, not a repo file. Point
-/// this at the GitHub Pages (or wtf.openstrap.* domain) page once PRIVACY.md
-/// is published there — see PRIVACY.md's own TODO for the same gap.
-const String kPrivacyPolicyUrl = 'https://openstrap.github.io/edge/PRIVACY.md';
+/// Hosted Privacy Policy (GitHub Pages, docs/legal-site). Both app stores
+/// require a live hosted URL, not a repo file — this is that URL.
+const String kPrivacyPolicyUrl = 'https://openstrap.github.io/edge/privacy.html';
 
 const String kNoticeUrl =
     'https://github.com/OpenStrap/edge/blob/main/NOTICE.md';

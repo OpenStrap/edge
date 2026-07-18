@@ -1,12 +1,12 @@
 > **ATTORNEY-REVIEW DRAFT — not final.** This has not been reviewed or approved
 > by a licensed attorney and must not be treated as the live policy until it
 > has been. `[DATE]`, `[CONTACT EMAIL]`, and the data-deletion mechanism below
-> are placeholders a human must fill in before this goes live. Both the App
-> Store and Play Store require a **hosted** URL for the privacy policy (not a
-> link to this repo file) — this still needs a GitHub Pages page (or a page on
-> whatever domain backs `wtf.openstrap.*`) before store submission. See
-> `lib/ui/profile/about_screen.dart`'s `kPrivacyPolicyUrl` TODO for the
-> in-app link that needs updating once that page exists.
+> are placeholders a human must fill in before this goes live. This is the
+> repo copy for reference; the live, store-linked policy is hosted at
+> https://openstrap.github.io/edge/privacy.html (GitHub Pages, `docs/`
+> folder on the `docs/legal-site` branch) and is the version that should be
+> kept current — `lib/ui/profile/about_screen.dart`'s `kPrivacyPolicyUrl`
+> already points at it.
 
 # Privacy Policy — Edge / OpenStrap
 
