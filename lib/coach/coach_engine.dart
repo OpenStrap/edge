@@ -323,6 +323,14 @@ class CoachEngine {
     return '';
   }
 
+  /// True when [base]'s host is anthropic.com or one of its subdomains. A
+  /// domain-boundary check, not endsWith('anthropic.com'), so a lookalike
+  /// host (evil-anthropic.com) never receives the key in Anthropic headers.
+  static bool _isAnthropicHost(String base) {
+    final host = (Uri.tryParse(base)?.host ?? '').toLowerCase();
+    return host == 'anthropic.com' || host.endsWith('.anthropic.com');
+  }
+
   /// Live model list from the provider's /models endpoint (OpenAI-compatible).
   /// Static so Settings can probe an as-yet-unsaved base URL + key.
   static Future<List<String>> fetchModels(String apiBase, String apiKey) async {
@@ -331,22 +339,31 @@ class CoachEngine {
       b = b.substring(0, b.length - 1);
     }
     // Anthropic's native Models API authenticates with x-api-key +
-    // anthropic-version (a bearer token is rejected) and paginates, but its
-    // response shape (data[].id) matches OpenAI's — only headers differ.
-    final isAnthropic =
-        (Uri.tryParse(b)?.host ?? '').endsWith('anthropic.com');
-    final resp = await http.get(
-      Uri.parse(isAnthropic ? '$b/models?limit=1000' : '$b/models'),
-      headers: isAnthropic
-          ? {'x-api-key': apiKey, 'anthropic-version': '2023-06-01'}
-          : {'Authorization': 'Bearer $apiKey'},
-    ).timeout(const Duration(seconds: 20));
-    if (resp.statusCode != 200) {
-      throw CoachException('Models request failed (${resp.statusCode}): ${_short(resp.body)}');
-    }
-    final j = jsonDecode(resp.body);
-    final data = (j['data'] as List?) ?? const [];
-    final ids = data.map((e) => (e as Map)['id']?.toString() ?? '').where((s) => s.isNotEmpty).toList();
+    // anthropic-version (a bearer token is rejected) and paginates with
+    // has_more/last_id, but its response shape (data[].id) matches OpenAI's.
+    final isAnthropic = _isAnthropicHost(b);
+    final ids = <String>[];
+    String? after;
+    do {
+      final uri = Uri.parse(isAnthropic
+          ? '$b/models?limit=1000${after == null ? '' : '&after_id=$after'}'
+          : '$b/models');
+      final resp = await http.get(
+        uri,
+        headers: isAnthropic
+            ? {'x-api-key': apiKey, 'anthropic-version': '2023-06-01'}
+            : {'Authorization': 'Bearer $apiKey'},
+      ).timeout(const Duration(seconds: 20));
+      if (resp.statusCode != 200) {
+        throw CoachException('Models request failed (${resp.statusCode}): ${_short(resp.body)}');
+      }
+      final j = jsonDecode(resp.body);
+      final data = (j['data'] as List?) ?? const [];
+      ids.addAll(data
+          .map((e) => (e as Map)['id']?.toString() ?? '')
+          .where((s) => s.isNotEmpty));
+      after = (isAnthropic && j['has_more'] == true) ? j['last_id']?.toString() : null;
+    } while (after != null);
     ids.sort();
     return ids;
   }
@@ -465,6 +482,37 @@ class CoachEngine {
         'temperature': 0.3,
       }, client: _http);
 
+  /// True when [model] names a Claude version that rejects OpenAI sampling
+  /// params (temperature/top_p/top_k) with a 400: Opus >= 4.7, Sonnet and
+  /// Haiku >= 5, and the Fable/Mythos family. Claude is served under many
+  /// provider namings — bare "claude-…", OpenRouter "anthropic/claude-…",
+  /// Bedrock-style "anthropic.claude-…-v1:0" — with "-" or "." version
+  /// separators, so match the id anywhere and parse family + version instead
+  /// of keying off a prefix. Older Claude models still accept sampling and are
+  /// deliberately excluded, as is every non-Claude model. Public for tests.
+  static bool claudeRejectsSampling(String model) {
+    final m = model.toLowerCase();
+    final i = m.indexOf('claude');
+    if (i < 0) return false;
+    final id = m.substring(i);
+    if (id.startsWith('claude-fable') || id.startsWith('claude-mythos')) {
+      return true;
+    }
+    // Minor is capped at 2 digits with no digit following, so a date suffix
+    // (claude-opus-4-20250514) never parses as a minor version.
+    final v =
+        RegExp(r'^claude-(opus|sonnet|haiku)[-.](\d+)(?:[-.](\d{1,2})(?!\d))?')
+            .firstMatch(id);
+    // Legacy version-first ids (claude-3-5-sonnet-…) all accept sampling.
+    if (v == null) return false;
+    final major = int.parse(v.group(2)!);
+    final minor = int.tryParse(v.group(3) ?? '') ?? 0;
+    if (v.group(1) == 'opus') {
+      return major > 4 || (major == 4 && minor >= 7);
+    }
+    return major >= 5; // sonnet, haiku
+  }
+
   /// THE one OpenAI-compatible chat-completions POST. Every LLM call in the app
   /// (the coach tool loop, the daily briefings, the journal chat) goes through
   /// here so there is exactly ONE provider client + error contract. Returns the
@@ -475,12 +523,11 @@ class CoachEngine {
     http.Client? client,
   }) async {
     final c = client ?? http.Client();
-    // Anthropic's recent models (Opus 4.7/4.8, Sonnet 5, Fable 5) reject
-    // sampling params with a 400 through their OpenAI-compatible endpoint.
-    // Omitting them is valid on every Claude model, so strip rather than
-    // tracking per-version cutoffs.
-    final model = body['model'] as String? ?? '';
-    if (model.startsWith('claude')) {
+    // Recent Claude models reject sampling params with a 400, on Anthropic's
+    // own endpoint and through any pass-through provider alike. Strip them for
+    // exactly those model versions; older Claude models and every other
+    // provider keep their sampling params untouched.
+    if (claudeRejectsSampling(body['model'] as String? ?? '')) {
       body = {...body}
         ..remove('temperature')
         ..remove('top_p')
