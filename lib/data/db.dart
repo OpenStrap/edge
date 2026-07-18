@@ -25,8 +25,15 @@ class LocalDb {
   static String dbName = 'openstrap.db';
 
   static Future<Database> get instance async {
-    _db ??= await _open();
-    return _db!;
+    final db = _db;
+    // `_db != null` is NOT enough: Android can close the underlying
+    // SQLiteDatabase on background teardown without our close() ever nulling
+    // `_db`. A plain `_db ??=` then keeps handing back that dead handle, and
+    // every write throws `DatabaseException(attempt to re-open an already-closed
+    // object)` — a sustained crash burst (seen in the wild on background event
+    // ingest). Reopen whenever the cached handle isn't actually open.
+    if (db != null && db.isOpen) return db;
+    return _db = await _open();
   }
 
   static Future<void> close() async {

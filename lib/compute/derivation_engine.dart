@@ -210,7 +210,12 @@ import 'substrate.dart';
 // over time while per-night-local always leads. Deep stays a low-confidence
 // NREM sub-split (deep_low_confidence). The profile self-seeds across this
 // re-derivation sweep; no explicit migration. Bump so every day re-stages.
-const int kAlgoVersion = 42;
+// v43: readinessComposite now falls back to a mean/SD z when the robust (median
+// +MAD) z is degenerate (MAD==0 on a tightly-clustered quantized baseline —
+// whole-bpm RHR / integer skin-temp ADC), which was intermittently blanking the
+// whole readiness score to "—" on nights that had valid sleep. Bump so days that
+// were previously absent-for-that-reason recompute a real score.
+const int kAlgoVersion = 43;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;
@@ -1397,6 +1402,28 @@ class DerivationEngine {
         message: 'readiness_absent',
         context: flat,
       );
+      // Also surface the SURPRISING case — readiness absent when it should NOT
+      // be (adequate inputs, not the honest cold-start `need_baseline` note) —
+      // as a queryable Crashlytics non-fatal, so a residual "readiness '—' even
+      // with sleep present" is diagnosable from the per-input flags WITHOUT GA4
+      // access. Cold-start (need_baseline) absences stay Analytics-only so this
+      // stays low-noise (and, post the MAD/SD-z fallback, rare).
+      final note = (diag['note'] as String?) ?? '';
+      if (!note.startsWith('need_baseline')) {
+        final summary = StringBuffer('readiness_absent');
+        for (final key in ['hrv', 'rhr', 'resp', 'temp']) {
+          final v = (diag[key] as Map?)?.cast<String, dynamic>();
+          if (v == null) continue;
+          summary.write(
+              ' $key=${v['value'] == true ? 'Y' : 'n'}/${v['baseline_n']}');
+        }
+        summary.write(' | $note');
+        TelemetryService.instance.recordNonFatal(
+          StateError(summary.toString()),
+          StackTrace.current,
+          reason: 'readiness_absent',
+        );
+      }
     }
 
     // Where this day's sleep window came from (auto / auto_fallback / manual /
@@ -1405,142 +1432,94 @@ class DerivationEngine {
     bundle['sleep_source'] = day.sleepSource;
 
     final scMap = (bundle['scalars'] as Map?)?.cast<String, dynamic>();
-    final wake = _buildWakeDayFeatures(
-      daySub,
-      profile,
-      sleepOnsetSec: day.sleepOnsetSec,
-      sleepOffsetSec: day.sleepOffsetSec,
-      restingHr: (scMap?['rhr'] as num?)?.toDouble(),
-    );
-    _applyWakeDayFeatures(bundle, scMap, wake);
 
-    // ── STEPS (real 100 Hz + 1 Hz estimate) + TOTAL DAILY ENERGY (TDEE) ───────
-    // Pull the day's 100 Hz coverage windows (device-time sec) + their real step
-    // count so _stepsAndEnergy can prefer them and estimate only the rest.
-    final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
-    final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
-    final coverageWindows = await LocalDb.coverageWindowsOverlapping(
-      dayLo,
-      dayHi,
-    );
-    final liveStepsReal = await LocalDb.liveStepsForDay(day.date);
-    final stepCalib = await LocalDb.getStepCalibration();
-    _stepsAndEnergy(
-      bundle,
-      scMap,
-      daySub,
-      profile,
-      coverageWindows,
-      liveStepsReal,
-      stepCalib,
-    );
+    // ── SECOND HALF — OFFLOADED to a background isolate ──────────────────────
+    // Everything that turns the isolate-1 bundle into the full day result (wake
+    // features, hybrid steps + TDEE, all-day HRV/RSA/skin-temp Timeline lines,
+    // naps, workout detection + HRR, wrist orientation, restlessness map, fit
+    // quality) used to run on the CALLING isolate — the UI isolate for the
+    // foreground light pass that fires on every sync — hanging the main thread
+    // for seconds (the rolling-RSA Lomb-Scargle over the 24 h day + nap
+    // re-staging + workout detection are the trig/CPU hogs). It is all PURE
+    // compute over the two substrates + a few scalars, so it now runs in
+    // Isolate.run. DB reads that it needs are done HERE (this is the DB-owning
+    // isolate); the DB writes + notification it produces are returned as
+    // descriptors and applied below. Same _perDayTimeout guard as isolate 1.
+    // NON-FATAL: a failure OR timeout anywhere in the offloaded second half must
+    // never skip the whole day. Isolate 1 already computed the headline scalars
+    // (readiness / RHR / RMSSD) into bundle['scalars']; we persist those and just
+    // drop the optional detail blocks. (Previously an exception here threw out of
+    // _derivePreparedDay → the day was marked skipped → readiness rendered "-"
+    // even though it had been computed fine — the "readiness randomly goes -" bug.)
+    try {
+      final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
+      final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
+      final coverageWindows =
+          await LocalDb.coverageWindowsOverlapping(dayLo, dayHi);
+      final liveStepsReal = await LocalDb.liveStepsForDay(day.date);
+      final stepCalib = await LocalDb.getStepCalibration();
+      final savedSessions = await LocalDb.sessionsInRange(dayLo, dayHi);
 
-    // ── More substrate-derived detail blocks (computed here, where the full
-    //    sliced substrate lives — same pattern as activeMin; these are fresh
-    //    <String,dynamic> blocks so ints are safe, unlike the double? scalars). ─
-    bundle['daytime_hrv'] = _daytimeHrv(
-      daySub,
-      day.sleepOnsetSec,
-      day.sleepOffsetSec,
-    ); // waking RMSSD
-    // ALL-DAY HRV / resp / skin-temp lines for the Timeline graph. Epoch-stamped
-    // (rolling RMSSD, rolling RSA, relative skin-temp) over the day-wide 24/7
-    // substrate RR/ADC — context lines, movement-confounded, not the recovery
-    // values. Computed here where the day substrate lives.
-    final sersMap = (bundle['series'] as Map?)?.cast<String, dynamic>();
-    sersMap?['hrv_day'] = _dayHrvCurve(daySub);
-    sersMap?['resp_day'] = _dayRespCurve(daySub);
-    sersMap?['skin_temp_day'] = _daySkinTempCurve(daySub);
-    bundle['restlessness'] = _restlessness(sleepSub); // nocturnal movement
-    bundle['sleep_periods'] = _sleepPeriods(
-      daySub,
-      day.sleepOnsetSec,
-      day.sleepOffsetSec,
-    ); // naps
-    // Principled daytime NAPS (van Hees immobility + HR-dip): rich per-nap block
-    // + a `nap_min` scalar feeding the Sleep Coach's nap credit + the Timeline.
-    _attachNaps(bundle, scMap, daySub, day.sleepOnsetSec, day.sleepOffsetSec);
+      // Built on THIS isolate so the Isolate.run closure captures only this plain
+      // sendable object (never `this`, `day`, or `bundle`).
+      final blocksInput = _DayBlocksInput(
+        daySub: daySub,
+        sleepSub: sleepSub,
+        profile: profile,
+        onsetSec: day.sleepOnsetSec,
+        offsetSec: day.sleepOffsetSec,
+        rhr: (scMap?['rhr'] as num?)?.toDouble(),
+        maxHrUsed: (bundle['max_hr_used'] as num?)?.round(),
+        coverageWindows: coverageWindows,
+        liveStepsReal: liveStepsReal,
+        stepCalib: stepCalib,
+        savedSessions: savedSessions,
+        date: day.date,
+        dayEndSec: day.endSec,
+        dataNowSec: dataNowSec,
+      );
+      final blocks = await Isolate.run(() => _computeDayBlocks(blocksInput))
+          .timeout(_perDayTimeout);
 
-    // Per-5-min movement-level curve for the "Your day" Movement view ([{t,v}],
-    // v = fraction of moving seconds 0..1). Fresh top-level list — no typed-map.
-    bundle['activity_curve'] = _activityCurve(daySub);
+      // Merge the computed blocks back into the isolate-1 bundle. scMap is the
+      // CastMap view over bundle['scalars'], so addAll writes through — nap_min /
+      // hrr_bpm reach the persisted series map below.
+      bundle.addAll(blocks.bundlePatch);
+      (bundle['series'] as Map?)?.cast<String, dynamic>().addAll(
+            blocks.seriesPatch,
+          );
+      scMap?.addAll(blocks.scalarPatch);
 
-    // ── AUTO-DETECTED WORKOUTS (WorkoutDetector, 1 Hz HR + gravity) ──────────
-    // Retroactive bout detection over the day's HR + gravity (lives in daySub,
-    // not the bundle input). Per-bout strain/zones/calories via the analytics
-    // family. OVERLAP-DEDUP: any manual/live session for this day is passed as a
-    // saved span so a detected bout overlapping it is dropped (manual wins). The
-    // sport seam stays default ("detected") — OpenStrap's HAR typer can be wired
-    // in once high-rate accel features exist.
-    bundle['detected_workouts'] = await _detectedWorkouts(daySub, day, profile);
-
-    // ── AUTO-WORKOUT SUGGESTIONS + HRR (opt-in detector over day HR+motion) ──
-    // One pass of the opt-in detector serves two features: (1) persisted "did you
-    // work out?" suggestions + a recent-day notification, and (2) heart-rate
-    // recovery (HRR) per bout → `hrr_bpm` scalar. scMap writes through to
-    // bundle['scalars'] (CastMap view), so hrr_bpm reaches the series block below.
-    await _attachWorkoutSuggestionsAndHrr(bundle, scMap, daySub, day, dataNowSec);
-
-    // ── WRIST ORIENTATION during sleep (low-confidence; NOT body position) ───
-    _attachWristOrientation(
-        bundle, daySub, day.sleepOnsetSec, day.sleepOffsetSec);
-
-    // ── ADVANCED SLEEP (4-class Cole–Kripke + DoG/percentile stager) ─────────
-    // A richer, AASM-style sleep read (SOL / REM-latency / disturbances + a
-    // 4-class hypnogram) computed over the day substrate (needs accel, which
-    // lives here, not in the bundle input). ADDITIVE: the canonical single-source
-    // `sleep` block (from segmentSleep) is the headline; this is a parallel
-    // ESTIMATE detail. Best-effort — never throws.
-    bundle['advanced_sleep'] = await _advancedSleep(daySub);
-
-    // Feature 6: Restlessness Map (Heatmap of Sleep)
-    if (sleepSub.length > 0) {
-      final bucketSec = 300; // 5 min
-      final moveSum = <int, double>{};
-      final moveCount = <int, int>{};
-      for (var i = 0; i < sleepSub.length; i++) {
-        final b = sleepSub.tsSec[i] ~/ bucketSec;
-        final ax = sleepSub.ax[i];
-        final ay = sleepSub.ay[i];
-        final az = sleepSub.az[i];
-        final mag = math.sqrt(ax * ax + ay * ay + az * az);
-        final enmo = (mag - 1.0).abs();
-        moveSum[b] = (moveSum[b] ?? 0.0) + enmo;
-        moveCount[b] = (moveCount[b] ?? 0) + 1;
+      // DB writes + notification the pure compute deferred to us (DB-owning isolate).
+      for (final w in blocks.sessionHrrWrites) {
+        await LocalDb.setSessionHrr(w.$1, w.$2);
       }
-      final out = <Map<String, dynamic>>[];
-      final keys = moveSum.keys.toList()..sort();
-      for (final b in keys) {
-        final avgEnmo = moveSum[b]! / moveCount[b]!;
-        // 0.1g ENMO is quite restless. Scale to 0-1 for heatmap UI.
-        final density = math.min(1.0, avgEnmo * 10.0);
-        out.add({
-          't': b * bucketSec,
-          'density': double.parse(density.toStringAsFixed(3)),
+      for (final sug in blocks.suggestionsToPersist) {
+        await LocalDb.putWorkoutSuggestion({
+          ...sug,
+          'created_at': DateTime.now().millisecondsSinceEpoch,
         });
       }
-      bundle['restlessness_map'] = out;
-    }
-
-    // Feature 2: Fit Quality Diagnostics (Band Too Loose)
-    // Analyze skinContact during active periods (HR > 100)
-    var activeContactSum = 0;
-    var activeContactN = 0;
-    for (var i = 0; i < daySub.length; i++) {
-      if (daySub.hr[i] > 100 && daySub.skinContact[i] > 0) {
-        activeContactSum += daySub.skinContact[i];
-        activeContactN++;
+      final nb = blocks.notifBout;
+      if (nb != null) {
+        await NotificationCenter.instance.emit(NotificationEvent(
+          dedupeKey: '${day.date}:auto_workout',
+          category: NotifCategory.recovery,
+          priority: NotifPriority.normal,
+          title: 'Did you work out?',
+          body: 'We spotted ~${nb.durationMin} min of elevated activity. '
+              'Tap to log it.',
+          date: day.date,
+          route: '/workouts',
+        ));
       }
-    }
-    if (activeContactN > 60) { // at least 1 minute of activity
-      final avgContact = activeContactSum / activeContactN;
-      if (avgContact < 100) {
-        bundle['fit_quality'] = 'poor';
-        bundle['fit_warning'] = 'Band is worn too loosely during high activity. Tighten for accurate HR.';
-      }
-    }
 
-    await _persistWakeDayFeatures(dayId: day.date, wake: wake);
+      await _persistWakeDayFeatures(dayId: day.date, wake: blocks.wake);
+    } catch (e, st) {
+      _log('day-blocks (offloaded second half) failed for ${day.date} — '
+          'persisting headline day: $e');
+      TelemetryService.instance.recordNonFatal(e, st, reason: 'day_blocks_failed');
+    }
 
     // Finalize once the DATA EDGE has moved >48 h past the day's wake — i.e. we
     // have continuous drained data well beyond it, so no more flash can land for
@@ -2024,7 +2003,7 @@ class DerivationEngine {
     }
   }
 
-  List<double> _perMinuteMeanWake(
+  static List<double> _perMinuteMeanWake(
     Substrate s,
     int sleepOnsetSec,
     int sleepOffsetSec,
@@ -2044,7 +2023,7 @@ class DerivationEngine {
     return [for (final k in keys) _meanWake(buckets[k]!)!];
   }
 
-  Map<String, int> _wakeZoneMinutes(
+  static Map<String, int> _wakeZoneMinutes(
     Substrate s,
     int sleepOnsetSec,
     int sleepOffsetSec,
@@ -2066,7 +2045,7 @@ class DerivationEngine {
     return ana.HeartRateZones.timeInZone(samples, zoneSet).toRoundedMinuteMap();
   }
 
-  double _keytelCaloriesWake(
+  static double _keytelCaloriesWake(
     List<double> perMin,
     double age,
     double weight,
@@ -2084,7 +2063,7 @@ class DerivationEngine {
     return kcal;
   }
 
-  double? _meanWake(List<double> xs) {
+  static double? _meanWake(List<double> xs) {
     if (xs.isEmpty) return null;
     var s = 0.0;
     for (final x in xs) {
@@ -2093,7 +2072,7 @@ class DerivationEngine {
     return s / xs.length;
   }
 
-  void _applyWakeDayFeatures(
+  static void _applyWakeDayFeatures(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
     Map<String, dynamic> wake,
@@ -2123,7 +2102,7 @@ class DerivationEngine {
   /// NOT cover ([coverageWindows], device-time sec). So a minute is counted by
   /// 100 Hz OR estimated by 1 Hz, never both. TDEE = HR-flex (Mifflin BMR floor +
   /// active Keytel surplus). Best-effort.
-  void _stepsAndEnergy(
+  static void _stepsAndEnergy(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
     Substrate daySub,
@@ -2216,7 +2195,7 @@ class DerivationEngine {
         }
       }
     } catch (e) {
-      _log('steps/energy skipped: $e');
+      if (kDebugMode) debugPrint('[derive] steps/energy skipped: $e');
     }
   }
 
@@ -2232,7 +2211,7 @@ class DerivationEngine {
     );
   }
 
-  Map<String, dynamic> _buildWakeDayFeatures(
+  static Map<String, dynamic> _buildWakeDayFeatures(
     Substrate daySub,
     Profile profile, {
     required int sleepOnsetSec,
@@ -2343,7 +2322,7 @@ class DerivationEngine {
   }
 
   /// Active minutes over the WAKE span — a coarse 1 Hz movement proxy.
-  int _activeMinutes(Substrate s, int sleepOnsetSec, int sleepOffsetSec) {
+  static int _activeMinutes(Substrate s, int sleepOnsetSec, int sleepOffsetSec) {
     final n = s.length;
     if (n < 60) return 0;
     final ang = List<double>.filled(n, 0);
@@ -2374,7 +2353,7 @@ class DerivationEngine {
     return active;
   }
 
-  List<ana.MotionMinute> _motionMinutes(Substrate s) {
+  static List<ana.MotionMinute> _motionMinutes(Substrate s) {
     final samples = <ana.AccelSample>[
       for (var i = 0; i < s.length; i++)
         ana.AccelSample(
@@ -2388,7 +2367,7 @@ class DerivationEngine {
     return ana.enmoSeries(samples).minutes;
   }
 
-  List<double> _hrPerMinuteAligned(List<ana.MotionMinute> motion, Substrate s) {
+  static List<double> _hrPerMinuteAligned(List<ana.MotionMinute> motion, Substrate s) {
     final buckets = <int, List<double>>{};
     for (var i = 0; i < s.hr.length && i < s.tsSec.length; i++) {
       if (s.hr[i] <= 0) continue;
@@ -2401,7 +2380,7 @@ class DerivationEngine {
     ];
   }
 
-  String _workoutSex(String? sex) {
+  static String _workoutSex(String? sex) {
     switch ((sex ?? '').toLowerCase()) {
       case 'm':
       case 'male':
@@ -2414,37 +2393,17 @@ class DerivationEngine {
     }
   }
 
-  /// Auto-detected workouts for the day via [ana.WorkoutDetector] over the
-  /// day's 1 Hz HR + gravity. Returns a list of per-bout maps (each bout's
-  /// avg/peak HR, duration, zone time-%, strain, calories, sport). Manual/live
-  /// sessions overlapping the day are passed as saved spans so an overlapping
-  /// detected bout is dropped (OVERLAP-DEDUP; manual wins). Empty list when no
-  /// bout qualifies. Never throws — best-effort, like the other detail blocks.
-  Future<List<Map<String, dynamic>>> _detectedWorkouts(
-    Substrate s,
-    PreparedDerivationDay day,
-    Profile profile,
-  ) async => const [];
-  // NOTE: sport typing (ana.RuleSportClassifier) lived here, attached to detected
-  // workouts. PR#25 relocated workout detection out of _deriveDay, so the per-bout
-  // classifier was removed; re-home it where the new flow surfaces bouts.
-
-  /// Advanced 4-class sleep over the day substrate via [ana.AdvancedSleepStager]
-  /// (Cole–Kripke sleep/wake spine + DoG HR-variability + percentile-band
-  /// classifier + median/physiology smoothing). Returns the MAIN sleep session's
-  /// AASM metrics (TST/SOL/REM-latency/WASO/disturbances + per-stage minutes) and
-  /// a 4-class hypnogram. ADDITIVE — the canonical `sleep` block stays the
-  /// single source; this is a parallel ESTIMATE. `{present:false}` when no
-  /// qualifying sleep / insufficient data. Never throws (best-effort detail).
-  Future<Map<String, dynamic>> _advancedSleep(Substrate s) async => const {
-    'present': false,
-  };
+  // NOTE: `detected_workouts` (`const []`) and `advanced_sleep`
+  // (`{present:false}`) are currently constant stubs — they are now emitted
+  // directly inside [_computeDayBlocks] (the offloaded second half). When the
+  // real WorkoutDetector / AdvancedSleepStager passes are re-homed, put them
+  // back there so they stay OFF the calling isolate.
 
   /// Per-5-min movement-level curve over the whole day ([{t, v}], v = fraction
   /// of seconds in the bucket with a ≥5° wrist-orientation change, 0..1). The
   /// honest 1 Hz movement signal (same basis as active-minutes) for the "Your
   /// day" Movement view. Sleep is NOT excluded — the curve naturally dips there.
-  List<Map<String, dynamic>> _activityCurve(Substrate s) {
+  static List<Map<String, dynamic>> _activityCurve(Substrate s) {
     final n = s.length;
     if (n < 60) return const [];
     final ang = List<double>.filled(n, 0);
@@ -2482,7 +2441,7 @@ class DerivationEngine {
   /// CAVEAT: this assumes the band does NOT keep logging while off-wrist. If a
   /// future firmware streams off-wrist records, add a skin-temp/motion on-body
   /// gate here (the substrate carries accel + skinTemp).
-  Map<String, dynamic> _wearBlock(Substrate s) {
+  static Map<String, dynamic> _wearBlock(Substrate s) {
     final n = s.length;
     if (n == 0) {
       return {
@@ -2547,7 +2506,7 @@ class DerivationEngine {
   /// Timeline graph. 5-min sliding window, emitted ~each minute. Inline artifact
   /// gate (plausible RR 300–2000 ms) — daytime RR is noisier/motion-confounded,
   /// so this is a context line, not the nocturnal recovery RMSSD.
-  List<Map<String, num>> _dayHrvCurve(Substrate s) {
+  static List<Map<String, num>> _dayHrvCurve(Substrate s) {
     final ts = <double>[], rr = <double>[];
     for (var i = 0; i < s.rrMs.length; i++) {
       final v = s.rrMs[i];
@@ -2596,7 +2555,7 @@ class DerivationEngine {
   /// 24/7 RR. 3-min window emitted ~every 5 min; absent windows (too few/too
   /// noisy beats) are skipped — never fabricated. Daytime RSA is movement-
   /// confounded, so it's a context line.
-  List<Map<String, num>> _dayRespCurve(Substrate s) {
+  static List<Map<String, num>> _dayRespCurve(Substrate s) {
     final ts = <double>[], rr = <double>[];
     for (var i = 0; i < s.rrMs.length; i++) {
       final v = s.rrMs[i];
@@ -2636,7 +2595,7 @@ class DerivationEngine {
   /// All-day RELATIVE skin-temperature trend (epoch {t,v}). Per-5-min mean ADC
   /// expressed as a delta from the day's median — RELATIVE only, no absolute °C
   /// (the band has no calibrated temperature). A slow context line.
-  List<Map<String, num>> _daySkinTempCurve(Substrate s) {
+  static List<Map<String, num>> _daySkinTempCurve(Substrate s) {
     final bins = <int, List<double>>{};
     for (var i = 0; i < s.skinTemp.length && i < s.tsSec.length; i++) {
       final v = s.skinTemp[i];
@@ -2656,7 +2615,7 @@ class DerivationEngine {
     ];
   }
 
-  Map<String, dynamic> _daytimeHrv(Substrate s, int onsetSec, int offsetSec) {
+  static Map<String, dynamic> _daytimeHrv(Substrate s, int onsetSec, int offsetSec) {
     const binSec = 300;
     final bins = <int, List<double>>{};
     double? prev;
@@ -2699,7 +2658,7 @@ class DerivationEngine {
 
   /// Nocturnal restlessness from sleep-window orientation change: minutes with
   /// movement, number of distinct movement bouts, longest still stretch (min).
-  Map<String, dynamic> _restlessness(Substrate s) {
+  static Map<String, dynamic> _restlessness(Substrate s) {
     final n = s.length;
     if (n < 60) {
       return {
@@ -2743,7 +2702,7 @@ class DerivationEngine {
 
   /// Sleep periods: the main sleep + any NAPS (still, on-wrist minute-runs ≥20
   /// min OUTSIDE the main window). Conservative — naps need sustained stillness.
-  Map<String, dynamic> _sleepPeriods(Substrate s, int onsetSec, int offsetSec) {
+  static Map<String, dynamic> _sleepPeriods(Substrate s, int onsetSec, int offsetSec) {
     final periods = <Map<String, dynamic>>[];
     var totalAsleep = 0;
     if (offsetSec > onsetSec) {
@@ -2813,7 +2772,7 @@ class DerivationEngine {
   /// + HR-dip over the WAKE span, the main nocturnal window carved out). Writes a
   /// rich `naps` block (per-nap start/end epoch-sec + duration + confidence) and a
   /// `nap_min` scalar (total nap minutes) used by the Sleep Coach + Timeline.
-  void _attachNaps(
+  static void _attachNaps(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
     Substrate s,
@@ -2860,27 +2819,154 @@ class DerivationEngine {
       final napMin = naps.fold<int>(0, (a, nap) => a + (nap.durationSec ~/ 60));
       scMap?['nap_min'] = napMin.toDouble();
     } catch (e) {
-      _log('naps FAILED/skipped: $e');
+      if (kDebugMode) debugPrint('[derive] naps FAILED/skipped: $e');
     }
   }
 
-  /// Opt-in workout SUGGESTIONS (`autoDetectWorkouts`) + HEART-RATE RECOVERY.
+  /// The full PURE second half of per-day derivation, run OFF the calling isolate
+  /// via `Isolate.run` (see [_derivePreparedDay]). Previously ALL of this ran on
+  /// whatever isolate drove the engine — the UI isolate for the foreground light
+  /// pass fired on every sync — producing multi-second main-thread hangs (rolling
+  /// RSA Lomb-Scargle over the 24 h day, nap re-staging, workout detection, wake
+  /// features, steps/energy). DB reads are performed by the caller and passed in;
+  /// DB writes + notifications are returned as descriptors for the caller to apply.
+  static _DayBlocksOutput _computeDayBlocks(_DayBlocksInput inp) {
+    final daySub = inp.daySub;
+    final sleepSub = inp.sleepSub;
+    final onset = inp.onsetSec;
+    final offset = inp.offsetSec;
+    final bundlePatch = <String, dynamic>{};
+    final seriesPatch = <String, dynamic>{};
+    // Working scalars — seeded with the nightly RHR the pure helpers read
+    // (steps/energy + wake features gate on it). The seed is removed from the
+    // returned patch so we only write back the NEWLY computed scalars.
+    final scMap = <String, dynamic>{'rhr': inp.rhr};
+
+    // Wake-day features (active min / strain / calories / steps / zones / wear),
+    // then the hybrid 100 Hz + 1 Hz steps + TDEE override (order preserved).
+    final wake = _buildWakeDayFeatures(
+      daySub,
+      inp.profile,
+      sleepOnsetSec: onset,
+      sleepOffsetSec: offset,
+      restingHr: inp.rhr,
+    );
+    _applyWakeDayFeatures(bundlePatch, scMap, wake);
+    _stepsAndEnergy(
+      bundlePatch,
+      scMap,
+      daySub,
+      inp.profile,
+      inp.coverageWindows,
+      inp.liveStepsReal,
+      inp.stepCalib,
+    );
+
+    bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset);
+    seriesPatch['hrv_day'] = _dayHrvCurve(daySub);
+    seriesPatch['resp_day'] = _dayRespCurve(daySub);
+    seriesPatch['skin_temp_day'] = _daySkinTempCurve(daySub);
+    bundlePatch['restlessness'] = _restlessness(sleepSub);
+    bundlePatch['sleep_periods'] = _sleepPeriods(daySub, onset, offset);
+    _attachNaps(bundlePatch, scMap, daySub, onset, offset);
+    // Overrides wake's activity_curve (same value, computed once here).
+    bundlePatch['activity_curve'] = _activityCurve(daySub);
+    bundlePatch['detected_workouts'] = const <Map<String, dynamic>>[];
+
+    final wc = _computeWorkouts(
+      s: daySub,
+      maxHr: inp.maxHrUsed,
+      rhrScalar: inp.rhr,
+      saved: inp.savedSessions,
+      date: inp.date,
+      dayEndSec: inp.dayEndSec,
+      dataNowSec: inp.dataNowSec,
+    );
+    bundlePatch['workout_suggestions'] = wc.boutJson;
+    if (wc.hrrBpm != null) scMap['hrr_bpm'] = wc.hrrBpm;
+
+    _attachWristOrientation(bundlePatch, daySub, onset, offset);
+    bundlePatch['advanced_sleep'] = const {'present': false};
+
+    // Feature 6: Restlessness Map (5-min ENMO heatmap of the sleep window).
+    if (sleepSub.length > 0) {
+      const bucketSec = 300; // 5 min
+      final moveSum = <int, double>{};
+      final moveCount = <int, int>{};
+      for (var i = 0; i < sleepSub.length; i++) {
+        final b = sleepSub.tsSec[i] ~/ bucketSec;
+        final ax = sleepSub.ax[i];
+        final ay = sleepSub.ay[i];
+        final az = sleepSub.az[i];
+        final mag = math.sqrt(ax * ax + ay * ay + az * az);
+        final enmo = (mag - 1.0).abs();
+        moveSum[b] = (moveSum[b] ?? 0.0) + enmo;
+        moveCount[b] = (moveCount[b] ?? 0) + 1;
+      }
+      final out = <Map<String, dynamic>>[];
+      final keys = moveSum.keys.toList()..sort();
+      for (final b in keys) {
+        final avgEnmo = moveSum[b]! / moveCount[b]!;
+        final density = math.min(1.0, avgEnmo * 10.0);
+        out.add({
+          't': b * bucketSec,
+          'density': double.parse(density.toStringAsFixed(3)),
+        });
+      }
+      bundlePatch['restlessness_map'] = out;
+    }
+
+    // Feature 2: Fit-quality diagnostic (band too loose during high activity).
+    var activeContactSum = 0;
+    var activeContactN = 0;
+    for (var i = 0; i < daySub.length; i++) {
+      if (daySub.hr[i] > 100 && daySub.skinContact[i] > 0) {
+        activeContactSum += daySub.skinContact[i];
+        activeContactN++;
+      }
+    }
+    if (activeContactN > 60) {
+      final avgContact = activeContactSum / activeContactN;
+      if (avgContact < 100) {
+        bundlePatch['fit_quality'] = 'poor';
+        bundlePatch['fit_warning'] =
+            'Band is worn too loosely during high activity. Tighten for accurate HR.';
+      }
+    }
+
+    scMap.remove('rhr'); // seed only; the real rhr scalar already lives in the bundle
+    return _DayBlocksOutput(
+      bundlePatch: bundlePatch,
+      seriesPatch: seriesPatch,
+      scalarPatch: scMap,
+      wake: wake,
+      suggestionsToPersist: wc.suggestionsToPersist,
+      sessionHrrWrites: wc.sessionHrrWrites,
+      notifBout: wc.notifBout,
+    );
+  }
+
+  /// PURE compute half of workout SUGGESTIONS (`autoDetectWorkouts`) + HRR.
   ///
-  /// One detector pass over the day's 1 Hz HR (+ gravity motion) serves both: the
-  /// detected bouts become persisted "did you work out?" suggestions (excluding
-  /// any already-saved manual/live session), and each bout's HR tail yields an
-  /// HRR-60s drop whose daily mean → `hrr_bpm`. Suggestions + the notification are
-  /// gated to RECENT days so a re-analyze / import never spams. Best-effort.
-  Future<void> _attachWorkoutSuggestionsAndHrr(
-    Map<String, dynamic> bundle,
-    Map<String, dynamic>? scMap,
-    Substrate s,
-    PreparedDerivationDay day,
-    int dataNowSec,
-  ) async {
+  /// Runs inside the day-blocks isolate: one detector pass over the day's 1 Hz HR
+  /// (+ gravity motion) yields the detected bouts (excluding any already-saved
+  /// manual/live session, passed in via [saved] which the caller read from the DB
+  /// on the DB-owning isolate) and each bout's HR-tail HRR-60s drop. Returns the
+  /// bout JSON, the mean `hrr_bpm`, the retrospective per-session HRR writes, the
+  /// recent-day suggestions to persist, and the freshly-ended notif candidate —
+  /// the DB writes + notification are performed by the caller on the main isolate.
+  static _WorkoutCompute _computeWorkouts({
+    required Substrate s,
+    required int? maxHr,
+    required double? rhrScalar,
+    required List<Map<String, dynamic>> saved,
+    required String date,
+    required int dayEndSec,
+    required int dataNowSec,
+  }) {
     try {
       final n = s.length;
-      if (n < 60) return;
+      if (n < 60) return const _WorkoutCompute.empty();
       final hrTs = <int>[];
       final hrBpm = <int>[];
       for (var i = 0; i < n; i++) {
@@ -2889,22 +2975,16 @@ class DerivationEngine {
           hrBpm.add(s.hr[i]);
         }
       }
-      if (hrBpm.length < 60) return;
+      if (hrBpm.length < 60) return const _WorkoutCompute.empty();
       final motion =
           ana.AutoWorkoutDetector.motionPoints(s.tsSec, s.ax, s.ay, s.az);
       // Exclude windows the user has already logged (manual/live wins).
-      final dayLo = s.tsSec.first;
-      final dayHi = s.tsSec.last + 60;
-      final saved = await LocalDb.sessionsInRange(dayLo, dayHi);
       final savedSpans = <ana.SavedWorkoutSpan>[
         for (final r in saved)
           if (r['start_ts'] is int && r['end_ts'] is int)
             ana.SavedWorkoutSpan(r['start_ts'] as int, r['end_ts'] as int),
       ];
-      final rhr = (scMap?['rhr'] as num?)?.round();
-      // Age-predicted HRmax (Tanaka) computed by the pipeline — drives the %HRR
-      // gate in the detector. Null when age is unknown (detector falls back).
-      final maxHr = (bundle['max_hr_used'] as num?)?.round();
+      final rhr = rhrScalar?.round();
       // Auto-detection needs a real resting-HR baseline. Without one the detector
       // can't compute a trustworthy %HRR floor and ordinary daytime HR reads as a
       // workout. If we don't have a nightly RHR for this day yet, skip detection
@@ -2940,6 +3020,7 @@ class DerivationEngine {
       // Also fill HRR for already-saved sessions (manual/live) retrospectively
       // from the substrate around each session's end — so the workout detail
       // screen shows HRR without buffering 60 s after a live stop.
+      final sessionHrr = <(String, double)>[];
       for (final r in saved) {
         final id = r['id'];
         final endTs = r['end_ts'];
@@ -2947,23 +3028,24 @@ class DerivationEngine {
         final m = _hrrForBout(s, endTs);
         if (m != null) {
           drops.add(m);
-          await LocalDb.setSessionHrr(id, double.parse(m.toStringAsFixed(1)));
+          sessionHrr.add((id, double.parse(m.toStringAsFixed(1))));
         }
       }
-      if (drops.isNotEmpty) {
-        final mean = drops.reduce((a, c) => a + c) / drops.length;
-        scMap?['hrr_bpm'] = double.parse(mean.toStringAsFixed(1));
-      }
-      bundle['workout_suggestions'] = boutJson;
+      final hrrBpm = drops.isEmpty
+          ? null
+          : double.parse(
+              (drops.reduce((a, c) => a + c) / drops.length).toStringAsFixed(1));
 
       // Persist + notify only for RECENT days (≤ ~36 h old) so imports/re-analyze
       // don't resurface 90 days of prompts.
-      final recent = (dataNowSec - day.endSec) < 36 * 3600;
+      final recent = (dataNowSec - dayEndSec) < 36 * 3600;
+      final toPersist = <Map<String, dynamic>>[];
+      ({int endSec, int durationMin})? notif;
       if (recent && bouts.isNotEmpty) {
         for (final b in bouts) {
-          await LocalDb.putWorkoutSuggestion({
-            'id': '${day.date}:${b.startSec}',
-            'date': day.date,
+          toPersist.add({
+            'id': '$date:${b.startSec}',
+            'date': date,
             'start_ts': b.startSec,
             'end_ts': b.endSec,
             'avg_bpm': b.avgBpm,
@@ -2971,7 +3053,6 @@ class DerivationEngine {
             'duration_min': b.durationMin,
             'sport': b.sport,
             'dismissed': 0,
-            'created_at': DateTime.now().millisecondsSinceEpoch,
           });
         }
         // Notify ONLY for a bout that ended in the last ~2 h (a near-real-time
@@ -2979,30 +3060,27 @@ class DerivationEngine {
         // day at once; without this every hours-old bout would fire a "did you work
         // out?" prompt → a wall of notifications. Suggestions are still persisted
         // above so they surface in the Workouts screen; we just don't ping for them.
-        final newest =
-            bouts.reduce((a, b) => a.endSec >= b.endSec ? a : b);
-        final freshlyEnded = (dataNowSec - newest.endSec) < 2 * 3600;
-        if (freshlyEnded) {
-          await NotificationCenter.instance.emit(NotificationEvent(
-            dedupeKey: '${day.date}:auto_workout',
-            category: NotifCategory.recovery,
-            priority: NotifPriority.normal,
-            title: 'Did you work out?',
-            body: 'We spotted ~${newest.durationMin} min of elevated activity. '
-                'Tap to log it.',
-            date: day.date,
-            route: '/workouts',
-          ));
+        final newest = bouts.reduce((a, b) => a.endSec >= b.endSec ? a : b);
+        if ((dataNowSec - newest.endSec) < 2 * 3600) {
+          notif = (endSec: newest.endSec, durationMin: newest.durationMin);
         }
       }
+      return _WorkoutCompute(
+        boutJson: boutJson,
+        hrrBpm: hrrBpm,
+        sessionHrrWrites: sessionHrr,
+        suggestionsToPersist: toPersist,
+        notifBout: notif,
+      );
     } catch (e) {
-      _log('auto-workout/HRR FAILED/skipped: $e');
+      if (kDebugMode) debugPrint('[derive] auto-workout/HRR FAILED/skipped: $e');
+      return const _WorkoutCompute.empty();
     }
   }
 
   /// HRR-60s for a bout ending at [endSec]: build the per-second HR tail around
   /// the end index and delegate to [ana.hrRecovery]. Returns the drop (bpm) or null.
-  double? _hrrForBout(Substrate s, int endSec) {
+  static double? _hrrForBout(Substrate s, int endSec) {
     final n = s.length;
     if (n == 0) return null;
     // Find the index nearest the bout end.
@@ -3026,7 +3104,7 @@ class DerivationEngine {
   /// Explicitly a WRIST measure (body-position PROXY), never claimed as the
   /// sleeper's supine/side/prone body position. Emits a dominant-orientation
   /// summary + per-position minutes + an orientation-change count. Best-effort.
-  void _attachWristOrientation(
+  static void _attachWristOrientation(
     Map<String, dynamic> bundle,
     Substrate s,
     int onsetSec,
@@ -3071,7 +3149,7 @@ class DerivationEngine {
             'independently of the torso.',
       };
     } catch (e) {
-      _log('wrist-orientation FAILED/skipped: $e');
+      if (kDebugMode) debugPrint('[derive] wrist-orientation FAILED/skipped: $e');
     }
   }
 
@@ -3114,6 +3192,88 @@ class DerivationEngine {
     if (kDebugMode) debugPrint('[derive] $m');
     log?.call('[derive] $m');
   }
+}
+
+/// Sendable input for [DerivationEngine._computeDayBlocks] — crosses the
+/// `Isolate.run` boundary, so every field is plain data (Substrate is int/double
+/// lists; Profile/StepCalibration are primitive data classes). DB reads that the
+/// pure compute needs are performed by the caller and passed in here.
+class _DayBlocksInput {
+  final Substrate daySub;
+  final Substrate sleepSub;
+  final Profile profile;
+  final int onsetSec;
+  final int offsetSec;
+  final double? rhr;
+  final int? maxHrUsed;
+  final List<List<int>> coverageWindows;
+  final int liveStepsReal;
+  final ana.StepCalibration? stepCalib;
+  final List<Map<String, dynamic>> savedSessions;
+  final String date;
+  final int dayEndSec;
+  final int dataNowSec;
+  const _DayBlocksInput({
+    required this.daySub,
+    required this.sleepSub,
+    required this.profile,
+    required this.onsetSec,
+    required this.offsetSec,
+    required this.rhr,
+    required this.maxHrUsed,
+    required this.coverageWindows,
+    required this.liveStepsReal,
+    required this.stepCalib,
+    required this.savedSessions,
+    required this.date,
+    required this.dayEndSec,
+    required this.dataNowSec,
+  });
+}
+
+/// Sendable output of [DerivationEngine._computeDayBlocks]. [bundlePatch] /
+/// [seriesPatch] / [scalarPatch] are merged into the isolate-1 bundle on the main
+/// isolate; [wake] is persisted; [suggestionsToPersist] / [sessionHrrWrites] /
+/// [notifBout] are the DB writes + notification the caller applies.
+class _DayBlocksOutput {
+  final Map<String, dynamic> bundlePatch;
+  final Map<String, dynamic> seriesPatch;
+  final Map<String, dynamic> scalarPatch;
+  final Map<String, dynamic> wake;
+  final List<Map<String, dynamic>> suggestionsToPersist;
+  final List<(String, double)> sessionHrrWrites;
+  final ({int endSec, int durationMin})? notifBout;
+  const _DayBlocksOutput({
+    required this.bundlePatch,
+    required this.seriesPatch,
+    required this.scalarPatch,
+    required this.wake,
+    required this.suggestionsToPersist,
+    required this.sessionHrrWrites,
+    required this.notifBout,
+  });
+}
+
+/// Result of the pure workout compute ([DerivationEngine._computeWorkouts]).
+class _WorkoutCompute {
+  final List<Map<String, dynamic>> boutJson;
+  final double? hrrBpm;
+  final List<(String, double)> sessionHrrWrites;
+  final List<Map<String, dynamic>> suggestionsToPersist;
+  final ({int endSec, int durationMin})? notifBout;
+  const _WorkoutCompute({
+    required this.boutJson,
+    required this.hrrBpm,
+    required this.sessionHrrWrites,
+    required this.suggestionsToPersist,
+    required this.notifBout,
+  });
+  const _WorkoutCompute.empty()
+      : boutJson = const [],
+        hrrBpm = null,
+        sessionHrrWrites = const [],
+        suggestionsToPersist = const [],
+        notifBout = null;
 }
 
 double? _median(List<double> xs) {
