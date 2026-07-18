@@ -73,11 +73,19 @@ class _CoachSettingsScreenState extends State<CoachSettingsScreen> {
       setState(() => _msg = 'Pick or type a model first.');
       return;
     }
+    // Capture the messenger + navigator BEFORE the await (no BuildContext across
+    // an async gap), then guard pop() with canPop(): a bare Navigator.pop() after
+    // the await crashed with "Bad state: No element" (NavigatorState.pop's
+    // internal lastWhere) when the route was no longer poppable by the time save
+    // completed — being `mounted` doesn't guarantee a poppable route.
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
     await cfg.save(baseUrl: _base.text, apiKey: _key.text, model: _chosen);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('AI Coach settings saved.')));
-      Navigator.of(context).pop();
-    }
+    if (!mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(content: Text('AI Coach settings saved.')),
+    );
+    if (navigator.canPop()) navigator.pop();
   }
 
   // Searchable list of fetched models + a "use what I typed" custom row. The row

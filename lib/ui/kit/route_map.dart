@@ -162,7 +162,13 @@ class RouteMapView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pts = _points;
+    // Drop any non-finite GPS coordinate (a bad fix can carry NaN/Inf lat/lng).
+    // Left in, it makes LatLngBounds + camera-fit NaN and crashes the tile layer
+    // at build (NaN.toInt in flutter_map's _clampToNativeZoom) — a real FATAL.
+    final pts = [
+      for (final p in _points)
+        if (p.latitude.isFinite && p.longitude.isFinite) p,
+    ];
     if (pts.isEmpty) return const SizedBox.shrink();
 
     // Detect gesture-driven camera moves so a live map can stop auto-following.
@@ -170,10 +176,22 @@ class RouteMapView extends StatelessWidget {
       if (hasGesture) onUserPan?.call();
     }
 
-    final options = pts.length >= 2
+    // Only bounds-fit when the box has real area. A zero-area box (every point
+    // identical — a stationary or aborted route) makes CameraFit.bounds emit a
+    // NaN/Infinite zoom that the tile layer then crashes on; fall back to a
+    // fixed-zoom center view in that case.
+    LatLngBounds? fitBounds;
+    if (pts.length >= 2) {
+      final b = LatLngBounds.fromPoints(pts);
+      if ((b.north - b.south).abs() > 1e-7 ||
+          (b.east - b.west).abs() > 1e-7) {
+        fitBounds = b;
+      }
+    }
+    final options = fitBounds != null
         ? MapOptions(
             initialCameraFit: CameraFit.bounds(
-              bounds: LatLngBounds.fromPoints(pts),
+              bounds: fitBounds,
               padding: const EdgeInsets.all(28),
               // Cap how far bounds-fit will zoom in. Without this, a route
               // whose points are all still close together (early in a
