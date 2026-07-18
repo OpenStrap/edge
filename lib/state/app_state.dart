@@ -685,6 +685,7 @@ class AppState extends ChangeNotifier {
     BandOwnership.markForegroundIntent(false);
     _releaseForegroundLease();
     _deriveScheduler.dispose();
+    callBuzzer.dispose();
     _waterBuzzer.dispose();
     insightsRevision.dispose();
     super.dispose();

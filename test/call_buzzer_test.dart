@@ -74,6 +74,22 @@ void main() {
     });
   });
 
+  test('duplicate ringing after the cap does not restart the cadence', () {
+    fakeAsync((async) {
+      var buzzes = 0;
+      final cb = make(() => buzzes++);
+      cb.handleStateEvent('ringing');
+      async.elapse(const Duration(minutes: 2)); // well past the cap
+      expect(buzzes, CallBuzzer.maxBuzzes);
+      // Some OEMs re-emit RINGING for the same call with no terminal state in
+      // between — that must NOT buzz another full cadence.
+      cb.handleStateEvent('ringing');
+      async.elapse(const Duration(minutes: 2));
+      expect(buzzes, CallBuzzer.maxBuzzes,
+          reason: 'same call — no fresh cadence without idle/offhook between');
+    });
+  });
+
   test('a new ring after idle starts a fresh cadence', () {
     fakeAsync((async) {
       var buzzes = 0;

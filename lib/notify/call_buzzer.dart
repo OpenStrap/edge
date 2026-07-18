@@ -58,6 +58,7 @@ class CallBuzzer extends ChangeNotifier with WidgetsBindingObserver {
 
   StreamSubscription<dynamic>? _sub;
   Timer? _ringTimer;
+  bool _ringing = false; // true from first 'ringing' until idle/offhook
   int _buzzCount = 0;
 
   /// Load saved state, refresh permission, and start listening if active. Call
@@ -158,12 +159,17 @@ class CallBuzzer extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _startRinging() {
-    if (_ringTimer != null) return; // already mid-cadence — don't restart it
+    if (_ringing) return; // already this ring — don't restart the cadence
+    _ringing = true;
     _buzzCount = 0;
     _fireBuzz();
     _ringTimer = Timer.periodic(repeatEvery, (_) {
       if (_buzzCount >= maxBuzzes) {
-        _stopRinging(); // stuck RINGING — stop after ~one full ring
+        // Stuck RINGING — stop buzzing after ~one full ring, but stay marked
+        // as ringing so a duplicate 'ringing' event for the SAME call can't
+        // start a fresh cadence. Only a terminal state (idle/offhook) clears it.
+        _ringTimer?.cancel();
+        _ringTimer = null;
         return;
       }
       _fireBuzz();
@@ -173,6 +179,7 @@ class CallBuzzer extends ChangeNotifier with WidgetsBindingObserver {
   void _stopRinging() {
     _ringTimer?.cancel();
     _ringTimer = null;
+    _ringing = false;
     _buzzCount = 0;
   }
 

@@ -31,12 +31,14 @@ class NotificationRelaySection extends StatelessWidget {
       animation: Listenable.merge([relay, calls]),
       builder: (context, _) {
         final String subtitle;
-        if (!relay.enabled && !calls.active) {
-          subtitle = 'Off';
-        } else if (relay.enabled && !relay.permissionGranted) {
+        if (relay.enabled && !relay.permissionGranted) {
           subtitle = 'Needs notification access';
+        } else if (calls.enabled && !calls.permissionGranted) {
+          // Calls are switched on but can't work yet — surface the actionable
+          // state instead of reporting 'Off' / silently omitting calls.
+          subtitle = 'Needs phone permission';
         } else if (!relay.enabled) {
-          subtitle = 'On · calls only';
+          subtitle = calls.active ? 'On · calls only' : 'Off';
         } else {
           final apps = relay.appCount == 0
               ? 'no apps selected'
