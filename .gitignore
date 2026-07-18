@@ -82,3 +82,5 @@ scratch_*
 **/scratch_test*.dart
 **/*_db2.dart
 /fetch_apps.js
+#adding firebase_options back so that we dont commit it accidentally in future releases
+lib/firebase_options.dart 
