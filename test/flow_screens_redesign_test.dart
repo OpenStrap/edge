@@ -14,6 +14,8 @@ import 'package:openstrap_edge/ui/onboarding/welcome_screen.dart'
     show WelcomeHero, WelcomeOptionCard;
 import 'package:openstrap_edge/ui/pairing_screen.dart'
     show PairPhase, PairingInstructionContent, PairingStateView;
+import 'package:openstrap_edge/telemetry/health_uploader.dart'
+    show kHealthDataContributionEnabled;
 import 'package:openstrap_edge/ui/profile/profile_screen.dart' show DeviceTile;
 import 'package:openstrap_edge/ui/profile_setup_screen.dart'
     show ConsentTile, ProfileSetupForm;
@@ -166,7 +168,12 @@ void main() {
       expect(find.text('About you'), findsOneWidget);
       expect(find.text('Male'), findsOneWidget);
       expect(find.text('Female'), findsOneWidget);
-      expect(find.byType(ConsentTile), findsNWidgets(2));
+      // The health-data-contribution tile only renders in a build compiled
+      // with kHealthDataContributionEnabled (never in CI/default test runs).
+      expect(
+        find.byType(ConsentTile),
+        findsNWidgets(kHealthDataContributionEnabled ? 2 : 1),
+      );
 
       // No sex chosen yet → Continue disabled (onSubmit not called on tap).
       await t.ensureVisible(find.text('Continue'));
@@ -186,7 +193,9 @@ void main() {
       expect(submitted!['age'], 30);
       expect(submitted!['sex'], 'f');
       expect(telemetry, isTrue);
-      expect(healthShare, isTrue);
+      // Gated default: only pre-enabled in a build compiled with
+      // kHealthDataContributionEnabled.
+      expect(healthShare, kHealthDataContributionEnabled);
     });
   }
 

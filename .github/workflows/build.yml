@@ -36,6 +36,11 @@ jobs:
         run: |
           echo "COMPANION_URL=${{ secrets.COMPANION_URL }}" > .env
           echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
+          # Health-data contribution (full on-device DB upload) stays OFF
+          # here too (see kHealthDataContributionEnabled, defaults false) —
+          # we don't collect/receive user health data on ANY distribution
+          # channel, sideload included, matching PRIVACY.md's "we do not
+          # collect your data" — not just the future store build.
 
       # Decode the release keystore from a secret. The gradle config picks these
       # env vars up (ANDROID_KEYSTORE_PATH etc.) and signs the release build.
@@ -127,6 +132,11 @@ jobs:
         run: |
           echo "COMPANION_URL=${{ secrets.COMPANION_URL }}" > .env
           echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
+          # Health-data contribution (full on-device DB upload) stays OFF
+          # here too (see kHealthDataContributionEnabled, defaults false) —
+          # we don't collect/receive user health data on ANY distribution
+          # channel, sideload included, matching PRIVACY.md's "we do not
+          # collect your data" — not just the future store build.
 
       - name: Install flutterfire (required by Crashlytics Xcode build phase)
         run: dart pub global activate flutterfire_cli 1.4.0

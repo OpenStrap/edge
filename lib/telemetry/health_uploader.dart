@@ -16,6 +16,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../cloud/companion_client.dart';
 import '../data/db.dart';
 
+/// Compile-time gate for the whole health-data-contribution feature (this
+/// upload path + the "Contribute my health data" toggle in Settings and
+/// onboarding). Defaults OFF, same convention as [kSideloadOtaEnabled] in
+/// update_service.dart — the open-source repo, and any App Store/Play Store
+/// submission built from it without extra flags, never offers uploading a
+/// full copy of the local health database anywhere. Uploading someone's
+/// entire raw + derived health history to a self-hosted backend is by far
+/// the biggest privacy/compliance surface this app has; store-review-facing
+/// builds should not carry it at all, only Firebase-based crash/diagnostics
+/// telemetry (gated separately by the user's telemetry consent).
+///
+/// A direct-distribution/sideload build opts in explicitly:
+///   flutter build apk --dart-define=ENABLE_HEALTH_DATA_CONTRIBUTION=true
+const bool kHealthDataContributionEnabled = bool.fromEnvironment(
+  'ENABLE_HEALTH_DATA_CONTRIBUTION',
+  defaultValue: false,
+);
+
 class HealthUploader {
   HealthUploader._();
   static final HealthUploader instance = HealthUploader._();
@@ -32,7 +50,14 @@ class HealthUploader {
 
   /// Attempt an upload if [consented] AND on Wi-Fi AND charging AND >24h since the
   /// last one. Returns true if an upload actually happened.
+  ///
+  /// Defense in depth: even though the Settings/onboarding toggle that sets
+  /// [consented] is itself hidden when [kHealthDataContributionEnabled] is
+  /// false, gate the actual network call on the same flag directly — no
+  /// build without the flag should ever attempt this upload regardless of
+  /// how `consented` ended up true (e.g. a stale local pref).
   Future<bool> maybeUpload({required bool consented}) async {
+    if (!kHealthDataContributionEnabled) return false;
     if (!consented || !CompanionClient.configured || _running) return false;
     if (deviceId == null) return false;
     _running = true;

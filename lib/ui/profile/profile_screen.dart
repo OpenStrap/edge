@@ -19,6 +19,7 @@ import '../../health/health_export.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../debug/debug_mode.dart';
+import '../../telemetry/health_uploader.dart' show kHealthDataContributionEnabled;
 import '../../theme/theme_switcher.dart';
 import '../ai/ai_settings_screen.dart';
 import '../design/design.dart';
@@ -324,17 +325,24 @@ class ProfileScreen extends StatelessWidget {
             value: app.telemetryConsent,
             onChanged: (v) => app.setTelemetryConsent(v),
           ),
-          const SizedBox(height: Sp.x3),
-          _ToggleCard(
-            icon: OsIcon.activity,
-            title: 'Contribute my health data',
-            subtitle:
-                'Periodically upload your on-device database (over Wi-Fi, '
-                'while charging) to improve the algorithms. On by default — '
-                'switch off anytime.',
-            value: app.healthShareConsent,
-            onChanged: (v) => app.setHealthShareConsent(v),
-          ),
+          // Health-data contribution (full on-device DB upload) is a
+          // compile-time-gated feature (see kHealthDataContributionEnabled) —
+          // never offered in a store-review-facing build, only in a
+          // sideload/direct-distribution build that opted in. Hide the
+          // toggle entirely rather than leave it visible-but-inert.
+          if (kHealthDataContributionEnabled) ...[
+            const SizedBox(height: Sp.x3),
+            _ToggleCard(
+              icon: OsIcon.activity,
+              title: 'Contribute my health data',
+              subtitle:
+                  'Periodically upload your on-device database (over Wi-Fi, '
+                  'while charging) to improve the algorithms. On by default — '
+                  'switch off anytime.',
+              value: app.healthShareConsent,
+              onChanged: (v) => app.setHealthShareConsent(v),
+            ),
+          ],
 
           const SizedBox(height: Sp.x6),
 

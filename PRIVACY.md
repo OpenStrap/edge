@@ -5,27 +5,31 @@ _Last updated: July 18, 2026_
 Edge ("the App") is an independent, open-source project. It is not affiliated
 with, sponsored by, or endorsed by WHOOP, Inc.
 
-**Data we collect**
-- Biometric/health data from your paired WHOOP 4.0 band over Bluetooth: heart
-  rate, heart rate variability (RR intervals), motion (accelerometer), raw
-  skin-temperature/blood-oxygen sensor channels, and (if you record workouts)
-  GPS location during those workouts.
-- Basic app usage/crash telemetry, only if you opt in.
+**We do not collect your data**
+Your biometric/health data from your paired WHOOP 4.0 band — heart rate, heart
+rate variability (RR intervals), motion (accelerometer), raw
+skin-temperature/blood-oxygen sensor channels, and (if you record workouts)
+GPS location during those workouts — is processed and stored entirely on your
+device. We do not upload it, we do not operate a backend that receives it, and
+we never see it.
 
-**Where your data lives**
-By default, all of the above is stored locally on your device only. We do not
-upload it anywhere unless you explicitly opt in to one of the following:
-- **Health data contribution** — if you enable "Contribute my health data" in
-  Settings, the App periodically uploads a full copy of your on-device
-  database (the same biometric/health data listed above) to our backend, to
-  help improve the algorithms. This only happens while your phone is on Wi-Fi
-  and charging, at most once every 24 hours. We keep only your most recent
-  upload — each new one replaces the last — and there is no restore/backup
-  feature; it is a one-way contribution, not a backup you can recover from.
-  Off by default.
+**Anonymous diagnostics (on by default)**
+The only thing the App sends off your device is basic crash/error and
+performance monitoring, via Firebase (Google) — Crashlytics, Performance
+Monitoring, and Analytics. This is on by default; you can turn it off at any
+time in Settings ("Send anonymous diagnostics"), which stops any further
+collection immediately. It never includes your health data — only crash
+reports, basic device info (OS/model/app version), and coarse performance
+timing. This data is handled under Firebase's own privacy and security
+practices, not a system we built or operate ourselves — see Google's Firebase
+privacy & security documentation: https://firebase.google.com/support/privacy.
+
+**Optional, user-initiated integrations**
+If you choose to enable them, the App can also send data to services *you*
+configure:
 - **AI Coach** — if you enable this feature and supply your own API key,
   summaries of your data are sent to the AI provider you configure (by
-  default, OpenAI) to generate coaching responses. This is off by default and
+  default, OpenAI) to generate coaching responses. Off by default and
   requires your own API key.
 - **Health app integration** — if you enable it, the App can write derived
   daily metrics to Apple Health or Google Health Connect, which are controlled
@@ -34,30 +38,14 @@ upload it anywhere unless you explicitly opt in to one of the following:
 **What we don't do**
 We do not sell your data. We do not send your health data to WHOOP, Inc. or
 any advertising network. We do not require a WHOOP account or credentials to
-use the App.
+use the App. We do not operate a backend that stores your health data.
 
 **Your controls**
-You can disable telemetry, health data contribution, or AI Coach at any time
-in Settings — this stops any further collection or upload immediately.
-
-*Local data:* everything the App stores lives in the App's own private storage
-on your device. Uninstalling the App deletes all of it immediately; nothing
-else needs to happen, since nothing left your device in the first place unless
-you separately opted in to one of the uploads above.
-
-*Previously-sent anonymous diagnostics and health data contributions:* both of
-these are submitted under a randomly-generated install identifier that is
-created on your device, is never linked to your name, email, or any account,
-and is not shown anywhere in the App. Because we have no way to verify that a
-deletion request actually corresponds to a particular person's submissions, we
-are not able to fulfill individual requests to delete previously-sent
-telemetry or a previously-uploaded health data contribution. Turning off the
-"Send anonymous diagnostics" or "Contribute my health data" toggle in Settings
-stops any further collection/upload immediately — it does not retroactively
-remove what was already sent. (For the health data contribution specifically:
-since only your most recent upload is retained and each new one replaces it,
-turning the toggle off also means no further upload will ever replace that
-last one.)
+Turn off "Send anonymous diagnostics" at any time in Settings — this stops any
+further collection immediately. Uninstalling the App deletes all of your
+locally stored data immediately, since nothing else is retained anywhere
+except the anonymous Firebase diagnostics described above (governed by
+Firebase's own practices, linked above, not a system we operate).
 
 **Children**
 This App is not directed to children under 13 (or the relevant age of digital
