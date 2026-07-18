@@ -19,15 +19,21 @@ import '../data/db.dart';
 /// Compile-time gate for the whole health-data-contribution feature (this
 /// upload path + the "Contribute my health data" toggle in Settings and
 /// onboarding). Defaults OFF, same convention as [kSideloadOtaEnabled] in
-/// update_service.dart — the open-source repo, and any App Store/Play Store
-/// submission built from it without extra flags, never offers uploading a
-/// full copy of the local health database anywhere. Uploading someone's
-/// entire raw + derived health history to a self-hosted backend is by far
-/// the biggest privacy/compliance surface this app has; store-review-facing
-/// builds should not carry it at all, only Firebase-based crash/diagnostics
-/// telemetry (gated separately by the user's telemetry consent).
+/// update_service.dart.
 ///
-/// A direct-distribution/sideload build opts in explicitly:
+/// NOT enabled by ANY build we distribute — not the GitHub Releases sideload
+/// APK/IPA, and not any future App Store/Play Store submission (CI passes
+/// `ENABLE_HEALTH_DATA_CONTRIBUTION=false` explicitly for both; see
+/// .github/workflows/build.yml). Uploading someone's entire raw + derived
+/// health history to a backend is by far the biggest privacy/compliance
+/// surface this app could have, so PRIVACY.md's "we do not collect your
+/// data" claim is scoped to — and must remain true of — every build we
+/// ourselves ship.
+///
+/// This flag exists purely because the code is open source: an independent
+/// developer compiling their OWN build from this repo can opt in and point
+/// it at a backend of their own choosing. That is their build and their
+/// responsibility, not something our privacy policy governs.
 ///   flutter build apk --dart-define=ENABLE_HEALTH_DATA_CONTRIBUTION=true
 const bool kHealthDataContributionEnabled = bool.fromEnvironment(
   'ENABLE_HEALTH_DATA_CONTRIBUTION',

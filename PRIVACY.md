@@ -6,17 +6,30 @@ Edge ("the App") is an independent, open-source project. It is not affiliated
 with, sponsored by, or endorsed by WHOOP, Inc.
 
 **We do not collect your data**
-Your biometric/health data from your paired WHOOP 4.0 band — heart rate, heart
-rate variability (RR intervals), motion (accelerometer), raw
-skin-temperature/blood-oxygen sensor channels, and (if you record workouts)
-GPS location during those workouts — is processed and stored entirely on your
-device. We do not upload it, we do not operate a backend that receives it, and
-we never see it.
+This section describes every build we ourselves distribute — the signed
+Android APK and iOS IPA published on GitHub Releases, and any future App
+Store/Play Store submission. Your biometric/health data from your paired
+WHOOP 4.0 band — heart rate, heart rate variability (RR intervals), motion
+(accelerometer), raw skin-temperature/blood-oxygen sensor channels, and (if
+you record workouts) GPS location during those workouts — is processed and
+stored entirely on your device in every one of those builds. We do not
+upload it, we do not operate a backend that receives it, and we never see it.
+
+Edge is open source. The underlying code contains an off-by-default,
+compile-time flag (`kHealthDataContributionEnabled`, see
+`lib/telemetry/health_uploader.dart`) that an independent developer could
+enable in their *own*, separately-built and separately-distributed copy of
+the app, pointed at a backend of their own choosing. No build we publish
+enables it — our CI explicitly forces it off for every release (see
+`.github/workflows/build.yml`) rather than relying on the flag's default. A
+self-built copy compiled with that flag on is that builder's own software
+and their own responsibility; it is not covered by this policy.
 
 **Anonymous diagnostics (on by default)**
-The only thing the App sends off your device is basic crash/error and
-performance monitoring, via Firebase (Google) — Crashlytics, Performance
-Monitoring, and Analytics. This is on by default; you can turn it off at any
+In every build we distribute, the only thing the App sends off your device is
+basic crash/error and performance monitoring, via Firebase (Google) —
+Crashlytics, Performance Monitoring, and Analytics. This is on by default; you
+can turn it off at any
 time in Settings ("Send anonymous diagnostics"), which stops any further
 collection immediately. It never includes your health data — only crash
 reports, basic device info (OS/model/app version), and coarse performance
