@@ -128,9 +128,13 @@ flutter run --release -d <device-id> --dart-define-from-file=.env
 
 ## Version Numbers
 
-`Runner`'s `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` track `pubspec.yaml`'s
-`version:` automatically via `$(FLUTTER_BUILD_NAME)`/`$(FLUTTER_BUILD_NUMBER)`
-(Flutter writes these into `ios/Flutter/Generated.xcconfig` on every build).
+`Runner` tracks `pubspec.yaml`'s `version:` automatically via `Info.plist`'s
+`CFBundleShortVersionString`/`CFBundleVersion` keys, which point at
+`$(FLUTTER_BUILD_NAME)`/`$(FLUTTER_BUILD_NUMBER)` (Flutter writes these into
+`ios/Flutter/Generated.xcconfig` on every build). Runner's own
+`CURRENT_PROJECT_VERSION` build setting also resolves to `$(FLUTTER_BUILD_NUMBER)`;
+it does not set a `MARKETING_VERSION` build setting at all — the marketing
+version comes solely from the `Info.plist` key above.
 
 The **`OpenStrapWidget`/`OpenStrapWidgetExtension`** and **`OpenStrapWatch Watch
 App`** targets are NOT wired to that mechanism — they don't include

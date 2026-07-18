@@ -129,6 +129,16 @@ class RouteMapView extends StatelessWidget {
   /// look under the crisp line — the only colour against the monochrome
   /// basemap, so it needs to read as unmistakably "the route", not a thin
   /// GPS-app line lost against a busy street atlas.
+  // A bad GPS fix can carry NaN/Inf lat/lng (see the finite-filter in build()
+  // below for the camera/bounds path). _points there is filtered, but
+  // _polylines() reads straight from `vertices`, so it needs its own check —
+  // an unfiltered NaN/Inf vertex reaching PolylineLayer can crash or corrupt
+  // rendering.
+  bool _validPos(List<RouteVertex> v, int i) {
+    final p = v[i].pos;
+    return p.latitude.isFinite && p.longitude.isFinite;
+  }
+
   List<Polyline> _polylines({bool glow = false}) {
     final v = vertices;
     if (v.length < 2) return const [];
@@ -137,14 +147,19 @@ class RouteMapView extends StatelessWidget {
     final width = interactive ? 5.0 : 4.0;
     var i = 0;
     while (i < v.length - 1) {
-      if (v[i + 1].gapBefore) {
-        i++; // segment break — no edge across the gap
+      if (v[i + 1].gapBefore || !_validPos(v, i) || !_validPos(v, i + 1)) {
+        // Segment break — no edge across a recording gap OR an invalid
+        // (NaN/Inf) vertex; either way we never draw an edge touching it.
+        i++;
         continue;
       }
       final c = edgeColor(i);
       final pts = <LatLng>[v[i].pos];
       var j = i;
-      while (j < v.length - 1 && edgeColor(j) == c && !v[j + 1].gapBefore) {
+      while (j < v.length - 1 &&
+          edgeColor(j) == c &&
+          !v[j + 1].gapBefore &&
+          _validPos(v, j + 1)) {
         pts.add(v[j + 1].pos);
         j++;
       }

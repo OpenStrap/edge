@@ -1451,6 +1451,13 @@ class DerivationEngine {
     // drop the optional detail blocks. (Previously an exception here threw out of
     // _derivePreparedDay → the day was marked skipped → readiness rendered "-"
     // even though it had been computed fine — the "readiness randomly goes -" bug.)
+    // `secondHalfOk` tracks whether this actually completed: a headline-only
+    // row must be marked `partial` below so it never locks as finalized and
+    // never counts as "derived" for the raw-pruning guard (see
+    // LocalDb.dayResultIds) — otherwise a transient failure here permanently
+    // loses the ability to ever back-fill naps/workouts/HRR/wear/curves for
+    // this day once its raw substrate is pruned.
+    var secondHalfOk = true;
     try {
       final dayLo = daySub.length == 0 ? 0 : daySub.tsSec.first;
       final dayHi = daySub.length == 0 ? 0 : daySub.tsSec.last + 60;
@@ -1478,8 +1485,8 @@ class DerivationEngine {
         dayEndSec: day.endSec,
         dataNowSec: dataNowSec,
       );
-      final blocks = await Isolate.run(() => _computeDayBlocks(blocksInput))
-          .timeout(_perDayTimeout);
+      final blocks =
+          await _runDayBlocksCancellable(blocksInput, _perDayTimeout);
 
       // Merge the computed blocks back into the isolate-1 bundle. scMap is the
       // CastMap view over bundle['scalars'], so addAll writes through — nap_min /
@@ -1502,31 +1509,43 @@ class DerivationEngine {
       }
       final nb = blocks.notifBout;
       if (nb != null) {
-        await NotificationCenter.instance.emit(NotificationEvent(
-          dedupeKey: '${day.date}:auto_workout',
-          category: NotifCategory.recovery,
-          priority: NotifPriority.normal,
-          title: 'Did you work out?',
-          body: 'We spotted ~${nb.durationMin} min of elevated activity. '
-              'Tap to log it.',
-          date: day.date,
-          route: '/workouts',
-        ));
+        await NotificationCenter.instance.emit(
+          NotificationEvent(
+            dedupeKey: '${day.date}:auto_workout',
+            category: NotifCategory.recovery,
+            priority: NotifPriority.normal,
+            title: 'Did you work out?',
+            body: 'We spotted ~${nb.durationMin} min of elevated activity. '
+                'Tap to log it.',
+            date: day.date,
+            route: '/workouts',
+          ),
+          // This runs from headless background derivation too — never prompt
+          // for permission from a background context (violates the OS
+          // background contract and can incorrectly cache permission=denied).
+          allowPermissionPrompt: false,
+        );
       }
 
       await _persistWakeDayFeatures(dayId: day.date, wake: blocks.wake);
     } catch (e, st) {
+      secondHalfOk = false;
       _log('day-blocks (offloaded second half) failed for ${day.date} — '
-          'persisting headline day: $e');
+          'persisting headline day (partial): $e');
       TelemetryService.instance.recordNonFatal(e, st, reason: 'day_blocks_failed');
     }
 
     // Finalize once the DATA EDGE has moved >48 h past the day's wake — i.e. we
     // have continuous drained data well beyond it, so no more flash can land for
     // this day. (Anchored on the last record ts, NOT the wall clock.) Imports
-    // force-finalize: there is no stored raw to ever recompute them from.
-    final finalized =
-        forceFinalize || (day.endSec + _finalizationSec) < dataNowSec;
+    // force-finalize: there is no stored raw to ever recompute them from, so
+    // forceFinalize wins even for a partial (headline-only) result — there's
+    // nothing left to retry regardless. Outside of that, never let a partial
+    // result lock in as finalized purely by age, or its missing naps/
+    // workouts/HRR/wear/curves would never get a chance to be filled in by a
+    // later retry.
+    final ageFinalized = (day.endSec + _finalizationSec) < dataNowSec;
+    final finalized = forceFinalize || (ageFinalized && secondHalfOk);
 
     final scalars =
         (bundle['scalars'] as Map?)?.cast<String, dynamic>() ?? const {};
@@ -1539,6 +1558,7 @@ class DerivationEngine {
         ((day.sleepJson['window'] as Map?) ?? const {}).cast<String, dynamic>(),
       ),
       finalized: finalized,
+      partial: !secondHalfOk,
       rhr: sc('rhr'),
       rmssd: sc('rmssd'),
       readiness: sc('readiness'),
@@ -2823,13 +2843,92 @@ class DerivationEngine {
     }
   }
 
-  /// The full PURE second half of per-day derivation, run OFF the calling isolate
-  /// via `Isolate.run` (see [_derivePreparedDay]). Previously ALL of this ran on
-  /// whatever isolate drove the engine — the UI isolate for the foreground light
-  /// pass fired on every sync — producing multi-second main-thread hangs (rolling
-  /// RSA Lomb-Scargle over the 24 h day, nap re-staging, workout detection, wake
-  /// features, steps/energy). DB reads are performed by the caller and passed in;
-  /// DB writes + notifications are returned as descriptors for the caller to apply.
+  /// Runs [_computeDayBlocks] in an explicitly spawned, killable isolate and
+  /// enforces [timeout] on the isolate itself — not just on the caller's wait.
+  ///
+  /// `Isolate.run(...).timeout(...)` (the previous approach) only stops the
+  /// CALLER from awaiting the result; the spawned isolate keeps executing to
+  /// completion in the background regardless. Under a multi-day backlog with
+  /// a bounded worker pool ([_deriveConcurrency]), a slow/hung day's abandoned
+  /// isolate can keep burning CPU well after its caller moved on to the next
+  /// day — silently exceeding the intended concurrency budget. Spawning the
+  /// isolate ourselves gives us a handle to actually `kill()` it on timeout.
+  static Future<_DayBlocksOutput> _runDayBlocksCancellable(
+    _DayBlocksInput input,
+    Duration timeout,
+  ) async {
+    final port = ReceivePort();
+    final isolate = await Isolate.spawn(
+      _dayBlocksIsolateEntry,
+      (port.sendPort, input),
+      onError: port.sendPort,
+      onExit: port.sendPort,
+    );
+    final completer = Completer<_DayBlocksOutput>();
+    late final StreamSubscription<dynamic> sub;
+    sub = port.listen((message) {
+      if (completer.isCompleted) return;
+      if (message is _DayBlocksOutput) {
+        completer.complete(message);
+      } else if (message is List) {
+        // Either our own caught-exception report (`[error, stack]`) or the
+        // `onError` port's uncaught-error format — both are 2-element lists
+        // of strings. `onExit` fires with `null`, which we treat as "the
+        // isolate ended without ever sending a result" below.
+        completer.completeError(
+          StateError(
+            message.isNotEmpty
+                ? 'day-blocks isolate failed: ${message.first}'
+                : 'day-blocks isolate failed with no error detail',
+          ),
+        );
+      } else if (message == null) {
+        if (!completer.isCompleted) {
+          completer.completeError(
+            StateError('day-blocks isolate exited without a result'),
+          );
+        }
+      }
+    });
+    try {
+      return await completer.future.timeout(
+        timeout,
+        onTimeout: () {
+          isolate.kill(priority: Isolate.immediate);
+          throw TimeoutException(
+            'day-blocks computation timed out after $timeout',
+          );
+        },
+      );
+    } finally {
+      await sub.cancel();
+      port.close();
+      // No-op if the isolate already exited normally; guarantees a hung or
+      // still-running isolate never outlives this call.
+      isolate.kill(priority: Isolate.immediate);
+    }
+  }
+
+  /// `Isolate.spawn` entry point for [_runDayBlocksCancellable]. Must be a
+  /// static/top-level function taking exactly one (sendable) argument.
+  static void _dayBlocksIsolateEntry((SendPort, _DayBlocksInput) args) {
+    final (sendPort, input) = args;
+    try {
+      sendPort.send(_computeDayBlocks(input));
+    } catch (e, st) {
+      sendPort.send([e.toString(), st.toString()]);
+    }
+  }
+
+  /// The full PURE second half of per-day derivation, run OFF the calling
+  /// isolate via a cancellable spawned isolate (see [_runDayBlocksCancellable],
+  /// [_derivePreparedDay]). Previously ALL of this ran on whatever isolate
+  /// drove the engine — the UI isolate for the foreground light pass fired on
+  /// every sync — producing multi-second main-thread hangs (rolling RSA
+  /// Lomb-Scargle over the 24 h day, nap re-staging, workout detection, wake
+  /// features, steps/energy). DB reads are performed by the caller and passed
+  /// in; DB writes + notifications are returned as descriptors for the caller
+  /// to apply.
   static _DayBlocksOutput _computeDayBlocks(_DayBlocksInput inp) {
     final daySub = inp.daySub;
     final sleepSub = inp.sleepSub;
@@ -2861,6 +2960,17 @@ class DerivationEngine {
       inp.liveStepsReal,
       inp.stepCalib,
     );
+    // _stepsAndEnergy just corrected `steps`/`calories_total` in bundlePatch +
+    // scMap using the hybrid real-100Hz + 1Hz-estimate count, but `wake` (built
+    // above by _buildWakeDayFeatures, before this correction ran) still holds
+    // the earlier 1Hz-only estimate. `wake` is what _persistWakeDayFeatures
+    // stores and what the Today repository reads while the full day result
+    // isn't ready yet, so copy the corrected values back in to avoid serving
+    // stale steps/calories from that early-read path.
+    for (final key in const ['steps', 'calories_total']) {
+      final value = scMap[key];
+      if (value != null) wake[key] = value;
+    }
 
     bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset);
     seriesPatch['hrv_day'] = _dayHrvCurve(daySub);

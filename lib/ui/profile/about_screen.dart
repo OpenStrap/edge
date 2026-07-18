@@ -38,10 +38,25 @@ class _AboutScreenState extends State<AboutScreen> {
     });
   }
 
-  static Future<void> _openUrl(String url) async {
+  /// Returns whether the launch actually succeeded. `launchUrl` can return
+  /// `false` without throwing (e.g. no handler for the URL) — callers here
+  /// (Privacy Policy / Notice links) are legal-disclosure surfaces, so a
+  /// failed launch must be surfaced to the user rather than swallowed.
+  static Future<bool> _openUrl(String url) async {
     try {
-      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    } catch (_) {}
+      return await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _openUrlWithFeedback(String url) async {
+    final ok = await _openUrl(url);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Couldn't open the link.")),
+      );
+    }
   }
 
   @override
@@ -65,14 +80,14 @@ class _AboutScreenState extends State<AboutScreen> {
             icon: OsIcon.activity,
             title: 'Privacy policy',
             divider: true,
-            onTap: () => _openUrl(kPrivacyPolicyUrl),
+            onTap: () => _openUrlWithFeedback(kPrivacyPolicyUrl),
           ),
           ListRow(
             icon: OsIcon.activity,
             title: 'Notice & attribution',
             subtitle: 'Trademark + reverse-engineering disclosure',
             divider: true,
-            onTap: () => _openUrl(kNoticeUrl),
+            onTap: () => _openUrlWithFeedback(kNoticeUrl),
           ),
           ListRow(
             icon: OsIcon.activity,
