@@ -2925,9 +2925,16 @@ class AppState extends ChangeNotifier {
     final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
     // The workout screen's live step count rides the 100 Hz IMU stream, which
     // the sticky standard-HR fallback silently suppresses (same starvation as
-    // the calibration walk). A deliberate workout start is an explicit user
-    // action — retry the full live set; detectors re-trip if it can't hold.
-    if (isConnected && device.standardHrFallback) {
+    // the calibration walk) — and which may simply be off (spot-check cleanup
+    // restores streams to OFF when they were off before) or still in the
+    // background HR-only downgrade. A deliberate workout start is an explicit
+    // user action — retry the full live set; detectors re-trip if it can't
+    // hold. No ownership flag: the background downgrade / session close
+    // manage the stream lifecycle exactly as for openSession's arming.
+    if (isConnected &&
+        (!engine.liveEnabled ||
+            engine.liveHrOnly ||
+            device.standardHrFallback)) {
       unawaited(engine.retryFullLiveStreams());
     }
     _workoutRawBase = _liveRaw;
