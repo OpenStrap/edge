@@ -24,7 +24,9 @@ dependencies:
   openstrap_protocol:
     git:
       url: https://github.com/OpenStrap/protocol.git
-      ref: main
+      # EXPERIMENTAL: WHOOP 5 (gen5) multi-band support. Point back to `main`
+      # once OpenStrap/protocol#16 merges.
+      ref: feat/multiband-whoop5
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

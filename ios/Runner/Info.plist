@@ -29,6 +29,7 @@
 	<key>NSAccessorySetupBluetoothServices</key>
 	<array>
 		<string>61080001-8D6D-82B8-614A-1C8CB0F8DCC6</string>
+		<string>FD4B0001-CCE1-4033-93CE-002D5875F58A</string>
 	</array>
 	<key>NSAccessorySetupKitSupports</key>
 	<array>
