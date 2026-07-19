@@ -44,6 +44,21 @@
 	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>OpenStrap records your route on a map during a run, ride or walk so you can see it, colored by heart-rate zone, when the workout ends. Your location stays on this device and is never uploaded.</string>
+	<!-- NSLocationAlwaysAndWhenInUseUsageDescription: not requested by app code
+	     (gps_source.dart sets allowBackgroundLocationUpdates: false, WhenInUse
+	     only — see the UIBackgroundModes comment below). geolocator_apple's
+	     PermissionHandler.m links [CLLocationManager requestAlwaysAuthorization]
+	     unconditionally, which App Store Connect's static binary scan (ITMS-90683)
+	     flags even though that path is never invoked at runtime. -->
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>OpenStrap does not track your location in the background. This permission is linked by a dependency but unused — the app only ever asks for location access while you're actively viewing a workout route.</string>
+	<!-- NSPhotoLibraryUsageDescription: not used by app code — import_screen.dart's
+	     only FilePicker call uses FileType.any (Files app / UIDocumentPicker),
+	     never .image/.media. file_picker's iOS podspec unconditionally bundles
+	     DKImagePickerController/PhotoGallery + DKPhotoGallery, which link
+	     PHPhotoLibrary APIs and trip the same ITMS-90683 static scan. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>OpenStrap does not access your photo library. This permission is linked by a dependency but unused — importing your own exported WHOOP data uses the Files app, not Photos.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>OpenStrapAppGroupIdentifier</key>
