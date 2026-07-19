@@ -21,14 +21,27 @@ dependencies:
   # local re-layer computes metrics here (see lib/data/local_repository.dart +
   # lib/compute/derivation_engine.dart). The analytics package now points at the
   # 1 Hz-native family (import via `package:openstrap_analytics/onehz.dart`).
+  # SIBLING PACKAGES ARE PINNED TO COMMIT SHAs, NOT FLOATING `main`/BRANCH REFS.
+  # A floating ref means an upstream commit silently changes the behaviour of an
+  # already-tagged edge release (this bit us: analytics v42 rode `ref: main` into
+  # 0.9.13/0.9.14 with no edge change and shipped the main-thread staging ANRs).
+  # Bump these SHAs deliberately, as part of a reviewed edge change. Local dev
+  # still builds against ../analytics and ../protocol via pubspec_overrides.yaml.
+  # NOTE: this branch is intentionally WHOOP-4-only — protocol stays on `main`,
+  # NOT the gen5/multiband branch.
   openstrap_protocol:
     git:
       url: https://github.com/OpenStrap/protocol.git
-      ref: main
+      ref: 02fc8e5f2310ded690a522cd9884bf51b4cdc7e1 # tip of protocol main
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
-      ref: main
+      # cardioStager REM LF/HF hot-path fix (rebase beat times off absolute
+      # epoch — kills the per-epoch trig slow path behind the v42 ANRs). Lives on
+      # analytics branch `fix/staging-anr-and-crashes`. ⚠️ PUSH that branch (or
+      # merge it to analytics main) before a release build — CI fetches this SHA
+      # from origin; until it's pushed only local (pubspec_overrides) builds see it.
+      ref: 3a7397f8c5774196a6f4cd613b6ed745d72d2b09
 
   # Illustrated icon set — theme-aware full-colour WebP icons (nav tabs, domain
   # heroes, metric tiles). Path dep for local dev; a release build would need

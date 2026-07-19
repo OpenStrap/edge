@@ -51,6 +51,16 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Retain FULL native debug symbols in the release bundle so Play Console
+        // AND Crashlytics can symbolicate native/ANR frames. Without this, ANRs
+        // sampled in native code (e.g. libm.so __kernel_rem_pio2 / sin / cos, and
+        // the Dart AOT frames in libapp.so) show up as raw addresses / blank
+        // frames with "root cause unknown" — which is exactly why the v42 staging
+        // ANRs on 0.9.13 were unsymbolicated and hard to triage.
+        ndk {
+            debugSymbolLevel = "FULL"
+        }
     }
 
     signingConfigs {
@@ -72,6 +82,16 @@ android {
                 signingConfigs.getByName("release")
             } else {
                 signingConfigs.getByName("debug")
+            }
+            // Upload native symbols to Crashlytics on release builds so ANR/native
+            // stacks resolve to real frames instead of "root cause unknown". Pairs
+            // with debugSymbolLevel=FULL above. (The Dart AOT layer — libapp.so —
+            // additionally needs `flutter build … --split-debug-info=build/symbols`
+            // and a `firebase crashlytics:symbols:upload` step in CI; see release
+            // docs. Uncaught Dart exceptions already symbolicate via the Flutter
+            // error handler — this is specifically for the sampled native/ANR path.)
+            configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
+                nativeSymbolUploadEnabled = true
             }
         }
     }

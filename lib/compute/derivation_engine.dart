@@ -231,7 +231,23 @@ import 'substrate.dart';
 // later in the same pass — the final day_result was always correct, only
 // this transient early read was stale. Bump so any day currently sitting
 // non-finalized re-derives with both fixes in effect.
-const int kAlgoVersion = 44;
+// v45: cardioStager REM LF/HF hot-path fix. `_windowRemFeatures` fed ABSOLUTE
+// epoch seconds (~1.75e9) into the per-30-s-epoch Lomb–Scargle, forcing every
+// sin/cos onto libm's __kernel_rem_pio2 multi-precision slow path. Over a full
+// night (~1000 epochs × 240 freqs × ~180 beats × 2 loops) that is tens of
+// millions of slow-path trig calls — and because v42 runs staging on the MAIN
+// isolate (for the ambient profile blend), it landed on the UI thread and
+// produced recurring multi-second freezes → Android ANRs (Crashlytics 0.9.13:
+// libm.so __kernel_rem_pio2 / sin / cos, "slow operations in main thread").
+// Fix rebases beat times to the window start; L-S is time-shift invariant so
+// LF/HF is unchanged in exact arithmetic (only last-ULP float differences, which
+// is why a bump is warranted). Bump so non-finalized days re-stage on the fast
+// path. Paired with this: `_sleepCandidateForDay` now runs the whole staging +
+// profile-fold on a WORKER isolate (the analytics ambient profile globals are
+// re-armed inside the `Isolate.run` closure and returned as plain JSON) instead
+// of the main/UI thread — so the residual staging CPU no longer blocks the UI
+// even before the ~10× trig win.
+const int kAlgoVersion = 45;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;
@@ -853,73 +869,77 @@ class DerivationEngine {
       dayId: dayId,
       stats: stats,
     );
-    // PERSONALIZED STAGER (v42): arm the sleeper's rolling profile before
-    // staging, and record this night's observed baselines for the fold below.
-    // `cardioStager` (inside segmentSleep) reads the ambient profile and blends
-    // it — bounded ≤0.5 — with tonight's per-night-local baselines. Runs in the
-    // main isolate here, so the ambient globals are in-scope for the call.
-    await _loadSleepUserProfile();
-    ana.cardioRecordObservations = true;
-    ana.resetCardioObservations();
-    // `finally` guarantees the recording flag is cleared even if staging or
-    // persistence throws — otherwise it leaks into the next day's derivation
-    // (this isolate is sequential, so no lock is needed, only the reset).
-    try {
+    // PERSONALIZED STAGER (v42): stage on a WORKER isolate, NOT the main/UI
+    // thread. cardioStager reads analytics "ambient" globals — the rolling sleep
+    // profile (`cardioUserProfile`) it blends in (bounded ≤0.5) and the
+    // observation-recording flag it folds back afterwards. Those globals are
+    // ISOLATE-LOCAL (they don't cross `Isolate.run`), which is why v42 originally
+    // ran staging on the main isolate — and, per-30-s-epoch over a full night,
+    // that landed the trig/Lomb–Scargle load on the UI thread and produced the
+    // recurring multi-second freezes → Android ANRs (Crashlytics 0.9.13). We now
+    //   (1) read the profile from the DB HERE (the main isolate owns the DB) as
+    //       plain JSON,
+    //   (2) re-arm the ambient globals and run the staging + EWMA profile fold
+    //       INSIDE the worker, and
+    //   (3) return the staged candidate + folded profile as plain JSON to persist
+    //       back on main.
+    // The worker isolate dies after `Isolate.run`, so the recording flag can't
+    // leak into the next day's derivation — no try/finally reset needed.
+    final profileJson = await _loadSleepUserProfileJson();
+    final (candidateJson, updatedProfileJson) = await Isolate.run(() {
+      ana.cardioUserProfile = profileJson == null
+          ? null
+          : ana.SleepUserProfile.fromJson(
+              (jsonDecode(profileJson) as Map).cast<String, dynamic>());
+      ana.cardioRecordObservations = true;
+      ana.resetCardioObservations();
       final candidate = prepareSleepSessionCandidate(
         searchSub,
         targetDay: dayId,
         override: override,
       );
+      // Fold the MAIN sleep (most epochs) of a freshly-staged night into the
+      // rolling profile — done here in the worker because the observations live
+      // in THIS isolate's globals. Skipped for overrides. EWMA self-seeds.
+      String? foldedJson;
       if (override == null) {
-        await LocalDb.putSleepSessionCandidate(
-          dayId: dayId,
-          algoVersion: kAlgoVersion,
-          payloadJson: jsonEncode(candidate.toJson()),
-        );
-        // Fold the MAIN sleep (most epochs) of a freshly-staged night into the
-        // rolling profile. Skipped for overrides and cached reuse (this branch
-        // is the fresh-stage path). EWMA self-seeds across the v42
-        // re-derivation sweep, so no explicit migration is needed.
-        await _foldSleepUserProfile();
-      } else {
-        ana.resetCardioObservations();
+        final obs = ana.takeCardioObservations();
+        if (obs.isNotEmpty) {
+          obs.sort((a, b) => b.epochs.compareTo(a.epochs));
+          final main = obs.first;
+          if (main.epochs >= 120) {
+            // require ≥60 min — not a nap
+            final base = ana.cardioUserProfile ?? const ana.SleepUserProfile();
+            foldedJson = jsonEncode(base.fold(main).toJson());
+          }
+        }
       }
-      return candidate;
-    } finally {
-      ana.cardioRecordObservations = false;
+      return (jsonEncode(candidate.toJson()), foldedJson);
+    });
+    final candidate = SleepSessionCandidate.fromJson(
+        (jsonDecode(candidateJson) as Map).cast<String, dynamic>());
+    if (override == null) {
+      await LocalDb.putSleepSessionCandidate(
+        dayId: dayId,
+        algoVersion: kAlgoVersion,
+        payloadJson: candidateJson,
+      );
+      if (updatedProfileJson != null) {
+        await LocalDb.putBaseline('sleep_user_profile', updatedProfileJson);
+      }
     }
+    return candidate;
   }
 
-  /// Load the persisted per-user sleep profile into the analytics ambient slot
-  /// (`baselines` key `sleep_user_profile`). Absent/corrupt ⇒ cold start (null).
-  Future<void> _loadSleepUserProfile() async {
-    ana.cardioUserProfile = null;
+  /// Read the persisted per-user sleep profile (`baselines` key
+  /// `sleep_user_profile`) as raw JSON, for passing into the staging worker
+  /// isolate. Absent/corrupt ⇒ null (cold start). DB read stays on the main
+  /// isolate (the DB owner); the worker reconstructs the profile from this JSON.
+  Future<String?> _loadSleepUserProfileJson() async {
     final row = await LocalDb.baseline('sleep_user_profile');
     final raw = row?['payload_json'];
-    if (raw is String && raw.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is Map) {
-          ana.cardioUserProfile =
-              ana.SleepUserProfile.fromJson(decoded.cast<String, dynamic>());
-        }
-      } catch (_) {
-        // Cold start on unreadable payload.
-      }
-    }
-  }
-
-  /// EWMA-fold the just-staged main sleep into the per-user profile and persist.
-  Future<void> _foldSleepUserProfile() async {
-    final obs = ana.takeCardioObservations();
-    if (obs.isEmpty) return;
-    obs.sort((a, b) => b.epochs.compareTo(a.epochs));
-    final main = obs.first;
-    if (main.epochs < 120) return; // require ≥60 min — not a nap
-    final base = ana.cardioUserProfile ?? const ana.SleepUserProfile();
-    final updated = base.fold(main);
-    await LocalDb.putBaseline(
-        'sleep_user_profile', jsonEncode(updated.toJson()));
+    if (raw is String && raw.isNotEmpty) return raw;
+    return null;
   }
 
   Future<Substrate> _loadSubstrateRange(
