@@ -215,7 +215,23 @@ import 'substrate.dart';
 // whole-bpm RHR / integer skin-temp ADC), which was intermittently blanking the
 // whole readiness score to "—" on nights that had valid sleep. Bump so days that
 // were previously absent-for-that-reason recompute a real score.
-const int kAlgoVersion = 43;
+// v44: two consistency fixes; neither changes a scalar that a previously
+// FINALIZED day_result already had right, but both affect data availability/
+// consistency going forward. (1) A day whose offloaded second-half compute
+// (naps/workouts/HRR/wear/curves/wake-features) failed or timed out — but
+// whose headline scalars (readiness/RHR/RMSSD) already succeeded — could get
+// marked finalized and treated as fully "derived" by the raw-pruning guard,
+// permanently losing the raw substrate needed to ever fill in those missing
+// fields on retry. Now tracked via a new `partial` day_result column and
+// excluded from both age-based finalization and the pruning guard until the
+// second half actually completes. (2) The wake_day_features early-read
+// artifact (what the Today repo shows before the full day result is ready)
+// was copying the pre-hybrid-correction 1Hz-only step/calorie estimate
+// instead of the corrected real-100Hz+1Hz hybrid value computed moments
+// later in the same pass — the final day_result was always correct, only
+// this transient early read was stale. Bump so any day currently sitting
+// non-finalized re-derives with both fixes in effect.
+const int kAlgoVersion = 44;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;
