@@ -2538,6 +2538,26 @@ class BleEngine {
     _log('Live streams enabled (optical: wrist-gated).');
   }
 
+  /// Clear the sticky standard-HR fallback and give the full live set another
+  /// chance. The fallback protects a struggling radio from the high-rate
+  /// flood, but it never resets and [enableLiveStreams] honours it silently —
+  /// so once tripped, every later step calibration / workout counted 0 steps
+  /// for the rest of the process lifetime (the IMU toggles were never sent).
+  /// Call this from EXPLICIT foreground user actions whose feature needs the
+  /// 100 Hz stream: there the flood is the point, and if the radio genuinely
+  /// can't sustain it the detectors re-trip (and re-downgrade) within seconds.
+  Future<void> retryFullLiveStreams() async {
+    if (state.standardHrFallback) {
+      _log('Radio fallback: cleared by explicit user action — retrying the '
+          'full live set.');
+      state.standardHrFallback = false;
+      _marginalRadio.reset();
+      _frameCorruption.reset();
+      onState(state);
+    }
+    await enableLiveStreams();
+  }
+
   /// Background live downgrade: keep ONLY the compact realtime-HR stream (0x28)
   /// armed and turn the high-rate R10/R11 + IMU + optical flood OFF. Used while
   /// backgrounded with no live consumer, so the radio isn't saturated by a raw

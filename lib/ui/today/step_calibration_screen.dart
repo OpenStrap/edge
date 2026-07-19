@@ -81,6 +81,12 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
   @override
   Widget build(BuildContext context) {
     final steps = context.select<AppState, int>((a) => a.liveSteps);
+    // The standard-HR radio fallback suppresses the 100 Hz IMU stream this
+    // walk counts on. startStepCalibration clears it and retries; if it
+    // TRIPS AGAIN mid-walk the radio genuinely can't sustain the stream —
+    // say so instead of showing "Keep walking…" over a count of 0 forever.
+    final radioDegraded =
+        context.select<AppState, bool>((a) => a.device.standardHrFallback);
     final done = _learnedCadence != null;
     final t = (_target > 0 ? steps / _target : 0.0).clamp(0.0, 1.0).toDouble();
     final ready = steps >= _target;
@@ -144,6 +150,19 @@ class _StepCalibrationScreenState extends State<StepCalibrationScreen> {
                 : Text(_started ? 'Keep walking…' : 'Starting…',
                     style: AppText.label.copyWith(color: AppColors.inkSoft)),
           ),
+          if (radioDegraded && _started && !ready) ...[
+            const SizedBox(height: Sp.x4),
+            StateCard(
+              icon: OsIcon.bluetooth,
+              title: "Bluetooth can't keep up",
+              message:
+                  'The connection to your strap is struggling to carry the '
+                  'high-rate motion stream, so steps aren\'t coming through. '
+                  'Bring your phone closer to the strap and retry.',
+              actionLabel: 'Retry stream',
+              onAction: _start,
+            ),
+          ],
           const SizedBox(height: Sp.x6),
           SurfaceCard(
             entranceIndex: 1,

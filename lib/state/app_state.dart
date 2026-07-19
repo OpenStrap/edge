@@ -2813,11 +2813,17 @@ class AppState extends ChangeNotifier {
     // open session still expects on. If the background downgrade left live in
     // HR-only, upgrade to full (the walk needs the 100 Hz IMU stream) without
     // taking ownership.
+    //
+    // retryFullLiveStreams (not enableLiveStreams): the walk NEEDS the 100 Hz
+    // IMU stream, and the sticky standard-HR fallback silently vetoes it —
+    // every calibration after a fallback trip counted 0 steps forever. An
+    // explicit user-initiated walk is exactly the moment to give the full
+    // flood another chance; the detectors re-trip if the radio can't cope.
     if (!engine.liveEnabled) {
-      await engine.enableLiveStreams();
+      await engine.retryFullLiveStreams();
       _stepCalEnabledStreams = true;
-    } else if (engine.liveHrOnly) {
-      await engine.enableLiveStreams();
+    } else if (engine.liveHrOnly || device.standardHrFallback) {
+      await engine.retryFullLiveStreams();
     }
     _resetLivePedometer(); // count this walk from 0
     notifyListeners();
@@ -2917,6 +2923,13 @@ class AppState extends ChangeNotifier {
     if (activeWorkout != null) return;
     final start = DateTime.now();
     final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
+    // The workout screen's live step count rides the 100 Hz IMU stream, which
+    // the sticky standard-HR fallback silently suppresses (same starvation as
+    // the calibration walk). A deliberate workout start is an explicit user
+    // action — retry the full live set; detectors re-trip if it can't hold.
+    if (isConnected && device.standardHrFallback) {
+      unawaited(engine.retryFullLiveStreams());
+    }
     _workoutRawBase = _liveRaw;
     activeWorkout = LiveWorkoutState(
       startTime: start,
