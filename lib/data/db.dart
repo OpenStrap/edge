@@ -43,6 +43,48 @@ class LocalDb {
     }
   }
 
+  /// Runs a write against a guaranteed-open handle, reopening ONCE if the
+  /// cached handle was closed under us mid-write.
+  ///
+  /// `instance` validates `isOpen` at acquisition, but Android can tear the
+  /// SQLiteDatabase down in the window between acquiring the handle and the
+  /// write actually executing (a TOCTOU race — worst on background ingest that
+  /// awaits non-DB work, e.g. event parsing, between acquiring `db` and using
+  /// it). That surfaced as a sustained `DatabaseException(attempt to re-open an
+  /// already-closed object)` burst on the `events` insert (Crashlytics 0.9.13,
+  /// processState=BACKGROUND). On that exception we drop the dead handle so the
+  /// retry reopens. For best-effort ingest ([bestEffort]) a still-closed DB
+  /// after the retry is swallowed — the band re-sends these rows and crashing
+  /// the app over a non-durable event write is never the right trade. The
+  /// durable sync-commit path leaves it false so a genuine failure still throws
+  /// and the HISTORY_END ACK is withheld (safe-trim invariant).
+  static Future<T?> _guardedWrite<T>(
+    Future<T> Function(Database db) op, {
+    bool bestEffort = false,
+  }) async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      Database? handle;
+      try {
+        handle = await instance;
+        return await op(handle);
+      } on DatabaseException catch (e) {
+        final closed =
+            e.toString().contains('closed') || !(handle?.isOpen ?? false);
+        if (closed && attempt == 0) {
+          // Drop only the dead handle we actually used. A concurrent caller may
+          // have already reopened `_db` to a fresh handle between our failure
+          // and here — keep that one so `instance` reuses it on the retry
+          // instead of forcing a redundant reopen.
+          if (identical(_db, handle)) _db = null;
+          continue;
+        }
+        if (bestEffort && closed) return null;
+        rethrow;
+      }
+    }
+    return null;
+  }
+
   static const int _daySec = 86400;
 
   static Future<Database> _open() async {
@@ -660,7 +702,26 @@ class LocalDb {
       // handle, which would deadlock against this same open transaction.
       var maxCounter = await _cursorIntVia(txn, 'counter_hw') ?? 0;
       var maxRecTs = await _cursorIntVia(txn, 'rec_ts_hw') ?? 0;
-      final batch = txn.batch();
+      // CHUNKED BATCH: sqflite serialises an ENTIRE batch's operations+args into
+      // ONE platform-channel message, and the native side builds a single
+      // ArrayList of every argument. A large backlog offload (raws in the
+      // hundreds-of-thousands) blew the native heap in SqlCommand.getSqlArguments
+      // → OutOfMemoryError (Crashlytics 0.9.13). Committing in bounded chunks
+      // flushes and frees each message's args. These commits all happen INSIDE
+      // the single `db.transaction` below, so the safe-trim invariant holds: the
+      // whole offload (raw_archive + samples + decoded_onehz + decoded_rr +
+      // cursor) is still one atomic transaction — every row is durable before the
+      // caller echoes the HISTORY_END trim token, or none is.
+      const chunkOps = 4000;
+      var batch = txn.batch();
+      var ops = 0;
+      Future<void> flushChunk() async {
+        if (ops == 0) return;
+        await batch.commit(noResult: true);
+        batch = txn.batch();
+        ops = 0;
+      }
+
       // SAFE-TRIM INVARIANT: archive the undecodable records in the SAME
       // transaction as the raw records + trim cursor, so they are durably set
       // aside BEFORE the caller writes the batch-ACK that lets the band trim.
@@ -674,6 +735,7 @@ class LocalDb {
             'captured_at': a.capturedAt,
             'reason': a.reason,
           }, conflictAlgorithm: ConflictAlgorithm.ignore);
+          if (++ops >= chunkOps) await flushChunk();
         }
       }
       for (var i = 0; i < raws.length; i++) {
@@ -685,16 +747,18 @@ class LocalDb {
             'counter': raw.counter,
             ...sample.toDbMap(),
           }, conflictAlgorithm: ConflictAlgorithm.ignore);
+          ops++;
         }
-        _queueDecodedOneHz(batch, raw, sample);
+        ops += _queueDecodedOneHz(batch, raw, sample);
         if (raw.counter > maxCounter) maxCounter = raw.counter;
         if (recTs > maxRecTs) maxRecTs = recTs;
+        if (ops >= chunkOps) await flushChunk();
       }
       checkpoint(
         'decoded_archive_queued raws=${raws.length} '
         'archives=${archives?.length ?? 0}',
       );
-      await batch.commit(noResult: true);
+      await flushChunk();
       checkpoint('decoded_archive_committed');
       await setCursor('counter_hw', '$maxCounter', txn: txn);
       await setCursor('rec_ts_hw', '$maxRecTs', txn: txn);
@@ -1546,9 +1610,13 @@ class LocalDb {
     }
   }
 
-  static void _queueDecodedOneHz(Batch batch, RawRecord raw, Sample? sample) {
+  /// Queues the decoded_onehz + decoded_rr (+ orphan-guard delete) writes for
+  /// one raw onto [batch]. Returns the number of batch operations added, so a
+  /// caller committing a large offload can chunk the batch to bound the native
+  /// argument-list size (see [commitSyncBatch]).
+  static int _queueDecodedOneHz(Batch batch, RawRecord raw, Sample? sample) {
     final decoded = _decodeOneHzSample(raw, preferred: sample);
-    if (decoded == null) return;
+    if (decoded == null) return 0;
     final recTs = raw.recTs ?? decoded.tsEpoch;
     // TIME-KEYED, NEWEST-WINS (noop/WHOOP-4 model: dedupe records by their
     // embedded timestamp, not by a counter). decoded_onehz has a UNIQUE(rec_ts)
@@ -1583,6 +1651,7 @@ class LocalDb {
       'spo2_ir_raw': decoded.spo2IrRaw ?? 0,
       'skin_temp_raw': decoded.skinTempRaw ?? 0,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+    var ops = 2; // rawDelete + decoded_onehz insert
     for (var i = 0; i < decoded.rrIntervalsMs.length; i++) {
       final rr = decoded.rrIntervalsMs[i];
       if (rr <= 0) continue;
@@ -1592,7 +1661,9 @@ class LocalDb {
         'rr_ts_ms': recTs * 1000,
         'rr_ms': rr,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
+      ops++;
     }
+    return ops;
   }
 
   static Future<void> _backfillDecodedStore(Database db) async {
@@ -1711,14 +1782,11 @@ class LocalDb {
   }
 
   static Future<void> insertEvent(int eventId, int ts, String hex) async {
-    final db = await instance;
     final capturedAt = DateTime.now().millisecondsSinceEpoch;
-    await db.insert('events', {
-      'hex': hex,
-      'event_id': eventId,
-      'ts': ts,
-      'captured_at': capturedAt,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    // Parse BEFORE acquiring the handle so both inserts run back-to-back on one
+    // validated `db` with no intervening await — minimizing the closed-DB race
+    // window. Best-effort: a background teardown that closes the DB mid-write
+    // must not crash the app (the band re-sends events).
     final parsed = () {
       try {
         return proto.parseEvent(proto.hexToBytes(hex));
@@ -1726,14 +1794,23 @@ class LocalDb {
         return null;
       }
     }();
-    await db.insert('band_events', {
-      'hex': hex,
-      'event_id': eventId,
-      'name': parsed?.name ?? proto.EventId.name(eventId),
-      'ts': parsed?.tsEpoch ?? ts,
-      'payload_json': jsonEncode(parsed?.decoded ?? const <String, dynamic>{}),
-      'captured_at': capturedAt,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    await _guardedWrite((db) async {
+      await db.insert('events', {
+        'hex': hex,
+        'event_id': eventId,
+        'ts': ts,
+        'captured_at': capturedAt,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      await db.insert('band_events', {
+        'hex': hex,
+        'event_id': eventId,
+        'name': parsed?.name ?? proto.EventId.name(eventId),
+        'ts': parsed?.tsEpoch ?? ts,
+        'payload_json':
+            jsonEncode(parsed?.decoded ?? const <String, dynamic>{}),
+        'captured_at': capturedAt,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }, bestEffort: true);
   }
 
   static Future<void> insertBandBatterySample({
@@ -1744,15 +1821,18 @@ class LocalDb {
     int? millivolts,
     required String source,
   }) async {
-    final db = await instance;
-    await db.insert('band_battery', {
-      'ts': ts,
-      'battery_pct': batteryPct,
-      'charging': charging == null ? null : (charging ? 1 : 0),
-      'wrist_on': wristOn == null ? null : (wristOn ? 1 : 0),
-      'millivolts': millivolts,
-      'source': source,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    // Best-effort background ingest — same closed-DB teardown race as
+    // insertEvent; never crash over a battery row (it re-arrives on the poll).
+    await _guardedWrite((db) async {
+      await db.insert('band_battery', {
+        'ts': ts,
+        'battery_pct': batteryPct,
+        'charging': charging == null ? null : (charging ? 1 : 0),
+        'wrist_on': wristOn == null ? null : (wristOn ? 1 : 0),
+        'millivolts': millivolts,
+        'source': source,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }, bestEffort: true);
   }
 
   /// Recent battery samples (newest first), for the battery-health series.
