@@ -16,6 +16,8 @@ model you host yourself.
 
 ## Setup
 
+<img src="images/ai-coach/settings.png" width="300" align="right">
+
 Open **AI Coach → settings** and fill in three things:
 
 1. **Base URL** — your provider's OpenAI-compatible endpoint (see the table
@@ -29,8 +31,21 @@ Tap **Save** and you're done.
 
 ## Providers
 
-`gpt-4o` on OpenAI is a known-good default. Any OpenAI-compatible provider
-works — here are common base URLs:
+### Free to start
+
+You don't need a paid account to try the AI features.
+[OpenRouter](https://openrouter.ai) offers a set of
+[free models](https://openrouter.ai/collections/free-models) — sign up, create
+a key, set the base URL to `https://openrouter.ai/api/v1`, tap **Fetch** and
+pick a model whose id ends in `:free`. Free models are rate-limited and vary
+in quality, so prefer one of the larger ones and check it supports tool
+calling. Running a model on your own hardware via Ollama or LM Studio (see
+the table) is also free.
+
+### Base URLs
+
+`gpt-4o` on OpenAI is a known-good paid default. Any OpenAI-compatible
+provider works — here are common base URLs:
 
 | Provider | Base URL |
 |---|---|
