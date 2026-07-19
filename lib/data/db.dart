@@ -25,8 +25,15 @@ class LocalDb {
   static String dbName = 'openstrap.db';
 
   static Future<Database> get instance async {
-    _db ??= await _open();
-    return _db!;
+    final db = _db;
+    // `_db != null` is NOT enough: Android can close the underlying
+    // SQLiteDatabase on background teardown without our close() ever nulling
+    // `_db`. A plain `_db ??=` then keeps handing back that dead handle, and
+    // every write throws `DatabaseException(attempt to re-open an already-closed
+    // object)` — a sustained crash burst (seen in the wild on background event
+    // ingest). Reopen whenever the cached handle isn't actually open.
+    if (db != null && db.isOpen) return db;
+    return _db = await _open();
   }
 
   static Future<void> close() async {
@@ -280,11 +287,27 @@ class LocalDb {
           // this is right.
           await _ensureDayResultSkippedColumn(db);
         }
+        if (oldV < 25) {
+          // Same class of bug as `skipped` above, different failure mode: the
+          // offloaded second-half day-blocks compute (naps/workouts/HRR/wear/
+          // curves/wake-features) can throw or time out AFTER the first-half
+          // headline scalars (readiness/RHR/RMSSD) already succeeded. That
+          // path is non-fatal by design (the day still gets a real,
+          // non-skipped day_result row so headline scalars display), but the
+          // raw-pruning guard only excluded `skipped` rows - a headline-only
+          // partial row still counted as "derived" and let the raw substrate
+          // it would need to fill in those missing blocks get pruned for
+          // good. This column lets the guard exclude partial rows too.
+          // Existing rows default to 0 (not partial) - can't know in
+          // hindsight which old rows were partial, but going forward this is
+          // right.
+          await _ensureDayResultPartialColumn(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
       },
-      version: 24,
+      version: 25,
     );
   }
 
@@ -332,6 +355,7 @@ class LocalDb {
     await _createWorkoutRoute(db);
     await _ensureWorkoutRouteSpeed(db);
     await _ensureDayResultSkippedColumn(db);
+    await _ensureDayResultPartialColumn(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
@@ -345,6 +369,20 @@ class LocalDb {
       try {
         await db.execute(
           'ALTER TABLE day_result ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0',
+        );
+      } catch (_) {
+        /* another opener won the race — column now exists */
+      }
+    }
+  }
+
+  static Future<void> _ensureDayResultPartialColumn(Database db) async {
+    final info = await db.rawQuery('PRAGMA table_info(day_result)');
+    final has = info.any((c) => c['name'] == 'partial');
+    if (!has) {
+      try {
+        await db.execute(
+          'ALTER TABLE day_result ADD COLUMN partial INTEGER NOT NULL DEFAULT 0',
         );
       } catch (_) {
         /* another opener won the race — column now exists */
@@ -739,6 +777,7 @@ class LocalDb {
         rmssd REAL,
         readiness REAL,
         skipped INTEGER NOT NULL DEFAULT 0,
+        partial INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (day_id, algo_version)
       )
     ''');
@@ -2147,6 +2186,15 @@ class LocalDb {
     required String windowJson,
     bool finalized = false,
     bool skipped = false,
+    // A day whose offloaded second-half compute (naps/workouts/HRR/wear/
+    // curves/wake-features) failed or timed out AFTER the headline scalars
+    // already succeeded — the row is real (not a skip marker) so headline
+    // scalars still display, but it must never count as "derived" for the
+    // raw-pruning guard (see dayResultIds). Callers should also avoid passing
+    // `finalized: true` alongside `partial: true` unless there genuinely is
+    // no raw substrate to ever retry from (e.g. the force-finalized import
+    // path), since a finalized row is never revisited on a version bump.
+    bool partial = false,
     double? rhr,
     double? rmssd,
     double? readiness,
@@ -2163,6 +2211,7 @@ class LocalDb {
         'computed_at': now,
         'finalized': finalized ? 1 : 0,
         'skipped': skipped ? 1 : 0,
+        'partial': partial ? 1 : 0,
         'rhr': rhr,
         'rmssd': rmssd,
         'readiness': readiness,
@@ -2211,17 +2260,19 @@ class LocalDb {
     return [for (final r in rows) _withDate(r)];
   }
 
-  /// The set of day_id labels that already have a REAL (non-skipped) result
-  /// at [algoVersion]. Used by the raw-pruning guard to decide what's safe
-  /// to prune - a day that only ever got a skip-marker (its derivation
-  /// threw) must NOT count as "derived" here, or its raw substrate gets
-  /// pruned with no way left to ever compute it correctly.
+  /// The set of day_id labels that already have a REAL, COMPLETE result at
+  /// [algoVersion]. Used by the raw-pruning guard to decide what's safe to
+  /// prune - a day that only ever got a skip-marker (its derivation threw)
+  /// or a partial row (headline scalars only; the offloaded second-half
+  /// blocks failed/timed out) must NOT count as "derived" here, or its raw
+  /// substrate gets pruned with no way left to ever fill in the missing
+  /// data correctly.
   static Future<Set<String>> dayResultIds(int algoVersion) async {
     final db = await instance;
     final rows = await db.query(
       'day_result',
       columns: ['day_id'],
-      where: 'algo_version = ? AND skipped = 0',
+      where: 'algo_version = ? AND skipped = 0 AND partial = 0',
       whereArgs: [algoVersion],
     );
     return {for (final r in rows) r['day_id'] as String};

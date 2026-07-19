@@ -517,14 +517,23 @@ class AppState extends ChangeNotifier {
   UpdateInfo? get _update => appStatus?.update;
 
   /// A newer build is published (we're behind latest_build).
+  ///
+  /// Gated on [UpdateService.supported] (Android + [kSideloadOtaEnabled]):
+  /// store builds (Play Store / App Store) and any non-Android build must
+  /// never surface a self-update prompt at all, not just fall back to a
+  /// browser link — see update_service.dart.
   bool get updateAvailable =>
+      UpdateService.supported &&
       _update != null &&
       _currentBuild > 0 &&
       _update!.latestBuild > _currentBuild;
 
   /// We're below the mandatory floor — the prompt can't be dismissed.
   bool get updateMandatory =>
-      _update != null && _currentBuild > 0 && _currentBuild < _update!.minBuild;
+      UpdateService.supported &&
+      _update != null &&
+      _currentBuild > 0 &&
+      _currentBuild < _update!.minBuild;
 
   UpdateInfo? get update => _update;
 

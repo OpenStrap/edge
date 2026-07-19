@@ -16,6 +16,30 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../cloud/companion_client.dart';
 import '../data/db.dart';
 
+/// Compile-time gate for the whole health-data-contribution feature (this
+/// upload path + the "Contribute my health data" toggle in Settings and
+/// onboarding). Defaults OFF, same convention as [kSideloadOtaEnabled] in
+/// update_service.dart.
+///
+/// NOT enabled by ANY build we distribute — not the GitHub Releases sideload
+/// APK/IPA, and not any future App Store/Play Store submission (CI passes
+/// `ENABLE_HEALTH_DATA_CONTRIBUTION=false` explicitly for both; see
+/// .github/workflows/build.yml). Uploading someone's entire raw + derived
+/// health history to a backend is by far the biggest privacy/compliance
+/// surface this app could have, so PRIVACY.md's "we do not collect your
+/// data" claim is scoped to — and must remain true of — every build we
+/// ourselves ship.
+///
+/// This flag exists purely because the code is open source: an independent
+/// developer compiling their OWN build from this repo can opt in and point
+/// it at a backend of their own choosing. That is their build and their
+/// responsibility, not something our privacy policy governs.
+///   flutter build apk --dart-define=ENABLE_HEALTH_DATA_CONTRIBUTION=true
+const bool kHealthDataContributionEnabled = bool.fromEnvironment(
+  'ENABLE_HEALTH_DATA_CONTRIBUTION',
+  defaultValue: false,
+);
+
 class HealthUploader {
   HealthUploader._();
   static final HealthUploader instance = HealthUploader._();
@@ -32,7 +56,14 @@ class HealthUploader {
 
   /// Attempt an upload if [consented] AND on Wi-Fi AND charging AND >24h since the
   /// last one. Returns true if an upload actually happened.
+  ///
+  /// Defense in depth: even though the Settings/onboarding toggle that sets
+  /// [consented] is itself hidden when [kHealthDataContributionEnabled] is
+  /// false, gate the actual network call on the same flag directly — no
+  /// build without the flag should ever attempt this upload regardless of
+  /// how `consented` ended up true (e.g. a stale local pref).
   Future<bool> maybeUpload({required bool consented}) async {
+    if (!kHealthDataContributionEnabled) return false;
     if (!consented || !CompanionClient.configured || _running) return false;
     if (deviceId == null) return false;
     _running = true;

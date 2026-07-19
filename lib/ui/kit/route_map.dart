@@ -129,6 +129,16 @@ class RouteMapView extends StatelessWidget {
   /// look under the crisp line — the only colour against the monochrome
   /// basemap, so it needs to read as unmistakably "the route", not a thin
   /// GPS-app line lost against a busy street atlas.
+  // A bad GPS fix can carry NaN/Inf lat/lng (see the finite-filter in build()
+  // below for the camera/bounds path). _points there is filtered, but
+  // _polylines() reads straight from `vertices`, so it needs its own check —
+  // an unfiltered NaN/Inf vertex reaching PolylineLayer can crash or corrupt
+  // rendering.
+  bool _validPos(List<RouteVertex> v, int i) {
+    final p = v[i].pos;
+    return p.latitude.isFinite && p.longitude.isFinite;
+  }
+
   List<Polyline> _polylines({bool glow = false}) {
     final v = vertices;
     if (v.length < 2) return const [];
@@ -137,14 +147,19 @@ class RouteMapView extends StatelessWidget {
     final width = interactive ? 5.0 : 4.0;
     var i = 0;
     while (i < v.length - 1) {
-      if (v[i + 1].gapBefore) {
-        i++; // segment break — no edge across the gap
+      if (v[i + 1].gapBefore || !_validPos(v, i) || !_validPos(v, i + 1)) {
+        // Segment break — no edge across a recording gap OR an invalid
+        // (NaN/Inf) vertex; either way we never draw an edge touching it.
+        i++;
         continue;
       }
       final c = edgeColor(i);
       final pts = <LatLng>[v[i].pos];
       var j = i;
-      while (j < v.length - 1 && edgeColor(j) == c && !v[j + 1].gapBefore) {
+      while (j < v.length - 1 &&
+          edgeColor(j) == c &&
+          !v[j + 1].gapBefore &&
+          _validPos(v, j + 1)) {
         pts.add(v[j + 1].pos);
         j++;
       }
@@ -162,7 +177,13 @@ class RouteMapView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pts = _points;
+    // Drop any non-finite GPS coordinate (a bad fix can carry NaN/Inf lat/lng).
+    // Left in, it makes LatLngBounds + camera-fit NaN and crashes the tile layer
+    // at build (NaN.toInt in flutter_map's _clampToNativeZoom) — a real FATAL.
+    final pts = [
+      for (final p in _points)
+        if (p.latitude.isFinite && p.longitude.isFinite) p,
+    ];
     if (pts.isEmpty) return const SizedBox.shrink();
 
     // Detect gesture-driven camera moves so a live map can stop auto-following.
@@ -170,10 +191,22 @@ class RouteMapView extends StatelessWidget {
       if (hasGesture) onUserPan?.call();
     }
 
-    final options = pts.length >= 2
+    // Only bounds-fit when the box has real area. A zero-area box (every point
+    // identical — a stationary or aborted route) makes CameraFit.bounds emit a
+    // NaN/Infinite zoom that the tile layer then crashes on; fall back to a
+    // fixed-zoom center view in that case.
+    LatLngBounds? fitBounds;
+    if (pts.length >= 2) {
+      final b = LatLngBounds.fromPoints(pts);
+      if ((b.north - b.south).abs() > 1e-7 ||
+          (b.east - b.west).abs() > 1e-7) {
+        fitBounds = b;
+      }
+    }
+    final options = fitBounds != null
         ? MapOptions(
             initialCameraFit: CameraFit.bounds(
-              bounds: LatLngBounds.fromPoints(pts),
+              bounds: fitBounds,
               padding: const EdgeInsets.all(28),
               // Cap how far bounds-fit will zoom in. Without this, a route
               // whose points are all still close together (early in a

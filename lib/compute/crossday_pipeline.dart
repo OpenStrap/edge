@@ -222,8 +222,8 @@ Map<String, dynamic> buildCrossDayBundle(
     tsb: ls?.tsb,
   );
 
-  // ── VO₂max + WHOOP-Age (physiological age). Resting VO₂max (Uth HRmax:RHR)
-  //    over the baseline RHR; WHOOP-Age composites VO₂max + RHR + HRV + sleep +
+  // ── VO₂max + Fitness Age (physiological age). Resting VO₂max (Uth HRmax:RHR)
+  //    over the baseline RHR; Fitness Age composites VO₂max + RHR + HRV + sleep +
   //    steps vs age-norms. All ESTIMATE, absent on missing inputs.
   final age = _numOrNull(profile['age']);
   final sexStr = (profile['sex'] as String?)?.toLowerCase();
@@ -301,7 +301,7 @@ Map<String, dynamic> buildCrossDayBundle(
     },
     'strain_coach': strainTgt.toJson((v) => v.toJson()),
     'vo2max': vo2.toJson(),
-    'whoop_age': physAge.toJson((v) => v.toJson()),
+    'fitness_age': physAge.toJson((v) => v.toJson()),
     'percentiles': percentiles,
     'recent': recent,
   };

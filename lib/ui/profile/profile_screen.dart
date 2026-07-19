@@ -19,12 +19,14 @@ import '../../health/health_export.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../debug/debug_mode.dart';
+import '../../telemetry/health_uploader.dart' show kHealthDataContributionEnabled;
 import '../../theme/theme_switcher.dart';
 import '../ai/ai_settings_screen.dart';
 import '../design/design.dart';
 import '../design/gallery_screen.dart';
 import '../import/import_screen.dart';
 import '../today/step_goal_screen.dart';
+import 'about_screen.dart';
 import 'advanced_data_screen.dart';
 import 'data_history_screen.dart';
 import 'gesture_section.dart';
@@ -323,17 +325,24 @@ class ProfileScreen extends StatelessWidget {
             value: app.telemetryConsent,
             onChanged: (v) => app.setTelemetryConsent(v),
           ),
-          const SizedBox(height: Sp.x3),
-          _ToggleCard(
-            icon: OsIcon.activity,
-            title: 'Contribute my health data',
-            subtitle:
-                'Periodically upload your on-device database (over Wi-Fi, '
-                'while charging) to improve the algorithms. On by default — '
-                'switch off anytime.',
-            value: app.healthShareConsent,
-            onChanged: (v) => app.setHealthShareConsent(v),
-          ),
+          // Health-data contribution (full on-device DB upload) is a
+          // compile-time-gated feature (see kHealthDataContributionEnabled) —
+          // never offered in a store-review-facing build, only in a
+          // sideload/direct-distribution build that opted in. Hide the
+          // toggle entirely rather than leave it visible-but-inert.
+          if (kHealthDataContributionEnabled) ...[
+            const SizedBox(height: Sp.x3),
+            _ToggleCard(
+              icon: OsIcon.activity,
+              title: 'Contribute my health data',
+              subtitle:
+                  'Periodically upload your on-device database (over Wi-Fi, '
+                  'while charging) to improve the algorithms. On by default — '
+                  'switch off anytime.',
+              value: app.healthShareConsent,
+              onChanged: (v) => app.setHealthShareConsent(v),
+            ),
+          ],
 
           const SizedBox(height: Sp.x6),
 
@@ -419,6 +428,20 @@ class ProfileScreen extends StatelessWidget {
           ),
           const _CardNote(
               'Join the community, report bugs, or peek at the source.'),
+
+          const SizedBox(height: Sp.x6),
+
+          // ── About ────────────────────────────────────────────────────
+          const SectionHeader('About'),
+          _SettingsCard(rows: [
+            ListRow(
+              icon: OsIcon.activity,
+              title: 'About Edge',
+              subtitle: 'Affiliation, privacy policy, licenses',
+              onTap: () => Navigator.of(context).push(
+                  themedRoute((_) => const AboutScreen(), name: 'AboutScreen')),
+            ),
+          ]),
 
           const SizedBox(height: Sp.x6),
 

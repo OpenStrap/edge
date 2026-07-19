@@ -16,6 +16,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../state/app_state.dart';
+import '../telemetry/health_uploader.dart' show kHealthDataContributionEnabled;
 import 'design/design.dart';
 
 class ProfileSetupScreen extends StatefulWidget {
@@ -30,7 +31,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   // either off here). Recorded + sent on Continue. When re-editing an existing
   // profile we reflect the saved choice instead.
   bool _telemetry = true;
-  bool _healthShare = true;
+  // Health-data contribution is a compile-time-gated feature (see
+  // kHealthDataContributionEnabled) — never pre-enabled (or even offered) in
+  // a build that doesn't carry it.
+  bool _healthShare = kHealthDataContributionEnabled;
 
   @override
   void initState() {
@@ -43,6 +47,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
       _telemetry = app.telemetryConsent;
       _healthShare = app.healthShareConsent;
     }
+    // Never true in a build without the feature — even a stale saved `true`
+    // (e.g. carried over from a different build's local prefs) must not
+    // resubmit consent for an upload this build will never attempt.
+    if (!kHealthDataContributionEnabled) _healthShare = false;
   }
 
   Future<void> _submit(
@@ -84,7 +92,9 @@ class ProfileSetupForm extends StatefulWidget {
     super.key,
     this.initial = const {},
     this.telemetryInitial = true,
-    this.healthShareInitial = true,
+    // Gated default: never pre-enabled (or shown) in a build compiled
+    // without kHealthDataContributionEnabled.
+    this.healthShareInitial = kHealthDataContributionEnabled,
     required this.onSubmit,
   });
 
@@ -207,18 +217,25 @@ class _ProfileSetupFormState extends State<ProfileSetupForm> {
           value: _telemetry,
           onChanged: (v) => setState(() => _telemetry = v),
         ),
-        const SizedBox(height: Sp.x3),
-        ConsentTile(
-          title: 'Contribute my health data',
-          subtitle:
-              'Uploads your on-device database over Wi-Fi while charging, to '
-              'improve the algorithms.',
-          value: _healthShare,
-          onChanged: (v) => setState(() => _healthShare = v),
-        ),
+        // Health-data contribution (full on-device DB upload) is a
+        // compile-time-gated feature (see kHealthDataContributionEnabled) —
+        // never offered in a store-review-facing build.
+        if (kHealthDataContributionEnabled) ...[
+          const SizedBox(height: Sp.x3),
+          ConsentTile(
+            title: 'Contribute my health data',
+            subtitle:
+                'Uploads your on-device database over Wi-Fi while charging, '
+                'to improve the algorithms.',
+            value: _healthShare,
+            onChanged: (v) => setState(() => _healthShare = v),
+          ),
+        ],
         const SizedBox(height: Sp.x2),
         Text(
-          'Switch either off here or anytime in Settings.',
+          kHealthDataContributionEnabled
+              ? 'Switch either off here or anytime in Settings.'
+              : 'Switch it off here or anytime in Settings.',
           style: AppText.caption.copyWith(color: AppColors.inkMuted),
         ),
         const SizedBox(height: Sp.x7),

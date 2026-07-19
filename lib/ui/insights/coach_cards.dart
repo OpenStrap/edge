@@ -1,5 +1,5 @@
 // Coach + fitness cards — surface the cross-day coaching/fitness analytics
-// (Sleep Coach, Strain Coach, WHOOP-Age) and the journal correlation engine
+// (Sleep Coach, Strain Coach, Fitness Age) and the journal correlation engine
 // ("Performance Assessment"). All read the precomputed `crossday` bundle via
 // repo.getInsights() (or getJournalInsights), so they do ZERO heavy compute on
 // read. Honest: every value traces to a tested analytics Metric; absent → a
@@ -276,16 +276,16 @@ class _StrainCoachCardState extends State<StrainCoachCard> {
   }
 }
 
-// ── WHOOP-AGE / fitness ──────────────────────────────────────────────────────
+// ── FITNESS AGE ──────────────────────────────────────────────────────────────
 
 /// Physiological "age" vs chronological + VO₂max estimate.
-class WhoopAgeCard extends StatefulWidget {
-  const WhoopAgeCard({super.key});
+class FitnessAgeCard extends StatefulWidget {
+  const FitnessAgeCard({super.key});
   @override
-  State<WhoopAgeCard> createState() => _WhoopAgeCardState();
+  State<FitnessAgeCard> createState() => _FitnessAgeCardState();
 }
 
-class _WhoopAgeCardState extends State<WhoopAgeCard> {
+class _FitnessAgeCardState extends State<FitnessAgeCard> {
   Map<String, dynamic>? _age;
   num? _vo2;
   bool _loading = true;
@@ -301,7 +301,7 @@ class _WhoopAgeCardState extends State<WhoopAgeCard> {
       final cd = await context.read<AppState>().repo?.getInsights();
       if (!mounted) return;
       setState(() {
-        _age = _val(cd?['whoop_age']);
+        _age = _val(cd?['fitness_age']);
         final v = cd?['vo2max'];
         _vo2 = v is Map ? v['value'] as num? : null;
         _loading = false;

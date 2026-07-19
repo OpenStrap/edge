@@ -14,6 +14,7 @@
 // Profile-gated metrics are null when the profile field is missing.
 
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:math' as math;
 
 import '../compute/derivation_engine.dart';
@@ -2299,38 +2300,10 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> spotCheck(List<String> records) async {
-    // Decode RR from the live RR-bearing frames (0x28 / R10), clean, compute HRV.
-    final rrMs = <double>[];
-    final hrs = <double>[];
-    for (final hex in records) {
-      final rr = proto.realtimeRr(hex);
-      if (rr != null) {
-        for (final v in rr.rrMs) {
-          if (v > 0) rrMs.add(v.toDouble());
-        }
-      }
-      try {
-        final s = proto.decodeRecord(hex);
-        if (s != null && s.hr > 0) hrs.add(s.hr.toDouble());
-      } catch (_) {}
-    }
-    if (rrMs.length < 20) {
-      return {'ok': false, 'n_beats': rrMs.length};
-    }
-    final cleaned = ana.correctRr(rrMs);
-    final hrv = ana.hrvTime(cleaned.nn, nnTimesMs: cleaned.nnTimesMs);
-    if (!hrv.present) return {'ok': false, 'n_beats': cleaned.nn.length};
-    final meanHr = hrs.isEmpty
-        ? null
-        : hrs.reduce((a, b) => a + b) / hrs.length;
-    return {
-      'ok': true,
-      'rmssd': hrv.value!.rmssd?.round(),
-      'sdnn': hrv.value!.sdnn?.round(),
-      'mean_hr': meanHr?.round(),
-      'n_beats': cleaned.nn.length,
-      'confidence': hrv.confidence,
-    };
+    // Decode + HRV run OFF the UI isolate. The spot-check buffer grows over the
+    // multi-minute measurement, so decoding every frame + RR correction + HRV on
+    // the main isolate was real per-tick work that hung the UI on slower phones.
+    return Isolate.run(() => _spotCheckCompute(records));
   }
 
   @override
@@ -2338,39 +2311,10 @@ class LocalRepositoryImpl extends LocalRepository {
     List<String> records, {
     double? pacedHz,
   }) async {
-    // Decode RR from the live RR-bearing frames (0x28 / R10) — same seam
-    // spotCheck uses — then run McCraty & Zayas 2014 cardiac coherence.
-    final rrMs = <double>[];
-    for (final hex in records) {
-      final rr = proto.realtimeRr(hex);
-      if (rr != null) {
-        for (final v in rr.rrMs) {
-          if (v > 0) rrMs.add(v.toDouble());
-        }
-      }
-    }
-    if (rrMs.length < 20) {
-      return {'ok': false, 'n_beats': rrMs.length};
-    }
-    final cleaned = ana.correctRr(rrMs);
-    final m = ana.cardiacCoherence(cleaned.nn, cleaned.nnTimesMs, pacedHz: pacedHz);
-    if (!m.present) {
-      return {
-        'ok': false,
-        'n_beats': cleaned.nn.length,
-        'note': m.note,
-      };
-    }
-    return {
-      'ok': true,
-      'ratio': m.value!.ratio,
-      'score': m.value!.score.round(),
-      'peak_hz': m.value!.peakHz,
-      'n_beats': cleaned.nn.length,
-      'confidence': m.confidence,
-      'tier': m.tier,
-      'note': m.note,
-    };
+    // Offloaded: cardiac coherence is a 400-point Lomb-Scargle PSD recomputed
+    // over the FULL (growing) session buffer every 20 s — pure sin/cos work that
+    // was running on the UI isolate and is a confirmed foreground-hang source.
+    return Isolate.run(() => _breathingCoherenceCompute(records, pacedHz));
   }
 
   // ── small series helpers ─────────────────────────────────────────────────────
@@ -2419,5 +2363,77 @@ Map<String, dynamic>? stressSummaryForToday(
     ...blk,
     'score': score,
     'level': score < 34 ? 'low' : (score < 67 ? 'moderate' : 'high'),
+  };
+}
+
+// ── Live spot-check / breathing compute (run under Isolate.run, off the UI) ────
+// Top-level (no `this` capture) + only file-scoped `proto`/`ana` top-level
+// functions + a List<String> of hex frames in, a plain Map out — all sendable.
+
+Map<String, dynamic> _spotCheckCompute(List<String> records) {
+  // Decode RR from the live RR-bearing frames (0x28 / R10), clean, compute HRV.
+  final rrMs = <double>[];
+  final hrs = <double>[];
+  for (final hex in records) {
+    final rr = proto.realtimeRr(hex);
+    if (rr != null) {
+      for (final v in rr.rrMs) {
+        if (v > 0) rrMs.add(v.toDouble());
+      }
+    }
+    try {
+      final s = proto.decodeRecord(hex);
+      if (s != null && s.hr > 0) hrs.add(s.hr.toDouble());
+    } catch (_) {}
+  }
+  if (rrMs.length < 20) {
+    return {'ok': false, 'n_beats': rrMs.length};
+  }
+  final cleaned = ana.correctRr(rrMs);
+  final hrv = ana.hrvTime(cleaned.nn, nnTimesMs: cleaned.nnTimesMs);
+  if (!hrv.present) return {'ok': false, 'n_beats': cleaned.nn.length};
+  final meanHr = hrs.isEmpty ? null : hrs.reduce((a, b) => a + b) / hrs.length;
+  return {
+    'ok': true,
+    'rmssd': hrv.value!.rmssd?.round(),
+    'sdnn': hrv.value!.sdnn?.round(),
+    'mean_hr': meanHr?.round(),
+    'n_beats': cleaned.nn.length,
+    'confidence': hrv.confidence,
+  };
+}
+
+Map<String, dynamic> _breathingCoherenceCompute(
+  List<String> records,
+  double? pacedHz,
+) {
+  // Decode RR from the live RR-bearing frames (0x28 / R10) — same seam
+  // spotCheck uses — then run McCraty & Zayas 2014 cardiac coherence.
+  final rrMs = <double>[];
+  for (final hex in records) {
+    final rr = proto.realtimeRr(hex);
+    if (rr != null) {
+      for (final v in rr.rrMs) {
+        if (v > 0) rrMs.add(v.toDouble());
+      }
+    }
+  }
+  if (rrMs.length < 20) {
+    return {'ok': false, 'n_beats': rrMs.length};
+  }
+  final cleaned = ana.correctRr(rrMs);
+  final m = ana.cardiacCoherence(cleaned.nn, cleaned.nnTimesMs, pacedHz: pacedHz);
+  if (!m.present) {
+    return {'ok': false, 'n_beats': cleaned.nn.length, 'note': m.note};
+  }
+  return {
+    'ok': true,
+    'ratio': m.value!.ratio,
+    'score': m.value!.score.round(),
+    'peak_hz': m.value!.peakHz,
+    'n_beats': cleaned.nn.length,
+    'confidence': m.confidence,
+    'tier': m.tier,
+    'note': m.note,
   };
 }
