@@ -1283,29 +1283,45 @@ class AppState extends ChangeNotifier {
     unawaited(_checkPendingTaskerBuzz());
   }
 
+  // Single-flight guard for _checkPendingTaskerBuzz — it's now invoked both
+  // from _init() and from every "became connected" transition
+  // (_onEngineState), so an overlapping call (e.g. a connect landing while
+  // the _init()-triggered call is still in its bounded wait) must no-op
+  // rather than race a second concurrent buzz/clear.
+  bool _taskerBuzzCheckInFlight = false;
+
   Future<void> _checkPendingTaskerBuzz() async {
     if (!Platform.isAndroid) return;
-    final pattern = await TaskerBridge.peekPendingBuzz();
-    if (pattern == null) return;
-    // A Tasker BUZZ_STRAP can arrive while the app is fully dead; the
-    // reconnect this _init() already kicked off may not have landed by the
-    // time we get here. Wait (bounded) for a live link rather than firing
-    // into a not-yet-connected engine and silently losing the request — and
-    // only clear the persisted flag once we actually attempt delivery on a
-    // live connection, so a request that times out here survives for the
-    // next app-open / service-start to retry instead of vanishing.
-    final connected = await _waitUntil(
-      () => engine.isConnected,
-      const Duration(seconds: 20),
-    );
-    if (!connected) {
-      _log('[tasker] pending buzz (pattern=$pattern) still queued — '
-          'no connection within 20s, leaving it for the next attempt');
-      return;
+    if (_taskerBuzzCheckInFlight) return;
+    _taskerBuzzCheckInFlight = true;
+    try {
+      final pattern = await TaskerBridge.peekPendingBuzz();
+      if (pattern == null) return;
+      // A Tasker BUZZ_STRAP can arrive while the app is fully dead; the
+      // reconnect this _init() already kicked off may not have landed by the
+      // time we get here. Wait (bounded) for a live link rather than firing
+      // into a not-yet-connected engine and silently losing the request —
+      // and only clear the persisted flag once we actually attempt delivery
+      // on a live connection. If this 20s wait still times out, the request
+      // is NOT lost: _onEngineState calls back in here on every subsequent
+      // "became connected" transition for the rest of this process's life,
+      // so a slower reconnect still eventually delivers it instead of
+      // requiring a full app restart.
+      final connected = await _waitUntil(
+        () => engine.isConnected,
+        const Duration(seconds: 20),
+      );
+      if (!connected) {
+        _log('[tasker] pending buzz (pattern=$pattern) still queued — '
+            'no connection within 20s, will retry on the next reconnect');
+        return;
+      }
+      _log('[tasker] consuming pending buzz (pattern=$pattern) from headless intent');
+      await engine.buzzPattern(pattern);
+      await TaskerBridge.clearPendingBuzz();
+    } finally {
+      _taskerBuzzCheckInFlight = false;
     }
-    _log('[tasker] consuming pending buzz (pattern=$pattern) from headless intent');
-    await engine.buzzPattern(pattern);
-    await TaskerBridge.clearPendingBuzz();
   }
 
   /// Poll [check] every 500ms until it's true or [timeout] elapses. Small and
@@ -1762,6 +1778,16 @@ class AppState extends ChangeNotifier {
       } else {
         _releaseForegroundLease();
       }
+    }
+    if (_prevConn != 'connected' && s.connection == 'connected') {
+      // A Tasker BUZZ_STRAP that arrived while disconnected/dead only gets a
+      // bounded wait inside _checkPendingTaskerBuzz (called from _init()) —
+      // if that timed out before this connection landed, nothing else was
+      // going to retry it before a full process restart (see PR #89 review).
+      // Re-check on every fresh "became connected" transition instead; the
+      // method no-ops instantly if nothing's pending, and is single-flight
+      // guarded against overlapping with its own in-progress wait.
+      unawaited(_checkPendingTaskerBuzz());
     }
     _prevConn = s.connection;
     notifyListeners();

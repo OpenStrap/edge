@@ -15,12 +15,28 @@ class TaskerReceiver : BroadcastReceiver() {
         Log.i(TAG, "onReceive: action=$action")
         if (action != ACTION_BUZZ_STRAP) return
 
+        // The token rides as a plain intent extra. If Tasker (or anything
+        // else) sends this as an IMPLICIT broadcast (no setPackage/
+        // setComponent), Android delivers it to every app on the device with
+        // a matching action intent-filter — including a hostile one that
+        // declares the same action just to eavesdrop on the extras. That app
+        // could then replay the captured token straight at us later. Require
+        // the delivered intent to have been explicitly targeted at this app
+        // (our Settings → Automation copy already instructs "set Package to
+        // wtf.openstrap.openstrap_edge") BEFORE even looking at the token.
+        if (intent.`package` != context.packageName &&
+            intent.component?.packageName != context.packageName
+        ) {
+            Log.w(TAG, "rejected: not explicitly targeted at this app")
+            return
+        }
+
         // This receiver is exported with no manifest permission (a signature
         // permission would block Tasker itself, since it isn't signed by us) —
-        // so anyone who can send an explicit broadcast can reach it. Require a
-        // per-install shared secret the user copies from Settings → Automation
-        // into their Tasker action, plus a short rate limit as defense in
-        // depth. See NativeChannels.getOrCreateTaskerToken.
+        // so anyone who can send an explicitly-targeted broadcast can still
+        // reach it. Require a per-install shared secret the user copies from
+        // Settings → Automation into their Tasker action, plus a short rate
+        // limit as defense in depth. See NativeChannels.getOrCreateTaskerToken.
         val expected = NativeChannels.getOrCreateTaskerToken(context)
         val provided = intent.getStringExtra(EXTRA_TOKEN)
         if (provided == null || provided != expected) {
