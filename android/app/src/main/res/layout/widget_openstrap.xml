@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  Wide metrics widget: Ready · Strain · Sleep · HRV rings in one row. The iOS
+  medium stacks a readiness headline over the rings, but an Android 4x2 widget
+  only gets ~110dp of height (vs systemMedium's 155pt), so the four rings share
+  a single row instead. Colours/backgrounds set at render time.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+
+            <FrameLayout
+                android:layout_width="56dp"
+                android:layout_height="56dp">
+
+                <ImageView
+                    android:id="@+id/ring_readiness"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:id="@+id/val_readiness"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:maxLines="1" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/cap_readiness"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="READY"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.09"
+                android:maxLines="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+
+            <FrameLayout
+                android:layout_width="56dp"
+                android:layout_height="56dp">
+
+                <ImageView
+                    android:id="@+id/ring_strain"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:id="@+id/val_strain"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:maxLines="1" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/cap_strain"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="STRAIN"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.09"
+                android:maxLines="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+
+            <FrameLayout
+                android:layout_width="56dp"
+                android:layout_height="56dp">
+
+                <ImageView
+                    android:id="@+id/ring_sleep"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:id="@+id/val_sleep"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:gravity="center"
+                    android:paddingStart="7dp"
+                    android:paddingEnd="7dp"
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="8sp"
+                    android:autoSizeMaxTextSize="13sp"
+                    android:autoSizeStepGranularity="1sp"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:maxLines="1" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/cap_sleep"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="SLEEP"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.09"
+                android:maxLines="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+
+            <FrameLayout
+                android:layout_width="56dp"
+                android:layout_height="56dp">
+
+                <ImageView
+                    android:id="@+id/ring_hrv"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:id="@+id/val_hrv"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:maxLines="1" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/cap_hrv"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:text="HRV"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.09"
+                android:maxLines="1" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

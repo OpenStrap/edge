@@ -28,6 +28,9 @@ class WidgetService {
   static const String _batteryIOSName = 'OpenStrapBatteryWidget';
   static const String _androidName = 'OpenStrapWidgetProvider';
 
+  /// Android provider class for the Band Battery widget.
+  static const String _batteryAndroidName = 'OpenStrapBatteryWidgetProvider';
+
   static bool _inited = false;
   static Future<void> init() async {
     if (_inited) return;
@@ -124,7 +127,7 @@ class WidgetService {
       await HomeWidget.saveWidgetData<int>(
           'batt_at', DateTime.now().millisecondsSinceEpoch ~/ 1000);
       await HomeWidget.updateWidget(
-          iOSName: _batteryIOSName, androidName: _androidName);
+          iOSName: _batteryIOSName, androidName: _batteryAndroidName);
       await _syncWatch();
     } catch (_) {/* widgets unavailable / not configured yet — ignore */}
   }
@@ -140,6 +143,11 @@ class WidgetService {
       await HomeWidget.updateWidget(
         iOSName: _iOSName,
         androidName: _androidName,
+      );
+      // The battery widget shares the Ember/Char surface — retheme it too.
+      await HomeWidget.updateWidget(
+        iOSName: _batteryIOSName,
+        androidName: _batteryAndroidName,
       );
     } catch (_) {
       /* widgets unavailable — ignore */

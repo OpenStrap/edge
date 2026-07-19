@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><!-- Widget-picker labels/descriptions. -->
+<resources>
+    <string name="widget_openstrap_label">Edge</string>
+    <string name="widget_openstrap_description">Readiness, strain, sleep and HRV at a glance.</string>
+    <string name="widget_battery_label">Band battery</string>
+    <string name="widget_battery_description">Your strap\'s battery, from the last connection.</string>
+</resources>
