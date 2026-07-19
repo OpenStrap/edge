@@ -1,0 +1,76 @@
+# Fork-only test build: debug-signed APK with stub Firebase/companion config.
+# Manually dispatched, never runs upstream (no v* tag trigger). The gradle
+# release config falls back to debug signing when no keystore env is present,
+# so the artifact installs on a device — but NOT over a store/upstream install
+# (different signature; uninstall first).
+name: test-build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.6' # pinned to match build.yml
+
+      - name: Write stub .env (no companion backend)
+        run: |
+          echo "COMPANION_URL=" > .env
+          echo "BACKEND_URL=" >> .env
+          echo "ENABLE_HEALTH_DATA_CONTRIBUTION=false" >> .env
+
+      - name: Write stub google-services.json (repo dummy firebase_options.dart is used as-is)
+        run: |
+          cat > android/app/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "123456789000",
+              "project_id": "openstrap-test-stub",
+              "storage_bucket": "openstrap-test-stub.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:123456789000:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "wtf.openstrap.openstrap_edge"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  { "current_key": "AIzaSyDummyDummyDummyDummyDummyDummy000" }
+                ],
+                "services": {
+                  "appinvite_service": { "other_platform_oauth_client": [] }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+
+      - run: flutter pub get
+
+      - name: Build debug-signed release APK
+        run: flutter build apk --release --dart-define-from-file=.env
+
+      - name: Rename APK
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "dist/openstrap-edge-test-${GITHUB_SHA::7}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openstrap-edge-test-apk
+          path: dist/*.apk
