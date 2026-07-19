@@ -1306,7 +1306,7 @@ class BleEngine {
     _setOffloadActive(true);
     if (refreshRange) {
       _log('[SYNC] refresh($reason) — polling GET_DATA_RANGE before 0x16.');
-      await _send(Cmd.getDataRange, const [0x00]);
+      await _sendGetDataRange();
       // INIT spaces commands by ~120 ms; keep the same cadence here so the band
       // has time to emit the range response before we request another drain.
       await Future.delayed(const Duration(milliseconds: 120));
@@ -1324,7 +1324,7 @@ class BleEngine {
       if (_session?.connected != true) return;
     }
     _log('[SYNC] refresh($reason) — sending SEND_HISTORICAL_DATA.');
-    await _send(Cmd.sendHistoricalData, const [0x00]);
+    await _sendHistoricalData();
     _lastHistoricalSendAt = _wallSecs();
   }
 
@@ -1497,6 +1497,18 @@ class BleEngine {
         _seq.nextLive(), opcode, payload, _session?.band ?? BandProfile.gen4);
     await _write(frame);
   }
+
+  // Offload commands whose PAYLOAD (not just the frame envelope) is
+  // generation-specific: gen4 sends a single 0x00, gen5 sends an EMPTY payload.
+  // Centralised so every offload trigger — the initial handshake, periodic
+  // backfill, manual refresh, and retry — emits the correct gen5 format on a
+  // gen5 link. (_send already frames with the session's BandProfile.)
+  List<int> get _offloadPayload =>
+      (_session?.band.isGen5 ?? false) ? const <int>[] : const <int>[0x00];
+  Future<void> _sendGetDataRange() =>
+      _send(Cmd.getDataRange, _offloadPayload);
+  Future<void> _sendHistoricalData() =>
+      _send(Cmd.sendHistoricalData, _offloadPayload);
 
   Future<void> applyHighFreqWakeWindow({
     required bool enabled,
@@ -2388,9 +2400,11 @@ class BleEngine {
       _log('Sending gen5 CLIENT_HELLO + offload…');
       await _write(gen5ClientHello());
       await Future.delayed(const Duration(milliseconds: 120));
-      await _write(cmdGetDataRangeGen5(_seq.nextSync()));
+      // Same band-aware helpers the refresh/backfill/retry paths use, so the
+      // gen5 offload command format is identical everywhere.
+      await _sendGetDataRange();
       await Future.delayed(const Duration(milliseconds: 120));
-      await _write(cmdSendHistoricalGen5(_seq.nextSync()));
+      await _sendHistoricalData();
       return;
     }
     _log('Sending 5-packet INIT…');
