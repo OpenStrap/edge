@@ -51,12 +51,14 @@ should buzz.
 
 Optionally add a second Extra to pick a different haptic pattern:
 
-```
+```text
 pattern:1
 ```
 
-It's an int; the default is `2` when the extra is omitted. `pattern:1` is
-ideal for phone-call notifications.
+It's an int; the default is `2` (a quick double buzz) when the extra is
+omitted. `pattern:1` buzzes until acked by tapping the strap, which makes it
+ideal for phone-call notifications. See [BUZZ_MEANINGS.md](BUZZ_MEANINGS.md)
+for the full list.
 
 ## Troubleshooting
 
