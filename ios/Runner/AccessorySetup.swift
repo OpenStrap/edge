@@ -26,9 +26,13 @@ import AccessorySetupKit
 ///   - `removeAll`          -> nil    (deprovision all — used on unpair)
 enum AccessorySetup {
   private static let channelName = "openstrap/accessory_setup"
-  // The WHOOP "Harvard" Gen4 GATT service (matches GattUuids.service in Dart).
-  // `fileprivate` so the iOS-18 Impl below can read it.
-  fileprivate static let whoopServiceUUID = "61080001-8d6d-82b8-614a-1c8cb0f8dcc6"
+  // WHOOP GATT service UUIDs, one per generation (match GattProfile in Dart).
+  // `fileprivate` so the iOS-18 Impl below can read them. BOTH must also be
+  // listed in Info.plist under NSAccessorySetupBluetoothServices.
+  //   • gen4 ("Harvard", WHOOP 4)  — 6108…
+  //   • gen5 ("fd4b", WHOOP 5)     — fd4b…  (EXPERIMENTAL)
+  fileprivate static let whoopServiceUUIDGen4 = "61080001-8d6d-82b8-614a-1c8cb0f8dcc6"
+  fileprivate static let whoopServiceUUIDGen5 = "fd4b0001-cce1-4033-93ce-002d5875f58a"
 
   static func register(messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
@@ -136,30 +140,35 @@ private final class Impl {
       return
     }
 
-    let descriptor = ASDiscoveryDescriptor()
     // Match on the WHOOP custom service UUID alone. The foreground scan finds the
-    // band via startScan(withServices:[thisUUID]) and succeeds, which proves the
-    // band advertises this service — so it's a reliable, sufficient filter. Every
-    // descriptor criterion must be declared in Info.plist; the UUID is listed under
-    // NSAccessorySetupBluetoothServices. (No bluetoothNameSubstring: a single
-    // descriptor AND-combines its criteria, and a name filter would also require an
-    // NSAccessorySetupBluetoothNames entry and risk excluding the band on a name
-    // mismatch.)
-    descriptor.bluetoothServiceUUID = CBUUID(string: AccessorySetup.whoopServiceUUID)
-
-    // Show the actual strap render in the ASK pairing sheet (asset catalog →
-    // StrapProduct.imageset). Fall back to an SF Symbol if the asset is missing.
+    // band via startScan(withServices:[…]) and succeeds, which proves the band
+    // advertises this service — so it's a reliable, sufficient filter. Every
+    // descriptor criterion must be declared in Info.plist; the UUIDs are listed
+    // under NSAccessorySetupBluetoothServices. (No bluetoothNameSubstring: a
+    // single descriptor AND-combines its criteria, and a name filter would also
+    // require an NSAccessorySetupBluetoothNames entry and risk excluding the band
+    // on a name mismatch.)
+    //
+    // ASK matches ANY item in the picker list, so we offer one item per WHOOP
+    // generation: gen4 (WHOOP 4) and gen5 (WHOOP 5, experimental). A band that
+    // advertises either service can be provisioned; the provisioned identifier is
+    // the same CoreBluetooth UUID regardless of generation.
     let productImage = UIImage(named: "StrapProduct")
       ?? UIImage(systemName: "sensor.tag.radiowave.forward")
       ?? UIImage()
-    let item = ASPickerDisplayItem(
-      name: "WHOOP band",
-      productImage: productImage,
-      descriptor: descriptor
-    )
+    func item(_ serviceUUID: String, _ name: String) -> ASPickerDisplayItem {
+      let descriptor = ASDiscoveryDescriptor()
+      descriptor.bluetoothServiceUUID = CBUUID(string: serviceUUID)
+      return ASPickerDisplayItem(
+        name: name, productImage: productImage, descriptor: descriptor)
+    }
+    let items = [
+      item(AccessorySetup.whoopServiceUUIDGen4, "WHOOP band"),
+      item(AccessorySetup.whoopServiceUUIDGen5, "WHOOP 5 band"),
+    ]
 
     pickerResult = completion
-    session.showPicker(for: [item]) { [weak self] error in
+    session.showPicker(for: items) { [weak self] error in
       guard let self = self else { return }
       if let error = error {
         if let cb = self.pickerResult {

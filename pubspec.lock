@@ -974,8 +974,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: main
-      resolved-ref: "02fc8e5f2310ded690a522cd9884bf51b4cdc7e1"
+      ref: "feat/multiband-whoop5"
+      resolved-ref: "687aa4631809b5e2dcbddb9df66c5aaf32b814f9"
       url: "https://github.com/OpenStrap/protocol.git"
     source: git
     version: "1.0.0"

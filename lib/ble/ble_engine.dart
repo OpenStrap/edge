@@ -280,11 +280,27 @@ class _SessionGapSummary {
 class _Session {
   final BluetoothDevice device;
   BluetoothCharacteristic? cmdTo;
+
+  /// Which WHOOP generation this link speaks. Defaults to gen4 (WHOOP 4) and is
+  /// pinned once during service discovery via [applyBand] — everything that
+  /// differs by generation (frame header/CRC, GATT UUIDs, command envelope,
+  /// history ACK, record decode) reads from here.
+  BandProfile band = BandProfile.gen4;
+
   final Map<String, FrameReassembler> asm = {
     'cmd_from': FrameReassembler(),
     'events': FrameReassembler(),
     'data': FrameReassembler(),
   };
+
+  /// Pin this session's generation and rebuild the reassemblers with the
+  /// matching header shape. Called once, at discovery, before any frame is fed.
+  void applyBand(BandProfile b) {
+    band = b;
+    asm['cmd_from'] = FrameReassembler(profile: b);
+    asm['events'] = FrameReassembler(profile: b);
+    asm['data'] = FrameReassembler(profile: b);
+  }
   final List<StreamSubscription> subs = [];
   Timer? heartbeat;
   // Session-owned timers; a disconnect cancels them.
@@ -868,7 +884,10 @@ class BleEngine {
       await FlutterBluePlus.stopScan();
     }
     _setPhase(BleConnState.scanning);
-    final svc = Guid(GattUuids.service);
+    // Advertise-filter on BOTH generations' service UUIDs (gen4 6108xxxx +
+    // gen5 fd4bxxxx); the actual generation is pinned later at discovery.
+    final gen4Svc = Guid(GattProfile.gen4.service);
+    final gen5Svc = Guid(GattProfile.gen5.service);
     BluetoothDevice? found;
     final sub = FlutterBluePlus.onScanResults.listen((results) {
       for (final r in results) {
@@ -878,14 +897,16 @@ class BleEngine {
         );
         if (found == null &&
             (name.contains('whoop') ||
-                advNames.any((s) => s.startsWith('61080001')))) {
+                advNames.any((s) =>
+                    s.startsWith('61080001') || s.startsWith('fd4b0001')))) {
           found = r.device;
           FlutterBluePlus.stopScan();
         }
       }
     });
     try {
-      await FlutterBluePlus.startScan(withServices: [svc], timeout: timeout);
+      await FlutterBluePlus.startScan(
+          withServices: [gen4Svc, gen5Svc], timeout: timeout);
       await FlutterBluePlus.isScanning.where((on) => on == false).first;
     } catch (e) {
       _log('scan error: $e');
@@ -1028,16 +1049,33 @@ class BleEngine {
       final services = await device
           .discoverServices()
           .timeout(_serviceDiscoveryTimeout);
+      // Pin the generation from whichever service the peripheral exposes:
+      // gen4 "Harvard" 6108xxxx, or gen5 "fd4b" fd4bxxxx. This drives the frame
+      // header/CRC, command envelope, ACK, and record decode for the session.
       BluetoothService? svc;
+      BandProfile band = BandProfile.gen4;
       for (final s in services) {
-        if (s.uuid.str.toLowerCase().startsWith('61080001')) svc = s;
+        final u = s.uuid.str.toLowerCase();
+        if (u.startsWith(GattProfile.gen4.servicePrefix)) {
+          svc = s;
+          band = BandProfile.gen4;
+          break;
+        }
+        if (u.startsWith(GattProfile.gen5.servicePrefix)) {
+          svc = s;
+          band = BandProfile.gen5;
+          break;
+        }
       }
       if (svc == null) {
-        _log('Harvard service not found on device.');
+        _log('No WHOOP service (gen4 6108xxxx / gen5 fd4bxxxx) found on device.');
         await _teardownSession(intentional: true);
         _setPhase(BleConnState.idle);
         return false;
       }
+      session.applyBand(band);
+      _log('Detected ${band.isGen5 ? "WHOOP 5 (gen5)" : "WHOOP 4 (gen4)"} link.');
+      final gatt = band.gatt;
       BluetoothCharacteristic? find(String prefix) {
         for (final c in svc!.characteristics) {
           if (c.uuid.str.toLowerCase().startsWith(prefix)) return c;
@@ -1045,15 +1083,15 @@ class BleEngine {
         return null;
       }
 
-      session.cmdTo = find('61080002');
-      final cmdFrom = find('61080003');
-      final events = find('61080004');
-      final data = find('61080005');
+      session.cmdTo = find(gatt.cmdTo.substring(0, 8));
+      final cmdFrom = find(gatt.cmdFrom.substring(0, 8));
+      final events = find(gatt.events.substring(0, 8));
+      final data = find(gatt.data.substring(0, 8));
       if (session.cmdTo == null ||
           cmdFrom == null ||
           events == null ||
           data == null) {
-        _log('Missing one or more Harvard characteristics.');
+        _log('Missing one or more ${band.isGen5 ? "fd4b" : "Harvard"} characteristics.');
         await _teardownSession(intentional: true);
         _setPhase(BleConnState.idle);
         return false;
@@ -1268,7 +1306,7 @@ class BleEngine {
     _setOffloadActive(true);
     if (refreshRange) {
       _log('[SYNC] refresh($reason) — polling GET_DATA_RANGE before 0x16.');
-      await _send(Cmd.getDataRange, const [0x00]);
+      await _sendGetDataRange();
       // INIT spaces commands by ~120 ms; keep the same cadence here so the band
       // has time to emit the range response before we request another drain.
       await Future.delayed(const Duration(milliseconds: 120));
@@ -1286,7 +1324,7 @@ class BleEngine {
       if (_session?.connected != true) return;
     }
     _log('[SYNC] refresh($reason) — sending SEND_HISTORICAL_DATA.');
-    await _send(Cmd.sendHistoricalData, const [0x00]);
+    await _sendHistoricalData();
     _lastHistoricalSendAt = _wallSecs();
   }
 
@@ -1455,9 +1493,22 @@ class BleEngine {
       _log('REFUSED dangerous opcode 0x${opcode.toRadixString(16)}');
       return;
     }
-    final frame = buildCommand(_seq.nextLive(), opcode, payload);
+    final frame = buildCommand(
+        _seq.nextLive(), opcode, payload, _session?.band ?? BandProfile.gen4);
     await _write(frame);
   }
+
+  // Offload commands whose PAYLOAD (not just the frame envelope) is
+  // generation-specific: gen4 sends a single 0x00, gen5 sends an EMPTY payload.
+  // Centralised so every offload trigger — the initial handshake, periodic
+  // backfill, manual refresh, and retry — emits the correct gen5 format on a
+  // gen5 link. (_send already frames with the session's BandProfile.)
+  List<int> get _offloadPayload =>
+      (_session?.band.isGen5 ?? false) ? const <int>[] : const <int>[0x00];
+  Future<void> _sendGetDataRange() =>
+      _send(Cmd.getDataRange, _offloadPayload);
+  Future<void> _sendHistoricalData() =>
+      _send(Cmd.sendHistoricalData, _offloadPayload);
 
   Future<void> applyHighFreqWakeWindow({
     required bool enabled,
@@ -1685,7 +1736,16 @@ class BleEngine {
     // backfill (all received in one sync) splits into correct per-real-day
     // buckets instead of collapsing into one "today".
     Sample? sample;
-    if (recType == Record.r24 || recType == Record.r12) {
+    final isGen5 = _session?.band.isGen5 ?? false;
+    if (isGen5) {
+      // gen5 (WHOOP 5) thin 1 Hz record: HR + timing only. Motion (K10/K21) and
+      // any unknown kind return null → archived to raw_archive below, exactly
+      // like an undecodable gen4 record. No accel/spo2/temp is fabricated.
+      final r = parseGen5Record(frame.inner);
+      if (r != null) {
+        sample = Sample(tsEpoch: r.tsEpoch, counter: r.counter, hr: r.hr);
+      }
+    } else if (recType == Record.r24 || recType == Record.r12) {
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.
       var decodeTarget = frame.inner;
@@ -2093,7 +2153,8 @@ class BleEngine {
       // re-delivers the chunk. Echo the 8-byte slice the band acks verbatim —
       // a mangled echo is the "Groundhog Day" re-flood bug.
       await d.commit(m.token); // raw + samples + strap_trim cursor, atomic
-      final ack = buildHistoryResultOk(_seq.nextSync(), m.token!);
+      final ack = buildHistoryResultOk(_seq.nextSync(), m.token!,
+          profile: _session?.band ?? BandProfile.gen4);
       _log(
         '[SYNC] ACK frame='
         '${ack.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}',
@@ -2328,6 +2389,24 @@ class BleEngine {
 
   // ── high-level flows ─────────────────────────────────────────────────────────────
   Future<void> sendInit() async {
+    final band = _session?.band ?? BandProfile.gen4;
+    if (band.isGen5) {
+      // gen5 handshake: a single CLIENT_HELLO (GET_HELLO 0x91) written
+      // with-response opens the just-works bond, then the offload is driven by
+      // GET_DATA_RANGE + SEND_HISTORICAL_DATA with EMPTY payloads (gen4 sends a
+      // 0x00). The HISTORY_END ACK is byte-structured identically (handled in
+      // the metadata path). NOTE: untested on physical hardware — pending a
+      // WHOOP 5 device; the gen4 path above is unchanged.
+      _log('Sending gen5 CLIENT_HELLO + offload…');
+      await _write(gen5ClientHello());
+      await Future.delayed(const Duration(milliseconds: 120));
+      // Same band-aware helpers the refresh/backfill/retry paths use, so the
+      // gen5 offload command format is identical everywhere.
+      await _sendGetDataRange();
+      await Future.delayed(const Duration(milliseconds: 120));
+      await _sendHistoricalData();
+      return;
+    }
     _log('Sending 5-packet INIT…');
     for (final pkt in initPackets) {
       await _write(pkt);
