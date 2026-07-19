@@ -887,10 +887,18 @@ class DerivationEngine {
     // leak into the next day's derivation — no try/finally reset needed.
     final profileJson = await _loadSleepUserProfileJson();
     final (candidateJson, updatedProfileJson) = await Isolate.run(() {
-      ana.cardioUserProfile = profileJson == null
-          ? null
-          : ana.SleepUserProfile.fromJson(
-              (jsonDecode(profileJson) as Map).cast<String, dynamic>());
+      try {
+        ana.cardioUserProfile = profileJson == null
+            ? null
+            : ana.SleepUserProfile.fromJson(
+                (jsonDecode(profileJson) as Map).cast<String, dynamic>());
+      } catch (_) {
+        // Defense in depth: an incompatible/outdated persisted profile must
+        // fall back to a cold start, never throw inside the worker (an uncaught
+        // throw here bubbles to processDay's per-day catch → the day gets stuck
+        // marked 'error' every pass until the row is fixed).
+        ana.cardioUserProfile = null;
+      }
       ana.cardioRecordObservations = true;
       ana.resetCardioObservations();
       final candidate = prepareSleepSessionCandidate(
@@ -938,7 +946,15 @@ class DerivationEngine {
   Future<String?> _loadSleepUserProfileJson() async {
     final row = await LocalDb.baseline('sleep_user_profile');
     final raw = row?['payload_json'];
-    if (raw is String && raw.isNotEmpty) return raw;
+    if (raw is! String || raw.isEmpty) return null;
+    // Validate here (mirrors the cached-candidate guard above) so a corrupt
+    // payload becomes a cold start, per this method's contract — rather than
+    // throwing later inside the staging worker's `jsonDecode(...) as Map`.
+    try {
+      if (jsonDecode(raw) is Map) return raw;
+    } catch (_) {
+      // corrupt payload → null (cold start)
+    }
     return null;
   }
 

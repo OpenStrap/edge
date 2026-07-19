@@ -63,14 +63,19 @@ class LocalDb {
     bool bestEffort = false,
   }) async {
     for (var attempt = 0; attempt < 2; attempt++) {
+      Database? handle;
       try {
-        final db = await instance;
-        return await op(db);
+        handle = await instance;
+        return await op(handle);
       } on DatabaseException catch (e) {
         final closed =
-            e.toString().contains('closed') || !(_db?.isOpen ?? false);
+            e.toString().contains('closed') || !(handle?.isOpen ?? false);
         if (closed && attempt == 0) {
-          _db = null; // force `instance` to reopen on the retry
+          // Drop only the dead handle we actually used. A concurrent caller may
+          // have already reopened `_db` to a fresh handle between our failure
+          // and here — keep that one so `instance` reuses it on the retry
+          // instead of forcing a redundant reopen.
+          if (identical(_db, handle)) _db = null;
           continue;
         }
         if (bestEffort && closed) return null;
