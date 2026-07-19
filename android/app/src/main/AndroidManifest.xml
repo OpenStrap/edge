@@ -178,6 +178,31 @@
             </intent-filter>
         </receiver>
 
+        <!-- Home-screen widgets (Android siblings of ios/OpenStrapWidget). The app
+             pushes snapshots via home_widget (WidgetService); these just render. -->
+        <receiver
+            android:name=".OpenStrapWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_openstrap_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_openstrap_info" />
+        </receiver>
+        <receiver
+            android:name=".OpenStrapBatteryWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_battery_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_band_battery_info" />
+        </receiver>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

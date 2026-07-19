@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  Band-battery widget metadata. Renders the app's last BLE battery snapshot
+  (never fetches); the 30-min re-render exists so the >24 h staleness mute can
+  flip without the app running.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:resizeMode="none"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_band_battery"
+    android:previewLayout="@layout/widget_band_battery"
+    android:description="@string/widget_battery_description"
+    android:widgetCategory="home_screen|keyguard" />

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  Metrics widget metadata. minResizeWidth allows squeezing down to the 2×2 ring
+  grid; the provider swaps layouts by live size (12+) or min width (below).
+  updatePeriodMillis only re-renders the cached snapshot (no network on Android)
+  so the theme and staleness stay honest when the app hasn't run for a while.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="110dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_openstrap"
+    android:previewLayout="@layout/widget_openstrap"
+    android:description="@string/widget_openstrap_description"
+    android:widgetCategory="home_screen" />
