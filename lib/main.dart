@@ -69,12 +69,10 @@ Future<void> main() async {
   // watchdog out on every single cold start, silently disabling it.
   if (Platform.isAndroid) {
     try {
-      await Workmanager()
-          .cancelByUniqueName(kHeavyDeriveTaskName)
-          .timeout(_kStartupInitTimeout);
-      await Workmanager()
-          .cancelByUniqueName(kSyncTaskName)
-          .timeout(_kStartupInitTimeout);
+      await Future.wait([
+        Workmanager().cancelByUniqueName(kHeavyDeriveTaskName),
+        Workmanager().cancelByUniqueName(kSyncTaskName),
+      ]).timeout(_kStartupInitTimeout);
     } catch (_) {}
   }
 
