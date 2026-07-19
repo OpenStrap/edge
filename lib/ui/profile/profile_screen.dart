@@ -10,12 +10,14 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/db.dart';
 import '../../health/health_export.dart';
+import '../../platform/tasker_bridge.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../debug/debug_mode.dart';
@@ -358,6 +360,65 @@ class ProfileScreen extends StatelessWidget {
 
           const SizedBox(height: Sp.x6),
 
+          // ── Automation (Tasker) ──────────────────────────────────────
+          // Android-only: TaskerReceiver + the broadcast_to_tasker capability
+          // have no iOS counterpart (same convention as _KeepAliveRow above).
+          if (Platform.isAndroid) ...[
+            const SectionHeader('Automation'),
+            _SettingsCard(rows: [
+              GestureDetector(
+                onLongPress: () async {
+                  await Clipboard.setData(
+                    const ClipboardData(text: 'wtf.openstrap.openstrap_edge.BUZZ_STRAP'),
+                  );
+                  if (context.mounted) {
+                    _snack(context, 'Copied BUZZ_STRAP action.');
+                  }
+                },
+                child: ListRow(
+                  icon: OsIcon.activity,
+                  title: 'Tasker buzz strap',
+                  subtitle: 'wtf.openstrap.openstrap_edge.BUZZ_STRAP',
+                  divider: true,
+                  onTap: null,
+                ),
+              ),
+              const _TaskerTokenRow(),
+            ]),
+            const _CardNote(
+              'Send a Broadcast intent from Tasker or any automation app to '
+              'vibrate your WHOOP strap. On Android 12+, set Package to '
+              'wtf.openstrap.openstrap_edge. Requires a String extra "token" '
+              'matching the automation token below (long-press to copy) — '
+              'without it, the strap won\'t buzz. Optional int extra '
+              '"pattern" (default 2).',
+            ),
+            const SizedBox(height: Sp.x3),
+            _SettingsCard(rows: [
+              GestureDetector(
+                onLongPress: () async {
+                  await Clipboard.setData(
+                    const ClipboardData(text: 'wtf.openstrap.openstrap_edge.DOUBLE_TAP'),
+                  );
+                  if (context.mounted) {
+                    _snack(context, 'Copied DOUBLE_TAP action.');
+                  }
+                },
+                child: ListRow(
+                  icon: OsIcon.activity,
+                  title: 'Double-tap broadcast',
+                  subtitle: 'wtf.openstrap.openstrap_edge.DOUBLE_TAP',
+                  onTap: null,
+                ),
+              ),
+            ]),
+            const _CardNote(
+              'Set double-tap gesture to "Broadcast to Tasker", then create '
+              'a Tasker profile: Event → Intent Received → action above.',
+            ),
+          ],
+          const SizedBox(height: Sp.x6),
+
           // ── Notifications ────────────────────────────────────────────
           const SectionHeader('Notifications'),
           _SettingsCard(rows: [
@@ -653,6 +714,48 @@ class _CardNote extends StatelessWidget {
         padding: const EdgeInsets.only(top: Sp.x2, left: Sp.x2),
         child: Text(text, style: AppText.captionMuted),
       );
+}
+
+/// The per-install secret TaskerReceiver requires as the `token` extra on a
+/// BUZZ_STRAP broadcast (see TaskerBridge.authToken / TaskerReceiver.kt).
+/// Fetched once natively (a StatefulWidget so it survives ProfileScreen's
+/// frequent context.watch() rebuilds rather than re-fetching every time).
+class _TaskerTokenRow extends StatefulWidget {
+  const _TaskerTokenRow();
+  @override
+  State<_TaskerTokenRow> createState() => _TaskerTokenRowState();
+}
+
+class _TaskerTokenRowState extends State<_TaskerTokenRow> {
+  String? _token;
+
+  @override
+  void initState() {
+    super.initState();
+    TaskerBridge.authToken().then((t) {
+      if (mounted) setState(() => _token = t);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final token = _token;
+    return GestureDetector(
+      onLongPress: token == null
+          ? null
+          : () async {
+              await Clipboard.setData(ClipboardData(text: token));
+              if (context.mounted) {
+                _snack(context, 'Copied automation token.');
+              }
+            },
+      child: ListRow(
+        icon: OsIcon.activity,
+        title: 'Automation token',
+        subtitle: token ?? 'Loading…',
+      ),
+    );
+  }
 }
 
 /// A titled toggle card (icon tile + title + one-liner + Switch).
@@ -1290,6 +1393,40 @@ class _DeviceSheet extends StatelessWidget {
               ),
             ]),
           ),
+        if (connected) ...[
+          const SizedBox(height: Sp.x2),
+          Text('Buzz patterns', style: AppText.captionMuted),
+          const SizedBox(height: Sp.x2),
+          Wrap(
+            spacing: Sp.x2,
+            runSpacing: Sp.x2,
+            children: [
+              for (final p in [0, 1, 2, 3, 4, 5, 6, 7])
+                SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: OutlinedButton(
+                    onPressed: () async {
+                      try {
+                        await live.testBuzzPattern(p);
+                        if (context.mounted) {
+                          _snack(context, 'Pattern $p sent.');
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          _snack(context, 'Pattern $p failed: $e');
+                        }
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                    ),
+                    child: Text('$p', style: AppText.body),
+                  ),
+                ),
+            ],
+          ),
+        ],
         Divider(height: Sp.x4, thickness: 1, color: AppColors.divider),
         ListRow(
           icon: OsIcon.info,

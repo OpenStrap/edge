@@ -51,6 +51,7 @@ import '../health/health_export.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
 import '../gestures/gesture_dispatcher.dart';
+import '../platform/tasker_bridge.dart';
 import '../data/models.dart';
 import '../live/live_activity.dart';
 import '../live/breathing_live_activity.dart';
@@ -124,6 +125,12 @@ class AppState extends ChangeNotifier {
   late final WaterBuzzer _waterBuzzer = WaterBuzzer(
     buzz: () => engine.buzz(),
     isConnected: () => engine.isConnected,
+  );
+
+  /// Tasker integration bridge — listens for Android broadcast intents from
+  /// Tasker and buzzes the strap. Wired in the constructor.
+  late final TaskerBridge taskerBridge = TaskerBridge(
+    buzzPattern: (p) => engine.buzzPattern(p),
   );
   Sample? lastSynced;
   // REAL device time (epoch SECONDS) of the newest record we hold — the band's
@@ -659,6 +666,7 @@ class AppState extends ChangeNotifier {
     // skip the headless BLE path (it would fight FBP for the peripheral) — route
     // them to a catch-up pull over the existing live connection instead.
     IosBgTask.foregroundPull = foregroundCatchUp;
+    taskerBridge; // force init: register the method channel handler
     _init();
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
@@ -1281,6 +1289,61 @@ class AppState extends ChangeNotifier {
         openSession();
       }
     }
+    unawaited(_checkPendingTaskerBuzz());
+  }
+
+  // Single-flight guard for _checkPendingTaskerBuzz — it's now invoked both
+  // from _init() and from every "became connected" transition
+  // (_onEngineState), so an overlapping call (e.g. a connect landing while
+  // the _init()-triggered call is still in its bounded wait) must no-op
+  // rather than race a second concurrent buzz/clear.
+  bool _taskerBuzzCheckInFlight = false;
+
+  Future<void> _checkPendingTaskerBuzz() async {
+    if (!Platform.isAndroid) return;
+    if (_taskerBuzzCheckInFlight) return;
+    _taskerBuzzCheckInFlight = true;
+    try {
+      final pattern = await TaskerBridge.peekPendingBuzz();
+      if (pattern == null) return;
+      // A Tasker BUZZ_STRAP can arrive while the app is fully dead; the
+      // reconnect this _init() already kicked off may not have landed by the
+      // time we get here. Wait (bounded) for a live link rather than firing
+      // into a not-yet-connected engine and silently losing the request —
+      // and only clear the persisted flag once we actually attempt delivery
+      // on a live connection. If this 20s wait still times out, the request
+      // is NOT lost: _onEngineState calls back in here on every subsequent
+      // "became connected" transition for the rest of this process's life,
+      // so a slower reconnect still eventually delivers it instead of
+      // requiring a full app restart.
+      final connected = await _waitUntil(
+        () => engine.isConnected,
+        const Duration(seconds: 20),
+      );
+      if (!connected) {
+        _log('[tasker] pending buzz (pattern=$pattern) still queued — '
+            'no connection within 20s, will retry on the next reconnect');
+        return;
+      }
+      _log('[tasker] consuming pending buzz (pattern=$pattern) from headless intent');
+      await engine.buzzPattern(pattern);
+      await TaskerBridge.clearPendingBuzz();
+    } finally {
+      _taskerBuzzCheckInFlight = false;
+    }
+  }
+
+  /// Poll [check] every 500ms until it's true or [timeout] elapses. Small and
+  /// generic on purpose — currently only used for the Tasker pending-buzz
+  /// handoff, which needs to wait for a real BLE connection rather than a
+  /// fixed delay.
+  Future<bool> _waitUntil(bool Function() check, Duration timeout) async {
+    final deadline = DateTime.now().add(timeout);
+    while (!check()) {
+      if (DateTime.now().isAfter(deadline)) return check();
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    return true;
   }
 
   /// (Re)register standing scheduled reminders per the user's prefs. Idempotent;
@@ -1725,6 +1788,16 @@ class AppState extends ChangeNotifier {
         _releaseForegroundLease();
       }
     }
+    if (_prevConn != 'connected' && s.connection == 'connected') {
+      // A Tasker BUZZ_STRAP that arrived while disconnected/dead only gets a
+      // bounded wait inside _checkPendingTaskerBuzz (called from _init()) —
+      // if that timed out before this connection landed, nothing else was
+      // going to retry it before a full process restart (see PR #89 review).
+      // Re-check on every fresh "became connected" transition instead; the
+      // method no-ops instantly if nothing's pending, and is single-flight
+      // guarded against overlapping with its own in-progress wait.
+      unawaited(_checkPendingTaskerBuzz());
+    }
     _prevConn = s.connection;
     notifyListeners();
   }
@@ -2029,6 +2102,11 @@ class AppState extends ChangeNotifier {
   Future<void> testAlarmBuzz() async {
     if (!isConnected) throw Exception('Connect to your strap first');
     await engine.runAlarm();
+  }
+
+  Future<void> testBuzzPattern(int pattern) async {
+    if (!isConnected) throw Exception('Connect to your strap first');
+    await engine.buzzPattern(pattern);
   }
 
   Future<void> disableAlarm() async {

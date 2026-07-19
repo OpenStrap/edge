@@ -24,6 +24,9 @@ enum DeviceAction {
   // (iOS can't reach other apps, but it can always do these).
   markMoment,
   workoutToggle,
+  // Native broadcast — sends an Android broadcast intent for Tasker to subscribe
+  // to (see NativeChannels.kt). Only offered on Android.
+  broadcastToTasker,
 }
 
 extension DeviceActionX on DeviceAction {
@@ -51,6 +54,8 @@ extension DeviceActionX on DeviceAction {
         return 'mark_moment';
       case DeviceAction.workoutToggle:
         return 'workout_toggle';
+      case DeviceAction.broadcastToTasker:
+        return 'broadcast_to_tasker';
     }
   }
 
@@ -77,6 +82,8 @@ extension DeviceActionX on DeviceAction {
         return 'Mark a moment';
       case DeviceAction.workoutToggle:
         return 'Start / stop workout';
+      case DeviceAction.broadcastToTasker:
+        return 'Broadcast to Tasker';
     }
   }
 
@@ -103,6 +110,8 @@ extension DeviceActionX on DeviceAction {
         return 'Tag the current moment in your journal.';
       case DeviceAction.workoutToggle:
         return 'Begin or end a workout from your wrist.';
+      case DeviceAction.broadcastToTasker:
+        return 'Fire a broadcast intent so Tasker can trigger any automation.';
     }
   }
 

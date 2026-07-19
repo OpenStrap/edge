@@ -29,6 +29,9 @@ object NativeChannels {
     private const val EDGE_TRACKING_CHANNEL = "openstrap/edge_tracking"
     private const val DEVICE_ACTIONS_CHANNEL = "openstrap/device_actions"
     private const val ANDROID_BG_CHANNEL = "openstrap/android_background"
+    const val TASKER_CHANNEL = "openstrap/tasker"
+    const val ACTION_DOUBLE_TAP = "wtf.openstrap.openstrap_edge.DOUBLE_TAP"
+    private const val TASKER_TOKEN_KEY = "tasker_auth_token"
 
     private var torchOn = false
 
@@ -107,13 +110,68 @@ object NativeChannels {
                     "capabilities" -> result.success(
                         listOf(
                             "media_play_pause", "media_next", "media_prev",
-                            "volume_up", "volume_down", "ring_phone", "torch"
+                            "volume_up", "volume_down", "ring_phone", "torch",
+                            "broadcast_to_tasker"
                         )
                     )
                     "perform" -> result.success(perform(app, call.argument<String>("action") ?: ""))
                     else -> result.notImplemented()
                 }
             }
+
+        // Tasker integration support. TaskerReceiver (a BroadcastReceiver, not a
+        // Flutter plugin) writes directly to the native "openstrap_runtime"
+        // SharedPreferences file — NOT through the shared_preferences PLUGIN,
+        // which owns a separate, plugin-managed store (its own file, with
+        // flutter.-prefixed keys) that can never see what a native-only
+        // BroadcastReceiver wrote. Dart must go through this channel instead
+        // of SharedPreferences.getInstance() to see/clear the pending buzz, or
+        // to read the per-install auth token TaskerReceiver requires.
+        MethodChannel(engine.dartExecutor.binaryMessenger, TASKER_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                val prefs = app.getSharedPreferences("openstrap_runtime", Context.MODE_PRIVATE)
+                when (call.method) {
+                    "peek_pending_buzz" -> {
+                        val pending = prefs.getBoolean(TaskerReceiver.PENDING_BUZZ_KEY, false)
+                        result.success(
+                            if (pending) {
+                                prefs.getInt(TaskerReceiver.PENDING_PATTERN_KEY, TaskerReceiver.DEFAULT_PATTERN)
+                            } else {
+                                null
+                            }
+                        )
+                    }
+                    "clear_pending_buzz" -> {
+                        prefs.edit()
+                            .remove(TaskerReceiver.PENDING_BUZZ_KEY)
+                            .remove(TaskerReceiver.PENDING_PATTERN_KEY)
+                            .apply()
+                        result.success(null)
+                    }
+                    "get_auth_token" -> result.success(getOrCreateTaskerToken(app))
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /**
+     * Per-install shared secret Tasker (or any automation app) must echo back
+     * as the `token` string extra on a BUZZ_STRAP broadcast (see
+     * TaskerReceiver.onReceive). Generated once and persisted in the native
+     * "openstrap_runtime" prefs; surfaced to Dart (Settings → Automation,
+     * copy-to-clipboard) via [TASKER_CHANNEL]. Without this, the exported,
+     * permission-less receiver would let ANY installed app trigger strap
+     * haptics on demand — including the alarm-mode pattern, which buzzes
+     * until acknowledged. A manifest `android:permission` isn't viable here:
+     * Tasker can't declare a permission for our arbitrary custom string ahead
+     * of time, so it would just block the legitimate use case too.
+     */
+    internal fun getOrCreateTaskerToken(ctx: Context): String {
+        val prefs = ctx.getSharedPreferences("openstrap_runtime", Context.MODE_PRIVATE)
+        prefs.getString(TASKER_TOKEN_KEY, null)?.let { return it }
+        val token = java.util.UUID.randomUUID().toString().replace("-", "")
+        prefs.edit().putString(TASKER_TOKEN_KEY, token).apply()
+        return token
     }
 
     private fun perform(ctx: Context, action: String): Boolean {
@@ -126,6 +184,7 @@ object NativeChannels {
                 "volume_down" -> adjustVolume(ctx, AudioManager.ADJUST_LOWER)
                 "ring_phone" -> ringPhone(ctx)
                 "torch" -> toggleTorch(ctx)
+                "broadcast_to_tasker" -> sendTaskerBroadcast(ctx)
                 else -> return false
             }
             true
@@ -321,4 +380,17 @@ object NativeChannels {
             vibrator.vibrate(500)
         }
     }
+
+    /** Send a broadcast intent so Tasker (or any automation app) can subscribe
+     * to band double-taps. The intent action is
+     * `wtf.openstrap.openstrap_edge.DOUBLE_TAP`; Tasker listens via
+     * Event → Intent Received.
+     */
+    private fun sendTaskerBroadcast(ctx: Context) {
+        val intent = Intent(ACTION_DOUBLE_TAP).apply {
+            addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
+        }
+        ctx.sendBroadcast(intent)
+    }
+
 }

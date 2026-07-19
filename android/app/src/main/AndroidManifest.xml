@@ -144,6 +144,22 @@
             </intent-filter>
         </receiver>
 
+        <!-- Tasker integration: receive Broadcast intents from Tasker (or any app)
+             to buzz the WHOOP strap. Exported with no manifest permission (a
+             signature permission would block Tasker itself) — TaskerReceiver
+             instead requires a String extra "token" matching the per-install
+             secret shown in Settings -> Automation, plus a short rate limit;
+             anything else is silently dropped. Optional int extra "pattern"
+             (default 2). -->
+        <receiver
+            android:name=".TaskerReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="wtf.openstrap.openstrap_edge.BUZZ_STRAP" />
+            </intent-filter>
+        </receiver>
+
         <!-- Notification relay (notification_listener_service plugin). The system binds
              this to deliver posted notifications; gated behind the user granting
              "Notification access" in system settings. Class lives in the plugin. -->
