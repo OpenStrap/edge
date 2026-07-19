@@ -13,7 +13,10 @@ WHOOP 4.0 band — heart rate, heart rate variability (RR intervals), motion
 (accelerometer), raw skin-temperature/blood-oxygen sensor channels, and (if
 you record workouts) GPS location during those workouts — is processed and
 stored entirely on your device in every one of those builds. We do not
-upload it, we do not operate a backend that receives it, and we never see it.
+upload it, we do not operate a backend that receives it, and we never see it
+— *unless you separately choose to enable AI Coach or Health app
+integration, described below, which send specific data to services you
+configure.*
 
 Edge is open source. The underlying code contains an off-by-default,
 compile-time flag (`kHealthDataContributionEnabled`, see
@@ -26,10 +29,11 @@ self-built copy compiled with that flag on is that builder's own software
 and their own responsibility; it is not covered by this policy.
 
 **Anonymous diagnostics (on by default)**
-In every build we distribute, the only thing the App sends off your device is
-basic crash/error and performance monitoring, via Firebase (Google) —
-Crashlytics, Performance Monitoring, and Analytics. This is on by default; you
-can turn it off at any
+In every build we distribute, the only thing the App sends off your device
+*automatically* — aside from the optional, user-initiated integrations
+described next — is basic crash/error and performance monitoring, via
+Firebase (Google) — Crashlytics, Performance Monitoring, and Analytics. This
+is on by default; you can turn it off at any
 time in Settings ("Send anonymous diagnostics"), which stops any further
 collection immediately. It never includes your health data — only crash
 reports, basic device info (OS/model/app version), and coarse performance
@@ -55,10 +59,21 @@ use the App. We do not operate a backend that stores your health data.
 
 **Your controls**
 Turn off "Send anonymous diagnostics" at any time in Settings — this stops any
-further collection immediately. Uninstalling the App deletes all of your
-locally stored data immediately, since nothing else is retained anywhere
-except the anonymous Firebase diagnostics described above (governed by
-Firebase's own practices, linked above, not a system we operate).
+further collection immediately. You can also disable AI Coach or Health app
+integration at any time in Settings if you'd previously turned them on.
+
+Uninstalling the App deletes all of your locally stored data immediately.
+That's the whole picture *unless* you had separately enabled one of the
+optional integrations above — in that case, uninstalling stops the App from
+sending anything further, but does not reach back and delete data already
+sent:
+- Anonymous diagnostics already sent to Firebase are retained and governed by
+  Firebase's own practices (linked above), not by us.
+- Data already sent to your configured AI Coach provider (e.g. OpenAI) is
+  retained and governed by that provider's own policies, not by us.
+- Metrics already written to Apple Health or Google Health Connect are
+  retained and governed by that platform's own data controls, not by us —
+  manage or delete them from that app directly.
 
 **Children**
 This App is not directed to children under 13 (or the relevant age of digital
