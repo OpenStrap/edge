@@ -18,10 +18,15 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// Only wire up Firebase when a real google-services.json is present (see
-// note above) — keeps a from-scratch clone buildable with zero Firebase
-// credentials, real or placeholder.
-if (file("google-services.json").exists()) {
+// Only wire up Firebase when a real, non-empty google-services.json is
+// present (see note above) — keeps a from-scratch clone buildable with zero
+// Firebase credentials, real or placeholder. `.exists()` alone isn't enough:
+// CI writes this file unconditionally from a secret
+// (`base64 -d > google-services.json`), so a fork or run with that secret
+// unset/blank still produces a 0-byte file that would pass `.exists()` and
+// then fail the google-services plugin trying to parse it.
+val hasRealGoogleServicesJson = file("google-services.json").let { it.exists() && it.length() > 0 }
+if (hasRealGoogleServicesJson) {
     apply(plugin = "com.google.gms.google-services")
     apply(plugin = "com.google.firebase.firebase-perf")
     apply(plugin = "com.google.firebase.crashlytics")
@@ -105,10 +110,11 @@ android {
             // docs. Uncaught Dart exceptions already symbolicate via the Flutter
             // error handler — this is specifically for the sampled native/ANR path.)
             // Only configurable when the crashlytics plugin was actually applied
-            // above (google-services.json present) — otherwise this extension
-            // type doesn't exist and configuring it unconditionally would fail
-            // Gradle's configuration phase even with the plugin block skipped.
-            if (file("google-services.json").exists()) {
+            // above (real google-services.json present) — otherwise this
+            // extension type doesn't exist and configuring it unconditionally
+            // would fail Gradle's configuration phase even with the plugin
+            // block skipped.
+            if (hasRealGoogleServicesJson) {
                 configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
                     nativeSymbolUploadEnabled = true
                 }

@@ -165,7 +165,7 @@ class LocalRepositoryImpl extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getProfile() async {
     final p = getProfileMap() ?? const {};
-    return {...p, 'step_goal': (p['step_goal'] as num?)?.toInt() ?? 10000};
+    return {...p, 'step_goal': (p['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal};
   }
 
   @override
@@ -359,7 +359,7 @@ class LocalRepositoryImpl extends LocalRepository {
       (await _crossDay()) ?? const {};
 
   Future<int> _stepGoal() async =>
-      (getProfileMap()?['step_goal'] as num?)?.toInt() ?? 10000;
+      (getProfileMap()?['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal;
 
   num? _wearMin(Map<String, dynamic> b) {
     // Wear = RECORD presence (the band logs 1 Hz to flash ONLY while worn), NOT

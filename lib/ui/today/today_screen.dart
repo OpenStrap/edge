@@ -46,6 +46,25 @@ class _TodayScreenState extends State<TodayScreen>
   ChartSeries _hr = const ChartSeries([]);
   bool _storyDismissed = false;
 
+  // Cache for the onboarding collection-progress FutureBuilder below — without
+  // this, `LocalDb.firstAndLastRecordTs()` called inline in `future:` builds a
+  // brand-new Future on every rebuild of this branch (any of the unrelated
+  // setState calls in fetch() for _hr/_sparks/_stepsWeek, or a dbCounts change
+  // via context.select), which FutureBuilder treats as a fresh subscription:
+  // snap.data reverts to null until it resolves, flickering the message and
+  // progress bar back to their empty state and re-querying decoded_onehz —
+  // precisely while that table is under active write pressure from the
+  // backfill this screen is describing. Only recompute when `raw` changes.
+  int? _collectionTsForRaw;
+  Future<(int?, int?)>? _collectionTsFuture;
+  Future<(int?, int?)> _collectionTs(int raw) {
+    if (_collectionTsFuture == null || _collectionTsForRaw != raw) {
+      _collectionTsForRaw = raw;
+      _collectionTsFuture = LocalDb.firstAndLastRecordTs();
+    }
+    return _collectionTsFuture!;
+  }
+
   /// 7-day spark series per vital (nulls = gaps), best-effort.
   Map<String, List<double?>> _sparks = const {};
 
@@ -492,7 +511,7 @@ class _TodayScreenState extends State<TodayScreen>
     }
     if (raw > 0) {
       return FutureBuilder<(int?, int?)>(
-        future: LocalDb.firstAndLastRecordTs(),
+        future: _collectionTs(raw),
         builder: (context, snap) {
           final first = snap.data?.$1;
           final last = snap.data?.$2;

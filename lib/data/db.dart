@@ -2196,7 +2196,11 @@ class LocalDb {
   static Future<(int?, int?)> firstAndLastRecordTs() async {
     final db = await instance;
     final rows = await db.rawQuery(
-      'SELECT MIN(rec_ts) AS lo, MAX(rec_ts) AS hi FROM decoded_onehz',
+      // rec_ts > 0, matching rawStats()/lastDecodedRecTs() — a stray rec_ts=0
+      // row (e.g. via _queueDecodedOneHz's `raw.recTs ?? decoded.tsEpoch`,
+      // which only substitutes on null, not on an explicit 0) would otherwise
+      // make MIN(rec_ts) return 0 and render "Data from Jan 1" (1970 epoch).
+      'SELECT MIN(rec_ts) AS lo, MAX(rec_ts) AS hi FROM decoded_onehz WHERE rec_ts > 0',
     );
     if (rows.isEmpty) return (null, null);
     final lo = (rows.first['lo'] as num?)?.toInt();

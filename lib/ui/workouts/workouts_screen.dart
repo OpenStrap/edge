@@ -374,10 +374,17 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
         topWorkout: topWorkout,
         mostSteps: mostSteps,
         entranceIndex: index,
-        onTap: () => Navigator.of(context).push(
-          themedRoute((_) => WorkoutDetailScreen(id: w['id'] as String),
-              name: 'WorkoutDetailScreen'),
-        ),
+        onTap: () async {
+          // Reload if the detail screen reports a deletion (pop(true)) —
+          // WorkoutsScreen doesn't observe AppState, so without this signal
+          // a workout deleted from detail stayed visible until a manual
+          // refresh.
+          final deleted = await Navigator.of(context).push<bool>(
+            themedRoute((_) => WorkoutDetailScreen(id: w['id'] as String),
+                name: 'WorkoutDetailScreen'),
+          );
+          if (deleted == true) _load();
+        },
         onLongPress: w['status'] == 'live' ? null : () => _exportCard(w),
       ),
     );
@@ -909,7 +916,10 @@ class WorkoutDetailScreen extends StatelessWidget {
     if (app.repo == null) return;
     try {
       await app.deleteWorkout(id); // also clears activeWorkout if it matches
-      if (context.mounted) Navigator.of(context).pop();
+      // pop(true) so the list screen that pushed this route knows to reload —
+      // it doesn't observe AppState, so without this the deleted workout
+      // stayed visible in the list until a manual refresh.
+      if (context.mounted) Navigator.of(context).pop(true);
     } catch (_) {}
   }
 
