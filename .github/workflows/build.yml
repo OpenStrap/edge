@@ -12,6 +12,58 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need all tags so the versionCode guard can read prior releases' pubspec
+
+      # Fail the release BEFORE building if the Android versionCode is missing or
+      # would go backwards. Flutter derives versionCode from the `+BUILD` suffix
+      # of pubspec's `version:` and silently falls back to 1 when it's absent, so
+      # `version: 0.9.17+1` shipped v0.9.17 with versionCode 1 — a downgrade from
+      # 0.9.15/0.9.16 (versionCode 48). Android then refuses every upgrade install
+      # (INSTALL_FAILED_VERSION_DOWNGRADE, shown to users as "App not installed").
+      # This guard turns that class of mistake into a red build instead of a
+      # broken release.
+      - name: Guard — versionCode present, matches tag, and strictly increasing
+        run: |
+          set -euo pipefail
+          ver=$(grep -E '^version:' pubspec.yaml | head -1 | awk '{print $2}')
+          name=${ver%%+*}
+          build=${ver#*+}
+
+          if [ "$build" = "$ver" ]; then
+            echo "::error::pubspec version '$ver' has no +BUILD suffix — versionCode would fall back to 1 and break upgrades."
+            exit 1
+          fi
+          if ! printf '%s' "$build" | grep -qE '^[0-9]+$'; then
+            echo "::error::pubspec build number '$build' is not an integer."
+            exit 1
+          fi
+
+          # The tag being released must match the versionName, so the user-facing
+          # version can't drift from the tag (v0.9.16 shipped bytes identical to
+          # v0.9.15 because pubspec was never bumped). Suffixed tags such as
+          # v0.9.14-whoop5-experimental are allowed against name 0.9.14.
+          tag=${GITHUB_REF_NAME#v}
+          case "$tag" in
+            "$name"|"$name"-*) : ;;
+            *) echo "::error::tag '$GITHUB_REF_NAME' does not match pubspec versionName '$name'."; exit 1 ;;
+          esac
+
+          # versionCode must exceed the highest already-released versionCode, or
+          # the new APK can't install over existing devices.
+          max=0
+          for t in $(git tag -l 'v*'); do
+            [ "$t" = "$GITHUB_REF_NAME" ] && continue
+            pv=$(git show "$t:pubspec.yaml" 2>/dev/null | grep -E '^version:' | head -1 | awk '{print $2}' || true)
+            b=${pv#*+}
+            printf '%s' "$b" | grep -qE '^[0-9]+$' || continue
+            [ "$b" -gt "$max" ] && max=$b
+          done
+          if [ "$build" -le "$max" ]; then
+            echo "::error::versionCode $build is not greater than the highest released versionCode $max — installs would be blocked as a downgrade."
+            exit 1
+          fi
+          echo "versionCode $build (versionName $name) OK — exceeds prior max $max."
 
       - uses: actions/setup-java@v4
         with:
