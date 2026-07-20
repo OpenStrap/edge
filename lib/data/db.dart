@@ -3180,6 +3180,22 @@ class LocalDb {
     );
   }
 
+  /// The TRAILING [n] non-null values for [key] — the newest n days, returned
+  /// oldest→newest. Unlike [metricSeries] (which is `date ASC LIMIT n`, i.e. the
+  /// OLDEST n days), this is the right window for a rolling baseline. Because
+  /// metric_series is keyed `(date, key)` with REPLACE, there is exactly one row
+  /// per day, so the result is inherently de-duplicated.
+  static Future<List<double>> trailingSeriesValues(String key, int n) async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT value FROM metric_series '
+      'WHERE key = ? AND value IS NOT NULL '
+      'ORDER BY date DESC LIMIT ?',
+      [key, n],
+    );
+    return [for (final r in rows.reversed) (r['value'] as num).toDouble()];
+  }
+
   static Future<Map<String, dynamic>?> baseline(String key) async {
     final db = await instance;
     final rows = await db.query(

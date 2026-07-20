@@ -320,10 +320,21 @@ class _BaselineHistoryCache {
         // Fall back to metric_series rebuild.
       }
     }
-    Future<List<double>> hist(String key) async {
-      final rows = await LocalDb.metricSeries(key, limit: _baselineWindowDays);
-      return [for (final r in rows) (r['value'] as num).toDouble()];
-    }
+    // Artifact decode failed → rebuild the trailing window straight from the
+    // canonical (de-duplicated) metric_series store.
+    return rebuildFromSeries();
+  }
+
+  /// Build the baseline window from `metric_series` — the trailing
+  /// [_baselineWindowDays] values per key. metric_series is keyed `(date, key)`
+  /// with REPLACE, so this is inherently one value per day: it cannot contain
+  /// the duplicate-day pollution that [appendScalars] accumulates in a persisted
+  /// artifact across repeated same-day re-derives. Used to persist a clean
+  /// artifact in `_refreshBaselines`, which also self-heals any already-polluted
+  /// install on the first derive after upgrade.
+  static Future<_BaselineHistoryCache> rebuildFromSeries() async {
+    Future<List<double>> hist(String key) =>
+        LocalDb.trailingSeriesValues(key, _baselineWindowDays);
 
     final loaded = await Future.wait([
       hist('ln_rmssd'),
@@ -649,7 +660,7 @@ class DerivationEngine {
       // 4. Cross-day rollup + notifications (best-effort).
       if (done > 0) {
         _diag['stage'] = 'baselines';
-        await _refreshBaselines(history);
+        await _refreshBaselines();
         _diag['stage'] = 'cross_day';
         await _runCrossDay(profile);
         _diag['stage'] = 'notifications';
@@ -763,7 +774,7 @@ class DerivationEngine {
 
       await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
       if (done > 0) {
-        await _refreshBaselines(history);
+        await _refreshBaselines();
         await _runCrossDay(profile);
         await _runNotifications();
       }
@@ -1212,7 +1223,7 @@ class DerivationEngine {
 
       await runWithConcurrency(orderedDays, _deriveConcurrency, processDay);
 
-      await _refreshBaselines(history);
+      await _refreshBaselines();
       // Cross-day rollup + notifications reflect the refreshed scalars.
       await _runCrossDay(profile);
       await _runNotifications();
@@ -1324,7 +1335,7 @@ class DerivationEngine {
   /// Run the cross-day rollup + notifications + baseline refresh once after an
   /// import completes (reflects the freshly imported day history).
   Future<void> finalizeImport(Profile profile) async {
-    await _refreshBaselines(await _BaselineHistoryCache.load());
+    await _refreshBaselines();
     await _runCrossDay(profile);
     await _runNotifications();
   }
@@ -2041,8 +2052,20 @@ class DerivationEngine {
     };
   }
 
-  /// Refresh rolling baselines from the latest day_result rows (cheap: columns).
-  Future<void> _refreshBaselines(_BaselineHistoryCache history) async {
+  /// Refresh the persisted rolling-baseline artifact.
+  ///
+  /// This ALWAYS rebuilds from `metric_series` (one REPLACE-keyed row per day)
+  /// rather than persisting the in-memory [_BaselineHistoryCache] that the sweep
+  /// mutated via [_BaselineHistoryCache.appendScalars]. That in-memory list is
+  /// correct for intra-sweep freshness but is append-only with no day identity,
+  /// so persisting it let repeated same-day re-derives (every BLE drain triggers
+  /// a light pass over today) stack duplicate copies of today into the 28-day
+  /// window. Once enough slots held the same value the readiness composite's
+  /// robust z-score hit MAD=0 and returned absent — the intermittent blank
+  /// readiness ring. Rebuilding from the de-duplicated store fixes that and
+  /// self-heals any already-polluted artifact on the first derive after upgrade.
+  Future<void> _refreshBaselines() async {
+    final history = await _BaselineHistoryCache.rebuildFromSeries();
     final artifact = history.toArtifactJson();
     final rolling = ((artifact['rolling'] as Map?) ?? const {})
         .cast<String, dynamic>();
