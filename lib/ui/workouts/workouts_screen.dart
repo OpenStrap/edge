@@ -383,7 +383,9 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
             themedRoute((_) => WorkoutDetailScreen(id: w['id'] as String),
                 name: 'WorkoutDetailScreen'),
           );
-          if (deleted == true) _load();
+          // mounted guard: this screen itself could have been popped/disposed
+          // while the detail push was awaited; _load() calls setState.
+          if (deleted == true && mounted) _load();
         },
         onLongPress: w['status'] == 'live' ? null : () => _exportCard(w),
       ),
