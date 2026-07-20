@@ -204,7 +204,11 @@ String buildBriefingUserPrompt(
   one = one.replaceFirst(RegExp(r'^\s*[-*#>]+\s*'), '').trim();
   if (one.length > 200) one = '${one.substring(0, 199)}…';
   rest = rest.trim();
-  if (rest.isEmpty) rest = '- $one';
+  // A model that returns a single line (no bullets) has no distinct breakdown.
+  // Leave it EMPTY rather than echoing the one-liner back as a lone bullet —
+  // the breakdown card would then render the same sentence a second time
+  // (the "duplicates on the briefing page" bug). The UI hides an empty
+  // breakdown, so the one-liner shows exactly once.
   return (oneLiner: one, breakdownMd: rest);
 }
 
