@@ -247,7 +247,7 @@ import 'substrate.dart';
 // re-armed inside the `Isolate.run` closure and returned as plain JSON) instead
 // of the main/UI thread — so the residual staging CPU no longer blocks the UI
 // even before the ~10× trig win.
-const int kAlgoVersion = 45;
+const int kAlgoVersion = 46;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;
