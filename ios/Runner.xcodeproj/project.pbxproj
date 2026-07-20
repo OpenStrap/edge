@@ -377,6 +377,7 @@
 			buildPhases = (
 				45867976D551EFEFA5552E57 /* [CP] Check Pods Manifest.lock */,
 				9740EEB61CF901F6004384FC /* Run Script */,
+				47E3AF2498550A854A4821B6 /* Ensure GoogleService-Info.plist */,
 				97C146EA1CF9000F007C117D /* Sources */,
 				97C146EB1CF9000F007C117D /* Frameworks */,
 				97C146EC1CF9000F007C117D /* Resources */,
@@ -576,6 +577,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
+		};
+		47E3AF2498550A854A4821B6 /* Ensure GoogleService-Info.plist */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Ensure GoogleService-Info.plist";
+			outputPaths = (
+				"$(SRCROOT)/Runner/GoogleService-Info.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# GoogleService-Info.plist is gitignored (no committed credentials, real or\n# placeholder). The Resources phase below still statically references it, so\n# a fresh clone with no Firebase project configured needs SOMETHING on disk\n# at this path or the build fails outright. Generate a format-valid, inert\n# placeholder here (never committed, never overwrites a real file a\n# contributor has placed for their own local Firebase project) so Firebase\n# telemetry stays fully optional at build time, matching the Android side.\nPLIST=\"$SRCROOT/Runner/GoogleService-Info.plist\"\nif [ ! -f \"$PLIST\" ]; then\n  cat > \"$PLIST\" <<'EOF'\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>API_KEY</key>\n\t<string>AIzaSyDummyDummyDummyDummyDummyDummyDum</string>\n\t<key>GCM_SENDER_ID</key>\n\t<string>000000000000</string>\n\t<key>PLIST_VERSION</key>\n\t<string>1</string>\n\t<key>BUNDLE_ID</key>\n\t<string>wtf.openstrap.dummy</string>\n\t<key>PROJECT_ID</key>\n\t<string>dummy-project</string>\n\t<key>STORAGE_BUCKET</key>\n\t<string>dummy-project.appspot.com</string>\n\t<key>IS_ADS_ENABLED</key>\n\t<false/>\n\t<key>IS_ANALYTICS_ENABLED</key>\n\t<false/>\n\t<key>IS_APPINVITE_ENABLED</key>\n\t<false/>\n\t<key>IS_GCM_ENABLED</key>\n\t<false/>\n\t<key>IS_SIGNIN_ENABLED</key>\n\t<false/>\n\t<key>GOOGLE_APP_ID</key>\n\t<string>1:000000000000:ios:0000000000000000000000</string>\n</dict>\n</plist>\nEOF\nfi\n";
 		};
 		AEFDDC7BFE6597FE6A6F1BB9 /* FlutterFire: "flutterfire upload-crashlytics-symbols" */ = {
 			isa = PBXShellScriptBuildPhase;
