@@ -39,7 +39,8 @@ void main() {
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
-  Future<void> seedDay(String dayId, double readiness) async {
+  Future<void> seedDay(String dayId, double readiness,
+      {bool finalized = false}) async {
     await LocalDb.putDayResult(
       dayId: dayId,
       algoVersion: kAlgoVersion,
@@ -47,11 +48,18 @@ void main() {
         'scalars': {'readiness': readiness}
       }),
       windowJson: '{}',
-      finalized: false,
+      finalized: finalized,
       rhr: 55,
       rmssd: 60,
       readiness: readiness,
-      series: {'readiness': readiness},
+      series: {
+        'readiness': readiness,
+        'ln_rmssd': 4.0,
+        'rhr': 55.0,
+        'resp_rate': 14.0,
+        'skin_temp_adc': 3000.0,
+        'rmssd': 60.0,
+      },
     );
   }
 
@@ -122,5 +130,44 @@ void main() {
     expect(leadingVals.first, 41.0);
     expect(leadingVals.last, 68.0);
     expect(trailing, isNot(equals(leadingVals)));
+  });
+
+  // ── The read path never trusts a polluted-but-valid on-disk artifact ───────
+
+  test('load ignores a valid polluted rolling_artifact, even when all finalized',
+      () async {
+    await (await LocalDb.instance).delete('metric_series');
+    // Clean canonical store: 28 distinct, FINALIZED days. All-finalized is the
+    // case where a derive sweep does no work and the old self-heal (which only
+    // ran inside _refreshBaselines on a working sweep) never fired.
+    for (var i = 1; i <= 28; i++) {
+      await seedDay('2026-07-${i.toString().padLeft(2, '0')}', 60.0 + i,
+          finalized: true);
+    }
+    // Persist a VALID but polluted artifact — exactly what an affected install
+    // carries on disk: 20 identical readiness values (MAD would be 0).
+    await LocalDb.putBaseline(
+      'rolling_artifact',
+      jsonEncode({
+        'series': {
+          'readiness': [for (var i = 0; i < 20; i++) 60.0],
+          'ln_rmssd': [for (var i = 0; i < 20; i++) 4.0],
+          'rhr': [for (var i = 0; i < 20; i++) 55.0],
+          'resp_rate': [for (var i = 0; i < 20; i++) 14.0],
+          'skin_temp_adc': [for (var i = 0; i < 20; i++) 3000.0],
+          'rmssd': [for (var i = 0; i < 20; i++) 60.0],
+        },
+      }),
+    );
+
+    // The read path rebuilds from metric_series and IGNORES the artifact.
+    final window = await debugBaselineWindow('readiness');
+    expect(window.length, 28,
+        reason: 'from the 28-day store, not the 20-slot polluted artifact');
+    expect(window.toSet().length, greaterThan(1),
+        reason: "distinct real days — not the artifact's one repeated value");
+    expect(ana.robustZ(72, window), isNotNull,
+        reason: 'clean baseline → readiness computes on the FIRST derive, '
+            'with no refresh required to self-heal');
   });
 }

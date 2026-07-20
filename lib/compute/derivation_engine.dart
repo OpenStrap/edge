@@ -259,6 +259,13 @@ const int _finalizationSec = 48 * 3600;
 /// How many trailing derived days feed readiness/composite baselines.
 const int _baselineWindowDays = 28;
 
+/// Test seam: the rolling baseline window the readiness computation actually
+/// runs against, loaded exactly as production does. Exposed to assert the read
+/// path ignores a polluted `rolling_artifact` and rebuilds from `metric_series`.
+@visibleForTesting
+Future<List<double>> debugBaselineWindow(String key) async =>
+    (await _BaselineHistoryCache.load()).values(key);
+
 @visibleForTesting
 ({List<String> days, String reason}) selectLightDeriveDays({
   required Set<String> rawDays,
@@ -288,51 +295,22 @@ class _BaselineHistoryCache {
 
   final Map<String, List<double>> _series;
 
+  /// Load the rolling baseline window that feeds the readiness/illness
+  /// computations. This ALWAYS rebuilds from `metric_series` — the canonical
+  /// scalar store, keyed `(date, key)` with REPLACE, so it is structurally one
+  /// value per day.
+  ///
+  /// We deliberately do NOT trust the persisted `rolling_artifact` for history.
+  /// That artifact is written from an in-memory cache that [appendScalars] only
+  /// appends to (no day identity), so repeated same-day re-derives could stack
+  /// duplicate copies of today into the window; once enough slots matched, the
+  /// readiness composite's robust z-score hit MAD=0 and went absent — the blank
+  /// readiness ring. A polluted artifact is still valid JSON, so trusting it on
+  /// read would let that pollution reach the computation on the first
+  /// post-upgrade derive (and, when every day is finalized and `run()` does no
+  /// work, forever). Rebuilding from the de-duplicated store on every load makes
+  /// the read path immune and self-heals any already-polluted install.
   static Future<_BaselineHistoryCache> load() async {
-    final artifact = await LocalDb.baseline('rolling_artifact');
-    final raw = artifact?['payload_json'];
-    if (raw is String && raw.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is Map) {
-          List<double> histFromMap(Map<String, dynamic> map, String key) {
-            final rows = map[key];
-            if (rows is! List) return const [];
-            return [
-              for (final row in rows)
-                if (row is num) row.toDouble(),
-            ];
-          }
-
-          final map = decoded.cast<String, dynamic>();
-          final series = ((map['series'] as Map?) ?? const {})
-              .cast<String, dynamic>();
-          return _BaselineHistoryCache({
-            'ln_rmssd': histFromMap(series, 'ln_rmssd'),
-            'rmssd': histFromMap(series, 'rmssd'),
-            'rhr': histFromMap(series, 'rhr'),
-            'resp_rate': histFromMap(series, 'resp_rate'),
-            'skin_temp_adc': histFromMap(series, 'skin_temp_adc'),
-            'readiness': histFromMap(series, 'readiness'),
-          });
-        }
-      } catch (_) {
-        // Fall back to metric_series rebuild.
-      }
-    }
-    // Artifact decode failed → rebuild the trailing window straight from the
-    // canonical (de-duplicated) metric_series store.
-    return rebuildFromSeries();
-  }
-
-  /// Build the baseline window from `metric_series` — the trailing
-  /// [_baselineWindowDays] values per key. metric_series is keyed `(date, key)`
-  /// with REPLACE, so this is inherently one value per day: it cannot contain
-  /// the duplicate-day pollution that [appendScalars] accumulates in a persisted
-  /// artifact across repeated same-day re-derives. Used to persist a clean
-  /// artifact in `_refreshBaselines`, which also self-heals any already-polluted
-  /// install on the first derive after upgrade.
-  static Future<_BaselineHistoryCache> rebuildFromSeries() async {
     Future<List<double>> hist(String key) =>
         LocalDb.trailingSeriesValues(key, _baselineWindowDays);
 
@@ -2052,20 +2030,18 @@ class DerivationEngine {
     };
   }
 
-  /// Refresh the persisted rolling-baseline artifact.
+  /// Refresh the persisted rolling-baseline artifact + signature caches.
   ///
-  /// This ALWAYS rebuilds from `metric_series` (one REPLACE-keyed row per day)
-  /// rather than persisting the in-memory [_BaselineHistoryCache] that the sweep
-  /// mutated via [_BaselineHistoryCache.appendScalars]. That in-memory list is
+  /// Rebuilds from the de-duplicated `metric_series` store (see
+  /// [_BaselineHistoryCache.load]) rather than persisting the in-memory cache
+  /// the sweep mutated via [_BaselineHistoryCache.appendScalars] — that list is
   /// correct for intra-sweep freshness but is append-only with no day identity,
-  /// so persisting it let repeated same-day re-derives (every BLE drain triggers
-  /// a light pass over today) stack duplicate copies of today into the 28-day
-  /// window. Once enough slots held the same value the readiness composite's
-  /// robust z-score hit MAD=0 and returned absent — the intermittent blank
-  /// readiness ring. Rebuilding from the de-duplicated store fixes that and
-  /// self-heals any already-polluted artifact on the first derive after upgrade.
+  /// so persisting it let repeated same-day re-derives stack duplicate copies of
+  /// today into the window (the blank-readiness root cause). The read path
+  /// ([_BaselineHistoryCache.load]) no longer trusts this artifact for history,
+  /// but it still backs the cheap `signature` rescan gate, so keep it fresh.
   Future<void> _refreshBaselines() async {
-    final history = await _BaselineHistoryCache.rebuildFromSeries();
+    final history = await _BaselineHistoryCache.load();
     final artifact = history.toArtifactJson();
     final rolling = ((artifact['rolling'] as Map?) ?? const {})
         .cast<String, dynamic>();
