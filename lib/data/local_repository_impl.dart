@@ -680,14 +680,13 @@ class LocalRepositoryImpl extends LocalRepository {
     num? score = (stressBlk?['score'] as num?);
     String? level = stressBlk?['level'] as String?;
     final si = (stressBlk?['si'] as num?);
-    if (score == null) {
-      // Fallback: inverse of readiness (only when SI couldn't compute).
-      final readiness = _scalar(b, 'readiness');
-      if (readiness != null) {
-        score = (100 - readiness).round().clamp(0, 100);
-        level = score < 34 ? 'low' : (score < 67 ? 'moderate' : 'high');
-      }
-    }
+    // NO fallback here. `100 - readiness` used to backfill a "stress" number
+    // whenever the real Baevsky SI was absent — fabricating a score from an
+    // unrelated metric, which violates the "absent input -> null, never
+    // imputed" rule and is exactly why a user with no overnight SI could see
+    // a confident-looking stress score anyway. `hasStress` downstream (see
+    // stress_screen.dart) already gates the hero UI on `score is num`, so
+    // leaving score/level null here correctly renders as "-".
 
     final lfHf =
         (stressBlk?['lf_hf'] as num?) ??
@@ -2343,11 +2342,14 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 }
 
-/// The /today `stress` block from a day bundle — the pipeline's Baevsky block
-/// with the SAME readiness-inverse fallback getDayStress applies (only when SI
-/// couldn't compute a score). Pure + public so the Today seam is unit-testable.
-/// Returns null when there is neither a stress block nor a readiness scalar
-/// (the tile then renders the honest "—").
+/// The /today `stress` block from a day bundle — the pipeline's Baevsky block,
+/// verbatim, with NO fallback substitute when SI couldn't compute a score.
+/// (Previously mirrored getDayStress's `100 - readiness` fallback; removed for
+/// the same reason — it fabricated a stress-looking number out of an unrelated
+/// metric, violating the never-impute rule.) Pure + public so the Today seam
+/// is unit-testable. Returns null when there is neither a stress block nor any
+/// score (the tile then renders the honest "—"); [readiness] is now unused but
+/// kept as a parameter for call-site compatibility.
 Map<String, dynamic>? stressSummaryForToday(
   Map<String, dynamic> bundle,
   num? readiness,
@@ -2355,14 +2357,7 @@ Map<String, dynamic>? stressSummaryForToday(
   final blk = bundle['stress'] is Map
       ? (bundle['stress'] as Map).cast<String, dynamic>()
       : const <String, dynamic>{};
-  if (blk['score'] != null) return blk;
-  if (readiness == null) return blk.isEmpty ? null : blk;
-  final score = (100 - readiness).round().clamp(0, 100);
-  return {
-    ...blk,
-    'score': score,
-    'level': score < 34 ? 'low' : (score < 67 ? 'moderate' : 'high'),
-  };
+  return blk.isEmpty ? null : blk;
 }
 
 // ── Live spot-check / breathing compute (run under Isolate.run, off the UI) ────
