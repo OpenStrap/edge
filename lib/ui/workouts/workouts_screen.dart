@@ -198,19 +198,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
   /// Confirm an auto-detected suggestion → create a completed session, then
   /// drop the suggestion and refresh.
   Future<void> _confirmSuggestion(Map<String, dynamic> s) async {
-    final start = (s['start_ts'] as num?)?.toInt() ?? 0;
-    await LocalDb.putSession({
-      'id': 'auto:$start',
-      'start_ts': start,
-      'end_ts': (s['end_ts'] as num?)?.toInt(),
-      'type': (s['sport'] as String?) ?? 'cardio',
-      'status': 'done',
-      'duration_min': (s['duration_min'] as num?)?.toInt(),
-      'max_hr': (s['peak_bpm'] as num?)?.toInt(),
-      'source': 'auto',
-      'created_at': DateTime.now().millisecondsSinceEpoch,
-    });
-    await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
+    await _logDetectedSession(s);
     await _load();
   }
 
@@ -501,6 +489,26 @@ class _StartButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Log an auto-detected suggestion as a completed session and drop the
+/// suggestion. Shared by the Workouts tab card and the deep-linked
+/// [WorkoutSuggestionScreen] so both write an identical session. Never logs
+/// silently — only called from an explicit "Log it" tap.
+Future<void> _logDetectedSession(Map<String, dynamic> s) async {
+  final start = (s['start_ts'] as num?)?.toInt() ?? 0;
+  await LocalDb.putSession({
+    'id': 'auto:$start',
+    'start_ts': start,
+    'end_ts': (s['end_ts'] as num?)?.toInt(),
+    'type': (s['sport'] as String?) ?? 'cardio',
+    'status': 'done',
+    'duration_min': (s['duration_min'] as num?)?.toInt(),
+    'max_hr': (s['peak_bpm'] as num?)?.toInt(),
+    'source': 'auto',
+    'created_at': DateTime.now().millisecondsSinceEpoch,
+  });
+  await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
 }
 
 /// An opt-in auto-detected workout the user can confirm (→ logs a session) or
@@ -1543,4 +1551,94 @@ class WorkoutDetailContent extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// Focused review of auto-detected workout suggestions, deep-linked from the
+/// "Did you work out?" notification (route [kRouteWorkoutSuggestion], resolved
+/// in tap_router.dart). The notification used to route to plain `/workouts`,
+/// which only selected the Workouts tab and left the suggestion as one card in
+/// the history list — so tapping it never clearly took the user to where the
+/// detected activity could be logged or adjusted (issue #113). This lands them
+/// straight on that log/adjust affordance, on top of the Workouts tab.
+class WorkoutSuggestionScreen extends StatefulWidget {
+  const WorkoutSuggestionScreen({super.key});
+
+  @override
+  State<WorkoutSuggestionScreen> createState() =>
+      _WorkoutSuggestionScreenState();
+}
+
+class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
+  List<Map<String, dynamic>> _suggestions = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final sug = await LocalDb.activeWorkoutSuggestions();
+      if (mounted) {
+        setState(() {
+          _suggestions = sug;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _confirm(Map<String, dynamic> s) async {
+    await _logDetectedSession(s);
+    await _afterAction();
+  }
+
+  Future<void> _dismiss(Map<String, dynamic> s) async {
+    await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
+    await _afterAction();
+  }
+
+  // Reload; once there's nothing left to review, close back to the Workouts tab
+  // underneath (which lists the now-logged session).
+  Future<void> _afterAction() async {
+    await _load();
+    if (mounted && _suggestions.isEmpty) Navigator.of(context).maybePop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppScaffold(
+      title: 'Detected activity',
+      children: [
+        if (_loading)
+          const Padding(
+            padding: EdgeInsets.only(top: Sp.x6),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_suggestions.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: Sp.x6),
+            child: Text(
+              'Nothing to review right now — this activity may already have '
+              'been logged or dismissed.',
+              style: AppText.captionMuted,
+            ),
+          )
+        else
+          for (final s in _suggestions)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Sp.x3),
+              child: _SuggestionCard(
+                s: s,
+                onConfirm: () => _confirm(s),
+                onDismiss: () => _dismiss(s),
+              ),
+            ),
+      ],
+    );
+  }
 }

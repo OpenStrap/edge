@@ -195,6 +195,9 @@ class _ShellState extends State<_Shell> {
       kRouteAiEvening =>
         const AiBreakdownScreen(period: BriefingPeriod.evening),
       kRouteJournalCompose => const JournalComposeScreen(),
+      // "Did you work out?" auto-detect tap → focused log/adjust review, on top
+      // of the Workouts tab (issue #113). WorkoutsScreen is already imported.
+      kRouteWorkoutSuggestion => const WorkoutSuggestionScreen(),
       // Siri/Shortcuts "start breathing" App Intent — see StartBreathingIntent
       // in OpenStrapIntents.swift, which writes this route into the App Group
       // for WidgetService.consumePendingRoute() to pick up on launch/resume.

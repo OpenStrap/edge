@@ -24,6 +24,22 @@ void main() {
     expect(resolveTapRoute(kRouteJournalCompose).screen, kRouteJournalCompose);
   });
 
+  test(
+      'kRouteWorkoutSuggestion lands on the Workouts tab + the suggestion '
+      'sub-screen (issue #113)', () {
+    final t = resolveTapRoute(kRouteWorkoutSuggestion);
+    expect(t.tab, 4); // Workouts tab underneath
+    expect(t.screen, kRouteWorkoutSuggestion); // focused log/adjust review
+  });
+
+  test('plain /workouts still resolves to the tab with no sub-screen', () {
+    // The auto-detect notification now uses kRouteWorkoutSuggestion, but the
+    // bare tab route must keep working for any other caller.
+    final t = resolveTapRoute('/workouts');
+    expect(t.tab, 4);
+    expect(t.screen, isNull);
+  });
+
   test('an unknown/stale route falls back to Today, never crashes', () {
     final t = resolveTapRoute('/recap');
     expect(t.tab, 0);
