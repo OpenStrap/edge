@@ -145,6 +145,14 @@ void main() {
       expect(r.oneLiner, 'Solid day.');
       expect(r.breakdownMd, contains('Good strain'));
     });
+
+    test('a single-line reply leaves the breakdown empty (no echo — #107)', () {
+      // A model that ignores the format and returns one line must NOT have that
+      // line copied back as a lone bullet, or the UI renders it twice.
+      final r = parseBriefingResponse('User Safety: safe');
+      expect(r.oneLiner, 'User Safety: safe');
+      expect(r.breakdownMd, isEmpty);
+    });
   });
 
   group('BriefingEngine + cache', () {

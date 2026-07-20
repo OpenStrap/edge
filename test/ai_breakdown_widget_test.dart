@@ -3,6 +3,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -118,5 +119,36 @@ void main() {
     await t.pump();
     await t.pump(const Duration(milliseconds: 700));
     expect(find.text('A solid, active day.'), findsOneWidget);
+  });
+
+  testWidgets('cached briefing that only echoes the one-liner renders it once',
+      (t) async {
+    // Older builds cached the one-liner back as a lone bullet, so the hero and
+    // the breakdown card showed the same sentence twice (issue #107). The guard
+    // must drop the breakdown card and render the sentence exactly once.
+    BriefingStore.write(Briefing(
+      day: todayLabel(),
+      period: BriefingPeriod.morning,
+      oneLiner: 'User Safety: safe',
+      breakdownMd: '- User Safety: safe',
+      generatedAtMs: DateTime.now().millisecondsSinceEpoch,
+      inputs: const {'readiness': 50},
+    ));
+    final engine = BriefingEngine(
+      config: CoachConfig(),
+      repo: _FakeRepo(),
+      complete: ({required system, required user}) async =>
+          throw StateError('should not generate when cached'),
+    );
+    await t.pumpWidget(_host(AiBreakdownScreen(
+      period: BriefingPeriod.morning,
+      engineOverride: engine,
+    )));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 700));
+
+    // Hero shows it once; the breakdown card (the only GptMarkdown) is gone.
+    expect(find.text('User Safety: safe'), findsOneWidget);
+    expect(find.byType(GptMarkdown), findsNothing);
   });
 }

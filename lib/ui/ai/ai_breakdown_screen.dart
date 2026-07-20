@@ -185,6 +185,12 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
     final at = DateTime.fromMillisecondsSinceEpoch(b.generatedAtMs);
     final hh = at.hour.toString().padLeft(2, '0');
     final mm = at.minute.toString().padLeft(2, '0');
+    final md = b.breakdownMd.trim();
+    // Hide the breakdown when it is empty or merely restates the one-liner —
+    // older cached briefings stored the one-liner back as a lone bullet, so the
+    // hero sentence rendered a second time (issue #107).
+    final breakdownBody = md.replaceFirst(RegExp(r'^[-*]\s*'), '').trim();
+    final showBreakdown = md.isNotEmpty && breakdownBody != b.oneLiner.trim();
     return [
       // Hero — the one-liner, numbers-first tone, glow like the Today slot.
       SurfaceCard(
@@ -194,30 +200,33 @@ class _AiBreakdownScreenState extends State<AiBreakdownScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              Container(
-                // Art carries its own padding: 2 + 28 ≈ the old 8 + 17 chip.
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  color: AppColors.accentSoft,
-                  borderRadius: BorderRadius.circular(R.chip),
-                ),
-                child: const OsAppIcon(OsIcon.ai, size: 28),
+            // The AppScaffold title already names the screen ("Morning
+            // briefing"), so no overline label here — it just repeated the
+            // title (issue #107). The icon chip stays as the visual anchor.
+            Container(
+              // Art carries its own padding: 2 + 28 ≈ the old 8 + 17 chip.
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: AppColors.accentSoft,
+                borderRadius: BorderRadius.circular(R.chip),
               ),
-              const SizedBox(width: Sp.x3),
-              Text(b.period.title.toUpperCase(), style: AppText.overline),
-            ]),
+              child: const OsAppIcon(OsIcon.ai, size: 28),
+            ),
             const SizedBox(height: Sp.x4),
             Text(b.oneLiner, style: AppText.h2),
           ],
         ),
       ).dsEnter(index: 0),
-      const SizedBox(height: Sp.x3),
 
-      // The short structured breakdown (markdown bullets).
-      SurfaceCard(
-        child: GptMarkdown(b.breakdownMd, style: AppText.body),
-      ).dsEnter(index: 1),
+      // The short structured breakdown (markdown bullets). Hidden when the
+      // model returned only a one-liner (no distinct breakdown) — otherwise it
+      // echoes the hero sentence a second time (issue #107).
+      if (showBreakdown) ...[
+        const SizedBox(height: Sp.x3),
+        SurfaceCard(
+          child: GptMarkdown(md, style: AppText.body),
+        ).dsEnter(index: 1),
+      ],
       const SizedBox(height: Sp.x5),
 
       // Exactly what the model saw — the inputs snapshot as glanceable tiles.
