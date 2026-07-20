@@ -416,9 +416,6 @@ class _TodayScreenState extends State<TodayScreen>
       for (final p in _hr.points) TimeSeriesPoint(p.t.toDouble(), p.v),
     ];
     final hasData = points.length >= 2;
-    final nowSec = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final peak = hasData ? points.reduce((a, b) => a.y >= b.y ? a : b) : null;
-    final low = hasData ? points.reduce((a, b) => a.y <= b.y ? a : b) : null;
     return SurfaceCard(
       onTap: () => _push(() => JourneyScreen(date: _todayStr())),
       padding: const EdgeInsets.all(Sp.x4),
@@ -441,31 +438,15 @@ class _TodayScreenState extends State<TodayScreen>
             style: AppText.body,
           ),
           if (hasData) ...[
-            const SizedBox(height: Sp.x3),
-            Wrap(
-              spacing: Sp.x2,
-              runSpacing: Sp.x1,
-              children: [
-                StatusChip('Peak ${peak!.y.round()}', tone: ChipTone.accent),
-                StatusChip('Low ${low!.y.round()}'),
-              ],
-            ),
-          ],
-          if (hasData) ...[
             const SizedBox(height: Sp.x4),
-            TimeSeriesChart(
+            // Same shared HR chart+chips as the Heart screen's day detail —
+            // chips above (a portal preview, not the primary reading) and
+            // capped at "now" since today isn't over yet.
+            HrCurveWithChips(
               points: points,
-              color: DomainAccent.heart,
               height: 180,
-              maxX: nowSec,
-              yUnit: ' bpm',
-              tooltip: (p) {
-                final dt = DateTime.fromMillisecondsSinceEpoch(
-                  (p.x * 1000).round(),
-                ).toLocal();
-                final mm = dt.minute.toString().padLeft(2, '0');
-                return '${dt.hour}:$mm\n${p.y.round()} bpm';
-              },
+              chipsPosition: HrChipsPosition.above,
+              cutoffToNow: true,
             ),
           ],
         ],

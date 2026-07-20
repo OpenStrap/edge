@@ -24,6 +24,7 @@ import '../../debug/debug_mode.dart';
 import '../../telemetry/health_uploader.dart' show kHealthDataContributionEnabled;
 import '../../theme/theme_switcher.dart';
 import '../ai/ai_settings_screen.dart';
+import '../coach/ai_coach_screen.dart';
 import '../design/design.dart';
 import '../design/gallery_screen.dart';
 import '../import/import_screen.dart';
@@ -439,15 +440,27 @@ class ProfileScreen extends StatelessWidget {
           ],
           const SizedBox(height: Sp.x6),
 
-          // ── AI briefings & journaling (BYOK) ──────────────────────────
-          const SectionHeader('AI briefings & journaling'),
+          // ── AI (BYOK) ──────────────────────────────────────────────────
+          // Two distinct AI surfaces get their own row here — previously the
+          // agentic AI Coach chat was reachable ONLY via a small pill button
+          // on the Body screen, with nothing under Profile pointing at it.
+          const SectionHeader('AI'),
           _SettingsCard(rows: [
             ListRow(
               icon: OsIcon.ai,
               title: 'Briefings & journal',
+              subtitle: 'Your AI key, morning/evening briefings, journal prompt',
               value: 'Manage',
               onTap: () => Navigator.of(context).push(themedRoute(
                   (_) => const AiSettingsScreen(), name: 'AiSettingsScreen')),
+            ),
+            ListRow(
+              icon: OsIcon.ai,
+              title: 'AI coach',
+              subtitle: 'Chat with your on-device AI about your own data',
+              value: 'Open',
+              onTap: () => Navigator.of(context).push(themedRoute(
+                  (_) => const AiCoachScreen(), name: 'AiCoachScreen')),
             ),
           ]),
           const SizedBox(height: Sp.x6),

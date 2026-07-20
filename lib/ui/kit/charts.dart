@@ -10,6 +10,8 @@ import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import 'kit.dart';
 import '../design/arc_gauge.dart';
+import '../design/controls.dart' show StatusChip, ChipTone;
+import '../design/domains.dart' show DomainAccent;
 
 /// A circular progress gauge with a value in the center — the richer engine
 /// behind [RingStat]. Adds an optional zone-tinted track, an optional target
@@ -810,6 +812,73 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
     final mm = dt.minute.toString().padLeft(2, '0');
     final v = point.y.round();
     return '${dt.hour}:$mm\n$v${unit == null || unit.isEmpty ? '' : ' $unit'}';
+  }
+}
+
+/// Where the peak/low/"now" chip row sits relative to the HR curve.
+enum HrChipsPosition { above, below }
+
+/// The shared HR line-chart + chip row. Previously the Today lookback card
+/// and the Heart screen's day-detail section each hand-rolled their own copy
+/// of this (chips above vs. below, a "now" chip present or not, a same-day
+/// `maxX` cutoff or the full day, and a manually re-implemented tooltip that
+/// happened to exactly match [TimeSeriesChart]'s own default formatter) — three
+/// near-identical HR charts drifting slightly apart. This is the one
+/// definition; screens choose position/cutoff/now-chip, nothing else differs.
+class HrCurveWithChips extends StatelessWidget {
+  final List<TimeSeriesPoint> points;
+  final double height;
+  final HrChipsPosition chipsPosition;
+
+  /// True caps the x-axis at "now" (Today's still-in-progress day); false
+  /// shows the full day (a past, complete day on the Heart screen).
+  final bool cutoffToNow;
+
+  /// Show a "Now NNN" chip for the latest point (Heart screen does; Today's
+  /// lookback card doesn't — it isn't a live gauge).
+  final bool showNowChip;
+
+  const HrCurveWithChips({
+    super.key,
+    required this.points,
+    this.height = 200,
+    this.chipsPosition = HrChipsPosition.below,
+    this.cutoffToNow = false,
+    this.showNowChip = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (points.isEmpty) return const SizedBox.shrink();
+    final latest = points.last;
+    final peak = points.reduce((a, b) => a.y >= b.y ? a : b);
+    final low = points.reduce((a, b) => a.y <= b.y ? a : b);
+    final chips = Wrap(
+      spacing: Sp.x2,
+      runSpacing: Sp.x1,
+      children: [
+        if (showNowChip)
+          StatusChip('Now ${latest.y.round()}', tone: ChipTone.accent),
+        StatusChip('Peak ${peak.y.round()}',
+            tone: showNowChip ? ChipTone.neutral : ChipTone.accent),
+        StatusChip('Low ${low.y.round()}'),
+      ],
+    );
+    final chart = TimeSeriesChart(
+      points: points,
+      color: DomainAccent.heart,
+      height: height,
+      maxX: cutoffToNow
+          ? DateTime.now().millisecondsSinceEpoch / 1000.0
+          : null,
+      yUnit: ' bpm', // relies on TimeSeriesChart's own default tooltip/labels
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: chipsPosition == HrChipsPosition.above
+          ? [chips, const SizedBox(height: Sp.x4), chart]
+          : [chart, const SizedBox(height: Sp.x3), chips],
+    );
   }
 }
 
