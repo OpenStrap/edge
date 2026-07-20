@@ -436,7 +436,11 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
           // in map mode it also carries the live distance/duration/pace/BPM
           // readout (via _GpsControlPanel), instead of a second stat bar
           // floating separately on the map.
-          Positioned(left: Sp.x6, right: Sp.x6, bottom: Sp.x8,
+          // Bottom offset adds the system gesture-nav inset — on Android the
+          // fixed Sp.x8 alone let the hold-to-finish control sit under/behind
+          // the nav bar on devices with a gesture bar.
+          Positioned(left: Sp.x6, right: Sp.x6,
+              bottom: Sp.x8 + MediaQuery.of(context).padding.bottom,
               child: mapOn
                   ? _GpsControlPanel(
                       tracker: app.routeTracker!,

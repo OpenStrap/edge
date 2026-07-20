@@ -99,9 +99,16 @@ class ListRow extends StatelessWidget {
             ),
             if (value != null) ...[
               const SizedBox(width: Sp.x3),
-              Text(
-                value!,
-                style: AppText.body.copyWith(color: AppColors.onSurfaceMuted),
+              // Flexible + ellipsis: title/subtitle already truncate, but this
+              // was unbounded — a long value (e.g. a full companion URL) could
+              // overflow the row instead of wrapping or truncating.
+              Flexible(
+                child: Text(
+                  value!,
+                  style: AppText.body.copyWith(color: AppColors.onSurfaceMuted),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
             if (trailing != null) ...[

@@ -346,12 +346,14 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
         ? null
         : (rawSteps?.toDouble() ?? 0) + liveSteps;
     final effort = _num(_data['effort']);
-    final hasLoad =
-        load.isNotEmpty ||
-        fitness != null ||
-        cals != null ||
-        steps != null ||
-        effort != null;
+    // "Training load" is an intensity/strain concept (ACWR, fitness trend,
+    // effort) — calories/steps are energy expenditure, a different concept
+    // that used to be nested under this section (contributor feedback: "why
+    // is calories under training load? that makes no sense"). Split into its
+    // own "Calories & steps" section below instead.
+    final hasLoad = load.isNotEmpty || fitness != null || effort != null;
+    final hasEnergy =
+        cals != null || _num(_data['calories_total']) != null || steps != null;
     final drivers = [
       for (final dr in _list(_map(_data['drivers'])['strain'])) _map(dr),
     ].where((dr) => (dr['label']?.toString() ?? '').isNotEmpty).toList();
@@ -360,7 +362,12 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
       const SizedBox(height: Sp.x4),
       if (hasLoad) ...[
         const SectionHeader('Training load'),
-        _loadCard(load, fitness, cals, steps, effort),
+        _loadCard(load, fitness, effort),
+        const SizedBox(height: Sp.x4),
+      ],
+      if (hasEnergy) ...[
+        const SectionHeader('Calories & steps'),
+        _energyCard(cals, steps),
         const SizedBox(height: Sp.x4),
       ],
       ..._fitnessSection(),
@@ -501,8 +508,6 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
   Widget _loadCard(
     Map<String, dynamic> load,
     String? fitness,
-    num? cals,
-    num? steps,
     num? effort,
   ) {
     final acwr = _num(load['acwr']);
@@ -539,24 +544,34 @@ class _StrainDetailScreenState extends State<StrainDetailScreen> {
                 if (band != null) Tag(band, color: bandColor()),
               ],
             ),
-            if (fitness != null || cals != null || steps != null)
+            if (fitness != null || effort != null)
               const SizedBox(height: Sp.x3),
           ],
           if (fitness != null)
             DetailRow(label: 'Fitness trend', value: fitness),
-          if (cals != null)
-            DetailRow(label: 'Active calories', value: '${cals.round()} kcal'),
-          if (_num(_data['calories_total']) != null)
-            DetailRow(
-              label: 'Total calories',
-              value: '${_num(_data['calories_total'])!.round()} kcal',
-            ),
-          if (steps != null)
-            DetailRow(label: 'Steps (est.)', value: '${steps.round()}'),
           // Edwards zone-weighted "effort" (0–100) — finer-grained intensity read
           // than the 0–21 headline, over the per-second wake HR.
           if (effort != null)
             DetailRow(label: 'Effort (0–100)', value: '${effort.round()}'),
+        ],
+      ),
+    );
+  }
+
+  /// Energy expenditure — deliberately separate from "Training load" above
+  /// (calories/steps are energy, not strain/intensity).
+  Widget _energyCard(num? cals, num? steps) {
+    final total = _num(_data['calories_total']);
+    return ProCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (cals != null)
+            DetailRow(label: 'Active calories', value: '${cals.round()} kcal'),
+          if (total != null)
+            DetailRow(label: 'Total calories', value: '${total.round()} kcal'),
+          if (steps != null)
+            DetailRow(label: 'Steps (est.)', value: '${steps.round()}'),
         ],
       ),
     );

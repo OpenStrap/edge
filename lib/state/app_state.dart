@@ -3104,6 +3104,21 @@ class AppState extends ChangeNotifier {
     unawaited(forceResync());
   }
 
+  /// Delete a stored workout session and, if it happens to be the one
+  /// currently tracked as "live", clear that in-memory flag too. Previously
+  /// the UI called `repo.deleteWorkout(id)` directly — that only removed the
+  /// DB row, so deleting a session right after finishing it (before this
+  /// in-memory flag was independently cleared) could leave the app still
+  /// showing "Run live" until a manual refresh/restart.
+  Future<void> deleteWorkout(String id) async {
+    await repo?.deleteWorkout(id);
+    if (activeWorkout?.workoutId == id) {
+      activeWorkout = null;
+      _workoutRawBase = null;
+      notifyListeners();
+    }
+  }
+
   // ── band-gesture actions (in-app) ─────────────────────────────────────────────
   // Driven by the double-tap dispatcher (lib/gestures).
 

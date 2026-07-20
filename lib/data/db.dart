@@ -2189,6 +2189,21 @@ class LocalDb {
     };
   }
 
+  /// `(firstRecTs, lastRecTs)` in unix seconds over canonical decoded 1 Hz rows,
+  /// or `(null, null)` when nothing has been decoded yet. Used by the onboarding
+  /// "collecting your data" state to show a real progress bar (last record ts
+  /// vs. now, against a first-record anchor) instead of a bare raw-record count.
+  static Future<(int?, int?)> firstAndLastRecordTs() async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT MIN(rec_ts) AS lo, MAX(rec_ts) AS hi FROM decoded_onehz',
+    );
+    if (rows.isEmpty) return (null, null);
+    final lo = (rows.first['lo'] as num?)?.toInt();
+    final hi = (rows.first['hi'] as num?)?.toInt();
+    return (lo, hi);
+  }
+
   /// `{localDayLabel -> MAX(rec_ts)}` over canonical decoded 1 Hz rows, grouped
   /// by the LOCAL calendar day of the record's real time.
   static Future<Map<String, int>> decodedRecTsMaxByDay() async {

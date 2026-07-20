@@ -584,8 +584,12 @@ class HeartDayContent extends StatelessWidget {
         ],
 
         // ── 24/7 irregular-rhythm SCREEN (not a diagnosis) ───────────────────
+        // Section title is just "Rhythm" — this is a section within the Heart
+        // screen, not a separate route; "Rhythm screen" read as a broken nav
+        // promise. The InfoDot below still says "screen" deliberately (the
+        // clinical sense: a screening test, not a diagnosis).
         const SizedBox(height: Sp.x6),
-        const SectionHeader('Rhythm screen'),
+        const SectionHeader('Rhythm'),
         Builder(builder: (context) {
           if (irr24v == null) {
             return const _QuietState(

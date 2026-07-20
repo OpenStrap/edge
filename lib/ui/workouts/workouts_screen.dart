@@ -461,10 +461,10 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       ),
     );
     if (ok != true || !mounted) return false;
-    final api = context.read<AppState>().repo;
-    if (api == null) return false;
+    final app = context.read<AppState>();
+    if (app.repo == null) return false;
     try {
-      await api.deleteWorkout(id);
+      await app.deleteWorkout(id); // also clears activeWorkout if it matches
       _load();
       return true;
     } catch (_) {
@@ -905,10 +905,10 @@ class WorkoutDetailScreen extends StatelessWidget {
       ),
     );
     if (ok != true || !context.mounted) return;
-    final api = context.read<AppState>().repo;
-    if (api == null) return;
+    final app = context.read<AppState>();
+    if (app.repo == null) return;
     try {
-      await api.deleteWorkout(id);
+      await app.deleteWorkout(id); // also clears activeWorkout if it matches
       if (context.mounted) Navigator.of(context).pop();
     } catch (_) {}
   }

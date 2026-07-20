@@ -312,7 +312,7 @@ class StepsDayContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = DomainAccent.steps;
-    final g = goal ?? 10000;
+    final g = goal ?? StepGoalScreen.defaultGoal;
     var ringValues = <double?>[
       for (final v in weekValues)
         v == null ? null : (v / g).clamp(0.0, 1.0).toDouble(),
