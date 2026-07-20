@@ -2320,8 +2320,7 @@ class LocalRepositoryImpl extends LocalRepository {
   // ── small series helpers ─────────────────────────────────────────────────────
 
   Future<double?> _seriesMean(String key) async {
-    final rows = await LocalDb.metricSeries(key, limit: 28);
-    final vs = [for (final r in rows) (r['value'] as num).toDouble()];
+    final vs = await LocalDb.trailingSeriesValues(key, 28);
     if (vs.isEmpty) return null;
     return vs.reduce((a, b) => a + b) / vs.length;
   }
