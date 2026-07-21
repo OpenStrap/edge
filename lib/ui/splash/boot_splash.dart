@@ -80,7 +80,13 @@ class _BootSplashState extends State<BootSplash> {
   Future<void> _initVideo() async {
     try {
       final c = (widget.controllerFactory ??
-          () => VideoPlayerController.asset('assets/splash/splashscreen.mp4'))();
+          () => VideoPlayerController.asset(
+                'assets/splash/splashscreen.mp4',
+                // Don't grab audio focus for the (muted) splash video — a bare
+                // controller pauses whatever the user is already playing on a
+                // cold start. mixWithOthers lets their audio keep going.
+                videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+              ))();
       _video = c;
       await c.initialize();
       await c.setVolume(0); // always muted
