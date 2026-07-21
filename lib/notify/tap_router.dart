@@ -11,6 +11,12 @@ const String kRouteAiEvening = '/ai/evening';
 const String kRouteJournalCompose = '/journal/compose';
 const String kRouteBreathing = '/breathing';
 
+/// "Did you work out?" auto-detect notification. Lands on the Workouts tab and
+/// pushes a focused review of the detected activity (log or adjust) — the plain
+/// `/workouts` route only selected the tab, leaving the suggestion buried in the
+/// history list (issue #113).
+const String kRouteWorkoutSuggestion = '/workouts/suggestion';
+
 class TapTarget {
   /// Shell tab index to land on (always valid; unknown → 0 = Today).
   final int tab;
@@ -30,16 +36,21 @@ const Map<String, int> _tabRoutes = {
   '/workouts': 4,
 };
 
-const Set<String> _screenRoutes = {
-  kRouteAiMorning,
-  kRouteAiEvening,
-  kRouteJournalCompose,
-  kRouteBreathing,
+// Sub-screen routes → the shell tab they sit on top of. Most briefing/journal
+// deep links live over Today (0); the detected-workout review sits over the
+// Workouts tab (4) so the tab underneath is the natural place to land on close.
+const Map<String, int> _screenRoutes = {
+  kRouteAiMorning: 0,
+  kRouteAiEvening: 0,
+  kRouteJournalCompose: 0,
+  kRouteBreathing: 0,
+  kRouteWorkoutSuggestion: 4,
 };
 
 TapTarget resolveTapRoute(String route) {
   final tab = _tabRoutes[route];
   if (tab != null) return TapTarget(tab);
-  if (_screenRoutes.contains(route)) return TapTarget(0, route);
+  final base = _screenRoutes[route];
+  if (base != null) return TapTarget(base, route);
   return const TapTarget(0); // unknown (e.g. /recap) → Today
 }

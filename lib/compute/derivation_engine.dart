@@ -34,6 +34,7 @@ import '../data/db.dart';
 import '../data/day_label.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
+import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_prepare.dart';
@@ -1588,7 +1589,7 @@ class DerivationEngine {
             body: 'We spotted ~${nb.durationMin} min of elevated activity. '
                 'Tap to log it.',
             date: day.date,
-            route: '/workouts',
+            route: kRouteWorkoutSuggestion,
           ),
           // This runs from headless background derivation too — never prompt
           // for permission from a background context (violates the OS
