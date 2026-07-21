@@ -77,7 +77,22 @@ class TelemetryService {
       prior?.call(details);
       try {
         if (Firebase.apps.isNotEmpty && _enabled) {
-          FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+          // Flutter itself marks a FlutterErrorDetails `silent: true` for
+          // errors it considers expected/non-actionable noise — e.g. an
+          // image/tile network fetch that fails after the requesting widget
+          // (a workout-route map tile) was already disposed: the framework's
+          // own ImageStreamCompleter.reportError falls through to this global
+          // handler only because no listener remained to catch it, NOT
+          // because the app crashed (see image_stream.dart's `silent: true`
+          // call sites — "resolving an image codec" / "loading an image").
+          // Treating every FlutterError as FATAL misclassified these as
+          // fatal crashes (inflating crash-free-users) even though the app
+          // kept running fine. Still fully captured — just filed as
+          // non-fatal so it doesn't count against crash-free-rate.
+          FirebaseCrashlytics.instance.recordFlutterError(
+            details,
+            fatal: !details.silent,
+          );
         }
       } catch (_) {}
       record(
@@ -85,7 +100,7 @@ class TelemetryService {
         level: 'error',
         message: details.exceptionAsString(),
         stack: details.stack?.toString(),
-        context: {'library': details.library ?? 'flutter'},
+        context: {'library': details.library ?? 'flutter', 'silent': details.silent},
       );
     };
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
@@ -101,10 +116,13 @@ class TelemetryService {
 
   // ── observability surface: breadcrumbs, context, non-fatals, traces ────────
   //
-  // Crashlytics only ever sees FATAL errors on its own (installErrorHandlers
-  // above) — it has zero visibility into freezes/jank or into errors that get
-  // caught-and-swallowed today. These helpers are how we get real signal out
-  // of Firebase for exactly those blind spots:
+  // Crashlytics only ever sees framework-reported errors on its own
+  // (installErrorHandlers above) — PlatformDispatcher.onError is always fatal,
+  // and FlutterError.onError is fatal unless the framework itself flagged the
+  // FlutterErrorDetails `silent` (then non-fatal). Either way it has zero
+  // visibility into freezes/jank or into errors that get caught-and-swallowed
+  // today. These helpers are how we get real signal out of Firebase for
+  // exactly those blind spots:
   //   - breadcrumb()/setContext(): attached automatically to whatever crash OR
   //     ANR report comes next from this session — the log() calls and the
   //     currently-set custom keys both ride along, no extra wiring needed.
