@@ -375,12 +375,14 @@ object NativeChannels {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) rt.isLooping = true
         activeRingtone = rt
         rt.play()
-        vibrate(ctx)
-        // Never ring forever: auto-stop after RING_TIMEOUT_MS.
+        // Register the fail-safe stop BEFORE vibrating: vibrate() can throw and
+        // perform() swallows it, which must never leave the ring without a
+        // scheduled stop (that was the original ring-forever failure mode).
         ringStopRunnable?.let { ringHandler.removeCallbacks(it) }
         val stop = Runnable { stopRing() }
         ringStopRunnable = stop
         ringHandler.postDelayed(stop, RING_TIMEOUT_MS)
+        vibrate(ctx)
     }
 
     private fun stopRing() {
