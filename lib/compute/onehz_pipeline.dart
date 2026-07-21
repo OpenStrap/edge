@@ -33,6 +33,40 @@ const MetricCfg _skinTempAdcCfg = MetricCfg(
   halfLifeS: 21.0,
 );
 
+/// Physiological cap on the readiness composite z, above which the score is a
+/// degenerate-baseline artefact rather than a real reading — so it is abstained
+/// from the HEADLINE scalar rather than persisted.
+///
+/// The composite maps its weighted, sign-oriented z to a 0–100 score via a
+/// logistic (`readiness_composite.dart`): `score = 100 / (1 + exp(-z))`. That
+/// curve only approaches the 100 rail as z → ∞: a real composite z is a weighted
+/// mean of per-input robust-z's, so even a flawless morning (every input at +2 z)
+/// lands at z=2 → score 88, and +3 z all-round is z=3 → 95. Reaching z=5
+/// (score 99.3) is physiologically unreachable by a genuine reading — it only
+/// happens when an input's robust-z explodes because its baseline MAD is tiny.
+///
+/// robustZ (`util.dart`) returns null only on EXACT-zero MAD (fully-quantised
+/// baseline) → the composite abstains and the ring shows a blank '—'. But a
+/// baseline that is near-degenerate — e.g. duplicate-day pollution collapsing the
+/// window toward one repeated value — has a tiny NON-zero MAD, so robustZ does
+/// NOT null: it returns a huge z, the logistic saturates, and the headline flashes
+/// ~100 before a cleaner re-derive snaps it back (the ready→ready bounce, #117).
+/// Capping at 5 suppresses ONLY that saturated rail and hides zero legitimate
+/// scores. This is the belt-and-braces guard; removing the degenerate baselines at
+/// source is the sibling `fix/readiness-baseline-pollution` work.
+const double kReadinessZCap = 5.0;
+
+/// The headline readiness scalar for a computed [composite], or null when it must
+/// abstain: absent composite, or one whose |z| exceeds [kReadinessZCap] (a
+/// saturated, degenerate-baseline artefact — see [kReadinessZCap]). Pure so the
+/// gate is unit-testable without the full pipeline.
+double? headlineReadinessScalar(Metric<Readiness> composite) {
+  if (!composite.present) return null;
+  final r = composite.value!;
+  if (r.compositeZ.abs() > kReadinessZCap) return null;
+  return r.score;
+}
+
 /// Serializable input to the isolate: one physiological day's decoded 1 Hz
 /// substrate (the day slice), the PRECOMPUTED single-source sleep segmentation,
 /// the profile, and trailing baseline history for the readiness pass.
@@ -632,7 +666,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final rmssdWholeScalar = (hrvT.present && hrvT.value!.rmssd != null)
       ? hrvT.value!.rmssd
       : null;
-  final readinessScalar = composite.present ? composite.value!.score : null;
+  // Abstain from a saturated, degenerate-baseline readiness rather than persist a
+  // bogus ~100 that a cleaner re-derive would then snap back down (#117 bounce).
+  final readinessScalar = headlineReadinessScalar(composite);
   final strainScalar = strainMetric.present ? strainMetric.value : null;
 
   // ── STRESS: Baevsky SI → a transparent 0–100 score (log-mapped over the
