@@ -2135,10 +2135,12 @@ class AppState extends ChangeNotifier {
     switch (effect) {
       case AlarmEffect.confirmed:
         _alarmGraceTimer?.cancel();
-        _log('[alarm] confirmed set (event $id).');
+        // Diagnostic: ALARM_SET (event 56) means the arm LATCHED on the band.
+        // Its absence after a SET is the tell that the write never took.
+        _log('[alarm] strap CONFIRMED arm — ALARM_SET (event $id) received.');
         break;
       case AlarmEffect.fired:
-        _log('[alarm] fired (event $id).');
+        _log('[alarm] strap FIRED — EXECUTED (event $id) received.');
         unawaited(_notifyAlarmFired());
         break;
       case AlarmEffect.cleared:

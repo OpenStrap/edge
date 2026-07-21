@@ -69,6 +69,38 @@ void main() {
     });
   });
 
+  group('AlarmPayloads.toStrapFrame (RTC-frame arming)', () {
+    // Wall-clock target with a non-zero sub-second so we can assert it survives.
+    final wall = DateTime.fromMillisecondsSinceEpoch(1750000000 * 1000 + 250,
+        isUtc: true);
+
+    test('uncorrelated (drift 0) → wall target unchanged', () {
+      expect(AlarmPayloads.toStrapFrame(wall, 0).millisecondsSinceEpoch,
+          wall.millisecondsSinceEpoch);
+    });
+
+    test('strap RTC behind wall (drift +90) → armed epoch = wall − 90', () {
+      final r = AlarmPayloads.toStrapFrame(wall, 90);
+      expect(r.millisecondsSinceEpoch ~/ 1000, 1750000000 - 90);
+      // whole-second shift keeps the sub-second remainder intact
+      expect(AlarmPayloads.subsecOf(r), AlarmPayloads.subsecOf(wall));
+    });
+
+    test('strap RTC ahead of wall (drift −30) → armed epoch = wall + 30', () {
+      expect(AlarmPayloads.toStrapFrame(wall, -30).millisecondsSinceEpoch ~/ 1000,
+          1750000000 + 30);
+    });
+
+    test('rich() encodes the strap-frame epoch, not the raw wall epoch', () {
+      // On a strap whose RTC is 90s behind, arming the raw wall epoch would fire
+      // 90s late (or never, for a large offset); the rich payload must carry the
+      // shifted (wall − drift) seconds.
+      final p = AlarmPayloads.rich(AlarmPayloads.toStrapFrame(wall, 90));
+      final sec = p[2] | (p[3] << 8) | (p[4] << 16) | (p[5] << 24);
+      expect(sec, 1750000000 - 90);
+    });
+  });
+
   group('AlarmConfirmation state machine', () {
     test('event ids match the protocol EventId names', () {
       expect(AlarmConfirmation.kEvtSet, proto.EventId.strapDrivenAlarmSet);

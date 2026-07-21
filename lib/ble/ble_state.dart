@@ -470,6 +470,24 @@ class AlarmPayloads {
 
   /// DISABLE_ALARM (0x45) body — cancel the on-device alarm.
   static const List<int> disable = <int>[0x01];
+
+  /// Convert a WALL-CLOCK alarm target into the strap's own RTC frame.
+  ///
+  /// The strap runs the wake alarm autonomously and fires when ITS RTC reaches
+  /// the armed epoch — so the epoch we send must be in the strap's clock frame,
+  /// not ours. If SET_CLOCK never latched (some firmware rejects the payload) the
+  /// strap RTC is offset from wall time; arming the raw wall epoch then fires at
+  /// the wrong strap-time, or effectively NEVER (a raw 2026 epoch is decades in
+  /// the future of a strap clock still near its factory epoch). This is why an
+  /// immediate RUN_ALARM buzz works but a scheduled alarm never fires.
+  ///
+  /// [driftSec] is `wall - device` from the GET_CLOCK correlation (positive when
+  /// the strap RTC is BEHIND wall). At wall-time `W` the strap RTC reads
+  /// `W - driftSec`, so we shift the target back by the drift; the sub-second part
+  /// is preserved (whole-second shift). Pass `0` when uncorrelated to arm the raw
+  /// wall epoch unchanged.
+  static DateTime toStrapFrame(DateTime when, int driftSec) =>
+      when.subtract(Duration(seconds: driftSec));
 }
 
 /// Effect of a strap alarm-lifecycle event, for the caller to act on.
