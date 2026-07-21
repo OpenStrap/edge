@@ -35,6 +35,27 @@ Map<String, dynamic>? _val(Object? metric) {
   return v is Map ? v.cast<String, dynamic>() : null;
 }
 
+/// The alarm-status caption for the Sleep page, from the SESSION-scoped
+/// confirmation machine only. Pure + public so the "only speak after an
+/// in-session SET" rule is unit-tested.
+///
+/// The confirmation state machine ([AppState.alarm…]) is reset on every launch
+/// and only advances once the user actually writes a SET this session, so all
+/// three inputs are false on a fresh open. A persisted `alarmEpoch` (an alarm
+/// set in a PREVIOUS session) is deliberately NOT an input: keying the caption
+/// off it made the page read "Alarm sent, waiting for the strap to confirm." on
+/// a fresh open when the user never tapped the button. All-false → null (idle).
+String? alarmStatusCaption({
+  required bool confirmed,
+  required bool pending,
+  required bool unconfirmed,
+}) {
+  if (confirmed) return 'Alarm set ✓';
+  if (pending) return 'Setting alarm…';
+  if (unconfirmed) return 'Alarm sent, waiting for the strap to confirm.';
+  return null;
+}
+
 // ── SLEEP COACH ──────────────────────────────────────────────────────────────
 
 /// Tonight's sleep need + recommended bedtime / wake, last night's sleep
@@ -95,21 +116,22 @@ class _SleepCoachCardState extends State<SleepCoachCard> {
   }
 
   /// Live alarm-status caption driven by the strap's own confirmation events.
-  /// Null when no alarm has been set yet — nothing to say.
-  String? _alarmCaption(AppState app) {
-    if (app.alarmEpoch == null) return null;
-    if (app.alarmConfirmed) return 'Alarm set ✓';
-    if (app.alarmPending) return 'Setting alarm…';
-    return 'Alarm sent, waiting for the strap to confirm.';
-  }
+  /// Null when no alarm is being tracked THIS session — nothing to say.
+  String? _alarmCaption(AppState app) => alarmStatusCaption(
+        confirmed: app.alarmConfirmed,
+        pending: app.alarmPending,
+        unconfirmed: app.alarmUnconfirmed,
+      );
 
   @override
   Widget build(BuildContext context) {
     // Rebuild only on the 3 alarm fields _alarmCaption reads — was two
     // separate context.watch<AppState>() calls below (each one subscribing
-    // to ALL 67 notifyListeners() sources, not just alarm state).
-    context.select<AppState, (int?, bool, bool)>(
-      (a) => (a.alarmEpoch, a.alarmConfirmed, a.alarmPending),
+    // to ALL 67 notifyListeners() sources, not just alarm state). The grace
+    // timer's notifyListeners() flips alarmPending true→false, which changes
+    // this tuple, so the unconfirmed transition still triggers a rebuild.
+    context.select<AppState, (bool, bool, bool)>(
+      (a) => (a.alarmConfirmed, a.alarmPending, a.alarmUnconfirmed),
     );
     if (_loading) return const SizedBox.shrink();
     final need = _val(_coach?['need']);
