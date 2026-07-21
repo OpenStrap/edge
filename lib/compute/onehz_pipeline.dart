@@ -379,13 +379,34 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // "no value" / "baseline too short" from "everything present but MAD was
   // degenerate" by elimination (readinessComposite doesn't surface the last
   // case in its own note — see readiness_composite.dart's robustZ() null path).
+  // `baseline_sd` additionally distinguishes a TRULY zero-dispersion baseline
+  // (readinessComposite's documented, intentional "never fabricate against
+  // zero dispersion" abstain — see its rescue-vs-flat test) from some other,
+  // unexplained cause of a null z — so a future Crashlytics hit is diagnosable
+  // instead of another round of guessing from value/baseline_n alone.
   Map<String, dynamic>? readinessAbsentDiag;
   if (!composite.present) {
     readinessAbsentDiag = {
-      'hrv': {'value': lnToday != null, 'baseline_n': d.lnRmssdHistory.length},
-      'rhr': {'value': rhrToday != null, 'baseline_n': d.rhrHistory.length},
-      'resp': {'value': respToday != null, 'baseline_n': d.respHistory.length},
-      'temp': {'value': skinTempAdc != null, 'baseline_n': d.skinTempAdcHistory.length},
+      'hrv': {
+        'value': lnToday != null,
+        'baseline_n': d.lnRmssdHistory.length,
+        'baseline_sd': _stddev(d.lnRmssdHistory),
+      },
+      'rhr': {
+        'value': rhrToday != null,
+        'baseline_n': d.rhrHistory.length,
+        'baseline_sd': _stddev(d.rhrHistory),
+      },
+      'resp': {
+        'value': respToday != null,
+        'baseline_n': d.respHistory.length,
+        'baseline_sd': _stddev(d.respHistory),
+      },
+      'temp': {
+        'value': skinTempAdc != null,
+        'baseline_n': d.skinTempAdcHistory.length,
+        'baseline_sd': _stddev(d.skinTempAdcHistory),
+      },
       'note': composite.note,
     };
   }

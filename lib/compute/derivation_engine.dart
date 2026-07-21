@@ -1451,6 +1451,7 @@ class DerivationEngine {
         if (v == null) continue;
         flat['${key}_value'] = v['value'];
         flat['${key}_baseline_n'] = v['baseline_n'];
+        flat['${key}_baseline_sd'] = v['baseline_sd'];
       }
       flat['note'] = diag['note'];
       TelemetryService.instance.record(
@@ -1465,14 +1466,26 @@ class DerivationEngine {
       // with sleep present" is diagnosable from the per-input flags WITHOUT GA4
       // access. Cold-start (need_baseline) absences stay Analytics-only so this
       // stays low-noise (and, post the MAD/SD-z fallback, rare).
+      //
+      // GATE: only fire the Crashlytics non-fatal when at least one input
+      // actually HAD a value with an adequate baseline (`value == true` — the
+      // "should have computed" case) — a day with literally no sleep session
+      // and no day-HR (every input false) is an honest, unremarkable miss, not
+      // a surprise, and was previously alarming here just as loudly as a real
+      // regression (analytics-only note above still records it either way).
       final note = (diag['note'] as String?) ?? '';
-      if (!note.startsWith('need_baseline')) {
+      final anyValuePresent = ['hrv', 'rhr', 'resp', 'temp'].any((key) {
+        final v = (diag[key] as Map?)?.cast<String, dynamic>();
+        return v != null && v['value'] == true;
+      });
+      if (!note.startsWith('need_baseline') && anyValuePresent) {
         final summary = StringBuffer('readiness_absent');
         for (final key in ['hrv', 'rhr', 'resp', 'temp']) {
           final v = (diag[key] as Map?)?.cast<String, dynamic>();
           if (v == null) continue;
           summary.write(
-              ' $key=${v['value'] == true ? 'Y' : 'n'}/${v['baseline_n']}');
+              ' $key=${v['value'] == true ? 'Y' : 'n'}/${v['baseline_n']}'
+              '(sd=${v['baseline_sd']})');
         }
         summary.write(' | $note');
         TelemetryService.instance.recordNonFatal(

@@ -77,7 +77,22 @@ class TelemetryService {
       prior?.call(details);
       try {
         if (Firebase.apps.isNotEmpty && _enabled) {
-          FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+          // Flutter itself marks a FlutterErrorDetails `silent: true` for
+          // errors it considers expected/non-actionable noise — e.g. an
+          // image/tile network fetch that fails after the requesting widget
+          // (a workout-route map tile) was already disposed: the framework's
+          // own ImageStreamCompleter.reportError falls through to this global
+          // handler only because no listener remained to catch it, NOT
+          // because the app crashed (see image_stream.dart's `silent: true`
+          // call sites — "resolving an image codec" / "loading an image").
+          // Treating every FlutterError as FATAL misclassified these as
+          // fatal crashes (inflating crash-free-users) even though the app
+          // kept running fine. Still fully captured — just filed as
+          // non-fatal so it doesn't count against crash-free-rate.
+          FirebaseCrashlytics.instance.recordFlutterError(
+            details,
+            fatal: !details.silent,
+          );
         }
       } catch (_) {}
       record(
@@ -85,7 +100,7 @@ class TelemetryService {
         level: 'error',
         message: details.exceptionAsString(),
         stack: details.stack?.toString(),
-        context: {'library': details.library ?? 'flutter'},
+        context: {'library': details.library ?? 'flutter', 'silent': details.silent},
       );
     };
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
