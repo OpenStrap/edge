@@ -116,10 +116,13 @@ class TelemetryService {
 
   // ── observability surface: breadcrumbs, context, non-fatals, traces ────────
   //
-  // Crashlytics only ever sees FATAL errors on its own (installErrorHandlers
-  // above) — it has zero visibility into freezes/jank or into errors that get
-  // caught-and-swallowed today. These helpers are how we get real signal out
-  // of Firebase for exactly those blind spots:
+  // Crashlytics only ever sees framework-reported errors on its own
+  // (installErrorHandlers above) — PlatformDispatcher.onError is always fatal,
+  // and FlutterError.onError is fatal unless the framework itself flagged the
+  // FlutterErrorDetails `silent` (then non-fatal). Either way it has zero
+  // visibility into freezes/jank or into errors that get caught-and-swallowed
+  // today. These helpers are how we get real signal out of Firebase for
+  // exactly those blind spots:
   //   - breadcrumb()/setContext(): attached automatically to whatever crash OR
   //     ANR report comes next from this session — the log() calls and the
   //     currently-set custom keys both ride along, no extra wiring needed.
