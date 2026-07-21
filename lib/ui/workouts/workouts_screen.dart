@@ -1571,6 +1571,11 @@ class WorkoutSuggestionScreen extends StatefulWidget {
 class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
   List<Map<String, dynamic>> _suggestions = const [];
   bool _loading = true;
+  // Tracked SEPARATELY from `_suggestions` — a failed query must not be
+  // rendered as "nothing to review": that tells the user a still-active
+  // suggestion was already handled. Only a successful query with zero
+  // results earns the empty state; a failure gets a retryable error card.
+  bool _error = false;
 
   @override
   void initState() {
@@ -1579,6 +1584,10 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
   }
 
   Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = false;
+    });
     try {
       final sug = await LocalDb.activeWorkoutSuggestions();
       if (mounted) {
@@ -1588,25 +1597,52 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      // Deliberately leave `_suggestions` untouched — we don't know whether
+      // it's really empty, only that we failed to find out.
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = true;
+        });
+      }
     }
   }
 
   Future<void> _confirm(Map<String, dynamic> s) async {
-    await _logDetectedSession(s);
+    try {
+      await _logDetectedSession(s);
+    } catch (_) {
+      _showActionFailure('Could not log this workout — try again.');
+      return;
+    }
     await _afterAction();
   }
 
   Future<void> _dismiss(Map<String, dynamic> s) async {
-    await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
+    try {
+      await LocalDb.dismissWorkoutSuggestion(s['id'] as String);
+    } catch (_) {
+      _showActionFailure('Could not dismiss this suggestion — try again.');
+      return;
+    }
     await _afterAction();
+  }
+
+  // A failed confirm/dismiss must be visible — the suggestion is still
+  // active, but silently doing nothing reads as "it worked".
+  void _showActionFailure(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   // Reload; once there's nothing left to review, close back to the Workouts tab
   // underneath (which lists the now-logged session).
   Future<void> _afterAction() async {
     await _load();
-    if (mounted && _suggestions.isEmpty) Navigator.of(context).maybePop();
+    if (mounted && !_error && _suggestions.isEmpty) {
+      Navigator.of(context).maybePop();
+    }
   }
 
   @override
@@ -1618,6 +1654,17 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
           const Padding(
             padding: EdgeInsets.only(top: Sp.x6),
             child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_error)
+          Padding(
+            padding: const EdgeInsets.only(top: Sp.x6),
+            child: StateCard(
+              icon: OsIcon.sync,
+              title: "Couldn't load",
+              message: 'Check your connection and try again.',
+              actionLabel: 'Retry',
+              onAction: _load,
+            ),
           )
         else if (_suggestions.isEmpty)
           Padding(
