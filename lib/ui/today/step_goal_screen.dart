@@ -18,8 +18,9 @@ class StepGoalScreen extends StatefulWidget {
   final int? goal;
   const StepGoalScreen({super.key, this.steps, this.goal});
 
-  /// Client-side default when the user hasn't set one (mirrors the backend note).
-  static const int defaultGoal = 8000;
+  /// Default when the user hasn't set one — same constant the data layer
+  /// (local_repository_impl.dart) uses, see kDefaultStepGoal's doc comment.
+  static const int defaultGoal = kDefaultStepGoal;
 
   @override
   State<StepGoalScreen> createState() => _StepGoalScreenState();

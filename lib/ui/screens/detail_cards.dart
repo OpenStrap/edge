@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/metric.dart'
     show needMoreNightsFromNote, needMessageFromNote;
+import '../../data/day_label.dart';
 import '../../state/app_state.dart';
 import '../design/design.dart';
 import 'metric_row.dart';
@@ -262,9 +263,6 @@ class HeartDayContent extends StatelessWidget {
     // affected this" section + a desaturation row, but getDayHeart() never
     // actually sets that key - it was permanently dead code, removed rather
     // than force-fitting a fake driver split just to have something to show.
-    final latest = hr.isEmpty ? null : hr.last;
-    final peak = hr.isEmpty ? null : hr.reduce((a, b) => a.y >= b.y ? a : b);
-    final low = hr.isEmpty ? null : hr.reduce((a, b) => a.y <= b.y ? a : b);
     final sleepingHr = _n(noct?['sleeping_hr_avg']);
     final dipPct = _n(noct?['dip_pct']);
 
@@ -424,30 +422,16 @@ class HeartDayContent extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: Sp.x3),
-                TimeSeriesChart(
+                // Same shared HR chart+chips as Today's lookback card — chips
+                // below (this IS the primary reading here) + a "now" chip;
+                // only cut off at "now" for today itself, a finished past day
+                // shows its whole span.
+                HrCurveWithChips(
                   points: hr,
-                  color: DomainAccent.heart,
                   height: 200,
-                  yUnit: ' bpm',
-                  tooltip: (p) {
-                    final dt = DateTime.fromMillisecondsSinceEpoch(
-                      (p.x * 1000).round(),
-                    ).toLocal();
-                    final mm = dt.minute.toString().padLeft(2, '0');
-                    return '${dt.hour}:$mm\n${p.y.round()} bpm';
-                  },
-                ),
-                const SizedBox(height: Sp.x3),
-                Wrap(
-                  spacing: Sp.x2,
-                  runSpacing: Sp.x1,
-                  children: [
-                    if (latest != null)
-                      StatusChip('Now ${latest.y.round()}',
-                          tone: ChipTone.accent),
-                    if (peak != null) StatusChip('Peak ${peak.y.round()}'),
-                    if (low != null) StatusChip('Low ${low.y.round()}'),
-                  ],
+                  chipsPosition: HrChipsPosition.below,
+                  showNowChip: true,
+                  cutoffToNow: date == todayLabel(),
                 ),
               ],
             ),
@@ -584,8 +568,12 @@ class HeartDayContent extends StatelessWidget {
         ],
 
         // ── 24/7 irregular-rhythm SCREEN (not a diagnosis) ───────────────────
+        // Section title is just "Rhythm" — this is a section within the Heart
+        // screen, not a separate route; "Rhythm screen" read as a broken nav
+        // promise. The InfoDot below still says "screen" deliberately (the
+        // clinical sense: a screening test, not a diagnosis).
         const SizedBox(height: Sp.x6),
-        const SectionHeader('Rhythm screen'),
+        const SectionHeader('Rhythm'),
         Builder(builder: (context) {
           if (irr24v == null) {
             return const _QuietState(

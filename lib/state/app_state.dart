@@ -3104,6 +3104,47 @@ class AppState extends ChangeNotifier {
     unawaited(forceResync());
   }
 
+  /// Tears down the in-memory live-workout state (timer, GPS route tracker,
+  /// Live Activity) WITHOUT persisting anything — unlike [stopWorkout], which
+  /// finalizes and writes a completed session. Used by [deleteWorkout] below
+  /// when the row being deleted happens to be the one currently live: just
+  /// nulling `activeWorkout` left the timer still ticking, the route tracker
+  /// still appending GPS points, and the Live Activity still showing, all
+  /// against a workout id that no longer has a backing DB row.
+  Future<void> _cancelActiveWorkoutTeardown() async {
+    _workoutTimer?.cancel();
+    _workoutTimer = null;
+    final rt = _routeTracker;
+    _routeTracker = null;
+    routeLocationIssue = null;
+    if (rt != null) {
+      try {
+        await rt.stop();
+      } catch (_) {}
+      EdgeTracking.start(location: false);
+    }
+    activeWorkout = null;
+    _workoutRawBase = null;
+    LiveActivity.end();
+  }
+
+  /// Delete a stored workout session and, if it happens to be the one
+  /// currently tracked as "live", fully tear down that live state too (see
+  /// [_cancelActiveWorkoutTeardown]). Previously the UI called
+  /// `repo.deleteWorkout(id)` directly — that only removed the DB row, so
+  /// deleting a session right after finishing it (before this in-memory
+  /// state was independently cleared) could leave the app still showing
+  /// "Run live" until a manual refresh/restart; and deleting a workout that
+  /// was GENUINELY still live would have left its timer/route tracker/Live
+  /// Activity running against a deleted id.
+  Future<void> deleteWorkout(String id) async {
+    await repo?.deleteWorkout(id);
+    if (activeWorkout?.workoutId == id) {
+      await _cancelActiveWorkoutTeardown();
+      notifyListeners();
+    }
+  }
+
   // ── band-gesture actions (in-app) ─────────────────────────────────────────────
   // Driven by the double-tap dispatcher (lib/gestures).
 

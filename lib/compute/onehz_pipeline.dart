@@ -349,7 +349,19 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final lnToday = (sleepSessionRmssd != null && sleepSessionRmssd > 0)
       ? math.log(sleepSessionRmssd)
       : null;
-  final rhrToday = rhr.present ? rhr.value!.low30Mean : null;
+  // Readiness's RHR input must come from an ACTUAL detected sleep session.
+  // `rhr` above intentionally falls back to daytime HR (`dayHrValid`) for the
+  // general-purpose "resting HR" display card, but feeding that fallback into
+  // readiness let a handful of minutes of live daytime HR masquerade as an
+  // overnight resting rate — the sole reason a same-day score of 100 could
+  // appear ~10 minutes after first wearing the strap, with no real sleep yet.
+  // HRV/resp/temp above are already correctly gated on the sleep window (`nn`
+  // comes from `d.sleepRrMs`); this makes RHR consistent with them so a
+  // no-sleep day has ALL FOUR composite inputs null and readiness reports "—"
+  // instead of computing off RHR alone.
+  final rhrToday = (hasSleep && sleepHr.isNotEmpty && rhr.present)
+      ? rhr.value!.low30Mean
+      : null;
   final respToday = resp.present ? resp.value!.brpm : null;
   final composite = readinessComposite([
     hrvInput(lnToday, d.lnRmssdHistory),

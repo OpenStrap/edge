@@ -374,10 +374,19 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
         topWorkout: topWorkout,
         mostSteps: mostSteps,
         entranceIndex: index,
-        onTap: () => Navigator.of(context).push(
-          themedRoute((_) => WorkoutDetailScreen(id: w['id'] as String),
-              name: 'WorkoutDetailScreen'),
-        ),
+        onTap: () async {
+          // Reload if the detail screen reports a deletion (pop(true)) —
+          // WorkoutsScreen doesn't observe AppState, so without this signal
+          // a workout deleted from detail stayed visible until a manual
+          // refresh.
+          final deleted = await Navigator.of(context).push<bool>(
+            themedRoute((_) => WorkoutDetailScreen(id: w['id'] as String),
+                name: 'WorkoutDetailScreen'),
+          );
+          // mounted guard: this screen itself could have been popped/disposed
+          // while the detail push was awaited; _load() calls setState.
+          if (deleted == true && mounted) _load();
+        },
         onLongPress: w['status'] == 'live' ? null : () => _exportCard(w),
       ),
     );
@@ -461,10 +470,10 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       ),
     );
     if (ok != true || !mounted) return false;
-    final api = context.read<AppState>().repo;
-    if (api == null) return false;
+    final app = context.read<AppState>();
+    if (app.repo == null) return false;
     try {
-      await api.deleteWorkout(id);
+      await app.deleteWorkout(id); // also clears activeWorkout if it matches
       _load();
       return true;
     } catch (_) {
@@ -905,11 +914,14 @@ class WorkoutDetailScreen extends StatelessWidget {
       ),
     );
     if (ok != true || !context.mounted) return;
-    final api = context.read<AppState>().repo;
-    if (api == null) return;
+    final app = context.read<AppState>();
+    if (app.repo == null) return;
     try {
-      await api.deleteWorkout(id);
-      if (context.mounted) Navigator.of(context).pop();
+      await app.deleteWorkout(id); // also clears activeWorkout if it matches
+      // pop(true) so the list screen that pushed this route knows to reload —
+      // it doesn't observe AppState, so without this the deleted workout
+      // stayed visible in the list until a manual refresh.
+      if (context.mounted) Navigator.of(context).pop(true);
     } catch (_) {}
   }
 

@@ -72,14 +72,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          # PINNED, not `channel: stable` — that floats forward every run and
-          # has twice broken this exact release pipeline on version drift:
-          # a newer Flutter removed/moved CupertinoPageTransitionsBuilder
-          # (theme.dart wouldn't compile) and changed how --no-codesign
-          # propagates to the Watch companion target (iOS build demanded a
-          # signing team despite --no-codesign). This version is verified
-          # against the current codebase (376 tests + a local release build
-          # of both platforms). Bump deliberately, not by drift.
+          # Bump deliberately, not by drift.
           flutter-version: '3.41.6'
 
       # The single companion URL (announcements, OTA, telemetry, import) comes
@@ -88,13 +81,13 @@ jobs:
         run: |
           echo "COMPANION_URL=${{ secrets.COMPANION_URL }}" > .env
           echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
-          # Health-data contribution (full on-device DB upload) is OFF for
-          # every build we distribute, sideload included — matching
-          # PRIVACY.md's "we do not collect your data". Passed explicitly
-          # (not just relying on kHealthDataContributionEnabled's default)
-          # so this is true by construction of the CI config itself, not
-          # contingent on nobody ever changing that default later.
-          echo "ENABLE_HEALTH_DATA_CONTRIBUTION=false" >> .env
+          # Health-data contribution is intentionally ON for GitHub release
+          # builds (matches the ios job) — see privacy.html's "GitHub
+          # releases" section. Still opt-in per user (a Settings/onboarding
+          # toggle, defaulting off) even with this build-time flag true; see
+          # the doc comment on kHealthDataContributionEnabled in
+          # lib/telemetry/health_uploader.dart.
+          echo "ENABLE_HEALTH_DATA_CONTRIBUTION=true" >> .env
 
       # Decode the release keystore from a secret. The gradle config picks these
       # env vars up (ANDROID_KEYSTORE_PATH etc.) and signs the release build.
@@ -186,13 +179,16 @@ jobs:
         run: |
           echo "COMPANION_URL=${{ secrets.COMPANION_URL }}" > .env
           echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
-          # Health-data contribution (full on-device DB upload) is OFF for
-          # every build we distribute, sideload included — matching
-          # PRIVACY.md's "we do not collect your data". Passed explicitly
-          # (not just relying on kHealthDataContributionEnabled's default)
-          # so this is true by construction of the CI config itself, not
-          # contingent on nobody ever changing that default later.
-          echo "ENABLE_HEALTH_DATA_CONTRIBUTION=false" >> .env
+          # Health-data contribution is intentionally ON for GitHub release
+          # builds (matches the android job) — see privacy.html's "GitHub
+          # releases" section. Still opt-in per user (a Settings/onboarding
+          # toggle, defaulting off) even when this build-time flag is true;
+          # see the doc comment on kHealthDataContributionEnabled in
+          # lib/telemetry/health_uploader.dart. App Store/Play Store builds
+          # (once that pipeline exists) must keep this false to hold
+          # PRIVACY.md's "we do not collect your health data" promise for
+          # those channels specifically.
+          echo "ENABLE_HEALTH_DATA_CONTRIBUTION=true" >> .env
 
       - name: Install flutterfire (required by Crashlytics Xcode build phase)
         run: dart pub global activate flutterfire_cli 1.4.0

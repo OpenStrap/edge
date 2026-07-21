@@ -21,19 +21,24 @@ import '../data/db.dart';
 /// onboarding). Defaults OFF, same convention as [kSideloadOtaEnabled] in
 /// update_service.dart.
 ///
-/// NOT enabled by ANY build we distribute — not the GitHub Releases sideload
-/// APK/IPA, and not any future App Store/Play Store submission (CI passes
-/// `ENABLE_HEALTH_DATA_CONTRIBUTION=false` explicitly for both; see
-/// .github/workflows/build.yml). Uploading someone's entire raw + derived
-/// health history to a backend is by far the biggest privacy/compliance
-/// surface this app could have, so PRIVACY.md's "we do not collect your
-/// data" claim is scoped to — and must remain true of — every build we
-/// ourselves ship.
+/// Two-tier by release channel (see docs/privacy.html's "GitHub releases"
+/// section, the user-facing policy): OFF for any official App Store/Play
+/// Store submission (once that pipeline exists it must pass
+/// `ENABLE_HEALTH_DATA_CONTRIBUTION=false` explicitly), ON for the GitHub
+/// Releases build (.github/workflows/build.yml, both android + ios jobs) —
+/// but "ON" here only means the feature EXISTS in that binary; actual
+/// upload additionally requires the user to explicitly flip the in-app
+/// toggle, which defaults off and is itself hidden whenever this flag is
+/// false. Uploading someone's entire raw + derived health history to a
+/// backend is by far the biggest privacy/compliance surface this app could
+/// have, so keep the App Store/Play Store channel's "we do not collect
+/// your health data" promise (docs/privacy.html) true by construction of
+/// the CI config, not contingent on nobody flipping this default later.
 ///
 /// This flag exists purely because the code is open source: an independent
-/// developer compiling their OWN build from this repo can opt in and point
-/// it at a backend of their own choosing. That is their build and their
-/// responsibility, not something our privacy policy governs.
+/// developer compiling their OWN build from this repo can also opt in and
+/// point it at a backend of their own choosing. That is their build and
+/// their responsibility, not something our privacy policy governs.
 ///   flutter build apk --dart-define=ENABLE_HEALTH_DATA_CONTRIBUTION=true
 const bool kHealthDataContributionEnabled = bool.fromEnvironment(
   'ENABLE_HEALTH_DATA_CONTRIBUTION',

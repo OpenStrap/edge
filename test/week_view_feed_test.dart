@@ -70,12 +70,12 @@ void main() {
     test('short series pads to 7 rings; bad goal falls back safely', () {
       final ring = stepWeekRingData(
         weekSteps: const [10000.0, 5000.0],
-        goal: 0, // guarded → default 10000
+        goal: 0, // guarded → default StepGoalScreen.defaultGoal (8000)
         todayWeekday: DateTime.monday,
       );
       expect(ring.values.length, 7);
       expect(ring.values[0], 1.0);
-      expect(ring.values[1], closeTo(0.5, 1e-9));
+      expect(ring.values[1], closeTo(0.625, 1e-9)); // 5000 / 8000
       expect(ring.values.sublist(2), everyElement(isNull));
       expect(ring.todayIndex, 0);
     });

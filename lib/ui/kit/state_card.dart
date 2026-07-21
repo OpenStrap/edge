@@ -17,6 +17,10 @@ class StateCard extends StatefulWidget {
   final String? actionLabel;
   final VoidCallback? onAction;
 
+  /// Optional extra content rendered between the message and the action button
+  /// (e.g. a collection-progress bar). Null changes nothing about existing uses.
+  final Widget? trailing;
+
   const StateCard({
     super.key,
     required this.icon,
@@ -24,6 +28,7 @@ class StateCard extends StatefulWidget {
     required this.message,
     this.actionLabel,
     this.onAction,
+    this.trailing,
   });
 
   @override
@@ -74,6 +79,10 @@ class _StateCardState extends State<StateCard>
             style: AppText.bodySoft,
             textAlign: TextAlign.center,
           ),
+          if (widget.trailing != null) ...[
+            const SizedBox(height: Sp.x4),
+            widget.trailing!,
+          ],
           if (showAction) ...[
             const SizedBox(height: Sp.x5),
             OutlinedButton(

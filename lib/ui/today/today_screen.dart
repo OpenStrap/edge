@@ -14,6 +14,7 @@ import '../../ai/briefing.dart';
 import '../../models/metric.dart';
 import '../../models/payloads.dart';
 import '../../data/day_label.dart';
+import '../../data/db.dart';
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../state/prefs.dart';
@@ -27,6 +28,7 @@ import '../ai/ai_breakdown_screen.dart';
 import '../coach/coach_screen.dart';
 import '../profile/profile_screen.dart';
 import '../screens/screens.dart';
+import 'step_goal_screen.dart';
 import '../journey/journey_screen.dart';
 import '../stress/stress_screen.dart';
 import '../records/records_screen.dart';
@@ -43,6 +45,25 @@ class _TodayScreenState extends State<TodayScreen>
     with ScreenLoaderMixin<TodayScreen> {
   ChartSeries _hr = const ChartSeries([]);
   bool _storyDismissed = false;
+
+  // Cache for the onboarding collection-progress FutureBuilder below — without
+  // this, `LocalDb.firstAndLastRecordTs()` called inline in `future:` builds a
+  // brand-new Future on every rebuild of this branch (any of the unrelated
+  // setState calls in fetch() for _hr/_sparks/_stepsWeek, or a dbCounts change
+  // via context.select), which FutureBuilder treats as a fresh subscription:
+  // snap.data reverts to null until it resolves, flickering the message and
+  // progress bar back to their empty state and re-querying decoded_onehz —
+  // precisely while that table is under active write pressure from the
+  // backfill this screen is describing. Only recompute when `raw` changes.
+  int? _collectionTsForRaw;
+  Future<(int?, int?)>? _collectionTsFuture;
+  Future<(int?, int?)> _collectionTs(int raw) {
+    if (_collectionTsFuture == null || _collectionTsForRaw != raw) {
+      _collectionTsForRaw = raw;
+      _collectionTsFuture = LocalDb.firstAndLastRecordTs();
+    }
+    return _collectionTsFuture!;
+  }
 
   /// 7-day spark series per vital (nulls = gaps), best-effort.
   Map<String, List<double?>> _sparks = const {};
@@ -272,17 +293,26 @@ class _TodayScreenState extends State<TodayScreen>
       // tapping opens the shared breakdown screen. Reads the BriefingStore
       // synchronously at build; AppState.notifyListeners() repaints it when a
       // briefing is generated opportunistically on foreground.
-      KeyedSubtree(
-        key: const ValueKey('today-ai-summary'),
-        child: Builder(builder: (_) {
-          final period = currentBriefingPeriod(DateTime.now());
-          final brief = BriefingStore.read(period);
-          return AiSummaryCard(
-            summary: brief?.oneLiner,
-            onTap: () => _push(() => AiBreakdownScreen(period: period)),
-          );
-        }).dsEnter(index: 0),
-      ),
+      // Hidden entirely with no BYOK key configured — previously this always
+      // rendered a "your morning briefing will appear here" placeholder even
+      // for users who never gave us an AI key (misleading: it can never
+      // appear without one) and even seconds after first pairing. It only
+      // shows once the user has opted into AI at all; BriefingEngine itself
+      // still won't produce a summary from a day with no real data.
+      if (app.coachConfig?.hasKey ?? false) ...[
+        KeyedSubtree(
+          key: const ValueKey('today-ai-summary'),
+          child: Builder(builder: (_) {
+            final period = currentBriefingPeriod(DateTime.now());
+            final brief = BriefingStore.read(period);
+            return AiSummaryCard(
+              summary: brief?.oneLiner,
+              onTap: () => _push(() => AiBreakdownScreen(period: period)),
+            );
+          }).dsEnter(index: 0),
+        ),
+        const SizedBox(height: Sp.x3),
+      ],
       if (alert != null) ...[
         const SizedBox(height: Sp.x3),
         KeyedSubtree(
@@ -405,9 +435,6 @@ class _TodayScreenState extends State<TodayScreen>
       for (final p in _hr.points) TimeSeriesPoint(p.t.toDouble(), p.v),
     ];
     final hasData = points.length >= 2;
-    final nowSec = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final peak = hasData ? points.reduce((a, b) => a.y >= b.y ? a : b) : null;
-    final low = hasData ? points.reduce((a, b) => a.y <= b.y ? a : b) : null;
     return SurfaceCard(
       onTap: () => _push(() => JourneyScreen(date: _todayStr())),
       padding: const EdgeInsets.all(Sp.x4),
@@ -430,31 +457,15 @@ class _TodayScreenState extends State<TodayScreen>
             style: AppText.body,
           ),
           if (hasData) ...[
-            const SizedBox(height: Sp.x3),
-            Wrap(
-              spacing: Sp.x2,
-              runSpacing: Sp.x1,
-              children: [
-                StatusChip('Peak ${peak!.y.round()}', tone: ChipTone.accent),
-                StatusChip('Low ${low!.y.round()}'),
-              ],
-            ),
-          ],
-          if (hasData) ...[
             const SizedBox(height: Sp.x4),
-            TimeSeriesChart(
+            // Same shared HR chart+chips as the Heart screen's day detail —
+            // chips above (a portal preview, not the primary reading) and
+            // capped at "now" since today isn't over yet.
+            HrCurveWithChips(
               points: points,
-              color: DomainAccent.heart,
               height: 180,
-              maxX: nowSec,
-              yUnit: ' bpm',
-              tooltip: (p) {
-                final dt = DateTime.fromMillisecondsSinceEpoch(
-                  (p.x * 1000).round(),
-                ).toLocal();
-                final mm = dt.minute.toString().padLeft(2, '0');
-                return '${dt.hour}:$mm\n${p.y.round()} bpm';
-              },
+              chipsPosition: HrChipsPosition.above,
+              cutoffToNow: true,
             ),
           ],
         ],
@@ -499,14 +510,27 @@ class _TodayScreenState extends State<TodayScreen>
       );
     }
     if (raw > 0) {
-      return StateCard(
-        icon: OsIcon.history,
-        title: 'Data collected — not analyzed yet',
-        message:
-            'Stored $raw raw record${raw == 1 ? '' : 's'} from your strap. '
-            'Analysis runs automatically after a sync — or run it now.',
-        actionLabel: 'Analyze now',
-        onAction: () => app.reanalyzeAll(),
+      return FutureBuilder<(int?, int?)>(
+        future: _collectionTs(raw),
+        builder: (context, snap) {
+          final first = snap.data?.$1;
+          final last = snap.data?.$2;
+          final message = first == null
+              ? 'Stored $raw raw record${raw == 1 ? '' : 's'} from your strap. '
+                  'Analysis runs automatically after a sync — or run it now.'
+              : 'Data from ${_fmtCollectionDate(first)} is being collected. '
+                  'Analysis runs automatically after a sync — or run it now.';
+          return StateCard(
+            icon: OsIcon.history,
+            title: 'Data collection has started',
+            message: message,
+            trailing: (first != null && last != null)
+                ? _CollectionProgressBar(firstTs: first, lastTs: last)
+                : null,
+            actionLabel: 'Analyze now',
+            onAction: () => app.reanalyzeAll(),
+          );
+        },
       );
     }
     return const StateCard(
@@ -519,6 +543,16 @@ class _TodayScreenState extends State<TodayScreen>
           "minutes — it's just pulling everything it's been holding onto. "
           'After that, syncs are quick.',
     );
+  }
+
+  static const _collectionMonths = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String _fmtCollectionDate(int epochSec) {
+    final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000).toLocal();
+    return '${_collectionMonths[d.month - 1]} ${d.day}';
   }
 
   bool _shouldShowTodayStatus(AppState app, TodayStatus? status) {
@@ -923,7 +957,7 @@ class TodayVitals extends StatelessWidget {
   Widget _stepsTile() {
     final base = t.steps.isEmpty ? 0 : t.steps.value!.round();
     final steps = base + liveSteps;
-    final goal = t.stepGoal ?? 10000;
+    final goal = t.stepGoal ?? StepGoalScreen.defaultGoal;
     return BentoTile(
       tone: BentoTone.soft,
       accent: DomainAccent.steps,
@@ -1002,7 +1036,7 @@ class TodayVitals extends StatelessWidget {
     final base = t.steps.isEmpty ? 0 : t.steps.value!.round();
     final ring = stepWeekRingData(
       weekSteps: stepsWeek,
-      goal: (t.stepGoal ?? 10000).toDouble(),
+      goal: (t.stepGoal ?? StepGoalScreen.defaultGoal).toDouble(),
       todayWeekday: DateTime.now().weekday,
       todaySteps: base + liveSteps,
     );
@@ -1039,7 +1073,7 @@ class TodayVitals extends StatelessWidget {
   required int todayWeekday, // DateTime.weekday: Mon=1 … Sun=7
   int todaySteps = 0,
 }) {
-  final g = goal > 0 ? goal : 10000.0;
+  final g = goal > 0 ? goal : StepGoalScreen.defaultGoal.toDouble();
   final vals = List<double?>.filled(7, null);
   for (var i = 0; i < weekSteps.length && i < 7; i++) {
     final v = weekSteps[i];
@@ -1307,6 +1341,52 @@ class _RecoveryStoryState extends State<_RecoveryStory>
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The onboarding "collecting your data" progress bar — how much of the
+/// history between the FIRST record we've ingested and NOW has actually
+/// landed, i.e. `(lastRecordTs - firstRecordTs) / (now - firstRecordTs)`.
+/// This tracks real backlog-drain progress (the band catching up to wall
+/// clock), not a fabricated ETA — it fills smoothly as more of the strap's
+/// held history/live stream arrives, and reaches 1.0 once the latest ingested
+/// record is current.
+class _CollectionProgressBar extends StatelessWidget {
+  final int firstTs;
+  final int lastTs;
+  const _CollectionProgressBar({required this.firstTs, required this.lastTs});
+
+  @override
+  Widget build(BuildContext context) {
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final total = (nowSec - firstTs).clamp(1, 1 << 62);
+    final done = (lastTs - firstTs).clamp(0, total);
+    final frac = (done / total).clamp(0.0, 1.0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(99),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: frac),
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, _) => LinearProgressIndicator(
+              value: value,
+              minHeight: 6,
+              backgroundColor: AppColors.coralSoft,
+              valueColor: AlwaysStoppedAnimation(AppColors.accent),
+            ),
+          ),
+        ),
+        const SizedBox(height: Sp.x2),
+        Text(
+          'Caught up to ${(frac * 100).round()}% of now',
+          style: AppText.caption,
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
 }

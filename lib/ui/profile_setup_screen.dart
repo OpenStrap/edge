@@ -32,17 +32,22 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   // profile we reflect the saved choice instead.
   bool _telemetry = true;
   // Health-data contribution is a compile-time-gated feature (see
-  // kHealthDataContributionEnabled) — never pre-enabled (or even offered) in
-  // a build that doesn't carry it.
-  bool _healthShare = kHealthDataContributionEnabled;
+  // kHealthDataContributionEnabled) — the FLAG controls only whether the
+  // toggle is offered at all (never shown in a build that doesn't carry it).
+  // The default must ALWAYS start false regardless of the flag: this is an
+  // opt-in feature (docs/privacy.html), and initializing it to the flag's
+  // own value pre-checked the toggle for every fresh enrollment on any build
+  // that compiles the feature in — silently permitting a full local health-DB
+  // upload for anyone who tapped through onboarding without noticing.
+  bool _healthShare = false;
 
   @override
   void initState() {
     super.initState();
     final app = context.read<AppState>();
     _initial = app.user ?? const {};
-    // Fresh enrollment → keep the pre-enabled defaults above. Returning user
-    // editing their profile → reflect whatever they previously chose.
+    // Fresh enrollment → keep the off-by-default values above. Returning user
+    // editing their profile → reflect whatever they previously explicitly chose.
     if (app.consentChosen) {
       _telemetry = app.telemetryConsent;
       _healthShare = app.healthShareConsent;
@@ -92,9 +97,11 @@ class ProfileSetupForm extends StatefulWidget {
     super.key,
     this.initial = const {},
     this.telemetryInitial = true,
-    // Gated default: never pre-enabled (or shown) in a build compiled
-    // without kHealthDataContributionEnabled.
-    this.healthShareInitial = kHealthDataContributionEnabled,
+    // Off by default always — this is an opt-in feature. The
+    // kHealthDataContributionEnabled flag (checked at the tile's render
+    // site below) controls only whether the toggle is offered at all, never
+    // its starting value.
+    this.healthShareInitial = false,
     required this.onSubmit,
   });
 

@@ -67,15 +67,16 @@ void main() {
       }, 82);
       expect(out?['score'], 41.0);
     });
-    test('falls back to the readiness inverse when SI abstained', () {
+    test('does NOT fabricate a score from readiness when SI abstained', () {
       final out = stressSummaryForToday({
         'stress': {'score': null, 'si': null},
       }, 82);
-      expect(out?['score'], 18); // 100 - 82
-      expect(out?['level'], 'low');
+      expect(out?['score'], isNull);
+      expect(out?['si'], isNull);
     });
-    test('returns null when there is neither a score nor a readiness', () {
+    test('returns null when there is no stress block at all', () {
       expect(stressSummaryForToday(const {}, null), isNull);
+      expect(stressSummaryForToday(const {}, 82), isNull);
     });
   });
 

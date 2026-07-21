@@ -247,7 +247,23 @@ import 'substrate.dart';
 // re-armed inside the `Isolate.run` closure and returned as plain JSON) instead
 // of the main/UI thread — so the residual staging CPU no longer blocks the UI
 // even before the ~10× trig win.
-const int kAlgoVersion = 46;
+// v46: readiness-blank-"—" fix — `_seriesMean` trailing-28 window fix +
+// analytics re-pin picking up the `robustZ`->`z` fallback (v43 above,
+// analytics#26) so quantized baselines with MAD==0 stop intermittently
+// blanking a legitimate score.
+// v47: readiness's RHR input (`rhrToday` in onehz_pipeline.dart) no longer
+// accepts the `rhr` metric's daytime-HR fallback — it now requires an actual
+// detected sleep session (`hasSleep && sleepHr.isNotEmpty`), matching how
+// HRV/resp/temp were already gated. Previously a no-sleep day could still
+// produce a full numeric readiness score off RHR alone (a few minutes of live
+// daytime HR masquerading as overnight resting HR), which is how a fresh
+// install could show "Readiness 100" ~10 minutes after first wearing the
+// strap. Also removed `getDayStress`'s `100 - readiness` fallback in
+// local_repository_impl.dart — it fabricated a stress-looking number whenever
+// the real Baevsky SI was absent, violating the never-impute rule; the UI
+// already correctly renders "—" when `score` is null. Bump so affected days
+// re-derive without a same-day, no-sleep readiness/stress score.
+const int kAlgoVersion = 47;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;

@@ -3,14 +3,33 @@ import java.io.FileInputStream
 
 plugins {
     id("com.android.application")
-    // START: FlutterFire Configuration
-    id("com.google.gms.google-services")
-    id("com.google.firebase.firebase-perf")
-    id("com.google.firebase.crashlytics")
+    // START: FlutterFire Configuration — declared here but NOT auto-applied;
+    // see the conditional `apply(plugin = ...)` block below. A fresh clone
+    // with no google-services.json (gitignored, no committed placeholder)
+    // used to hard-fail the build here. Firebase telemetry is now optional:
+    // no file -> these plugins simply never get applied, app builds and runs
+    // fine without Crashlytics/Analytics/Performance.
+    id("com.google.gms.google-services") apply false
+    id("com.google.firebase.firebase-perf") apply false
+    id("com.google.firebase.crashlytics") apply false
     // END: FlutterFire Configuration
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Only wire up Firebase when a real, non-empty google-services.json is
+// present (see note above) — keeps a from-scratch clone buildable with zero
+// Firebase credentials, real or placeholder. `.exists()` alone isn't enough:
+// CI writes this file unconditionally from a secret
+// (`base64 -d > google-services.json`), so a fork or run with that secret
+// unset/blank still produces a 0-byte file that would pass `.exists()` and
+// then fail the google-services plugin trying to parse it.
+val hasRealGoogleServicesJson = file("google-services.json").let { it.exists() && it.length() > 0 }
+if (hasRealGoogleServicesJson) {
+    apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.firebase-perf")
+    apply(plugin = "com.google.firebase.crashlytics")
 }
 
 // Release signing. Locally this reads android/key.properties; in CI the same values
@@ -90,8 +109,15 @@ android {
             // and a `firebase crashlytics:symbols:upload` step in CI; see release
             // docs. Uncaught Dart exceptions already symbolicate via the Flutter
             // error handler — this is specifically for the sampled native/ANR path.)
-            configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
-                nativeSymbolUploadEnabled = true
+            // Only configurable when the crashlytics plugin was actually applied
+            // above (real google-services.json present) — otherwise this
+            // extension type doesn't exist and configuring it unconditionally
+            // would fail Gradle's configuration phase even with the plugin
+            // block skipped.
+            if (hasRealGoogleServicesJson) {
+                configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
+                    nativeSymbolUploadEnabled = true
+                }
             }
         }
     }
