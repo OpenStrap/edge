@@ -97,6 +97,11 @@ class ClockRef {
   final int device; // strap RTC epoch at correlation time
   final int wall; // wall unix seconds at that same instant
   const ClockRef({required this.device, required this.wall});
+
+  /// How far the strap RTC lags wall-clock (positive = strap behind). This is the
+  /// offset used to arm the on-device alarm in the strap's own clock frame; a
+  /// caller with no correlation yet should treat it as 0 (`ref?.driftSec ?? 0`).
+  int get driftSec => wall - device;
 }
 
 /// The dedup grid the record-time correction snaps to. Repeated re-syncs of the

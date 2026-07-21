@@ -6,6 +6,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
+import 'package:openstrap_edge/sync/sync_policy.dart' show ClockRef;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
 void main() {
@@ -98,6 +99,38 @@ void main() {
       final p = AlarmPayloads.rich(AlarmPayloads.toStrapFrame(wall, 90));
       final sec = p[2] | (p[3] << 8) | (p[4] << 16) | (p[5] << 24);
       expect(sec, 1750000000 - 90);
+    });
+  });
+
+  group('ClockRef.driftSec + reconnect fallback (stale-correlation guard)', () {
+    final wall = DateTime.fromMillisecondsSinceEpoch(1750000000 * 1000,
+        isUtc: true);
+
+    test('driftSec = wall − device (positive when the strap RTC is behind)', () {
+      expect(const ClockRef(device: 1000, wall: 1090).driftSec, 90);
+      expect(const ClockRef(device: 1100, wall: 1070).driftSec, -30);
+      expect(const ClockRef(device: 1000, wall: 1000).driftSec, 0);
+    });
+
+    test('no correlation yet (just after reconnect) → drift 0 → raw wall epoch', () {
+      // On reconnect _clockRef is nulled until THIS session's GET_CLOCK reply, so
+      // the arm must fall back to the raw epoch rather than reuse the previous
+      // session's offset. This mirrors engine.setAlarm's `_clockRef?.driftSec ?? 0`.
+      const ClockRef? ref = null;
+      final driftSec = ref?.driftSec ?? 0;
+      expect(driftSec, 0);
+      expect(
+          AlarmPayloads.toStrapFrame(wall, driftSec).millisecondsSinceEpoch ~/ 1000,
+          1750000000);
+    });
+
+    test('correlated session → arms in the strap frame using the offset', () {
+      const ref = ClockRef(device: 1749999910, wall: 1750000000); // strap 90s behind
+      final driftSec = ref.driftSec; // 90
+      expect(driftSec, 90);
+      expect(
+          AlarmPayloads.toStrapFrame(wall, driftSec).millisecondsSinceEpoch ~/ 1000,
+          1750000000 - 90);
     });
   });
 

@@ -1074,6 +1074,11 @@ class BleEngine {
       // clock; SET_CLOCK is non-destructive (it's what the official app does each
       // connect). Records stamped after this carry real unix time.
       _clockCorrectTries = 0; // fresh retry budget for this connection
+      // Drop the previous session's clock correlation so an alarm armed before
+      // THIS session's GET_CLOCK reply lands falls back to the raw wall epoch
+      // (drift 0) instead of the stale strap-RTC frame. setClock()→getClock()
+      // below repopulates it for this connection.
+      _clockRef = null;
       await setClock();
       _lastClockVerifyAt = DateTime.now();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
@@ -2474,7 +2479,9 @@ class BleEngine {
   /// short-form attempts silently failed for exactly this reason. The strap
   /// confirms the alarm latched via event 56 (STRAP_DRIVEN_ALARM_SET) and reports
   /// firing via events 57/58 + 60. Byte layout lives in the pure [AlarmPayloads].
-  Future<void> setAlarm(
+  /// Returns whether the arm write actually reached the band, so the caller can
+  /// avoid persisting / confirming a phantom alarm on a failed write.
+  Future<bool> setAlarm(
     DateTime when, {
     int index = 0,
     List<int>? haptics,
@@ -2485,10 +2492,11 @@ class BleEngine {
     // never (a raw wall epoch is decades ahead of a strap clock still near its
     // factory epoch, which is exactly why an immediate RUN_ALARM buzz works but a
     // scheduled alarm never fires). Shift the target by the GET_CLOCK drift; fall
-    // back to the raw epoch when we have no correlation yet. Byte layout + the
-    // frame conversion both live in the pure [AlarmPayloads].
+    // back to the raw epoch when we have no correlation yet (e.g. just after a
+    // reconnect, before this session's GET_CLOCK reply). Byte layout + the frame
+    // conversion both live in the pure [AlarmPayloads].
     final ref = _clockRef;
-    final driftSec = ref != null ? ref.wall - ref.device : 0;
+    final driftSec = ref?.driftSec ?? 0;
     final armWhen = AlarmPayloads.toStrapFrame(when, driftSec);
     final ok = await _send(
       Cmd.setAlarmTime,
@@ -2498,6 +2506,7 @@ class BleEngine {
         'strapSec=${armWhen.millisecondsSinceEpoch ~/ 1000} drift=${driftSec}s '
         'correlated=${ref != null} subsec=${AlarmPayloads.subsecOf(armWhen)} '
         'write=${ok ? 'ok' : 'FAILED'}');
+    return ok;
   }
 
   /// Time-only alarm (SET_ALARM_TIME = 0x42), SHORT 7-byte form:
@@ -2682,6 +2691,11 @@ class BleEngine {
     final device = session.device;
     await session.teardown();
     _session = null;
+    // The strap-RTC↔wall correlation belongs to the session that measured it —
+    // drop it so it can't leak into the next connection's alarm arming before a
+    // fresh GET_CLOCK. (Connection setup also re-nulls it; this covers the gap
+    // between teardown and the next connect.)
+    _clockRef = null;
     _offloadFrames.clear();
     _drainingOffloadFrames = false;
     _setOffloadActive(false);
