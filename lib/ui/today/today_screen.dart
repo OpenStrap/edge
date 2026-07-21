@@ -51,10 +51,10 @@ class _TodayScreenState extends State<TodayScreen>
   /// null = no data that day (incl. future days), best-effort.
   List<double?> _stepsWeek = const [];
 
-  /// Show the once-a-morning recovery story: only with a real readiness score,
-  /// and only if it hasn't already been shown for today's date.
+  /// Show the once-a-morning recovery story: only with a real, settled readiness
+  /// score for today, and only if it hasn't already been shown for today's date.
   bool _showStory(TodayData t) {
-    if (_storyDismissed || t.readiness.isEmpty) return false;
+    if (_storyDismissed || t.settledReadinessScore == null) return false;
     return Prefs.getString('ui.recovery_story_date', '') != _todayStr();
   }
 
@@ -238,7 +238,7 @@ class _TodayScreenState extends State<TodayScreen>
         KeyedSubtree(
           key: const ValueKey('today-story'),
           child: _RecoveryStory(
-            recoveredPct: t.readiness.value!.round(),
+            recoveredPct: t.settledReadinessScore!,
             sleptMin: t.sleepDuration.isEmpty
                 ? null
                 : t.sleepDuration.value!.round(),
@@ -738,7 +738,10 @@ class TodayVitals extends StatelessWidget {
 
   Widget _orbitHero() {
     final r = t.readiness;
-    final score = r.isEmpty ? null : r.value!.round();
+    // Only headline today's SETTLED readiness — never a prior night's value
+    // held over while today's overnight is still building (that made the ring
+    // flash a stale score before snapping to today's real one).
+    final score = t.settledReadinessScore;
     final fill = _baselineFill(r);
     final accent = score == null
         ? AppColors.accent

@@ -127,6 +127,27 @@ class TodayData {
   Metric get recovery => metricOf(_daily, 'recovery');
   // Composite Readiness (HRV ∩ sleep ∩ dip ∩ arousal) — the Today/widget headline.
   Metric get readiness => metricOf(_daily, 'readiness');
+
+  /// The rounded readiness score to HEADLINE for today — present only once
+  /// today's overnight has actually settled (`overnight_state == 'ready'`).
+  ///
+  /// While the overnight is still building, `getToday` surfaces the LAST settled
+  /// night's readiness (`showing_prior_overnight`) so the rest of the screen has
+  /// something to show. Rendering that stale value as the big readiness ring made
+  /// it flash the prior night's score for the split second before today's real
+  /// score landed and the ring snapped to it. Withhold the number until today's
+  /// value is settled so the hero shows its honest empty/loading state instead of
+  /// a bogus figure. Null when readiness is absent OR not yet settled for today.
+  int? get settledReadinessScore {
+    if (readiness.isEmpty) return null;
+    // getToday always stamps `status`; when it says the overnight has NOT
+    // settled (building / missing) any readiness present is a held-over prior
+    // night, so withhold it. Absent status (synthetic payloads) → show.
+    final s = status;
+    if (s != null && !s.overnightReady) return null;
+    return readiness.value!.round();
+  }
+
   Metric get vo2max => metricOf(_daily, 'vo2max');
   Metric get fitness => metricOf(_daily, 'fitness');
   Metric get form => metricOf(_daily, 'form');
