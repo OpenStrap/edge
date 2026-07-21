@@ -8,9 +8,12 @@ import android.content.ActivityNotFoundException
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.media.AudioManager
+import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -34,6 +37,14 @@ object NativeChannels {
     private const val TASKER_TOKEN_KEY = "tasker_auth_token"
 
     private var torchOn = false
+
+    // "Ring my phone" (find-my-phone). The ringtone must be retained so it can be
+    // stopped — without a held reference the default TYPE_RINGTONE loops until the
+    // process dies, which is why it rang until force-close (#115).
+    private const val RING_TIMEOUT_MS = 30_000L
+    private var activeRingtone: Ringtone? = null
+    private val ringHandler = Handler(Looper.getMainLooper())
+    private var ringStopRunnable: Runnable? = null
 
     fun register(engine: FlutterEngine, context: Context) {
         val app = context.applicationContext
@@ -351,9 +362,32 @@ object NativeChannels {
     }
 
     private fun ringPhone(ctx: Context) {
+        // Toggle: a second double-tap while it's ringing stops it early.
+        if (activeRingtone?.isPlaying == true) {
+            stopRing()
+            return
+        }
         val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-        RingtoneManager.getRingtone(ctx.applicationContext, uri)?.play()
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        val rt = RingtoneManager.getRingtone(ctx.applicationContext, uri) ?: return
+        // Loop for the whole find-my-phone window (API 28+); older versions loop a
+        // TYPE_RINGTONE by default. Either way the timeout below guarantees it stops.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) rt.isLooping = true
+        activeRingtone = rt
+        rt.play()
         vibrate(ctx)
+        // Never ring forever: auto-stop after RING_TIMEOUT_MS.
+        ringStopRunnable?.let { ringHandler.removeCallbacks(it) }
+        val stop = Runnable { stopRing() }
+        ringStopRunnable = stop
+        ringHandler.postDelayed(stop, RING_TIMEOUT_MS)
+    }
+
+    private fun stopRing() {
+        ringStopRunnable?.let { ringHandler.removeCallbacks(it) }
+        ringStopRunnable = null
+        activeRingtone?.let { if (it.isPlaying) it.stop() }
+        activeRingtone = null
     }
 
     // Torch via CameraManager.setTorchMode — no CAMERA permission required (API 23+).
