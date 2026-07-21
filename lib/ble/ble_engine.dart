@@ -1009,8 +1009,13 @@ class BleEngine {
       // Larger MTU + a fast connection interval for the drain (Android-only levers;
       // no-ops on iOS, which picks a fast interval itself when data is pending).
       try {
-        await device.requestMtu(247);
-      } catch (_) {}
+        final negotiated = await device.requestMtu(247);
+        // Log the RESULT: a low MTU here (e.g. 23) is the tell for the 32B alarm
+        // write failing, and was previously invisible (the call was swallowed).
+        _log('MTU negotiated: $negotiated (requested 247).');
+      } catch (e) {
+        _log('requestMtu failed: $e — MTU stays at the connection default.');
+      }
       if (Platform.isAndroid) {
         try {
           await device.requestConnectionPriority(
@@ -1069,6 +1074,11 @@ class BleEngine {
       // clock; SET_CLOCK is non-destructive (it's what the official app does each
       // connect). Records stamped after this carry real unix time.
       _clockCorrectTries = 0; // fresh retry budget for this connection
+      // Drop the previous session's clock correlation so an alarm armed before
+      // THIS session's GET_CLOCK reply lands falls back to the raw wall epoch
+      // (drift 0) instead of the stale strap-RTC frame. setClock()→getClock()
+      // below repopulates it for this connection.
+      _clockRef = null;
       await setClock();
       _lastClockVerifyAt = DateTime.now();
       // Per-connection policy reset. Marginal-radio + post-bond-loop are NOT reset
@@ -1417,7 +1427,14 @@ class BleEngine {
           _log('write skipped: link not ready.');
           return;
         }
-        await cmd.write(raw, withoutResponse: false).timeout(_writeTimeout);
+        // allowLongWrite: the rich SET_ALARM_TIME frame is 32B — the only write
+        // that exceeds the 20B ATT limit of a default (23B) MTU. Without a long
+        // write, flutter_blue_plus throws "value > mtu-3" if the negotiated MTU
+        // never rose, and _send would swallow the alarm silently. Long writes are
+        // a no-op for the small (<=20B) frames every other command uses.
+        await cmd
+            .write(raw, withoutResponse: false, allowLongWrite: true)
+            .timeout(_writeTimeout);
         ok = true;
       } on TimeoutException {
         _log('write timeout: no GATT response in ${_writeTimeout.inSeconds}s.');
@@ -1450,13 +1467,18 @@ class BleEngine {
     }
   }
 
-  Future<void> _send(int opcode, List<int> payload) async {
+  Future<bool> _send(int opcode, List<int> payload) async {
     if (dangerousCmds.contains(opcode)) {
       _log('REFUSED dangerous opcode 0x${opcode.toRadixString(16)}');
-      return;
+      return false;
     }
     final frame = buildCommand(_seq.nextLive(), opcode, payload);
-    await _write(frame);
+    final ok = await _write(frame);
+    if (!ok) {
+      _log('WRITE FAILED for opcode 0x${opcode.toRadixString(16)} — '
+          'command not delivered.');
+    }
+    return ok;
   }
 
   Future<void> applyHighFreqWakeWindow({
@@ -2457,17 +2479,34 @@ class BleEngine {
   /// short-form attempts silently failed for exactly this reason. The strap
   /// confirms the alarm latched via event 56 (STRAP_DRIVEN_ALARM_SET) and reports
   /// firing via events 57/58 + 60. Byte layout lives in the pure [AlarmPayloads].
-  Future<void> setAlarm(
+  /// Returns whether the arm write actually reached the band, so the caller can
+  /// avoid persisting / confirming a phantom alarm on a failed write.
+  Future<bool> setAlarm(
     DateTime when, {
     int index = 0,
     List<int>? haptics,
   }) async {
-    await _send(
+    // Arm in the STRAP's RTC frame. The strap fires the wake alarm autonomously
+    // on its OWN clock, so if that clock is offset from wall time (SET_CLOCK not
+    // latched / drift) the raw wall epoch fires at the wrong strap-time — or
+    // never (a raw wall epoch is decades ahead of a strap clock still near its
+    // factory epoch, which is exactly why an immediate RUN_ALARM buzz works but a
+    // scheduled alarm never fires). Shift the target by the GET_CLOCK drift; fall
+    // back to the raw epoch when we have no correlation yet (e.g. just after a
+    // reconnect, before this session's GET_CLOCK reply). Byte layout + the frame
+    // conversion both live in the pure [AlarmPayloads].
+    final ref = _clockRef;
+    final driftSec = ref?.driftSec ?? 0;
+    final armWhen = AlarmPayloads.toStrapFrame(when, driftSec);
+    final ok = await _send(
       Cmd.setAlarmTime,
-      AlarmPayloads.rich(when, index: index, haptics: haptics),
+      AlarmPayloads.rich(armWhen, index: index, haptics: haptics),
     );
-    _log('SET_ALARM_TIME (rich 20B) → sec=${when.millisecondsSinceEpoch ~/ 1000} '
-        'subsec=${AlarmPayloads.subsecOf(when)}');
+    _log('SET_ALARM_TIME (rich 20B) → wallSec=${when.millisecondsSinceEpoch ~/ 1000} '
+        'strapSec=${armWhen.millisecondsSinceEpoch ~/ 1000} drift=${driftSec}s '
+        'correlated=${ref != null} subsec=${AlarmPayloads.subsecOf(armWhen)} '
+        'write=${ok ? 'ok' : 'FAILED'}');
+    return ok;
   }
 
   /// Time-only alarm (SET_ALARM_TIME = 0x42), SHORT 7-byte form:
@@ -2672,6 +2711,11 @@ class BleEngine {
     final device = session.device;
     await session.teardown();
     _session = null;
+    // The strap-RTC↔wall correlation belongs to the session that measured it —
+    // drop it so it can't leak into the next connection's alarm arming before a
+    // fresh GET_CLOCK. (Connection setup also re-nulls it; this covers the gap
+    // between teardown and the next connect.)
+    _clockRef = null;
     _offloadFrames.clear();
     _drainingOffloadFrames = false;
     _setOffloadActive(false);

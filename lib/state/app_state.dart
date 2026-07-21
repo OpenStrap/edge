@@ -2079,7 +2079,15 @@ class AppState extends ChangeNotifier {
     // Pass the DateTime through so the engine computes REAL sub-seconds for the
     // rich 20-byte firing form (a hardcoded 0 subsec would still fire, but the
     // engine owns the exact on-wire layout).
-    await engine.setAlarm(when);
+    final ok = await engine.setAlarm(when);
+    if (!ok) {
+      // The arm write never reached the band — do NOT persist or start the
+      // confirmation machine, or we'd strand a phantom alarm "waiting for the
+      // strap to confirm" that can never fire. Surface it so the UI reflects
+      // "couldn't send" (the coach/profile callers snackbar on a throw).
+      _log('[alarm] arm write FAILED — not persisting; alarm not set.');
+      throw Exception('Alarm not sent — the strap did not accept the write');
+    }
     _savedAlarm = epoch;
     device.alarmEpoch = epoch; // optimistic display
     _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch); // await event 56
@@ -2135,10 +2143,12 @@ class AppState extends ChangeNotifier {
     switch (effect) {
       case AlarmEffect.confirmed:
         _alarmGraceTimer?.cancel();
-        _log('[alarm] confirmed set (event $id).');
+        // Diagnostic: ALARM_SET (event 56) means the arm LATCHED on the band.
+        // Its absence after a SET is the tell that the write never took.
+        _log('[alarm] strap CONFIRMED arm — ALARM_SET (event $id) received.');
         break;
       case AlarmEffect.fired:
-        _log('[alarm] fired (event $id).');
+        _log('[alarm] strap FIRED — EXECUTED (event $id) received.');
         unawaited(_notifyAlarmFired());
         break;
       case AlarmEffect.cleared:

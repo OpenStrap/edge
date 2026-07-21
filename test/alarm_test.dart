@@ -6,6 +6,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
+import 'package:openstrap_edge/sync/sync_policy.dart' show ClockRef;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
 void main() {
@@ -66,6 +67,70 @@ void main() {
     test('default haptics match the stock wake-buzz pattern', () {
       expect(AlarmPayloads.defaultHaptics,
           <int>[47, 152, 0, 0, 0, 0, 0, 0, 0, 0, 7, 30]);
+    });
+  });
+
+  group('AlarmPayloads.toStrapFrame (RTC-frame arming)', () {
+    // Wall-clock target with a non-zero sub-second so we can assert it survives.
+    final wall = DateTime.fromMillisecondsSinceEpoch(1750000000 * 1000 + 250,
+        isUtc: true);
+
+    test('uncorrelated (drift 0) → wall target unchanged', () {
+      expect(AlarmPayloads.toStrapFrame(wall, 0).millisecondsSinceEpoch,
+          wall.millisecondsSinceEpoch);
+    });
+
+    test('strap RTC behind wall (drift +90) → armed epoch = wall − 90', () {
+      final r = AlarmPayloads.toStrapFrame(wall, 90);
+      expect(r.millisecondsSinceEpoch ~/ 1000, 1750000000 - 90);
+      // whole-second shift keeps the sub-second remainder intact
+      expect(AlarmPayloads.subsecOf(r), AlarmPayloads.subsecOf(wall));
+    });
+
+    test('strap RTC ahead of wall (drift −30) → armed epoch = wall + 30', () {
+      expect(AlarmPayloads.toStrapFrame(wall, -30).millisecondsSinceEpoch ~/ 1000,
+          1750000000 + 30);
+    });
+
+    test('rich() encodes the strap-frame epoch, not the raw wall epoch', () {
+      // On a strap whose RTC is 90s behind, arming the raw wall epoch would fire
+      // 90s late (or never, for a large offset); the rich payload must carry the
+      // shifted (wall − drift) seconds.
+      final p = AlarmPayloads.rich(AlarmPayloads.toStrapFrame(wall, 90));
+      final sec = p[2] | (p[3] << 8) | (p[4] << 16) | (p[5] << 24);
+      expect(sec, 1750000000 - 90);
+    });
+  });
+
+  group('ClockRef.driftSec + reconnect fallback (stale-correlation guard)', () {
+    final wall = DateTime.fromMillisecondsSinceEpoch(1750000000 * 1000,
+        isUtc: true);
+
+    test('driftSec = wall − device (positive when the strap RTC is behind)', () {
+      expect(const ClockRef(device: 1000, wall: 1090).driftSec, 90);
+      expect(const ClockRef(device: 1100, wall: 1070).driftSec, -30);
+      expect(const ClockRef(device: 1000, wall: 1000).driftSec, 0);
+    });
+
+    test('no correlation yet (just after reconnect) → drift 0 → raw wall epoch', () {
+      // On reconnect _clockRef is nulled until THIS session's GET_CLOCK reply, so
+      // the arm must fall back to the raw epoch rather than reuse the previous
+      // session's offset. This mirrors engine.setAlarm's `_clockRef?.driftSec ?? 0`.
+      const ClockRef? ref = null;
+      final driftSec = ref?.driftSec ?? 0;
+      expect(driftSec, 0);
+      expect(
+          AlarmPayloads.toStrapFrame(wall, driftSec).millisecondsSinceEpoch ~/ 1000,
+          1750000000);
+    });
+
+    test('correlated session → arms in the strap frame using the offset', () {
+      const ref = ClockRef(device: 1749999910, wall: 1750000000); // strap 90s behind
+      final driftSec = ref.driftSec; // 90
+      expect(driftSec, 90);
+      expect(
+          AlarmPayloads.toStrapFrame(wall, driftSec).millisecondsSinceEpoch ~/ 1000,
+          1750000000 - 90);
     });
   });
 
