@@ -18,6 +18,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import '../compute/derivation_engine.dart';
+import '../compute/hr_max.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
@@ -1668,13 +1669,28 @@ class LocalRepositoryImpl extends LocalRepository {
     // Sessions have no avg_hr column — without this every workout looked like
     // "no data" (avg_hr == 0) even when the window is full of worn HR.
     try {
-      final stats = await LocalDb.sessionHrStats(fromTs, nowSec);
+      final age = _profileAge();
+      final stats =
+          await LocalDb.sessionHrStats(fromTs, nowSec, maxHrCeiling: hrCeilingForAge(age));
+      // Spike-suppressed max per session (issue #127): smooth the raw 1 Hz over
+      // one batched join so the list agrees with getWorkout's on-read recompute.
+      final rawBySession = await LocalDb.sessionHrSamplesBySession(fromTs, nowSec);
       for (final w in workouts) {
         final s = stats[w['id']];
-        if (s == null || (s['n'] ?? 0) == 0) continue;
-        w['avg_hr'] = (s['avg_hr'] as num).round();
-        w['min_hr'] = (s['min_hr'] as num).toInt();
-        w['max_hr'] ??= (s['max_hr'] as num).toInt();
+        if (s != null && (s['n'] ?? 0) != 0) {
+          w['avg_hr'] = (s['avg_hr'] as num).round();
+          w['min_hr'] = (s['min_hr'] as num).toInt();
+        }
+        final raw = rawBySession[w['id']];
+        final smoothed = raw == null ? null : smoothedMaxHr(raw, age: age);
+        if (smoothed != null) {
+          // Authoritative — matches the detail screen's recompute exactly.
+          w['max_hr'] = smoothed;
+        } else if (s != null && (s['n'] ?? 0) != 0) {
+          // Raw pruned: stored column (live smoothed) first, else the
+          // ceiling-bounded SQL max as a coarse last resort.
+          w['max_hr'] ??= (s['max_hr'] as num).toInt();
+        }
       }
     } catch (_) {
       /* stats are an enrichment — the list still renders without them */
@@ -1752,11 +1768,15 @@ class LocalRepositoryImpl extends LocalRepository {
         final avg = hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
         w['min_hr'] = hr.reduce(math.min);
-        final peak = hr.reduce(math.max);
-        w['max_hr'] = math.max((w['max_hr'] as int?) ?? 0, peak);
+        // Spike-suppressed peak (issue #127). RECOMPUTE from the smoothed raw —
+        // do NOT floor against the stored column: the live path may already have
+        // written a spiked max there, and math.max() would preserve it.
+        final peakAt = smoothedMaxHrAt(hr, age: _profileAge());
+        if (peakAt != null) {
+          w['max_hr'] = peakAt.$1;
+          w['time_to_peak_min'] = ((ts[peakAt.$2] - startTs) / 60).round();
+        }
         w['zone_bands'] = _zoneBands(hr);
-        w['time_to_peak_min'] =
-            ((ts[hr.indexOf(peak)] - startTs) / 60).round();
         final drift = _hrDriftPct(ts, hr, startTs, endTs);
         if (drift != null) w['hr_drift_pct'] = drift;
       }
@@ -1885,6 +1905,10 @@ class LocalRepositoryImpl extends LocalRepository {
     final age = (getProfileMap()?['age'] as num?)?.toDouble() ?? 30.0;
     return (220 - age).round();
   }
+
+  /// Profile age in years, or null when unset — the input to the physiological
+  /// HR ceiling in the spike-suppressed max ([hrCeilingForAge]).
+  int? _profileAge() => (getProfileMap()?['age'] as num?)?.round();
 
   @override
   Future<void> deleteWorkout(String id) async => LocalDb.deleteSession(id);

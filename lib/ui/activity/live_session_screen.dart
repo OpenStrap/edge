@@ -196,8 +196,11 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
     if (mins > 0 && mins % 5 == 0) _milestone('t$mins', '$mins MINUTES', "Locked in. Keep going.", AppColors.good);
     final kcalStep = (w.calories ~/ 100) * 100;
     if (kcalStep >= 100) _milestone('k$kcalStep', '$kcalStep KCAL', "Burning clean.", AppColors.coral);
-    if (w.elapsed.inSeconds > 90 && hr > 0 && hr == w.maxHrSeen && hr >= (_maxHr * 0.8)) {
-      _milestone('mhr$hr', 'NEW MAX · $hr', "Highest your heart's gone today.", AppColors.coralDeep);
+    // Announce on a new SMOOTHED peak (not raw instantaneous hr), so a transient
+    // spike can't fire a spurious "NEW MAX"; the dedup key gates one per value.
+    if (w.elapsed.inSeconds > 90 && w.maxHrSeen > 0 && w.maxHrSeen >= (_maxHr * 0.8)) {
+      _milestone('mhr${w.maxHrSeen}', 'NEW MAX · ${w.maxHrSeen}',
+          "Highest your heart's gone today.", AppColors.coralDeep);
     }
 
     // Rotate the playful line ~every 11s (or on zone change).

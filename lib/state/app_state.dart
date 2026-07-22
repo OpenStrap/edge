@@ -36,6 +36,7 @@ import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
+import '../compute/hr_max.dart';
 import '../compute/profile.dart';
 import '../data/day_label.dart';
 import '../data/db.dart';
@@ -2953,6 +2954,7 @@ class AppState extends ChangeNotifier {
       targetKcal: targetKcal,
       workoutId: id,
       type: type,
+      age: (user?['age'] as num?)?.round(),
     );
     // Persist the live session (INSERT OR REPLACE — idempotent if repo already
     // inserted this id). Final stats are written on stop.
@@ -3232,7 +3234,9 @@ class AppState extends ChangeNotifier {
 
     w.elapsed = DateTime.now().difference(w.startTime);
     w.currentHr = device.liveHr ?? 0;
-    if (w.currentHr > w.maxHrSeen) w.maxHrSeen = w.currentHr;
+    // Smooth at accrual (issue #127): a raw `> maxHrSeen` would let a 1–2 s PPG
+    // spike define the session max. accrueHr feeds the rolling-median peak.
+    w.accrueHr(w.currentHr);
     // Per-zone time: one tick ≈ one second in the current zone (persisted as
     // zone_min at stop — this is what feeds the Time-in-Zones bar).
     if (w.currentHr > 0) w.zoneSeconds[_zoneFor(w.currentHr)] += 1;
@@ -3299,7 +3303,12 @@ class LiveWorkoutState {
   double calories = 0.0;
   double strain = 0.0;
   int currentHr = 0;
-  int maxHrSeen = 0; // peak live HR this session (for the "new max!" moment)
+  int maxHrSeen = 0; // spike-suppressed peak live HR this session (issue #127)
+
+  /// Rolling-median accumulator behind [maxHrSeen] — smooths the live 1 Hz HR
+  /// at accrual so a transient PPG motion spike can't set the session max (or
+  /// fire a spurious "new max!"). Same window + reject as the on-read recompute.
+  final RollingMaxHr _hrPeak;
 
   /// Seconds spent in each HR zone (index 0..5 = Z0 rest .. Z5 max), tallied at
   /// 1 Hz by _tickWorkout. Z1..Z5 are persisted as `zone_min` on stop.
@@ -3317,5 +3326,13 @@ class LiveWorkoutState {
     required this.targetKcal,
     this.workoutId,
     this.type = 'other',
-  });
+    int? age,
+  }) : _hrPeak = RollingMaxHr(age: age);
+
+  /// Feed a live 1 Hz HR sample; updates the spike-suppressed [maxHrSeen].
+  void accrueHr(int hr) {
+    if (hr <= 0) return;
+    _hrPeak.add(hr);
+    if (_hrPeak.max > maxHrSeen) maxHrSeen = _hrPeak.max;
+  }
 }

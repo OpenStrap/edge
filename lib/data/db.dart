@@ -3735,14 +3735,22 @@ class LocalDb {
   /// One indexed range join — powers the workout list's avg-bpm / no-data
   /// heuristic without a query per row. Sessions whose window has been pruned
   /// (14-day raw retention) simply don't appear.
+  /// [maxHrCeiling] physiologically bounds the SQL MAX(d.hr): a coarse guard so
+  /// a gross artefact can't define a session that has no on-read smoothed max
+  /// (imported/legacy rows). Spike-suppressed peaks come from
+  /// [sessionHrSamplesBySession] + the shared smoother; this MAX is a last
+  /// fallback only. 0/unset disables the bound.
   static Future<Map<String, Map<String, num>>> sessionHrStats(
     int fromTs,
-    int toTs,
-  ) async {
+    int toTs, {
+    int maxHrCeiling = 0,
+  }) async {
     final db = await instance;
+    final ceilClause = maxHrCeiling > 0 ? 'AND d.hr <= $maxHrCeiling ' : '';
     final rows = await db.rawQuery(
       'SELECT s.id AS id, COUNT(d.rec_ts) AS n, AVG(d.hr) AS avg_hr, '
-      '       MIN(d.hr) AS min_hr, MAX(d.hr) AS max_hr '
+      '       MIN(d.hr) AS min_hr, '
+      '       MAX(CASE WHEN 1=1 $ceilClause THEN d.hr END) AS max_hr '
       'FROM sessions s '
       'JOIN decoded_onehz d ON d.rec_ts >= s.start_ts '
       '  AND d.rec_ts <= COALESCE(s.end_ts, s.start_ts) AND d.hr > 0 '
@@ -3760,6 +3768,35 @@ class LocalDb {
             'max_hr': (r['max_hr'] as num?) ?? 0,
           },
     };
+  }
+
+  /// Worn 1 Hz HR samples for every session in [fromTs, toTs] (epoch SECONDS),
+  /// grouped {session_id: [hr, …]} in ascending time — one indexed range join.
+  /// Feeds the workout list's spike-suppressed max (the shared smoother runs in
+  /// the repo, not here). Sessions whose window has been pruned (14-day raw
+  /// retention) simply don't appear, and the caller falls back to the stored
+  /// column.
+  static Future<Map<String, List<int>>> sessionHrSamplesBySession(
+    int fromTs,
+    int toTs,
+  ) async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT s.id AS id, d.hr AS hr '
+      'FROM sessions s '
+      'JOIN decoded_onehz d ON d.rec_ts >= s.start_ts '
+      '  AND d.rec_ts <= COALESCE(s.end_ts, s.start_ts) AND d.hr > 0 '
+      'WHERE s.start_ts >= ? AND s.start_ts <= ? '
+      'ORDER BY s.id, d.rec_ts ASC',
+      [fromTs, toTs],
+    );
+    final out = <String, List<int>>{};
+    for (final r in rows) {
+      final id = r['id'] as String?;
+      if (id == null) continue;
+      (out[id] ??= <int>[]).add((r['hr'] as num).toInt());
+    }
+    return out;
   }
 
   /// Backfill a session's heart-rate-recovery (bpm), computed retrospectively
