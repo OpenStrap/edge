@@ -1670,26 +1670,32 @@ class LocalRepositoryImpl extends LocalRepository {
     // "no data" (avg_hr == 0) even when the window is full of worn HR.
     try {
       final age = _profileAge();
-      final stats =
-          await LocalDb.sessionHrStats(fromTs, nowSec, maxHrCeiling: hrCeilingForAge(age));
-      // Spike-suppressed max per session (issue #127): smooth the raw 1 Hz over
-      // one batched join so the list agrees with getWorkout's on-read recompute.
+      final stats = await LocalDb.sessionHrStats(fromTs, nowSec,
+          maxHrCeiling: hrCeilingForAge(age), minHrFloor: kHrFloorBpm);
+      // Spike-suppressed max/min per session (issue #127): smooth the raw 1 Hz
+      // over one batched join so the list agrees with getWorkout's on-read
+      // recompute.
       final rawBySession = await LocalDb.sessionHrSamplesBySession(fromTs, nowSec);
       for (final w in workouts) {
         final s = stats[w['id']];
+        final raw = rawBySession[w['id']];
         if (s != null && (s['n'] ?? 0) != 0) {
           w['avg_hr'] = (s['avg_hr'] as num).round();
-          w['min_hr'] = (s['min_hr'] as num).toInt();
         }
-        final raw = rawBySession[w['id']];
-        final smoothed = raw == null ? null : smoothedMaxHr(raw, age: age);
-        if (smoothed != null) {
-          // Authoritative — matches the detail screen's recompute exactly.
-          w['max_hr'] = smoothed;
+        // Peak: smoothed-from-raw (authoritative, matches the detail screen);
+        // else stored column, else the ceiling-bounded SQL max.
+        final smax = raw == null ? null : smoothedMaxHr(raw, age: age);
+        if (smax != null) {
+          w['max_hr'] = smax;
         } else if (s != null && (s['n'] ?? 0) != 0) {
-          // Raw pruned: stored column (live smoothed) first, else the
-          // ceiling-bounded SQL max as a coarse last resort.
           w['max_hr'] ??= (s['max_hr'] as num).toInt();
+        }
+        // Trough: same treatment. Raw pruned → the floor-bounded SQL min.
+        final smin = raw == null ? null : smoothedMinHr(raw, age: age);
+        if (smin != null) {
+          w['min_hr'] = smin;
+        } else if (s != null && (s['n'] ?? 0) != 0) {
+          w['min_hr'] = (s['min_hr'] as num).toInt();
         }
       }
     } catch (_) {
@@ -1767,7 +1773,9 @@ class LocalRepositoryImpl extends LocalRepository {
         w['hr'] = _minuteHrCurve(ts, hr);
         final avg = hr.reduce((a, b) => a + b) / hr.length;
         w['avg_hr'] = avg.round();
-        w['min_hr'] = hr.reduce(math.min);
+        // Spike-suppressed trough (issue #127): a lone low PPG dropout must not
+        // define the min, symmetric to the max recompute below.
+        w['min_hr'] = smoothedMinHr(hr, age: _profileAge()) ?? hr.reduce(math.min);
         // Spike-suppressed peak (issue #127). RECOMPUTE from the smoothed raw —
         // do NOT floor against the stored column: the live path may already have
         // written a spiked max there, and math.max() would preserve it.

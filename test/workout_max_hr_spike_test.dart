@@ -107,6 +107,37 @@ void main() {
     });
   });
 
+  // ── The min counterpart: symmetric spike suppression ─────────────────────
+  group('smoothedMinHr', () {
+    test('excludes a 1–2 s low dropout', () {
+      // 40 s at 138 with a lone 2 s dip to 45 — the low-side of issue #127.
+      final hr = [
+        for (var i = 0; i < 40; i++) (i == 20 || i == 21) ? 45 : 138,
+      ];
+      expect(smoothedMinHr(hr, age: 30), 138);
+    });
+
+    test('preserves a genuine sustained low below the baseline', () {
+      // Baseline 150 with a real 15 s trough at 132 — a brief genuine low that
+      // must NOT be smoothed away.
+      final hr = [
+        for (var i = 0; i < 60; i++) (i >= 20 && i < 35) ? 132 : 150,
+      ];
+      expect(smoothedMinHr(hr, age: 30), 132);
+    });
+
+    test('physiological floor drops sub-30 garbage before the min', () {
+      // 15 bpm is below the floor; the plausible min is 140.
+      final hr = [for (var i = 0; i < 20; i++) i == 10 ? 15 : 140];
+      expect(smoothedMinHr(hr, age: 30), 140);
+    });
+
+    test('series shorter than a window falls back to the plausible min', () {
+      expect(smoothedMinHr([132], age: 30), 132);
+      expect(smoothedMinHr(const [], age: 30), isNull);
+    });
+  });
+
   // ── The live accumulator agrees with the batch recompute ─────────────────
   group('RollingMaxHr (live accrual)', () {
     test('streaming max matches smoothedMaxHr over the same series', () {
@@ -140,9 +171,9 @@ void main() {
     const end = 800600; // 10 min
 
     // Seed once so each test is self-contained and order-independent: a session
-    // with baseline 143, a genuine 20 s plateau at 152, and 2 s / 1 s motion
-    // spikes to 200 / 210 — plus a spiked max_hr=160 already on the row (as the
-    // old live path would have left it).
+    // with baseline 143, a genuine 20 s plateau at 152, 2 s / 1 s HIGH motion
+    // spikes to 200 / 210, and a 2 s LOW dropout to 40 plus a 1 s garbage 20 —
+    // plus a spiked max_hr=160 already on the row (as the old live path left it).
     Future<void> seedSpikeSession() async {
       await LocalDb.putSession({
         'id': 'w-spike',
@@ -159,8 +190,10 @@ void main() {
       await _insertHr(start, end - 1, (ts) {
         final o = ts - start;
         if (o >= 200 && o < 220) return 152; // real brief peak
-        if (o == 400 || o == 401) return 200; // 2 s motion spike
-        if (o == 450) return 210; // 1 s motion spike
+        if (o == 400 || o == 401) return 200; // 2 s high motion spike
+        if (o == 450) return 210; // 1 s high motion spike
+        if (o == 300 || o == 301) return 40; // 2 s low dropout
+        if (o == 350) return 20; // 1 s sub-physiological garbage
         return 143;
       }, counterBase: 40000);
     }
@@ -184,7 +217,7 @@ void main() {
     test('getWorkout reports the smoothed peak, not a 1–2 s spike', () async {
       final w = await repo.getWorkout('w-spike');
       expect(w['max_hr'], 152); // genuine peak kept, spikes + stored 160 gone
-      expect(w['min_hr'], 143);
+      expect(w['min_hr'], 143); // 40 dropout + 20 garbage excluded, not the min
       // time-to-peak lands on the real plateau (~200 s in → 3 min), not a spike.
       expect(w['time_to_peak_min'], inInclusiveRange(3, 4));
     });
@@ -194,6 +227,7 @@ void main() {
       final workouts = (res['workouts'] as List).cast<Map>();
       final w = workouts.firstWhere((e) => e['id'] == 'w-spike');
       expect(w['max_hr'], 152); // same smoothed peak as getWorkout
+      expect(w['min_hr'], 143); // same smoothed trough as getWorkout
     });
   });
 }

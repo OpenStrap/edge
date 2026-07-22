@@ -3735,21 +3735,23 @@ class LocalDb {
   /// One indexed range join — powers the workout list's avg-bpm / no-data
   /// heuristic without a query per row. Sessions whose window has been pruned
   /// (14-day raw retention) simply don't appear.
-  /// [maxHrCeiling] physiologically bounds the SQL MAX(d.hr): a coarse guard so
-  /// a gross artefact can't define a session that has no on-read smoothed max
-  /// (imported/legacy rows). Spike-suppressed peaks come from
-  /// [sessionHrSamplesBySession] + the shared smoother; this MAX is a last
-  /// fallback only. 0/unset disables the bound.
+  /// [maxHrCeiling] / [minHrFloor] physiologically bound the SQL MAX/MIN(d.hr):
+  /// a coarse guard so a gross artefact can't define a session that has no
+  /// on-read smoothed extreme (imported/legacy rows). Spike-suppressed
+  /// max/min come from [sessionHrSamplesBySession] + the shared smoother; these
+  /// aggregates are a last fallback only. 0/unset disables each bound.
   static Future<Map<String, Map<String, num>>> sessionHrStats(
     int fromTs,
     int toTs, {
     int maxHrCeiling = 0,
+    int minHrFloor = 0,
   }) async {
     final db = await instance;
     final ceilClause = maxHrCeiling > 0 ? 'AND d.hr <= $maxHrCeiling ' : '';
+    final floorClause = minHrFloor > 0 ? 'AND d.hr >= $minHrFloor ' : '';
     final rows = await db.rawQuery(
       'SELECT s.id AS id, COUNT(d.rec_ts) AS n, AVG(d.hr) AS avg_hr, '
-      '       MIN(d.hr) AS min_hr, '
+      '       MIN(CASE WHEN 1=1 $floorClause THEN d.hr END) AS min_hr, '
       '       MAX(CASE WHEN 1=1 $ceilClause THEN d.hr END) AS max_hr '
       'FROM sessions s '
       'JOIN decoded_onehz d ON d.rec_ts >= s.start_ts '

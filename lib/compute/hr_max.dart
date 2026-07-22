@@ -43,12 +43,14 @@ int hrCeilingForAge(int? age) {
   return math.min(kHrHardCeilBpm, math.max(200, withHeadroom));
 }
 
-/// Spike-suppressed peak HR over a raw 1 Hz [hr] series, as `(value, index)`:
-/// the peak bpm and the index in [hr] at which it occurs (the centre of the
-/// winning window — for time-to-peak). Null when no plausible sample survives
-/// the physiological reject.
-(int, int)? smoothedMaxHrAt(
+/// Spike-suppressed extreme HR over a raw 1 Hz [hr] series. [wantMax] selects
+/// the peak (largest smoothed value) vs the trough (smallest). The min side is
+/// symmetric to the max: a 1–2 s LOW dropout can no more be the median of the
+/// window than a high spike, and the same physiological reject drops garbage
+/// (a stray <30 bpm reading) before it can define the trough.
+(int, int)? _smoothedExtremeHrAt(
   List<int> hr, {
+  required bool wantMax,
   int? age,
   int window = kHrSmoothWindow,
 }) {
@@ -56,7 +58,7 @@ int hrCeilingForAge(int? age) {
   final ceil = hrCeilingForAge(age);
 
   // Physiological reject, keeping the ORIGINAL index of each kept sample so the
-  // returned peak index maps back onto the caller's raw series (time-to-peak).
+  // returned index maps back onto the caller's raw series (time-to-peak).
   final vals = <int>[];
   final srcIdx = <int>[];
   for (var i = 0; i < hr.length; i++) {
@@ -68,12 +70,12 @@ int hrCeilingForAge(int? age) {
   if (vals.isEmpty) return null;
 
   final w = window.isOdd ? window : window + 1;
-  // Too short to form a full window — fall back to the plausible max (already
-  // artefact-bounded by the reject above).
+  // Too short to form a full window — fall back to the plausible extreme
+  // (already artefact-bounded by the reject above).
   if (vals.length < w) {
     var best = vals[0], bi = 0;
     for (var i = 1; i < vals.length; i++) {
-      if (vals[i] > best) {
+      if (wantMax ? vals[i] > best : vals[i] < best) {
         best = vals[i];
         bi = i;
       }
@@ -83,24 +85,43 @@ int hrCeilingForAge(int? age) {
 
   final half = w ~/ 2;
   final scratch = List<int>.filled(w, 0);
-  var bestMed = -1, bestIdx = srcIdx[half];
+  int? bestMed;
+  var bestIdx = srcIdx[half];
   for (var c = half; c < vals.length - half; c++) {
     for (var k = 0; k < w; k++) {
       scratch[k] = vals[c - half + k];
     }
     scratch.sort();
     final med = scratch[half];
-    if (med > bestMed) {
+    if (bestMed == null || (wantMax ? med > bestMed : med < bestMed)) {
       bestMed = med;
       bestIdx = srcIdx[c];
     }
   }
-  return (bestMed, bestIdx);
+  return (bestMed!, bestIdx);
 }
+
+/// Spike-suppressed peak HR over a raw 1 Hz [hr] series, as `(value, index)`:
+/// the peak bpm and the index in [hr] at which it occurs (the centre of the
+/// winning window — for time-to-peak). Null when no plausible sample survives
+/// the physiological reject.
+(int, int)? smoothedMaxHrAt(List<int> hr,
+        {int? age, int window = kHrSmoothWindow}) =>
+    _smoothedExtremeHrAt(hr, wantMax: true, age: age, window: window);
+
+/// Spike-suppressed trough HR — the min counterpart of [smoothedMaxHrAt], so a
+/// single low PPG dropout can't define the workout min.
+(int, int)? smoothedMinHrAt(List<int> hr,
+        {int? age, int window = kHrSmoothWindow}) =>
+    _smoothedExtremeHrAt(hr, wantMax: false, age: age, window: window);
 
 /// Spike-suppressed peak HR (value only) — see [smoothedMaxHrAt].
 int? smoothedMaxHr(List<int> hr, {int? age, int window = kHrSmoothWindow}) =>
     smoothedMaxHrAt(hr, age: age, window: window)?.$1;
+
+/// Spike-suppressed trough HR (value only) — see [smoothedMinHrAt].
+int? smoothedMinHr(List<int> hr, {int? age, int window = kHrSmoothWindow}) =>
+    smoothedMinHrAt(hr, age: age, window: window)?.$1;
 
 /// Streaming counterpart of [smoothedMaxHr] for the live workout tick: feed each
 /// 1 Hz sample with [add] and read [max], the spike-suppressed running peak.
