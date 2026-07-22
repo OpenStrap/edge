@@ -276,6 +276,49 @@ const int _finalizationSec = 48 * 3600;
 /// How many trailing derived days feed readiness/composite baselines.
 const int _baselineWindowDays = 28;
 
+/// Readiness is meant to be a stable MORNING score, but a day stays recomputable
+/// for ~48 h (`_finalizationSec`) and every re-derive overwrites the persisted
+/// readiness scalar. As the night's flash finishes draining and the trailing
+/// 28-day baseline shifts, the surfaced value legitimately drifts through the
+/// day (#128: "morning it was 49, now 45"). Once today's overnight is genuinely
+/// COMPLETE we PIN the first such readiness as the headline so it stops moving.
+///
+/// "Complete" must be stronger than `overnight_state == 'ready'` — that flips as
+/// soon as the FIRST sleep-bearing row lands (mid-drain), so pinning on it could
+/// freeze a partial-night value. We instead require the drained data edge to
+/// have moved at least this far PAST the sleep offset (wake): the whole sleep
+/// window is then decoded and the segmentation-placed wake is settled, so the
+/// overnight inputs are final. Same "edge past the window" model finalisation
+/// uses, anchored at wake+margin rather than wake+48 h. Conservative but still
+/// reached within the first post-wake sync in practice; raise it to trade a
+/// slightly later freeze for more safety margin.
+const int _headlineFreezeMarginSec = 60 * 60;
+
+/// The frozen morning readiness headline that should be persisted/surfaced for
+/// [today], given the current pin and a fresh look at today's live readiness and
+/// whether today's overnight is genuinely COMPLETE. Pure so the freeze semantics
+/// are unit-tested without the derive/DB machinery.
+///
+/// - Not yet a complete overnight → no pin (the headline tracks the live value).
+/// - First complete overnight → pin the live value.
+/// - Later same-day looks → keep the FIRST pin (the whole point: no daytime
+///   drift — a re-derive that would RAISE or LOWER the score is ignored).
+/// - A new day → the prior day's pin no longer applies; re-pins once the new
+///   day's overnight completes.
+@visibleForTesting
+({String day, int value})? nextFrozenHeadline({
+  required String today,
+  required bool overnightComplete,
+  required int? liveReadiness,
+  required ({String day, int value})? current,
+}) {
+  if (current != null && current.day == today) return current; // pinned; hold
+  if (overnightComplete && liveReadiness != null) {
+    return (day: today, value: liveReadiness); // first complete settle → pin
+  }
+  return null; // nothing to pin yet for today
+}
+
 /// Test seam: the rolling baseline window the readiness computation actually
 /// runs against, loaded exactly as production does. Exposed to assert the read
 /// path ignores a polluted `rolling_artifact` and rebuilds from `metric_series`.
@@ -1684,6 +1727,41 @@ class DerivationEngine {
       'derived ${day.date} v$kAlgoVersion '
       '(sleep=${day.sleepOffsetSec > day.sleepOnsetSec}, final=$finalized)',
     );
+    await _maybeFreezeHeadlineReadiness(day, dataNowSec, sc('readiness'));
+  }
+
+  /// Pin today's morning readiness headline once its overnight is genuinely
+  /// COMPLETE, so the Today hero + recovery story stop drifting through the day
+  /// (#128). Only the headline is pinned — this row's `day_result`, the
+  /// baselines, trends and finalisation all keep updating on later re-derives.
+  Future<void> _maybeFreezeHeadlineReadiness(
+    PreparedDerivationDay day,
+    int dataNowSec,
+    double? readiness,
+  ) async {
+    // Only today's headline is pinned. Historical/backfill + imported days never
+    // reach the Today hero, and imports are immutable snapshots anyway.
+    if (day.date != todayLabel()) return;
+    final hasSleep = day.sleepOffsetSec > day.sleepOnsetSec;
+    if (!hasSleep) return;
+    final overnightComplete =
+        dataNowSec >= day.sleepOffsetSec + _headlineFreezeMarginSec;
+    final current = await LocalDb.frozenHeadline();
+    final next = nextFrozenHeadline(
+      today: day.date,
+      overnightComplete: overnightComplete,
+      liveReadiness: readiness?.round(),
+      current: current,
+    );
+    if (next == null) return;
+    // Already pinned to this exact value → skip the redundant write.
+    if (current != null &&
+        current.day == next.day &&
+        current.value == next.value) {
+      return;
+    }
+    await LocalDb.setFrozenHeadline(next.day, next.value);
+    _log('froze headline readiness ${next.value} for ${next.day}');
   }
 
   void _logSpo2Diagnostics(

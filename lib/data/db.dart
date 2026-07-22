@@ -668,6 +668,32 @@ class LocalDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// Cursor holding the FROZEN morning readiness headline (see #128): the
+  /// day-tagged value pinned once today's overnight first settles on a genuinely
+  /// complete night, so the Today hero + recovery story stop drifting through
+  /// the day. Day-tagged so it survives restarts and is ignored on a new day.
+  static const String kFrozenHeadlineCursor = 'frozen_headline';
+
+  /// The pinned morning readiness headline (day + value), or null if unset /
+  /// unparseable. The `day` must be compared to today's label by the caller — a
+  /// pin left over from a previous day must NOT be surfaced.
+  static Future<({String day, int value})?> frozenHeadline() async {
+    final raw = await getCursor(kFrozenHeadlineCursor);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final d = jsonDecode(raw);
+      if (d is Map && d['day'] is String && d['value'] is num) {
+        return (day: d['day'] as String, value: (d['value'] as num).round());
+      }
+    } catch (_) {/* malformed → treat as unset */}
+    return null;
+  }
+
+  /// Pin [value] as the frozen readiness headline for [day] (overwrites any
+  /// prior pin — first-complete-settle-per-day is enforced by the caller).
+  static Future<void> setFrozenHeadline(String day, int value) =>
+      setCursor(kFrozenHeadlineCursor, jsonEncode({'day': day, 'value': value}));
+
   /// Persist a sync batch atomically: the raw records, their samples, AND the
   /// continuation cursor in ONE transaction. This is the durable half of the
   /// safe-trim invariant — it MUST return before the engine writes the ACK frame.

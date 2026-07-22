@@ -238,9 +238,22 @@ class LocalRepositoryImpl extends LocalRepository {
     // Readiness/recovery: when the composite abstains for lack of baseline, the
     // envelope carries a `need_baseline:have=H,need=N` note. Pass that note
     // through so the hero can render "Need N more nights" instead of a number.
-    final readinessScalar = showOvernight
+    var readinessScalar = showOvernight
         ? _scalar(sleepBundle, 'readiness')
         : null;
+    // FROZEN MORNING HEADLINE (#128): once today's overnight first settled on a
+    // genuinely complete night, the derive pinned that readiness. Surface the
+    // pin so the hero + once-a-morning recovery story stop drifting as the day's
+    // re-derives (more daytime data, a shifting baseline) move the live scalar.
+    // ONLY the headline is pinned — every other metric below still reflects the
+    // latest re-derive. Gated to today's OWN overnight (`ready`, matching day)
+    // so a prior-night fallback or a stale yesterday pin can never leak in.
+    if (overnightState == 'ready') {
+      final pin = await LocalDb.frozenHeadline();
+      if (pin != null && pin.day == todayDay) {
+        readinessScalar = pin.value.toDouble();
+      }
+    }
     final readinessNote = readinessScalar == null && showOvernight
         ? _needNote(sleepBundle, 'clinical.readiness_composite')
         : null;
