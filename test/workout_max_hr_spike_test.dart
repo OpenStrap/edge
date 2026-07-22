@@ -136,6 +136,35 @@ void main() {
   group('workout max HR over LocalDb', () {
     late LocalRepositoryImpl repo;
 
+    const start = 800000;
+    const end = 800600; // 10 min
+
+    // Seed once so each test is self-contained and order-independent: a session
+    // with baseline 143, a genuine 20 s plateau at 152, and 2 s / 1 s motion
+    // spikes to 200 / 210 — plus a spiked max_hr=160 already on the row (as the
+    // old live path would have left it).
+    Future<void> seedSpikeSession() async {
+      await LocalDb.putSession({
+        'id': 'w-spike',
+        'start_ts': start,
+        'end_ts': end,
+        'type': 'run',
+        'status': 'done',
+        'duration_min': 10,
+        // The recompute must OVERRIDE this, not floor against it.
+        'max_hr': 160,
+        'source': 'manual',
+        'created_at': start * 1000,
+      });
+      await _insertHr(start, end - 1, (ts) {
+        final o = ts - start;
+        if (o >= 200 && o < 220) return 152; // real brief peak
+        if (o == 400 || o == 401) return 200; // 2 s motion spike
+        if (o == 450) return 210; // 1 s motion spike
+        return 143;
+      }, counterBase: 40000);
+    }
+
     setUpAll(() async {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
@@ -143,6 +172,7 @@ void main() {
       final dir = await databaseFactory.getDatabasesPath();
       await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
       repo = LocalRepositoryImpl(getProfileMap: () => {'age': 30}); // maxHr 190
+      await seedSpikeSession();
     });
 
     tearDownAll(() async {
@@ -151,33 +181,7 @@ void main() {
       await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
     });
 
-    const start = 800000;
-    const end = 800600; // 10 min
-
     test('getWorkout reports the smoothed peak, not a 1–2 s spike', () async {
-      await LocalDb.putSession({
-        'id': 'w-spike',
-        'start_ts': start,
-        'end_ts': end,
-        'type': 'run',
-        'status': 'done',
-        'duration_min': 10,
-        // A spiked value already persisted by the (old) live path — the
-        // recompute must OVERRIDE it, not floor against it.
-        'max_hr': 160,
-        'source': 'manual',
-        'created_at': start * 1000,
-      });
-      // Baseline 143; a genuine 20 s plateau at 152; a 2 s spike to 200 and a
-      // 1 s spike to 210 elsewhere.
-      await _insertHr(start, end - 1, (ts) {
-        final o = ts - start;
-        if (o >= 200 && o < 220) return 152; // real brief peak
-        if (o == 400 || o == 401) return 200; // 2 s motion spike
-        if (o == 450) return 210; // 1 s motion spike
-        return 143;
-      }, counterBase: 40000);
-
       final w = await repo.getWorkout('w-spike');
       expect(w['max_hr'], 152); // genuine peak kept, spikes + stored 160 gone
       expect(w['min_hr'], 143);
