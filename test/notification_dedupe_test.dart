@@ -5,6 +5,8 @@
 // the existing category/quiet-hours gating is untouched. We inject a fake
 // present sink (counts calls, no device) and a mocked SharedPreferences.
 
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -24,6 +26,24 @@ class _FakeSink {
     shown.add(e);
     return true;
   }
+}
+
+/// A sink that parks inside the present call until [release] is called, so a
+/// test can hold one emit mid-critical-section and prove a second overlapping
+/// emit is serialised behind it. [calls] counts entries into present.
+class _GatedSink {
+  int calls = 0;
+  final List<String> keys = [];
+  final Completer<void> _gate = Completer<void>();
+
+  Future<bool> call(NotificationEvent e, {bool allowPermissionPrompt = true}) async {
+    calls++;
+    keys.add(e.dedupeKey);
+    await _gate.future;
+    return true;
+  }
+
+  void release() => _gate.complete();
 }
 
 NotificationEvent _ev(
@@ -162,6 +182,47 @@ void main() {
       await center.emit(e);
       await center.emit(e);
       expect(sink.shown.length, 1);
+    });
+  });
+
+  group('concurrent emit serialisation', () {
+    test('two overlapping emits of the SAME key present exactly once',
+        () async {
+      final sink = _GatedSink();
+      center.presentSink = sink.call;
+
+      final e = _ev('2026-07-23:irregular');
+      final f1 = center.emit(e);
+      final f2 = center.emit(e);
+      // Drain microtasks: the lock lets only the first emit reach the sink;
+      // the second is parked on the lock, not racing the fired-key check.
+      await Future<void>.delayed(Duration.zero);
+      expect(sink.calls, 1);
+      sink.release();
+      await Future.wait([f1, f2]);
+
+      // Second emit saw the now-recorded key and never presented.
+      expect(sink.calls, 1);
+    });
+
+    test('two overlapping emits of DIFFERENT keys both record (no clobber)',
+        () async {
+      final sink = _GatedSink();
+      center.presentSink = sink.call;
+
+      final f1 = center.emit(_ev('2026-07-23:a'));
+      final f2 = center.emit(_ev('2026-07-23:b'));
+      await Future<void>.delayed(Duration.zero);
+      sink.release();
+      await Future.wait([f1, f2]);
+
+      expect(sink.calls, 2);
+      // Serialised read-modify-write: neither key clobbered the other.
+      final p = await SharedPreferences.getInstance();
+      expect(
+        p.getStringList('notif_fired_keys'),
+        containsAll(['2026-07-23:a', '2026-07-23:b']),
+      );
     });
   });
 

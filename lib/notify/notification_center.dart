@@ -8,6 +8,8 @@
 //   • either we're outside quiet hours, or the event is critical and the user
 //     allowed critical-overrides-quiet.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../ai/ai_prefs.dart';
@@ -23,6 +25,28 @@ class NotificationCenter {
 
   /// The persistent "already fired this dedupeKey" guard. See [FiredKeyStore].
   final FiredKeyStore _fired = const FiredKeyStore();
+
+  /// Tail of a chained-Future lock that serialises the check-present-record
+  /// critical section in [emit]. Without it two overlapping emits could both
+  /// pass [FiredKeyStore.hasFired] before either records (→ both present), and
+  /// their read-modify-write of the fired-key list could clobber each other
+  /// (losing a key). More likely now the UI-thread stress alert can race the
+  /// background derive loop. Dart is single-isolate, so this in-memory lock
+  /// fully orders the awaits within emit.
+  Future<void> _lock = Future<void>.value();
+
+  /// Run [action] after any in-flight critical section completes, exclusively.
+  Future<void> _synchronized(Future<void> Function() action) async {
+    final prev = _lock;
+    final done = Completer<void>();
+    _lock = done.future; // installed synchronously — orders concurrent callers
+    await prev;
+    try {
+      await action();
+    } finally {
+      done.complete();
+    }
+  }
 
   /// The OS presentation sink. Returns true when the event was actually shown
   /// (permission granted, no error). Overridable in tests to assert call counts
@@ -57,12 +81,18 @@ class NotificationCenter {
       // Skip a key that has already fired; record it only after a real present
       // (a permission-denied no-op must not consume the key). The guard resets
       // itself per new day via the date-prefixed keys.
-      if (await _fired.hasFired(e.dedupeKey)) return;
-      final shown = await presentSink(
-        e,
-        allowPermissionPrompt: allowPermissionPrompt,
-      );
-      if (shown) await _fired.recordFired(e.dedupeKey);
+      //
+      // Serialised: hasFired → present → recordFired runs one emit at a time,
+      // so overlapping emits can't both present the same key nor clobber the
+      // fired-key list (recordFired re-reads the latest list inside the lock).
+      await _synchronized(() async {
+        if (await _fired.hasFired(e.dedupeKey)) return;
+        final shown = await presentSink(
+          e,
+          allowPermissionPrompt: allowPermissionPrompt,
+        );
+        if (shown) await _fired.recordFired(e.dedupeKey);
+      });
     } catch (_) {/* OS present best-effort */}
   }
 
