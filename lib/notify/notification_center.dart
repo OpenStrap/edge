@@ -8,8 +8,11 @@
 //   • either we're outside quiet hours, or the event is critical and the user
 //     allowed critical-overrides-quiet.
 
+import 'package:flutter/foundation.dart';
+
 import '../ai/ai_prefs.dart';
 import '../ai/reminder_plan.dart';
+import 'fired_keys.dart';
 import 'notification_event.dart';
 import 'notification_prefs.dart';
 import 'notification_service.dart';
@@ -17,6 +20,16 @@ import 'notification_service.dart';
 class NotificationCenter {
   NotificationCenter._();
   static final NotificationCenter instance = NotificationCenter._();
+
+  /// The persistent "already fired this dedupeKey" guard. See [FiredKeyStore].
+  final FiredKeyStore _fired = const FiredKeyStore();
+
+  /// The OS presentation sink. Returns true when the event was actually shown
+  /// (permission granted, no error). Overridable in tests to assert call counts
+  /// without a device; defaults to the real service.
+  @visibleForTesting
+  Future<bool> Function(NotificationEvent e, {bool allowPermissionPrompt})
+      presentSink = NotificationService.instance.presentEvent;
 
   /// Present to the OS (if allowed). Never throws.
   ///
@@ -36,12 +49,20 @@ class NotificationCenter {
       final prefs = await NotificationPrefs.load();
       final now = DateTime.now();
       final minuteOfDay = now.hour * 60 + now.minute;
-      if (prefs.shouldFireOs(e, minuteOfDay)) {
-        await NotificationService.instance.presentEvent(
-          e,
-          allowPermissionPrompt: allowPermissionPrompt,
-        );
-      }
+      if (!prefs.shouldFireOs(e, minuteOfDay)) return;
+      // Enforce the dedupeKey's "fires at most once" contract (issue #136).
+      // The OS id only REPLACES a prior post of the same key — it still
+      // re-alerts — and derivation re-runs on every BLE sync, so an insight
+      // whose condition holds all day would otherwise buzz over and over.
+      // Skip a key that has already fired; record it only after a real present
+      // (a permission-denied no-op must not consume the key). The guard resets
+      // itself per new day via the date-prefixed keys.
+      if (await _fired.hasFired(e.dedupeKey)) return;
+      final shown = await presentSink(
+        e,
+        allowPermissionPrompt: allowPermissionPrompt,
+      );
+      if (shown) await _fired.recordFired(e.dedupeKey);
     } catch (_) {/* OS present best-effort */}
   }
 
