@@ -134,13 +134,26 @@ Future<Map<String, dynamic>> collectBriefingInputs(
 
 // ── prompt building (PURE — unit-tested on sample data) ───────────────────────
 
-String briefingSystemPrompt(BriefingPeriod period) {
+/// The reader's local time of day — used only for the briefing's greeting, and
+/// deliberately distinct from [BriefingPeriod]: the morning briefing (last
+/// night's sleep + recovery) is shown right up to 17:00, so a reader opening it
+/// in the afternoon must be greeted for the afternoon, never the "morning".
+String partOfDay(DateTime now) {
+  final h = now.hour;
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  if (h < 21) return 'evening';
+  return 'night';
+}
+
+String briefingSystemPrompt(BriefingPeriod period, String timeOfDay) {
   final scope = period == BriefingPeriod.morning
-      ? 'last night\'s sleep and this morning\'s recovery, and what they mean '
-          'for the day ahead'
+      ? 'last night\'s sleep and recovery, and what they mean for the day ahead'
       : 'today\'s activity, strain and stress, and how the day landed';
-  return 'You write the ${period.id} health briefing for a local-first fitness '
-      'band app. Summarize $scope.\n'
+  return 'You write a health briefing for a local-first fitness band app. '
+      'It is currently $timeOfDay for the reader — if you open with a greeting, '
+      'greet for the $timeOfDay and never assume a different time of day. '
+      'Summarize $scope.\n'
       'HARD RULES:\n'
       '- Use ONLY the numbers provided. Never invent, estimate or mention a '
       'metric that is not in the data. No medical advice or diagnosis.\n'
@@ -158,11 +171,14 @@ String buildBriefingUserPrompt(
   BriefingPeriod period,
   String day,
   Map<String, dynamic> inputs,
+  String timeOfDay,
 ) {
   final b = StringBuffer()
     ..writeln(period == BriefingPeriod.morning
-        ? 'Morning briefing for $day. Overnight data:'
-        : 'Evening recap for $day. Today\'s data so far:');
+        ? 'Overnight briefing for $day (reader\'s local time: $timeOfDay). '
+            'Overnight data:'
+        : 'Evening recap for $day (reader\'s local time: $timeOfDay). '
+            'Today\'s data so far:');
   if (inputs.isEmpty) {
     b.writeln('(no metrics available yet)');
   } else {
@@ -231,14 +247,18 @@ class BriefingEngine {
     if (!configured) {
       throw CoachException('Add your AI key to enable briefings.');
     }
-    final day = todayLabel(now);
-    final inputs = await collectBriefingInputs(repo, period, now: now);
+    // One effective timestamp for the whole generation, so the day snapshot,
+    // greeting and generatedAt can't straddle midnight / a greeting boundary.
+    final effectiveNow = now ?? DateTime.now();
+    final day = todayLabel(effectiveNow);
+    final tod = partOfDay(effectiveNow);
+    final inputs = await collectBriefingInputs(repo, period, now: effectiveNow);
     final raw = await (complete ??
         (({required String system, required String user}) =>
             CoachEngine.completeText(
                 config: config, system: system, user: user)))(
-      system: briefingSystemPrompt(period),
-      user: buildBriefingUserPrompt(period, day, inputs),
+      system: briefingSystemPrompt(period, tod),
+      user: buildBriefingUserPrompt(period, day, inputs, tod),
     );
     if (raw.trim().isEmpty) {
       throw CoachException('Empty response from provider.');
@@ -249,7 +269,7 @@ class BriefingEngine {
       period: period,
       oneLiner: parsed.oneLiner,
       breakdownMd: parsed.breakdownMd,
-      generatedAtMs: (now ?? DateTime.now()).millisecondsSinceEpoch,
+      generatedAtMs: effectiveNow.millisecondsSinceEpoch,
       inputs: inputs,
     );
     BriefingStore.write(b);
