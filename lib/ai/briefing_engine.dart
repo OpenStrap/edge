@@ -247,9 +247,12 @@ class BriefingEngine {
     if (!configured) {
       throw CoachException('Add your AI key to enable briefings.');
     }
-    final day = todayLabel(now);
-    final tod = partOfDay(now ?? DateTime.now());
-    final inputs = await collectBriefingInputs(repo, period, now: now);
+    // One effective timestamp for the whole generation, so the day snapshot,
+    // greeting and generatedAt can't straddle midnight / a greeting boundary.
+    final effectiveNow = now ?? DateTime.now();
+    final day = todayLabel(effectiveNow);
+    final tod = partOfDay(effectiveNow);
+    final inputs = await collectBriefingInputs(repo, period, now: effectiveNow);
     final raw = await (complete ??
         (({required String system, required String user}) =>
             CoachEngine.completeText(
@@ -266,7 +269,7 @@ class BriefingEngine {
       period: period,
       oneLiner: parsed.oneLiner,
       breakdownMd: parsed.breakdownMd,
-      generatedAtMs: (now ?? DateTime.now()).millisecondsSinceEpoch,
+      generatedAtMs: effectiveNow.millisecondsSinceEpoch,
       inputs: inputs,
     );
     BriefingStore.write(b);
