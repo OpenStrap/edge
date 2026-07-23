@@ -31,14 +31,22 @@ class _FakeSink {
 /// A sink that parks inside the present call until [release] is called, so a
 /// test can hold one emit mid-critical-section and prove a second overlapping
 /// emit is serialised behind it. [calls] counts entries into present.
+///
+/// [entered] fires the moment an emit first reaches the parked point, so tests
+/// order on that signal rather than a scheduler-dependent delay.
 class _GatedSink {
   int calls = 0;
   final List<String> keys = [];
   final Completer<void> _gate = Completer<void>();
+  final Completer<void> _entered = Completer<void>();
+
+  /// Completes when the first emit reaches (enters) the present call.
+  Future<void> get entered => _entered.future;
 
   Future<bool> call(NotificationEvent e, {bool allowPermissionPrompt = true}) async {
     calls++;
     keys.add(e.dedupeKey);
+    if (!_entered.isCompleted) _entered.complete();
     await _gate.future;
     return true;
   }
@@ -194,9 +202,10 @@ void main() {
       final e = _ev('2026-07-23:irregular');
       final f1 = center.emit(e);
       final f2 = center.emit(e);
-      // Drain microtasks: the lock lets only the first emit reach the sink;
-      // the second is parked on the lock, not racing the fired-key check.
-      await Future<void>.delayed(Duration.zero);
+      // Order on the sink's entry signal, not a timer: once the first emit is
+      // parked inside present, the second is provably held on the lock (it
+      // can't have reached the fired-key check), so exactly one entered.
+      await sink.entered;
       expect(sink.calls, 1);
       sink.release();
       await Future.wait([f1, f2]);
@@ -212,7 +221,9 @@ void main() {
 
       final f1 = center.emit(_ev('2026-07-23:a'));
       final f2 = center.emit(_ev('2026-07-23:b'));
-      await Future<void>.delayed(Duration.zero);
+      // First emit is parked inside present; the second is held on the lock, so
+      // its record-key write can only run after the first's — no interleaving.
+      await sink.entered;
       sink.release();
       await Future.wait([f1, f2]);
 
