@@ -222,14 +222,21 @@ class NotificationService {
   /// Present a NotificationEvent on its category channel. Same osId replaces, so
   /// re-firing the same logical event never stacks duplicates. Never throws.
   ///
+  /// Returns true when the event was actually shown (permission granted, no
+  /// error), false otherwise — [NotificationCenter.emit] uses this to record a
+  /// key as fired only on a real present, so a permission-denied no-op doesn't
+  /// permanently consume the dedupeKey.
+  ///
   /// [allowPermissionPrompt] — see [ensurePermission]'s doc. Pass `false` from
   /// any caller that knows it's running headless/in the background.
-  Future<void> presentEvent(
+  Future<bool> presentEvent(
     NotificationEvent e, {
     bool allowPermissionPrompt = true,
   }) async {
     try {
-      if (!await ensurePermission(allowPrompt: allowPermissionPrompt)) return;
+      if (!await ensurePermission(allowPrompt: allowPermissionPrompt)) {
+        return false;
+      }
       await _plugin.show(
         e.osId,
         e.title,
@@ -237,7 +244,10 @@ class NotificationService {
         _details(e.category),
         payload: e.route,
       );
-    } catch (_) {/* best-effort */}
+      return true;
+    } catch (_) {
+      return false; /* best-effort */
+    }
   }
 
   /// Legacy device-alert entry (battery/charging). Kept for device_alerts.dart.

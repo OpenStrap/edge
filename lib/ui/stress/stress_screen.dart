@@ -15,8 +15,8 @@ import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../design/design.dart';
 import '../screens/metric_row.dart' show infoFor;
+import '../../notify/notification_center.dart';
 import '../../notify/notification_event.dart';
-import '../../notify/notification_service.dart';
 import 'calm_breathing_screen.dart';
 
 class StressScreen extends StatefulWidget {
@@ -77,7 +77,7 @@ class _StressScreenState extends State<StressScreen> {
         if (hasStress) {
           final score = (stress['score'] as num).toInt();
           if (score > 70) {
-            NotificationService.instance.presentEvent(
+            NotificationCenter.instance.emit(
               NotificationEvent(
                 dedupeKey: '${widget.date}:high_stress',
                 category: NotifCategory.health,
