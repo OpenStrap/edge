@@ -165,6 +165,42 @@ void main() {
     });
   });
 
+  group('stress-screen high-stress alert (now routed through emit)', () {
+    // The exact event stress_screen.dart builds: health category, default
+    // (normal) priority, no route. It used to call presentEvent directly,
+    // bypassing both the gate and the dedupe guard — now it goes through emit.
+    NotificationEvent highStress() => NotificationEvent(
+          dedupeKey: '2026-07-23:high_stress',
+          category: NotifCategory.health,
+          title: 'High Stress Detected',
+          body: 'Your stress score is 82. Consider taking a moment to breathe.',
+          date: '2026-07-23',
+        );
+
+    test('dedupes on repeat (was previously re-alerting per screen visit)',
+        () async {
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+      await center.emit(highStress());
+      await center.emit(highStress());
+      await center.emit(highStress());
+      expect(sink.shown.length, 1);
+    });
+
+    test('now respects quiet hours (normal priority, no longer bypassing)',
+        () async {
+      SharedPreferences.setMockInitialValues({
+        'notif_quiet_enabled': true,
+        'notif_quiet_start': 0,
+        'notif_quiet_end': 1440,
+      });
+      final sink = _FakeSink();
+      center.presentSink = sink.call;
+      await center.emit(highStress());
+      expect(sink.shown, isEmpty);
+    });
+  });
+
   group('FiredKeyStore bounding', () {
     test('hasFired reflects recordFired', () async {
       SharedPreferences.setMockInitialValues({});
