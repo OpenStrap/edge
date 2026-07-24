@@ -32,11 +32,59 @@ const Color _kHrv = Color(0xFF2E7D32); // deep green — recovery
 const Color _kResp = Color(0xFF1565C0); // deep blue — breath
 const Color _kTemp = Color(0xFFE65100); // deep orange — heat
 
+/// Local drag x (pixels) → timestamp on the chart's time axis. Uses the SAME
+/// left-pad and `[t0, t1]` domain the painter maps with (its `x(t)` closure),
+/// so a touched x resolves to exactly the time the crosshair is drawn at. Pure
+/// + unit-tested.
+double scrubTimeAt(
+  double dx,
+  double width, {
+  required double leftPad,
+  required double t0,
+  required double t1,
+}) {
+  final usable = width - leftPad;
+  if (usable <= 0) return t0;
+  final x = (dx - leftPad).clamp(0.0, usable);
+  return t0 + (x / usable) * (t1 - t0);
+}
+
+/// Value of the plotted line at time [t] — a linear interpolation between the
+/// two adjacent bucket centres, i.e. the exact y the painter's `lineTo`
+/// segments pass through (see [_ChartPainter._drawLine], which strokes this
+/// same [avg] series). The scrub crosshair reads THIS rather than the raw
+/// nearest sample, so the marker lands on the drawn line at the touched x and
+/// at the line's own (bucketed) granularity — not on an unaligned raw point.
+///
+/// Returns null when [t] falls STRICTLY outside the drawn range — before the
+/// first or after the last bucket centre — because the line isn't drawn there
+/// (the scrub band spans the whole day, but a vital's line only covers its own
+/// buckets). Callers omit the vital there (no dot, "—" readout) rather than
+/// extrapolating a value onto empty space. The boundary centres themselves
+/// still return their value. Pure + unit-tested.
+double? plottedLineValueAt(
+  List<({double t, double v, double lo, double hi})> avg,
+  double t,
+) {
+  if (avg.isEmpty) return null;
+  if (t < avg.first.t || t > avg.last.t) return null;
+  for (var i = 1; i < avg.length; i++) {
+    final b = avg[i];
+    if (t <= b.t) {
+      final a = avg[i - 1];
+      final span = b.t - a.t;
+      if (span <= 0) return b.v;
+      return a.v + (b.v - a.v) * ((t - a.t) / span);
+    }
+  }
+  return avg.last.v;
+}
+
 class _Vital {
   final String label;
   final String unit;
   final Color color;
-  final List<({double t, double v})> pts; // raw (peaks + crosshair)
+  final List<({double t, double v})> pts; // raw (peaks + envelope extremes)
   // Per-bucket mean (v) + min/max (lo/hi) → the line + its range envelope.
   final List<({double t, double v, double lo, double hi})> avg;
   final int decimals;
@@ -48,18 +96,10 @@ class _Vital {
     this.decimals,
     this.avg,
   );
-  double? valueAt(double t) {
-    double? best;
-    var bestDt = double.infinity;
-    for (final p in pts) {
-      final dt = (p.t - t).abs();
-      if (dt < bestDt) {
-        bestDt = dt;
-        best = p.v;
-      }
-    }
-    return best;
-  }
+
+  /// The value ON the drawn line at [t] (interpolated over [avg]) — what the
+  /// scrub crosshair and readout report, so both track the plotted curve.
+  double? lineValueAt(double t) => plottedLineValueAt(avg, t);
 }
 
 class _Band {
@@ -461,17 +501,27 @@ class _TimelineContentState extends State<TimelineContent>
               );
             },
           ),
-          if (_scrubT != null) ...[
-            const SizedBox(height: Sp.x3),
-            _crosshairReadout(),
-          ],
+          // The per-moment vital readout only carries values while scrubbing,
+          // but its slot is reserved at all times so appearing on scrub does
+          // NOT grow the tile and shove the peak/low + events below it. When
+          // idle it lays out the same rows (dashes) and is simply hidden.
+          const SizedBox(height: Sp.x3),
+          Visibility(
+            visible: _scrubT != null,
+            maintainSize: true,
+            maintainAnimation: true,
+            maintainState: true,
+            child: _crosshairReadout(),
+          ),
         ],
       ),
     );
   }
 
   Widget _crosshairReadout() {
-    final t = _scrubT!;
+    // Nullable: when idle this still lays out (dashes) to hold the reserved
+    // slot's height; [Visibility] hides it until a scrub sets [_scrubT].
+    final t = _scrubT;
     return Container(
       padding: const EdgeInsets.all(Sp.x3),
       decoration: BoxDecoration(
@@ -481,12 +531,12 @@ class _TimelineContentState extends State<TimelineContent>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(_clock(t), style: AppText.label),
+          Text(t == null ? '--:--' : _clock(t), style: AppText.label),
           const SizedBox(height: Sp.x2),
           for (final v in _vitals)
             Builder(
               builder: (_) {
-                final val = v.valueAt(t);
+                final val = t == null ? null : v.lineValueAt(t);
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2),
                   child: Row(
@@ -520,9 +570,8 @@ class _TimelineContentState extends State<TimelineContent>
   }
 
   void _scrub(double dx, double width) {
-    final x = (dx - _leftPad).clamp(0.0, width - _leftPad);
-    final frac = (width - _leftPad) <= 0 ? 0.0 : x / (width - _leftPad);
-    setState(() => _scrubT = _t0 + frac * (_t1 - _t0));
+    final t = scrubTimeAt(dx, width, leftPad: _leftPad, t0: _t0, t1: _t1);
+    setState(() => _scrubT = t);
   }
 
   // ── peak / low of the ACTIVE vital, numbers-first ───────────────────────
@@ -700,7 +749,7 @@ class _ChartPainter extends CustomPainter {
             ..strokeWidth = 1);
       for (final v in vitals) {
         final (lo, hi) = _range(v);
-        final val = v.valueAt(scrubT!);
+        final val = v.lineValueAt(scrubT!);
         if (val == null) continue;
         canvas.drawCircle(
             Offset(cx, yNorm(val, lo, hi)), 3.5, Paint()..color = v.color);
