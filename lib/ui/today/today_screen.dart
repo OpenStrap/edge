@@ -46,6 +46,13 @@ class _TodayScreenState extends State<TodayScreen>
   ChartSeries _hr = const ChartSeries([]);
   bool _storyDismissed = false;
 
+  /// Earliest decoded record timestamp (unix seconds), or null when nothing has
+  /// been decoded yet. The Lookback card is gated on the span from here to *now*
+  /// — computed live in the build path (see [shouldShowLookback] /
+  /// [kLookbackMinDataHours]), not stored precomputed — so the card appears as
+  /// soon as enough time has elapsed, not only on the next loader refresh.
+  int? _earliestRecordSec;
+
   // Cache for the onboarding collection-progress FutureBuilder below — without
   // this, `LocalDb.firstAndLastRecordTs()` called inline in `future:` builds a
   // brand-new Future on every rebuild of this branch (any of the unrelated
@@ -131,6 +138,15 @@ class _TodayScreenState extends State<TodayScreen>
           b['has'] == true ? ((b['value'] as num?)?.toDouble()) : null,
       ];
       if (mounted) setState(() => _stepsWeek = week);
+    } catch (_) {}
+    try {
+      // Data-span signal for the Lookback gate: the earliest decoded record.
+      // We store the anchor, not a precomputed span, so the gate re-derives
+      // `now - earliest` on every build and the card can appear purely by wall
+      // clock crossing the threshold. Best-effort — a failure just leaves the
+      // card hidden until the next successful load.
+      final (first, _) = await LocalDb.firstAndLastRecordTs();
+      if (mounted) setState(() => _earliestRecordSec = first);
     } catch (_) {}
     return today;
   }
@@ -338,10 +354,15 @@ class _TodayScreenState extends State<TodayScreen>
         ),
         const SizedBox(height: Sp.x3),
       ],
-      KeyedSubtree(
-        key: const ValueKey('today-lookback'),
-        child: _lookbackCard().dsEnter(index: 6),
-      ),
+      // Lookback only appears once there's a meaningful span of collected data
+      // (~a full day). On first run — minutes of data — the "Your day" view is
+      // empty and misleading (#140), so hide the card entirely rather than
+      // render a bare "No data yet today" placeholder.
+      if (shouldShowLookback(_earliestRecordSec, now: DateTime.now()))
+        KeyedSubtree(
+          key: const ValueKey('today-lookback'),
+          child: _lookbackCard().dsEnter(index: 6),
+        ),
     ];
   }
 
@@ -1062,6 +1083,31 @@ class TodayVitals extends StatelessWidget {
       ),
     ).dsEnter(index: 7);
   }
+}
+
+/// Minimum span of collected data — earliest decoded record → now, in hours —
+/// before the Today "Lookback / Your day" card is worth surfacing. Below this
+/// the day view is near-empty and misleading on first run (#140, from #102), so
+/// the card stays hidden entirely rather than render a bare "No data yet".
+/// Tunable: localhoop's lower bound for a meaningful day is ~18h.
+const double kLookbackMinDataHours = 18;
+
+/// Whether Today's Lookback card should appear, given the earliest collected
+/// record [earliestRecordSec] (unix seconds; null = no data yet → hidden) and
+/// the current time [now]. Deriving the span from a live `now` rather than a
+/// value cached at load time means the card appears as soon as the collected
+/// span crosses [kLookbackMinDataHours] on the next rebuild — even if no fresh
+/// data arrived to trigger a loader pass.
+@visibleForTesting
+bool shouldShowLookback(int? earliestRecordSec, {required DateTime now}) {
+  if (earliestRecordSec == null) return false;
+  final spanHours = now
+          .difference(
+            DateTime.fromMillisecondsSinceEpoch(earliestRecordSec * 1000),
+          )
+          .inMinutes /
+      60.0;
+  return spanHours >= kLookbackMinDataHours;
 }
 
 /// Pure mapper for the Today week-of-rings: Mon→Sun raw step counts → exactly
