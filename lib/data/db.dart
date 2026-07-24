@@ -2359,20 +2359,24 @@ class LocalDb {
     return [for (final r in rows) _withDate(r)];
   }
 
-  /// Every day label ('YYYY-MM-DD') the user has ANY data for — the UNION of
-  /// derived `day_result` rows and raw `decoded_onehz` seconds (bucketed to the
-  /// local calendar day, matching the day model) — newest first. Bounds the
-  /// lookback screen's day navigation. A day with a `day_result` but pruned
-  /// minute-detail still appears (the screen shows its summary); only a day
-  /// with neither derived row nor raw substrate is absent (→ empty state).
+  /// Every day label ('YYYY-MM-DD') the lookback screen can actually RENDER —
+  /// exactly the days [dayResult]/`_bundleForDate` would return a real bundle
+  /// for, newest first. That is: the LATEST-`algo_version` `day_result` row per
+  /// day that is NOT a derivation skip-marker. A day whose minute-detail was
+  /// pruned still qualifies (its curves live in the persisted bundle payload,
+  /// so it renders a summary); but a raw-only day (`decoded_onehz` with no
+  /// derived row) and a skip-marker day both render EMPTY, so neither must
+  /// bound navigation. Skips are excluded via the `skipped` column, which
+  /// `_markDaySkipped` sets alongside the `{skipped:true}` payload.
   static Future<List<String>> availableDayIds() async {
     final db = await instance;
+    // Latest version per day (matches [dayResult]), then drop skip-markers.
     final rows = await db.rawQuery(
-      'SELECT day_id FROM day_result '
-      'UNION '
-      "SELECT strftime('%Y-%m-%d', rec_ts, 'unixepoch', 'localtime') AS day_id "
-      '  FROM decoded_onehz WHERE rec_ts > 0 '
-      'ORDER BY day_id DESC',
+      'SELECT r.day_id FROM day_result r '
+      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result GROUP BY day_id) m '
+      '  ON r.day_id = m.day_id AND r.algo_version = m.v '
+      'WHERE r.skipped = 0 '
+      'ORDER BY r.day_id DESC',
     );
     return [
       for (final r in rows)

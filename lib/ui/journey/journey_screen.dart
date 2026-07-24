@@ -127,21 +127,30 @@ class _JourneyScreenState extends State<JourneyScreen> {
     return DateTime(y, m, d);
   }
 
-  /// Tap the date → jump to any recorded day, bounded to [earliest, today].
+  /// Tap the date → jump to any RECORDED day, bounded to [earliest, today].
+  /// Only recorded (renderable) days are choosable — empty gaps are greyed out
+  /// in the calendar so a tap can never land on a blank screen.
   Future<void> _openPicker() async {
     final today = _parseYmd(_today);
     if (today == null) return;
-    final earliestStr = DayNav.earliest(_navigable);
+    final navigable = _navigable;
+    final earliestStr = DayNav.earliest(navigable);
     final first = (earliestStr == null ? null : _parseYmd(earliestStr)) ?? today;
+    // The initial selection must itself be selectable, or showDatePicker
+    // asserts — fall back to today (always renderable via the partial-today
+    // fallback) when the displayed day somehow isn't in the set.
     var initial = _parseYmd(_displayDate) ?? today;
     if (initial.isBefore(first)) initial = first;
     if (initial.isAfter(today)) initial = today;
+    if (!DayNav.isSelectable(dayLabelOf(initial), navigable)) initial = today;
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
       firstDate: first,
       lastDate: today,
       helpText: 'Jump to a day',
+      selectableDayPredicate: (d) =>
+          DayNav.isSelectable(dayLabelOf(d), navigable),
     );
     if (picked == null || !mounted) return;
     _go(dayLabelOf(picked));

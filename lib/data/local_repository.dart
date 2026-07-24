@@ -83,10 +83,11 @@ abstract class LocalRepository {
   Future<Map<String, dynamic>> getDayHrv(String date) =>
       throw UnimplementedError('re-layer: getDayHrv');
 
-  /// Every day ('YYYY-MM-DD') that has ANY recorded data — derived summary or
-  /// raw substrate — newest first. Bounds the lookback screen's day navigation
-  /// (the earliest reachable day + the date-picker's first date). Empty when
-  /// nothing has been recorded yet.
+  /// Every day ('YYYY-MM-DD') the lookback screen can actually RENDER — the days
+  /// with a genuine derived bundle (`getDayTimeline` returns real data for), not
+  /// raw-only or skip-marker days that would render empty — newest first. Bounds
+  /// the lookback screen's day navigation (the reachable prev/next days + the
+  /// date-picker's selectable days). Empty when nothing has been derived yet.
   Future<List<String>> availableDays() =>
       throw UnimplementedError('re-layer: availableDays');
 

@@ -59,6 +59,17 @@ class DayNav {
     return best;
   }
 
+  /// Whether the date picker may select [ymd] — true only for a day in
+  /// [navigable] (a recorded/renderable day, or today). Backs the picker's
+  /// `selectableDayPredicate` so an empty gap between recorded days can't be
+  /// chosen, only stepped over. [navigable] is the set from [navigableDays].
+  static bool isSelectable(String ymd, Iterable<String> navigable) {
+    for (final d in navigable) {
+      if (d == ymd) return true;
+    }
+    return false;
+  }
+
   /// The earliest navigable day — the date picker's `firstDate` bound. Null
   /// when [navigable] is empty. Order-independent.
   static String? earliest(Iterable<String> navigable) {

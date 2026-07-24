@@ -123,4 +123,37 @@ void main() {
       expect(DayNav.next(cur, nav), isNull); // stop at today
     });
   });
+
+  group('DayNav.isSelectable (date-picker predicate)', () {
+    // The navigable set the picker is backed by: recorded days + today.
+    final nav = DayNav.navigableDays(
+      ['2026-07-18', '2026-07-21'],
+      '2026-07-24',
+    ); // → ['2026-07-18', '2026-07-21', '2026-07-24']
+
+    test('allows recorded days and today', () {
+      expect(DayNav.isSelectable('2026-07-18', nav), isTrue);
+      expect(DayNav.isSelectable('2026-07-21', nav), isTrue);
+      expect(DayNav.isSelectable('2026-07-24', nav), isTrue); // today
+    });
+
+    test('rejects empty gap days between recorded days', () {
+      expect(DayNav.isSelectable('2026-07-19', nav), isFalse);
+      expect(DayNav.isSelectable('2026-07-20', nav), isFalse);
+      expect(DayNav.isSelectable('2026-07-22', nav), isFalse);
+    });
+
+    test('rejects days outside the recorded range', () {
+      expect(DayNav.isSelectable('2026-07-01', nav), isFalse); // before earliest
+      expect(DayNav.isSelectable('2026-07-25', nav), isFalse); // future
+    });
+
+    test('every selectable day is one navigation can also step onto', () {
+      // The picker and the chevrons share the same set — no day is choosable
+      // that prev/next could not also reach (and vice-versa).
+      for (final d in nav) {
+        expect(DayNav.isSelectable(d, nav), isTrue);
+      }
+    });
+  });
 }
