@@ -55,15 +55,19 @@ double scrubTimeAt(
 /// same [avg] series). The scrub crosshair reads THIS rather than the raw
 /// nearest sample, so the marker lands on the drawn line at the touched x and
 /// at the line's own (bucketed) granularity — not on an unaligned raw point.
-/// Endpoints are clamped; null only when there are no buckets. Pure +
-/// unit-tested.
+///
+/// Returns null when [t] falls STRICTLY outside the drawn range — before the
+/// first or after the last bucket centre — because the line isn't drawn there
+/// (the scrub band spans the whole day, but a vital's line only covers its own
+/// buckets). Callers omit the vital there (no dot, "—" readout) rather than
+/// extrapolating a value onto empty space. The boundary centres themselves
+/// still return their value. Pure + unit-tested.
 double? plottedLineValueAt(
   List<({double t, double v, double lo, double hi})> avg,
   double t,
 ) {
   if (avg.isEmpty) return null;
-  if (t <= avg.first.t) return avg.first.v;
-  if (t >= avg.last.t) return avg.last.v;
+  if (t < avg.first.t || t > avg.last.t) return null;
   for (var i = 1; i < avg.length; i++) {
     final b = avg[i];
     if (t <= b.t) {

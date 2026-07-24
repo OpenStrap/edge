@@ -79,20 +79,29 @@ void main() {
       expect(v, 60);
     });
 
-    test('times before the first / after the last centre clamp to the ends', () {
-      expect(plottedLineValueAt(avg, 0), 50);
-      expect(plottedLineValueAt(avg, 500), 60);
+    test('times strictly outside the drawn range return null (not clamped)', () {
+      // The line is only drawn from the first to the last bucket centre; a
+      // vital must NOT report an extrapolated value where its line is absent.
+      expect(plottedLineValueAt(avg, 0), isNull); // before first centre (100)
+      expect(plottedLineValueAt(avg, 99.9), isNull);
+      expect(plottedLineValueAt(avg, 300.1), isNull); // after last centre (300)
+      expect(plottedLineValueAt(avg, 500), isNull);
+    });
+
+    test('the boundary centres themselves still return their value', () {
+      expect(plottedLineValueAt(avg, 100), 50); // first centre — inclusive
+      expect(plottedLineValueAt(avg, 300), 60); // last centre — inclusive
     });
 
     test('empty series returns null', () {
       expect(plottedLineValueAt(const <Bucket>[], 150), isNull);
     });
 
-    test('single bucket returns its value for any time', () {
+    test('single bucket: its exact centre only, null elsewhere', () {
       final one = [_b(100, 42)];
-      expect(plottedLineValueAt(one, 0), 42);
-      expect(plottedLineValueAt(one, 100), 42);
-      expect(plottedLineValueAt(one, 999), 42);
+      expect(plottedLineValueAt(one, 100), 42); // the sole centre
+      expect(plottedLineValueAt(one, 0), isNull); // no line drawn away from it
+      expect(plottedLineValueAt(one, 999), isNull);
     });
 
     test('coincident bucket timestamps do not divide by zero', () {
@@ -119,6 +128,33 @@ void main() {
           leftPad: leftPad, t0: t0, t1: t1); // → 150
       expect(t, 150);
       expect(plottedLineValueAt(avg, t), 60); // midpoint of 50→70
+    });
+  });
+
+  group('a vital with narrower coverage than the scrub span is omitted', () {
+    // The scrub band spans the whole timeline [0, 400] (e.g. it's driven by a
+    // sleep band), but this vital only has buckets over [100, 300]. Scrubbing
+    // outside 100–300 must omit it — so the crosshair draws no dot and the
+    // readout shows "—" — while a full-coverage vital still reports a value.
+    final wide = [_b(0, 10), _b(200, 30), _b(400, 20)]; // covers the whole span
+    final narrow = [_b(100, 50), _b(200, 70), _b(300, 60)]; // covers 100–300
+
+    test('scrub before the narrow vital starts: narrow null, wide has a value', () {
+      const t = 50.0; // inside wide's range, before narrow's first centre
+      expect(plottedLineValueAt(narrow, t), isNull);
+      expect(plottedLineValueAt(wide, t), isNotNull);
+    });
+
+    test('scrub after the narrow vital ends: narrow null, wide has a value', () {
+      const t = 350.0; // inside wide's range, after narrow's last centre
+      expect(plottedLineValueAt(narrow, t), isNull);
+      expect(plottedLineValueAt(wide, t), isNotNull);
+    });
+
+    test('scrub within both ranges: both report their on-line value', () {
+      const t = 200.0;
+      expect(plottedLineValueAt(narrow, t), 70);
+      expect(plottedLineValueAt(wide, t), 30);
     });
   });
 }
