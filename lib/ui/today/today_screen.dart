@@ -46,11 +46,12 @@ class _TodayScreenState extends State<TodayScreen>
   ChartSeries _hr = const ChartSeries([]);
   bool _storyDismissed = false;
 
-  /// Span of collected data (earliest decoded record → now), in hours, or null
-  /// when nothing has been decoded yet. Gates the Lookback card so it only
-  /// appears once there's a meaningful day to look back on rather than on first
-  /// run with minutes of data (see [kLookbackMinDataHours] / [shouldShowLookback]).
-  double? _dataSpanHours;
+  /// Earliest decoded record timestamp (unix seconds), or null when nothing has
+  /// been decoded yet. The Lookback card is gated on the span from here to *now*
+  /// — computed live in the build path (see [shouldShowLookback] /
+  /// [kLookbackMinDataHours]), not stored precomputed — so the card appears as
+  /// soon as enough time has elapsed, not only on the next loader refresh.
+  int? _earliestRecordSec;
 
   // Cache for the onboarding collection-progress FutureBuilder below — without
   // this, `LocalDb.firstAndLastRecordTs()` called inline in `future:` builds a
@@ -139,17 +140,13 @@ class _TodayScreenState extends State<TodayScreen>
       if (mounted) setState(() => _stepsWeek = week);
     } catch (_) {}
     try {
-      // Data-span signal for the Lookback gate: how long we've been collecting,
-      // from the earliest decoded record to now. Best-effort — a failure just
-      // leaves the card hidden until the next successful load.
+      // Data-span signal for the Lookback gate: the earliest decoded record.
+      // We store the anchor, not a precomputed span, so the gate re-derives
+      // `now - earliest` on every build and the card can appear purely by wall
+      // clock crossing the threshold. Best-effort — a failure just leaves the
+      // card hidden until the next successful load.
       final (first, _) = await LocalDb.firstAndLastRecordTs();
-      final span = first == null
-          ? null
-          : DateTime.now()
-                  .difference(DateTime.fromMillisecondsSinceEpoch(first * 1000))
-                  .inMinutes /
-              60.0;
-      if (mounted) setState(() => _dataSpanHours = span);
+      if (mounted) setState(() => _earliestRecordSec = first);
     } catch (_) {}
     return today;
   }
@@ -361,7 +358,7 @@ class _TodayScreenState extends State<TodayScreen>
       // (~a full day). On first run — minutes of data — the "Your day" view is
       // empty and misleading (#140), so hide the card entirely rather than
       // render a bare "No data yet today" placeholder.
-      if (shouldShowLookback(_dataSpanHours))
+      if (shouldShowLookback(_earliestRecordSec, now: DateTime.now()))
         KeyedSubtree(
           key: const ValueKey('today-lookback'),
           child: _lookbackCard().dsEnter(index: 6),
@@ -1095,11 +1092,23 @@ class TodayVitals extends StatelessWidget {
 /// Tunable: localhoop's lower bound for a meaningful day is ~18h.
 const double kLookbackMinDataHours = 18;
 
-/// Whether Today's Lookback card should appear, given [dataSpanHours] — the span
-/// from the earliest collected record to now. Null (no data yet) → hidden.
+/// Whether Today's Lookback card should appear, given the earliest collected
+/// record [earliestRecordSec] (unix seconds; null = no data yet → hidden) and
+/// the current time [now]. Deriving the span from a live `now` rather than a
+/// value cached at load time means the card appears as soon as the collected
+/// span crosses [kLookbackMinDataHours] on the next rebuild — even if no fresh
+/// data arrived to trigger a loader pass.
 @visibleForTesting
-bool shouldShowLookback(double? dataSpanHours) =>
-    dataSpanHours != null && dataSpanHours >= kLookbackMinDataHours;
+bool shouldShowLookback(int? earliestRecordSec, {required DateTime now}) {
+  if (earliestRecordSec == null) return false;
+  final spanHours = now
+          .difference(
+            DateTime.fromMillisecondsSinceEpoch(earliestRecordSec * 1000),
+          )
+          .inMinutes /
+      60.0;
+  return spanHours >= kLookbackMinDataHours;
+}
 
 /// Pure mapper for the Today week-of-rings: Mon→Sun raw step counts → exactly
 /// seven goal-relative fills (0..1, null = no data / future day) plus today's
