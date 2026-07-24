@@ -2359,6 +2359,28 @@ class LocalDb {
     return [for (final r in rows) _withDate(r)];
   }
 
+  /// Every day label ('YYYY-MM-DD') the user has ANY data for — the UNION of
+  /// derived `day_result` rows and raw `decoded_onehz` seconds (bucketed to the
+  /// local calendar day, matching the day model) — newest first. Bounds the
+  /// lookback screen's day navigation. A day with a `day_result` but pruned
+  /// minute-detail still appears (the screen shows its summary); only a day
+  /// with neither derived row nor raw substrate is absent (→ empty state).
+  static Future<List<String>> availableDayIds() async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT day_id FROM day_result '
+      'UNION '
+      "SELECT strftime('%Y-%m-%d', rec_ts, 'unixepoch', 'localtime') AS day_id "
+      '  FROM decoded_onehz WHERE rec_ts > 0 '
+      'ORDER BY day_id DESC',
+    );
+    return [
+      for (final r in rows)
+        if (r['day_id'] is String && (r['day_id'] as String).isNotEmpty)
+          r['day_id'] as String,
+    ];
+  }
+
   /// The set of day_id labels that already have a REAL, COMPLETE result at
   /// [algoVersion]. Used by the raw-pruning guard to decide what's safe to
   /// prune - a day that only ever got a skip-marker (its derivation threw)
