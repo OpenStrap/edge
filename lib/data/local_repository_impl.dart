@@ -525,6 +525,9 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
+  Future<List<String>> availableDays() => LocalDb.availableDayIds();
+
+  @override
   Future<Map<String, dynamic>> getDaySleep(String date) => _daySleep(date);
 
   @override

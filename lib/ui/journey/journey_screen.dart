@@ -8,14 +8,18 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../design/design.dart';
 import '../timeline/timeline_screen.dart' show TimelineContent;
 import '../workouts/workout_types.dart';
+import 'day_nav.dart';
 
 class JourneyScreen extends StatefulWidget {
-  final String date; // 'YYYY-MM-DD'
+  /// The day to open on, 'YYYY-MM-DD'. The screen then lets the user step across
+  /// PAST days (issue #112) — this is only the ENTRY date, not a fixed one.
+  final String date;
   const JourneyScreen({super.key, required this.date});
   @override
   State<JourneyScreen> createState() => _JourneyScreenState();
@@ -28,10 +32,23 @@ class _JourneyScreenState extends State<JourneyScreen> {
   String? _error;
   Map<String, dynamic> _data = const {};
 
+  /// The day currently being viewed ('YYYY-MM-DD'). Starts at [widget.date] and
+  /// moves as the user navigates prev/next or picks a date; every change
+  /// re-runs [_load] for that day. All existing per-date behaviour (retention
+  /// gating, partial-today fallback, empty/error states) keys off THIS value.
+  late String _currentDate;
+
+  /// Days with any recorded data (newest first) — bounds the prev control and
+  /// the date picker. Empty until [_loadDays] returns (nav then falls back to
+  /// today-only bounds, which is safe).
+  List<String> _availableDays = const [];
+
   @override
   void initState() {
     super.initState();
+    _currentDate = widget.date;
     _load();
+    _loadDays();
   }
 
   Future<void> _load() async {
@@ -48,7 +65,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
       _error = null;
     });
     try {
-      final res = await api.getDayTimeline(widget.date);
+      final res = await api.getDayTimeline(_currentDate);
       if (!mounted) return;
       setState(() {
         _data = res;
@@ -65,19 +82,87 @@ class _JourneyScreenState extends State<JourneyScreen> {
     }
   }
 
+  /// Fetch the recorded-day range once (non-fatal on failure).
+  Future<void> _loadDays() async {
+    final api = context.read<AppState>().repo;
+    if (api == null) return;
+    try {
+      final days = await api.availableDays();
+      if (!mounted) return;
+      setState(() => _availableDays = days);
+    } catch (_) {
+      // Navigation simply falls back to today-only bounds.
+    }
+  }
+
+  /// Navigate to [date] and reload (no-op if already there).
+  void _go(String date) {
+    if (date == _currentDate) return;
+    setState(() => _currentDate = date);
+    _load();
+  }
+
   /// The DISPLAYED day: the timeline's bundle date (a partial "today" may fall
   /// back to the latest complete day — the header must follow the data
-  /// actually shown, not the requested date). Falls back to widget.date.
+  /// actually shown, not the requested date). Falls back to [_currentDate].
   String get _displayDate {
     final d = _data['date'];
-    return (d is String && d.isNotEmpty) ? d : widget.date;
+    return (d is String && d.isNotEmpty) ? d : _currentDate;
   }
+
+  String get _today => todayLabel();
+
+  /// The set of days the user may land on, sorted ascending — recorded days
+  /// plus today and wherever we currently are, capped at today.
+  List<String> get _navigable =>
+      DayNav.navigableDays(_availableDays, _today, current: _currentDate);
+
+  // ── date parsing / picker ──────────────────────────────────────────────────
+
+  static DateTime? _parseYmd(String ymd) {
+    final p = ymd.split('-');
+    if (p.length != 3) return null;
+    final y = int.tryParse(p[0]), m = int.tryParse(p[1]), d = int.tryParse(p[2]);
+    if (y == null || m == null || d == null) return null;
+    return DateTime(y, m, d);
+  }
+
+  /// Tap the date → jump to any RECORDED day, bounded to [earliest, today].
+  /// Only recorded (renderable) days are choosable — empty gaps are greyed out
+  /// in the calendar so a tap can never land on a blank screen.
+  Future<void> _openPicker() async {
+    final today = _parseYmd(_today);
+    if (today == null) return;
+    final navigable = _navigable;
+    final earliestStr = DayNav.earliest(navigable);
+    final first = (earliestStr == null ? null : _parseYmd(earliestStr)) ?? today;
+    // The initial selection must itself be selectable, or showDatePicker
+    // asserts — fall back to today (always renderable via the partial-today
+    // fallback) when the displayed day somehow isn't in the set.
+    var initial = _parseYmd(_displayDate) ?? today;
+    if (initial.isBefore(first)) initial = first;
+    if (initial.isAfter(today)) initial = today;
+    if (!DayNav.isSelectable(dayLabelOf(initial), navigable)) initial = today;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: first,
+      lastDate: today,
+      helpText: 'Jump to a day',
+      selectableDayPredicate: (d) =>
+          DayNav.isSelectable(dayLabelOf(d), navigable),
+    );
+    if (picked == null || !mounted) return;
+    _go(dayLabelOf(picked));
+  }
+
+  // ── build ───────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
       title: 'Your day',
-      subtitle: JourneyContent.prettyDate(_displayDate),
+      header: _dayNavBar(),
       children: [
         if (_phase == _Phase.loading) ...[
           Skeleton.chart(height: 260),
@@ -104,8 +189,92 @@ class _JourneyScreenState extends State<JourneyScreen> {
             onAction: _load,
           )
         else
-          JourneyContent(data: _data, requestedDate: widget.date),
+          JourneyContent(data: _data, requestedDate: _currentDate),
       ],
+    );
+  }
+
+  /// Prev / next chevrons flanking the (tappable) displayed date. Next is
+  /// disabled at today (never into the future); prev is disabled at the
+  /// earliest recorded day. Empty gaps between recorded days are skipped.
+  Widget _dayNavBar() {
+    final navigable = _navigable;
+    final prevDay = DayNav.prev(_currentDate, navigable);
+    final nextDay = DayNav.next(_currentDate, navigable);
+    final isToday = _displayDate == _today;
+    return Row(
+      children: [
+        _NavChevron(
+          icon: OsIcon.arrowLeft,
+          semanticLabel: 'Previous day',
+          onTap: prevDay == null ? null : () => _go(prevDay),
+        ),
+        Expanded(
+          child: Pressable(
+            pressedScale: 0.97,
+            onTap: _openPicker,
+            child: Semantics(
+              button: true,
+              label: 'Choose a day',
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: Sp.x2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const OsAppIcon(OsIcon.calendar, size: 20),
+                    const SizedBox(width: Sp.x2),
+                    Flexible(
+                      child: Text(
+                        JourneyContent.prettyDate(_displayDate),
+                        style: AppText.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (isToday) ...[
+                      const SizedBox(width: Sp.x2),
+                      const Tag('today'),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        _NavChevron(
+          icon: OsIcon.arrowRight,
+          semanticLabel: 'Next day',
+          onTap: nextDay == null ? null : () => _go(nextDay),
+        ),
+      ],
+    );
+  }
+}
+
+/// A circular prev/next control that greys out (and stops responding) when
+/// there's no day to move to in that direction.
+class _NavChevron extends StatelessWidget {
+  final OsIcon icon;
+  final String semanticLabel;
+  final VoidCallback? onTap;
+  const _NavChevron({
+    required this.icon,
+    required this.semanticLabel,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: semanticLabel,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.3,
+        child: RoundIconButton(icon, onTap: onTap),
+      ),
     );
   }
 }

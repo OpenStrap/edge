@@ -2385,6 +2385,32 @@ class LocalDb {
     return [for (final r in rows) _withDate(r)];
   }
 
+  /// Every day label ('YYYY-MM-DD') the lookback screen can actually RENDER —
+  /// exactly the days [dayResult]/`_bundleForDate` would return a real bundle
+  /// for, newest first. That is: the LATEST-`algo_version` `day_result` row per
+  /// day that is NOT a derivation skip-marker. A day whose minute-detail was
+  /// pruned still qualifies (its curves live in the persisted bundle payload,
+  /// so it renders a summary); but a raw-only day (`decoded_onehz` with no
+  /// derived row) and a skip-marker day both render EMPTY, so neither must
+  /// bound navigation. Skips are excluded via the `skipped` column, which
+  /// `_markDaySkipped` sets alongside the `{skipped:true}` payload.
+  static Future<List<String>> availableDayIds() async {
+    final db = await instance;
+    // Latest version per day (matches [dayResult]), then drop skip-markers.
+    final rows = await db.rawQuery(
+      'SELECT r.day_id FROM day_result r '
+      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result GROUP BY day_id) m '
+      '  ON r.day_id = m.day_id AND r.algo_version = m.v '
+      'WHERE r.skipped = 0 '
+      'ORDER BY r.day_id DESC',
+    );
+    return [
+      for (final r in rows)
+        if (r['day_id'] is String && (r['day_id'] as String).isNotEmpty)
+          r['day_id'] as String,
+    ];
+  }
+
   /// The set of day_id labels that already have a REAL, COMPLETE result at
   /// [algoVersion]. Used by the raw-pruning guard to decide what's safe to
   /// prune - a day that only ever got a skip-marker (its derivation threw)
