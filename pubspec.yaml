@@ -6,7 +6,7 @@ publish_to: 'none'
 # Watch App" targets in ios/Runner.xcodeproj/project.pbxproj — they aren't wired
 # to FLUTTER_BUILD_NAME/FLUTTER_BUILD_NUMBER. See guides/IOS_INSTALLATION.md
 # "Version Numbers".
-version: 0.9.21+52
+version: 0.9.23+54
 
 environment:
   sdk: ^3.11.4
@@ -35,17 +35,26 @@ dependencies:
   openstrap_protocol:
     git:
       url: https://github.com/OpenStrap/protocol.git
-      # Tip of protocol main — OpenStrap/protocol#20 merged: the reassembler now
-      # checks the length-field crc8 before trusting it (a corrupted length byte
-      # used to consume up to 4092 bytes of good stream before this), and
-      # hexToBytes rejects odd-length hex instead of silently flooring it. This
-      # PR sat unpinned for a full day after merging — see fix/issues #22 for
-      # why (edge's own release pipeline shipped the pre-fix decoder).
-      # NOTE: this ref predates protocol fix/issues#21 (realtimeRr RR-bound,
-      # historical-family activity/steps_inc null-vs-0) — repin again once #21
-      # merges to pick those up too.
-      # Verified present: `git show <sha>:lib/src/framing.dart | grep 'crc8(Uint8List'`.
-      ref: 5bb8606964f2d94d9a73dc42c57416cb74282d52
+      # EXPERIMENTAL: WHOOP 5 (gen5) multi-band support, this branch's whole
+      # point — stays on protocol's feat/multiband-whoop5, NOT main. Pinned to
+      # a SHA (not the floating branch ref) per this repo's own convention.
+      # 412ead9: replaces parseGen5Record's wrong version set ({9,12,24},
+      # gen4's) with real gen5 decoders (parseGen5Historical — v18/v20/v21/
+      # v26), adds the gen5 clock/haptics/SET_CONFIG opcodes + the R22
+      # deep-buffer enable-sequence builder, the band-agnostic OpcodeSafety
+      # gate, a CONSOLE_LOGS decoder, and profile-aware COMMAND_RESPONSE
+      # (gen5's direct-percent battery, GET_HELLO shape). edge's BleEngine
+      # changes in this same commit depend on all of this.
+      # c525e29 (current): an independent cross-validation pass against
+      # whoop-rs/noop's own real fixtures found and fixed real bugs on top of
+      # 412ead9 — v26 record_index was reading a u32 (wrong; whoop-rs's real
+      # consecutive-frame captures prove it's a u16), GET_DATA_RANGE's
+      # oldest/newest scan accepted a spurious far-future value and an
+      # off-grid byte offset, activity_class had no validity gate. v20's
+      # optical-buffer layout is flagged (not fixed) as a genuinely unresolved
+      # disagreement between the two references — no real v20 hardware
+      # capture exists anywhere to break the tie.
+      ref: c525e29e69ff8b8f0a180b8464d4ccb32ec3e56d
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

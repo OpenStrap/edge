@@ -587,6 +587,11 @@ class ProfileScreen extends StatelessWidget {
           : '${d.batteryPct!.round()}%${d.charging == true ? ' ⚡' : ''}',
       wrist: d.wristOn == null ? '—' : (d.wristOn! ? 'On wrist' : 'Off wrist'),
       serial: d.serial ?? app.paired?.serial ?? '—',
+      generation: switch (d.generation) {
+        'gen5' => 'WHOOP 5 (experimental)',
+        'gen4' => 'WHOOP 4',
+        _ => null,
+      },
       // Manual pull: anything the strap flashed that we don't hold yet, over
       // the CURRENT connection (no reconnect). Only offered while connected.
       onSyncNow: conn == 'connected' ? () => app.forceResync() : null,
@@ -847,6 +852,11 @@ class DeviceTile extends StatefulWidget {
   final VoidCallback? onTap;
   final Future<void> Function()? onSyncNow;
 
+  /// Human label for [DeviceState.generation] ('WHOOP 4' / 'WHOOP 5
+  /// (experimental)'), or null before a link has been established this
+  /// process. Purely informational — never gates any behavior here.
+  final String? generation;
+
   const DeviceTile({
     super.key,
     required this.name,
@@ -857,6 +867,7 @@ class DeviceTile extends StatefulWidget {
     required this.serial,
     this.onTap,
     this.onSyncNow,
+    this.generation,
   });
 
   @override
@@ -911,7 +922,15 @@ class _DeviceTileState extends State<DeviceTile> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: Sp.x2),
-                      StatusChip(widget.statusText, tone: widget.statusTone),
+                      Row(
+                        children: [
+                          StatusChip(widget.statusText, tone: widget.statusTone),
+                          if (widget.generation != null) ...[
+                            const SizedBox(width: Sp.x2),
+                            StatusChip(widget.generation!, tone: ChipTone.neutral),
+                          ],
+                        ],
+                      ),
                     ],
                   ),
                 ),

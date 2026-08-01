@@ -162,6 +162,13 @@ class DeviceState {
   /// session-relative plausibility gate + the UI's "history available" readout.
   int? dataRangeOldest;
   int? dataRangeNewest;
+  /// Which WHOOP generation this connection is speaking — `'gen4'` or
+  /// `'gen5'`, set once at service discovery (see `BleEngine._doConnect`'s
+  /// `session.applyBand`). Null until a link has been established at least
+  /// once this process. Lets the UI show "WHOOP 5 connected" and gate any
+  /// gen5-only controls (e.g. a deep-buffer opt-in toggle) without reaching
+  /// into the transport layer.
+  String? generation;
 
   DeviceState({this.connection = 'disconnected'});
 }
