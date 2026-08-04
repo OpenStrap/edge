@@ -364,7 +364,7 @@ import 'substrate.dart';
 // gate it exists to protect.
 // v52: WHOOP 5 — gen5 v26 PPG bursts can contribute a derived per-second HR
 // (analytics `deriveHrFromGen5PpgWaveform` @ b3e7b88624e4cbb6a0ab2dee6715446f19feb775,
-// samples) when measured v18 is absent. Empty RR by design (no HRV claim).
+// ACF on ≥10 s of 24 Hz samples) when measured v18 is absent. Empty RR by design (no HRV claim).
 // Abstains on thin/noisy windows. Bump so days re-derive once v26-backed onehz
 // rows land.
 const int kAlgoVersion = 52;
