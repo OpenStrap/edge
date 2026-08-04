@@ -9,9 +9,11 @@
 // reused here rather than re-typed, so a transcription slip can't silently
 // diverge the two test suites' expectations.
 
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_analytics/onehz.dart' show kGen5PpgHrMinSamples;
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
@@ -23,6 +25,14 @@ Uint8List hex(String s) {
     out[i] = int.parse(clean.substring(i * 2, i * 2 + 2), radix: 16);
   }
   return out;
+}
+
+List<int> sinePpg({required double bpm, required int n}) {
+  final f = bpm / 60.0;
+  return List<int>.generate(n, (i) {
+    final t = i / 24.0;
+    return (500 + 1000 * math.sin(2 * math.pi * f * t)).round();
+  });
 }
 
 void main() {
@@ -64,12 +74,6 @@ void main() {
     test(
       'does NOT populate skinTempRaw/spo2 — gen5-specific scale/absence',
       () {
-        // See gen5_v18_decode's (now removed, folded into protocol) original
-        // caution and Gen5HistorySample's field docs: gen5's skin_temp is
-        // already °C-scaled (raw/100), a DIFFERENT transfer function from
-        // gen4's per-device affine ADC calibration that `skinTempRaw` feeds —
-        // reusing that field here would silently corrupt the skin-temp-z
-        // metric. gen5 v18 has no real dual-wavelength SpO2 at all.
         expect(sample!.skinTempRaw, isNull);
         expect(sample!.spo2RedRaw, isNull);
         expect(sample!.spo2IrRaw, isNull);
@@ -82,19 +86,114 @@ void main() {
       expect(sampleFromGen5Historical(null), isNull);
     });
 
+    test('a v20 optical deep buffer (no Sample equivalent) maps to null', () {
+      final inner = Uint8List(kGen5V20InnerLen);
+      inner[0] = 0x2F;
+      inner[1] = 20;
+      inner[2] = 0x81;
+      final view = inner.buffer.asByteData();
+      view.setUint32(3, 1, Endian.little);
+      view.setUint32(7, 1780000000, Endian.little);
+      inner[18] = 25; // block 0 active count
+      final decoded = parseGen5Historical(inner);
+      expect(decoded, isA<Gen5OpticalBuffer>());
+      expect(sampleFromGen5Historical(decoded), isNull);
+    });
+
     test('a v21 IMU deep buffer (no Sample equivalent) maps to null', () {
-      // Synthetic-but-shape-correct v21 buffer: countA/countB both 100 (the
-      // buffer's actual identity gate, per Gen5V21Decoder — hist_version is
-      // not trusted for this kind at all).
       final inner = Uint8List(kGen5V21InnerLen);
       inner[0] = 0x2F;
       inner[1] = 21;
       final view = inner.buffer.asByteData();
-      view.setUint16(16, 100, Endian.little); // countA offset
-      view.setUint16(622, 100, Endian.little); // countB offset
+      view.setUint16(16, 100, Endian.little);
+      view.setUint16(622, 100, Endian.little);
       final decoded = parseGen5Historical(inner);
       expect(decoded, isA<Gen5ImuBuffer>());
       expect(sampleFromGen5Historical(decoded), isNull);
+    });
+  });
+
+  group('sampleFromGen5PpgWaveform — derived HR only', () {
+    test('maps derived HR with empty RR when ACF recovers (10 s window)', () {
+      final wave = sinePpg(bpm: 120, n: kGen5PpgHrMinSamples);
+      final g = Gen5PpgWaveform(
+        histVersion: 26,
+        recordIndex: 42,
+        unix: 1785801600,
+        layoutMarker: 0,
+        rawByte19: 0,
+        burstIndex: 0,
+        ppgWaveform: wave.sublist(0, 24),
+      );
+      final sample = sampleFromGen5PpgWaveform(g, wave);
+      expect(sample, isNotNull);
+      expect(sample!.hr, closeTo(120, 5));
+      expect(sample.tsEpoch, 1785801600);
+      expect(sample.counter, 42);
+      expect(sample.rrIntervalsMs, isEmpty);
+    });
+
+    test('flatline PPG abstains (null Sample)', () {
+      final g = Gen5PpgWaveform(
+        histVersion: 26,
+        recordIndex: 1,
+        unix: 1785801600,
+        layoutMarker: 0,
+        rawByte19: 0,
+        burstIndex: 0,
+        ppgWaveform: List.filled(24, 100),
+      );
+      expect(
+        sampleFromGen5PpgWaveform(
+          g,
+          List.filled(kGen5PpgHrMinSamples, 100),
+        ),
+        isNull,
+      );
+    });
+  });
+
+  group('Gen5PpgBurstBuffer', () {
+    test('keeps only the last N bursts concatenated', () {
+      final buf = Gen5PpgBurstBuffer(capacity: 2);
+      buf.add(unix: 100, burstIndex: 0, wave: [1, 2]);
+      buf.add(unix: 100, burstIndex: 1, wave: [3, 4]);
+      buf.add(unix: 101, burstIndex: 0, wave: [5, 6]);
+      expect(buf.concatenated(), [3, 4, 5, 6]);
+    });
+
+    test('clears on non-adjacent unix gap', () {
+      final buf = Gen5PpgBurstBuffer();
+      buf.add(unix: 100, burstIndex: 0, wave: [1, 2]);
+      buf.add(unix: 102, burstIndex: 0, wave: [9, 9]);
+      expect(buf.concatenated(), [9, 9]);
+    });
+
+    test('clears on non-monotonic burstIndex within same second', () {
+      final buf = Gen5PpgBurstBuffer();
+      buf.add(unix: 100, burstIndex: 1, wave: [1, 2]);
+      buf.add(unix: 100, burstIndex: 0, wave: [9, 9]);
+      expect(buf.concatenated(), [9, 9]);
+    });
+  });
+
+  group('decodeGen5HistoricalSample — measured v18 clobber guard', () {
+    test('PPG abstains when measured v18 already claimed that second', () {
+      final frame = hex(
+        'aa015000010035412f1a80ad418401f0a3266aae470100c3c5050068faccfa8dfb46f'
+        'c8bfd4cfebafedafe6dff56ffd5fffbff37ff6afce5f9d7f8dffa5efc98fddbfe5afe8'
+        '4fe15ff5cff405fb33c50080101006cb67c17',
+      );
+      final inner = parseFrame(frame, profile: BandProfile.gen5)!.inner;
+      final measured = <int>{1780917232};
+      expect(
+        decodeGen5HistoricalSample(
+          inner,
+          1780917232,
+          measuredRecTs: measured,
+        ),
+        isNull,
+      );
     });
   });
 }

@@ -70,7 +70,10 @@ dependencies:
       # Moved to the branch's new head (cbbe06a) after CodeRabbit caught a real
       # off-by-one in the onset window on analytics#32 (earlyMean was 181s vs
       # preMean's 180s) — fixed there, not worth a separate edge changelog line.
-      ref: cbbe06addec1cb78b4ea2c75f64e8a281ac09294
+      # b3e7b88: gen5 v26 PPG→HR (`deriveHrFromGen5PpgWaveform`, OpenStrap/
+      # analytics#37). Requires ≥240 samples (~10 s @ 24 Hz) for resting BPM.
+      # Repin to the merge commit on main once #37 lands.
+      ref: b3e7b88624e4cbb6a0ab2dee6715446f19feb775
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

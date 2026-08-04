@@ -40,6 +40,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:openstrap_analytics/onehz.dart'
+    show deriveHrFromGen5PpgWaveform, kGen5PpgHrMinSamples;
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 import '../data/db.dart';
@@ -52,6 +54,9 @@ import 'ble_state.dart';
 // needs it to peek the record-counter / ts out of a raw historical frame header.
 int u32(Uint8List b, int o) =>
     b.buffer.asByteData(b.offsetInBytes, b.length).getUint32(o, Endian.little);
+
+int u16(Uint8List b, int o) =>
+    b.buffer.asByteData(b.offsetInBytes, b.length).getUint16(o, Endian.little);
 
 typedef SampleSink = Future<void> Function(Sample? sample, RawRecord raw);
 typedef StateSink = void Function(DeviceState state);
@@ -179,17 +184,68 @@ List<int> gen5SetClockPayload({required int sec, required int subsec}) => [
 @visibleForTesting
 List<int> gen5GetClockPayload() => const [revision1];
 
+/// Rolling buffer of recent gen5 v26 PPG bursts (24 samples @ 24 Hz each).
+/// Bursts must be adjacent in unix (same second or +1 s) with monotonic
+/// [burstIndex] within a second; a gap clears the window so resting-HR ACF
+/// does not stitch unrelated captures.
+@visibleForTesting
+class Gen5PpgBurstBuffer {
+  Gen5PpgBurstBuffer({this.capacity = 12});
+
+  final int capacity;
+  final List<_Gen5PpgBurst> _bursts = <_Gen5PpgBurst>[];
+
+  int get length => _bursts.length;
+
+  void add({
+    required int unix,
+    required int burstIndex,
+    required List<int> wave,
+  }) {
+    if (_bursts.isNotEmpty) {
+      final last = _bursts.last;
+      final sameSecond = unix == last.unix;
+      final nextSecond = unix == last.unix + 1;
+      final indexOk = sameSecond
+          ? burstIndex > last.burstIndex
+          : nextSecond;
+      if (!(sameSecond || nextSecond) || !indexOk) {
+        clear();
+      }
+    }
+    _bursts.add(_Gen5PpgBurst(unix, burstIndex, List<int>.from(wave)));
+    while (_bursts.length > capacity) {
+      _bursts.removeAt(0);
+    }
+  }
+
+  List<int> concatenated() {
+    final out = <int>[];
+    for (final b in _bursts) {
+      out.addAll(b.wave);
+    }
+    return out;
+  }
+
+  void clear() => _bursts.clear();
+}
+
+class _Gen5PpgBurst {
+  _Gen5PpgBurst(this.unix, this.burstIndex, this.wave);
+  final int unix;
+  final int burstIndex;
+  final List<int> wave;
+}
+
 /// Map a decoded gen5 historical record onto the band-agnostic `Sample` type,
 /// or null when this record kind has no `Sample` equivalent (yet).
 ///
-/// Only `Gen5HistorySample` (v18, the per-second stream) maps today — the
-/// deep buffers (`Gen5OpticalBuffer`/`Gen5ImuBuffer`/`Gen5PpgWaveform`, R22
-/// opt-in only) need their own raw-buffer storage, not a 1Hz `Sample`, so
-/// they (and a null [g], e.g. an unrecognised version) correctly return null
-/// here — the caller archives those, exactly like an undecodable gen4
-/// record. Extracted as a top-level pure function (rather than inlined in
-/// `_ingestHistoricalFrame`) so the mapping is unit-testable without a live
-/// BLE session — see `gen5_sample_mapping_test.dart`.
+/// `Gen5HistorySample` (v18) maps measured HR/RR/gravity. `Gen5PpgWaveform`
+/// (v26) can map a *derived* HR via [sampleFromGen5PpgWaveform] when the
+/// caller supplies enough concatenated bursts — never RR/HRV. Optical/IMU
+/// deep buffers still return null and are archived. Extracted as a top-level
+/// pure function so the mapping is unit-testable without a live BLE session —
+/// see `gen5_sample_mapping_test.dart`.
 @visibleForTesting
 Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
   if (g is! Gen5HistorySample) return null;
@@ -208,13 +264,57 @@ Sample? sampleFromGen5Historical(Gen5HistoricalRecord? g) {
   );
 }
 
-/// Decode a gen5 historical inner frame to a band-agnostic [Sample], or null.
+/// Map a gen5 v26 PPG burst to a HR-only [Sample], or null when derivation
+/// abstains. [concatenatedSamples] should include this burst plus recent
+/// neighbours (see [Gen5PpgBurstBuffer]) — empty RR by design (no HRV claim).
 @visibleForTesting
-Sample? decodeGen5HistoricalSample(Uint8List inner, int wallNow) {
-  final strict = sampleFromGen5Historical(parseGen5Historical(inner));
-  if (strict != null) return strict;
+Sample? sampleFromGen5PpgWaveform(
+  Gen5PpgWaveform g,
+  List<int> concatenatedSamples,
+) {
+  final hr = deriveHrFromGen5PpgWaveform(concatenatedSamples);
+  if (hr == null) return null;
+  return Sample(
+    tsEpoch: g.unix,
+    counter: g.recordIndex,
+    hr: hr,
+    rrIntervalsMs: const <int>[],
+  );
+}
+
+/// Decode a gen5 historical inner frame to a band-agnostic [Sample], or null.
+/// Pass [ppgBuf] so consecutive v26 bursts can be concatenated for resting HR.
+/// When [measuredRecTs] already contains a second, PPG-derived samples abstain
+/// so measured v18 rows are never clobbered in `decoded_onehz`.
+@visibleForTesting
+Sample? decodeGen5HistoricalSample(
+  Uint8List inner,
+  int wallNow, {
+  Gen5PpgBurstBuffer? ppgBuf,
+  Set<int>? measuredRecTs,
+}) {
+  final parsed = parseGen5Historical(inner);
+  final strict = sampleFromGen5Historical(parsed);
+  if (strict != null) {
+    measuredRecTs?.add(strict.tsEpoch);
+    return strict;
+  }
   if (inner.length > 1 && inner[1] == 18) {
-    return sampleFromGen5V18Lenient(inner, wallNow);
+    final lenient = sampleFromGen5V18Lenient(inner, wallNow);
+    if (lenient != null) {
+      measuredRecTs?.add(lenient.tsEpoch);
+      return lenient;
+    }
+  }
+  if (parsed is Gen5PpgWaveform) {
+    ppgBuf?.add(
+      unix: parsed.unix,
+      burstIndex: parsed.burstIndex,
+      wave: parsed.ppgWaveform,
+    );
+    if (measuredRecTs?.contains(parsed.unix) ?? false) return null;
+    final samples = ppgBuf?.concatenated() ?? parsed.ppgWaveform;
+    return sampleFromGen5PpgWaveform(parsed, samples);
   }
   return null;
 }
@@ -844,6 +944,13 @@ class BleEngine {
   // doc). Re-seeded from the durable counter_hw cursor on each connect, same
   // pattern as _recordGate's frontierTs seed below.
   CounterRegressionDetector _counterRegression = CounterRegressionDetector();
+
+  /// Recent gen5 v26 PPG bursts for resting-HR ACF (cleared on teardown).
+  final Gen5PpgBurstBuffer _gen5PpgBuf = Gen5PpgBurstBuffer();
+
+  /// Seconds that already have a measured v18 sample this connection — PPG
+  /// derivation must not REPLACE those rows in `decoded_onehz`.
+  final Set<int> _gen5MeasuredRecTs = <int>{};
   // Firmware-aware R24 decoder (see openstrap_protocol's
   // FirmwareAwareR24Decoder doc): tries the original hardware-validated
   // decoder first, falls back to newer-firmware layouts only if that fails,
@@ -2058,15 +2165,33 @@ class BleEngine {
     Sample? sample;
     final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final isGen5 = _session?.band.isGen5 ?? false;
+    final isGen5V26 = isGen5 && recType == 26;
     if (isGen5) {
-      // gen5 (WHOOP 5): `parseGen5Historical` dispatches across all four real
-      // gen5 historical-record kinds (v18 per-second summary, v20 optical/
-      // v21 IMU/v26 PPG deep buffers — R22 opt-in only). Only v18 maps onto
-      // the band-agnostic `Sample` type today; the deep buffers need their
-      // own raw-buffer storage (a future db table), not a 1Hz Sample, so they
-      // fall through to the undecodable archive below — that is honest
-      // (correctly-identified-but-not-yet-stored), not a decode failure.
-      sample = decodeGen5HistoricalSample(frame.inner, wallNow);
+      // gen5 (WHOOP 5): v18 maps measured HR/RR; v26 can map a *derived* HR via
+      // concatenated recent PPG bursts (empty RR — no HRV claim). Optical/IMU
+      // buffers still archive. WHOOP 4 path below is unchanged.
+      sample = decodeGen5HistoricalSample(
+        frame.inner,
+        wallNow,
+        ppgBuf: _gen5PpgBuf,
+        measuredRecTs: _gen5MeasuredRecTs,
+      );
+      if (isGen5V26) {
+        final archive = ArchiveRecord(
+          counter: counter,
+          hex: _innerHex(frame.inner),
+          packetType: frame.inner.isNotEmpty ? frame.inner[0] : 0,
+          capturedAt: DateTime.now().millisecondsSinceEpoch,
+          reason: 'gen5_v26_ppg',
+        );
+        final d = _drain;
+        if (d != null) {
+          d.onHistoricalArchive(archive);
+        } else {
+          unawaited(onArchiveRecord?.call(archive) ?? Future<void>.value());
+        }
+        if (sample == null) return;
+      }
     } else if (recType == Record.r24 || recType == Record.r12) {
       // Legacy decoder first, firmware-fallback chain second, undecodable
       // archive last — see FirmwareAwareR24Decoder.
@@ -2843,8 +2968,13 @@ class BleEngine {
     }
   }
 
-  int _counterFromInner(Uint8List inner) =>
-      inner.length >= 7 ? u32(inner, 3) : 0;
+  int _counterFromInner(Uint8List inner) {
+    if (inner.length < 5) return 0;
+    // v26 record_index is u16@3 (protocol Gen5V26Decoder) — do not u32-inflate
+    // into the same key space as v18 counters.
+    if (inner.length > 1 && inner[1] == 26) return u16(inner, 3);
+    return inner.length >= 7 ? u32(inner, 3) : 0;
+  }
   String _innerHex(Uint8List inner) =>
       inner.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
@@ -3318,6 +3448,8 @@ class BleEngine {
     final device = session.device;
     await session.teardown();
     _session = null;
+    _gen5PpgBuf.clear();
+    _gen5MeasuredRecTs.clear();
     // The strap-RTC↔wall correlation belongs to the session that measured it —
     // drop it so it can't leak into the next connection's alarm arming before a
     // fresh GET_CLOCK. (Connection setup also re-nulls it; this covers the gap
@@ -3584,6 +3716,17 @@ class DrainController {
     records++;
     recordsThisOffload++;
     _lastProgressAt = DateTime.now();
+    if (_buffering) {
+      _archives.add(a);
+    } else {
+      unawaited(onArchive?.call(a) ?? Future<void>.value());
+    }
+  }
+
+  /// Companion archive for a record that IS also stored (e.g. gen5 v26 PPG hex
+  /// alongside a derived Sample). Does not bump record counters — the paired
+  /// [onHistoricalRecord] already did.
+  void onHistoricalArchive(ArchiveRecord a) {
     if (_buffering) {
       _archives.add(a);
     } else {

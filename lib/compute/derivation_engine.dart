@@ -362,7 +362,12 @@ import 'substrate.dart';
 // (fever/heat/anxiety) that have no discernible onset — so this changes which
 // suggestions autoDetectWorkouts emits without loosening the false-positive
 // gate it exists to protect.
-const int kAlgoVersion = 51;
+// v52: WHOOP 5 — gen5 v26 PPG bursts can contribute a derived per-second HR
+// (analytics `deriveHrFromGen5PpgWaveform` @ b3e7b88624e4cbb6a0ab2dee6715446f19feb775,
+// samples) when measured v18 is absent. Empty RR by design (no HRV claim).
+// Abstains on thin/noisy windows. Bump so days re-derive once v26-backed onehz
+// rows land.
+const int kAlgoVersion = 52;
 
 /// Raw is kept this many days past derivation, then pruned (derived stays).
 const int rawRetentionDays = 3;
