@@ -272,6 +272,8 @@ Sample? sampleFromGen5PpgWaveform(
   Gen5PpgWaveform g,
   List<int> concatenatedSamples,
 ) {
+  // Match analytics' honest min window (~10 s @ 24 Hz) before ACF.
+  if (concatenatedSamples.length < kGen5PpgHrMinSamples) return null;
   final hr = deriveHrFromGen5PpgWaveform(concatenatedSamples);
   if (hr == null) return null;
   return Sample(
