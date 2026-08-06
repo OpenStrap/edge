@@ -281,6 +281,10 @@ Sample? sampleFromGen5PpgWaveform(
     counter: g.recordIndex,
     hr: hr,
     rrIntervalsMs: const <int>[],
+    // INFERRED from the PPG waveform, not reported by the strap. Carried into
+    // persistence so it can never evict a measured row — and that row's RR
+    // beats — for the same second. See Sample.derived.
+    derived: true,
   );
 }
 

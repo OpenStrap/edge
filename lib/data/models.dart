@@ -16,6 +16,21 @@ class Sample {
   final int? spo2IrRaw;
   final int? skinTempRaw;
 
+  /// True when [hr] was INFERRED rather than reported by the strap — today only
+  /// the gen5 v26 PPG-waveform path (autocorrelation over concatenated bursts).
+  ///
+  /// Provenance, not quality: a derived sample must never EVICT a measured row
+  /// for the same second. `decoded_onehz` is INSERT-OR-REPLACE keyed on
+  /// UNIQUE(rec_ts), and that eviction also deletes the losing counter's
+  /// `decoded_rr` beats — the durable RR store, unrecoverable once gone. A
+  /// derived sample carries no RR of its own, so letting it win trades a
+  /// measured HR *and* its whole beat series for an inferred bpm.
+  ///
+  /// The in-memory `measuredRecTs` set is the fast path for this within one
+  /// connection; this flag is what makes the guarantee survive a RECONNECT,
+  /// where that set has been cleared but the rows are still on disk.
+  final bool derived;
+
   Sample({
     required this.tsEpoch,
     required this.counter,
@@ -27,6 +42,7 @@ class Sample {
     this.spo2RedRaw,
     this.spo2IrRaw,
     this.skinTempRaw,
+    this.derived = false,
   });
 
   /// Copy with an overridden [tsEpoch] — used by the clock-offset salvage path
@@ -44,6 +60,7 @@ class Sample {
     spo2RedRaw: spo2RedRaw,
     spo2IrRaw: spo2IrRaw,
     skinTempRaw: skinTempRaw,
+    derived: derived,
   );
 
   bool get wristOn => hr > 0;

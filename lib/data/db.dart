@@ -1935,6 +1935,36 @@ class LocalDb {
     final decoded = _decodeOneHzSample(raw, preferred: sample);
     if (decoded == null) return 0;
     final recTs = raw.recTs ?? decoded.tsEpoch;
+    // PROVENANCE BEATS RECENCY — for DERIVED HR only.
+    //
+    // "Newest wins" below is right for two MEASURED records of the same second
+    // (the counter resets after a reboot), but it is wrong when the newcomer's
+    // HR was INFERRED from the PPG waveform. That REPLACE evicts the measured
+    // row, and `_queueOrphanGuard` then deletes the evicted counter's
+    // `decoded_rr` beats — the durable RR store — while a derived sample brings
+    // no beats of its own. A measured HR plus a whole second of beat-to-beat
+    // intervals, traded for an inferred bpm, unrecoverably.
+    //
+    // The engine's in-memory `measuredRecTs` set already prevents this WITHIN a
+    // connection, but it is cleared on teardown and never seeded from
+    // `decoded_onehz`, so after a reconnect a re-delivered v26 burst walks
+    // straight past it. Enforcing it here makes the guarantee durable instead
+    // of session-scoped: INSERT OR IGNORE and NO orphan guard, so any existing
+    // row for this second simply stands.
+    if (decoded.derived) {
+      batch.insert('decoded_onehz', {
+        'counter': raw.counter,
+        'rec_ts': recTs,
+        'hr': decoded.hr,
+        'ax': decoded.ax ?? 0,
+        'ay': decoded.ay ?? 0,
+        'az': decoded.az ?? 0,
+        'spo2_red_raw': decoded.spo2RedRaw ?? 0,
+        'spo2_ir_raw': decoded.spo2IrRaw ?? 0,
+        'skin_temp_raw': decoded.skinTempRaw ?? 0,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      return 1;
+    }
     // TIME-KEYED, NEWEST-WINS (noop/WHOOP-4 model: dedupe records by their
     // embedded timestamp, not by a counter). decoded_onehz has a UNIQUE(rec_ts)
     // index and decoded_rr a UNIQUE(rr_ts_ms, beat_index). We use REPLACE, not

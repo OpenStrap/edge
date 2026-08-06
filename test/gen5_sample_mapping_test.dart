@@ -178,21 +178,72 @@ void main() {
   });
 
   group('decodeGen5HistoricalSample — measured v18 clobber guard', () {
-    test('PPG abstains when measured v18 already claimed that second', () {
+    const ppgUnix = 1780917232;
+
+    Uint8List ppgInner() {
       final frame = hex(
         'aa015000010035412f1a80ad418401f0a3266aae470100c3c5050068faccfa8dfb46f'
         'c8bfd4cfebafedafe6dff56ffd5fffbff37ff6afce5f9d7f8dffa5efc98fddbfe5afe8'
         '4fe15ff5cff405fb33c50080101006cb67c17',
       );
-      final inner = parseFrame(frame, profile: BandProfile.gen5)!.inner;
-      final measured = <int>{1780917232};
+      return parseFrame(frame, profile: BandProfile.gen5)!.inner;
+    }
+
+    /// A buffer already holding a clean, ACF-resolvable waveform for the second
+    /// BEFORE the fixture, so the concatenated series clears
+    /// `kGen5PpgHrMinSamples` and the derived path is genuinely reachable.
+    ///
+    /// Without this the derived path abstains for want of samples no matter
+    /// what the guard does — which is what made the original version of this
+    /// test VACUOUS. Verified: it passed with the guard line deleted.
+    Gen5PpgBurstBuffer primedBuf() {
+      final buf = Gen5PpgBurstBuffer();
+      // 24 Hz with a 24-sample period => 60 bpm, mid-range of the 25–230 search.
+      const perBurst = 24;
+      final bursts = (kGen5PpgHrMinSamples / perBurst).ceil() + 2;
+      for (var b = 0; b < bursts; b++) {
+        buf.add(
+          unix: ppgUnix - 1,
+          burstIndex: b,
+          wave: [
+            for (var i = 0; i < perBurst; i++)
+              (2000 * math.sin(2 * math.pi * (b * perBurst + i) / 24)).round(),
+          ],
+        );
+      }
+      return buf;
+    }
+
+    test(
+      'the derived PPG path is LIVE for this fixture when the second is '
+      'unclaimed — otherwise the guard assertion below proves nothing',
+      () {
+        final sample = decodeGen5HistoricalSample(
+          ppgInner(),
+          ppgUnix,
+          ppgBuf: primedBuf(),
+          measuredRecTs: <int>{},
+        );
+        expect(
+          sample,
+          isNotNull,
+          reason: 'fixture must actually reach sampleFromGen5PpgWaveform',
+        );
+        expect(sample!.derived, isTrue, reason: 'inferred HR, not measured');
+        expect(sample.rrIntervalsMs, isEmpty, reason: 'no HRV claim from PPG');
+      },
+    );
+
+    test('PPG abstains when measured v18 already claimed that second', () {
       expect(
         decodeGen5HistoricalSample(
-          inner,
-          1780917232,
-          measuredRecTs: measured,
+          ppgInner(),
+          ppgUnix,
+          ppgBuf: primedBuf(),
+          measuredRecTs: <int>{ppgUnix},
         ),
         isNull,
+        reason: 'a derived bpm must never displace a measured record',
       );
     });
   });
