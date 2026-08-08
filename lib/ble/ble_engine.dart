@@ -623,6 +623,19 @@ class BleEngine {
   /// leaves `_appliedPriority` describing a target the radio never got.
   bool _connectSetup = false;
 
+  /// What the link should be running at given the engine's CURRENT state. The
+  /// wiring under test: that `_connectSetup` counts as offload-grade traffic,
+  /// and that `sendInit` clears it again.
+  @visibleForTesting
+  LinkPriority linkPriorityForCurrentState() => desiredLinkPriority(
+        offloadActive: _offloadActive || _connectSetup,
+        background: _backgrounded,
+        hasLiveConsumer: _liveEnabled && !_liveHrOnly,
+      );
+
+  @visibleForTesting
+  void debugBeginConnectSetup() => _connectSetup = true;
+
   /// Told by AppState on every foreground/background transition. Drives the
   /// connection interval — see [desiredLinkPriority].
   void setBackground(bool value) {
@@ -1423,8 +1436,12 @@ class BleEngine {
             kBatteryPollIntervalSeconds) {
       return;
     }
-    await _send(Cmd.getBatteryLevel, const []);
-    _lastBatteryPollAt = DateTime.now();
+    // `_send` swallows write failures and reports them as false. Stamping
+    // regardless would buy five minutes of silence off a write that never left
+    // the phone.
+    if (await _send(Cmd.getBatteryLevel, const [])) {
+      _lastBatteryPollAt = DateTime.now();
+    }
   }
 
   /// Trigger a historical offload, floored by [BackfillPolicy] (manual /

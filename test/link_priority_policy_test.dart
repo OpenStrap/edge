@@ -11,6 +11,7 @@
 // throughput during a drain is what the fast interval was for.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/sync/sync_policy.dart';
 
 void main() {
@@ -83,20 +84,6 @@ void main() {
     }
   });
 
-  test('connect setup is treated like an offload, not like idle', () {
-    // Setup runs discovery + subscribes + SET_CLOCK + INIT and is immediately
-    // followed by the first flash drain, so it wants the fast interval — but it
-    // asks for it through the same path as everything else.
-    expect(
-      desiredLinkPriority(
-        offloadActive: true, // `_offloadActive || _connectSetup`
-        background: true,
-        hasLiveConsumer: false,
-      ),
-      LinkPriority.high,
-    );
-  });
-
   test('the battery poll is minutes apart, not seconds', () {
     // It rode the 30 s keep-alive tick: 2,880 radio round-trips a day for a
     // display value that changes a handful of times.
@@ -104,5 +91,54 @@ void main() {
     // Still far inside the liveness fuse, so it can never be the thing that
     // starves `sinceLastRx` and bounces a healthy link.
     expect(kBatteryPollIntervalSeconds, greaterThan(kLivenessFuseSeconds));
+  });
+
+  group('the engine feeds its own state into that rule', () {
+    // The policy tests above prove the RULE. These prove the WIRING, which is
+    // where the bug actually was: the connect-setup boost used to be a direct
+    // radio call that bypassed the serialized path entirely.
+    //
+    // Honest limit: `_doConnect` cannot run on the test host (flutter_blue_plus
+    // is unsupported there), so what is covered is the flag's effect on the
+    // target and `sendInit`'s clearing of it — not the assignment inside
+    // `_doConnect` itself.
+    late BleEngine engine;
+
+    setUp(() {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      engine = BleEngine(
+        onRecord: (sample, raw) async {},
+        onState: (_) {},
+        log: (_) {},
+      );
+    });
+
+    test('a backgrounded idle engine wants the cheap interval', () {
+      engine.setBackground(true);
+      expect(engine.linkPriorityForCurrentState(), LinkPriority.lowPower);
+    });
+
+    test('connect setup outranks being backgrounded', () {
+      engine.setBackground(true);
+      engine.debugBeginConnectSetup();
+      expect(
+        engine.linkPriorityForCurrentState(),
+        LinkPriority.high,
+        reason: 'setup is immediately followed by the first flash drain',
+      );
+    });
+
+    test('sendInit ends the setup boost', () async {
+      engine.setBackground(true);
+      engine.debugBeginConnectSetup();
+      // No session on the host, so the writes fail — the point is that the
+      // flag is cleared in a `finally`, not only on the happy path.
+      await engine.sendInit();
+      expect(
+        engine.linkPriorityForCurrentState(),
+        LinkPriority.lowPower,
+        reason: 'an idle background link must stop paying for setup speed',
+      );
+    });
   });
 }
