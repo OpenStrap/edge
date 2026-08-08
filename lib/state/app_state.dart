@@ -73,7 +73,12 @@ import '../sync/high_freq_wake_window.dart';
 import '../sync/ios_bg_task.dart';
 import '../sync/paired_device.dart';
 import '../sync/sync_policy.dart'
-    show isLinkStale, StalenessTier, stalenessTierFor;
+    show
+        isLinkStale,
+        ReconnectSupervisorAction,
+        StalenessTier,
+        stalenessTierFor,
+        superviseReconnect;
 import '../sync/update_service.dart';
 import '../telemetry/telemetry_service.dart';
 import '../telemetry/health_uploader.dart';
@@ -173,6 +178,16 @@ class AppState extends ChangeNotifier {
 
   bool _keepAlive = false;
   bool _reconnecting = false;
+
+  /// When the current reconnect loop started, for the supervisor's staleness
+  /// check (issue #208) — an await inside the loop that never returns leaves
+  /// `_reconnecting` true forever, which no re-trigger can clear.
+  DateTime? _reconnectingSince;
+
+  /// Level-triggered reconnect supervision. The loop's only trigger used to be
+  /// the `connected → disconnected` edge, so any abandoned loop was permanent.
+  /// This ticks regardless of edges and re-arms — see [superviseReconnect].
+  Timer? _reconnectSupervisor;
   Timer? _backfillTimer;
   String _prevConn = 'disconnected';
   // Last battery snapshot pushed to the Band Battery widget — so we only reload
@@ -449,8 +464,19 @@ class AppState extends ChangeNotifier {
     phoneStepsEnabled = ok;
     notifyListeners();
     // The user just asked for this, so pull the full backfill window rather
-    // than the cheap routine one.
-    if (ok) unawaited(syncPhoneSteps(days: PhonePedometer.fullSyncDays));
+    // than the cheap routine one — and then RE-DERIVE, symmetric with
+    // [disablePhoneSteps]. Banking rows into `live_coverage` changes nothing a
+    // screen can see: they all read scalars persisted in `day_result`/
+    // `metric_series`, and the only automatic derive is drain-triggered. Grant
+    // the permission with the band not connected and, without this, the step
+    // tile keeps showing a dash indefinitely — indistinguishable from the
+    // feature not working.
+    if (ok) {
+      unawaited(() async {
+        await syncPhoneSteps(days: PhonePedometer.fullSyncDays);
+        await _reanalyzeForOverride();
+      }());
+    }
     return ok;
   }
 
@@ -832,6 +858,12 @@ class AppState extends ChangeNotifier {
       // nothing new and keeps both signals consistent with each other.
       isForegroundActive: () => !_background,
     );
+    // Seed the engine's link-power state (issue #200). `setBackground` is
+    // otherwise only called on TRANSITIONS, and a headless start begins
+    // backgrounded — without this the very case that most needs the cheap
+    // connection interval would run at the fast one until the user next
+    // foregrounded the app.
+    engine.setBackground(_background);
     repo = LocalRepositoryImpl(getProfileMap: () => user);
     // iOS BGProcessing/BGAppRefresh wakes while the FOREGROUND app owns the band
     // skip the headless BLE path (it would fight FBP for the peripheral) — route
@@ -907,6 +939,8 @@ class AppState extends ChangeNotifier {
     // ChangeNotifier (which throws in release).
     _tapSub?.cancel();
     _stopBackfillTimer();
+    _reconnectSupervisor?.cancel();
+    _reconnectSupervisor = null;
     _alarmGraceTimer?.cancel();
     _alarmGraceTimer = null;
     _spotTimer?.cancel();
@@ -1018,6 +1052,20 @@ class AppState extends ChangeNotifier {
         },
       ));
       TelemetryService.instance.breadcrumb('derive: $mode done');
+      // The drain that triggered this pass may have landed the 1 Hz window of a
+      // workout the app slept through, whose strain/calories were scored from
+      // whatever few minutes the foreground tally saw (issue #206). Re-score
+      // recent sessions against the substrate now that it is here, so the
+      // workout LIST is corrected too and not just a detail screen someone
+      // happens to open. Monotone and idempotent — see reconcileSessionScore.
+      try {
+        final fixed = await repo?.rescoreRecentSessions() ?? 0;
+        if (fixed > 0) {
+          _log('[derive] rescored $fixed session(s) from substrate');
+        }
+      } catch (e) {
+        _log('[derive] session rescore failed: $e');
+      }
       await LocalDb.refreshComputeFreshness();
       _bumpInsightsRevision();
       notifyListeners(); // screens re-fetch from the derived store
@@ -1592,6 +1640,7 @@ class AppState extends ChangeNotifier {
     if (isPaired) {
       if (_background) {
         _keepAlive = true;
+        _startReconnectSupervisor();
         if (Platform.isAndroid) EdgeTracking.start();
         if (Platform.isIOS) {
           IosBleRestore.foregroundActive = true;
@@ -1784,6 +1833,9 @@ class AppState extends ChangeNotifier {
   /// On Android the Edge Tracking foreground service keeps the process + connection alive.
   Future<void> pauseForBackground() async {
     _background = true;
+    // Step the Android link down to a power-saving connection interval — see
+    // `desiredLinkPriority` (issue #200).
+    engine.setBackground(true);
     // Defer derivation while backgrounded — running the heavy derive pass on a
     // short background BLE wake gets the app killed (iOS CPU watchdog / jetsam).
     // Capture keeps running; queued derive jobs drain on foreground return.
@@ -1982,10 +2034,31 @@ class AppState extends ChangeNotifier {
   // the live-session screen shows steps FOR THIS WORKOUT (not since connection).
   int? _workoutRawBase;
 
+  /// 100 Hz sample count at the moment the active workout started, so
+  /// [workoutStepsMeasured] can tell "you did not move" apart from "the band
+  /// never sent us anything to count".
+  int? _workoutSampleBase;
+
   /// Steps taken since the active workout started (real, live, gain-applied).
   /// 0 when no workout is running. This is what the workout screen shows.
-  int get workoutSteps {
-    if (activeWorkout == null || _workoutRawBase == null) return 0;
+  int get workoutSteps => workoutStepsMeasured ?? 0;
+
+  /// Steps for the active workout, or NULL when nothing gait-capable was ever
+  /// measured for it (issue #183).
+  ///
+  /// The live count needs the band's 100 Hz accel stream. That stream is
+  /// routinely absent even during a perfectly good workout: the sticky
+  /// standard-HR fallback suppresses it, the background downgrade turns it off,
+  /// and a pocketed phone can drop it entirely — while GPS distance and the
+  /// 1 Hz HR keep flowing. Reporting `0` in that state is a fabricated
+  /// measurement, and it is what the issue screenshotted: a mile walked, HR and
+  /// distance both right, "0 STEPS" beside them.
+  int? get workoutStepsMeasured {
+    if (activeWorkout == null || _workoutRawBase == null) return null;
+    // No accel sample has reached us since this workout began — nothing was
+    // counted, as opposed to zero steps having been counted.
+    final base = _workoutSampleBase;
+    if (base == null || _liveSamples <= base) return null;
     final raw = _liveRaw - _workoutRawBase!;
     return raw > 0 ? (raw * ana.StepParams.gain).round() : 0;
   }
@@ -2383,6 +2456,59 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Cadence of the reconnect supervisor. Cheap — the tick reads local flags
+  /// and does nothing at all unless the app is paired, wants a link, and does
+  /// not have one.
+  static const Duration _reconnectSupervisorInterval = Duration(minutes: 1);
+
+  /// Start the level-triggered reconnect supervision (issue #208).
+  ///
+  /// Deliberately NOT tied to connection state: it must keep ticking precisely
+  /// when everything else has given up. It is the backstop for the failure the
+  /// issue describes — a reconnect loop abandoned by a throw (or wedged on an
+  /// await that never returns), after which the app sits at 'disconnected' with
+  /// no edge left to re-trigger it and, on Android, a foreground service making
+  /// sure the process never restarts to clear the state.
+  void _startReconnectSupervisor() {
+    _reconnectSupervisor ??= Timer.periodic(
+      _reconnectSupervisorInterval,
+      (_) => _superviseReconnect(),
+    );
+  }
+
+  void _superviseReconnect() {
+    if (_disposed) return;
+    // Expire a bond-refusal pause whose cooldown has run out before deciding —
+    // otherwise the supervisor faithfully observes a flag that nothing can ever
+    // clear (issue #208).
+    engine.refreshAutoReconnectPause();
+    final action = superviseReconnect(
+      paired: paired != null,
+      keepAlive: _keepAlive,
+      connected: engine.isConnected,
+      loopRunning: _reconnecting,
+      autoReconnectPaused: device.autoReconnectPaused,
+      loopRunningFor: _reconnectingSince == null
+          ? null
+          : DateTime.now().difference(_reconnectingSince!),
+    );
+    switch (action) {
+      case ReconnectSupervisorAction.none:
+        return;
+      case ReconnectSupervisorAction.start:
+        _log('[RECONNECT] supervisor: disconnected with no loop running — '
+            'starting one.');
+        unawaited(_reconnect());
+      case ReconnectSupervisorAction.restartStale:
+        _log('[RECONNECT] supervisor: the loop has been running since '
+            '$_reconnectingSince with no link — treating it as wedged and '
+            'starting a fresh one.');
+        _reconnecting = false;
+        _reconnectingSince = null;
+        unawaited(_reconnect());
+    }
+  }
+
   void _startBackfillTimer() {
     if (!_keepAlive || paired == null || !engine.isConnected) return;
     _backfillTimer ??= Timer.periodic(_backfillInterval, (_) {
@@ -2398,6 +2524,18 @@ class AppState extends ChangeNotifier {
   Future<void> _runPeriodicBackfill() async {
     if (!_keepAlive || paired == null || busy || _reconnecting) return;
     if (!engine.isConnected) return;
+    // BACKGROUND: leave periodic offloads to the engine's own timer, which is
+    // floored by `BackfillPolicy` (900 s + an empty-streak backoff). This timer
+    // runs every 10 minutes and drives `requestHistorySync()`, whose `manual`
+    // trigger is deliberately NEVER floored — so backgrounded, the two together
+    // meant a radio-waking offload round roughly every ten minutes all day and
+    // all night, bypassing the very rate limit written to prevent that (issue
+    // #200). Foreground keeps the faster cadence: the user can see the data.
+    if (_background) {
+      _log('Periodic history refresh skipped — backgrounded; the engine\'s '
+          'floored 15-min backfill owns this.');
+      return;
+    }
     if (_syncBurst != null) {
       _log('Periodic history refresh skipped — a sync burst is already running.');
       return;
@@ -2867,6 +3005,7 @@ class AppState extends ChangeNotifier {
     // background): don't tear it down and reconnect — just reclaim ownership.
     final wasBackground = _background;
     _background = false;
+    engine.setBackground(false);
     // Back in the foreground with an OS CPU/memory budget again — let the
     // scheduler drain any derive jobs that queued (durably) while backgrounded.
     _deriveScheduler.setBackground(false);
@@ -2913,6 +3052,9 @@ class AppState extends ChangeNotifier {
     _setBusy(true);
     lastError = null;
     _keepAlive = true;
+    // From here on we WANT a link for the life of the process, so the level-
+    // triggered supervisor runs from here on too (issue #208).
+    _startReconnectSupervisor();
     try {
       // INSIDE the guard, and no `paired!`. This block used to sit BETWEEN
       // _setBusy(true) and the try, force-unwrapping `paired`. The resume path
@@ -3017,6 +3159,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     _reconnecting = true;
+    _reconnectingSince = DateTime.now();
     BandOwnership.markForegroundIntent(true);
     _log('[OWNERSHIP] reconnect intent on (${BandOwnership.debugState})');
     try {
@@ -3032,6 +3175,16 @@ class AppState extends ChangeNotifier {
         // connecting-style state instead of flat 'disconnected'.
         engine.markReconnecting();
         var connected = false;
+        // PER-ATTEMPT containment (issue #208). Everything below can throw —
+        // `_ensureForegroundLease`, `_claimBand`/teardown inside connect, the
+        // post-connect stream setup. This whole loop used to sit inside ONE
+        // try/catch, so a single throw abandoned it permanently: the engine
+        // settles on 'disconnected', and the `connected → disconnected` edge
+        // that is the loop's only trigger can never fire again. On Android the
+        // foreground service then keeps the process alive forever, so nothing
+        // ever cleared it — the band never reconnected until the user forgot
+        // and re-paired it. A failed attempt is now just a failed attempt.
+        try {
         // ANDROID OS-MANAGED FALLBACK: once direct attempts keep failing — or
         // while backgrounded, where the process can be frozen between our Dart
         // backoff timers — arm a flutter_blue_plus autoConnect pending connect
@@ -3103,11 +3256,14 @@ class AppState extends ChangeNotifier {
             }),
           );
           _startBackfillTimer();
-          break;
+            break;
+          }
+        } catch (e) {
+          _log('Reconnect attempt $attempt failed: $e — retrying.');
         }
       }
     } catch (e) {
-      _log('Reconnect failed: $e');
+      _log('Reconnect loop aborted: $e');
     } finally {
       // this used to only check !_keepAlive, but the while loop above can
       // ALSO exit because device.autoReconnectPaused flipped true mid-loop
@@ -3120,6 +3276,7 @@ class AppState extends ChangeNotifier {
         _log('[OWNERSHIP] reconnect intent off (${BandOwnership.debugState})');
       }
       _reconnecting = false;
+      _reconnectingSince = null;
       // If we gave up (keepAlive dropped / never connected), stop advertising
       // `reconnecting` — fall back to a truthful 'disconnected'. No-op when
       // the loop exited via a successful connect (phase is `listening`).
@@ -3597,6 +3754,7 @@ class AppState extends ChangeNotifier {
       unawaited(engine.retryFullLiveStreams());
     }
     _workoutRawBase = _liveRaw;
+    _workoutSampleBase = _liveSamples;
     // A first night may have been derived since init. This read finishes
     // after the session below is constructed, so it back-fills the anchor on
     // `activeWorkout` when it lands rather than blocking the start.
@@ -3803,6 +3961,7 @@ class AppState extends ChangeNotifier {
           // snapshot: steps count from zero going forward, same as
           // calories/strain/zone-minutes already (honestly) do here.
           _workoutRawBase = _liveRaw;
+          _workoutSampleBase = _liveSamples;
     // A first night may have been derived since init. This read finishes
     // after the session below is constructed, so it back-fills the anchor on
     // `activeWorkout` when it lands rather than blocking the start.
@@ -3893,6 +4052,7 @@ class AppState extends ChangeNotifier {
     }
     activeWorkout = null;
     _workoutRawBase = null;
+    _workoutSampleBase = null;
     notifyListeners();
     _log('Live session ended. Burned $finalKcal kcal.');
     LiveActivity.end();
@@ -3925,6 +4085,7 @@ class AppState extends ChangeNotifier {
     _deriveScheduler.setWorkoutActive(false);
     activeWorkout = null;
     _workoutRawBase = null;
+    _workoutSampleBase = null;
     LiveActivity.end();
   }
 
