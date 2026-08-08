@@ -464,20 +464,56 @@ class PostBondTimeoutLoopDetector {
 /// A single successful bond resets the streak.
 class BondRefusalGiveUp {
   final int giveUpThreshold;
-  BondRefusalGiveUp({this.giveUpThreshold = 5});
+
+  /// How long the auto-reconnect pause lasts before the loop is allowed to try
+  /// again (issue #208).
+  ///
+  /// The pause used to be permanent in practice: it is cleared ONLY inside the
+  /// `createBond()` success branch, which lives inside the connect path, which
+  /// the pause itself prevents from ever running again. A user who hit five
+  /// refusals — a transient stack/OEM condition, not necessarily a broken bond —
+  /// had auto-reconnect off for the life of the process, with the Android
+  /// foreground service making sure the process never restarted to clear it.
+  /// A cooldown keeps the intended behaviour (stop hammering a band that will
+  /// not bond) without the dead end.
+  final Duration cooldown;
+
+  BondRefusalGiveUp({
+    this.giveUpThreshold = 5,
+    this.cooldown = const Duration(minutes: 30),
+  });
 
   int _consecutive = 0;
   bool gaveUp = false;
+  DateTime? _gaveUpAt;
 
   int get consecutive => _consecutive;
 
+  /// When the pause was entered, or null if not paused.
+  DateTime? get gaveUpAt => _gaveUpAt;
+
+  /// Whether the auto-reconnect pause is still in force at [now]. Once the
+  /// cooldown expires the latch clears itself and the streak restarts, so a
+  /// band that still refuses simply re-trips after another [giveUpThreshold]
+  /// refusals rather than being retried forever.
+  bool stillPaused(DateTime now) {
+    if (!gaveUp) return false;
+    final since = _gaveUpAt;
+    if (since != null && now.difference(since) >= cooldown) {
+      reset();
+      return false;
+    }
+    return true;
+  }
+
   /// Feed a bond refusal/timeout. Returns true EXACTLY ONCE, on the call that
   /// crosses the threshold (the caller then pauses reconnect + surfaces the guide).
-  bool bondRefused() {
+  bool bondRefused({DateTime? now}) {
     if (gaveUp) return false;
     _consecutive++;
     if (_consecutive >= giveUpThreshold) {
       gaveUp = true;
+      _gaveUpAt = now ?? DateTime.now();
       return true;
     }
     return false;
@@ -485,14 +521,12 @@ class BondRefusalGiveUp {
 
   /// A bond that succeeded (or a session that got past bonding). Clears the
   /// streak AND the give-up latch so a later refusal run can trip again.
-  void bondSucceeded() {
-    _consecutive = 0;
-    gaveUp = false;
-  }
+  void bondSucceeded() => reset();
 
   void reset() {
     _consecutive = 0;
     gaveUp = false;
+    _gaveUpAt = null;
   }
 }
 
@@ -678,4 +712,112 @@ class NoDurableProgressEscalation {
     _remedies = 0;
     _gaveUp = false;
   }
+}
+
+// ── link power policy (issue #200) ───────────────────────────────────────────
+
+/// How aggressively to run the Android GATT link right now.
+///
+/// Android exposes three connection-interval presets. `high` is ~11.25 ms with
+/// zero slave latency — the phone's controller services ~89 connection events a
+/// second, and the host is woken for every one that carries data.
+enum LinkPriority { high, balanced, lowPower }
+
+/// Battery poll cadence. The band's battery is a DISPLAY value that moves on the
+/// order of hours; nothing in the sync path depends on it. It was being read on
+/// every 30 s keep-alive tick — 2,880 radio round-trips a day for a number that
+/// changes a few times.
+const int kBatteryPollIntervalSeconds = 300;
+
+/// The connection priority the link should be running at.
+///
+/// WHY THIS EXISTS (issue #200): the engine requested `high` once, at connect
+/// setup, "for the drain" — and never stepped back down. Since the connection is
+/// deliberately permanent (foreground service + START_STICKY + keep-alive
+/// watchdog + CDM presence relaunch), that meant an ~11.25 ms interval held 24/7,
+/// including all night with nothing to say. The app also steers users into a
+/// battery-optimization exemption, so Doze never damps it either. That
+/// configuration — not the timers the reporter suspected — is the dominant
+/// drain.
+///
+/// The rule: pay for a fast interval only while something is actually consuming
+/// the link.
+///   • an offload in flight → `high` (throughput is the whole point),
+///   • a live consumer in the foreground (workout, spot check, breathing) →
+///     `high`; the 100 Hz streams need the bandwidth,
+///   • foreground, idle → `balanced`,
+///   • background with no live consumer → `lowPower`.
+///
+/// SAFETY: this changes throughput, never correctness. The drain is
+/// commit-before-ACK and resumes from a durable cursor, so a slower interval can
+/// only make an offload take longer — and an offload always raises the priority
+/// back to `high` first. The one real constraint is the liveness fuse
+/// ([kLivenessFuseSeconds]): whatever interval we sit at must still let the 1 Hz
+/// notify or the keep-alive response arrive inside 120 s, which `lowPower`
+/// (~500 ms interval) does with three orders of magnitude to spare.
+LinkPriority desiredLinkPriority({
+  required bool offloadActive,
+  required bool background,
+  required bool hasLiveConsumer,
+}) {
+  if (offloadActive) return LinkPriority.high;
+  if (hasLiveConsumer && !background) return LinkPriority.high;
+  return background ? LinkPriority.lowPower : LinkPriority.balanced;
+}
+
+// ── reconnect supervision (issue #208) ───────────────────────────────────────
+
+/// Why the supervisor decided to act (for logging — a silent self-heal that
+/// nobody can see in a log is how this class of bug hides).
+enum ReconnectSupervisorAction {
+  /// Nothing to do: connected, unpaired, paused, or a loop is already running.
+  none,
+
+  /// No loop is running and we are not connected — start one.
+  start,
+
+  /// A loop has been "running" far too long with nothing to show for it; the
+  /// in-flight flag is stale (an await that never returned). Clear it and start
+  /// a fresh loop.
+  restartStale,
+}
+
+/// Level-triggered reconnect supervision.
+///
+/// WHY THIS EXISTS: `_reconnect()` was EDGE-triggered — the only thing that
+/// called it was the `connected → disconnected` transition. The loop itself is
+/// unbounded and correct, but it sits inside one try/catch, so ANY throw inside
+/// it (a foreground-lease acquisition, a claim/teardown error, a stream setup
+/// failure) abandoned the loop for good. After that the engine sits at
+/// 'disconnected', so the edge can never fire again, and on Android the
+/// foreground service guarantees the process never restarts to clear it. That
+/// is the reported "shows reconnecting, then disconnected, forever, until you
+/// forget the band and re-pair".
+///
+/// An await that never returns produces the same dead end with the in-flight
+/// flag stuck true, which no amount of re-triggering fixes — hence
+/// [ReconnectSupervisorAction.restartStale].
+///
+/// This is the pure decision. The caller runs a timer, feeds it observations,
+/// and acts on the verdict.
+ReconnectSupervisorAction superviseReconnect({
+  required bool paired,
+  required bool keepAlive,
+  required bool connected,
+  required bool loopRunning,
+  required bool autoReconnectPaused,
+  required Duration? loopRunningFor,
+  Duration staleAfter = const Duration(minutes: 20),
+}) {
+  if (!paired || !keepAlive || connected || autoReconnectPaused) {
+    return ReconnectSupervisorAction.none;
+  }
+  if (!loopRunning) return ReconnectSupervisorAction.start;
+  // A live loop is expected to run for a long time — a band can be out of range
+  // for hours, and the Android OS-autoConnect branch legitimately waits 15
+  // minutes per pass. Only call it stale well past that.
+  if (loopRunningFor != null && loopRunningFor >= staleAfter) {
+    return ReconnectSupervisorAction.restartStale;
+  }
+  return ReconnectSupervisorAction.none;
 }
