@@ -349,7 +349,16 @@ class _TodayScreenState extends State<TodayScreen>
             t: t,
             sparks: _sparks,
             stepsWeek: _stepsWeek,
-            liveSteps: context.read<AppState>().liveSteps,
+            // Band-derived live steps are an addend to the day metric ONLY
+            // while the band is the day's step source. `liveStepsForDay`
+            // deliberately lets phone rows WIN OUTRIGHT over band rows rather
+            // than summing them (both count the same walk — one from the
+            // pocket, one from the wrist), so adding the wrist's live count on
+            // top of a phone-sourced day total re-introduces exactly the
+            // double count that rule exists to prevent.
+            liveSteps: context.read<AppState>().phoneStepsEnabled
+                ? 0
+                : context.read<AppState>().liveSteps,
             onOpen: _open,
             hasAiBriefing: hasAiBriefing,
             aiBriefing: hasAiBriefing ? BriefingStore.read(period) : null,
@@ -1137,7 +1146,13 @@ class TodayVitals extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const TileHeader('Steps', trailing: Tag('est')),
+          // 'measured', not 'est' — nothing estimates steps any more. The 1 Hz
+          // estimator was removed (a per-day gravity reference dominated by the
+          // sleep block put its SNR at ~1); what is left is a real pedometer,
+          // the phone's or the band's 100 Hz stream, and a day with neither
+          // shows no number rather than a guess. The detail screen was updated
+          // to say so and this tile was missed.
+          const TileHeader('Steps', trailing: Tag('measured')),
           const SizedBox(height: Sp.x2),
           BigStat(
             value: steps > 0 ? '$steps' : null,

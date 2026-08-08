@@ -277,9 +277,15 @@ class _ActivityDetailState extends State<_ActivityDetail> {
 
   @override
   Widget build(BuildContext context) {
-    // Live steps from the in-flight session count toward TODAY only.
+    // Live steps from the in-flight session count toward TODAY only — and only
+    // when the BAND is the day's step source. With phone steps on, the day
+    // total is already the phone's count of the same walk (`liveStepsForDay`
+    // prefers phone rows outright rather than summing), so adding the wrist's
+    // live count would double-count it.
     final live = _isToday
-        ? context.select<AppState, int>((a) => a.liveSteps)
+        ? context.select<AppState, int>(
+            (a) => a.phoneStepsEnabled ? 0 : a.liveSteps,
+          )
         : 0;
     // Was context.watch<AppState>() — rebuilt this whole board on every one of
     // AppState's 67 notifyListeners() sources. Only `user` (for step_goal) is
