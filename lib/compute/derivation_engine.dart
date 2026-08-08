@@ -3959,6 +3959,11 @@ class DerivationEngine {
   /// Timeline graph. 5-min sliding window, emitted ~each minute. Inline artifact
   /// gate (plausible RR 300–2000 ms) — daytime RR is noisier/motion-confounded,
   /// so this is a context line, not the nocturnal recovery RMSSD.
+  /// Test seam: counts window evaluations, for the same reason as
+  /// [debugRespAttempts] — the fix is about how often the O(window) sum runs.
+  @visibleForTesting
+  static int debugHrvAttempts = 0;
+
   @visibleForTesting
   static List<Map<String, num>> dayHrvCurve(Substrate s) {
     final ts = <double>[], rr = <double>[];
@@ -3982,6 +3987,7 @@ class DerivationEngine {
       // and running it for every beat only to discard the result on the 60 s
       // check was the whole window's work wasted per sample.
       if (i - lo >= 10 && ts[i] - lastEmit > 60000) {
+        debugHrvAttempts++;
         var ssd = 0.0;
         var nd = 0;
         for (var k = lo + 1; k <= i; k++) {
@@ -4016,6 +4022,22 @@ class DerivationEngine {
   /// 24/7 RR. 3-min window emitted ~every 5 min; absent windows (too few/too
   /// noisy beats) are skipped — never fabricated. Daytime RSA is movement-
   /// confounded, so it's a context line.
+  ///
+  /// Test seam: replaces the RSA estimator, so the ABSENT branch — the one that
+  /// used to strand the cadence cursor and re-run a triple Lomb-Scargle per beat
+  /// — can be exercised deterministically. It needs a seam because no synthetic
+  /// RR reliably makes the real estimator abstain: the behaviour comes from real
+  /// movement-confounded daytime data, which is exactly what is hard to fake.
+  @visibleForTesting
+  static double? Function(List<double> nn, List<double> nnt)?
+      debugRespEstimator;
+
+  /// Test seam: counts estimator ATTEMPTS. The cost fix is about how often the
+  /// estimator runs, not about what it returns, so the attempt count is the only
+  /// thing that actually distinguishes the fixed code from the broken code.
+  @visibleForTesting
+  static int debugRespAttempts = 0;
+
   @visibleForTesting
   static List<Map<String, num>> dayRespCurve(Substrate s) {
     final ts = <double>[], rr = <double>[];
@@ -4040,8 +4062,15 @@ class DerivationEngine {
         final nn = rr.sublist(lo, i + 1);
         final t0 = ts[lo];
         final nnt = [for (var k = lo; k <= i; k++) ts[k] - t0];
-        final est = ana.rsaRespRate(nn, nnt, artifactFraction: 0.15);
-        final brpm = est.present ? est.value!.brpm : null;
+        debugRespAttempts++;
+        final seam = debugRespEstimator;
+        final double? brpm;
+        if (seam != null) {
+          brpm = seam(nn, nnt);
+        } else {
+          final est = ana.rsaRespRate(nn, nnt, artifactFraction: 0.15);
+          brpm = est.present ? est.value!.brpm : null;
+        }
         // Advance the cadence cursor on every ATTEMPT, not just on a successful
         // estimate. Daytime RSA is movement-confounded (see above), so absent is
         // the common case — and while lastEmit sat inside the success branch a

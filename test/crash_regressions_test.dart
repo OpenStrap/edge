@@ -221,10 +221,60 @@ void main() {
       }
     });
 
-    test('an unusable stretch emits nothing and still terminates', () {
-      // The cursor now advances on the ATTEMPT, so this cannot degrade into a
-      // per-beat re-run of the window.
-      expect(DerivationEngine.dayHrvCurve(subFromRr(artifacty(6000))), isEmpty);
+    test('an absent estimate still advances the 5 min cursor', () {
+      // THE regression. With the estimator forced to abstain, the fixed code
+      // attempts once per cadence interval; the old code attempted once per
+      // BEAT, because lastEmit only moved inside the success branch.
+      addTearDown(() {
+        DerivationEngine.debugRespEstimator = null;
+        DerivationEngine.debugRespAttempts = 0;
+      });
+      DerivationEngine.debugRespEstimator = (_, _) => null;
+      DerivationEngine.debugRespAttempts = 0;
+
+      final rr = clean(8000); // ~7000 s of beats at ~880 ms
+      final sub = subFromRr(rr);
+      final spanSec = rr.reduce((a, b) => a + b) / 1000;
+      final pts = DerivationEngine.dayRespCurve(sub);
+
+      expect(pts, isEmpty, reason: 'an absent estimate must emit nothing');
+      // One attempt per 5 min of span, plus a little slack. The old code would
+      // land in the thousands here.
+      final cadenceCeiling = (spanSec / 300).ceil() + 2;
+      expect(DerivationEngine.debugRespAttempts,
+          lessThanOrEqualTo(cadenceCeiling),
+          reason: 'the estimator must not re-run per beat while abstaining');
+      expect(DerivationEngine.debugRespAttempts, greaterThan(1),
+          reason: 'it must still keep trying across the day');
+    });
+
+    test('a usable window after an absent stretch still emits', () {
+      // Advancing on failure must not silence the curve once quality returns.
+      addTearDown(() {
+        DerivationEngine.debugRespEstimator = null;
+        DerivationEngine.debugRespAttempts = 0;
+      });
+      var calls = 0;
+      DerivationEngine.debugRespEstimator = (_, _) {
+        calls++;
+        return calls <= 3 ? null : 14.5;
+      };
+      final pts = DerivationEngine.dayRespCurve(subFromRr(clean(8000)));
+      expect(pts, isNotEmpty);
+      expect(pts.first['v'], 14.5);
+    });
+
+    test('an unusable stretch emits nothing and does not re-run per beat', () {
+      // Alternating long/short pairs trip the Malik reject, so no window ever
+      // reaches 8 usable pairs — the branch that used to strand the cursor.
+      addTearDown(() => DerivationEngine.debugHrvAttempts = 0);
+      DerivationEngine.debugHrvAttempts = 0;
+      final rr = artifacty(6000);
+      final spanSec = rr.reduce((a, b) => a + b) / 1000;
+      expect(DerivationEngine.dayHrvCurve(subFromRr(rr)), isEmpty);
+      expect(DerivationEngine.debugHrvAttempts,
+          lessThanOrEqualTo((spanSec / 60).ceil() + 2),
+          reason: 'the window sum must not re-run per beat while unusable');
     });
 
     test('a clean stretch after an unusable one still produces points', () {
