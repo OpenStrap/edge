@@ -2572,12 +2572,14 @@ class LocalRepositoryImpl extends LocalRepository {
             _rescoredSessions.contains(key)) {
           continue;
         }
-        final before = (r['strain'] as num?)?.toDouble();
         final after = await _rescoreSessionFromSubstrate(r);
-        // Count only what THIS pass wrote: the bail path returns a re-read row
-        // whose strain may differ for reasons we had nothing to do with.
+        // Count only what THIS pass wrote (the bail path returns a re-read row
+        // whose values may differ for reasons we had nothing to do with), and
+        // count ALL the scored columns — a pass that fixes calories or the zone
+        // split without moving strain still changed what the list shows.
+        const scored = ['strain', 'calories', 'max_hr', 'zone_min_json'];
         if (after.hrRows != null &&
-            (after.row['strain'] as num?)?.toDouble() != before) {
+            scored.any((k) => '${after.row[k]}' != '${r[k]}')) {
           changed++;
         }
         // Record it only once it is genuinely finished AND actually scored: a

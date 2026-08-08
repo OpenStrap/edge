@@ -503,36 +503,35 @@ ReconciledSessionScore reconcileSessionScore({
     );
   }
 
-  // Complete coverage: the substrate IS the answer. Partial: both sides are
-  // lower bounds over subsets of the same minutes, so the larger is the better
-  // estimate and the smaller is just a less complete view.
-  double? better(double? a, double? b) {
-    if (substrateIsComplete) return b ?? a;
-    if (a == null) return b;
-    if (b == null) return a;
-    return a >= b ? a : b;
+  // ONE definition of the rule, for every scalar. Complete coverage: the
+  // substrate IS the answer, falling back to the live value only where it has
+  // nothing to say. Partial: both sides are lower bounds over subsets of the
+  // same minutes, so the larger is the better estimate and the smaller is just
+  // a less complete view.
+  T? better<T extends num>(T? live, T? sub) {
+    if (substrateIsComplete) return sub ?? live;
+    if (live == null) return sub;
+    if (sub == null) return live;
+    return live >= sub ? live : sub;
   }
 
-  final strain = better(liveStrain, substrate.strain);
-  final calories = better(liveCalories, substrate.calories);
-  final maxHr = substrateIsComplete
-      ? (substrate.maxHr ?? liveMaxHr)
-      : (liveMaxHr == null
-            ? substrate.maxHr
-            : (substrate.maxHr == null
-                  ? liveMaxHr
-                  : (liveMaxHr >= substrate.maxHr!
-                        ? liveMaxHr
-                        : substrate.maxHr)));
+  final strain = better<double>(liveStrain, substrate.strain);
+  final calories = better<double>(liveCalories, substrate.calories);
+  final maxHr = better<int>(liveMaxHr, substrate.maxHr);
 
   // Zone minutes are a vector of the same lower-bound quantity, so take the
   // side with more total measured minutes rather than mixing two partial
   // splits (a per-element max would invent a total neither source observed).
+  // Same shape as `better`: an empty substrate vector says nothing, so it must
+  // not wipe a stored split just because coverage is complete (zone minutes
+  // need a HRmax the profile may not carry, so an empty vector is a real case).
   double total(List<double> z) => z.fold(0.0, (a, b) => a + b);
-  final zone = substrateIsComplete ||
-          total(substrate.zoneMinutes) > total(liveZoneMinutes)
-      ? substrate.zoneMinutes
-      : liveZoneMinutes;
+  final zone = substrate.zoneMinutes.isEmpty
+      ? liveZoneMinutes
+      : (substrateIsComplete ||
+                total(substrate.zoneMinutes) > total(liveZoneMinutes)
+            ? substrate.zoneMinutes
+            : liveZoneMinutes);
 
   final changed =
       strain != liveStrain ||

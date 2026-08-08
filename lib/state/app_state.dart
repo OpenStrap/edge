@@ -2561,6 +2561,17 @@ class AppState extends ChangeNotifier {
   void _stopReconnectSupervisor() {
     _reconnectSupervisor?.cancel();
     _reconnectSupervisor = null;
+    // Cancelling the timer is not enough: a `_reconnect()` can still be parked
+    // inside `waitForOsAutoConnect` for up to 15 minutes. Bumping the
+    // generation retires it — it exits at its next loop check and its `finally`
+    // leaves the flags alone. Without this, `endSession()` followed by a fresh
+    // `openSession()` lets that zombie wake up and become the live loop,
+    // reconnecting and re-running the whole post-connect block underneath the
+    // new session.
+    _reconnectGeneration++;
+    _reconnecting = false;
+    _attemptStartedAt = null;
+    engine.clearReconnecting();
   }
 
   void _superviseReconnect() {

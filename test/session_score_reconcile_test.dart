@@ -184,12 +184,21 @@ void main() {
       liveCalories: 250,
       liveMaxHr: 170,
       liveZoneMinutes: const [1, 2, 0, 0, 0],
-      substrate: _substrate(strain: null, calories: null, maxHr: null),
+      // Zone minutes need a HRmax the profile may not carry, so an empty
+      // vector alongside complete coverage is a real case — and must not wipe
+      // the split that was already stored.
+      substrate: _substrate(
+        strain: null,
+        calories: null,
+        maxHr: null,
+        zone: const [],
+      ),
       substrateIsComplete: true,
     );
     expect(r.strain, 9.0, reason: 'no profile anchor ⇒ nothing to replace with');
     expect(r.calories, 250);
     expect(r.maxHr, 170);
+    expect(r.zoneMinutes, const [1, 2, 0, 0, 0]);
   });
 
   test('zone minutes come from one source, never element-wise mixed', () {
