@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/compute/derivation_engine.dart';
+import 'package:openstrap_edge/compute/substrate.dart';
 import 'package:openstrap_edge/telemetry/error_classification.dart';
 import 'package:openstrap_edge/ui/kit/share_origin.dart';
 import 'package:openstrap_edge/ui/timeline/timeline_screen.dart';
@@ -162,6 +163,76 @@ void main() {
         'scalars': {'readiness': 68.0},
       };
       expect(DerivationEngine.carryForwardDetail(prev, next), isFalse);
+    });
+  });
+
+  group('day curve cadence (the per-beat rework)', () {
+    // Both curves left their cadence cursor behind whenever an estimate came
+    // back unusable, so the next beat re-entered and redid the whole window.
+    // For respiration that window is a triple Lomb-Scargle, which is what
+    // exhausted the 90 s day-blocks budget.
+    Substrate subFromRr(List<double> rrMs, {int startSec = 1786100000}) {
+      final tsMs = <double>[];
+      var t = startSec * 1000.0;
+      for (final r in rrMs) {
+        t += r;
+        tsMs.add(t);
+      }
+      final secs = <int>[for (var i = 0; i < 10; i++) startSec + i];
+      return Substrate(
+        tsSec: secs,
+        hr: List<int>.filled(secs.length, 60),
+        rrTsMs: tsMs,
+        rrMs: rrMs,
+        ax: List<double>.filled(secs.length, 0),
+        ay: List<double>.filled(secs.length, 0),
+        az: List<double>.filled(secs.length, 1),
+        spo2Red: List<int>.filled(secs.length, 0),
+        spo2Ir: List<int>.filled(secs.length, 0),
+        skinTemp: List<int>.filled(secs.length, 0),
+        skinContact: List<int>.filled(secs.length, 0),
+      );
+    }
+
+    // ~2 hours of clean beats, then the emission count is bounded by the
+    // cadence. Before the fix an attempt could recur every beat; the cursor now
+    // moves on every attempt, so the count can never exceed span/cadence.
+    List<double> clean(int n) =>
+        [for (var i = 0; i < n; i++) 850.0 + (i % 7) * 10];
+
+    // Alternating long/short pairs trip the Malik 20% ectopic reject, so a
+    // window yields too few usable pairs to estimate — the branch that used to
+    // leave the cursor behind.
+    List<double> artifacty(int n) =>
+        [for (var i = 0; i < n; i++) i.isEven ? 400.0 : 1600.0];
+
+    test('hrv points are never closer than the 60 s cadence', () {
+      final pts = DerivationEngine.dayHrvCurve(subFromRr(clean(8000)));
+      expect(pts, isNotEmpty);
+      for (var i = 1; i < pts.length; i++) {
+        expect(pts[i]['t']! - pts[i - 1]['t']!, greaterThanOrEqualTo(60));
+      }
+    });
+
+    test('respiration points are never closer than the 5 min cadence', () {
+      final pts = DerivationEngine.dayRespCurve(subFromRr(clean(8000)));
+      for (var i = 1; i < pts.length; i++) {
+        expect(pts[i]['t']! - pts[i - 1]['t']!, greaterThanOrEqualTo(300));
+      }
+    });
+
+    test('an unusable stretch emits nothing and still terminates', () {
+      // The cursor now advances on the ATTEMPT, so this cannot degrade into a
+      // per-beat re-run of the window.
+      expect(DerivationEngine.dayHrvCurve(subFromRr(artifacty(6000))), isEmpty);
+    });
+
+    test('a clean stretch after an unusable one still produces points', () {
+      // Advancing on failure must not silence the curve once quality returns.
+      final pts = DerivationEngine.dayHrvCurve(
+        subFromRr([...artifacty(2000), ...clean(6000)]),
+      );
+      expect(pts, isNotEmpty);
     });
   });
 }

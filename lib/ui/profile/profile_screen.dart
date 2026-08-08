@@ -226,6 +226,9 @@ class ProfileScreen extends StatelessWidget {
                   final origin = shareOriginFor(rowCtx);
                   try {
                     final path = await LocalDb.exportCopy();
+                    // The export can outlive the route; presenting a share sheet
+                    // for a screen the user already left is not wanted.
+                    if (!rowCtx.mounted) return;
                     await Share.shareXFiles(
                       [XFile(path)],
                       text: 'OpenStrap data export',

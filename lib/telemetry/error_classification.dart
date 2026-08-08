@@ -22,9 +22,11 @@ bool isTransientError(Object error) {
     'HandshakeException',
     'TlsException',
     'ClientException',
-    'TimeoutException',
     'ConnectionClosedException',
   };
+  // TimeoutException is deliberately NOT here. It is not network-specific — a
+  // derivation, database or lifecycle timeout raises the same type, and those
+  // are exactly the failures worth keeping visible as crashes.
   if (transientTypes.contains(type)) return true;
 
   // http's ClientException wraps the underlying cause in its message rather

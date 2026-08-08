@@ -127,7 +127,12 @@ class AppState extends ChangeNotifier {
   /// The on-device compute orchestrator. Kicked (light) after every drain/flush
   /// completion, and (heavy) on foreground finalize. Background heavy passes run
   /// via WorkManager (Android) — see lib/compute/background_derivation.dart.
-  late final DerivationEngine _derive = DerivationEngine(log: _log);
+  // `background` is final on the engine and picks the concurrency + per-day
+  // timeout, so seeding the scheduler alone left a headless first sweep running
+  // the foreground budget. Late-initialized, so this reads the value both
+  // constructors have already set by the time anything touches `_derive`.
+  late final DerivationEngine _derive =
+      DerivationEngine(log: _log, background: _background);
   late final DeriveScheduler _deriveScheduler = DeriveScheduler(
     run: ({required DeriveJobKind kind}) =>
         _afterDrain(heavy: kind == DeriveJobKind.heavy),

@@ -3959,7 +3959,8 @@ class DerivationEngine {
   /// Timeline graph. 5-min sliding window, emitted ~each minute. Inline artifact
   /// gate (plausible RR 300–2000 ms) — daytime RR is noisier/motion-confounded,
   /// so this is a context line, not the nocturnal recovery RMSSD.
-  static List<Map<String, num>> _dayHrvCurve(Substrate s) {
+  @visibleForTesting
+  static List<Map<String, num>> dayHrvCurve(Substrate s) {
     final ts = <double>[], rr = <double>[];
     for (var i = 0; i < s.rrMs.length; i++) {
       final v = s.rrMs[i];
@@ -3992,11 +3993,12 @@ class DerivationEngine {
           ssd += d * d;
           nd++;
         }
+        // Advance on the ATTEMPT, before either quality check. The window holds
+        // ~300-600 beats, and leaving the cursor behind when a stretch is too
+        // artifact-heavy to yield 8 usable pairs re-runs that whole sum on every
+        // subsequent beat until one finally does.
+        lastEmit = ts[i];
         if (nd >= 8) {
-          // Advance on a computed estimate, not only on one that passed the
-          // plausibility filter — otherwise a stretch of artifact-heavy beats
-          // re-runs the window every beat.
-          lastEmit = ts[i];
           final rmssd = math.sqrt(ssd / nd);
           if (rmssd <= 220) {
             out.add({
@@ -4014,7 +4016,8 @@ class DerivationEngine {
   /// 24/7 RR. 3-min window emitted ~every 5 min; absent windows (too few/too
   /// noisy beats) are skipped — never fabricated. Daytime RSA is movement-
   /// confounded, so it's a context line.
-  static List<Map<String, num>> _dayRespCurve(Substrate s) {
+  @visibleForTesting
+  static List<Map<String, num>> dayRespCurve(Substrate s) {
     final ts = <double>[], rr = <double>[];
     for (var i = 0; i < s.rrMs.length; i++) {
       final v = s.rrMs[i];
@@ -4625,8 +4628,8 @@ class DerivationEngine {
     }
 
     bundlePatch['daytime_hrv'] = _daytimeHrv(daySub, onset, offset);
-    seriesPatch['hrv_day'] = _dayHrvCurve(daySub);
-    seriesPatch['resp_day'] = _dayRespCurve(daySub);
+    seriesPatch['hrv_day'] = dayHrvCurve(daySub);
+    seriesPatch['resp_day'] = dayRespCurve(daySub);
     seriesPatch['skin_temp_day'] = _daySkinTempCurve(daySub);
     bundlePatch['restlessness'] = _restlessness(sleepSub);
     // napSub extends a few hours past this day's calendar end so a nap/

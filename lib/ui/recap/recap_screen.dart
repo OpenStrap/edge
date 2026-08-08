@@ -232,6 +232,9 @@ class _RecapScreenState extends State<RecapScreen> {
         '${dir.path}/openstrap_recap_${DateTime.now().millisecondsSinceEpoch}.png',
       );
       await file.writeAsBytes(bytes.buffer.asUint8List());
+      // Capture and encode can outlive the route; don't present a share sheet
+      // for a screen the user already left.
+      if (!mounted) return;
 
       await Share.shareXFiles(
         [XFile(file.path)],
