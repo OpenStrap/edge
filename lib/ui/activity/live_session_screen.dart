@@ -843,7 +843,9 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
               strain > 0 &&
               (strain - tw.value).abs() < 0.15;
           final ms = recs.record('most_steps');
-          final steps = s.steps;
+          // Prefer the PERSISTED count, like the build path does — the snapshot
+          // can be empty for a workout whose row already carries real steps.
+          final steps = (d['steps'] as num?)?.toInt() ?? s.steps;
           // An unmeasured workout can't set a step record.
           _prSteps = ms != null &&
               steps != null &&

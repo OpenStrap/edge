@@ -153,6 +153,7 @@ Future<ResolvedImportFiles> resolveImportCsvPaths(
 }) async {
   final out = <String>[];
   Directory? tempDir;
+  var archiveIndex = 0;
   try {
     for (final path in paths) {
       final kind = await sniffFile(path);
@@ -162,8 +163,14 @@ Future<ResolvedImportFiles> resolveImportCsvPaths(
         case ImportContainer.zip:
           tempDir ??=
               await Directory.systemTemp.createTemp('openstrap_import_');
+          // One subdirectory per archive: the multi-select WHOOP path can hand
+          // us two exports that each contain `data.csv`, and a shared
+          // destination made the second overwrite the first (and returned the
+          // survivor's path twice).
+          final into = Directory(p.join(tempDir.path, 'a${archiveIndex++}'));
+          await into.create(recursive: true);
           out.addAll(
-            await _extractCsvMembers(path, flavor: flavor, dir: tempDir),
+            await _extractCsvMembers(path, flavor: flavor, dir: into),
           );
         case ImportContainer.sqlite:
           throw ImportFormatException(

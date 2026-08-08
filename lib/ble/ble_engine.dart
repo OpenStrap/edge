@@ -661,6 +661,15 @@ class BleEngine {
               LinkPriority.lowPower => ConnectionPriority.lowPower,
             },
           );
+          // Only remember it if the link we asked is still the live one. A
+          // teardown during the await clears `_appliedPriority` precisely so
+          // the next session re-requests from scratch (Android resets the
+          // interval per GATT connection); writing this session's target in
+          // afterwards would make the new link skip its own request.
+          if (!identical(_session, session) || !session.connected) {
+            _log('Link priority reply arrived after teardown — discarded.');
+            return;
+          }
           _appliedPriority = want;
           _log('Link priority → ${want.name}.');
         } catch (e) {

@@ -2466,11 +2466,17 @@ class LocalRepositoryImpl extends LocalRepository {
     }
   }
 
-  /// How far the durable frontier had advanced the last time the sweep ran. A
-  /// session that ended at or before this point was already scored against
-  /// substrate covering its whole window, so nothing new can arrive for it and
-  /// re-reading its 1 Hz rows on every drain is pure waste.
-  int _rescoredThroughTs = 0;
+  /// Sessions this process has already scored as FINISHED, keyed by id and the
+  /// window they had at the time (`id@endTs`).
+  ///
+  /// The skip cannot key on the window alone: a session that was still `live`
+  /// during an earlier sweep is skipped by [_rescoreSessionFromSubstrate] (its
+  /// tally is still accumulating), and once the frontier moved past its end a
+  /// window-only rule would skip it forever after it finished — leaving the
+  /// list showing the stale live-tally strain until someone opened it. Keying
+  /// on the window too means a retimed session is rescored rather than assumed
+  /// settled.
+  final Set<String> _rescoredSessions = <String>{};
 
   /// Re-score recent finished sessions against the substrate now in the DB.
   /// Called after a drain lands, so a workout whose window arrived late is
@@ -2496,17 +2502,33 @@ class LocalRepositoryImpl extends LocalRepository {
               ))) ??
               (nowSec - sinceDays * 86400);
       final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
-      // Where the durable record frontier stands NOW; sessions ending at or
-      // before it are fully covered once this pass has scored them.
+      // Where the durable record frontier stands NOW. A finished session whose
+      // window sits behind it has all the substrate it is ever going to get.
       final frontier = await LocalDb.getCursorInt('rec_ts_hw') ?? 0;
+      final seen = <String>{};
       for (final r in rows) {
+        final id = r['id']?.toString();
         final endTs = (r['end_ts'] as num?)?.toInt();
-        if (endTs != null && endTs <= _rescoredThroughTs) continue;
+        final key = (id == null || endTs == null) ? null : '$id@$endTs';
+        if (key != null) seen.add(key);
+        // Settled: finished, fully covered, and already scored in that state.
+        if (key != null &&
+            endTs! <= frontier &&
+            _rescoredSessions.contains(key)) {
+          continue;
+        }
         final before = (r['strain'] as num?)?.toDouble();
         final after = await _rescoreSessionFromSubstrate(r);
         if ((after.row['strain'] as num?)?.toDouble() != before) changed++;
+        // Record it only once it is genuinely finished — a live row gets
+        // skipped by the helper and must be revisited after it ends.
+        if (key != null && (r['status']?.toString() ?? '') == 'done') {
+          _rescoredSessions.add(key);
+        }
       }
-      if (frontier > _rescoredThroughTs) _rescoredThroughTs = frontier;
+      // Drop anything that aged out of the window so the set can't grow
+      // without bound across a long-lived process.
+      _rescoredSessions.retainWhere(seen.contains);
     } catch (_) {
       /* best-effort */
     }
