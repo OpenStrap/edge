@@ -125,19 +125,39 @@ class NoopImporter {
     // container first: a ZIP of CSVs is unwrapped, and anything unusable throws
     // an [ImportFormatException] naming the file we DO want.
     final resolved = await resolveImportCsvPaths([path], flavor: 'NOOP');
-    if (resolved.isEmpty) {
+    if (resolved.paths.isEmpty) {
+      await resolved.dispose();
       throw const ImportFormatException(
         'That archive holds no NOOP CSV export.',
       );
     }
     // A NOOP raw-sensor export is a single CSV; if an archive carried several,
     // prefer one that actually looks like the raw-sensor file.
-    final chosen = resolved.firstWhere(
+    final chosen = resolved.paths.firstWhere(
       (p) => p.toLowerCase().contains('raw-sensor'),
-      orElse: () => resolved.first,
+      orElse: () => resolved.paths.first,
     );
     file = File(chosen);
 
+    try {
+      return await _importResolvedFile(
+        file,
+        profile,
+        engine,
+        onProgress: onProgress,
+      );
+    } finally {
+      // Anything unpacked from an archive is ours to clean up, success or not.
+      await resolved.dispose();
+    }
+  }
+
+  static Future<NoopImportResult> _importResolvedFile(
+    File file,
+    Profile profile,
+    DerivationEngine engine, {
+    void Function(int days)? onProgress,
+  }) async {
     // Rolling buffer: keeps at most the CURRENT + PREVIOUS local date of samples.
     final secs = <int, _Sec>{}; // ts(sec) → channels
     final rrTs = <double>[]; // beat end time (epoch ms)

@@ -612,6 +612,8 @@ class BleEngine {
   // to the radio, and it is a no-op when nothing changed.
   bool _backgrounded = false;
   LinkPriority? _appliedPriority;
+  bool _priorityInFlight = false;
+  bool _priorityRestale = false;
 
   /// Told by AppState on every foreground/background transition. Drives the
   /// connection interval — see [desiredLinkPriority].
@@ -621,30 +623,53 @@ class BleEngine {
     unawaited(_applyLinkPriority());
   }
 
+  /// Bring the link to the priority the current state calls for.
+  ///
+  /// SERIALIZED, and the target is recomputed inside the loop rather than at
+  /// call time. Every caller fires this unawaited from a state transition
+  /// (background, live mode, offload), so two can overlap; if they did, the
+  /// slower one's completion would write ITS target into `_appliedPriority`
+  /// last. The radio would then sit at one interval while the field claimed
+  /// another, and the `want == _appliedPriority` check below — the thing that
+  /// keeps this from spamming the radio — would skip the next legitimate
+  /// step-down, leaving the link fast exactly when it should go quiet.
   Future<void> _applyLinkPriority() async {
     if (!Platform.isAndroid) return; // iOS picks its own interval
-    final session = _session;
-    if (session == null || !session.connected) return;
-    final device = session.device;
-    final want = desiredLinkPriority(
-      offloadActive: _offloadActive,
-      background: _backgrounded,
-      hasLiveConsumer: _liveEnabled && !_liveHrOnly,
-    );
-    if (want == _appliedPriority) return;
+    if (_priorityInFlight) {
+      // Someone is mid-request; make them re-evaluate when they land rather
+      // than issuing a competing one.
+      _priorityRestale = true;
+      return;
+    }
+    _priorityInFlight = true;
     try {
-      await device.requestConnectionPriority(
-        connectionPriorityRequest: switch (want) {
-          LinkPriority.high => ConnectionPriority.high,
-          LinkPriority.balanced => ConnectionPriority.balanced,
-          LinkPriority.lowPower => ConnectionPriority.lowPower,
-        },
-      );
-      _appliedPriority = want;
-      _log('Link priority → ${want.name}.');
-    } catch (e) {
-      // Leave `_appliedPriority` alone so the next transition retries.
-      _log('requestConnectionPriority(${want.name}) failed: $e');
+      do {
+        _priorityRestale = false;
+        final session = _session;
+        if (session == null || !session.connected) return;
+        final want = desiredLinkPriority(
+          offloadActive: _offloadActive,
+          background: _backgrounded,
+          hasLiveConsumer: _liveEnabled && !_liveHrOnly,
+        );
+        if (want == _appliedPriority) continue;
+        try {
+          await session.device.requestConnectionPriority(
+            connectionPriorityRequest: switch (want) {
+              LinkPriority.high => ConnectionPriority.high,
+              LinkPriority.balanced => ConnectionPriority.balanced,
+              LinkPriority.lowPower => ConnectionPriority.lowPower,
+            },
+          );
+          _appliedPriority = want;
+          _log('Link priority → ${want.name}.');
+        } catch (e) {
+          // Leave `_appliedPriority` alone so the next transition retries.
+          _log('requestConnectionPriority(${want.name}) failed: $e');
+        }
+      } while (_priorityRestale);
+    } finally {
+      _priorityInFlight = false;
     }
   }
 

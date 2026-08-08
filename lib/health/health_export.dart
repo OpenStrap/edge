@@ -1024,8 +1024,11 @@ class HealthExporter {
     }
   }
 
+  // `isApple`, not `Platform.isIOS`: every other platform decision in this file
+  // (the HRV type, the delete list, the store name) keys off the same getter,
+  // and a divergence here would hand macOS the Health Connect spellings.
   HealthWorkoutActivityType _activity(String? type) =>
-      healthActivityForType(type, ios: Platform.isIOS);
+      healthActivityForType(type, ios: isApple);
 
   static Map<String, dynamic>? _decode(Object? json) {
     if (json is! String) return null;

@@ -2022,8 +2022,8 @@ class LocalRepositoryImpl extends LocalRepository {
     // row (issue #206) — a session the app slept through stores a strain built
     // from the few minutes it was awake for. Persists on improvement, so the
     // list and the share card see the corrected value too.
-    final r = await _rescoreSessionFromSubstrate(stored);
-    final w = _workoutOf(r);
+    final rescored = await _rescoreSessionFromSubstrate(stored);
+    final w = _workoutOf(rescored.row);
     final startTs = w['start_ts'] as int?;
     if (startTs == null) return w;
     final endTs =
@@ -2035,7 +2035,10 @@ class LocalRepositoryImpl extends LocalRepository {
     // hr / avg_hr / min_hr / zone_bands / recovery_curve / hr_drift_pct /
     // time_to_peak_min; without a producer they were blank everywhere.
     try {
-      final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
+      // Reuse the rows the rescore above already read for this exact window
+      // rather than scanning it a second time on every detail open.
+      final hrRows = rescored.hrRows ??
+          await LocalDb.hrSamplesInRange(startTs, endTs);
       if (hrRows.isNotEmpty) {
         final ts = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
         final hr = [for (final e in hrRows) (e['hr'] as num).toInt()];
@@ -2404,9 +2407,8 @@ class LocalRepositoryImpl extends LocalRepository {
   /// improves on each pass and converges. Returns the row with the reconciled
   /// values applied (never null-out a stored value), writing back only on a
   /// real change. Best-effort — never throws into a read path.
-  Future<Map<String, dynamic>> _rescoreSessionFromSubstrate(
-    Map<String, dynamic> row,
-  ) async {
+  Future<({Map<String, dynamic> row, List<Map<String, dynamic>>? hrRows})>
+      _rescoreSessionFromSubstrate(Map<String, dynamic> row) async {
     final id = row['id'];
     final startTs = (row['start_ts'] as num?)?.toInt();
     final endTs = (row['end_ts'] as num?)?.toInt();
@@ -2416,11 +2418,13 @@ class LocalRepositoryImpl extends LocalRepository {
         endTs == null ||
         endTs <= startTs ||
         (row['status']?.toString() ?? '') != 'done') {
-      return row;
+      return (row: row, hrRows: null);
     }
     try {
+      // Returned to the caller: `getWorkout` enriches from the SAME 1 Hz window
+      // straight after this, and a two-hour session is ~7200 rows to scan twice.
       final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
-      if (hrRows.isEmpty) return row;
+      if (hrRows.isEmpty) return (row: row, hrRows: hrRows);
 
       final profile = Profile.fromMap(getProfileMap());
       final stats = computeManualSessionStats(
@@ -2442,7 +2446,7 @@ class LocalRepositoryImpl extends LocalRepository {
         ],
         substrate: stats,
       );
-      if (!merged.changed) return row;
+      if (!merged.changed) return (row: row, hrRows: hrRows);
 
       final updated = {
         ...row,
@@ -2456,33 +2460,53 @@ class LocalRepositoryImpl extends LocalRepository {
         ),
       };
       await LocalDb.putSession(updated);
-      return updated;
+      return (row: updated, hrRows: hrRows);
     } catch (_) {
-      return row; // best-effort: the stored row still renders
+      return (row: row, hrRows: null); // best-effort: the stored row renders
     }
   }
 
-  /// Re-score every finished session that started in the last [sinceDays] days
-  /// against the substrate now in the DB. Called after a drain lands, so a
-  /// workout whose window arrived late is corrected on the LIST too, not only
-  /// when its detail screen is opened. Returns how many rows changed.
+  /// How far the durable frontier had advanced the last time the sweep ran. A
+  /// session that ended at or before this point was already scored against
+  /// substrate covering its whole window, so nothing new can arrive for it and
+  /// re-reading its 1 Hz rows on every drain is pure waste.
+  int _rescoredThroughTs = 0;
+
+  /// Re-score recent finished sessions against the substrate now in the DB.
+  /// Called after a drain lands, so a workout whose window arrived late is
+  /// corrected on the LIST too, not only when its detail screen is opened.
+  /// Returns how many rows changed.
+  ///
+  /// Runs on the DB-owning (main) isolate by necessity — the sqflite handle is
+  /// not portable to another isolate — so it is bounded rather than offloaded:
+  /// the window is the raw-retention horizon (older windows are pruned and can
+  /// never improve) and anything already covered by a previous pass is skipped
+  /// outright, which leaves an ordinary drain doing no substrate reads at all.
+
   @override
-  Future<int> rescoreRecentSessions({int sinceDays = 7}) async {
+  Future<int> rescoreRecentSessions({int sinceDays = 3}) async {
     final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     var changed = 0;
     try {
-      final rows = await LocalDb.sessionsInRange(
-        nowSec - sinceDays * 86400,
-        nowSec,
-      );
+      // Local-midnight bound, not `now - n * 86400`: a DST day is 23 or 25
+      // hours, so a flat day-length silently moves the window by an hour.
+      final fromTs =
+          localDayStartSec(dayLabelOf(DateTime.now().subtract(
+                Duration(days: sinceDays),
+              ))) ??
+              (nowSec - sinceDays * 86400);
+      final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
+      // Where the durable record frontier stands NOW; sessions ending at or
+      // before it are fully covered once this pass has scored them.
+      final frontier = await LocalDb.getCursorInt('rec_ts_hw') ?? 0;
       for (final r in rows) {
+        final endTs = (r['end_ts'] as num?)?.toInt();
+        if (endTs != null && endTs <= _rescoredThroughTs) continue;
         final before = (r['strain'] as num?)?.toDouble();
         final after = await _rescoreSessionFromSubstrate(r);
-        if (!identical(after, r) &&
-            (after['strain'] as num?)?.toDouble() != before) {
-          changed++;
-        }
+        if ((after.row['strain'] as num?)?.toDouble() != before) changed++;
       }
+      if (frontier > _rescoredThroughTs) _rescoredThroughTs = frontier;
     } catch (_) {
       /* best-effort */
     }

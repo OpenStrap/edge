@@ -284,7 +284,7 @@ class _ActivityDetailState extends State<_ActivityDetail> {
     // live count would double-count it.
     final live = _isToday
         ? context.select<AppState, int>(
-            (a) => a.phoneStepsEnabled ? 0 : a.liveSteps,
+            (a) => a.todayStepsFromPhone ? 0 : a.liveSteps,
           )
         : 0;
     // Was context.watch<AppState>() — rebuilt this whole board on every one of

@@ -184,6 +184,13 @@ class AppState extends ChangeNotifier {
   /// `_reconnecting` true forever, which no re-trigger can clear.
   DateTime? _reconnectingSince;
 
+  /// Which reconnect loop is the live one. Bumped whenever a loop starts, so a
+  /// loop that was declared wedged and replaced can recognise itself as
+  /// superseded if it ever unblocks: without this its `finally` would clear the
+  /// REPLACEMENT's `_reconnecting`/`_reconnectingSince`, and the supervisor
+  /// would then start a third loop while two are already connecting.
+  int _reconnectGeneration = 0;
+
   /// Level-triggered reconnect supervision. The loop's only trigger used to be
   /// the `connected → disconnected` edge, so any abandoned loop was permanent.
   /// This ticks regardless of edges and re-arms — see [superviseReconnect].
@@ -257,7 +264,10 @@ class AppState extends ChangeNotifier {
     // bucket is one platform call, so the 7-day backfill window is up to 168 of
     // them; only today can still change, and only yesterday if the app did not
     // run then. The full window runs on the explicit gestures instead.
-    if (phoneStepsEnabled) unawaited(syncPhoneSteps());
+    if (phoneStepsEnabled) {
+      unawaited(syncPhoneSteps());
+      unawaited(_refreshPhoneStepsToday());
+    }
     // Best-effort, no prompt: learn the current health-permission state so the
     // Profile toggle reflects reality on open.
     if (healthSyncEnabled) unawaited(checkHealth());
@@ -505,6 +515,7 @@ class AppState extends ChangeNotifier {
     phoneStepsEnabled = false;
     phoneStepsLastSyncedDays = null;
     phoneStepsLastTotal = null;
+    phoneStepsToday = 0;
     try {
       await LocalDb.clearPhoneCoverage();
     } catch (e) {
@@ -523,6 +534,31 @@ class AppState extends ChangeNotifier {
   int? phoneStepsLastSyncedDays;
   int? phoneStepsLastTotal;
 
+  /// Steps the PHONE has banked for today, mirroring `liveStepsForDay`'s own
+  /// source rule (phone wins only when it actually has data). Screens add the
+  /// band's live count on top of the day total, and must not do that once the
+  /// phone owns the day — both count the same walk. Gating on
+  /// [phoneStepsEnabled] alone was wrong: with the toggle on and no phone data
+  /// (iOS read denied, nothing writing to Health Connect) the band still owns
+  /// the day and its live steps were being thrown away.
+  int phoneStepsToday = 0;
+
+  /// True when today's step total comes from the phone, so band live steps are
+  /// already accounted for and must not be added again.
+  bool get todayStepsFromPhone => phoneStepsEnabled && phoneStepsToday > 0;
+
+  Future<void> _refreshPhoneStepsToday() async {
+    try {
+      final n = await LocalDb.phoneStepsForDay(todayLabel());
+      if (n != phoneStepsToday) {
+        phoneStepsToday = n;
+        notifyListeners();
+      }
+    } catch (_) {
+      /* best-effort — the gate just falls back to showing band live steps */
+    }
+  }
+
   /// Pull the last [days] days of phone step counts into `live_coverage`.
   ///
   /// Idempotent (delete-then-insert per day, scoped to the phone source), so
@@ -535,6 +571,7 @@ class AppState extends ChangeNotifier {
       final r = await _phonePedometer.syncRecent(days: days);
       phoneStepsLastSyncedDays = r.daysRead;
       phoneStepsLastTotal = r.totalSteps;
+      await _refreshPhoneStepsToday();
       notifyListeners();
       return r.daysRead;
     } catch (e) {
@@ -2034,13 +2071,26 @@ class AppState extends ChangeNotifier {
   // the live-session screen shows steps FOR THIS WORKOUT (not since connection).
   int? _workoutRawBase;
 
-  /// 100 Hz sample count at the moment the active workout started, so
-  /// [workoutStepsMeasured] can tell "you did not move" apart from "the band
-  /// never sent us anything to count".
-  int? _workoutSampleBase;
+  /// Whether ANY gait-capable accel sample has reached us since the active
+  /// workout began, so [workoutStepsMeasured] can tell "did not move" apart
+  /// from "the band never sent anything to count".
+  ///
+  /// Deliberately a latch and NOT a comparison against `_liveSamples`:
+  /// `_resetLivePedometer()` zeroes that counter on every (re)connect, and it
+  /// runs mid-workout. A counter comparison therefore went permanently
+  /// "unmeasured" after the first reconnect — steps stuck on a dash for the
+  /// rest of the workout and `stopWorkout` banking none — which is the same
+  /// trap `_resetLivePedometer` already sidesteps for `_workoutRawBase` by
+  /// rebasing it negative rather than dropping it.
+  bool _workoutSawSamples = false;
 
   /// Steps taken since the active workout started (real, live, gain-applied).
-  /// 0 when no workout is running. This is what the workout screen shows.
+  /// 0 when no workout is running.
+  ///
+  /// Prefer [workoutStepsMeasured] in anything user-facing: this coerces an
+  /// unmeasured workout to 0, which is only safe because the two remaining
+  /// callers treat 0 as "omit" (the finish card hides the stat, `stopWorkout`
+  /// leaves the column unset).
   int get workoutSteps => workoutStepsMeasured ?? 0;
 
   /// Steps for the active workout, or NULL when nothing gait-capable was ever
@@ -2055,10 +2105,9 @@ class AppState extends ChangeNotifier {
   /// distance both right, "0 STEPS" beside them.
   int? get workoutStepsMeasured {
     if (activeWorkout == null || _workoutRawBase == null) return null;
-    // No accel sample has reached us since this workout began — nothing was
-    // counted, as opposed to zero steps having been counted.
-    final base = _workoutSampleBase;
-    if (base == null || _liveSamples <= base) return null;
+    // Nothing gait-capable has arrived for this workout — unmeasured, as
+    // opposed to zero steps having been measured.
+    if (!_workoutSawSamples) return null;
     final raw = _liveRaw - _workoutRawBase!;
     return raw > 0 ? (raw * ana.StepParams.gain).round() : 0;
   }
@@ -2071,6 +2120,8 @@ class AppState extends ChangeNotifier {
   void _ingestLiveMagsAt(proto.ImuFrame f, int nowMs) {
     final mags = f.mags;
     if (mags.isEmpty) return;
+    // Survives `_resetLivePedometer()` — see [_workoutSawSamples].
+    if (activeWorkout != null) _workoutSawSamples = true;
     // Append this frame's |a|(g) samples (gravity INCLUDED — AN-2554's dynamic
     // threshold rides the ~1 g baseline). `e` is this frame's 1 Hz-equivalent
     // ENMO (mean |a| − 1 g), read below by the stillness nudge and the posture
@@ -3160,6 +3211,7 @@ class AppState extends ChangeNotifier {
     }
     _reconnecting = true;
     _reconnectingSince = DateTime.now();
+    final generation = ++_reconnectGeneration;
     BandOwnership.markForegroundIntent(true);
     _log('[OWNERSHIP] reconnect intent on (${BandOwnership.debugState})');
     try {
@@ -3169,7 +3221,10 @@ class AppState extends ChangeNotifier {
       // ReconnectPolicy. The engine's single in-flight guard guarantees this loop
       // can never overlap a foreground connect on the same band.
       int attempt = 0;
-      while (_keepAlive && !engine.isConnected && !device.autoReconnectPaused) {
+      while (_keepAlive &&
+          !engine.isConnected &&
+          !device.autoReconnectPaused &&
+          generation == _reconnectGeneration) {
         attempt++;
         // Surface `reconnecting` while the loop backs off, so the UI shows a
         // connecting-style state instead of flat 'disconnected'.
@@ -3271,16 +3326,25 @@ class AppState extends ChangeNotifier {
       // left foreground intent stuck on forever, which blocks every
       // headless background-sync entry point (BandOwnership.tryAcquireHeadless
       // gates on this being off). same bug shape as the foregroundActive fix.
-      if (!_keepAlive || device.autoReconnectPaused) {
-        BandOwnership.markForegroundIntent(false);
-        _log('[OWNERSHIP] reconnect intent off (${BandOwnership.debugState})');
+      if (generation != _reconnectGeneration) {
+        // Superseded: the supervisor declared this loop wedged and started a
+        // replacement, which now owns the flags and the band claim. Clearing
+        // them here would clobber the live loop's state and let the supervisor
+        // start a third one.
+        _log('[RECONNECT] loop #$generation was superseded — leaving the '
+            'replacement\'s state alone.');
+      } else {
+        if (!_keepAlive || device.autoReconnectPaused) {
+          BandOwnership.markForegroundIntent(false);
+          _log('[OWNERSHIP] reconnect intent off (${BandOwnership.debugState})');
+        }
+        _reconnecting = false;
+        _reconnectingSince = null;
+        // If we gave up (keepAlive dropped / never connected), stop advertising
+        // `reconnecting` — fall back to a truthful 'disconnected'. No-op when
+        // the loop exited via a successful connect (phase is `listening`).
+        engine.clearReconnecting();
       }
-      _reconnecting = false;
-      _reconnectingSince = null;
-      // If we gave up (keepAlive dropped / never connected), stop advertising
-      // `reconnecting` — fall back to a truthful 'disconnected'. No-op when
-      // the loop exited via a successful connect (phase is `listening`).
-      engine.clearReconnecting();
     }
   }
 
@@ -3754,7 +3818,7 @@ class AppState extends ChangeNotifier {
       unawaited(engine.retryFullLiveStreams());
     }
     _workoutRawBase = _liveRaw;
-    _workoutSampleBase = _liveSamples;
+    _workoutSawSamples = false;
     // A first night may have been derived since init. This read finishes
     // after the session below is constructed, so it back-fills the anchor on
     // `activeWorkout` when it lands rather than blocking the start.
@@ -3961,7 +4025,7 @@ class AppState extends ChangeNotifier {
           // snapshot: steps count from zero going forward, same as
           // calories/strain/zone-minutes already (honestly) do here.
           _workoutRawBase = _liveRaw;
-          _workoutSampleBase = _liveSamples;
+          _workoutSawSamples = false;
     // A first night may have been derived since init. This read finishes
     // after the session below is constructed, so it back-fills the anchor on
     // `activeWorkout` when it lands rather than blocking the start.
@@ -4019,7 +4083,9 @@ class AppState extends ChangeNotifier {
     _deriveScheduler.setWorkoutActive(false);
     final w = activeWorkout!;
     final finalKcal = w.calories.round();
-    final wSteps = workoutSteps; // real steps taken during this workout
+    // Nullable: an unmeasured workout must leave the column unset rather than
+    // bank a zero that reads as "you took no steps".
+    final wSteps = workoutStepsMeasured;
     // Persist the finalized session before clearing the live state. zone_min =
     // the per-zone seconds the 1 Hz tick accumulated (Z1..Z5, minutes).
     final id = w.workoutId ?? 'w${w.startTime.millisecondsSinceEpoch}';
@@ -4038,7 +4104,7 @@ class AppState extends ChangeNotifier {
       'zone_min_json': jsonEncode(
         zoneMin.any((v) => v > 0) ? zoneMin : const <num>[],
       ),
-      if (wSteps > 0) 'steps': wSteps,
+      if (wSteps != null && wSteps > 0) 'steps': wSteps,
       'source': 'manual',
       'created_at': w.startTime.millisecondsSinceEpoch,
     };
@@ -4052,7 +4118,7 @@ class AppState extends ChangeNotifier {
     }
     activeWorkout = null;
     _workoutRawBase = null;
-    _workoutSampleBase = null;
+    _workoutSawSamples = false;
     notifyListeners();
     _log('Live session ended. Burned $finalKcal kcal.');
     LiveActivity.end();
@@ -4085,7 +4151,7 @@ class AppState extends ChangeNotifier {
     _deriveScheduler.setWorkoutActive(false);
     activeWorkout = null;
     _workoutRawBase = null;
-    _workoutSampleBase = null;
+    _workoutSawSamples = false;
     LiveActivity.end();
   }
 

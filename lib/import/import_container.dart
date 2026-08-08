@@ -108,50 +108,93 @@ bool _isCsvMember(String name) {
       !name.startsWith('__MACOSX/');
 }
 
+/// Ceilings for archive extraction. A picked file is local and user-chosen, so
+/// this is not a hostile-input boundary — but a malformed or pathological zip
+/// should fail with a message rather than take the process out trying to
+/// materialise it. The uncompressed ceiling is generous: a 90-day NOOP raw
+/// export really is hundreds of megabytes.
+const int _kMaxArchiveMembers = 5000;
+const int _kMaxUncompressedBytes = 4 * 1024 * 1024 * 1024; // 4 GiB
+
+/// CSV files on disk for an import, plus the temp directory (if any) that has
+/// to be cleaned up once they have been read.
+class ResolvedImportFiles {
+  ResolvedImportFiles(this.paths, this._tempDir);
+
+  final List<String> paths;
+  final Directory? _tempDir;
+
+  /// Delete anything extracted for this import. Safe to call more than once,
+  /// and never throws — a leftover temp file is not worth failing an import
+  /// that otherwise succeeded.
+  Future<void> dispose() async {
+    final dir = _tempDir;
+    if (dir == null) return;
+    try {
+      if (dir.existsSync()) await dir.delete(recursive: true);
+    } catch (_) {
+      /* the OS reclaims the temp dir eventually */
+    }
+  }
+}
+
 /// Resolve the picked paths into CSV files on disk, unwrapping ZIP archives.
 ///
 /// [flavor] names the importer in error messages ('NOOP', 'WHOOP'). Extracted
-/// members are written to a temp directory — the caller reads them and the OS
-/// reclaims them; nothing is copied into app storage.
+/// members are written to a temp directory; the caller MUST `dispose()` the
+/// result once it has finished reading them, or a large export leaves a full
+/// second copy behind. Nothing is ever copied into app storage.
 ///
 /// Throws [ImportFormatException] with actionable guidance for anything we
 /// cannot parse: a database, an archive of databases, a gzip, binary junk.
-Future<List<String>> resolveImportCsvPaths(
+Future<ResolvedImportFiles> resolveImportCsvPaths(
   List<String> paths, {
   required String flavor,
 }) async {
   final out = <String>[];
-  for (final path in paths) {
-    final kind = await sniffFile(path);
-    switch (kind) {
-      case ImportContainer.text:
-        out.add(path);
-      case ImportContainer.zip:
-        out.addAll(await _extractCsvMembers(path, flavor: flavor));
-      case ImportContainer.sqlite:
-        throw ImportFormatException(
-          '“${p.basename(path)}” is a database file, not a $flavor CSV '
-          'export. In NOOP, use Export → raw sensor CSV and pick the '
-          '“noop-raw-sensors-….csv” file it writes.',
-        );
-      case ImportContainer.gzip:
-        throw ImportFormatException(
-          '“${p.basename(path)}” is a gzip archive. Unzip it first and pick '
-          'the CSV inside.',
-        );
-      case ImportContainer.binary:
-        throw ImportFormatException(
-          '“${p.basename(path)}” is not a text file, so there is nothing to '
-          'read as a $flavor CSV export.',
-        );
+  Directory? tempDir;
+  try {
+    for (final path in paths) {
+      final kind = await sniffFile(path);
+      switch (kind) {
+        case ImportContainer.text:
+          out.add(path);
+        case ImportContainer.zip:
+          tempDir ??=
+              await Directory.systemTemp.createTemp('openstrap_import_');
+          out.addAll(
+            await _extractCsvMembers(path, flavor: flavor, dir: tempDir),
+          );
+        case ImportContainer.sqlite:
+          throw ImportFormatException(
+            '“${p.basename(path)}” is a database file, not a $flavor CSV '
+            'export. In NOOP, use Export → raw sensor CSV and pick the '
+            '“noop-raw-sensors-….csv” file it writes.',
+          );
+        case ImportContainer.gzip:
+          throw ImportFormatException(
+            '“${p.basename(path)}” is a gzip archive. Unzip it first and pick '
+            'the CSV inside.',
+          );
+        case ImportContainer.binary:
+          throw ImportFormatException(
+            '“${p.basename(path)}” is not a text file, so there is nothing to '
+            'read as a $flavor CSV export.',
+          );
+      }
     }
+  } catch (_) {
+    // A later file failing must not strand what an earlier ZIP already wrote.
+    await ResolvedImportFiles(const [], tempDir).dispose();
+    rethrow;
   }
-  return out;
+  return ResolvedImportFiles(out, tempDir);
 }
 
 Future<List<String>> _extractCsvMembers(
   String path, {
   required String flavor,
+  required Directory dir,
 }) async {
   final name = p.basename(path);
   final Archive archive;
@@ -163,10 +206,27 @@ Future<List<String>> _extractCsvMembers(
     );
   }
 
+  if (archive.files.length > _kMaxArchiveMembers) {
+    throw ImportFormatException(
+      '“$name” holds ${archive.files.length} entries, which is far more than '
+      'any $flavor export — refusing to unpack it.',
+    );
+  }
+
   final csvFiles = [
     for (final f in archive.files)
       if (f.isFile && _isCsvMember(f.name)) f,
   ];
+
+  final declaredBytes =
+      csvFiles.fold<int>(0, (sum, f) => sum + (f.size > 0 ? f.size : 0));
+  if (declaredBytes > _kMaxUncompressedBytes) {
+    throw ImportFormatException(
+      '“$name” unpacks to more than '
+      '${(declaredBytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB of '
+      'CSV, which is not something we can import.',
+    );
+  }
 
   if (csvFiles.isEmpty) {
     // The `.noopbak` case, and the single most-reported one: an archive whose
@@ -192,10 +252,22 @@ Future<List<String>> _extractCsvMembers(
     );
   }
 
-  final dir = await Directory.systemTemp.createTemp('openstrap_import_');
   final out = <String>[];
+  final used = <String>{};
   for (final f in csvFiles) {
-    final dest = File(p.join(dir.path, p.basename(f.name)));
+    // Members can share a basename (`daily/data.csv`, `workouts/data.csv`).
+    // Flattening them onto one destination silently dropped one file and
+    // parsed the survivor twice.
+    var base = p.basename(f.name);
+    if (!used.add(base)) {
+      final stem = p.basenameWithoutExtension(base);
+      final ext = p.extension(base);
+      var n = 2;
+      while (!used.add(base = '$stem-$n$ext')) {
+        n++;
+      }
+    }
+    final dest = File(p.join(dir.path, base));
     await dest.writeAsBytes(f.content as List<int>);
     out.add(dest.path);
   }

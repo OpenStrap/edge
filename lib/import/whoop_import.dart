@@ -89,12 +89,39 @@ class WhoopImporter {
     // ZIP — its bytes hit `utf8.decoder` and threw "Unexpected extension byte
     // (at offset 10)" (issue #199). Unwrap it first; anything we can't parse
     // throws an actionable [ImportFormatException] instead.
-    final csvPaths = await resolveImportCsvPaths(paths, flavor: 'WHOOP');
+    final resolved = await resolveImportCsvPaths(paths, flavor: 'WHOOP');
+    try {
+      return await _importResolvedCsvs(
+        resolved.paths,
+        rawDays: rawDays,
+        engine: engine,
+        profile: profile,
+        onProgress: onProgress,
+        days: days,
+        workouts: workouts,
+        skipped: skipped,
+      );
+    } finally {
+      // Anything unpacked from an archive is ours to clean up, success or not.
+      await resolved.dispose();
+    }
+  }
+
+  static Future<WhoopImportResult> _importResolvedCsvs(
+    List<String> csvPaths, {
+    required Set<String> rawDays,
+    DerivationEngine? engine,
+    Profile? profile,
+    void Function(int done)? onProgress,
+    required int days,
+    required int workouts,
+    required int skipped,
+  }) async {
     var recognisedFiles = 0;
     final headersSeen = <String>[];
     for (final path in csvPaths) {
       final rows = await _readCsv(path);
-      if (rows.length < 2) continue;
+      if (rows.isEmpty) continue;
       final header = rows.first;
       final col = <String, int>{
         for (var i = 0; i < header.length; i++) header[i].trim().toLowerCase(): i
@@ -104,7 +131,14 @@ class WhoopImporter {
         headersSeen.add(header.take(6).join(', '));
         continue;
       }
+      // Count the file as recognised on its HEADER, before the empty check
+      // below: an export whose files carry the right columns but no rows (a
+      // week with no workouts, say) is a valid export we simply have nothing
+      // to import from. Skipping it first made it indistinguishable from a
+      // file we don't understand, and the caller then told the user to
+      // re-download in English.
       recognisedFiles++;
+      if (rows.length < 2) continue;
       for (var r = 1; r < rows.length; r++) {
         final f = rows[r];
         if (f.isEmpty) continue;

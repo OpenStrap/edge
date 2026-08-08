@@ -186,8 +186,16 @@ class _TodayScreenState extends State<TodayScreen>
     // the REBUILD TRIGGER is scoped. liveSteps is included (already rate-
     // limited to ~1/s at the source) so the steps tile doesn't freeze mid-walk
     // while waiting on an unrelated dbCounts change.
-    context.select<AppState, (Map<String, int>, bool, String, int)>(
-      (a) => (a.dbCounts, a.reanalyzing, a.reanalyzeProgress, a.liveSteps),
+    context.select<AppState, (Map<String, int>, bool, String, int, bool)>(
+      (a) => (
+        a.dbCounts,
+        a.reanalyzing,
+        a.reanalyzeProgress,
+        a.liveSteps,
+        // The steps tile stops adding the band's live count the moment the
+        // phone owns the day, so a flip has to rebuild it.
+        a.todayStepsFromPhone,
+      ),
     );
     final app = context.read<AppState>();
     final t = TodayData.fromJson(data);
@@ -355,8 +363,10 @@ class _TodayScreenState extends State<TodayScreen>
             // than summing them (both count the same walk — one from the
             // pocket, one from the wrist), so adding the wrist's live count on
             // top of a phone-sourced day total re-introduces exactly the
-            // double count that rule exists to prevent.
-            liveSteps: context.read<AppState>().phoneStepsEnabled
+            // double count that rule exists to prevent. `todayStepsFromPhone`
+            // mirrors the DB's own rule, so a day the phone did not actually
+            // cover still shows the band's live count.
+            liveSteps: context.read<AppState>().todayStepsFromPhone
                 ? 0
                 : context.read<AppState>().liveSteps,
             onOpen: _open,

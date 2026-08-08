@@ -875,6 +875,12 @@ class LocalDb {
   /// Used by the pedometer sync to tell "this day really had no steps" from
   /// "this read came back empty" before it replaces a day wholesale — see
   /// [replacePhoneCoverageForDay], which is delete-then-insert.
+  ///
+  /// Also the UI's source discriminator: it is the same quantity
+  /// [liveStepsForDay] tests to decide which source owns the day, so a screen
+  /// can ask "did the phone actually cover today?" instead of approximating it
+  /// with "is the toggle on". Those differ exactly when the toggle is on and
+  /// the phone has no data, where the band still owns the day.
   static Future<int> phoneStepsForDay(String day) async {
     final db = await instance;
     final r = await db.rawQuery(
