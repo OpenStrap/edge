@@ -166,6 +166,76 @@ void main() {
     });
   });
 
+  group('recoveryOutcome (cross-version carry-forward)', () {
+    // dayResult returns the HIGHEST algo_version stored, so right after a bump
+    // the row handed back is the previous version's. Carrying its detail into a
+    // current-version row and marking that finished would lock last version's
+    // curves in under this version's number — and the bump exists precisely
+    // because those curves are computed differently now.
+    test('a same-version carry restores completeness', () {
+      final r = DerivationEngine.recoveryOutcome(
+        recovered: true,
+        prevPartial: false,
+        prevVersion: kAlgoVersion,
+        prevFinalized: true,
+        finalizedByAge: false,
+      );
+      expect(r.partial, isFalse);
+      expect(r.finalized, isTrue, reason: 'keeps the flag it had earned');
+    });
+
+    test('a cross-version carry stays partial and unfinalized', () {
+      final r = DerivationEngine.recoveryOutcome(
+        recovered: true,
+        prevPartial: false,
+        prevVersion: kAlgoVersion - 1,
+        prevFinalized: true,
+        finalizedByAge: false,
+      );
+      expect(r.partial, isTrue,
+          reason: 'a later pass must recompute it for real');
+      expect(r.finalized, isFalse,
+          reason: 'never lock the previous version detail in as current');
+    });
+
+    test('carrying from an already-partial row stays partial', () {
+      final r = DerivationEngine.recoveryOutcome(
+        recovered: true,
+        prevPartial: true,
+        prevVersion: kAlgoVersion,
+        prevFinalized: false,
+        finalizedByAge: false,
+      );
+      expect(r.partial, isTrue);
+    });
+
+    test('an import still force-finalizes a partial day', () {
+      // There is no stored raw to recompute an import from, so forceFinalize
+      // must survive the version gate.
+      final r = DerivationEngine.recoveryOutcome(
+        recovered: true,
+        prevPartial: false,
+        prevVersion: kAlgoVersion - 1,
+        prevFinalized: false,
+        finalizedByAge: true,
+      );
+      expect(r.partial, isTrue);
+      expect(r.finalized, isTrue);
+    });
+
+    test('nothing carried leaves the day partial', () {
+      final r = DerivationEngine.recoveryOutcome(
+        recovered: false,
+        prevPartial: false,
+        prevVersion: kAlgoVersion,
+        prevFinalized: true,
+        finalizedByAge: false,
+      );
+      expect(r.partial, isTrue);
+      expect(r.finalized, isFalse);
+    });
+  });
+
   group('day curve cadence (the per-beat rework)', () {
     // Both curves left their cadence cursor behind whenever an estimate came
     // back unusable, so the next beat re-entered and redid the whole window.

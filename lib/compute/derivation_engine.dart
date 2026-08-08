@@ -2534,16 +2534,19 @@ class DerivationEngine {
         final prev = _decodeBundle(existing!['payload_json']);
         if (prev != null) {
           final recovered = carryForwardDetail(prev, bundle);
-          final prevPartial = (existing['partial'] as num?)?.toInt() == 1;
-          if (recovered && !prevPartial) {
-            // The day is now as complete as it was before this pass, so it is no
-            // longer partial and may keep the finalized flag it had earned.
-            effectivePartial = false;
-            effectiveFinalized = finalized ||
-                (existing['finalized'] as num?)?.toInt() == 1;
-          }
+          final prevVersion = (existing['algo_version'] as num?)?.toInt();
+          final outcome = recoveryOutcome(
+            recovered: recovered,
+            prevPartial: (existing['partial'] as num?)?.toInt() == 1,
+            prevVersion: prevVersion,
+            prevFinalized: (existing['finalized'] as num?)?.toInt() == 1,
+            finalizedByAge: finalized,
+          );
+          effectivePartial = outcome.partial;
+          effectiveFinalized = outcome.finalized;
           _log('derive ${day.date}: second half failed — carried the previous '
-              'result\'s detail blocks forward (partial=$effectivePartial)');
+              "result's detail blocks forward (v$prevVersion -> v$kAlgoVersion, "
+              'partial=$effectivePartial)');
         }
       }
     }
@@ -2800,6 +2803,36 @@ class DerivationEngine {
       }
     }
     return carried;
+  }
+
+  /// How a day should be filed after its second half failed and the previous
+  /// result's detail was carried forward.
+  ///
+  /// The version check is the subtle part. `LocalDb.dayResult` returns the
+  /// HIGHEST algo_version stored for the day, so immediately after a bump the
+  /// row it hands back belongs to the previous version. Carrying that detail
+  /// forward still beats blanking the day — but it must not be filed as a
+  /// finished CURRENT-version result, because the reason a bump exists is that
+  /// those blocks are computed differently now. A cross-version carry therefore
+  /// stays partial and unfinalized, so a later pass recomputes it for real
+  /// instead of locking last version's curves in under this version's number.
+  @visibleForTesting
+  static ({bool partial, bool finalized}) recoveryOutcome({
+    required bool recovered,
+    required bool prevPartial,
+    required int? prevVersion,
+    required bool prevFinalized,
+    required bool finalizedByAge,
+  }) {
+    final sameVersion = prevVersion == kAlgoVersion;
+    if (!recovered || prevPartial || !sameVersion) {
+      // Stays partial, but keep whatever the caller had already decided about
+      // finalizing: an IMPORT force-finalizes even a partial day, because there
+      // is no stored raw to ever recompute it from.
+      return (partial: true, finalized: finalizedByAge);
+    }
+    // As complete as it was before this pass, so it keeps what it had earned.
+    return (partial: false, finalized: finalizedByAge || prevFinalized);
   }
 
   /// Test seam for [_markDaySkipped] — the "a skip marker must never destroy a

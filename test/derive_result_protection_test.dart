@@ -301,4 +301,49 @@ void main() {
         reason: 'a skip marker carries no user data, so replacing one with '
             'another is fine — only REAL results are protected');
   });
+
+  // ── 3. a version bump must not launder old detail into a finished row ──────
+
+  test('dayResult hands back the PREVIOUS version row after a bump', () async {
+    // The precondition the cross-version guard rests on: the query is
+    // `ORDER BY algo_version DESC LIMIT 1`, with no filter to kAlgoVersion. So
+    // on the first derive after a bump, the row offered for carry-forward
+    // belongs to the version that is being replaced.
+    const day = '2026-04-02';
+    await LocalDb.putDayResult(
+      dayId: day,
+      algoVersion: kAlgoVersion - 1,
+      payloadJson: jsonEncode({
+        'scalars': {'readiness': 74.0},
+        // Exactly the blocks a bump exists to recompute.
+        'series': {'resp_day': [], 'hrv_day': []},
+        'naps': [
+          {'start': 1, 'end': 2}
+        ],
+      }),
+      windowJson: '{}',
+      finalized: true,
+      rhr: 52,
+      rmssd: 61,
+      readiness: 74,
+      series: const {'readiness': 74.0},
+    );
+
+    final row = await LocalDb.dayResult(day);
+    expect((row!['algo_version'] as num).toInt(), kAlgoVersion - 1,
+        reason: 'the carry-forward source is the OLD version row');
+
+    // Which is why recovery must refuse to file that as a finished current
+    // result — otherwise the previous version curves lock in under this
+    // version number and are never recomputed.
+    final outcome = DerivationEngine.recoveryOutcome(
+      recovered: true,
+      prevPartial: (row['partial'] as num?)?.toInt() == 1,
+      prevVersion: (row['algo_version'] as num?)?.toInt(),
+      prevFinalized: (row['finalized'] as num?)?.toInt() == 1,
+      finalizedByAge: false,
+    );
+    expect(outcome.partial, isTrue);
+    expect(outcome.finalized, isFalse);
+  });
 }
