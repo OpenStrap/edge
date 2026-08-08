@@ -1024,34 +1024,8 @@ class HealthExporter {
     }
   }
 
-  HealthWorkoutActivityType _activity(String? type) {
-    switch ((type ?? '').toLowerCase()) {
-      case 'run':
-      case 'running':
-        return HealthWorkoutActivityType.RUNNING;
-      case 'cycle':
-      case 'cycling':
-      case 'bike':
-      case 'biking':
-        return HealthWorkoutActivityType.BIKING;
-      case 'walk':
-      case 'walking':
-        return HealthWorkoutActivityType.WALKING;
-      case 'swim':
-      case 'swimming':
-        return HealthWorkoutActivityType.SWIMMING;
-      case 'strength':
-      case 'weights':
-      case 'lifting':
-        return HealthWorkoutActivityType.STRENGTH_TRAINING;
-      case 'yoga':
-        return HealthWorkoutActivityType.YOGA;
-      case 'hiit':
-        return HealthWorkoutActivityType.HIGH_INTENSITY_INTERVAL_TRAINING;
-      default:
-        return HealthWorkoutActivityType.OTHER;
-    }
-  }
+  HealthWorkoutActivityType _activity(String? type) =>
+      healthActivityForType(type, ios: Platform.isIOS);
 
   static Map<String, dynamic>? _decode(Object? json) {
     if (json is! String) return null;
@@ -1081,5 +1055,67 @@ class HealthExporter {
         d = int.tryParse(p[2]);
     if (y == null || m == null || d == null) return null;
     return DateTime(y, m, d);
+  }
+}
+
+/// The app's workout-type key -> platform health activity type.
+///
+/// Parameterised by [ios] rather than reading `Platform` directly so a unit
+/// test can exercise BOTH platform branches on a host VM (where `Platform.isIOS`
+/// and `Platform.isAndroid` are both false) — see
+/// `test/workout_health_mapping_test.dart`.
+///
+/// Why the platform branches exist at all: `health`'s `writeWorkoutData` rejects
+/// (throws `HealthException`, before the platform channel) any activity type
+/// absent from that platform's own supported set, and the two platforms spell
+/// the strength and swim families differently:
+///
+/// | app key    | iOS                            | Android          |
+/// |------------|--------------------------------|------------------|
+/// | `strength` | TRADITIONAL_STRENGTH_TRAINING  | STRENGTH_TRAINING|
+/// | `swim`     | SWIMMING                       | SWIMMING_POOL    |
+///
+/// iOS has no bare `STRENGTH_TRAINING`; Android has neither `TRADITIONAL_`/
+/// `FUNCTIONAL_STRENGTH_TRAINING` nor bare `SWIMMING`. Using one spelling for
+/// both platforms silently drops every workout of that type on the other one —
+/// that is issue #184 (no strength workout ever reached Apple Health) and the
+/// same latent bug existed for swims on Android.
+///
+/// Anything unmapped falls back to `OTHER`, which both platforms accept, so an
+/// unrecognised or autodetected type still lands in the health store.
+@visibleForTesting
+HealthWorkoutActivityType healthActivityForType(
+  String? type, {
+  required bool ios,
+}) {
+  switch ((type ?? '').toLowerCase()) {
+    case 'run':
+    case 'running':
+      return HealthWorkoutActivityType.RUNNING;
+    case 'cycle':
+    case 'cycling':
+    case 'bike':
+    case 'biking':
+      return HealthWorkoutActivityType.BIKING;
+    case 'walk':
+    case 'walking':
+      return HealthWorkoutActivityType.WALKING;
+    case 'swim':
+    case 'swimming':
+      return ios
+          ? HealthWorkoutActivityType.SWIMMING
+          : HealthWorkoutActivityType.SWIMMING_POOL;
+    case 'strength':
+    case 'weights':
+    case 'lifting':
+      return ios
+          ? HealthWorkoutActivityType.TRADITIONAL_STRENGTH_TRAINING
+          : HealthWorkoutActivityType.STRENGTH_TRAINING;
+    case 'yoga':
+      return HealthWorkoutActivityType.YOGA;
+    case 'hiit':
+      return HealthWorkoutActivityType.HIGH_INTENSITY_INTERVAL_TRAINING;
+    default:
+      return HealthWorkoutActivityType.OTHER;
   }
 }
