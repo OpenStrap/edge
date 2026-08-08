@@ -583,7 +583,10 @@ class _TimeSeriesChartState extends State<TimeSeriesChart> {
                   Positioned(
                     left: (activeDx + 8).clamp(
                       leftPad,
-                      constraints.maxWidth - 120,
+                      // A chart narrower than the tooltip leaves no room to
+                      // slide it: the upper bound would fall below leftPad and
+                      // clamp throws on inverted bounds.
+                      math.max(leftPad, constraints.maxWidth - 120),
                     ),
                     top: 8,
                     child: IgnorePointer(

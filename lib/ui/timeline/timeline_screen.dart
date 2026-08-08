@@ -23,6 +23,8 @@
 // bundle itself, but the timeline is only ever reached embedded in the Journey
 // screen (which does its own loading), so that wrapper was removed.
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../design/design.dart';
@@ -80,6 +82,27 @@ double? plottedLineValueAt(
     }
   }
   return avg.last.v;
+}
+
+/// Horizontal extent of one activity band, given the band's projected start/end
+/// and the plot width.
+///
+/// The painter's `x(t)` saturates at [width], so a band whose START falls in the
+/// final pixel used to make the old `x1.clamp(x0 + 1, width)` inverted —
+/// `double.clamp` throws `ArgumentError` when lowerLimit exceeds upperLimit, and
+/// the whole chart then failed to paint ("Invalid argument(s): 330.77…" from
+/// JourneyScreen). Pinning the left edge a pixel off the right and widening
+/// forward keeps every band at least 1 px wide without ever inverting.
+///
+/// Pure so the geometry is unit-testable without mounting the chart.
+({double left, double right}) activityBandExtent(
+  double startX,
+  double endX,
+  double width,
+) {
+  final left = math.min(startX, width - 1);
+  final right = math.min(math.max(endX, left + 1), width);
+  return (left: left, right: right);
 }
 
 class _Vital {
@@ -612,15 +635,19 @@ class _ChartPainter extends CustomPainter {
 
     // ── activity bands across the block + glyph on top ──
     for (final b in bands) {
-      final x0 = x(b.start), x1 = x(b.end);
+      // See [activityBandExtent] for why this is not a plain clamp.
+      final (left: x0, right: x1) =
+          activityBandExtent(x(b.start), x(b.end), size.width);
       canvas.drawRect(
-        Rect.fromLTRB(x0, plotTop, x1.clamp(x0 + 1, size.width), plotBot),
+        Rect.fromLTRB(x0, plotTop, x1, plotBot),
         Paint()..color = b.color.withValues(alpha: 0.10 * progress),
       );
       canvas.drawLine(Offset(x0, plotTop), Offset(x1, plotTop),
           Paint()..color = b.color.withValues(alpha: 0.7)..strokeWidth = 2);
       if (progress > 0.6) {
-        final cx = ((x0 + x1) / 2).clamp(leftPad + 8, size.width - 8);
+        final cx = math.min(
+            math.max((x0 + x1) / 2, leftPad + 8),
+            math.max(leftPad + 8, size.width - 8));
         canvas.drawCircle(Offset(cx, plotTop - 8), 4, Paint()..color = b.color);
       }
     }
@@ -650,7 +677,8 @@ class _ChartPainter extends CustomPainter {
       final t = t0 + (t1 - t0) * f;
       final tx = leftPad + chartW * f;
       _text(canvas, _hhmm(t),
-          Offset((tx - 14).clamp(leftPad, size.width - 28), plotBot + 5),
+          Offset((tx - 14).clamp(leftPad, math.max(leftPad, size.width - 28)),
+              plotBot + 5),
           AppColors.inkMuted, 9);
     }
 
@@ -771,7 +799,8 @@ class _ChartPainter extends CustomPainter {
     final label =
         '${up ? '↑' : '↓'} ${p.v.toStringAsFixed(v.decimals)} @${_hhmm(p.t)}';
     _text(canvas, label,
-        Offset((px + 4).clamp(leftPad, maxW - 78), py + (up ? -14 : 5)),
+        Offset((px + 4).clamp(leftPad, math.max(leftPad, maxW - 78)),
+            py + (up ? -14 : 5)),
         v.color, 9);
   }
 

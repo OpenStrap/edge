@@ -53,11 +53,13 @@ class _CoachSettingsScreenState extends State<CoachSettingsScreen> {
     setState(() { _loadingModels = true; _msg = null; });
     try {
       final ids = await CoachEngine.fetchModels(_base.text, _key.text);
+      if (!mounted) return;
       setState(() {
         _models = ids;
         _msg = ids.isEmpty ? 'Provider returned no models — type one manually.' : '${ids.length} models found. Search and tap to pick.';
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _msg = e is CoachException ? e.message : 'Could not list models: $e');
     } finally {
       if (mounted) setState(() => _loadingModels = false);

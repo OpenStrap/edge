@@ -212,11 +212,9 @@ class _RecapScreenState extends State<RecapScreen> {
     try {
       // iOS/iPad: the share sheet is a popover and REQUIRES an anchor rect, or
       // it throws PlatformException(sharePositionOrigin: argument must be set).
-      // Capture it now, before any async gap, while layout is stable.
-      final box = context.findRenderObject() as RenderBox?;
-      final origin = (box != null && box.hasSize)
-          ? (box.localToGlobal(Offset.zero) & box.size)
-          : null;
+      // Capture it now, before any async gap, while layout is stable. A null
+      // fallback would just be the crashing input again — see shareOriginFor.
+      final origin = shareOriginFor(context);
 
       final boundary =
           _cardKey.currentContext?.findRenderObject()

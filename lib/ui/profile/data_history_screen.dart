@@ -66,11 +66,23 @@ class _DataHistoryScreenState extends State<DataHistoryScreen> {
   }
 
   Future<void> _shareWholeDb() async {
+    // Captured before the export await: the share sheet needs an anchor rect
+    // measured while this screen's layout is still stable.
+    final origin = shareOriginFor(context);
     setState(() => _busy = true);
     try {
       final path = await LocalDb.exportCopy();
       if (!mounted) return;
-      await Share.shareXFiles([XFile(path)], text: 'OpenStrap data export');
+      await Share.shareXFiles(
+        [XFile(path)],
+        text: 'OpenStrap data export',
+        sharePositionOrigin: origin,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -79,6 +91,7 @@ class _DataHistoryScreenState extends State<DataHistoryScreen> {
   Future<void> _shareSelected() async {
     if (_selected.isEmpty) return;
     final app = context.read<AppState>();
+    final origin = shareOriginFor(context);
     setState(() => _busy = true);
     try {
       final path = await app.exportDaysDb(_selected);
@@ -87,6 +100,7 @@ class _DataHistoryScreenState extends State<DataHistoryScreen> {
         [XFile(path)],
         text:
             'OpenStrap selected day export (${_selected.length} day${_selected.length == 1 ? '' : 's'})',
+        sharePositionOrigin: origin,
       );
     } catch (e) {
       if (!mounted) return;

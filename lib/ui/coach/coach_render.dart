@@ -354,6 +354,10 @@ class _HypnogramPainter extends CustomPainter {
       final x0 = size.width * ((_num(s['start']) ?? 0) - lo) / (hi - lo);
       final x1 = size.width * ((_num(s['end']) ?? 0) - lo) / (hi - lo);
       if (x0 > clipW) continue;
+      // The segment list comes from a model-authored spec, so end < start is
+      // reachable and would build a negative-width rect (same guard the
+      // hand-built hypnogram already carries).
+      if (x1 <= x0) continue;
       final rect = Rect.fromLTWH(x0, lane * laneH + 2,
           math.min(x1, clipW) - x0, laneH - 4);
       canvas.drawRRect(
@@ -424,7 +428,7 @@ class _RangeBand extends StatelessWidget {
               child: Container(height: 8,
                   decoration: BoxDecoration(color: AppColors.good.withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(4)))),
-          Positioned(left: (at(value) - 6).clamp(0, w - 12), top: 4,
+          Positioned(left: (at(value) - 6).clamp(0, math.max(0, w - 12)), top: 4,
               child: Container(width: 12, height: 12,
                   decoration: BoxDecoration(color: AppColors.coral, shape: BoxShape.circle))),
         ]));

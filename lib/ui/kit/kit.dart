@@ -5,6 +5,7 @@
 // The illustrated icon set rides along with the kit so every screen that
 // imports kit/design gets OsAppIcon + OsIcon without touching the package.
 export 'os_icons.dart';
+export 'share_origin.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

@@ -40,6 +40,7 @@ import '../../state/units_controller.dart';
 import '../../theme/theme.dart';
 import '../../theme/tokens.dart';
 import '../kit/kit.dart' show AppIcon, OsIcon;
+import '../kit/share_origin.dart';
 import '../kit/route_map.dart';
 
 /// Where the image is going. Strava-style: a feed post and a story, because
@@ -382,10 +383,7 @@ class _WorkoutSharePreviewScreenState extends State<WorkoutSharePreviewScreen> {
       await file.writeAsBytes(bytes.buffer.asUint8List());
 
       if (!mounted) return;
-      final box = context.findRenderObject() as RenderBox?;
-      final origin = (box != null && box.hasSize)
-          ? (box.localToGlobal(Offset.zero) & box.size)
-          : null;
+      final origin = shareOriginFor(context);
       // No caption text: the image carries everything, and a canned
       // "My OpenStrap workout" string is exactly the kind of filler that makes
       // a share feel automated.

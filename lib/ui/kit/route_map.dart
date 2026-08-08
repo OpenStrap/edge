@@ -172,6 +172,20 @@ class _RouteMapViewState extends State<RouteMapView> {
   List<Polyline> _glow = const [];
   List<Polyline> _crisp = const [];
 
+  // TileLayer DISPOSES whatever provider it is handed when it leaves the tree,
+  // and NetworkTileProvider closes its internal client on dispose — so the
+  // instance cannot simply be held for the life of the State. The `pts.isEmpty`
+  // early return in build() tears the layer down, so a route that empties and
+  // refills (a live workout before its first accepted fix) would come back with
+  // a closed client and fail every tile from then on. Build a fresh one on each
+  // remount instead.
+  //
+  // `silenceExceptions` is the actual fix for the reported issue: a tile fetch
+  // that fails with no network resolves to a transparent tile instead of
+  // throwing into the zone error handler, which was reporting every failed
+  // basemap request as an app error.
+  NetworkTileProvider? _tiles;
+
   @override
   void initState() {
     super.initState();
@@ -279,7 +293,13 @@ class _RouteMapViewState extends State<RouteMapView> {
       for (final p in _points)
         if (p.latitude.isFinite && p.longitude.isFinite) p,
     ];
-    if (pts.isEmpty) return const SizedBox.shrink();
+    if (pts.isEmpty) {
+      // The TileLayer is about to be disposed (and with it our provider); drop
+      // the reference so the next mount builds a live one.
+      _tiles = null;
+      return const SizedBox.shrink();
+    }
+    final tileProvider = _tiles ??= NetworkTileProvider(silenceExceptions: true);
 
     // Detect gesture-driven camera moves so a live map can stop auto-following.
     void onPositionChanged(MapCamera camera, bool hasGesture) {
@@ -341,6 +361,7 @@ class _RouteMapViewState extends State<RouteMapView> {
             urlTemplate: _kOsmTileUrl,
             subdomains: _kTileSubdomains,
             userAgentPackageName: _kUserAgent,
+            tileProvider: tileProvider,
             // NOT `maxZoom` — see kRouteMapMaxTileZoom. Leaving the display
             // ceiling at its default keeps tiles on screen at every zoom.
             maxNativeZoom: kRouteMapMaxTileZoom.round(),

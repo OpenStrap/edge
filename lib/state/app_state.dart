@@ -927,6 +927,10 @@ class AppState extends ChangeNotifier {
     // connection interval would run at the fast one until the user next
     // foregrounded the app.
     engine.setBackground(_background);
+    // Same reasoning for the derive pacing budget: it defaults to foreground and
+    // otherwise only flips on a transition, so a headless start paced its very
+    // first sweep as if the app were on screen.
+    _deriveScheduler.setBackground(_background);
     repo = LocalRepositoryImpl(getProfileMap: () => user);
     // iOS BGProcessing/BGAppRefresh wakes while the FOREGROUND app owns the band
     // skip the headless BLE path (it would fight FBP for the peripheral) — route

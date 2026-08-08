@@ -27,6 +27,7 @@ import 'package:firebase_performance/firebase_performance.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 
 import '../cloud/companion_client.dart';
+import 'error_classification.dart';
 import 'jank_policy.dart';
 
 /// A band-side snapshot AppState supplies (it owns the live DeviceState).
@@ -167,7 +168,15 @@ class TelemetryService {
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
       try {
         if (Firebase.apps.isNotEmpty && _enabled) {
-          FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+          // Same reasoning as the `silent` check above, for the errors the
+          // framework never sees: a dropped tile fetch or a TLS handshake that
+          // died with no network is not a crash, and filing it as one both
+          // understates crash-free users and buries the real crashes.
+          FirebaseCrashlytics.instance.recordError(
+            error,
+            stack,
+            fatal: !isTransientError(error),
+          );
         }
       } catch (_) {}
       record(kind: 'crash', level: 'error', message: '$error', stack: '$stack');

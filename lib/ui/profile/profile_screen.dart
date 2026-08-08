@@ -223,15 +223,13 @@ class ProfileScreen extends StatelessWidget {
                 value: 'Share',
                 onTap: () async {
                   final messenger = ScaffoldMessenger.of(rowCtx);
-                  final box = rowCtx.findRenderObject() as RenderBox?;
+                  final origin = shareOriginFor(rowCtx);
                   try {
                     final path = await LocalDb.exportCopy();
                     await Share.shareXFiles(
                       [XFile(path)],
                       text: 'OpenStrap data export',
-                      sharePositionOrigin: box != null
-                          ? box.localToGlobal(Offset.zero) & box.size
-                          : null,
+                      sharePositionOrigin: origin,
                     );
                   } catch (e) {
                     messenger.showSnackBar(

@@ -257,8 +257,9 @@ class _ScanStepState extends State<_ScanStep> {
     // Bluetooth being off is the #1 reason a scan silently finds nothing —
     // check it explicitly instead of letting a swallowed platform error
     // through as a misleading "no strap found."
-    if (!await app.bluetoothReady()) {
-      if (!mounted) return;
+    final ready = await app.bluetoothReady();
+    if (!mounted) return;
+    if (!ready) {
       setState(() {
         _phase = PairPhase.bluetoothOff;
         _error = null;

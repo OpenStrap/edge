@@ -597,7 +597,18 @@ import 'substrate.dart';
 //   persisted bundle does, so days derived at v58 must be re-derived to pick it
 //   up. `ABSENT` was deliberately NOT invented as a fifth tier — `Tier.all` in
 //   analytics is a closed set of four published grades.
-const int kAlgoVersion = 59;
+//
+// v60 - the all-day HRV and respiratory curves advance their cadence cursor on
+//   every ATTEMPT rather than only on a successful estimate. `_dayRespCurve`
+//   left `lastEmit` unset whenever rsaRespRate came back absent — and absent is
+//   the EXPECTED daytime case, because daytime RSA is movement-confounded — so a
+//   confounded stretch re-ran the triple Lomb-Scargle once per beat instead of
+//   once per five minutes. That is what exhausted the 90 s day-blocks budget and
+//   left days persisted headline-only. `_dayHrvCurve` had the same shape plus an
+//   O(window) sum that ran before its cadence gate was checked. Both curves keep
+//   their sampling intent; points that were previously emitted a beat or two
+//   after a failed attempt now land on the next cadence tick instead.
+const int kAlgoVersion = 60;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -2508,6 +2519,35 @@ class DerivationEngine {
     final finalized =
         !producedNothing && (forceFinalize || (ageFinalized && secondHalfOk));
 
+    // A failed/timed-out second half yields a headline-only bundle, and
+    // putDayResult replaces the row wholesale — so re-deriving an already
+    // complete day (rescanRecent deliberately revisits finalized days) destroyed
+    // its naps, sleep periods, workouts, HRR, wear and curves. Carry the
+    // previous result's detail forward instead of blanking it. Same principle as
+    // the producedNothing guard above and the skip-marker guard in
+    // _markDaySkipped: never let a thinner result overwrite a richer one.
+    var effectiveFinalized = finalized;
+    var effectivePartial = !secondHalfOk;
+    if (!secondHalfOk) {
+      final existing = await LocalDb.dayResult(day.date);
+      if (_isRealDayResult(existing)) {
+        final prev = _decodeBundle(existing!['payload_json']);
+        if (prev != null) {
+          final recovered = carryForwardDetail(prev, bundle);
+          final prevPartial = (existing['partial'] as num?)?.toInt() == 1;
+          if (recovered && !prevPartial) {
+            // The day is now as complete as it was before this pass, so it is no
+            // longer partial and may keep the finalized flag it had earned.
+            effectivePartial = false;
+            effectiveFinalized = finalized ||
+                (existing['finalized'] as num?)?.toInt() == 1;
+          }
+          _log('derive ${day.date}: second half failed — carried the previous '
+              'result\'s detail blocks forward (partial=$effectivePartial)');
+        }
+      }
+    }
+
     final scalars =
         (bundle['scalars'] as Map?)?.cast<String, dynamic>() ?? const {};
     double? sc(String k) => (scalars[k] as num?)?.toDouble();
@@ -2518,8 +2558,8 @@ class DerivationEngine {
       windowJson: jsonEncode(
         ((day.sleepJson['window'] as Map?) ?? const {}).cast<String, dynamic>(),
       ),
-      finalized: finalized,
-      partial: !secondHalfOk,
+      finalized: effectiveFinalized,
+      partial: effectivePartial,
       rhr: sc('rhr'),
       rmssd: sc('rmssd'),
       readiness: sc('readiness'),
@@ -2720,6 +2760,46 @@ class DerivationEngine {
     final scalars = payload['scalars'];
     if (scalars is Map && scalars.values.any((v) => v != null)) return true;
     return row['rhr'] != null || row['rmssd'] != null || row['readiness'] != null;
+  }
+
+  /// Fill [next]'s missing detail from [prev] when the second-half compute
+  /// failed, so a headline-only pass never blanks a day that already had naps,
+  /// workouts, HRR, wear and curves. Returns true if anything was carried over.
+  ///
+  /// Keyed on ABSENCE, not on null: isolate 1 writes its headline scalars
+  /// explicitly and a null there is a real "we could not measure this today"
+  /// that must survive. Only keys the failed second half never got to add are
+  /// restored — a freshly computed value always wins.
+  @visibleForTesting
+  static bool carryForwardDetail(
+    Map<String, dynamic> prev,
+    Map<String, dynamic> next,
+  ) {
+    var carried = false;
+    for (final e in prev.entries) {
+      if (e.key == 'scalars' || e.key == 'series') continue;
+      if (next.containsKey(e.key) || e.value == null) continue;
+      next[e.key] = e.value;
+      carried = true;
+    }
+    // `scalars` and `series` are flat maps the second half patches INTO rather
+    // than owning, so they merge per key instead of wholesale.
+    for (final sub in const ['scalars', 'series']) {
+      final p = prev[sub];
+      if (p is! Map) continue;
+      final n = next[sub];
+      if (n is! Map) {
+        next[sub] = Map<String, dynamic>.from(p.cast<String, dynamic>());
+        carried = true;
+        continue;
+      }
+      for (final e in p.entries) {
+        if (n.containsKey(e.key) || e.value == null) continue;
+        n[e.key] = e.value;
+        carried = true;
+      }
+    }
+    return carried;
   }
 
   /// Test seam for [_markDaySkipped] — the "a skip marker must never destroy a
@@ -3897,7 +3977,10 @@ class DerivationEngine {
       while (ts[i] - ts[lo] > winMs) {
         lo++;
       }
-      if (i - lo >= 10) {
+      // Cadence gate FIRST: the sum-of-squared-differences below is O(window),
+      // and running it for every beat only to discard the result on the 60 s
+      // check was the whole window's work wasted per sample.
+      if (i - lo >= 10 && ts[i] - lastEmit > 60000) {
         var ssd = 0.0;
         var nd = 0;
         for (var k = lo + 1; k <= i; k++) {
@@ -3909,14 +3992,17 @@ class DerivationEngine {
           ssd += d * d;
           nd++;
         }
-        if (nd >= 8 && ts[i] - lastEmit > 60000) {
+        if (nd >= 8) {
+          // Advance on a computed estimate, not only on one that passed the
+          // plausibility filter — otherwise a stretch of artifact-heavy beats
+          // re-runs the window every beat.
+          lastEmit = ts[i];
           final rmssd = math.sqrt(ssd / nd);
           if (rmssd <= 220) {
             out.add({
               't': (ts[i] / 1000).round(),
               'v': double.parse(rmssd.toStringAsFixed(1)),
             });
-            lastEmit = ts[i];
           }
         }
       }
@@ -3953,12 +4039,17 @@ class DerivationEngine {
         final nnt = [for (var k = lo; k <= i; k++) ts[k] - t0];
         final est = ana.rsaRespRate(nn, nnt, artifactFraction: 0.15);
         final brpm = est.present ? est.value!.brpm : null;
+        // Advance the cadence cursor on every ATTEMPT, not just on a successful
+        // estimate. Daytime RSA is movement-confounded (see above), so absent is
+        // the common case — and while lastEmit sat inside the success branch a
+        // confounded stretch re-ran the triple Lomb-Scargle once per BEAT
+        // instead of once per 5 min. That is what blew the day-blocks budget.
+        lastEmit = ts[i];
         if (brpm != null) {
           out.add({
             't': (ts[i] / 1000).round(),
             'v': double.parse(brpm.toStringAsFixed(1)),
           });
-          lastEmit = ts[i];
         }
       }
     }
