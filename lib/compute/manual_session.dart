@@ -476,6 +476,21 @@ ReconciledSessionScore reconcileSessionScore({
   required int? liveMaxHr,
   required List<double> liveZoneMinutes,
   required ManualSessionStats substrate,
+
+  /// True when [substrate] covers essentially the whole window, i.e. the band
+  /// has finished handing this workout over.
+  ///
+  /// It then REPLACES the live tally rather than being maxed against it, and
+  /// that distinction matters more than it looks. The `max` rule is only
+  /// monotone while the scoring function is fixed, and it is not: the score
+  /// depends on the trailing nightly resting HR and on Tanaka HRmax, both of
+  /// which move. Maxing every re-score against the stored value would make a
+  /// session converge to the highest strain ANY resting-HR the profile has
+  /// ever reported would have produced — one artefactually low nightly RHR
+  /// would inflate a workout permanently, with no way back down. Once the
+  /// window is fully covered there is nothing left to recover, so the honest
+  /// value is simply the current score.
+  bool substrateIsComplete = false,
 }) {
   // No substrate for this window (not drained yet, or pruned) — the live tally
   // is all the evidence there is.
@@ -488,7 +503,11 @@ ReconciledSessionScore reconcileSessionScore({
     );
   }
 
+  // Complete coverage: the substrate IS the answer. Partial: both sides are
+  // lower bounds over subsets of the same minutes, so the larger is the better
+  // estimate and the smaller is just a less complete view.
   double? better(double? a, double? b) {
+    if (substrateIsComplete) return b ?? a;
     if (a == null) return b;
     if (b == null) return a;
     return a >= b ? a : b;
@@ -496,17 +515,22 @@ ReconciledSessionScore reconcileSessionScore({
 
   final strain = better(liveStrain, substrate.strain);
   final calories = better(liveCalories, substrate.calories);
-  final maxHr = liveMaxHr == null
-      ? substrate.maxHr
-      : (substrate.maxHr == null
-            ? liveMaxHr
-            : (liveMaxHr >= substrate.maxHr! ? liveMaxHr : substrate.maxHr));
+  final maxHr = substrateIsComplete
+      ? (substrate.maxHr ?? liveMaxHr)
+      : (liveMaxHr == null
+            ? substrate.maxHr
+            : (substrate.maxHr == null
+                  ? liveMaxHr
+                  : (liveMaxHr >= substrate.maxHr!
+                        ? liveMaxHr
+                        : substrate.maxHr)));
 
   // Zone minutes are a vector of the same lower-bound quantity, so take the
   // side with more total measured minutes rather than mixing two partial
   // splits (a per-element max would invent a total neither source observed).
   double total(List<double> z) => z.fold(0.0, (a, b) => a + b);
-  final zone = total(substrate.zoneMinutes) > total(liveZoneMinutes)
+  final zone = substrateIsComplete ||
+          total(substrate.zoneMinutes) > total(liveZoneMinutes)
       ? substrate.zoneMinutes
       : liveZoneMinutes;
 

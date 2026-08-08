@@ -153,6 +153,45 @@ void main() {
     expect(again.changed, isFalse, reason: 'converged — stops writing');
   });
 
+  test('a complete substrate REPLACES the tally rather than maxing it', () {
+    // The max rule is only monotone while the scoring function is fixed, and it
+    // is not — strain depends on the trailing nightly resting HR, which moves.
+    // Maxing forever would ratchet a session up to the highest value any RHR
+    // the profile ever reported would have produced, with no way back down.
+    final r = reconcileSessionScore(
+      liveStrain: 14.0, // scored earlier against a lower resting HR
+      liveCalories: 700,
+      liveMaxHr: 190,
+      liveZoneMinutes: const [0, 0, 30, 0, 0],
+      substrate: _substrate(
+        strain: 11.4,
+        calories: 480,
+        maxHr: 168,
+        zone: const [4, 12, 20, 9, 1],
+      ),
+      substrateIsComplete: true,
+    );
+    expect(r.strain, 11.4, reason: 'current anchors, not the historic peak');
+    expect(r.calories, 480);
+    expect(r.maxHr, 168);
+    expect(r.zoneMinutes, const [4, 12, 20, 9, 1]);
+    expect(r.changed, isTrue);
+  });
+
+  test('completeness does not invent values the substrate lacks', () {
+    final r = reconcileSessionScore(
+      liveStrain: 9.0,
+      liveCalories: 250,
+      liveMaxHr: 170,
+      liveZoneMinutes: const [1, 2, 0, 0, 0],
+      substrate: _substrate(strain: null, calories: null, maxHr: null),
+      substrateIsComplete: true,
+    );
+    expect(r.strain, 9.0, reason: 'no profile anchor ⇒ nothing to replace with');
+    expect(r.calories, 250);
+    expect(r.maxHr, 170);
+  });
+
   test('zone minutes come from one source, never element-wise mixed', () {
     // A per-element max would invent a total neither source observed.
     final r = reconcileSessionScore(

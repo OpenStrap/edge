@@ -806,17 +806,35 @@ ReconnectSupervisorAction superviseReconnect({
   required bool connected,
   required bool loopRunning,
   required bool autoReconnectPaused,
-  required Duration? loopRunningFor,
-  Duration staleAfter = const Duration(minutes: 20),
+
+  /// Time since the CURRENT attempt started — not since the loop did. A loop
+  /// legitimately runs for hours against a band left at home; an individual
+  /// attempt does not.
+  required Duration? attemptRunningFor,
+
+  /// Something else is already driving a connect (a user-initiated
+  /// `openSession`). Starting a second loop underneath it makes two callers
+  /// race the same peripheral and re-run the whole post-connect block.
+  bool connectInFlight = false,
+  Duration staleAfter = const Duration(minutes: 25),
 }) {
-  if (!paired || !keepAlive || connected || autoReconnectPaused) {
+  if (!paired ||
+      !keepAlive ||
+      connected ||
+      autoReconnectPaused ||
+      connectInFlight) {
     return ReconnectSupervisorAction.none;
   }
   if (!loopRunning) return ReconnectSupervisorAction.start;
-  // A live loop is expected to run for a long time — a band can be out of range
-  // for hours, and the Android OS-autoConnect branch legitimately waits 15
-  // minutes per pass. Only call it stale well past that.
-  if (loopRunningFor != null && loopRunningFor >= staleAfter) {
+  // MUST stay comfortably above the longest legitimate single attempt. The
+  // Android OS-autoConnect branch waits up to 15 minutes per pass, so a
+  // threshold measured from the LOOP's start (rather than the attempt's) and
+  // set at 20 minutes fired mid-way through a perfectly healthy second pass —
+  // tearing down a live loop and, worse, letting the abandoned attempt's
+  // eventual `disconnect()` cancel the OS pending connect the replacement was
+  // waiting on. That turned the supervisor into a cause of the very
+  // never-reconnects symptom it exists to cure.
+  if (attemptRunningFor != null && attemptRunningFor >= staleAfter) {
     return ReconnectSupervisorAction.restartStale;
   }
   return ReconnectSupervisorAction.none;

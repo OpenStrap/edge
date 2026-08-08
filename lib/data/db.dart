@@ -4545,6 +4545,35 @@ class LocalDb {
     );
   }
 
+  /// Update ONLY a session's derived score columns.
+  ///
+  /// Deliberately not `putSession`: that is INSERT-OR-REPLACE over the whole
+  /// row, so a re-score computed from a snapshot would also rewrite columns it
+  /// never read — `hrr_bpm` (backfilled by the derivation engine) and `type`
+  /// (the athlete correcting a mislabelled workout) are both written by their
+  /// own narrow UPDATEs and would be reverted. Returns the number of rows
+  /// changed (0 when the session has since been deleted).
+  static Future<int> setSessionScores(
+    String id, {
+    required double? strain,
+    required double? calories,
+    required int? maxHr,
+    required String zoneMinJson,
+  }) async {
+    final db = await instance;
+    return db.update(
+      'sessions',
+      {
+        'strain': strain,
+        'calories': calories,
+        'max_hr': maxHr,
+        'zone_min_json': zoneMinJson,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   static Future<Map<String, dynamic>?> session(String id) async {
     final db = await instance;
     final rows = await db.query(

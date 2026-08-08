@@ -26,6 +26,7 @@ void main() {
       bool connected = false,
       bool loopRunning = false,
       bool paused = false,
+      bool connectInFlight = false,
       Duration? runningFor,
     }) => superviseReconnect(
       paired: paired,
@@ -33,7 +34,8 @@ void main() {
       connected: connected,
       loopRunning: loopRunning,
       autoReconnectPaused: paused,
-      loopRunningFor: runningFor,
+      connectInFlight: connectInFlight,
+      attemptRunningFor: runningFor,
     );
 
     test('disconnected with no loop running restarts the loop', () {
@@ -50,12 +52,17 @@ void main() {
       expect(call(keepAlive: false), ReconnectSupervisorAction.none);
     });
 
-    test('never fights a healthy in-flight loop', () {
-      // A band can be out of range for hours, and the Android OS-autoConnect
-      // branch legitimately waits 15 minutes per pass, so a long-running loop
-      // is normal and must not be restarted out from under itself.
+    test('never fights a healthy attempt', () {
+      // The Android OS-autoConnect branch waits up to 15 minutes for the band
+      // to reappear. That is one NORMAL attempt, and restarting it is actively
+      // harmful: the abandoned attempt's eventual disconnect() cancels the OS
+      // pending connect its replacement is waiting on.
       expect(
-        call(loopRunning: true, runningFor: const Duration(minutes: 14)),
+        call(loopRunning: true, runningFor: const Duration(minutes: 15)),
+        ReconnectSupervisorAction.none,
+      );
+      expect(
+        call(loopRunning: true, runningFor: const Duration(minutes: 24)),
         ReconnectSupervisorAction.none,
       );
       expect(
@@ -64,14 +71,31 @@ void main() {
       );
     });
 
-    test('restarts a loop wedged well past the autoConnect window', () {
+    test('a loop running for hours is fine while its attempts turn over', () {
+      // A band left at home keeps the loop alive indefinitely; only an
+      // individual attempt that never returns is evidence of a wedge.
+      expect(
+        call(loopRunning: true, runningFor: const Duration(minutes: 3)),
+        ReconnectSupervisorAction.none,
+      );
+    });
+
+    test('restarts an attempt wedged well past the autoConnect window', () {
       // An await that never returns (a leaked band lease, a hung platform call)
       // leaves the in-flight flag true forever; re-triggering cannot fix that,
       // so the flag has to be treated as stale.
       expect(
-        call(loopRunning: true, runningFor: const Duration(minutes: 20)),
+        call(loopRunning: true, runningFor: const Duration(minutes: 25)),
         ReconnectSupervisorAction.restartStale,
       );
+    });
+
+    test('stays out of the way of a user-initiated connect', () {
+      // `openSession` starts the supervisor before doing its own connect, and a
+      // first Android connect (bond dialog, discovery, INIT) can outlast a
+      // 60 s tick. Starting a loop underneath it makes two callers race the
+      // same peripheral and re-run the whole post-connect block.
+      expect(call(connectInFlight: true), ReconnectSupervisorAction.none);
     });
 
     test('respects an active bond-refusal pause', () {

@@ -46,6 +46,11 @@ import '../compute/substrate.dart';
 import '../data/db.dart';
 import 'import_container.dart';
 
+/// Last path segment, for error messages (avoids a `package:path` import just
+/// for this one use).
+String _basenameOf(String path) =>
+    path.contains('/') ? path.substring(path.lastIndexOf('/') + 1) : path;
+
 class NoopImportResult {
   final int days;
   final int rows;
@@ -131,13 +136,23 @@ class NoopImporter {
         'That archive holds no NOOP CSV export.',
       );
     }
-    // A NOOP raw-sensor export is a single CSV; if an archive carried several,
-    // prefer one that actually looks like the raw-sensor file.
-    final chosen = resolved.paths.firstWhere(
-      (p) => p.toLowerCase().contains('raw-sensor'),
-      orElse: () => resolved.paths.first,
-    );
-    file = File(chosen);
+    // A NOOP raw-sensor export is ONE CSV. An archive holding several is not
+    // something to guess at: this importer streams a single file and derives in
+    // a rolling two-day window, so silently taking the first match would import
+    // a fraction of the archive and still report success.
+    final candidates = resolved.paths
+        .where((p) => p.toLowerCase().contains('raw-sensor'))
+        .toList();
+    final usable = candidates.isEmpty ? resolved.paths : candidates;
+    if (usable.length > 1) {
+      final names = usable.map(_basenameOf).take(4).join(', ');
+      await resolved.dispose();
+      throw ImportFormatException(
+        'That archive holds ${usable.length} CSV files ($names…). Import the '
+        'raw sensor CSV on its own so nothing is silently skipped.',
+      );
+    }
+    file = File(usable.first);
 
     try {
       return await _importResolvedFile(

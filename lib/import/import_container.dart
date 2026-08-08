@@ -45,6 +45,9 @@ enum ImportContainer {
   /// gzip — not a container we unwrap, but worth naming precisely.
   gzip,
 
+  /// Text, but UTF-16 rather than UTF-8 — re-savable by the user.
+  utf16,
+
   /// Binary of some other kind.
   binary,
 }
@@ -65,6 +68,13 @@ class ImportFormatException implements Exception {
 /// Everything else is called text unless it holds a NUL or a run of control
 /// bytes, which no CSV export contains.
 ImportContainer sniffImportContainer(List<int> head) {
+  // UTF-16 (what Excel writes for "Unicode text") is full of NUL bytes and
+  // would otherwise be called binary — technically true, useless to the user.
+  if (head.length >= 2 &&
+      ((head[0] == 0xFF && head[1] == 0xFE) ||
+          (head[0] == 0xFE && head[1] == 0xFF))) {
+    return ImportContainer.utf16;
+  }
   if (head.length >= 4 &&
       head[0] == 0x50 &&
       head[1] == 0x4B &&
@@ -183,6 +193,11 @@ Future<ResolvedImportFiles> resolveImportCsvPaths(
             '“${p.basename(path)}” is a gzip archive. Unzip it first and pick '
             'the CSV inside.',
           );
+        case ImportContainer.utf16:
+          throw ImportFormatException(
+            '“${p.basename(path)}” is saved as UTF-16 text. Re-save it as '
+            'UTF-8 CSV and import it again.',
+          );
         case ImportContainer.binary:
           throw ImportFormatException(
             '“${p.basename(path)}” is not a text file, so there is nothing to '
@@ -205,9 +220,16 @@ Future<List<String>> _extractCsvMembers(
 }) async {
   final name = p.basename(path);
   final Archive archive;
+  // STREAMED, not `decodeBytes(readAsBytes())`. A 90-day NOOP raw export is
+  // hundreds of megabytes; buffering the whole archive AND then each member in
+  // memory would OOM the phone on exactly the export this path exists to
+  // import — and the rest of the import pipeline is carefully streamed for the
+  // same reason. `InputFileStream` reads the archive off disk as it decodes.
+  final input = InputFileStream(path);
   try {
-    archive = ZipDecoder().decodeBytes(await File(path).readAsBytes());
+    archive = ZipDecoder().decodeStream(input);
   } catch (e) {
+    await input.close();
     throw ImportFormatException(
       'Could not read “$name” as an archive: $e',
     );
@@ -261,22 +283,33 @@ Future<List<String>> _extractCsvMembers(
 
   final out = <String>[];
   final used = <String>{};
-  for (final f in csvFiles) {
+  try {
+    for (final f in csvFiles) {
     // Members can share a basename (`daily/data.csv`, `workouts/data.csv`).
     // Flattening them onto one destination silently dropped one file and
     // parsed the survivor twice.
-    var base = p.basename(f.name);
-    if (!used.add(base)) {
-      final stem = p.basenameWithoutExtension(base);
-      final ext = p.extension(base);
-      var n = 2;
-      while (!used.add(base = '$stem-$n$ext')) {
-        n++;
+      var base = p.basename(f.name);
+      if (!used.add(base)) {
+        final stem = p.basenameWithoutExtension(base);
+        final ext = p.extension(base);
+        var n = 2;
+        while (!used.add(base = '$stem-$n$ext')) {
+          n++;
+        }
       }
+      final destPath = p.join(dir.path, base);
+      // `writeContent` decompresses straight to disk — never materialising the
+      // member, which for a raw sensor export is the big one.
+      final sink = OutputFileStream(destPath);
+      try {
+        f.writeContent(sink);
+      } finally {
+        await sink.close();
+      }
+      out.add(destPath);
     }
-    final dest = File(p.join(dir.path, base));
-    await dest.writeAsBytes(f.content as List<int>);
-    out.add(dest.path);
+  } finally {
+    await input.close();
   }
   return out;
 }

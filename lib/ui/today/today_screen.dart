@@ -1162,7 +1162,10 @@ class TodayVitals extends StatelessWidget {
           // the phone's or the band's 100 Hz stream, and a day with neither
           // shows no number rather than a guess. The detail screen was updated
           // to say so and this tile was missed.
-          const TileHeader('Steps', trailing: Tag('measured')),
+          // Same tag, same colour as the steps detail screen — `Tag`'s default
+          // is the warning amber, which reads as a caution rather than a
+          // statement of confidence.
+          TileHeader('Steps', trailing: Tag('measured', color: DomainAccent.steps)),
           const SizedBox(height: Sp.x2),
           BigStat(
             value: steps > 0 ? '$steps' : null,

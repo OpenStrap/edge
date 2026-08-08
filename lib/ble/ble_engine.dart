@@ -615,6 +615,14 @@ class BleEngine {
   bool _priorityInFlight = false;
   bool _priorityRestale = false;
 
+  /// Bumped by every teardown. Captured before a priority request and re-checked
+  /// after it: `_teardownSession` clears `_appliedPriority` at its top but nulls
+  /// `_session` only after awaiting subscription cancels, so an identity check
+  /// on the session alone still passes inside that window — and the reply then
+  /// restores the value teardown had just cleared, leaving the NEXT connection
+  /// convinced it had already asked.
+  int _linkGeneration = 0;
+
   /// True from the start of connect setup until INIT has been sent. Setup is
   /// discovery + subscribes + SET_CLOCK + INIT and is immediately followed by
   /// the first flash drain, so it wants the fast interval for the same reason
@@ -674,6 +682,7 @@ class BleEngine {
           hasLiveConsumer: _liveEnabled && !_liveHrOnly,
         );
         if (want == _appliedPriority) continue;
+        final generation = _linkGeneration;
         try {
           await session.device.requestConnectionPriority(
             connectionPriorityRequest: switch (want) {
@@ -687,7 +696,9 @@ class BleEngine {
           // the next session re-requests from scratch (Android resets the
           // interval per GATT connection); writing this session's target in
           // afterwards would make the new link skip its own request.
-          if (!identical(_session, session) || !session.connected) {
+          if (generation != _linkGeneration ||
+              !identical(_session, session) ||
+              !session.connected) {
             // Do not record it against the dead link, and do not swallow a
             // transition that arrived while we were waiting: loop once more so
             // the replacement session (if there is one) gets its own target.
@@ -698,7 +709,11 @@ class BleEngine {
           _appliedPriority = want;
           _log('Link priority → ${want.name}.');
         } catch (e) {
-          // Leave `_appliedPriority` alone so the next transition retries.
+          // Leave `_appliedPriority` alone so this is retried. The retry is the
+          // keep-alive tick calling back in, NOT this loop — spinning here
+          // against a radio that just refused would hammer it. Without a
+          // retry at all, a failed step-DOWN would hold the fast interval
+          // until the next state change, which overnight means until morning.
           _log('requestConnectionPriority(${want.name}) failed: $e');
         }
       } while (_priorityRestale);
@@ -750,6 +765,12 @@ class BleEngine {
     if (!state.autoReconnectPaused) return false;
     if (_bondGiveUp.stillPaused(DateTime.now())) return true;
     state.autoReconnectPaused = false;
+    // Clear what the pause put on screen, too. Leaving `needsRepairGuide` set
+    // tells the user to re-pair while auto-reconnect has quietly re-armed
+    // behind the message, and a `bondRefusals` count that keeps climbing while
+    // the give-up streak restarts at 1 no longer means anything.
+    state.needsRepairGuide = false;
+    state.bondRefusals = 0;
     _log('[RECONNECT] bond-refusal pause expired — auto-reconnect re-armed.');
     onState(state);
     return false;
@@ -1416,7 +1437,22 @@ class BleEngine {
     // Battery is a DISPLAY value that moves over hours. Polling it on every
     // 30 s keep-alive tick was 2,880 radio round-trips a day for a handful of
     // real changes (issue #200).
-    unawaited(_pollBatteryIfDue());
+    //
+    // BUT it is also load-bearing for liveness: `_lastRx` only advances on an
+    // inbound notification, and with no live stream armed the battery REPLY is
+    // the only inbound traffic this link generates (LINK_VALID is a write; the
+    // band is not known to answer it). Left purely on a 5-minute cadence, a
+    // quiet link would sail past the 120 s fuse and get bounced — trading a
+    // power win for a reconnect storm. So: poll on the slow cadence normally,
+    // and force one as soon as silence approaches the fuse.
+    unawaited(
+      _pollBatteryIfDue(
+        force: sinceLastRx.inSeconds > kLivenessFuseSeconds ~/ 2,
+      ),
+    );
+    // Cheap retry hook for a priority request that failed earlier: a no-op
+    // whenever the link already sits at the wanted interval.
+    unawaited(_applyLinkPriority());
   }
 
   DateTime? _lastBatteryPollAt;
@@ -3272,6 +3308,11 @@ class BleEngine {
     // level once rather than inheriting the last link's 5-minute cooldown.
     _appliedPriority = null;
     _lastBatteryPollAt = null;
+    // Every failure exit in `_doConnect` between setting this and `sendInit`
+    // skips the clear in sendInit's finally, which would leave the target
+    // pinned at `high` for the life of the process.
+    _connectSetup = false;
+    _linkGeneration++;
     _drain?.onLinkDown();
     _drain = null;
     // Fire a final derive for anything stored-but-not-yet-derived, then disarm the

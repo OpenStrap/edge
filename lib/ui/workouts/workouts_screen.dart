@@ -419,7 +419,8 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       peakHr: (w['max_hr'] as num?)?.toInt() ?? 0,
       calories: ((w['calories'] as num?) ?? 0).toDouble(),
       strain: (w['strain'] as num?)?.toDouble(),
-      steps: (w['steps'] as num?)?.toInt() ?? 0,
+      // Nullable: an unmeasured workout is not a zero-step one.
+      steps: (w['steps'] as num?)?.toInt(),
     );
     Navigator.of(context).push(
       themedRoute(

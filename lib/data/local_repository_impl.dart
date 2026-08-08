@@ -2427,16 +2427,38 @@ class LocalRepositoryImpl extends LocalRepository {
       if (hrRows.isEmpty) return (row: row, hrRows: hrRows);
 
       final profile = Profile.fromMap(getProfileMap());
-      final stats = computeManualSessionStats(
+      final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
+      final raw = computeManualSessionStats(
         hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
-        hrBpm: [for (final e in hrRows) (e['hr'] as num).toInt()],
+        hrBpm: hrBpm,
         profile: profile,
         zoneMaxHr: _profileMaxHr().toDouble(),
         restingHr:
             await _recentRestingHr() ?? profile.restingHrManual?.toDouble(),
       );
+      // `computeManualSessionStats` reports the raw 1 Hz peak. Persisting that
+      // writes a PPG spike into the column `getWorkout` deliberately refuses to
+      // floor against (issue #127) — and once raw ages out past retention the
+      // list has no smoothed value left to prefer, so the artefact would become
+      // permanent. Store the spike-suppressed peak instead.
+      final stats = ManualSessionStats(
+        avgHr: raw.avgHr,
+        maxHr: smoothedMaxHr(hrBpm, age: _profileAge()) ?? raw.maxHr,
+        strain: raw.strain,
+        calories: raw.calories,
+        zoneMinutes: raw.zoneMinutes,
+        hrSampleCount: raw.hrSampleCount,
+      );
+
+      // "Complete" = the band has handed over essentially the whole window.
+      // 1 Hz means one sample per second, so sample count vs window seconds is
+      // the coverage ratio; 90% absorbs the usual handful of dropped seconds.
+      final windowSec = endTs - startTs;
+      final complete =
+          windowSec > 0 && stats.hrSampleCount >= (windowSec * 0.9).floor();
 
       final merged = reconcileSessionScore(
+        substrateIsComplete: complete,
         liveStrain: (row['strain'] as num?)?.toDouble(),
         liveCalories: (row['calories'] as num?)?.toDouble(),
         liveMaxHr: (row['max_hr'] as num?)?.toInt(),
@@ -2459,21 +2481,35 @@ class LocalRepositoryImpl extends LocalRepository {
           (current['start_ts'] as num?)?.toInt() != startTs ||
           (current['end_ts'] as num?)?.toInt() != endTs ||
           current['status']?.toString() != row['status']?.toString()) {
-        return (row: current ?? row, hrRows: hrRows);
+        // The row moved under us. Return the fresh row but NOT the rows we
+        // read — they describe the old window, and `getWorkout` would enrich
+        // the new one with them (a negative time-to-peak, zones over the wrong
+        // span). The next pass scores the new window.
+        return (row: current ?? row, hrRows: null);
       }
 
+      final zoneJson = jsonEncode(
+        merged.zoneMinutes.any((v) => v > 0) ? merged.zoneMinutes : const <num>[],
+      );
+      // Score columns ONLY, via a targeted UPDATE. `putSession` is
+      // INSERT-OR-REPLACE over the whole row, so it also rewrites columns this
+      // code never looked at — `hrr_bpm` (backfilled by the derive) and `type`
+      // (the user's own correction) are both written by narrow UPDATEs that
+      // the re-read above cannot detect.
+      await LocalDb.setSessionScores(
+        id,
+        strain: merged.strain,
+        calories: merged.calories,
+        maxHr: merged.maxHr,
+        zoneMinJson: zoneJson,
+      );
       final updated = {
         ...current,
         'strain': merged.strain,
         'calories': merged.calories,
         'max_hr': merged.maxHr,
-        'zone_min_json': jsonEncode(
-          merged.zoneMinutes.any((v) => v > 0)
-              ? merged.zoneMinutes
-              : const <num>[],
-        ),
+        'zone_min_json': zoneJson,
       };
-      await LocalDb.putSession(updated);
       return (row: updated, hrRows: hrRows);
     } catch (_) {
       return (row: row, hrRows: null); // best-effort: the stored row renders
@@ -2518,7 +2554,12 @@ class LocalRepositoryImpl extends LocalRepository {
       final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
       // Where the durable record frontier stands NOW. A finished session whose
       // window sits behind it has all the substrate it is ever going to get.
-      final frontier = await LocalDb.getCursorInt('rec_ts_hw') ?? 0;
+      // Falls back to the newest decoded row so an import-only install (no
+      // band, so no `rec_ts_hw` cursor) still gets the skip rather than
+      // re-scanning every session's window on every pass.
+      final frontier = await LocalDb.getCursorInt('rec_ts_hw') ??
+          await LocalDb.lastDecodedRecTs() ??
+          0;
       final seen = <String>{};
       for (final r in rows) {
         final id = r['id']?.toString();
@@ -2533,12 +2574,24 @@ class LocalRepositoryImpl extends LocalRepository {
         }
         final before = (r['strain'] as num?)?.toDouble();
         final after = await _rescoreSessionFromSubstrate(r);
-        if ((after.row['strain'] as num?)?.toDouble() != before) changed++;
+        // Count only what THIS pass wrote: the bail path returns a re-read row
+        // whose strain may differ for reasons we had nothing to do with.
+        if (after.hrRows != null &&
+            (after.row['strain'] as num?)?.toDouble() != before) {
+          changed++;
+        }
         // Record it only once it is genuinely finished AND actually scored: a
         // live row is skipped by the helper and must be revisited after it
         // ends, and a row whose read threw (null rows) would otherwise be
         // written off for the rest of the process on a transient DB error.
+        // The insertion condition MUST match the skip condition, `endTs <=
+        // frontier` included. Without it, a workout scored while the band had
+        // only handed over part of its window got stamped as settled, and the
+        // next drain — the one carrying the REST of that window — skipped it.
+        // The partial score then stood on the list until someone opened the
+        // detail screen, which is exactly the case the sweep exists for.
         if (key != null &&
+            endTs! <= frontier &&
             after.hrRows != null &&
             (r['status']?.toString() ?? '') == 'done') {
           _rescoredSessions.add(key);
