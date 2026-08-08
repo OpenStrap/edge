@@ -418,7 +418,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       duration: Duration(minutes: (w['duration_min'] as num?)?.toInt() ?? 0),
       peakHr: (w['max_hr'] as num?)?.toInt() ?? 0,
       calories: ((w['calories'] as num?) ?? 0).toDouble(),
-      strain: ((w['strain'] as num?) ?? 0).toDouble(),
+      strain: (w['strain'] as num?)?.toDouble(),
       steps: (w['steps'] as num?)?.toInt() ?? 0,
     );
     Navigator.of(context).push(
@@ -1213,7 +1213,7 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
           ? DateTime.fromMillisecondsSinceEpoch(startTs * 1000).toLocal()
           : DateTime.now(),
       maxHr: context.read<AppState>().maxHr,
-      strain: (d['strain'] as num?)?.toDouble() ?? 0,
+      strain: (d['strain'] as num?)?.toDouble(),
       calories: (d['calories'] as num?)?.toInt() ?? 0,
       route: _route,
       avgHr: (d['avg_hr'] as num?)?.toInt(),

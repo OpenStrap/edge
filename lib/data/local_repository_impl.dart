@@ -2016,8 +2016,13 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getWorkout(String id) async {
-    final r = await LocalDb.session(id);
-    if (r == null) return const {};
+    final stored = await LocalDb.session(id);
+    if (stored == null) return const {};
+    // Reconcile the live tallies against the substrate BEFORE projecting the
+    // row (issue #206) — a session the app slept through stores a strain built
+    // from the few minutes it was awake for. Persists on improvement, so the
+    // list and the share card see the corrected value too.
+    final r = await _rescoreSessionFromSubstrate(stored);
     final w = _workoutOf(r);
     final startTs = w['start_ts'] as int?;
     if (startTs == null) return w;
@@ -2380,6 +2385,108 @@ class LocalRepositoryImpl extends LocalRepository {
       'unscored': stats.isUnscored,
       'hr_samples': stats.hrSampleCount,
     };
+  }
+
+  /// Re-score a finished session's strain/calories/max-HR/zone-minutes from the
+  /// 1 Hz substrate and persist the result when the substrate improves on what
+  /// the live accumulator managed to see (issue #206).
+  ///
+  /// The live tallies only cover the minutes the foreground app was awake for;
+  /// an app suspended or killed mid-workout stores a strain covering a fraction
+  /// of the window — often a few sub-resting minutes, which score a confident
+  /// `0.0`. Once the band offloads that window, the substrate holds the whole
+  /// thing. [reconcileSessionScore] documents why merging the two by `max` is
+  /// the correct rule; the short version is that both are lower bounds over
+  /// subsets of the same window's minutes.
+  ///
+  /// Self-healing by construction: it re-runs whenever the row is read or a
+  /// drain lands, and the merge is monotone, so a partially-drained window
+  /// improves on each pass and converges. Returns the row with the reconciled
+  /// values applied (never null-out a stored value), writing back only on a
+  /// real change. Best-effort — never throws into a read path.
+  Future<Map<String, dynamic>> _rescoreSessionFromSubstrate(
+    Map<String, dynamic> row,
+  ) async {
+    final id = row['id'];
+    final startTs = (row['start_ts'] as num?)?.toInt();
+    final endTs = (row['end_ts'] as num?)?.toInt();
+    // A live row is still accumulating; scoring it here would race the tally.
+    if (id is! String ||
+        startTs == null ||
+        endTs == null ||
+        endTs <= startTs ||
+        (row['status']?.toString() ?? '') != 'done') {
+      return row;
+    }
+    try {
+      final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
+      if (hrRows.isEmpty) return row;
+
+      final profile = Profile.fromMap(getProfileMap());
+      final stats = computeManualSessionStats(
+        hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
+        hrBpm: [for (final e in hrRows) (e['hr'] as num).toInt()],
+        profile: profile,
+        zoneMaxHr: _profileMaxHr().toDouble(),
+        restingHr:
+            await _recentRestingHr() ?? profile.restingHrManual?.toDouble(),
+      );
+
+      final merged = reconcileSessionScore(
+        liveStrain: (row['strain'] as num?)?.toDouble(),
+        liveCalories: (row['calories'] as num?)?.toDouble(),
+        liveMaxHr: (row['max_hr'] as num?)?.toInt(),
+        liveZoneMinutes: [
+          for (final v in _decodeList(row['zone_min_json']))
+            if (v is num) v.toDouble(),
+        ],
+        substrate: stats,
+      );
+      if (!merged.changed) return row;
+
+      final updated = {
+        ...row,
+        'strain': merged.strain,
+        'calories': merged.calories,
+        'max_hr': merged.maxHr,
+        'zone_min_json': jsonEncode(
+          merged.zoneMinutes.any((v) => v > 0)
+              ? merged.zoneMinutes
+              : const <num>[],
+        ),
+      };
+      await LocalDb.putSession(updated);
+      return updated;
+    } catch (_) {
+      return row; // best-effort: the stored row still renders
+    }
+  }
+
+  /// Re-score every finished session that started in the last [sinceDays] days
+  /// against the substrate now in the DB. Called after a drain lands, so a
+  /// workout whose window arrived late is corrected on the LIST too, not only
+  /// when its detail screen is opened. Returns how many rows changed.
+  @override
+  Future<int> rescoreRecentSessions({int sinceDays = 7}) async {
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    var changed = 0;
+    try {
+      final rows = await LocalDb.sessionsInRange(
+        nowSec - sinceDays * 86400,
+        nowSec,
+      );
+      for (final r in rows) {
+        final before = (r['strain'] as num?)?.toDouble();
+        final after = await _rescoreSessionFromSubstrate(r);
+        if (!identical(after, r) &&
+            (after['strain'] as num?)?.toDouble() != before) {
+          changed++;
+        }
+      }
+    } catch (_) {
+      /* best-effort */
+    }
+    return changed;
   }
 
   /// Most recent nightly resting HR from `metric_series`, or null. Bounded to

@@ -547,12 +547,19 @@ WorkoutShareData buildWorkoutShareData({
   required Duration duration,
   required DateTime when,
   required int maxHr,
-  required double strain,
+
+  /// Null when the session was never scored (a profile anchor the Banister
+  /// formula needs is missing, or no HR was ever captured for the window).
+  /// Nullable all the way to the card: a `?? 0` at the call site prints a
+  /// confident "0.0 Strain" for a workout we simply could not score, which is
+  /// the same fabrication issue #206 reported on the detail gauge.
+  required double? strain,
   required int calories,
   WorkoutRoute? route,
   int? avgHr,
 }) {
   final hasRoute = route != null && route.hasPath;
+  final strainText = strain?.toStringAsFixed(1) ?? '—';
   final title = type.isEmpty
       ? 'Workout'
       : type[0].toUpperCase() + type.substring(1);
@@ -568,13 +575,13 @@ WorkoutShareData buildWorkoutShareData({
       (_shareDuration(duration), 'Time'),
       // Moving pace, like everywhere else — see the note in _GpsControlPanel.
       (units.pace(route.distanceMeters, route.movingSec), 'Pace'),
-      (strain.toStringAsFixed(1), 'Strain'),
+      (strainText, 'Strain'),
     ];
   } else {
     heroValue = _shareDuration(duration);
     heroUnit = '';
     stats = [
-      (strain.toStringAsFixed(1), 'Strain'),
+      (strainText, 'Strain'),
       ('$calories', 'Kcal'),
       (avgHr != null && avgHr > 0 ? '$avgHr' : '—', 'Avg bpm'),
     ];

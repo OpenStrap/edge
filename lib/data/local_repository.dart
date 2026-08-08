@@ -108,6 +108,13 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: getWorkout');
   Future<void> deleteWorkout(String id) =>
       throw UnimplementedError('re-layer: deleteWorkout');
+
+  /// Re-score recent finished sessions against the 1 Hz substrate now in the
+  /// DB, correcting a live session whose in-RAM tallies missed the part of the
+  /// workout the app slept through (issue #206). Returns the number of rows
+  /// whose strain changed. Best-effort — never throws.
+  Future<int> rescoreRecentSessions({int sinceDays = 7}) =>
+      throw UnimplementedError('re-layer: rescoreRecentSessions');
   Future<Map<String, dynamic>> startWorkout(String type, {String? title}) =>
       throw UnimplementedError('re-layer: startWorkout');
   Future<Map<String, dynamic>> endWorkout(String workoutId) =>

@@ -415,3 +415,112 @@ List<String> supersededSuggestionIds(
   }
   return out;
 }
+
+/// The best available scoring of a live-captured session's window: the tallies
+/// the live gauge accumulated in RAM, reconciled against a re-score of the SAME
+/// window from the 1 Hz substrate.
+class ReconciledSessionScore {
+  const ReconciledSessionScore({
+    this.strain,
+    this.calories,
+    this.maxHr,
+    this.zoneMinutes = const [],
+    this.changed = false,
+  });
+
+  final double? strain;
+  final double? calories;
+  final int? maxHr;
+  final List<double> zoneMinutes;
+
+  /// True when the substrate improved on at least one stored field — the only
+  /// case worth a write.
+  final bool changed;
+}
+
+/// Reconcile a stored live session against a substrate re-score of its window.
+///
+/// WHY THIS EXISTS (issue #206): a live session's strain/calories/zone minutes
+/// are accumulated in RAM, one tick per second, by the foreground app. That
+/// accumulator sees nothing while the app is suspended — iOS suspends the 1 Hz
+/// `Timer.periodic` the moment the app backgrounds, and an app the OS kills
+/// mid-workout resumes with an EMPTY accumulator (`_reconcileOrphanedLiveWorkout`
+/// rehydrates the row, not the tallies). Stop the workout after that and the
+/// stored strain describes only the handful of minutes the app happened to be
+/// awake for — commonly a few sub-resting minutes, whose Banister TRIMP is
+/// exactly 0, which `strainScore` reports as a confident `0.0`. The user sees a
+/// real duration, real avg/max HR and real zone bands next to "0.0 Strain".
+///
+/// The band, meanwhile, banked the whole window at 1 Hz. Once that window has
+/// drained into `decoded_onehz`, re-scoring it through the SAME method
+/// ([computeManualSessionStats]) recovers the real number.
+///
+/// THE MERGE RULE IS `max`, and that is deliberate — not a heuristic:
+/// both numbers are the same monotone function (TRIMP is a sum of
+/// per-minute non-negative terms) evaluated over SUBSETS of one window's
+/// minutes. The live tally saw the minutes the app was awake for; the substrate
+/// sees the minutes the band has drained so far. Each is therefore a LOWER
+/// BOUND on the true score, and the larger one is strictly the better estimate.
+/// Taking the max can never double-count (it is a max over two views of one
+/// window, not a sum) and it is monotone under repeated application, so calling
+/// this again after more of the window drains only ever improves the value and
+/// converges. Averaging or preferring one source outright would both be wrong:
+/// the substrate is empty right after a workout (the band has not offloaded
+/// yet) and the live tally is empty after an app kill.
+///
+/// Absent stays absent: a null on both sides stays null rather than becoming
+/// `0.0`. [substrate] must be the re-score of exactly `[start_ts, end_ts)`.
+ReconciledSessionScore reconcileSessionScore({
+  required double? liveStrain,
+  required double? liveCalories,
+  required int? liveMaxHr,
+  required List<double> liveZoneMinutes,
+  required ManualSessionStats substrate,
+}) {
+  // No substrate for this window (not drained yet, or pruned) — the live tally
+  // is all the evidence there is.
+  if (substrate.isUnscored) {
+    return ReconciledSessionScore(
+      strain: liveStrain,
+      calories: liveCalories,
+      maxHr: liveMaxHr,
+      zoneMinutes: liveZoneMinutes,
+    );
+  }
+
+  double? better(double? a, double? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return a >= b ? a : b;
+  }
+
+  final strain = better(liveStrain, substrate.strain);
+  final calories = better(liveCalories, substrate.calories);
+  final maxHr = liveMaxHr == null
+      ? substrate.maxHr
+      : (substrate.maxHr == null
+            ? liveMaxHr
+            : (liveMaxHr >= substrate.maxHr! ? liveMaxHr : substrate.maxHr));
+
+  // Zone minutes are a vector of the same lower-bound quantity, so take the
+  // side with more total measured minutes rather than mixing two partial
+  // splits (a per-element max would invent a total neither source observed).
+  double total(List<double> z) => z.fold(0.0, (a, b) => a + b);
+  final zone = total(substrate.zoneMinutes) > total(liveZoneMinutes)
+      ? substrate.zoneMinutes
+      : liveZoneMinutes;
+
+  final changed =
+      strain != liveStrain ||
+      calories != liveCalories ||
+      maxHr != liveMaxHr ||
+      !identical(zone, liveZoneMinutes);
+
+  return ReconciledSessionScore(
+    strain: strain,
+    calories: calories,
+    maxHr: maxHr,
+    zoneMinutes: zone,
+    changed: changed,
+  );
+}
