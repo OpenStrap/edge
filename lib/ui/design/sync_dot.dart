@@ -18,6 +18,10 @@ import '../../theme/tokens.dart';
 class SyncDot extends StatefulWidget {
   const SyncDot({super.key, required this.active, this.size = 6});
 
+  /// The fixed-size box, so a test can measure the reserved space directly
+  /// rather than through the StatefulWidget element.
+  static const Key sizeKey = Key('sync-dot-box');
+
   /// Records are landing right now (`AppState.syncingNow`).
   final bool active;
   final double size;
@@ -72,6 +76,7 @@ class _SyncDotState extends State<SyncDot>
     // The box is always occupied, so the title never shifts when the dot
     // appears or goes — a jumping wordmark would be far louder than the dot.
     return SizedBox(
+      key: SyncDot.sizeKey,
       width: widget.size,
       height: widget.size,
       child: !widget.active

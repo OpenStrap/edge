@@ -553,6 +553,33 @@ class ChunkFailureLedger {
 /// With continuous listening there is no discrete "sync done" signal, so we can't
 /// fire the DerivationEngine off a SyncReport anymore. Instead, every time records
 /// are persisted we mark them as dirty; once the inbound record stream goes quiet
+/// Whether band records are landing RIGHT NOW.
+///
+/// Answers the TestFlight report "don't get to know if syncing is happening or
+/// not" without adding a spinner: records arrive in bursts with gaps, so the
+/// answer has to hold for a moment after each batch or an indicator would
+/// strobe — and it has to expire, or a finished drain would look like a running
+/// one forever.
+///
+/// Pure, so the window is testable without a band or a clock.
+class SyncActivityWindow {
+  SyncActivityWindow({this.windowMs = 6000});
+
+  /// How long one batch keeps the answer true.
+  final int windowMs;
+
+  int _lastMs = 0;
+
+  /// Records just landed.
+  void mark(int nowMs) => _lastMs = nowMs;
+
+  /// True while the last batch is still within [windowMs].
+  bool isActive(int nowMs) => _lastMs > 0 && nowMs - _lastMs < windowMs;
+
+  /// When the current window closes, or null if nothing has arrived.
+  int? expiresAtMs() => _lastMs > 0 ? _lastMs + windowMs : null;
+}
+
 /// Steps accrued since LOCAL MIDNIGHT, from a counter that counts since the BLE
 /// connection began.
 ///
@@ -574,7 +601,11 @@ class LiveStepDayWindow {
 
   /// [sessionTotal] is the connection-lifetime count; [today] is the local day
   /// label. Returns what belongs to [today].
-  int stepsToday(int sessionTotal, String today) {
+  int stepsToday(int rawSessionTotal, String today) {
+    // A counter cannot be negative. Letting one through would seat `_base`
+    // below zero, and the next ordinary reading would then report the
+    // difference as steps that were never taken.
+    final sessionTotal = rawSessionTotal > 0 ? rawSessionTotal : 0;
     if (_day == null) {
       // First observation. The session counter is per-connection and per-
       // process, so whatever it holds now was walked during this session — on

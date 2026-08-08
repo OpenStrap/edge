@@ -32,7 +32,7 @@ import '../ble/accessory_setup.dart';
 import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
 import '../ble/ble_state.dart'
-    show AlarmConfirmation, AlarmEffect, LiveStepDayWindow;
+    show AlarmConfirmation, AlarmEffect, LiveStepDayWindow, SyncActivityWindow;
 import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
@@ -1012,6 +1012,8 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _syncQuietTimer?.cancel();
+    _syncQuietTimer = null;
     _disposed = true;
     // EVERY timer this object owns, not just three of them. _spotTimer,
     // _breathingRecomputeTimer and _workoutTimer used to survive dispose, and
@@ -1655,6 +1657,9 @@ class AppState extends ChangeNotifier {
   /// drain, live-triggered store) after the write is durable, so it can't
   /// race it — same guarantee dbCounts already relies on above.
   void _onDataStored() {
+    // Synchronously, before the async read below: this is the moment records
+    // became durable, and it is the only path that sees every commit.
+    _markSyncActivity();
     unawaited(() async {
       dbCounts = await LocalDb.counts();
       final recTsHw = await LocalDb.getCursorInt('rec_ts_hw');
@@ -2756,7 +2761,6 @@ class AppState extends ChangeNotifier {
       // UI reflects real progress as it happens, mid-burst.
       if (frontierAfter != null && frontierAfter > (_lastRecTs ?? 0)) {
         _lastRecTs = frontierAfter;
-        _lastIngestMs = DateTime.now().millisecondsSinceEpoch;
         notifyListeners();
       }
       final strapNewest = engine.strapHistoryNewestTs;
@@ -3587,16 +3591,13 @@ class AppState extends ChangeNotifier {
     'reanalyze_progress': reanalyzeProgress,
   };
 
-  /// Wall-clock time a batch of band records last landed. NOT the record's own
-  /// timestamp (`lastRecordAt`) — this is "when did data last arrive", which is
-  /// what tells a user something is happening right now.
-  int _lastIngestMs = 0;
+  final SyncActivityWindow _syncActivity = SyncActivityWindow();
 
-  /// How long a batch keeps the sync indicator lit. Records arrive in bursts
-  /// with gaps between them, so a window shorter than this would make the
-  /// indicator strobe; much longer and it would claim to be syncing after a
-  /// drain has finished.
-  static const int _syncActiveWindowMs = 6000;
+  /// Fires once when the activity window closes. `syncingNow` decays on
+  /// wall-clock time, and nothing else necessarily notifies at that moment — a
+  /// band that goes quiet after its last batch would leave the indicator lit
+  /// until some unrelated state change happened along.
+  Timer? _syncQuietTimer;
 
   /// Band data is arriving right now. Deliberately narrow: it is not "connected"
   /// and not "we would like to sync" — it is only true while records are
@@ -3605,9 +3606,24 @@ class AppState extends ChangeNotifier {
   ///
   /// From TestFlight: "don't get to know if syncing is happening or not".
   bool get syncingNow =>
-      _lastIngestMs > 0 &&
-      DateTime.now().millisecondsSinceEpoch - _lastIngestMs <
-          _syncActiveWindowMs;
+      _syncActivity.isActive(DateTime.now().millisecondsSinceEpoch);
+
+  /// Records reached durable storage. Called from the durable-write callback —
+  /// NOT inferred from a sync burst finishing, because `_onDataStored` has
+  /// already advanced the frontier by then, so the burst's own "did the
+  /// frontier move" test is false exactly when data has just landed.
+  void _markSyncActivity() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _syncActivity.mark(now);
+    _syncQuietTimer?.cancel();
+    _syncQuietTimer = Timer(
+      Duration(milliseconds: _syncActivity.windowMs),
+      () {
+        _syncQuietTimer = null;
+        notifyListeners();
+      },
+    );
+  }
 
   /// REAL device timestamp of the newest record we hold (the band's own clock),
   /// NOT when the BLE frame arrived. This is what "last data: …" displays — a

@@ -52,10 +52,22 @@ void main() {
     expect(w.stepsToday(3400, '2026-08-09'), 3400);
   });
 
-  test('never returns a negative count', () {
+  test('a negative counter never becomes a baseline', () {
     final w = LiveStepDayWindow();
     w.stepsToday(100, '2026-08-08');
     expect(w.stepsToday(-5, '2026-08-08'), 0);
+    // The dangerous half: a negative seated in the base would make the next
+    // ordinary reading report the difference as steps nobody took.
+    expect(w.stepsToday(0, '2026-08-08'), 0,
+        reason: 'zero steps is zero steps, whatever came before it');
+  });
+
+  test('a negative reading on a day change is not a baseline either', () {
+    final w = LiveStepDayWindow();
+    w.stepsToday(4000, '2026-08-08');
+    expect(w.stepsToday(-5, '2026-08-09'), 0);
+    expect(w.stepsToday(0, '2026-08-09'), 0);
+    expect(w.stepsToday(90, '2026-08-09'), 90);
   });
 
   test('days are tracked, so a skipped day still rebases', () {

@@ -53,9 +53,9 @@ void main() {
 
   testWidgets('it occupies the same space either way', (t) async {
     await pumpDot(t, active: false);
-    final quiet = t.getSize(find.byType(SyncDot));
+    final quiet = t.getSize(find.byKey(SyncDot.sizeKey));
     await pumpDot(t, active: true);
-    expect(t.getSize(find.byType(SyncDot)), quiet,
+    expect(t.getSize(find.byKey(SyncDot.sizeKey)), quiet,
         reason: 'the title must not shift when a sync starts or ends');
   });
 }
