@@ -31,7 +31,8 @@ import '../models/app_status.dart';
 import '../ble/accessory_setup.dart';
 import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
-import '../ble/ble_state.dart' show AlarmConfirmation, AlarmEffect;
+import '../ble/ble_state.dart'
+    show AlarmConfirmation, AlarmEffect, LiveStepDayWindow;
 import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
@@ -2100,8 +2101,19 @@ class AppState extends ChangeNotifier {
   /// double-count into `live_coverage` and poison the cadence model.
   int get _rawSessionSteps => (_liveRaw * ana.StepParams.gain).round();
 
+  /// Rebases the connection-lifetime counter at local midnight — see
+  /// [LiveStepDayWindow] for why a permanently-connected band made the Today
+  /// tile carry yesterday's steps into today.
+  final LiveStepDayWindow _liveStepDay = LiveStepDayWindow();
+
   int get liveSteps {
-    final raw = _rawSessionSteps;
+    final today = todayLabel();
+    final dayChanged = _liveStepDay.day != null && _liveStepDay.day != today;
+    final raw = _liveStepDay.stepsToday(_rawSessionSteps, today);
+    // The cushion holds a PRE-midnight session total for a few seconds so the
+    // tile doesn't visibly dip on a reconnect. Carried across the boundary it
+    // would re-introduce exactly the number we just rebased away.
+    if (dayChanged) _sessionStepsCushion = 0;
     if (_sessionStepsCushion <= 0) return raw;
     if (DateTime.now().millisecondsSinceEpoch - _sessionCushionSetAtMs >=
         _sessionCushionGraceMs) {
@@ -2218,6 +2230,12 @@ class AppState extends ChangeNotifier {
     // a killed process doesn't lose the whole session — only whatever hasn't
     // completed a minute yet. See _recoverOrphanedLiveSession.
     if (committedThisTick) unawaited(_checkpointLiveSession());
+    // Keep the day window current from the SAMPLE path. Reading it only when
+    // the Today tile is built would make the first read after midnight the
+    // window's first observation of any day — and a first observation counts
+    // in full, so a phone parked on another tab across midnight would carry
+    // the whole of yesterday's session into today.
+    if (committedThisTick) _liveStepDay.stepsToday(_rawSessionSteps, todayLabel());
     if (nowMs - _lastLiveUiNotifyMs >= 1000) {
       _lastLiveUiNotifyMs = nowMs;
       notifyListeners(); // live readout re-counts the partial minute on read
@@ -2738,6 +2756,7 @@ class AppState extends ChangeNotifier {
       // UI reflects real progress as it happens, mid-burst.
       if (frontierAfter != null && frontierAfter > (_lastRecTs ?? 0)) {
         _lastRecTs = frontierAfter;
+        _lastIngestMs = DateTime.now().millisecondsSinceEpoch;
         notifyListeners();
       }
       final strapNewest = engine.strapHistoryNewestTs;
@@ -3567,6 +3586,28 @@ class AppState extends ChangeNotifier {
     'reanalyzing': reanalyzing,
     'reanalyze_progress': reanalyzeProgress,
   };
+
+  /// Wall-clock time a batch of band records last landed. NOT the record's own
+  /// timestamp (`lastRecordAt`) — this is "when did data last arrive", which is
+  /// what tells a user something is happening right now.
+  int _lastIngestMs = 0;
+
+  /// How long a batch keeps the sync indicator lit. Records arrive in bursts
+  /// with gaps between them, so a window shorter than this would make the
+  /// indicator strobe; much longer and it would claim to be syncing after a
+  /// drain has finished.
+  static const int _syncActiveWindowMs = 6000;
+
+  /// Band data is arriving right now. Deliberately narrow: it is not "connected"
+  /// and not "we would like to sync" — it is only true while records are
+  /// actually landing, so a quiet indicator means a quiet link rather than a
+  /// broken one.
+  ///
+  /// From TestFlight: "don't get to know if syncing is happening or not".
+  bool get syncingNow =>
+      _lastIngestMs > 0 &&
+      DateTime.now().millisecondsSinceEpoch - _lastIngestMs <
+          _syncActiveWindowMs;
 
   /// REAL device timestamp of the newest record we hold (the band's own clock),
   /// NOT when the BLE frame arrived. This is what "last data: …" displays — a

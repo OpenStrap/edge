@@ -186,12 +186,13 @@ class _TodayScreenState extends State<TodayScreen>
     // the REBUILD TRIGGER is scoped. liveSteps is included (already rate-
     // limited to ~1/s at the source) so the steps tile doesn't freeze mid-walk
     // while waiting on an unrelated dbCounts change.
-    context.select<AppState, (Map<String, int>, bool, String, int, bool)>(
+    context.select<AppState, (Map<String, int>, bool, String, int, bool, bool)>(
       (a) => (
         a.dbCounts,
         a.reanalyzing,
         a.reanalyzeProgress,
         a.liveSteps,
+        a.syncingNow,
         // The steps tile stops adding the band's live count the moment the
         // phone owns the day, so a flip has to rebuild it.
         a.todayStepsFromPhone,
@@ -202,14 +203,26 @@ class _TodayScreenState extends State<TodayScreen>
 
     return AppScaffold(
       // Brand wordmark — a confident title, not a greeting.
-      titleWidget: Text(
-        'Edge',
-        style: AppText.h1.copyWith(
-          fontWeight: FontWeight.w800,
-          letterSpacing: -0.9,
-        ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      titleWidget: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Flexible(
+            child: Text(
+              'Edge',
+              style: AppText.h1.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.9,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: Sp.x2),
+          // Breathes only while records are actually landing. See sync_dot.dart
+          // for why this is the whole of the answer to "is it syncing".
+          SyncDot(active: context.select<AppState, bool>((a) => a.syncingNow)),
+        ],
       ),
       actions: [
         RoundIconButton(

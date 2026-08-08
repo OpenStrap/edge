@@ -30,6 +30,7 @@ export 'recap_card.dart';
 export 'ring_week.dart';
 export 'rows.dart';
 export 'spark.dart';
+export 'sync_dot.dart';
 export 'state_chips.dart';
 export 'surface.dart';
 
