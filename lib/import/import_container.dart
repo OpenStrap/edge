@@ -1,0 +1,203 @@
+// import_container.dart — what did the user actually hand us?
+//
+// WHY THIS EXISTS (issues #199, #160)
+//
+// Every importer took the path from a `FileType.any` picker and piped it
+// straight into `utf8.decoder`. Users picked the file their OTHER app told them
+// to export — a WHOOP "My Data" export (a ZIP of CSVs) or a NOOP full backup
+// (`.noopbak`, a ZIP holding `noop-backup.sqlite`) — and got:
+//
+//     FormatException: Unexpected extension byte (at offset 10)
+//     FormatException: Invalid UTF-8 byte (at offset 10)
+//
+// Offset 10 is not a coincidence and it is not an encoding problem. A ZIP's
+// first ten bytes (`PK\x03\x04`, version, flags, method) are all < 0x80, so the
+// UTF-8 decoder always survives exactly that far and then hits byte 10 — the low
+// byte of the DOS modification time, the first byte in the file that can have
+// its high bit set. Byte 18 (the compressed size) is the next such field, which
+// is where the other reported offset comes from. Both reports are ZIPs.
+//
+// (A genuinely mis-encoded CSV — latin1/cp1252, a Spanish or French export —
+// fails differently: "Missing extension byte". None of the reports show that,
+// so the "it's a localized CSV" theory does not explain them. Lenient decoding
+// is still applied below, but as a separate, smaller fix.)
+//
+// So: sniff the container before decoding. A ZIP of CSVs is unwrapped and
+// imported for real; anything we cannot use gets a message naming the file we
+// DO want, instead of a byte offset.
+
+import 'dart:io';
+
+import 'package:archive/archive.dart';
+import 'package:path/path.dart' as p;
+
+/// What the first bytes of the picked file say it is.
+enum ImportContainer {
+  /// Plain text — decode and parse it.
+  text,
+
+  /// PKZIP. A WHOOP export, or a `.noopbak`.
+  zip,
+
+  /// A raw SQLite database (a `noop-backup.sqlite` extracted by hand, say).
+  sqlite,
+
+  /// gzip — not a container we unwrap, but worth naming precisely.
+  gzip,
+
+  /// Binary of some other kind.
+  binary,
+}
+
+/// An import that failed for a reason the user can act on. Distinct from a
+/// `FormatException` so the UI can show guidance rather than a byte offset.
+class ImportFormatException implements Exception {
+  const ImportFormatException(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
+/// Classify a file from its leading bytes. Pure — [head] is the first ~16 bytes.
+///
+/// Magic numbers: `PK\x03\x04` (and the empty/spanned variants `PK\x05\x06`,
+/// `PK\x07\x08`) for ZIP; `SQLite format 3\x00` for SQLite; `\x1f\x8b` for gzip.
+/// Everything else is called text unless it holds a NUL or a run of control
+/// bytes, which no CSV export contains.
+ImportContainer sniffImportContainer(List<int> head) {
+  if (head.length >= 4 &&
+      head[0] == 0x50 &&
+      head[1] == 0x4B &&
+      (head[2] == 0x03 || head[2] == 0x05 || head[2] == 0x07)) {
+    return ImportContainer.zip;
+  }
+  const sqliteMagic = 'SQLite format 3';
+  if (head.length >= sqliteMagic.length &&
+      String.fromCharCodes(head.take(sqliteMagic.length)) == sqliteMagic) {
+    return ImportContainer.sqlite;
+  }
+  if (head.length >= 2 && head[0] == 0x1F && head[1] == 0x8B) {
+    return ImportContainer.gzip;
+  }
+  for (final b in head) {
+    // NUL, or a control byte that is not tab/LF/CR — not a CSV.
+    if (b == 0x00 || (b < 0x09) || (b > 0x0D && b < 0x20)) {
+      return ImportContainer.binary;
+    }
+  }
+  return ImportContainer.text;
+}
+
+/// Read enough of [path] to classify it.
+Future<ImportContainer> sniffFile(String path) async {
+  final f = File(path);
+  final raf = await f.open();
+  try {
+    return sniffImportContainer(await raf.read(16));
+  } finally {
+    await raf.close();
+  }
+}
+
+/// True for a ZIP member we can actually parse as an export.
+bool _isCsvMember(String name) {
+  final base = p.basename(name).toLowerCase();
+  // `__MACOSX/._foo.csv` resource forks are AppleDouble binaries, not CSVs.
+  return base.endsWith('.csv') &&
+      !base.startsWith('._') &&
+      !name.startsWith('__MACOSX/');
+}
+
+/// Resolve the picked paths into CSV files on disk, unwrapping ZIP archives.
+///
+/// [flavor] names the importer in error messages ('NOOP', 'WHOOP'). Extracted
+/// members are written to a temp directory — the caller reads them and the OS
+/// reclaims them; nothing is copied into app storage.
+///
+/// Throws [ImportFormatException] with actionable guidance for anything we
+/// cannot parse: a database, an archive of databases, a gzip, binary junk.
+Future<List<String>> resolveImportCsvPaths(
+  List<String> paths, {
+  required String flavor,
+}) async {
+  final out = <String>[];
+  for (final path in paths) {
+    final kind = await sniffFile(path);
+    switch (kind) {
+      case ImportContainer.text:
+        out.add(path);
+      case ImportContainer.zip:
+        out.addAll(await _extractCsvMembers(path, flavor: flavor));
+      case ImportContainer.sqlite:
+        throw ImportFormatException(
+          '“${p.basename(path)}” is a database file, not a $flavor CSV '
+          'export. In NOOP, use Export → raw sensor CSV and pick the '
+          '“noop-raw-sensors-….csv” file it writes.',
+        );
+      case ImportContainer.gzip:
+        throw ImportFormatException(
+          '“${p.basename(path)}” is a gzip archive. Unzip it first and pick '
+          'the CSV inside.',
+        );
+      case ImportContainer.binary:
+        throw ImportFormatException(
+          '“${p.basename(path)}” is not a text file, so there is nothing to '
+          'read as a $flavor CSV export.',
+        );
+    }
+  }
+  return out;
+}
+
+Future<List<String>> _extractCsvMembers(
+  String path, {
+  required String flavor,
+}) async {
+  final name = p.basename(path);
+  final Archive archive;
+  try {
+    archive = ZipDecoder().decodeBytes(await File(path).readAsBytes());
+  } catch (e) {
+    throw ImportFormatException(
+      'Could not read “$name” as an archive: $e',
+    );
+  }
+
+  final csvFiles = [
+    for (final f in archive.files)
+      if (f.isFile && _isCsvMember(f.name)) f,
+  ];
+
+  if (csvFiles.isEmpty) {
+    // The `.noopbak` case, and the single most-reported one: an archive whose
+    // payload is a SQLite database. Name the file we actually want rather than
+    // failing on its bytes.
+    final hasDb = archive.files.any(
+      (f) =>
+          f.isFile &&
+          (f.name.toLowerCase().endsWith('.sqlite') ||
+              f.name.toLowerCase().endsWith('.db')),
+    );
+    if (hasDb) {
+      throw ImportFormatException(
+        '“$name” is a full NOOP backup — it holds NOOP\'s own database, which '
+        'we can\'t read. In NOOP, open Export and choose the raw 1 Hz sensor '
+        'CSV (“noop-raw-sensors-….csv”), then import that file here.',
+      );
+    }
+    throw ImportFormatException(
+      '“$name” is an archive with no CSV files inside '
+      '(${archive.files.length} entr${archive.files.length == 1 ? 'y' : 'ies'}). '
+      'Pick the $flavor CSV export instead.',
+    );
+  }
+
+  final dir = await Directory.systemTemp.createTemp('openstrap_import_');
+  final out = <String>[];
+  for (final f in csvFiles) {
+    final dest = File(p.join(dir.path, p.basename(f.name)));
+    await dest.writeAsBytes(f.content as List<int>);
+    out.add(dest.path);
+  }
+  return out;
+}

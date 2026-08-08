@@ -89,6 +89,12 @@ dependencies:
   path: ^1.9.0
   path_provider: ^2.1.5
 
+  # Unwrapping the archives users actually pick on the import screen: a WHOOP
+  # "My Data" export is a ZIP of CSVs, and a NOOP `.noopbak` is a ZIP holding a
+  # SQLite database (issues #199, #160). Already present transitively; declared
+  # directly because `lib/import/import_container.dart` imports it.
+  archive: ^4.0.9
+
   # Background scheduled derivation (the heavy nightly pass: sleep staging +
   # 24-h spectra). Android: a real OS-scheduled WorkManager job. iOS: see the
   # honest caveat in lib/compute/background_derivation.dart — app-killed heavy

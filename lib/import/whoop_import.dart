@@ -18,6 +18,7 @@ import '../compute/derivation_engine.dart' show kAlgoVersion, DerivationEngine;
 import '../compute/profile.dart';
 import '../compute/substrate.dart' show localDateLabel;
 import '../data/db.dart';
+import 'import_container.dart';
 
 class WhoopImportResult {
   final int days;
@@ -84,7 +85,14 @@ class WhoopImporter {
     } catch (_) {
       rawDays = const {};
     }
-    for (final path in paths) {
+    // WHOOP's own "My Data" export arrives as a ZIP of CSVs, and users pick the
+    // ZIP — its bytes hit `utf8.decoder` and threw "Unexpected extension byte
+    // (at offset 10)" (issue #199). Unwrap it first; anything we can't parse
+    // throws an actionable [ImportFormatException] instead.
+    final csvPaths = await resolveImportCsvPaths(paths, flavor: 'WHOOP');
+    var recognisedFiles = 0;
+    final headersSeen = <String>[];
+    for (final path in csvPaths) {
       final rows = await _readCsv(path);
       if (rows.length < 2) continue;
       final header = rows.first;
@@ -92,6 +100,11 @@ class WhoopImporter {
         for (var i = 0; i < header.length; i++) header[i].trim().toLowerCase(): i
       };
       final kind = _classify(col);
+      if (kind == _Kind.unknown) {
+        headersSeen.add(header.take(6).join(', '));
+        continue;
+      }
+      recognisedFiles++;
       for (var r = 1; r < rows.length; r++) {
         final f = rows[r];
         if (f.isEmpty) continue;
@@ -112,6 +125,23 @@ class WhoopImporter {
         }
       }
     }
+    // Nothing recognised is a failure, not a "0 days" success. The columns are
+    // matched against exact ENGLISH header names, so a WHOOP export downloaded
+    // in another language classifies as unknown for every file and used to end
+    // silently at "WHOOP: imported 0 days" — reported as the app being broken.
+    if (recognisedFiles == 0) {
+      throw ImportFormatException(
+        csvPaths.isEmpty
+            ? 'No CSV files were found to import.'
+            : 'None of those files look like a WHOOP export. We match the '
+                  'English column names WHOOP writes (e.g. "Recovery score %", '
+                  '"Activity name", "Sleep onset"), so an export downloaded in '
+                  'another language will not be recognised — re-download it '
+                  'with WHOOP set to English.'
+                  '${headersSeen.isEmpty ? '' : ' Columns found: ${headersSeen.first}.'}',
+      );
+    }
+
     if (engine != null && profile != null) {
       await engine.finalizeImport(profile);
     }
@@ -364,7 +394,9 @@ class WhoopImporter {
   static Future<List<List<String>>> _readCsv(String path) async {
     final lines = File(path)
         .openRead()
-        .transform(utf8.decoder)
+        // Lenient: a WHOOP export saved under a non-UTF-8 locale should lose a
+        // character, not the whole import.
+        .transform(const Utf8Decoder(allowMalformed: true))
         .transform(const LineSplitter());
     final out = <List<String>>[];
     await for (final line in lines) {

@@ -44,6 +44,7 @@ import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../compute/substrate.dart';
 import '../data/db.dart';
+import 'import_container.dart';
 
 class NoopImportResult {
   final int days;
@@ -114,10 +115,28 @@ class NoopImporter {
     DerivationEngine engine, {
     void Function(int days)? onProgress,
   }) async {
-    final file = File(path);
+    var file = File(path);
     if (!await file.exists()) {
       throw const FileSystemException('CSV not found');
     }
+    // What did the user actually pick? A `.noopbak` is a ZIP around NOOP's
+    // SQLite database, and feeding its bytes to `utf8.decoder` is what produced
+    // the "Invalid UTF-8 byte (at offset 10)" in issues #160/#199. Resolve the
+    // container first: a ZIP of CSVs is unwrapped, and anything unusable throws
+    // an [ImportFormatException] naming the file we DO want.
+    final resolved = await resolveImportCsvPaths([path], flavor: 'NOOP');
+    if (resolved.isEmpty) {
+      throw const ImportFormatException(
+        'That archive holds no NOOP CSV export.',
+      );
+    }
+    // A NOOP raw-sensor export is a single CSV; if an archive carried several,
+    // prefer one that actually looks like the raw-sensor file.
+    final chosen = resolved.firstWhere(
+      (p) => p.toLowerCase().contains('raw-sensor'),
+      orElse: () => resolved.first,
+    );
+    file = File(chosen);
 
     // Rolling buffer: keeps at most the CURRENT + PREVIOUS local date of samples.
     final secs = <int, _Sec>{}; // ts(sec) → channels
@@ -168,11 +187,21 @@ class NoopImporter {
       return (i != null && i < f.length) ? f[i] : '';
     }
 
-    final lines =
-        file.openRead().transform(utf8.decoder).transform(const LineSplitter());
+    // `allowMalformed` — a CSV exported under a non-UTF-8 locale should import
+    // with a mangled character in a column we don't read, not abort the whole
+    // file. (This is NOT what issues #160/#199 hit; those were ZIPs, handled
+    // above. It is the smaller, real second-order problem underneath them.)
+    final lines = file
+        .openRead()
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .transform(const LineSplitter());
+    var sawHeader = false;
+    String? firstLine;
     await for (final line in lines) {
       if (line.isEmpty || line.startsWith('#')) continue;
+      firstLine ??= line;
       if (line.startsWith('unix_s,')) {
+        sawHeader = true;
         // Header → (re)build the name→index map and skip.
         final h = line.split(',');
         col = {for (var i = 0; i < h.length; i++) h[i].trim(): i};
@@ -267,6 +296,26 @@ class NoopImporter {
     // it would silently lose steps the band actually measured.
     for (final e in stepsByDate.entries) {
       stepsBanked += await _flushStepCoverage(e.value, e.key);
+    }
+
+    // A file we could read but could not USE is a failure, not a "0 days"
+    // success. Without a recognised header the positional fallback silently
+    // misparses (it is the pre-drift layout), and a localized or unrelated CSV
+    // simply drops every row — both used to end at "NOOP: imported 0 days",
+    // which reads as "the app is broken" with nothing to act on.
+    if (totalRows == 0) {
+      final head = firstLine ?? '';
+      final preview = head.isEmpty
+          ? ''
+          : ' (first line: "${head.length > 80 ? '${head.substring(0, 80)}…' : head}")';
+      throw ImportFormatException(
+        sawHeader
+            ? 'That NOOP export has a header we recognise but no rows we could '
+                  'read — every row was empty or out of range.'
+            : 'That file does not look like a NOOP raw-sensor export: no '
+                  '"unix_s,…" header row was found$preview. In NOOP, use '
+                  'Export → raw sensor CSV.',
+      );
     }
 
     await engine.finalizeImport(profile);
