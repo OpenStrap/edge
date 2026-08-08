@@ -83,6 +83,20 @@ void main() {
     }
   });
 
+  test('connect setup is treated like an offload, not like idle', () {
+    // Setup runs discovery + subscribes + SET_CLOCK + INIT and is immediately
+    // followed by the first flash drain, so it wants the fast interval — but it
+    // asks for it through the same path as everything else.
+    expect(
+      desiredLinkPriority(
+        offloadActive: true, // `_offloadActive || _connectSetup`
+        background: true,
+        hasLiveConsumer: false,
+      ),
+      LinkPriority.high,
+    );
+  });
+
   test('the battery poll is minutes apart, not seconds', () {
     // It rode the 30 s keep-alive tick: 2,880 radio round-trips a day for a
     // display value that changes a handful of times.

@@ -2448,8 +2448,22 @@ class LocalRepositoryImpl extends LocalRepository {
       );
       if (!merged.changed) return (row: row, hrRows: hrRows);
 
+      // `putSession` is INSERT-OR-REPLACE on the whole row, and everything
+      // above this point awaited (two substrate reads). A retime or a
+      // `stopWorkout` finalize landing in that window would be silently
+      // reverted — old start/end/status written back over the new ones. Re-read
+      // and bail if the row moved under us; the next sweep (or the next open)
+      // scores the new window.
+      final current = await LocalDb.session(id);
+      if (current == null ||
+          (current['start_ts'] as num?)?.toInt() != startTs ||
+          (current['end_ts'] as num?)?.toInt() != endTs ||
+          current['status']?.toString() != row['status']?.toString()) {
+        return (row: current ?? row, hrRows: hrRows);
+      }
+
       final updated = {
-        ...row,
+        ...current,
         'strain': merged.strain,
         'calories': merged.calories,
         'max_hr': merged.maxHr,
@@ -2520,9 +2534,13 @@ class LocalRepositoryImpl extends LocalRepository {
         final before = (r['strain'] as num?)?.toDouble();
         final after = await _rescoreSessionFromSubstrate(r);
         if ((after.row['strain'] as num?)?.toDouble() != before) changed++;
-        // Record it only once it is genuinely finished — a live row gets
-        // skipped by the helper and must be revisited after it ends.
-        if (key != null && (r['status']?.toString() ?? '') == 'done') {
+        // Record it only once it is genuinely finished AND actually scored: a
+        // live row is skipped by the helper and must be revisited after it
+        // ends, and a row whose read threw (null rows) would otherwise be
+        // written off for the rest of the process on a transient DB error.
+        if (key != null &&
+            after.hrRows != null &&
+            (r['status']?.toString() ?? '') == 'done') {
           _rescoredSessions.add(key);
         }
       }

@@ -615,6 +615,14 @@ class BleEngine {
   bool _priorityInFlight = false;
   bool _priorityRestale = false;
 
+  /// True from the start of connect setup until INIT has been sent. Setup is
+  /// discovery + subscribes + SET_CLOCK + INIT and is immediately followed by
+  /// the first flash drain, so it wants the fast interval for the same reason
+  /// an offload does — but it must ask for it through [_applyLinkPriority] like
+  /// everything else, or the direct request races the serialized ones and
+  /// leaves `_appliedPriority` describing a target the radio never got.
+  bool _connectSetup = false;
+
   /// Told by AppState on every foreground/background transition. Drives the
   /// connection interval — see [desiredLinkPriority].
   void setBackground(bool value) {
@@ -648,7 +656,7 @@ class BleEngine {
         final session = _session;
         if (session == null || !session.connected) return;
         final want = desiredLinkPriority(
-          offloadActive: _offloadActive,
+          offloadActive: _offloadActive || _connectSetup,
           background: _backgrounded,
           hasLiveConsumer: _liveEnabled && !_liveHrOnly,
         );
@@ -667,8 +675,12 @@ class BleEngine {
           // interval per GATT connection); writing this session's target in
           // afterwards would make the new link skip its own request.
           if (!identical(_session, session) || !session.connected) {
+            // Do not record it against the dead link, and do not swallow a
+            // transition that arrived while we were waiting: loop once more so
+            // the replacement session (if there is one) gets its own target.
             _log('Link priority reply arrived after teardown — discarded.');
-            return;
+            _priorityRestale = true;
+            continue;
           }
           _appliedPriority = want;
           _log('Link priority → ${want.name}.');
@@ -1193,19 +1205,14 @@ class BleEngine {
       } catch (e) {
         _log('requestMtu failed: $e — MTU stays at the connection default.');
       }
-      // Start high: connect setup is immediately followed by INIT + the first
-      // flash drain, which is exactly when throughput matters. `_applyLinkPriority`
-      // steps it back down as soon as that offload ends (issue #200) — before
-      // this, `high` was requested here and then held for the entire life of a
-      // deliberately-permanent connection.
-      if (Platform.isAndroid) {
-        try {
-          await device.requestConnectionPriority(
-            connectionPriorityRequest: ConnectionPriority.high,
-          );
-          _appliedPriority = LinkPriority.high;
-        } catch (_) {}
-      }
+      // Setup is immediately followed by INIT + the first flash drain, which is
+      // exactly when throughput matters, so `_connectSetup` asks for the fast
+      // interval — through the SAME serialized helper as every other
+      // transition. `_applyLinkPriority` steps it back down once the offload
+      // ends (issue #200); before that, `high` was requested here and then held
+      // for the entire life of a deliberately-permanent connection.
+      _connectSetup = true;
+      await _applyLinkPriority();
 
       if (!session.connected) {
         _log('connect: link dropped during setup.');
@@ -1396,16 +1403,29 @@ class BleEngine {
     // Battery is a DISPLAY value that moves over hours. Polling it on every
     // 30 s keep-alive tick was 2,880 radio round-trips a day for a handful of
     // real changes (issue #200).
-    final lastBattery = _lastBatteryPollAt;
-    if (lastBattery == null ||
-        DateTime.now().difference(lastBattery).inSeconds >=
-            kBatteryPollIntervalSeconds) {
-      _lastBatteryPollAt = DateTime.now();
-      _send(Cmd.getBatteryLevel, const []);
-    }
+    unawaited(_pollBatteryIfDue());
   }
 
   DateTime? _lastBatteryPollAt;
+
+  /// Ask the band for its battery level, at most once per
+  /// [kBatteryPollIntervalSeconds].
+  ///
+  /// The stamp moves only after the write actually goes out, so a failed write
+  /// does not buy five minutes of silence — and [getBattery] shares this path
+  /// so the read AppState does right after connecting isn't immediately
+  /// followed by a duplicate from the first keep-alive tick.
+  Future<void> _pollBatteryIfDue({bool force = false}) async {
+    final last = _lastBatteryPollAt;
+    if (!force &&
+        last != null &&
+        DateTime.now().difference(last).inSeconds <
+            kBatteryPollIntervalSeconds) {
+      return;
+    }
+    await _send(Cmd.getBatteryLevel, const []);
+    _lastBatteryPollAt = DateTime.now();
+  }
 
   /// Trigger a historical offload, floored by [BackfillPolicy] (manual /
   /// autoContinue are never floored). Re-arms the drain so a fresh HISTORY_COMPLETE
@@ -2845,9 +2865,19 @@ class BleEngine {
   // ── high-level flows ─────────────────────────────────────────────────────────────
   Future<void> sendInit() async {
     _log('Sending 5-packet INIT…');
-    for (final pkt in initPackets) {
-      await _write(pkt);
-      await Future.delayed(const Duration(milliseconds: 120));
+    try {
+      for (final pkt in initPackets) {
+        await _write(pkt);
+        await Future.delayed(const Duration(milliseconds: 120));
+      }
+    } finally {
+      // Setup is over. The flood INIT triggers raises the link on its own via
+      // `_setOffloadActive`, so from here the ordinary rules apply — and an
+      // idle link stops paying for the fast interval.
+      if (_connectSetup) {
+        _connectSetup = false;
+        unawaited(_applyLinkPriority());
+      }
     }
   }
 
@@ -3039,7 +3069,7 @@ class BleEngine {
     _log('SET_ADVERTISING_NAME → "$name"');
   }
 
-  Future<void> getBattery() => _send(Cmd.getBatteryLevel, const []);
+  Future<void> getBattery() => _pollBatteryIfDue(force: true);
   Future<void> getHello() => _send(Cmd.getHelloHarvard, const [0x00]);
   Future<void> buzz() => buzzPattern(hapticShortPulse);
 
