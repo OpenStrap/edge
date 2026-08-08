@@ -338,6 +338,10 @@ class _WorkoutSharePreviewScreenState extends State<WorkoutSharePreviewScreen> {
 
   Future<void> _share() async {
     if (_sharing) return;
+    // Measured before the capture/encode/write awaits below, per shareOriginFor:
+    // after an async gap this widget may have been relaid out and the rect would
+    // describe a box that has moved.
+    final origin = shareOriginFor(context);
     setState(() => _sharing = true);
     try {
       final boundary = _captureKey.currentContext?.findRenderObject()
@@ -383,7 +387,6 @@ class _WorkoutSharePreviewScreenState extends State<WorkoutSharePreviewScreen> {
       await file.writeAsBytes(bytes.buffer.asUint8List());
 
       if (!mounted) return;
-      final origin = shareOriginFor(context);
       // No caption text: the image carries everything, and a canned
       // "My OpenStrap workout" string is exactly the kind of filler that makes
       // a share feel automated.
