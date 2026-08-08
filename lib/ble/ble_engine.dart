@@ -133,6 +133,64 @@ int countBurstTrafficPackets({
 bool shouldPauseMaintenanceTraffic({required bool offloadActive}) =>
     offloadActive;
 
+/// The Android connection-parameter policy — the ONE place allowed to pick a
+/// [ConnectionPriority]. Call sites request what this returns; they never name
+/// a value themselves (pinned by `connection_priority_structural_test.dart`).
+///
+/// `high` is CONNECTION_PRIORITY_HIGH: an 11.25-15 ms interval with SLAVE
+/// LATENCY 0, i.e. the band's radio may not skip a single connection event —
+/// ~67 wakes/second. That is correct while bulk data is actually moving and
+/// badly wrong for the rest of the day, because this app deliberately holds
+/// the link open 24/7 (`AppState.pauseForBackground` keeps the connection; the
+/// Android EdgeTracking foreground service exists to keep it alive). The
+/// connect path used to request `high` once and never lower it, so an idle
+/// link carrying a 1 Hz HR notification, a 10 s heartbeat and a 30 s battery
+/// poll ran at the maximum-power interval all night. Connection interval is
+/// the dominant power term for an idle BLE peripheral, and the band is the
+/// device here with the small battery.
+///
+/// So the priority follows what is actually on the wire:
+///   * [offloadActive] — a history drain. Bulk transfer; needs throughput.
+///   * full live ([liveEnabled] && !`liveHrOnly`) — the ~7.6 KB/s R10/R11 +
+///     100 Hz IMU + optical flood. Also needs throughput: starving it trips
+///     [MarginalRadioDetector] into the sticky `standardHrFallback` latch,
+///     which silently stops the IMU toggles and zeroes live step counting.
+///   * HR-only ([liveHrOnly]) — the backgrounded downgrade. A 1 Hz
+///     notification, nothing consuming it. `lowPower` is 100-125 ms with slave
+///     latency 2, so the band may skip 2 of every 3 events. This is the
+///     overnight stretch and the whole point of the policy.
+///   * [standardHrFallback] — the marginal-radio latch. [enableLiveStreams]
+///     returns EARLY under it, so the R10/R11 + IMU + optical toggles are never
+///     sent and only the compact HR stream is on the wire even though
+///     `liveHrOnly` is false. Asking for `high` here would pin the radio for
+///     traffic that does not exist, on precisely the weakest radios.
+///   * nothing armed — `balanced`, Android's own default. Deliberately not
+///     `lowPower`: a foreground app can re-arm the flood at any moment.
+///
+/// An offload outranks the HR-only downgrade: a headless background drain runs
+/// with live in HR-only mode, and throttling it would stretch that drain past
+/// the OS's short background window.
+@visibleForTesting
+ConnectionPriority connectionPriorityFor({
+  required bool offloadActive,
+  required bool liveEnabled,
+  required bool liveHrOnly,
+  required bool standardHrFallback,
+}) {
+  if (offloadActive) return ConnectionPriority.high;
+  if (!liveEnabled) return ConnectionPriority.balanced;
+  // The explicit background downgrade is the stronger signal: nothing is
+  // consuming live data, so take the deepest saving even if the fallback is
+  // also latched.
+  if (liveHrOnly) return ConnectionPriority.lowPower;
+  // Fallback but foreground. Only HR is flowing, so `high` is wrong — but so
+  // is `lowPower`: unlike the background downgrade this is a state a user can
+  // be looking at, and `retryFullLiveStreams` can re-arm the flood at any
+  // moment.
+  if (standardHrFallback) return ConnectionPriority.balanced;
+  return ConnectionPriority.high;
+}
+
 /// Whether a HISTORY_END burst's packet accounting matches what the band
 /// reported sending (`expectedPacketCount`, from the metadata frame).
 ///
@@ -604,6 +662,11 @@ class BleEngine {
   /// True while live is in the background HR-only downgrade.
   bool get liveHrOnly => _liveEnabled && _liveHrOnly;
   bool _offloadActive = false;
+  // Last connection priority we successfully asked the OS for, so the
+  // idempotent re-assert in [_keepAliveFire] only writes on a real change.
+  // Null = unknown (fresh engine, or a session that has just been torn down),
+  // which forces the next apply through.
+  ConnectionPriority? _appliedPriority;
   final List<Frame> _offloadFrames = [];
   bool _drainingOffloadFrames = false;
   int _historyRequests = 0;
@@ -1086,8 +1149,14 @@ class BleEngine {
         }
       }
 
-      // Larger MTU + a fast connection interval for the drain (Android-only levers;
-      // no-ops on iOS, which picks a fast interval itself when data is pending).
+      // Larger MTU (Android-only lever; a no-op on iOS, which negotiates its
+      // own). The connection INTERVAL is deliberately NOT set here: it is owned
+      // by [connectionPriorityFor] and applied by [_applyConnectionPriority],
+      // which follows the offload/live state for the life of the link. Setting
+      // it once at connect is what pinned the band's radio to an 11.25-15 ms
+      // latency-0 interval 24/7 and drained the strap. Setup runs at Android's
+      // default (balanced); `_setOffloadActive(true)` below raises it to `high`
+      // before INIT triggers the historical flood.
       try {
         final negotiated = await device.requestMtu(247);
         // Log the RESULT: a low MTU here (e.g. 23) is the tell for the 32B alarm
@@ -1095,13 +1164,6 @@ class BleEngine {
         _log('MTU negotiated: $negotiated (requested 247).');
       } catch (e) {
         _log('requestMtu failed: $e — MTU stays at the connection default.');
-      }
-      if (Platform.isAndroid) {
-        try {
-          await device.requestConnectionPriority(
-            connectionPriorityRequest: ConnectionPriority.high,
-          );
-        } catch (_) {}
       }
 
       if (!session.connected) {
@@ -1268,6 +1330,16 @@ class BleEngine {
     if (shouldPauseMaintenanceTraffic(offloadActive: _offloadActive)) {
       return;
     }
+    // Idempotent connection-parameter re-assert. Three separate transitions
+    // move the policy's inputs, so this is the backstop that keeps a missed (or
+    // future, unwritten) call path from silently pinning the band's radio at
+    // the wrong interval for the rest of the connection — the failure shape
+    // that shipped the original 24/7-high-priority drain. A no-op unless the
+    // wanted value actually changed, so it costs nothing in steady state.
+    // Placed AFTER the maintenance-pause guard: a parameter update mid-offload
+    // would perturb the drain, and an active offload has already applied
+    // `high` through _setOffloadActive.
+    unawaited(_applyConnectionPriority());
     // Proactive RTC recheck: every other clock verification is symptom-driven
     // (see kRtcReverifyIntervalSeconds doc). A long-lived link (e.g. iOS's
     // bluetooth-central background mode, which can stay open indefinitely)
@@ -2963,6 +3035,11 @@ class BleEngine {
   Future<void> enableLiveStreams() async {
     _liveEnabled = true;
     _liveHrOnly = false;
+    // Raise the interval BEFORE the flood toggles go out, so the ~7.6 KB/s
+    // R10/R11 + IMU + optical stream never starts on a slow link — arriving
+    // into an interval that can't carry it is exactly what trips
+    // [MarginalRadioDetector] into the sticky standard-HR fallback.
+    await _applyConnectionPriority();
     _armTime =
         DateTime.now(); // marginal-radio detector measures arm→drop latency
     await _send(Cmd.toggleRealtimeHr, const [0x01]);
@@ -3033,6 +3110,10 @@ class BleEngine {
       await _send(op[0] as int, (op[1] as List).cast<int>());
       await Future.delayed(const Duration(milliseconds: 60));
     }
+    // Lower the interval only once the flood is actually off — the mirror of
+    // [enableLiveStreams]'s raise-first ordering. This is the transition that
+    // matters most for strap battery: it is the overnight state.
+    await _applyConnectionPriority();
     _log('Live streams: HR-only (background downgrade — raw flood off).');
   }
 
@@ -3067,6 +3148,9 @@ class BleEngine {
     _liveEnabled = false;
     _liveHrOnly = false;
     _armTime = null;
+    // Nothing armed → back to Android's default interval (see the policy doc
+    // for why this is `balanced` and not `lowPower`).
+    await _applyConnectionPriority();
     state.liveHr = null;
     // No phase change — we stay `listening`; only the live R10/R11/optical streams
     // stop. Historical records + the heartbeat keep flowing on the same link.
@@ -3120,6 +3204,10 @@ class BleEngine {
     // fresh GET_CLOCK. (Connection setup also re-nulls it; this covers the gap
     // between teardown and the next connect.)
     _clockRef = null;
+    // Connection parameters belong to the GATT connection that carried them.
+    // Forget what we applied so the NEXT link re-requests from scratch instead
+    // of assuming a fresh connection inherited the old session's interval.
+    _appliedPriority = null;
     _offloadFrames.clear();
     _drainingOffloadFrames = false;
     _setOffloadActive(false);
@@ -3133,7 +3221,49 @@ class BleEngine {
   void _setOffloadActive(bool active) {
     if (_offloadActive == active) return;
     _offloadActive = active;
+    unawaited(_applyConnectionPriority());
     onOffloadState?.call(active);
+  }
+
+  /// Bring the link's connection parameters in line with [connectionPriorityFor]
+  /// for the CURRENT offload/live state. Android-only — iOS gives apps no such
+  /// lever and picks its own intervals.
+  ///
+  /// Idempotent and cheap: it only issues a request when the wanted value
+  /// differs from [_appliedPriority], so the every-30s re-assert from
+  /// [_keepAliveFire] is free in steady state. That re-assert is the point —
+  /// three separate transitions change the inputs (`_setOffloadActive`,
+  /// [enableLiveStreams]/[retryFullLiveStreams], [enableHrOnlyLive]/
+  /// [disableLiveStreams]), and a future call path that forgets to apply would
+  /// otherwise silently defeat the policy for the rest of the connection. With
+  /// the re-assert, a missed call site costs at most one keep-alive interval of
+  /// staleness instead.
+  ///
+  /// Best-effort by design: a refused or unsupported request leaves the
+  /// previous parameters in place, which is never worse than not trying.
+  Future<void> _applyConnectionPriority() async {
+    if (!Platform.isAndroid) return;
+    final session = _session;
+    if (session == null || !session.connected) return;
+    final want = connectionPriorityFor(
+      offloadActive: _offloadActive,
+      liveEnabled: _liveEnabled,
+      liveHrOnly: _liveHrOnly,
+      standardHrFallback: state.standardHrFallback,
+    );
+    if (want == _appliedPriority) return;
+    try {
+      await session.device.requestConnectionPriority(
+        connectionPriorityRequest: want,
+      );
+      // Only record it once the OS accepted the request — a throw must leave
+      // the cache stale-but-honest so the next re-assert retries.
+      _appliedPriority = want;
+      _log('[BLE] connection priority → ${want.name} '
+          '(offload=$_offloadActive live=$_liveEnabled hrOnly=$_liveHrOnly).');
+    } catch (e) {
+      _log('[BLE] connection priority request failed: $e — parameters unchanged.');
+    }
   }
 
   void _setHpsTerminal(
