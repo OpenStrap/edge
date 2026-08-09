@@ -177,7 +177,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool refreshHeat = true}) async {
     final api = context.read<AppState>().repo;
     if (api == null) return;
     setState(() => _loading = true);
@@ -204,17 +204,19 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       // hypnogram / HRV payload — on every load and every pull-to-refresh, just
       // to build detections loggedForHeatmap discards a line later.
       List<HeatDay>? heat;
-      try {
-        final now = DateTime.now();
-        final from = DateTime(now.year, now.month, now.day - 105);
-        final sessions = await api.getSessions(
-          from: from.millisecondsSinceEpoch ~/ 1000,
-          to: now.millisecondsSinceEpoch ~/ 1000,
-          includeDetected: false,
-        );
-        heat = buildHeatDays(loggedForHeatmap(sessions), today: now);
-      } catch (_) {
-        /* the board is an enrichment — the log still renders without it */
+      if (refreshHeat || _heat == null) {
+        try {
+          final now = DateTime.now();
+          final from = DateTime(now.year, now.month, now.day - 105);
+          final sessions = await api.getSessions(
+            from: from.millisecondsSinceEpoch ~/ 1000,
+            to: now.millisecondsSinceEpoch ~/ 1000,
+            includeDetected: false,
+          );
+          heat = buildHeatDays(loggedForHeatmap(sessions), today: now);
+        } catch (_) {
+          /* the board is an enrichment — the log still renders without it */
+        }
       }
 
       if (mounted) {
@@ -313,7 +315,9 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
             onChanged: (i) {
               setState(() => _range = i);
               Prefs.setInt(Prefs.workoutsRange, i);
-              _load();
+              // The board's window is fixed and independent of this selector,
+              // so re-reading it here could not change a single cell.
+              _load(refreshHeat: false);
             },
           ),
           const SizedBox(height: Sp.x2),

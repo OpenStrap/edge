@@ -397,6 +397,9 @@ class _CalorieHeatmapCardState extends State<CalorieHeatmapCard>
     final streak = currentStreak(widget.days, today: widget.today);
     final scale = heatScale(widget.days);
     final peak = _peak;
+    // Derived, not hardcoded: `days` is a constructor argument, so a caller
+    // that builds a different span must not be described as 13 weeks.
+    final weeks = (widget.days.length / 7).ceil();
 
     // Resolved by lookup rather than firstWhere: the window slides forward as
     // days pass and on a refresh that crosses midnight the selected date can
@@ -423,10 +426,10 @@ class _CalorieHeatmapCardState extends State<CalorieHeatmapCard>
           children: [
             Row(
               children: [
-                const Expanded(child: TileHeader('Activity · 13 weeks')),
+                Expanded(child: TileHeader('Activity · $weeks weeks')),
                 InfoDot(
                   title: 'Activity heatmap',
-                  body: 'Every day of the last 13 weeks, shaded by the '
+                  body: 'Every day of the last $weeks weeks, shaded by the '
                       'calories you burned in logged workouts. Empty squares '
                       'are days you did not train.',
                   methodNote: 'Shade is scaled to your own 90th-percentile '
@@ -607,19 +610,24 @@ class _HeatGrid extends StatelessWidget {
                         padding: const EdgeInsets.only(bottom: gap),
                         child: Row(
                           children: [
+                            // weeks rounds UP, so a caller passing a part-week
+                            // list would index past the end. buildHeatDays
+                            // always emits whole weeks, but the widget takes
+                            // any List<HeatDay>.
                             for (var col = 0; col < weeks; col++)
-                              Padding(
-                                padding: EdgeInsets.only(
-                                    right: col == weeks - 1 ? 0 : gap),
-                                child: _cell(
-                                  days[col * 7 + row],
-                                  cell.toDouble(),
-                                  radius.toDouble(),
-                                  col,
-                                  row,
-                                  t,
+                              if (col * 7 + row < days.length)
+                                Padding(
+                                  padding: EdgeInsets.only(
+                                      right: col == weeks - 1 ? 0 : gap),
+                                  child: _cell(
+                                    days[col * 7 + row],
+                                    cell.toDouble(),
+                                    radius.toDouble(),
+                                    col,
+                                    row,
+                                    t,
+                                  ),
                                 ),
-                              ),
                           ],
                         ),
                       ),
@@ -647,8 +655,17 @@ class _HeatGrid extends StatelessWidget {
     // later, so the board lights up as one wave rather than all at once.
     final delay = (col * 0.045 + row * 0.012).clamp(0.0, 0.6);
 
+    // Only the peak cell reads pulse.value, and the pulse repeats for as long
+    // as the card is mounted. Merging it into all 91 cells would rebuild the
+    // entire board every frame, forever, to breathe one square — each rebuild
+    // reallocating the Opacity/Transform/AnimatedScale/Container chain. `reveal`
+    // stops notifying once it settles, so subscribing the rest to it alone
+    // leaves them genuinely idle after the intro.
+    final animation =
+        isPeak && pulse != null ? Listenable.merge([reveal, pulse]) : reveal;
+
     return AnimatedBuilder(
-      animation: Listenable.merge([reveal, pulse]),
+      animation: animation,
       builder: (context, _) {
         final p = ((reveal.value - delay) / 0.35).clamp(0.0, 1.0);
         final eased = Curves.easeOutCubic.transform(p);

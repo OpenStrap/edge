@@ -505,6 +505,31 @@ void main() {
       expect(find.textContaining('sessions'), findsOneWidget);
     });
 
+    testWidgets('a part-week list renders, and the header says its own span',
+        (t) async {
+      // `days` is a constructor argument, so the widget has to survive a list
+      // buildHeatDays didn't produce. The column count rounds UP, so the last
+      // column indexes past the end of a part-week list, and a header that
+      // hardcoded 13 would be describing a window the caller never asked for.
+      final days = buildHeatDays(const [], today: today, weeks: 3)
+          .take(17) // two whole weeks + 3 days
+          .toList();
+
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: CalorieHeatmapCard(days: days, today: today),
+          ),
+        ),
+      ));
+      await settleAnimated(t);
+
+      expect(t.takeException(), isNull);
+      // TileHeader uppercases its label.
+      expect(find.textContaining('3 WEEKS'), findsOneWidget);
+      expect(find.textContaining('13 WEEKS'), findsNothing);
+    });
+
     testWidgets('the board fits without overflowing a narrow phone',
         (t) async {
       // Cell size is derived from the available width but clamped at both
