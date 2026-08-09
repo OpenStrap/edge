@@ -550,11 +550,17 @@ void main() {
 
     testWidgets('reduced motion leaves no animation running', (t) async {
       await t.pumpWidget(MaterialApp(
-        home: MediaQuery(
-          data: const MediaQueryData(disableAnimations: true),
-          child: Scaffold(
-            body: SingleChildScrollView(
-              child: CalorieHeatmapCard(days: sample(), today: today),
+        home: Builder(
+          // copyWith, not a bare MediaQueryData: constructing one from scratch
+          // resets size to zero and drops textScaler, padding and brightness,
+          // so the test would quietly stop describing a real device the moment
+          // the card reads any other MediaQuery field.
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: Scaffold(
+              body: SingleChildScrollView(
+                child: CalorieHeatmapCard(days: sample(), today: today),
+              ),
             ),
           ),
         ),

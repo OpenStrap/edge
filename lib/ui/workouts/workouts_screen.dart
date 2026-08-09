@@ -171,6 +171,13 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
   /// while the feed below it filters.
   List<HeatDay>? _heat;
 
+  /// The day `_heat` was built against. The card has to be handed THIS, not a
+  /// fresh clock read: the two agree only until the next local midnight, and a
+  /// screen left open across it would flag the new day as still-in-the-future,
+  /// draw no cell for it, put the "today" ring on nothing, and count the streak
+  /// against a day the board does not contain.
+  DateTime? _heatToday;
+
   @override
   void initState() {
     super.initState();
@@ -204,6 +211,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       // hypnogram / HRV payload — on every load and every pull-to-refresh, just
       // to build detections loggedForHeatmap discards a line later.
       List<HeatDay>? heat;
+      DateTime? heatToday;
       if (refreshHeat || _heat == null) {
         try {
           final now = DateTime.now();
@@ -214,6 +222,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
             includeDetected: false,
           );
           heat = buildHeatDays(loggedForHeatmap(sessions), today: now);
+          heatToday = now;
         } catch (_) {
           /* the board is an enrichment — the log still renders without it */
         }
@@ -224,7 +233,12 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
           _data = d;
           _suggestions = sug;
           _records = recs;
-          _heat = heat ?? _heat;
+          // Grid and anchor move together or not at all — a board carrying one
+          // day's future flags under another day's clock is the bug.
+          if (heat != null) {
+            _heat = heat;
+            _heatToday = heatToday;
+          }
           _loading = false;
         });
       }
@@ -371,10 +385,12 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
               // Today tab you still see the quarter's rhythm rather than only
               // an empty state. Hidden entirely until there is something to
               // shade — an all-empty board says nothing.
-              if (_heat != null && _heat!.any((d) => d.kcal > 0)) ...[
+              if (_heat != null &&
+                  _heatToday != null &&
+                  _heat!.any((d) => d.kcal > 0)) ...[
                 CalorieHeatmapCard(
                   days: _heat!,
-                  today: DateTime.now(),
+                  today: _heatToday!,
                 ).dsEnter(),
                 const SizedBox(height: Sp.x4),
               ],
