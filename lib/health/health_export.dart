@@ -1154,7 +1154,18 @@ HealthWorkoutActivityType healthActivityForType(
       return HealthWorkoutActivityType.BASKETBALL;
     case 'soccer':
     case 'football':
-      return HealthWorkoutActivityType.SOCCER;
+      // `SOCCER` passes the plugin's Dart-side guard but is COMMENTED OUT of
+      // Health Connect's Kotlin write map (HealthPlugin.kt, "TODO: add
+      // soccer"), so the call reaches the channel and comes back
+      // `success(false)` rather than throwing. This file treats a false as a
+      // genuine write failure and counts it toward the day's give-up budget —
+      // so one soccer workout would silently pause that day's ENTIRE export,
+      // resting HR and sleep included. Worse than #184, which at least failed
+      // only itself. OTHER is accepted on Android, so the workout lands
+      // unlabelled instead of taking the day down with it.
+      return ios
+          ? HealthWorkoutActivityType.SOCCER
+          : HealthWorkoutActivityType.OTHER;
     case 'golf':
       return HealthWorkoutActivityType.GOLF;
     default:

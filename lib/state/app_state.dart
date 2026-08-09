@@ -3873,7 +3873,12 @@ class AppState extends ChangeNotifier {
   // no session is live or the type isn't route-eligible / permission denied.
   RouteTracker? _routeTracker;
   RouteTracker? get routeTracker => _routeTracker;
-  static const Set<String> _routeTypes = {'run', 'cycle', 'walk'};
+  // A hike is a walk that goes somewhere, so it records a route like one.
+  // Ski and snowboard are deliberately NOT here despite being outdoors: the
+  // route screen's hero numbers are distance and pace, and pace down a
+  // lift-served descent is not the same claim as pace on a walk — it would
+  // read as a performance figure while measuring gravity.
+  static const Set<String> _routeTypes = {'run', 'cycle', 'walk', 'hike'};
 
   DateTime _lastLaPush = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -4031,7 +4036,9 @@ class AppState extends ChangeNotifier {
   /// is granted. Denial is surfaced (routeLocationIssue) — the workout still
   /// runs without a map, but the user is told why and how to fix it.
   Future<void> _maybeStartRouteTracking(String id, String type) async {
-    if (!_routeTypes.contains(type)) return;
+    // Lowercased for the same reason every other type lookup is: the stored
+    // `type` column is free-form text and older rows carry mixed case.
+    if (!_routeTypes.contains(type.toLowerCase())) return;
     if (_routeTracker != null) return;
     routeLocationIssue = null;
     var perm = GpsPermissionStatus.error;

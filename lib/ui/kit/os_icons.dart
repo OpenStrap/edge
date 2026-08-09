@@ -101,9 +101,12 @@ enum OsIcon {
   swim,
   hiit,
   // Sport glyphs for the workout-type vocabulary beyond the original nine.
-  // Every one of these is a real, distinct glyph — a type only earns a place
-  // in `kWorkoutTypes` if a pack draws it, because a picker full of
-  // near-identical stand-in icons is worse than a shorter picker.
+  // A type earns a place in `kWorkoutTypes` only when a pack draws something
+  // recognisable for it, because a picker full of near-identical stand-ins is
+  // worse than a shorter picker. That bar is "recognisable", not "literal":
+  // two of these are acknowledged approximations (see `rowing` and `pilates`
+  // in the map below), which is exactly why elliptical and dance were left
+  // out — nothing in any pack reads as either.
   boxing,
   rowing,
   hike,
@@ -240,7 +243,11 @@ const Map<OsIcon, IconData> _glyphs = {
   // honest read of the movement.
   OsIcon.rowing: PhosphorIconsDuotone.boat,
   OsIcon.hike: PhosphorIconsDuotone.personSimpleHike,
-  OsIcon.climb: PhosphorIconsDuotone.mountains,
+  // A ladder, not `mountains`. Mountains is terrain rather than a person, and
+  // it sits next to `hike: personSimpleHike` in the picker — between "a person
+  // hiking" and "some mountains", the mountains are the tile that reads as
+  // hiking. A ladder reads as vertical ascent and separates the pair.
+  OsIcon.climb: PhosphorIconsDuotone.ladderSimple,
   OsIcon.ski: PhosphorIconsDuotone.personSimpleSki,
   OsIcon.snowboard: PhosphorIconsDuotone.personSimpleSnowboard,
   OsIcon.stairs: PhosphorIconsDuotone.stairs,

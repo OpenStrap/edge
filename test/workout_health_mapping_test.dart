@@ -8,13 +8,22 @@
 // reached Apple Health. The same latent bug existed for `swim`, which mapped to
 // bare `SWIMMING` — an iOS-only value — and so was dropped on Android.
 //
-// The supported sets below are transcribed from `health: 11.1.1`
-// (`lib/src/health_plugin.dart`, `_isOnIOS` / `_isOnAndroid`), restricted to the
-// values `healthActivityForType` can actually emit. They are a PIN, not a
-// mirror: on a `health` upgrade, re-check those two functions and update these
-// sets deliberately. If a value silently leaves a platform's set upstream, this
-// test is what catches it before another workout family goes missing for a
-// release.
+// The supported sets below are a PIN, not a mirror: on a `health` upgrade,
+// re-check the sources named below and update them deliberately. If a value
+// silently leaves a platform's set upstream, this test is what catches it
+// before another workout family goes missing for a release.
+//
+// SOURCE OF TRUTH, and it differs per platform:
+//   iOS     — `ios/Classes/SwiftHealthPlugin.swift`, `workoutActivityTypeMap`.
+//   Android — `android/.../HealthPlugin.kt`, `workoutTypeMap`. NOT the Dart
+//             `_isOnAndroid` list, which is only an advisory pre-check and
+//             does NOT agree with the Kotlin map. `SOCCER` is the live example:
+//             the Dart list contains it, the Kotlin map has it commented out,
+//             and a write of it returns `success(false)` instead of throwing.
+//             This file's exporter reads a false as a real write failure and
+//             counts it toward the day's give-up budget, so trusting the Dart
+//             list here would have shipped a workout type that silently paused
+//             a whole day of health export.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health/health.dart';
@@ -64,7 +73,6 @@ const _androidSupported = <HealthWorkoutActivityType>{
   HealthWorkoutActivityType.PILATES,
   HealthWorkoutActivityType.TENNIS,
   HealthWorkoutActivityType.BASKETBALL,
-  HealthWorkoutActivityType.SOCCER,
   HealthWorkoutActivityType.GOLF,
   HealthWorkoutActivityType.OTHER,
 };
@@ -135,9 +143,14 @@ void main() {
     // better home for them than OTHER, and that is a decision, not an
     // oversight.
     const deliberatelyOther = {'cardio', 'other'};
+    // Android-only exemption: Health Connect has no writable soccer type at
+    // this plugin version (see the header), so OTHER there is the correct
+    // answer rather than a missing case.
+    const androidOtherOk = {'soccer'};
     for (final e in kWorkoutTypes) {
       if (deliberatelyOther.contains(e.$1)) continue;
       for (final ios in [true, false]) {
+        if (!ios && androidOtherOk.contains(e.$1)) continue;
         expect(
           healthActivityForType(e.$1, ios: ios),
           isNot(HealthWorkoutActivityType.OTHER),
@@ -167,6 +180,25 @@ void main() {
         reason: '"$alias" must land on the same iOS type as "strength"',
       );
     }
+  });
+
+  test('soccer does not reach a Health Connect type it would reject', () {
+    // The Kotlin write map has SOCCER commented out. Sending it anyway comes
+    // back false rather than throwing, and this exporter reads a false as a
+    // real write failure — one soccer workout would take the whole day's
+    // export down with it.
+    expect(
+      healthActivityForType('soccer', ios: true),
+      HealthWorkoutActivityType.SOCCER,
+    );
+    expect(
+      healthActivityForType('soccer', ios: false),
+      HealthWorkoutActivityType.OTHER,
+    );
+    expect(
+      healthActivityForType('football', ios: false),
+      HealthWorkoutActivityType.OTHER,
+    );
   });
 
   test('swim maps to the platform-correct swim spelling', () {
