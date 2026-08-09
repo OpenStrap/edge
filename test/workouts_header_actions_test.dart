@@ -4,13 +4,20 @@
 // WHY THIS FILE EXISTS. "Log a past workout" first shipped as a fourth child
 // of the start bottom sheet, where it was invisible and untappable: the sheet
 // defaults to `isScrollControlled: false`, capping it at 9/16 of the screen
-// (~475 pt at 390x844), and the nine type tiles already wrap to three rows.
+// (~475 pt at 390x844), and nine type tiles already wrapped to three rows.
 // The row fell off the bottom edge. In release there are no overflow stripes,
 // so nothing announced it — it just silently did not work.
 //
-// Two lessons, both pinned here:
+// The type vocabulary has since outgrown that cap outright, so the sheet is
+// scroll-controlled and the grid scrolls inside it. That changes what has to
+// be guarded, not why: the failure mode is still "content past the edge is
+// silently unhittable", and the defence is now that the grid is genuinely
+// inside a Scrollable and every tile can be reached.
+//
+// Three lessons, all pinned here:
 //   1. Two pills plus the title must fit the header row at real phone widths.
 //   2. A layout overflow must FAIL a test rather than ship as dead pixels.
+//   3. Every workout type must be reachable, however long the list grows.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -68,38 +75,24 @@ void main() {
   }
 
   testWidgets(
-    'the start sheet content fits the default 9/16 bottom-sheet cap — '
-    'the regression that made "Log a past workout" untappable',
+    'every workout type in the start sheet is reachable — the regression '
+    'that made "Log a past workout" untappable',
     (t) async {
       t.view.physicalSize = _iphone14;
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.reset);
       AppColors.active = kLightPalette;
 
-      // The sheet body exactly as startWorkoutFlow builds it.
+      // The sheet body exactly as startWorkoutFlow builds it, under the same
+      // ceiling showModalBottomSheet imposes with isScrollControlled: true.
       await t.pumpWidget(_harness(
         Scaffold(
           body: Align(
             alignment: Alignment.bottomCenter,
-            child: ConstrainedBox(
-              // What showModalBottomSheet imposes with isScrollControlled:false.
-              constraints: BoxConstraints(maxHeight: _iphone14.height * 9 / 16),
-              child: SafeArea(
-                key: const Key('sheet-body'),
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.all(Sp.x5),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Start a workout', style: AppText.h2),
-                      const SizedBox(height: Sp.x4),
-                      Builder(builder: workoutTypeGrid),
-                      const SizedBox(height: Sp.x4),
-                    ],
-                  ),
-                ),
+            child: KeyedSubtree(
+              key: const Key('sheet-body'),
+              child: Builder(
+                builder: (ctx) => workoutTypeSheet(ctx, 'Start a workout'),
               ),
             ),
           ),
@@ -109,30 +102,42 @@ void main() {
       await t.pump();
 
       expect(t.takeException(), isNull,
-          reason: 'the start sheet must not overflow its 9/16 cap — anything '
-              'past the edge is silently unhittable in release');
+          reason: 'the start sheet must not overflow — anything past the edge '
+              'is silently unhittable in release');
 
-      // Every type tile is inside the visible sheet, not clipped past it.
-      final ceiling = _iphone14.height * 9 / 16;
+      // The sheet stays inside its own ceiling rather than growing to fit.
+      final used = t.getSize(find.byKey(const Key('sheet-body'))).height;
+      expect(used, lessThanOrEqualTo(_iphone14.height * 0.75 + 0.5),
+          reason: 'sheet grew past the height it constrains itself to');
+
+      // THE load-bearing assertion: the grid is inside a Scrollable. Without
+      // it the overflowing tiles are drawn nowhere and cannot be tapped, which
+      // is the original bug with more tiles.
+      expect(
+        find.ancestor(
+          of: find.text(kWorkoutTypes.first.$2),
+          matching: find.byType(Scrollable),
+        ),
+        findsWidgets,
+        reason: 'the type grid must scroll — the list is taller than the sheet',
+      );
+
+      // Every tile exists, has real size, and can be brought fully on screen.
+      final scrollable = find
+          .descendant(
+            of: find.byKey(const Key('sheet-body')),
+            matching: find.byType(Scrollable),
+          )
+          .first;
       for (final e in kWorkoutTypes) {
         final tile = find.text(e.$2);
         expect(tile, findsOneWidget, reason: '${e.$2} tile missing');
+        await t.scrollUntilVisible(tile, 120, scrollable: scrollable);
         final r = t.getRect(tile);
-        expect(r.bottom, lessThanOrEqualTo(_iphone14.height),
-            reason: '${e.$2} is clipped off the bottom of the screen');
         expect(r.height, greaterThan(0), reason: '${e.$2} collapsed to zero');
+        expect(r.bottom, lessThanOrEqualTo(_iphone14.height),
+            reason: '${e.$2} could not be scrolled onto the screen');
       }
-
-      // And the sheet genuinely is close to its ceiling — this is the fact
-      // that makes adding a fourth child unsafe. If this ever goes slack
-      // (fewer types, a tighter grid), the note in startWorkoutFlow can be
-      // revisited; until then it stands.
-      // By key: `find.byType(SafeArea).last` depended on how many SafeAreas
-      // the harness happened to nest, which is not what this asserts.
-      final used = t.getSize(find.byKey(const Key('sheet-body'))).height;
-      expect(used, greaterThan(ceiling * 0.6),
-          reason: 'sheet is nowhere near its cap — re-check the guidance in '
-              'startWorkoutFlow before trusting it');
     },
   );
 }

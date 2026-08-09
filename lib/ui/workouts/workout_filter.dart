@@ -1,0 +1,166 @@
+// Pure filtering/sorting policy for the workout list. Lives apart from
+// workouts_screen.dart so the rules are unit-testable without pumping a
+// widget — the screen wires, this decides.
+//
+// Everything here operates on the session maps the repo already returns
+// (`start_ts`, `status`, `type`, `duration_min`, `strain`, `calories`,
+// `zone_min`); nothing re-reads the database.
+
+import 'workout_types.dart';
+
+/// Ordering for the filtered list.
+enum WorkoutSort {
+  newest,
+  oldest,
+  longest,
+  hardest;
+
+  String get label => switch (this) {
+    WorkoutSort.newest => 'Newest',
+    WorkoutSort.oldest => 'Oldest',
+    WorkoutSort.longest => 'Longest',
+    WorkoutSort.hardest => 'Hardest',
+  };
+
+  /// Whether the order still runs along the calendar. The feed groups by week,
+  /// which only means anything for a chronological order — the other two sorts
+  /// render as one flat list instead.
+  bool get isChronological =>
+      this == WorkoutSort.newest || this == WorkoutSort.oldest;
+}
+
+/// Canonical type key for filtering. Anything outside the [kWorkoutTypes]
+/// vocabulary — an auto-detector string, a type from an older release, an
+/// imported session — collapses to `other`, so the "Other" chip actually
+/// catches those instead of leaving them unreachable by any filter.
+String canonicalWorkoutType(String? raw) {
+  final t = (raw ?? '').toLowerCase();
+  for (final e in kWorkoutTypes) {
+    if (e.$1 == t) return t;
+  }
+  return 'other';
+}
+
+/// A filter over the workout feed. All fields are floors, not ranges — the
+/// range picker above the list already bounds the window in time.
+class WorkoutFilter {
+  const WorkoutFilter({
+    this.types = const <String>{},
+    this.minMinutes = 0,
+    this.minStrain = 0,
+    this.sort = WorkoutSort.newest,
+  });
+
+  /// Empty means every type. Keys are [kWorkoutTypes] keys.
+  final Set<String> types;
+  final int minMinutes;
+  final double minStrain;
+  final WorkoutSort sort;
+
+  /// Whether anything is actually narrowing the list. Sort alone doesn't
+  /// count — reordering hides nothing, so the summary stays truthful.
+  bool get isNarrowing => types.isNotEmpty || minMinutes > 0 || minStrain > 0;
+
+  bool get isDefault => !isNarrowing && sort == WorkoutSort.newest;
+
+  WorkoutFilter copyWith({
+    Set<String>? types,
+    int? minMinutes,
+    double? minStrain,
+    WorkoutSort? sort,
+  }) => WorkoutFilter(
+    types: types ?? this.types,
+    minMinutes: minMinutes ?? this.minMinutes,
+    minStrain: minStrain ?? this.minStrain,
+    sort: sort ?? this.sort,
+  );
+
+  /// One-line description of what's active, for the chip under the header.
+  /// Empty when nothing is narrowing.
+  String get description {
+    final parts = <String>[];
+    if (types.isNotEmpty) {
+      final names = types.map(workoutTypeLabel).toList()..sort();
+      parts.add(names.length <= 2 ? names.join(', ') : '${names.length} types');
+    }
+    if (minMinutes > 0) parts.add('${minMinutes}m+');
+    if (minStrain > 0) parts.add('strain ${minStrain.toStringAsFixed(0)}+');
+    return parts.join(' · ');
+  }
+
+  bool _matches(Map<String, dynamic> w) {
+    // A session that is happening right now always shows. It has no final
+    // duration or strain yet, so every numeric floor would hide the one thing
+    // the user is most likely looking for.
+    if (w['status'] == 'live') return true;
+    if (types.isNotEmpty &&
+        !types.contains(canonicalWorkoutType(w['type'] as String?))) {
+      return false;
+    }
+    if (minMinutes > 0 && ((w['duration_min'] as num?) ?? 0) < minMinutes) {
+      return false;
+    }
+    if (minStrain > 0 && ((w['strain'] as num?) ?? 0) < minStrain) {
+      return false;
+    }
+    return true;
+  }
+
+  List<Map<String, dynamic>> apply(List<Map<String, dynamic>> workouts) {
+    final out = workouts.where(_matches).toList();
+    int startOf(Map<String, dynamic> w) => (w['start_ts'] as int?) ?? 0;
+    num durOf(Map<String, dynamic> w) => (w['duration_min'] as num?) ?? 0;
+    num strainOf(Map<String, dynamic> w) => (w['strain'] as num?) ?? 0;
+    switch (sort) {
+      case WorkoutSort.newest:
+        out.sort((a, b) => startOf(b).compareTo(startOf(a)));
+      case WorkoutSort.oldest:
+        out.sort((a, b) => startOf(a).compareTo(startOf(b)));
+      // Ties fall back to newest-first so the order is stable rather than
+      // dependent on however the query happened to return equal rows.
+      case WorkoutSort.longest:
+        out.sort((a, b) {
+          final c = durOf(b).compareTo(durOf(a));
+          return c != 0 ? c : startOf(b).compareTo(startOf(a));
+        });
+      case WorkoutSort.hardest:
+        out.sort((a, b) {
+          final c = strainOf(b).compareTo(strainOf(a));
+          return c != 0 ? c : startOf(b).compareTo(startOf(a));
+        });
+    }
+    return out;
+  }
+}
+
+/// Re-aggregate the training summary over a filtered list, mirroring the
+/// repo's own aggregation (`getWorkouts`) so a filtered feed never shows
+/// whole-range totals above a narrowed list.
+///
+/// Live sessions are excluded exactly as the repo excludes them — they have no
+/// final numbers to add up.
+Map<String, dynamic> summarizeWorkouts(List<Map<String, dynamic>> workouts) {
+  var count = 0, totalMin = 0, totalCal = 0;
+  final zoneSum = <num>[];
+  for (final w in workouts) {
+    if (w['status'] == 'live') continue;
+    count++;
+    totalMin += ((w['duration_min'] as num?) ?? 0).toInt();
+    totalCal += ((w['calories'] as num?) ?? 0).toInt();
+    final zm = (w['zone_min'] as List?) ?? const [];
+    for (var i = 0; i < zm.length; i++) {
+      final v = (zm[i] as num?) ?? 0;
+      if (i < zoneSum.length) {
+        zoneSum[i] += v;
+      } else {
+        zoneSum.add(v);
+      }
+    }
+  }
+  return {
+    'count': count,
+    'total_min': totalMin,
+    'total_calories': totalCal,
+    'zone_min': zoneSum,
+  };
+}

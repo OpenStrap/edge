@@ -4222,7 +4222,10 @@ class AppState extends ChangeNotifier {
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     final w = activeWorkout!;
-    final finalKcal = w.calories.round();
+    // Nullable for the same reason `steps` below is: an unanchored profile
+    // means this session was never costed, and a 0 in the column reads as
+    // "burned nothing" rather than "not measured".
+    final finalKcal = w.caloriesOrNull;
     // Nullable: an unmeasured workout must leave the column unset rather than
     // bank a zero that reads as "you took no steps".
     final wSteps = workoutStepsMeasured;
@@ -4237,7 +4240,7 @@ class AppState extends ChangeNotifier {
       'end_ts': endTs,
       'type': w.type,
       'status': 'done',
-      'calories': w.calories,
+      'calories': finalKcal,
       'strain': w.strain,
       'max_hr': w.maxHrSeen > 0 ? w.maxHrSeen : null,
       'duration_min': w.elapsed.inMinutes,
@@ -4260,7 +4263,11 @@ class AppState extends ChangeNotifier {
     _workoutRawBase = null;
     _workoutSawSamples = false;
     notifyListeners();
-    _log('Live session ended. Burned $finalKcal kcal.');
+    _log(
+      finalKcal == null
+          ? 'Live session ended. No calorie anchors in the profile.'
+          : 'Live session ended. Burned $finalKcal kcal.',
+    );
     LiveActivity.end();
     // A workout often rides the live feed; if the connection blipped during it, the
     // band may hold that window in flash. Pull it now over the live connection so the
@@ -4396,13 +4403,17 @@ class AppState extends ChangeNotifier {
     // zone_min at stop — this is what feeds the Time-in-Zones bar).
     if (w.currentHr > 0) w.zoneSeconds[_zoneFor(w.currentHr)] += 1;
 
-    if (w.currentHr > 0) {
-      // Calorie burn formula (estimate per second). Personalized from the LOCAL
-      // profile, with representative fallbacks (30y, 70kg, male) when unset.
-      final u = user ?? const {};
-      final age = (u['age'] as num?)?.toDouble() ?? 30.0;
-      final weight = (u['weight_kg'] as num?)?.toDouble() ?? 70.0;
-      final female = u['sex'] == 'f';
+    if (w.currentHr > 0 && w.profile.hasCalorieAnchors) {
+      // Keytel (2005) per second, from the profile this session is being
+      // performed under. No fallbacks: this used to substitute 30y / 70 kg /
+      // male for whatever the profile was missing, which is how an untouched
+      // profile still produced a confident calorie total — and why the number
+      // read high for anyone lighter than the stand-in. The re-score path has
+      // always refused to guess (`hasCalorieAnchors`); now so does this one,
+      // and an unanchored session reports no calories at all.
+      final age = w.profile.ageYears!.toDouble();
+      final weight = w.profile.weightKg!;
+      final female = w.profile.sex == 'f' || w.profile.sex == 'female';
 
       double kcalMin;
       if (female) {
@@ -4435,9 +4446,9 @@ class AppState extends ChangeNotifier {
         hr: w.currentHr,
         zone: _zoneFor(w.currentHr),
         // The Live Activity widget has no absent state; the in-app gauge
-        // shows "—" when strain is null, this pushes 0.
+        // shows "—" when strain or calories are null, this pushes 0.
         strain: w.strain ?? 0,
-        calories: w.calories.round(),
+        calories: w.caloriesOrNull ?? 0,
         maxHr: _maxHr,
         rhr: _restingHr,
       );
@@ -4453,7 +4464,17 @@ class LiveWorkoutState {
   final String? workoutId; // local session id (for the breakdown on finish)
   final String type; // exercise type label
   Duration elapsed = Duration.zero;
+
+  /// Accrued kcal. Only ever added to when [Profile.hasCalorieAnchors] holds,
+  /// so a zero here means "never scored", not "burned nothing" — read
+  /// [caloriesOrNull] rather than this field anywhere a user can see it.
   double calories = 0.0;
+
+  /// Accrued kcal, or null when the profile lacks the anchors Keytel needs.
+  /// Absent beats fabricated: an unanchored session shows "—" instead of a
+  /// number computed for a stand-in body.
+  int? get caloriesOrNull =>
+      profile.hasCalorieAnchors ? calories.round() : null;
 
   /// Headline 0–21 strain, or null when the profile lacks an anchor the
   /// Banister formula needs. Recomputed on every HR sample by [accrueHr] — it

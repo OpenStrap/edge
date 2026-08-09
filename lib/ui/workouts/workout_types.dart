@@ -27,6 +27,18 @@ const kWorkoutTypes = <(String, String, OsIcon, OsIcon?)>[
   ('cardio', 'Cardio', OsIcon.cardio, OsIcon.cardio),
   ('yoga', 'Yoga', OsIcon.yoga, OsIcon.yoga),
   ('hiit', 'HIIT', OsIcon.hiit, OsIcon.hiit),
+  ('boxing', 'Boxing', OsIcon.boxing, OsIcon.boxing),
+  ('rowing', 'Rowing', OsIcon.rowing, OsIcon.rowing),
+  ('hike', 'Hike', OsIcon.hike, OsIcon.hike),
+  ('climb', 'Climb', OsIcon.climb, OsIcon.climb),
+  ('ski', 'Ski', OsIcon.ski, OsIcon.ski),
+  ('snowboard', 'Snowboard', OsIcon.snowboard, OsIcon.snowboard),
+  ('stairs', 'Stairs', OsIcon.stairs, OsIcon.stairs),
+  ('pilates', 'Pilates', OsIcon.pilates, OsIcon.pilates),
+  ('tennis', 'Racquet', OsIcon.tennis, OsIcon.tennis),
+  ('basketball', 'Basketball', OsIcon.basketball, OsIcon.basketball),
+  ('soccer', 'Soccer', OsIcon.soccer, OsIcon.soccer),
+  ('golf', 'Golf', OsIcon.golf, OsIcon.golf),
   ('other', 'Other', OsIcon.workoutOther, OsIcon.workoutOther),
 ];
 
@@ -54,6 +66,12 @@ OsIcon? workoutTypeOsIcon(String? type) {
 String workoutTypeLabel(String? type) {
   if (type == null || type.isEmpty) return 'Workout';
   if (type.toLowerCase().contains('autodetected')) return 'Workout';
+  // The table's own label wins over capitalising the key, so the list row and
+  // the picker tile always read the same. Capitalising blind is how 'hiit'
+  // rendered as "Hiit" everywhere except the picker.
+  for (final e in kWorkoutTypes) {
+    if (e.$1 == type) return e.$2;
+  }
   return type[0].toUpperCase() + type.substring(1);
 }
 
@@ -94,6 +112,42 @@ Widget workoutTypeGrid(BuildContext context) => Wrap(
   ],
 );
 
+/// The body every type-picking bottom sheet shares: a title over a scrollable
+/// grid, capped at 3/4 of the screen.
+///
+/// The grid MUST stay scrollable and the sheet MUST be opened with
+/// `isScrollControlled: true`. A plain `showModalBottomSheet` caps itself at
+/// 9/16 of the screen (~475 pt on a 390x844 device); the type list outgrew
+/// that the moment it went past nine tiles, and the overflow is invisible in
+/// release — the last rows are simply clipped off and untappable, with no
+/// overflow stripes to give it away.
+Widget workoutTypeSheet(BuildContext context, String title) {
+  final maxHeight = MediaQuery.sizeOf(context).height * 0.75;
+  return SafeArea(
+    top: false,
+    child: ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: Padding(
+        padding: const EdgeInsets.all(Sp.x5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: AppText.h2),
+            const SizedBox(height: Sp.x4),
+            Flexible(
+              child: SingleChildScrollView(
+                child: Builder(builder: workoutTypeGrid),
+              ),
+            ),
+            const SizedBox(height: Sp.x4),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 /// Bottom-sheet type picker (no workout start) — used to confirm/correct an
 /// auto-detected workout's type and to set the type on a manually logged one.
 /// Returns the chosen type, or null if dismissed.
@@ -106,21 +160,7 @@ Future<String?> pickWorkoutType(
 }) {
   return showModalBottomSheet<String>(
     context: context,
-    builder: (_) => SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.all(Sp.x5),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: AppText.h2),
-            const SizedBox(height: Sp.x4),
-            Builder(builder: workoutTypeGrid),
-            const SizedBox(height: Sp.x4),
-          ],
-        ),
-      ),
-    ),
+    isScrollControlled: true,
+    builder: (ctx) => workoutTypeSheet(ctx, title),
   );
 }

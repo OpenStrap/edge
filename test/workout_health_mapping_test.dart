@@ -30,6 +30,18 @@ const _iosSupported = <HealthWorkoutActivityType>{
   HealthWorkoutActivityType.TRADITIONAL_STRENGTH_TRAINING,
   HealthWorkoutActivityType.YOGA,
   HealthWorkoutActivityType.HIGH_INTENSITY_INTERVAL_TRAINING,
+  HealthWorkoutActivityType.BOXING,
+  HealthWorkoutActivityType.ROWING,
+  HealthWorkoutActivityType.HIKING,
+  HealthWorkoutActivityType.ROCK_CLIMBING,
+  HealthWorkoutActivityType.DOWNHILL_SKIING,
+  HealthWorkoutActivityType.SNOWBOARDING,
+  HealthWorkoutActivityType.STAIR_CLIMBING,
+  HealthWorkoutActivityType.PILATES,
+  HealthWorkoutActivityType.TENNIS,
+  HealthWorkoutActivityType.BASKETBALL,
+  HealthWorkoutActivityType.SOCCER,
+  HealthWorkoutActivityType.GOLF,
   HealthWorkoutActivityType.OTHER,
 };
 
@@ -42,6 +54,18 @@ const _androidSupported = <HealthWorkoutActivityType>{
   HealthWorkoutActivityType.STRENGTH_TRAINING,
   HealthWorkoutActivityType.YOGA,
   HealthWorkoutActivityType.HIGH_INTENSITY_INTERVAL_TRAINING,
+  HealthWorkoutActivityType.BOXING,
+  HealthWorkoutActivityType.ROWING,
+  HealthWorkoutActivityType.HIKING,
+  HealthWorkoutActivityType.ROCK_CLIMBING,
+  HealthWorkoutActivityType.DOWNHILL_SKIING,
+  HealthWorkoutActivityType.SNOWBOARDING,
+  HealthWorkoutActivityType.STAIR_CLIMBING,
+  HealthWorkoutActivityType.PILATES,
+  HealthWorkoutActivityType.TENNIS,
+  HealthWorkoutActivityType.BASKETBALL,
+  HealthWorkoutActivityType.SOCCER,
+  HealthWorkoutActivityType.GOLF,
   HealthWorkoutActivityType.OTHER,
 };
 
@@ -56,6 +80,17 @@ const _extraTypeStrings = <String>[
   'swimming',
   'weights',
   'lifting',
+  'row',
+  'hiking',
+  'climbing',
+  'skiing',
+  'snowboarding',
+  'stair',
+  'racquet',
+  'squash',
+  'padel',
+  'badminton',
+  'football',
   'autodetected',
   'autodetected_workout',
   'workout',
@@ -90,6 +125,31 @@ void main() {
     }
   });
 
+  // The picker table and the health switch are two hand-maintained lists.
+  // Adding a tile to `kWorkoutTypes` without adding a case to
+  // `healthActivityForType` is silent — the workout still exports, just as an
+  // unlabelled "Other", so it is invisible until someone opens Apple Health
+  // and finds a wall of generic entries.
+  test('every picker type has its own health activity, not a silent OTHER', () {
+    // `cardio` and `other` are genuinely unspecific: neither store has a
+    // better home for them than OTHER, and that is a decision, not an
+    // oversight.
+    const deliberatelyOther = {'cardio', 'other'};
+    for (final e in kWorkoutTypes) {
+      if (deliberatelyOther.contains(e.$1)) continue;
+      for (final ios in [true, false]) {
+        expect(
+          healthActivityForType(e.$1, ios: ios),
+          isNot(HealthWorkoutActivityType.OTHER),
+          reason:
+              '"${e.$1}" is offered in the workout picker but falls through to '
+              'OTHER on ${ios ? 'iOS' : 'Android'} — add a case to '
+              'healthActivityForType',
+        );
+      }
+    }
+  });
+
   test('strength maps to the platform-correct strength spelling', () {
     expect(
       healthActivityForType('strength', ios: true),
@@ -121,7 +181,9 @@ void main() {
   });
 
   test('an unknown type degrades to OTHER rather than an unwritable value', () {
-    for (final unknown in ['surfing', 'padel', 'autodetected', null]) {
+    // 'padel' used to stand in for "unknown" here and is now a racquet alias —
+    // pick strings the switch genuinely has no case for.
+    for (final unknown in ['surfing', 'kitesurfing', 'autodetected', null]) {
       expect(
         healthActivityForType(unknown, ios: true),
         HealthWorkoutActivityType.OTHER,

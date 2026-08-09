@@ -1118,6 +1118,45 @@ HealthWorkoutActivityType healthActivityForType(
       return HealthWorkoutActivityType.YOGA;
     case 'hiit':
       return HealthWorkoutActivityType.HIGH_INTENSITY_INTERVAL_TRAINING;
+    case 'boxing':
+      return HealthWorkoutActivityType.BOXING;
+    case 'rowing':
+    case 'row':
+      return HealthWorkoutActivityType.ROWING;
+    case 'hike':
+    case 'hiking':
+      return HealthWorkoutActivityType.HIKING;
+    case 'climb':
+    case 'climbing':
+      // Bare `CLIMBING` is iOS-only; `ROCK_CLIMBING` is the one spelling both
+      // stores accept, which is the #184 lesson applied ahead of the bug.
+      return HealthWorkoutActivityType.ROCK_CLIMBING;
+    case 'ski':
+    case 'skiing':
+      // `SKIING` is Android-only; `DOWNHILL_SKIING` exists on both.
+      return HealthWorkoutActivityType.DOWNHILL_SKIING;
+    case 'snowboard':
+    case 'snowboarding':
+      return HealthWorkoutActivityType.SNOWBOARDING;
+    case 'stairs':
+    case 'stair':
+      // `STAIRS` is iOS-only; `STAIR_CLIMBING` exists on both.
+      return HealthWorkoutActivityType.STAIR_CLIMBING;
+    case 'pilates':
+      return HealthWorkoutActivityType.PILATES;
+    case 'tennis':
+    case 'racquet':
+    case 'squash':
+    case 'padel':
+    case 'badminton':
+      return HealthWorkoutActivityType.TENNIS;
+    case 'basketball':
+      return HealthWorkoutActivityType.BASKETBALL;
+    case 'soccer':
+    case 'football':
+      return HealthWorkoutActivityType.SOCCER;
+    case 'golf':
+      return HealthWorkoutActivityType.GOLF;
     default:
       return HealthWorkoutActivityType.OTHER;
   }

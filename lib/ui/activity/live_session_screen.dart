@@ -238,8 +238,13 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
     // Milestones — time / calories / new max HR.
     final mins = w.elapsed.inMinutes;
     if (mins > 0 && mins % 5 == 0) _milestone('t$mins', '$mins MINUTES', "Locked in. Keep going.", AppColors.good);
-    final kcalStep = (w.calories ~/ 100) * 100;
-    if (kcalStep >= 100) _milestone('k$kcalStep', '$kcalStep KCAL', "Burning clean.", AppColors.coral);
+    // No kcal milestones for an unanchored profile — celebrating a number
+    // we refuse to display would be the fabrication back by another door.
+    final kcal = w.caloriesOrNull;
+    if (kcal != null) {
+      final kcalStep = (kcal ~/ 100) * 100;
+      if (kcalStep >= 100) _milestone('k$kcalStep', '$kcalStep KCAL', "Burning clean.", AppColors.coral);
+    }
     // Announce on a new SMOOTHED peak (not raw instantaneous hr), so a transient
     // spike can't fire a spurious "NEW MAX"; the dedup key gates one per value.
     if (w.elapsed.inSeconds > 90 && w.maxHrSeen > 0 && w.maxHrSeen >= (_maxHr * 0.8)) {
@@ -308,7 +313,7 @@ class _LiveSessionScreenState extends State<LiveSessionScreen>
       type: w?.type ?? widget.type,
       duration: w?.elapsed ?? Duration.zero,
       peakHr: w?.maxHrSeen ?? 0,
-      calories: w?.calories ?? 0,
+      calories: w?.caloriesOrNull,
       strain: w?.strain,
       steps: app.workoutStepsMeasured,
     );
@@ -701,7 +706,11 @@ class WorkoutFinishSnapshot {
   final String type;
   final Duration duration;
   final int peakHr;
-  final double calories;
+
+  /// Null when the profile lacks the anchors Keytel needs — same contract as
+  /// [strain] and [steps] below, so the finish card omits the stat instead of
+  /// printing a kcal figure computed for a stand-in body.
+  final int? calories;
 
   /// Null when the profile lacked an anchor the Banister score needs. Kept
   /// nullable all the way to the finish card: a `?? 0` here would print a
@@ -922,7 +931,7 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
     final strain = (d?['strain'] as num?)?.toDouble() ?? s.strain;
     final peak = (d?['max_hr'] as num?)?.toInt() ?? s.peakHr;
     final avg = (d?['avg_hr'] as num?)?.toInt();
-    final kcal = (d?['calories'] as num?)?.toInt() ?? s.calories.round();
+    final kcal = (d?['calories'] as num?)?.toInt() ?? s.calories;
     final steps = (d?['steps'] as num?)?.toInt() ?? s.steps;
     final bands = (d?['zone_bands'] as List?)?.whereType<Map>().toList() ??
         const <Map>[];
@@ -1073,7 +1082,7 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
   /// These figures COUNT UP with the reveal, so unlike the other sections they
   /// legitimately rebuild per frame — but it is a handful of Text widgets, not
   /// a map or a route re-derivation.
-  Widget _heroStats(int peak, int? avg, int kcal, int? steps) {
+  Widget _heroStats(int peak, int? avg, int? kcal, int? steps) {
     Widget stat(String v, String label) =>
         Expanded(child: _FinishStat(v, label));
     return AnimatedBuilder(
@@ -1088,7 +1097,7 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
               children: [
                 stat(peak > 0 ? '${(peak * p).round()}' : '—', 'PEAK BPM'),
                 stat(avg != null ? '${(avg * p).round()}' : '—', 'AVG BPM'),
-                stat('${(kcal * p).round()}', 'KCAL'),
+                stat(kcal != null ? '${(kcal * p).round()}' : '—', 'KCAL'),
                 if (steps != null && steps > 0)
                   stat('${(steps * p).round()}', 'STEPS'),
               ],
@@ -1397,7 +1406,7 @@ class _WorkoutFinishScreenState extends State<WorkoutFinishScreen>
       when: DateTime.now(),
       maxHr: _maxHr,
       strain: (d?['strain'] as num?)?.toDouble() ?? s.strain,
-      calories: (d?['calories'] as num?)?.toInt() ?? s.calories.round(),
+      calories: (d?['calories'] as num?)?.toInt() ?? s.calories,
       route: _route,
       avgHr: (d?['avg_hr'] as num?)?.toInt(),
     );
@@ -2507,7 +2516,10 @@ class _SessionSheet extends StatelessWidget {
                 children: [
                   Expanded(
                     child: _SheetStat(
-                      isRoute ? _fmtClock(elapsed) : '${workout.calories.round()}',
+                      isRoute
+                          ? _fmtClock(elapsed)
+                          // A dash, never a 0 — same contract as strain below.
+                          : (workout.caloriesOrNull?.toString() ?? '—'),
                       isRoute ? 'TIME' : 'KCAL',
                     ),
                   ),
@@ -2524,7 +2536,7 @@ class _SessionSheet extends StatelessWidget {
                   Expanded(
                     child: _SheetStat(
                       isRoute
-                          ? '${workout.calories.round()}'
+                          ? (workout.caloriesOrNull?.toString() ?? '—')
                           : (steps?.toString() ?? '—'),
                       isRoute ? 'KCAL' : 'STEPS',
                     ),

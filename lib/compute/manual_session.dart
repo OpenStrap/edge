@@ -310,7 +310,11 @@ ManualSessionStats computeManualSessionStats({
       strainFromPerMinuteHr(perMin, profile: profile, restingHr: restingHr);
 
   double? calories;
-  if (hrMax != null && age != null && weightKg != null && sex != null) {
+  if (profile.hasCalorieAnchors &&
+      hrMax != null &&
+      age != null &&
+      weightKg != null &&
+      sex != null) {
     // Real anchors only — `usedDefaultAnchors` stays false, so we are never
     // persisting a kcal figure built on a fabricated 220/60.
     final bout = ana.Calories.estimateBoutCalories(
