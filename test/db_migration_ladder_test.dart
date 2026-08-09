@@ -21,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/journal_fields.dart';
 
 /// The pre-v3 raw_records shape: keyed by frame hex, NO rec_ts column.
 const _legacyRawDdl = '''
@@ -291,6 +292,129 @@ void main() {
         ),
         isEmpty,
       );
+    },
+  );
+
+  test(
+    'upgrade from v27 adds the numeric journal tables without touching the '
+    'tags and note already stored for a day',
+    () async {
+      const name = 'migrate_from_v27_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        27,
+        [
+          ..._v5DerivedDdl,
+          "CREATE TABLE journal (date TEXT PRIMARY KEY, "
+              "tags_json TEXT NOT NULL DEFAULT '[]', "
+              "note TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL)",
+        ],
+        seedRows: (db) async {
+          await db.insert('journal', {
+            'date': '2026-06-01',
+            'tags_json': '["caffeine","late meal"]',
+            'note': 'felt rough',
+            'updated_at': 1,
+          });
+        },
+      );
+
+      final version = await _openThroughLocalDb(name);
+      expect(version, LocalDb.schemaVersion);
+
+      // The upgrade is purely additive: a day that only ever had tags keeps
+      // them, and simply has no numeric rows.
+      final rows = await LocalDb.journalRows();
+      expect(rows.single['tags_json'], '["caffeine","late meal"]');
+      expect(rows.single['note'], 'felt rough');
+      expect(await LocalDb.journalMetricsForDay('2026-06-01'), isEmpty);
+
+      // And the new tables are usable immediately, not on the next launch.
+      await LocalDb.putJournalMetrics('2026-06-01', {
+        'mood': const JournalMetricValue(4),
+      });
+      expect(
+        (await LocalDb.journalMetricsForDay('2026-06-01'))['mood']!.value,
+        4,
+      );
+      expect(await LocalDb.journalFieldDefs(), isEmpty);
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+
+  test(
+    'upgrade from v27 creates the lab tables and they accept a write '
+    'immediately, not on the next launch',
+    () async {
+      const name = 'migrate_from_v27_labs_test.db';
+      created.add(name);
+      await _seedOldDb(name, 27, _v5DerivedDdl);
+
+      final version = await _openThroughLocalDb(name);
+      expect(version, LocalDb.schemaVersion);
+
+      await LocalDb.putLabResult(
+        marker: 'ferritin',
+        takenOn: '2026-03-04',
+        value: 42,
+        unit: 'ng/mL',
+      );
+      expect((await LocalDb.labResults()).single['value'], 42.0);
+      expect(await LocalDb.labMarkerDefs(), isEmpty);
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
+    'upgrade from v27 runs the whole ladder to 31 and every new table works',
+    () async {
+      const name = 'migrate_from_v27_to_31_test.db';
+      created.add(name);
+      await _seedOldDb(name, 27, _v5DerivedDdl);
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+
+      // Each rung's table, exercised rather than merely present — a CREATE
+      // that ran with a typo still leaves a table that nothing can write to.
+      await LocalDb.putJournalMetrics('2026-06-01', {
+        'mood': const JournalMetricValue(4),
+      });
+      await LocalDb.putLabResult(
+        marker: 'ferritin',
+        takenOn: '2026-03-04',
+        value: 42,
+        unit: 'ng/mL',
+      );
+      await LocalDb.putBreathingSession(
+        startedAt: 1000,
+        endedAt: 2000,
+        pattern: 'resonance',
+        seconds: 120,
+      );
+      await LocalDb.putNapEdit(
+        dayId: '2026-06-01',
+        startTs: 1000,
+        endTs: 4600,
+        source: 'manual',
+      );
+
+      expect(
+        (await LocalDb.journalMetricsForDay('2026-06-01'))['mood']!.value,
+        4,
+      );
+      expect((await LocalDb.labResults()).single['value'], 42.0);
+      expect((await LocalDb.breathingSessions()).single['seconds'], 120);
+      expect((await LocalDb.napEdits('2026-06-01')).single['source'], 'manual');
+      expect(await LocalDb.napEditDays(), {'2026-06-01'});
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
     },
   );
 }

@@ -555,7 +555,11 @@ WorkoutShareData buildWorkoutShareData({
   /// confident "0.0 Strain" for a workout we simply could not score, which is
   /// the same fabrication issue #206 reported on the detail gauge.
   required double? strain,
-  required int calories,
+
+  /// Null when the profile lacks the anchors Keytel needs — a shared card is
+  /// the most public place a fabricated calorie figure could end up, so it
+  /// dashes out exactly like [strain].
+  required int? calories,
   WorkoutRoute? route,
   int? avgHr,
 }) {
@@ -583,7 +587,7 @@ WorkoutShareData buildWorkoutShareData({
     heroUnit = '';
     stats = [
       (strainText, 'Strain'),
-      ('$calories', 'Kcal'),
+      (calories?.toString() ?? '—', 'Kcal'),
       (avgHr != null && avgHr > 0 ? '$avgHr' : '—', 'Avg bpm'),
     ];
   }

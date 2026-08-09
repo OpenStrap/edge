@@ -17,6 +17,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'day_label.dart';
+import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
 import 'models.dart';
 
@@ -90,7 +91,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 27;
+  static const int schemaVersion = 31;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -162,6 +163,7 @@ class LocalDb {
         await _createLiveCoverage(db);
         await _createWorkoutSuggestions(db);
         await _createSleepOverride(db);
+        await _createSleepNap(db);
         await _createWorkoutRoute(db);
         await _createNotifFired(db);
         await _ensureCoachViews(db);
@@ -402,6 +404,28 @@ class LocalDb {
           // for steps), and falls back to band rows otherwise.
           await _ensureLiveCoverageSource(db);
         }
+        if (oldV < 28) {
+          // The numeric half of a journal entry, plus definitions for
+          // user-invented fields. Purely new tables — the existing `journal`
+          // row for a day is untouched, so an upgrade loses no tags and no
+          // notes, and a day with only tags simply has no metric rows.
+          await _createJournalMetric(db);
+          await _createJournalFieldDef(db);
+        }
+        if (oldV < 29) {
+          // Hand-entered blood work. Purely new tables; nothing existing is
+          // read or rewritten.
+          await _createLabTables(db);
+        }
+        if (oldV < 30) {
+          // Paced-breathing history. New table only.
+          await _createBreathingSessions(db);
+        }
+        if (oldV < 31) {
+          // User edits to a day's naps. New table only — the detector's own
+          // output is untouched and the edits replay over it.
+          await _createSleepNap(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -452,6 +476,7 @@ class LocalDb {
     await _ensureSyncStateSchema(db);
     await _createWorkoutSuggestions(db);
     await _createSleepOverride(db);
+    await _createSleepNap(db);
     await _createWorkoutRoute(db);
     await _ensureWorkoutRouteSpeed(db);
     await _ensureDayResultSkippedColumn(db);
@@ -684,6 +709,34 @@ class LocalDb {
       ),
       bestEffort: true,
     );
+  }
+
+  /// sleep_nap — the user's edits to a day's naps.
+  ///
+  /// Separate from `sleep_override` on purpose: that table means "the main
+  /// sleep window for this day", which is one thing, while naps are a list.
+  /// Widening its primary key would have made "the main sleep" and "a nap"
+  /// indistinguishable in storage.
+  ///
+  /// Edits are stored SEPARATELY from the detector's output and replayed over
+  /// it on every derivation. The detector improves; a day re-derived under a
+  /// better stager should still respect "there was no nap here", and baking
+  /// the edit into the result would freeze the old detection alongside it.
+  ///
+  /// `source` is 'manual' (a nap the user logged) or 'rejected' (a detected
+  /// one they removed — the window is stored so it keeps suppressing that nap
+  /// even after the detector's bounds shift by a minute).
+  static Future<void> _createSleepNap(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sleep_nap (
+        day_id TEXT NOT NULL,
+        start_ts INTEGER NOT NULL,
+        end_ts INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (day_id, start_ts)
+      )
+    ''');
   }
 
   static Future<void> _createSleepOverride(Database db) async {
@@ -1295,6 +1348,136 @@ class LocalDb {
     );
   }
 
+  /// journal_metric — the numeric half of a journal entry.
+  ///
+  /// The `journal` table holds a tag set and a note, which can only ever
+  /// answer "did this happen today". A field that carries a NUMBER — three
+  /// coffees, 700 ml of water, mood 4 out of 5 — carries a dose, and that is
+  /// usually the actual question. Kept in its own table rather than as columns
+  /// on `journal` so a user-defined field costs a row, not a migration.
+  ///
+  /// One row per (day, field): the value is the day's TOTAL for a dose-like
+  /// field and the day's single reading for a rating.
+  ///
+  /// `at_min` is local minutes past midnight for the LATEST occurrence, and is
+  /// null for anything without a meaningful time. It exists because when a
+  /// dose landed can matter more than its size — the sleep-relevant fact about
+  /// caffeine is the last cup, not the total.
+  static Future<void> _createJournalMetric(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS journal_metric (
+        date TEXT NOT NULL,
+        field TEXT NOT NULL,
+        value REAL NOT NULL,
+        at_min INTEGER,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (date, field)
+      )
+    ''');
+    // Correlations read one field across every day, so the index is on the
+    // field first — the primary key already covers day-scoped reads.
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_journal_metric_field '
+      'ON journal_metric(field, date)',
+    );
+  }
+
+  /// journal_field_def — definitions for USER-INVENTED numeric fields only.
+  ///
+  /// Built-in fields live in `lib/data/journal_fields.dart` as code, because a
+  /// definition that ships with the app should not be editable data. A custom
+  /// field has nowhere else to record what its number means, and without a
+  /// unit and a ceiling its values render as bare numbers and its entry has no
+  /// bounds — so it gets a row.
+  ///
+  /// Deleting a definition deliberately does NOT delete its history: those
+  /// readings were still real. They render unlabelled until the field is
+  /// defined again.
+  static Future<void> _createJournalFieldDef(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS journal_field_def (
+        key TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        unit TEXT NOT NULL DEFAULT '',
+        max_value REAL NOT NULL,
+        step REAL NOT NULL,
+        has_time INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  /// lab_result — hand-entered blood work, and definitions for user-defined
+  /// markers.
+  ///
+  /// Keyed on (marker, taken_on) so re-entering the same draw corrects it
+  /// rather than stacking duplicates; two genuinely different draws on one day
+  /// are rare enough that correcting a typo is the case worth optimising for.
+  ///
+  /// `unit` is stored per row rather than looked up from the catalogue, so a
+  /// value keeps the unit it was entered under even if a later release changes
+  /// the marker's canonical unit. Silently reinterpreting 400 ng/mL as
+  /// 400 nmol/L would be a fabrication of the worst kind.
+  ///
+  /// NOT day-scoped, NOT pruned, and deliberately NOT removed by `deleteDays`.
+  /// A lab result belongs to the date the blood was drawn, not to a band-data
+  /// day. "Delete this day" in the data manager is about reclaiming space from
+  /// sensor data; a blood test is neither sensor data nor large, it was typed
+  /// in by hand on a different screen, and it has its own delete there. Losing
+  /// a year-old blood panel because the band data from that date was cleared
+  /// would be a genuinely surprising deletion.
+  ///
+  /// Indexed by its PRIMARY KEY alone — `(marker, taken_on)` already gives
+  /// SQLite an implicit index on exactly the columns every read here filters
+  /// and orders by, so a second one would only be another b-tree to maintain.
+  static Future<void> _createLabTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS lab_result (
+        marker TEXT NOT NULL,
+        taken_on TEXT NOT NULL,
+        value REAL NOT NULL,
+        unit TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (marker, taken_on)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS lab_marker_def (
+        key TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        unit TEXT NOT NULL,
+        category TEXT NOT NULL,
+        decimals INTEGER NOT NULL DEFAULT 1,
+        ref_low REAL,
+        ref_high REAL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  /// breathing_session — one row per completed paced-breathing session.
+  ///
+  /// The coherence score was computed live and then thrown away, so the
+  /// feature could tell you how a session went and never whether it was going
+  /// anywhere. A score is only meaningful for a pattern that is TRYING to
+  /// drive heart-rate oscillation at the paced frequency, so `coherence` is
+  /// null for the others rather than a number that grades box breathing on
+  /// resonance breathing's exam.
+  static Future<void> _createBreathingSessions(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS breathing_session (
+        started_at INTEGER PRIMARY KEY,
+        ended_at INTEGER NOT NULL,
+        pattern TEXT NOT NULL,
+        seconds INTEGER NOT NULL,
+        coherence REAL,
+        confidence REAL
+      )
+    ''');
+  }
+
   // ── USER-DATA STORE (journal / cycle / workouts / notifications) ────────────
   // On-device user-entered + locally-generated data. All keyed for idempotent
   // upserts; none of it round-trips to a server (cloud excised).
@@ -1308,6 +1491,10 @@ class LocalDb {
         updated_at INTEGER NOT NULL
       )
     ''');
+    await _createJournalMetric(db);
+    await _createJournalFieldDef(db);
+    await _createLabTables(db);
+    await _createBreathingSessions(db);
     // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cycle_log (
@@ -3394,6 +3581,11 @@ class LocalDb {
       await copyRows('day_result', where: 'day_id = ?', whereArgs: [dayId]);
       await copyRows('metric_series', where: 'date = ?', whereArgs: [dayId]);
       await copyRows('journal', where: 'date = ?', whereArgs: [dayId]);
+      await copyRows(
+        'journal_metric',
+        where: 'date = ?',
+        whereArgs: [dayId],
+      );
       await copyRows('cycle_log', where: 'date = ?', whereArgs: [dayId]);
       await copyRows('notifications', where: 'date = ?', whereArgs: [dayId]);
       await copyRows(
@@ -3407,6 +3599,11 @@ class LocalDb {
         whereArgs: [dayId],
       );
     }
+    // Custom journal field definitions are not day-scoped, so they ride along
+    // whole. Without them an exported day carries numbers under keys like
+    // `custom_magnesium` with no label, no unit and no idea what scale they
+    // are on — the values survive the export and their meaning does not.
+    await copyRows('journal_field_def');
     await out.close();
     return dest;
   }
@@ -3491,6 +3688,7 @@ class LocalDb {
       await deleteByIn(txn, 'day_result', 'day_id', sorted);
       await deleteByIn(txn, 'metric_series', 'date', sorted);
       await deleteByIn(txn, 'journal', 'date', sorted);
+      await deleteByIn(txn, 'journal_metric', 'date', sorted);
       await deleteByIn(txn, 'cycle_log', 'date', sorted);
       await deleteByIn(txn, 'notifications', 'date', sorted);
       await deleteByIn(txn, 'sleep_session_candidates', 'day_id', sorted);
@@ -3500,6 +3698,7 @@ class LocalDb {
       await deleteByIn(txn, 'cycle_symptom', 'date', sorted);
       await deleteByIn(txn, 'workout_suggestions', 'date', sorted);
       await deleteByIn(txn, 'sleep_override', 'day_id', sorted);
+      await deleteByIn(txn, 'sleep_nap', 'day_id', sorted);
     });
     return deleted;
   }
@@ -3529,6 +3728,17 @@ class LocalDb {
       'metric_series',
       'sessions',
       'journal',
+      'journal_metric',
+      'journal_field_def',
+      'lab_result',
+      'lab_marker_def',
+      'breathing_session',
+      // The user's sleep corrections. These are the ONLY copy of them — the
+      // detector's output is deliberately not baked in, so a restore that
+      // skipped these would silently reinstate every nap the user had deleted
+      // and lose every one they logged.
+      'sleep_override',
+      'sleep_nap',
       'cycle_log',
       'notifications',
       'baselines',
@@ -3835,6 +4045,11 @@ class LocalDb {
       'baselines',
       'sessions',
       'journal',
+      'journal_metric',
+      'journal_field_def',
+      'lab_result',
+      'lab_marker_def',
+      'breathing_session',
       'cycle_log',
       'notifications',
       'sync_cursor',
@@ -4505,6 +4720,278 @@ class LocalDb {
       );
     }
     return db.query('journal', orderBy: 'date DESC');
+  }
+
+  /// Replace one day's numeric journal fields.
+  ///
+  /// The map IS the day: a field that is absent from [fields] is DELETED for
+  /// that date, not left behind. Clearing a value the user cleared matters
+  /// more than it sounds — a stale "3 coffees" that survives an edit becomes a
+  /// data point the user never entered, and correlations are exactly where
+  /// that does damage.
+  ///
+  /// Written in one transaction so a day is never half-updated.
+  static Future<void> putJournalMetrics(
+    String date,
+    Map<String, JournalMetricValue> fields,
+  ) async {
+    final db = await instance;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      await txn.delete('journal_metric', where: 'date = ?', whereArgs: [date]);
+      for (final e in fields.entries) {
+        await txn.insert('journal_metric', {
+          'date': date,
+          'field': e.key,
+          'value': e.value.value,
+          'at_min': e.value.atMinuteOfDay,
+          'updated_at': now,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
+  /// One day's numeric fields, or an empty map when nothing was recorded.
+  static Future<Map<String, JournalMetricValue>> journalMetricsForDay(
+    String date,
+  ) async {
+    final db = await instance;
+    final rows = await db.query(
+      'journal_metric',
+      where: 'date = ?',
+      whereArgs: [date],
+    );
+    return {
+      for (final r in rows)
+        r['field'] as String: JournalMetricValue(
+          (r['value'] as num).toDouble(),
+          atMinuteOfDay: (r['at_min'] as num?)?.toInt(),
+        ),
+    };
+  }
+
+  /// Numeric journal fields per day, oldest first, for the correlation pass.
+  /// [sinceDaysEpoch] is an optional inclusive lower bound on `date`.
+  static Future<Map<String, Map<String, JournalMetricValue>>>
+  journalMetricsByDay({String? sinceDaysEpoch}) async {
+    final db = await instance;
+    final rows = sinceDaysEpoch == null
+        ? await db.query('journal_metric', orderBy: 'date ASC')
+        : await db.query(
+            'journal_metric',
+            where: 'date >= ?',
+            whereArgs: [sinceDaysEpoch],
+            orderBy: 'date ASC',
+          );
+    final out = <String, Map<String, JournalMetricValue>>{};
+    for (final r in rows) {
+      (out[r['date'] as String] ??= {})[r['field'] as String] =
+          JournalMetricValue(
+            (r['value'] as num).toDouble(),
+            atMinuteOfDay: (r['at_min'] as num?)?.toInt(),
+          );
+    }
+    return out;
+  }
+
+  /// Every field name that has ever been recorded, so a user-defined field
+  /// keeps appearing in the editor after the day it was invented on.
+  static Future<List<String>> journalMetricFields() async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT field FROM journal_metric ORDER BY field ASC',
+    );
+    return [for (final r in rows) r['field'] as String];
+  }
+
+  /// Custom field definitions, ordered by label.
+  static Future<List<JournalFieldSpec>> journalFieldDefs() async {
+    final db = await instance;
+    final rows = await db.query('journal_field_def', orderBy: 'label ASC');
+    return [
+      for (final r in rows)
+        JournalFieldSpec(
+          key: r['key'] as String,
+          label: r['label'] as String,
+          kind: JournalFieldKind.values.firstWhere(
+            (k) => k.name == r['kind'],
+            // A row written by a newer build with a kind this one has never
+            // heard of still renders as a dose rather than crashing the whole
+            // journal screen.
+            orElse: () => JournalFieldKind.dose,
+          ),
+          unit: r['unit'] as String,
+          max: (r['max_value'] as num).toDouble(),
+          step: (r['step'] as num).toDouble(),
+          hasTime: ((r['has_time'] as num?)?.toInt() ?? 0) == 1,
+          custom: true,
+        ),
+    ];
+  }
+
+  static Future<void> putJournalFieldDef(JournalFieldSpec spec) async {
+    final db = await instance;
+    await db.insert('journal_field_def', {
+      'key': spec.key,
+      'label': spec.label,
+      'kind': spec.kind.name,
+      'unit': spec.unit,
+      'max_value': spec.max,
+      'step': spec.step,
+      'has_time': spec.hasTime ? 1 : 0,
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  // ── nap edits ─────────────────────────────────────────────────────────────
+
+  /// Log a nap the detector missed, or suppress one it invented.
+  static Future<void> putNapEdit({
+    required String dayId,
+    required int startTs,
+    required int endTs,
+    required String source,
+  }) async {
+    final db = await instance;
+    await db.insert('sleep_nap', {
+      'day_id': dayId,
+      'start_ts': startTs,
+      'end_ts': endTs,
+      'source': source,
+      'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<void> deleteNapEdit(String dayId, int startTs) async {
+    final db = await instance;
+    await db.delete(
+      'sleep_nap',
+      where: 'day_id = ? AND start_ts = ?',
+      whereArgs: [dayId, startTs],
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> napEdits(String dayId) async {
+    final db = await instance;
+    return db.query(
+      'sleep_nap',
+      where: 'day_id = ?',
+      whereArgs: [dayId],
+      orderBy: 'start_ts ASC',
+    );
+  }
+
+  /// Every day carrying a nap edit. Force-derived alongside the sleep-override
+  /// days for the same reason: an edit to a finalized day has to take effect.
+  static Future<Set<String>> napEditDays() async {
+    final db = await instance;
+    final rows = await db.query('sleep_nap', columns: ['day_id']);
+    return {for (final r in rows) r['day_id'] as String};
+  }
+
+  // ── breathing sessions ────────────────────────────────────────────────────
+
+  static Future<void> putBreathingSession({
+    required int startedAt,
+    required int endedAt,
+    required String pattern,
+    required int seconds,
+    double? coherence,
+    double? confidence,
+  }) async {
+    final db = await instance;
+    await db.insert('breathing_session', {
+      'started_at': startedAt,
+      'ended_at': endedAt,
+      'pattern': pattern,
+      'seconds': seconds,
+      'coherence': coherence,
+      'confidence': confidence,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Recent sessions, newest first.
+  static Future<List<Map<String, dynamic>>> breathingSessions({
+    int limit = 30,
+  }) async {
+    final db = await instance;
+    return db.query(
+      'breathing_session',
+      orderBy: 'started_at DESC',
+      limit: limit,
+    );
+  }
+
+  // ── lab results ───────────────────────────────────────────────────────────
+
+  /// Upsert one result. Idempotent on (marker, date drawn), so re-entering a
+  /// value corrects it instead of stacking a near-duplicate.
+  static Future<void> putLabResult({
+    required String marker,
+    required String takenOn,
+    required double value,
+    required String unit,
+    String note = '',
+  }) async {
+    final db = await instance;
+    await db.insert('lab_result', {
+      'marker': marker,
+      'taken_on': takenOn,
+      'value': value,
+      'unit': unit,
+      'note': note,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<void> deleteLabResult(String marker, String takenOn) async {
+    final db = await instance;
+    await db.delete(
+      'lab_result',
+      where: 'marker = ? AND taken_on = ?',
+      whereArgs: [marker, takenOn],
+    );
+  }
+
+  /// Every result, newest draw first. [marker] narrows to one series.
+  static Future<List<Map<String, dynamic>>> labResults({String? marker}) async {
+    final db = await instance;
+    return db.query(
+      'lab_result',
+      where: marker == null ? null : 'marker = ?',
+      whereArgs: marker == null ? null : [marker],
+      orderBy: 'taken_on DESC',
+    );
+  }
+
+  /// Custom marker definitions, by label.
+  static Future<List<Map<String, dynamic>>> labMarkerDefs() async {
+    final db = await instance;
+    return db.query('lab_marker_def', orderBy: 'label ASC');
+  }
+
+  static Future<void> putLabMarkerDef(Map<String, dynamic> row) async {
+    final db = await instance;
+    await db.insert('lab_marker_def', {
+      ...row,
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Forget a custom field's DEFINITION. Its recorded values are deliberately
+  /// left alone — they were real readings, and deleting a label should not
+  /// delete history.
+  static Future<void> deleteJournalFieldDef(String key) async {
+    final db = await instance;
+    await db.delete('journal_field_def', where: 'key = ?', whereArgs: [key]);
+  }
+
+  /// Forget a custom marker's DEFINITION. Its results are left alone — those
+  /// were real draws, and each row already carries its own unit, so they stay
+  /// readable without it.
+  static Future<void> deleteLabMarkerDef(String key) async {
+    final db = await instance;
+    await db.delete('lab_marker_def', where: 'key = ?', whereArgs: [key]);
   }
 
   // ── cycle log I/O ─────────────────────────────────────────────────────────────

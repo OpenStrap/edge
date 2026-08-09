@@ -79,7 +79,16 @@ dependencies:
       #
       # Verified against the SHA: `dailyStepEstimate` absent,
       # `dailyActiveMinutes` present in lib/src/onehz/motion/steps.dart.
-      ref: 1fb34dce64e6df833f583ee60cbccfff6751571f
+      #
+      # analytics main @ #41 merge (ebe45da). Adds `journalNumericCorrelations`
+      # — Spearman rho + Theil-Sen slope over journal fields that carry a dose,
+      # which the typed journal entries shipped in edge #218 had no way to
+      # correlate. Nothing else changed; #41 only appends to coaching.dart.
+      #
+      # Verified against the SHA:
+      #   `git show ebe45da:lib/src/onehz/human/coaching.dart |
+      #      grep -E 'journalNumericCorrelations|class JournalNumericDay'`
+      ref: ebe45da6271ec99fbda353067b6deadc757ff2d8
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

@@ -1,4 +1,1 @@
-# GitHub's funding config only accepts URLs, not raw wallet addresses, so the
-# "Sponsor" button points at DONATE.md where the BTC/EVM addresses live.
-custom:
-  - https://github.com/OpenStrap/edge/blob/main/DONATE.md
+github: abdulsaheel

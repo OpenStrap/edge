@@ -11,11 +11,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../ai/journal_ai.dart' show kJournalPresetTags;
+import '../../data/journal_fields.dart';
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
 import '../../theme/theme_switcher.dart';
 import '../design/design.dart';
+import 'custom_journal_field_sheet.dart';
 import 'journal_compose_screen.dart';
+import 'journal_metric_editor.dart';
 
 class JournalScreen extends StatefulWidget {
   const JournalScreen({super.key});
@@ -24,12 +28,18 @@ class JournalScreen extends StatefulWidget {
 }
 
 class _JournalScreenState extends State<JournalScreen> {
-  // Preset tag vocabulary shown as toggle chips.
-  static const _presetTags = <String>[
-    'caffeine', 'alcohol', 'late meal', 'stress', 'poor sleep', 'travel',
-    'screens late', 'meds', 'sick', 'sauna', 'cold plunge', 'social',
-    'workout', 'rest day',
-  ];
+  // Preset tag vocabulary shown as toggle chips. Shared with the compose
+  // screen and the AI prompt — this used to be a second private copy, which is
+  // how the two screens would have drifted apart the first time either list
+  // changed.
+  static const _presetTags = kJournalPresetTags;
+
+  /// Built-in numeric fields followed by the user's own.
+  List<JournalFieldSpec> _fieldSpecs = kJournalFields;
+
+  /// The editing day's numeric values. A field absent here is unset, which is
+  /// a different state from zero.
+  Map<String, JournalMetricValue> _metrics = const {};
 
   final _noteCtrl = TextEditingController();
   final Set<String> _selectedTags = <String>{};
@@ -40,6 +50,12 @@ class _JournalScreenState extends State<JournalScreen> {
   // Loaded data.
   List<_JournalRow> _rows = const [];
   List<Map<String, dynamic>> _insights = const [];
+
+  /// Rank correlations over the numeric fields. Kept apart from [_insights]
+  /// because they answer a different question and carry different evidence —
+  /// a tag says "those days were different", a dose says "more of this goes
+  /// with less of that".
+  List<Map<String, dynamic>> _numericInsights = const [];
 
   bool _loading = true;
   bool _saving = false;
@@ -82,9 +98,14 @@ class _JournalScreenState extends State<JournalScreen> {
       final rows = journal.map(_JournalRow.fromJson).toList();
 
       List<Map<String, dynamic>> insights = const [];
+      List<Map<String, dynamic>> numeric = const [];
       try {
         final ins = await api.getJournalInsights(range: '90d');
         insights = ((ins['insights'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((e) => e.cast<String, dynamic>())
+            .toList();
+        numeric = ((ins['numeric_insights'] as List?) ?? const [])
             .whereType<Map>()
             .map((e) => e.cast<String, dynamic>())
             .toList();
@@ -92,10 +113,14 @@ class _JournalScreenState extends State<JournalScreen> {
         // Insights are optional — never fail the screen for them.
       }
 
+      final specs = await api.getJournalFields();
+
       if (!mounted) return;
       setState(() {
         _rows = rows;
         _insights = insights;
+        _numericInsights = numeric;
+        _fieldSpecs = specs;
         _loading = false;
       });
       _bindEditor(_editingDate);
@@ -117,6 +142,51 @@ class _JournalScreenState extends State<JournalScreen> {
         ..clear()
         ..addAll(existing.isEmpty ? const <String>[] : existing.first.tags);
       _noteCtrl.text = existing.isEmpty ? '' : existing.first.note;
+      // Cleared immediately rather than left showing the previous day's
+      // numbers while the read is in flight — a stale 3 coffees sitting in the
+      // editor is one Save away from becoming a reading the user never made.
+      _metrics = const {};
+    });
+    unawaited(_loadMetricsFor(date));
+  }
+
+  Future<void> _loadMetricsFor(String date) async {
+    final api = _api;
+    if (api == null) return;
+    try {
+      final m = await api.getJournalMetrics(date);
+      // The user can rebind to another day while this is in flight; only the
+      // read for the day still on screen may land.
+      if (!mounted || _editingDate != date) return;
+      setState(() => _metrics = m);
+    } catch (_) {
+      // The tags editor still works without them.
+    }
+  }
+
+  Future<void> _addCustomField() async {
+    final api = _api;
+    if (api == null) return;
+    final spec = await showCustomJournalFieldSheet(
+      context,
+      existingKeys: _fieldSpecs.map((f) => f.key).toSet(),
+    );
+    if (spec == null) return;
+    await api.postCustomJournalField(spec);
+    if (!mounted) return;
+    setState(() => _fieldSpecs = [..._fieldSpecs, spec]);
+  }
+
+  Future<void> _removeCustomField(JournalFieldSpec spec) async {
+    final api = _api;
+    if (api == null) return;
+    await api.deleteCustomJournalField(spec.key);
+    if (!mounted) return;
+    setState(() {
+      _fieldSpecs = [..._fieldSpecs]..removeWhere((f) => f.key == spec.key);
+      // Its recorded values are deliberately left in the database — those
+      // readings were real, and forgetting a label should not delete history.
+      _metrics = {..._metrics}..remove(spec.key);
     });
   }
 
@@ -130,6 +200,7 @@ class _JournalScreenState extends State<JournalScreen> {
         _selectedTags.toList(),
         _noteCtrl.text.trim(),
       );
+      await api.postJournalMetrics(_editingDate, _metrics);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Saved ${_isToday ? 'today' : _editingDate}')),
@@ -214,9 +285,12 @@ class _JournalScreenState extends State<JournalScreen> {
           InfoDot(
             title: 'What moves your body',
             body:
-                'How each tag tracks with your recovery, sleep and heart data — '
-                'computed from your own tagged days only.',
-            methodNote: 'Correlation, not cause · needs ≥3 tagged days per tag',
+                'How what you log tracks with your recovery, sleep and heart '
+                'data — computed from your own days only. Tags are compared as '
+                'happened-or-not; numbers are ranked, so five coffees and one '
+                'are not the same day.',
+            methodNote: 'Correlation, not cause · tags need ≥3 tagged days, '
+                'numbers need ≥8 days with a value',
           ),
         ],
       ),
@@ -236,7 +310,7 @@ class _JournalScreenState extends State<JournalScreen> {
             children: [
               Expanded(
                 child: Text(
-                  (_isToday ? "TODAY'S TAGS" : 'EDITING $_editingDate')
+                  (_isToday ? 'TODAY' : 'EDITING $_editingDate')
                       .toUpperCase(),
                   style: AppText.overline.copyWith(color: AppColors.inkMuted),
                 ),
@@ -251,6 +325,11 @@ class _JournalScreenState extends State<JournalScreen> {
             ],
           ),
           const SizedBox(height: Sp.x3),
+          Text(
+            'TAGS',
+            style: AppText.overline.copyWith(color: AppColors.inkMuted),
+          ),
+          const SizedBox(height: Sp.x2),
           Wrap(
             spacing: Sp.x2,
             runSpacing: Sp.x2,
@@ -264,6 +343,19 @@ class _JournalScreenState extends State<JournalScreen> {
                   }),
                 ),
             ],
+          ),
+          const SizedBox(height: Sp.x5),
+          Text(
+            'NUMBERS',
+            style: AppText.overline.copyWith(color: AppColors.inkMuted),
+          ),
+          const SizedBox(height: Sp.x3),
+          JournalMetricEditor(
+            specs: _fieldSpecs,
+            values: _metrics,
+            onChanged: (m) => setState(() => _metrics = m),
+            onAddField: _addCustomField,
+            onRemoveField: _removeCustomField,
           ),
           const SizedBox(height: Sp.x4),
           TextField(
@@ -328,15 +420,15 @@ class _JournalScreenState extends State<JournalScreen> {
   // ── insights ────────────────────────────────────────────────────────────────
 
   List<Widget> _insightsSection() {
-    if (_insights.isEmpty) {
+    if (_insights.isEmpty && _numericInsights.isEmpty) {
       return const [
         StateCard(
           icon: OsIcon.activity,
           title: 'Insights build over time',
           message:
-              'Tag at least 3 days with how you lived, and OpenStrap starts '
+              'Log a few days — tags, numbers or both — and OpenStrap starts '
               'surfacing how each habit tracks with your recovery, sleep and '
-              'heart rate — drawn from your own data.',
+              'heart rate, drawn from your own data.',
         ),
       ];
     }
@@ -344,6 +436,16 @@ class _JournalScreenState extends State<JournalScreen> {
       for (var i = 0; i < _insights.length; i++) ...[
         JournalInsightCard(insight: _insights[i]).dsEnter(index: i),
         if (i != _insights.length - 1) const SizedBox(height: Sp.x3),
+      ],
+      if (_numericInsights.isNotEmpty) ...[
+        if (_insights.isNotEmpty) const SizedBox(height: Sp.x4),
+        const SectionHeader('How much of it'),
+        for (var i = 0; i < _numericInsights.length; i++) ...[
+          JournalDoseInsightCard(
+            insight: _numericInsights[i],
+          ).dsEnter(index: i),
+          if (i != _numericInsights.length - 1) const SizedBox(height: Sp.x3),
+        ],
       ],
       const SizedBox(height: Sp.x4),
       Center(
@@ -536,4 +638,74 @@ class _JournalRow {
         ((j['tags'] as List?) ?? const []).map((e) => e.toString()).toList(),
         (j['note'] ?? '').toString(),
       );
+}
+
+/// One numeric-field finding: "each extra coffee, about 4 ms less HRV".
+///
+/// Deliberately leads with the SLOPE in the outcome's own units, not with the
+/// correlation coefficient. Rho carries whether the relationship holds at all
+/// and is shown as supporting detail; "0.62" is not a sentence anybody can act
+/// on, and "about 4 ms per cup" is.
+class JournalDoseInsightCard extends StatelessWidget {
+  final Map<String, dynamic> insight;
+  const JournalDoseInsightCard({super.key, required this.insight});
+
+  @override
+  Widget build(BuildContext context) {
+    final field = (insight['field_label'] ?? '').toString();
+    final fieldUnit = (insight['field_unit'] ?? '').toString();
+    final outcome = (insight['outcome_label'] ?? '').toString();
+    final outcomeUnit = (insight['unit'] ?? '').toString();
+    final slope = (insight['slope_per_unit'] as num?)?.toDouble();
+    final rho = (insight['rho'] as num?)?.toDouble() ?? 0;
+    final n = (insight['n'] as num?)?.toInt() ?? 0;
+    final helped = insight['helped'] == true;
+    final tint = helped ? AppColors.good : AppColors.warn;
+
+    // "per 250 ml", "per unit", or just "per point" for a 1–5 rating.
+    final per = fieldUnit.isEmpty ? 'point' : fieldUnit;
+
+    return SurfaceCard(
+      padding: const EdgeInsets.all(Sp.x4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(field, style: AppText.title)),
+              Text(
+                '$n days',
+                style: AppText.caption.copyWith(color: AppColors.inkMuted),
+              ),
+            ],
+          ),
+          const SizedBox(height: Sp.x2),
+          Text(
+            slope == null
+                // Theil–Sen could not fit a slope. The direction still holds,
+                // so say that and nothing more rather than invent a magnitude.
+                ? '${rho > 0 ? 'More' : 'Less'} $field goes with '
+                      'higher $outcome'
+                : 'About ${_fmtSlope(slope)}'
+                      '${outcomeUnit.isEmpty ? '' : ' $outcomeUnit'} '
+                      '$outcome per extra $per',
+            style: AppText.body.copyWith(color: tint),
+          ),
+          const SizedBox(height: Sp.x1),
+          Text(
+            'rank correlation ${rho.toStringAsFixed(2)}',
+            style: AppText.captionMuted,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Signed, so "−4 ms" reads as a fall rather than needing the sentence to
+  /// carry the direction separately.
+  String _fmtSlope(double v) {
+    final a = v.abs();
+    final s = a >= 10 ? a.round().toString() : a.toStringAsFixed(1);
+    return v < 0 ? '−$s' : '+$s';
+  }
 }

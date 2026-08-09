@@ -64,6 +64,13 @@
     <uses-permission android:name="android.permission.health.WRITE_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
     <uses-permission android:name="android.permission.health.WRITE_EXERCISE" />
+    <!-- READ only, and no WRITE counterpart on purpose: body metrics are read
+         INTO the local profile (weight drifts, and the calorie estimate
+         depends on it) and this app has no business writing them back. Health
+         Connect silently returns nothing for an undeclared permission rather
+         than failing, so an omission here looks exactly like an empty store. -->
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
+    <uses-permission android:name="android.permission.health.READ_HEIGHT" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <!-- CompanionDeviceManager availability (not required: devices without it just skip
          the association and rely on the sticky service + watchdog). -->

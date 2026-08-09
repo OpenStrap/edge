@@ -32,10 +32,119 @@ import '../import/import_screen.dart';
 import '../today/step_goal_screen.dart';
 import 'about_screen.dart';
 import 'advanced_data_screen.dart';
+import '../../data/auto_backup.dart';
+import '../../data/csv_export.dart';
+import '../../health/health_profile_import.dart';
+import '../labs/labs_screen.dart';
 import 'data_history_screen.dart';
 import 'gesture_section.dart';
 import 'notification_relay_section.dart';
 import 'notification_settings_screen.dart';
+
+/// Choose how often the database is copied into the app's Documents folder.
+Future<void> _backupSheet(BuildContext ctx, AppState app) async {
+  final messenger = ScaffoldMessenger.of(ctx);
+  final chosen = await showModalBottomSheet<BackupCadence>(
+    context: ctx,
+    isScrollControlled: true,
+    builder: (sheetCtx) => SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.all(Sp.x5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Automatic backup', style: AppText.h2),
+            const SizedBox(height: Sp.x3),
+            Text(
+              'A full copy of your database, kept in an OpenStrap Backups '
+              'folder you can reach from Files. Point iCloud Drive, Synology '
+              'or Nextcloud at it and your history lives somewhere other than '
+              'this phone. The last $kBackupsKept are kept.\n\n'
+              'It is not encrypted, and it runs when you open the app rather '
+              'than in the background.',
+              style: AppText.bodySoft.copyWith(color: AppColors.inkSoft),
+            ),
+            const SizedBox(height: Sp.x4),
+            Wrap(
+              spacing: Sp.x2,
+              runSpacing: Sp.x2,
+              children: [
+                for (final c in BackupCadence.values)
+                  ToggleChip(
+                    c.label,
+                    selected: app.backupCadence == c,
+                    onTap: () => Navigator.pop(sheetCtx, c),
+                  ),
+              ],
+            ),
+            const SizedBox(height: Sp.x4),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (chosen == null) return;
+  await app.setBackupCadence(chosen);
+  if (!ctx.mounted) return;
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(
+        chosen == BackupCadence.off
+            ? 'Automatic backup off'
+            : 'Backing up ${chosen.label.toLowerCase()}',
+      ),
+    ),
+  );
+}
+
+/// Pull weight/height (and on Apple, sex and date of birth) from the platform
+/// health store into the local profile.
+///
+/// Reports what it actually changed rather than claiming success: a store with
+/// nothing in it, a denied permission, and values that already match all look
+/// identical from the outside and would otherwise all say "imported".
+Future<void> _importHealthProfile(BuildContext ctx, AppState app) async {
+  final messenger = ScaffoldMessenger.of(ctx);
+  final store = app.healthStoreName;
+  final importer = HealthProfileImporter();
+  if (!await importer.requestPermission()) {
+    if (!ctx.mounted) return;
+    messenger.showSnackBar(
+      SnackBar(content: Text('$store did not grant access')),
+    );
+    return;
+  }
+  final snap = await importer.read();
+  if (!ctx.mounted) return;
+  if (snap.isEmpty) {
+    messenger.showSnackBar(
+      SnackBar(content: Text('Nothing to read from $store')),
+    );
+    return;
+  }
+  final changed = healthProfileChanges(app.user, snap);
+  if (changed.isEmpty) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Your profile already matches')),
+    );
+    return;
+  }
+  await app.updateProfile(mergeHealthProfile(app.user, snap));
+  if (!ctx.mounted) return;
+  messenger.showSnackBar(
+    SnackBar(content: Text('Updated ${changed.join(', ')}')),
+  );
+}
+
+/// True while a CSV export is being handed to the share sheet.
+///
+/// File-scoped rather than widget state on purpose: the resource being guarded
+/// is the export directory on disk, which is global, and `ProfileScreen` is
+/// stateless and rebuilt freely. Two Profile screens on the navigation stack
+/// must not be able to clean up each other's in-flight export.
+bool _csvExportInFlight = false;
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -139,10 +248,22 @@ class ProfileScreen extends StatelessWidget {
               value: user['weight_kg'] != null
                   ? units.weight(user['weight_kg'] as num?)
                   : 'Add',
+              divider: true,
               onTap: () => _editProfileSheet(context, app),
             ),
+            Builder(
+              builder: (rowCtx) => ListRow(
+                icon: OsIcon.sync,
+                title: 'Fill from ${app.healthStoreName}',
+                value: 'Import',
+                onTap: () => _importHealthProfile(rowCtx, app),
+              ),
+            ),
           ]),
-          const _CardNote('Body metrics improve your calorie estimate.'),
+          const _CardNote(
+            'Body metrics improve your calorie estimate. Weight is the one '
+            'that drifts — importing keeps it current.',
+          ),
 
           const SizedBox(height: Sp.x6),
 
@@ -238,6 +359,85 @@ class ProfileScreen extends StatelessWidget {
                     messenger.showSnackBar(
                       SnackBar(content: Text('Export failed: $e')),
                     );
+                  }
+                },
+                divider: true,
+              ),
+            ),
+            Builder(
+              builder: (rowCtx) => ListRow(
+                icon: OsIcon.history,
+                title: 'Automatic backup',
+                value: app.backupCadence.label,
+                divider: true,
+                onTap: () => _backupSheet(rowCtx, app),
+              ),
+            ),
+            // Blood work lives here rather than on a daily screen: it is a
+            // record you consult, not a number that changes overnight.
+            ListRow(
+              icon: OsIcon.ecgRhythm,
+              title: 'Labs',
+              value: 'Blood work',
+              divider: true,
+              onTap: () => Navigator.of(context).push(
+                themedRoute((_) => const LabsScreen(), name: 'LabsScreen'),
+              ),
+            ),
+            // CSV alongside the .db export: "open it in a spreadsheet" and
+            // "restore it onto another phone" are different jobs, and a SQLite
+            // file only does the second.
+            Builder(
+              builder: (rowCtx) => ListRow(
+                icon: OsIcon.share,
+                title: 'Export data (.csv)',
+                value: 'Share',
+                onTap: () async {
+                  // A second export while the first share sheet is still open
+                  // would start cleaning up run directories underneath it. The
+                  // share is awaited, so this flag covers exactly that window.
+                  if (_csvExportInFlight) return;
+                  _csvExportInFlight = true;
+                  final messenger = ScaffoldMessenger.of(rowCtx);
+                  final origin = shareOriginFor(rowCtx);
+                  try {
+                    final result = await exportCsvFiles(kCsvExportSets);
+                    if (!rowCtx.mounted) return;
+                    if (result.isEmpty) {
+                      // "Nothing to export" and "the export broke" are
+                      // different answers and must not share a message.
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            result.hasFailures
+                                ? 'Export failed'
+                                : 'Nothing to export yet',
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+                    if (result.hasFailures) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Exported all but ${result.failed.join(', ')}',
+                          ),
+                        ),
+                      );
+                    }
+                    await Share.shareXFiles(
+                      [for (final p in result.paths) XFile(p)],
+                      text: 'OpenStrap CSV export',
+                      sharePositionOrigin: origin,
+                    );
+                  } catch (e) {
+                    if (!rowCtx.mounted) return;
+                    messenger.showSnackBar(
+                      SnackBar(content: Text('Export failed: $e')),
+                    );
+                  } finally {
+                    _csvExportInFlight = false;
                   }
                 },
                 divider: true,

@@ -41,6 +41,13 @@ import '../compute/manual_session.dart' show strainFromPerMinuteHr;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
 import '../data/day_label.dart';
+import '../data/auto_backup.dart'
+    show BackupCadence, BackupOutcome, runBackup;
+import '../ui/stress/breath_phases.dart';
+// `runBackupIfDue` is also the name of the AppState method below, so the pure
+// scheduler is imported under an alias rather than shadowed by it.
+import '../data/auto_backup.dart' as backup show runBackupIfDue;
+import 'prefs.dart';
 import '../data/db.dart';
 import '../data/live_coverage_policy.dart';
 import '../data/local_repository.dart';
@@ -756,6 +763,70 @@ class AppState extends ChangeNotifier {
     await prefs.setString(_kProfile, jsonEncode(user));
     notifyListeners();
     return user!;
+  }
+
+  // ── automatic backup ────────────────────────────────────────────────────────
+
+  BackupCadence get backupCadence =>
+      BackupCadence.fromName(Prefs.getString(Prefs.backupCadence, ''));
+
+  DateTime? get lastBackupAt {
+    final ms = Prefs.getInt(Prefs.backupLastRunMs, 0);
+    return ms == 0 ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  /// Change the cadence. Switching it ON takes a backup immediately rather
+  /// than waiting for the interval — otherwise nothing visible happens and the
+  /// setting looks broken.
+  Future<void> setBackupCadence(BackupCadence cadence) async {
+    Prefs.setString(Prefs.backupCadence, cadence.name);
+    notifyListeners();
+    if (cadence != BackupCadence.off) await runBackupNow();
+  }
+
+  void _markBackupRun(DateTime when) {
+    Prefs.setInt(Prefs.backupLastRunMs, when.millisecondsSinceEpoch);
+    notifyListeners();
+  }
+
+  /// Take one now, whatever the schedule says. Returns what happened so the
+  /// caller can say so — a backup that silently did not happen is the failure
+  /// this feature exists to prevent.
+  Future<BackupOutcome> runBackupNow() async {
+    final outcome = await runBackup();
+    if (outcome.succeeded) _markBackupRun(DateTime.now());
+    return outcome;
+  }
+
+  /// Foreground hook. Silent unless it actually writes something.
+  ///
+  /// The timestamp is read and written INSIDE the backup lock, via these
+  /// callbacks — reading it here and passing the value in would let a second
+  /// resume decide against a stale timestamp while the first backup was still
+  /// finishing, and start a duplicate export.
+  Future<void> runBackupIfDue() async {
+    if (backupCadence == BackupCadence.off) return;
+    // Guarded: this is fired with `unawaited` from the resume hook, and
+    // `markRun` notifies listeners — which throws if the state was disposed
+    // during a long export, surfacing as an unhandled async error.
+    try {
+      await _runBackupIfDue();
+    } catch (e) {
+      _log('Backup failed: $e');
+    }
+  }
+
+  Future<void> _runBackupIfDue() async {
+    final outcome = await backup.runBackupIfDue(
+      // Re-read inside the lock, not captured here: a call that waits behind a
+      // running export would otherwise act on the setting as it was when it
+      // queued, and someone who switched backup off in the meantime would
+      // still get a copy of their health data written after disabling it.
+      cadence: () => backupCadence,
+      lastRun: () => lastBackupAt,
+      markRun: (when) async => _markBackupRun(when),
+    );
+    if (outcome.error != null) _log('Backup failed: ${outcome.error}');
   }
 
   /// Clear the local profile + unpair the band (the former "sign out", now purely
@@ -1592,6 +1663,12 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Re-derive after a nap edit. Same machinery as a sleep-override change —
+  /// nap minutes feed sleep need and sleep debt, so an edit is a recompute
+  /// rather than a redraw, and the engine force-includes nap-edit days even
+  /// when they are finalized.
+  Future<void> reanalyzeForNapEdit() => _reanalyzeForOverride();
 
   Future<int> reanalyzeDays(Set<String> days) async {
     if (days.isEmpty || reanalyzing) return 0;
@@ -3778,6 +3855,30 @@ class AppState extends ChangeNotifier {
   static const double breathingPacedHz = 1000.0 / 10900.0;
   static const Duration _breathingRecomputeInterval = Duration(seconds: 20);
   bool breathingActive = false;
+
+  /// The pattern the running session is pacing to. Coherence is only computed
+  /// for a pattern that claims a resonance frequency — see
+  /// [BreathPattern.coherenceRated].
+  BreathPattern breathingPattern = kBreathPatterns.first;
+
+  /// When the running session started, for the persisted history row.
+  DateTime? _breathingStartedAt;
+
+  /// When the running session began, for a view that mounts mid-session.
+  DateTime? get breathingStartedAt => _breathingStartedAt;
+
+  /// What the running session was asked to run for, or null for an open one.
+  Duration? get breathingTarget => _breathingTarget;
+
+  /// What the session was SUPPOSED to run for, or null for an open one.
+  ///
+  /// Held because the banked duration is otherwise wall-clock: the screen's
+  /// ticker is muted while the app is suspended, so a two-minute session
+  /// backgrounded at 0:30 and resumed forty minutes later stopped on resume
+  /// and banked a forty-minute session, with a coherence score drawn mostly
+  /// from unpaced breathing. One backgrounded session would poison the trend
+  /// this history exists to build.
+  Duration? _breathingTarget;
   Map<String, dynamic>?
   breathingResult; // last {ok, ratio, score, peak_hz, n_beats, confidence, tier, note}
   String? breathingError;
@@ -3786,17 +3887,23 @@ class AppState extends ChangeNotifier {
   bool _breathingEnabledStreams = false;
 
   /// Begin a guided-breathing session. Requires a connected band.
-  Future<void> startBreathingSession() async {
+  Future<void> startBreathingSession({
+    BreathPattern? pattern,
+    Duration? target,
+  }) async {
     if (breathingActive) return;
     if (!isConnected) {
       breathingError = 'Connect your band first.';
       notifyListeners();
       return;
     }
+    breathingPattern = pattern ?? breathingPattern;
+    _breathingTarget = target;
     breathingActive = true;
     breathingResult = null;
     breathingError = null;
     _breathingFrames.clear();
+    _breathingStartedAt = DateTime.now();
     notifyListeners();
     unawaited(BreathingLiveActivity.start(startedAt: DateTime.now()));
     try {
@@ -3818,7 +3925,11 @@ class AppState extends ChangeNotifier {
     });
   }
 
-  /// End the guided-breathing session.
+  /// End the guided-breathing session and bank it.
+  ///
+  /// A session shorter than a minute is NOT recorded. Opening the screen and
+  /// closing it again is not a breathing session, and a history full of
+  /// 4-second entries would bury the real ones.
   Future<void> stopBreathingSession() async {
     if (!breathingActive) return;
     _breathingRecomputeTimer?.cancel();
@@ -3826,7 +3937,73 @@ class AppState extends ChangeNotifier {
     breathingActive = false;
     _stopBreathingStreams();
     unawaited(BreathingLiveActivity.end());
+
+    final started = _breathingStartedAt;
+    final target = _breathingTarget;
+    _breathingStartedAt = null;
+    _breathingTarget = null;
+    if (started != null) {
+      final ended = DateTime.now();
+      var seconds = ended.difference(started).inSeconds;
+      // Clamped to what was asked for. Overshoot is always suspension, never
+      // extra breathing — the pacer stops the moment the app leaves the
+      // foreground, so any second past the target was spent doing something
+      // else.
+      if (target != null && seconds > target.inSeconds) {
+        seconds = target.inSeconds;
+      }
+      if (seconds >= 60) {
+        final res = breathingResult;
+        final scored = res != null && res['ok'] == true;
+        // Null unless the pattern is one a coherence score means something
+        // for AND the estimator actually produced one.
+        final rated = breathingPattern.coherenceRated && scored;
+        unawaited(
+          LocalDb.putBreathingSession(
+            startedAt: started.millisecondsSinceEpoch,
+            endedAt: ended.millisecondsSinceEpoch,
+            pattern: breathingPattern.key,
+            seconds: seconds,
+            coherence: rated ? (res['score'] as num?)?.toDouble() : null,
+            confidence: rated ? (res['confidence'] as num?)?.toDouble() : null,
+          ),
+        );
+      }
+    }
     notifyListeners();
+  }
+
+  /// Past sessions, newest first.
+  Future<List<Map<String, dynamic>>> breathingHistory({int limit = 30}) =>
+      LocalDb.breathingSessions(limit: limit);
+
+  /// Buzz the strap at a breathing or interval phase boundary.
+  ///
+  /// Distinct patterns per phase so the cue is legible without looking: a
+  /// longer buzz to breathe in, a shorter one to breathe out, a double for a
+  /// hold. Never throws and never awaits the caller — this fires from a frame
+  /// callback, and a momentary disconnect must not interrupt the session or
+  /// stall the animation.
+  void buzzBreathPhase(BreathPhaseKind kind) {
+    if (!isConnected) return;
+    final pattern = switch (kind) {
+      BreathPhaseKind.inhale || BreathPhaseKind.work => 1,
+      BreathPhaseKind.exhale || BreathPhaseKind.rest => 0,
+      BreathPhaseKind.holdIn || BreathPhaseKind.holdOut => 2,
+    };
+    unawaited(engine.buzzPattern(pattern).catchError((_) {}));
+  }
+
+  /// The whole session is over, as opposed to one phase of it.
+  ///
+  /// Its own pattern rather than a repeat of the phase cue: repeated
+  /// `runHapticsPattern` frames serialize on the BLE write chain and arrive
+  /// milliseconds apart, re-triggering the firmware's haptic engine while it
+  /// is still playing — so N of them are felt as one, and the user cannot tell
+  /// "round over" from "session over".
+  void buzzSessionComplete() {
+    if (!isConnected) return;
+    unawaited(engine.buzzPattern(4).catchError((_) {}));
   }
 
   Future<void> _recomputeBreathingCoherence() async {
@@ -3836,7 +4013,10 @@ class AppState extends ChangeNotifier {
     try {
       final res = await repo!.breathingCoherence(
         frames,
-        pacedHz: breathingPacedHz,
+        // The pattern's own paced frequency, not a constant — box breathing at
+        // 3.75 breaths/min scored against a 5.5 breaths/min target would read
+        // as incoherent no matter how well it was done.
+        pacedHz: breathingPattern.pacedHz,
       );
       if (!breathingActive) return; // session ended while we awaited
       breathingResult = res;
@@ -3873,7 +4053,12 @@ class AppState extends ChangeNotifier {
   // no session is live or the type isn't route-eligible / permission denied.
   RouteTracker? _routeTracker;
   RouteTracker? get routeTracker => _routeTracker;
-  static const Set<String> _routeTypes = {'run', 'cycle', 'walk'};
+  // A hike is a walk that goes somewhere, so it records a route like one.
+  // Ski and snowboard are deliberately NOT here despite being outdoors: the
+  // route screen's hero numbers are distance and pace, and pace down a
+  // lift-served descent is not the same claim as pace on a walk — it would
+  // read as a performance figure while measuring gravity.
+  static const Set<String> _routeTypes = {'run', 'cycle', 'walk', 'hike'};
 
   DateTime _lastLaPush = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -4031,7 +4216,9 @@ class AppState extends ChangeNotifier {
   /// is granted. Denial is surfaced (routeLocationIssue) — the workout still
   /// runs without a map, but the user is told why and how to fix it.
   Future<void> _maybeStartRouteTracking(String id, String type) async {
-    if (!_routeTypes.contains(type)) return;
+    // Lowercased for the same reason every other type lookup is: the stored
+    // `type` column is free-form text and older rows carry mixed case.
+    if (!_routeTypes.contains(type.toLowerCase())) return;
     if (_routeTracker != null) return;
     routeLocationIssue = null;
     var perm = GpsPermissionStatus.error;
@@ -4222,7 +4409,10 @@ class AppState extends ChangeNotifier {
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     final w = activeWorkout!;
-    final finalKcal = w.calories.round();
+    // Nullable for the same reason `steps` below is: an unanchored profile
+    // means this session was never costed, and a 0 in the column reads as
+    // "burned nothing" rather than "not measured".
+    final finalKcal = w.caloriesOrNull;
     // Nullable: an unmeasured workout must leave the column unset rather than
     // bank a zero that reads as "you took no steps".
     final wSteps = workoutStepsMeasured;
@@ -4237,7 +4427,7 @@ class AppState extends ChangeNotifier {
       'end_ts': endTs,
       'type': w.type,
       'status': 'done',
-      'calories': w.calories,
+      'calories': finalKcal,
       'strain': w.strain,
       'max_hr': w.maxHrSeen > 0 ? w.maxHrSeen : null,
       'duration_min': w.elapsed.inMinutes,
@@ -4260,7 +4450,11 @@ class AppState extends ChangeNotifier {
     _workoutRawBase = null;
     _workoutSawSamples = false;
     notifyListeners();
-    _log('Live session ended. Burned $finalKcal kcal.');
+    _log(
+      finalKcal == null
+          ? 'Live session ended. No calorie anchors in the profile.'
+          : 'Live session ended. Burned $finalKcal kcal.',
+    );
     LiveActivity.end();
     // A workout often rides the live feed; if the connection blipped during it, the
     // band may hold that window in flash. Pull it now over the live connection so the
@@ -4396,13 +4590,17 @@ class AppState extends ChangeNotifier {
     // zone_min at stop — this is what feeds the Time-in-Zones bar).
     if (w.currentHr > 0) w.zoneSeconds[_zoneFor(w.currentHr)] += 1;
 
-    if (w.currentHr > 0) {
-      // Calorie burn formula (estimate per second). Personalized from the LOCAL
-      // profile, with representative fallbacks (30y, 70kg, male) when unset.
-      final u = user ?? const {};
-      final age = (u['age'] as num?)?.toDouble() ?? 30.0;
-      final weight = (u['weight_kg'] as num?)?.toDouble() ?? 70.0;
-      final female = u['sex'] == 'f';
+    if (w.currentHr > 0 && w.profile.hasCalorieAnchors) {
+      // Keytel (2005) per second, from the profile this session is being
+      // performed under. No fallbacks: this used to substitute 30y / 70 kg /
+      // male for whatever the profile was missing, which is how an untouched
+      // profile still produced a confident calorie total — and why the number
+      // read high for anyone lighter than the stand-in. The re-score path has
+      // always refused to guess (`hasCalorieAnchors`); now so does this one,
+      // and an unanchored session reports no calories at all.
+      final age = w.profile.ageYears!.toDouble();
+      final weight = w.profile.weightKg!;
+      final female = w.profile.sex == 'f' || w.profile.sex == 'female';
 
       double kcalMin;
       if (female) {
@@ -4421,7 +4619,7 @@ class AppState extends ChangeNotifier {
             4.184;
       }
       // Add per-second slice (kcal/min / 60). Clamp to 0 in case of low HR.
-      w.calories += (kcalMin.clamp(0.0, 30.0) / 60.0);
+      w.accrueCalories(kcalMin.clamp(0.0, 30.0) / 60.0);
 
       // Strain is NOT accrued here. `accrueHr` (called above) recomputes it
       // from the session's per-minute HR through the one shared Banister ->
@@ -4435,9 +4633,9 @@ class AppState extends ChangeNotifier {
         hr: w.currentHr,
         zone: _zoneFor(w.currentHr),
         // The Live Activity widget has no absent state; the in-app gauge
-        // shows "—" when strain is null, this pushes 0.
+        // shows "—" when strain or calories are null, this pushes 0.
         strain: w.strain ?? 0,
-        calories: w.calories.round(),
+        calories: w.caloriesOrNull ?? 0,
         maxHr: _maxHr,
         rhr: _restingHr,
       );
@@ -4453,7 +4651,31 @@ class LiveWorkoutState {
   final String? workoutId; // local session id (for the breakdown on finish)
   final String type; // exercise type label
   Duration elapsed = Duration.zero;
+
+  /// Accrued kcal. Zero here is ambiguous on its own — read [caloriesOrNull]
+  /// anywhere a user can see it.
   double calories = 0.0;
+
+  /// Whether the calorie estimate has run even once this session.
+  ///
+  /// Separate from [Profile.hasCalorieAnchors] because "can we score this" and
+  /// "did we score this" are different questions and both have a zero-shaped
+  /// answer. A complete profile whose band never delivered a heart rate — the
+  /// link dropped, the strap was off — accrues nothing, and reporting that as
+  /// 0 kcal claims a measurement that was never taken. Strain already reports
+  /// that case as absent; this makes calories agree.
+  bool _caloriesScored = false;
+
+  /// Accrued kcal, or null when this session was never costed at all — either
+  /// the profile lacks the anchors Keytel needs, or no heart rate ever
+  /// arrived. Absent beats fabricated, and absent also beats a confident zero.
+  int? get caloriesOrNull => _caloriesScored ? calories.round() : null;
+
+  /// Record a per-second slice. The only writer of [calories].
+  void accrueCalories(double kcal) {
+    _caloriesScored = true;
+    calories += kcal;
+  }
 
   /// Headline 0–21 strain, or null when the profile lacks an anchor the
   /// Banister formula needs. Recomputed on every HR sample by [accrueHr] — it
