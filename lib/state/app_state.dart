@@ -3864,6 +3864,12 @@ class AppState extends ChangeNotifier {
   /// When the running session started, for the persisted history row.
   DateTime? _breathingStartedAt;
 
+  /// When the running session began, for a view that mounts mid-session.
+  DateTime? get breathingStartedAt => _breathingStartedAt;
+
+  /// What the running session was asked to run for, or null for an open one.
+  Duration? get breathingTarget => _breathingTarget;
+
   /// What the session was SUPPOSED to run for, or null for an open one.
   ///
   /// Held because the banked duration is otherwise wall-clock: the screen's

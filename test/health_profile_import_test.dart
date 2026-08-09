@@ -106,7 +106,8 @@ void main() {
         expect(windows, hasLength(1));
         // Wide enough to find a value someone records occasionally, narrow
         // enough that an ancient reading cannot overwrite a current profile.
-        expect(windows.single.$2.year - windows.single.$1.year, 1);
+        // Pinned exactly: a year-difference check passes for any date in 2025.
+        expect(windows.single.$1, DateTime(2025, 8, 9));
       });
     });
   });

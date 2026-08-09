@@ -397,9 +397,19 @@ void main() {
             .writeAsStringSync('occupied');
       }
 
-      final outcome = await runBackup(now: when);
+      var exported = 0;
+      final outcome = await runBackup(
+        now: when,
+        exportSnapshot: () async {
+          exported++;
+          return LocalDb.exportCopy();
+        },
+      );
       expect(outcome.succeeded, isFalse);
       expect(outcome.error, isNotNull);
+      // The destination is chosen BEFORE the export. Exporting first left a
+      // full copy of the database in temp on every failed attempt.
+      expect(exported, 0, reason: 'nothing should have been exported');
       // Every pre-existing file is untouched.
       for (var i = 1; i < 100; i++) {
         final f = File(p.join(dir.path, i == 1 ? base : '$stem-$i.db'));

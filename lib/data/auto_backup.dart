@@ -191,13 +191,15 @@ Future<BackupOutcome> _runBackup({
     final dir = await backupDirectory();
     // `exportCopy` is VACUUM INTO — a transactionally consistent snapshot,
     // not a file copy of a database that may be mid-write.
-    final snapshot = await (exportSnapshot ?? LocalDb.exportCopy)();
+    // Destination FIRST. Exporting before checking meant a failure here left a
+    // full copy of the database sitting in temp, once per attempt.
     final dest = _uniqueDestination(dir, when);
     if (dest == null) {
       return const BackupOutcome(
         error: 'no free backup filename for this second',
       );
     }
+    final snapshot = await (exportSnapshot ?? LocalDb.exportCopy)();
     final tmp = File(snapshot);
     try {
       await tmp.rename(dest.path);

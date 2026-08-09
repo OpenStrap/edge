@@ -167,6 +167,9 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
   ];
 
   Future<void> _rederive({int? expectStart}) async {
+    // Both callers reach here after an awaited database write, so the screen
+    // can already be gone — a Provider lookup on a disposed context throws.
+    if (!mounted) return;
     // The edit only shows up once the day is re-derived — nap minutes feed
     // sleep need and sleep debt, so this is a recompute, not a redraw.
     await context.read<AppState>().reanalyzeForNapEdit();

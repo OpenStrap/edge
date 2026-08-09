@@ -104,6 +104,32 @@ void main() {
     )));
   });
 
+  testWidgets('a remount keeps the session deadline, it does not restart it',
+      (tester) async {
+    // The view is rebuilt every time someone leaves the screen and comes back.
+    // Timing from a local stopwatch restarted the pacing from zero and
+    // reverted the length to the 2-minute default, so a five-minute session
+    // re-entered at 4:00 showed 2:00 and stopped almost at once.
+    var stopped = 0;
+    await tester.pumpWidget(_host(CalmBreathingView(
+      connected: true,
+      active: true,
+      startedAt: DateTime.now().subtract(const Duration(minutes: 4)),
+      target: const Duration(minutes: 5),
+      onStop: () => stopped++,
+    )));
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(stopped, 0, reason: 'a 5-minute session is not over at 4:00');
+    // A minute of remaining time, not the default two.
+    expect(find.text('0:59'), findsOneWidget);
+
+    await tester.pumpWidget(_host(const CalmBreathingView(
+      connected: true,
+      active: false,
+    )));
+  });
+
   testWidgets('tapping Stop Session calls onStop', (tester) async {
     var stopped = false;
     await tester.pumpWidget(_host(CalmBreathingView(

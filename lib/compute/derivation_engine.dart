@@ -4390,10 +4390,13 @@ class DerivationEngine {
     bundle['naps'] = <String, dynamic>{
       'value': merged,
       'count': merged.length,
-      // No detection confidence, because there was no detection. These are
-      // reported, not estimated.
+      // No detection confidence, because there was no detection.
       'confidence': null,
-      'tier': 'reported',
+      // AUTH is the closed vocabulary's "directly measured / definitional",
+      // which is what a self-report is: the user is not estimating that they
+      // napped, they are stating it. An invented fifth tier would be a string
+      // no reader knows how to rank.
+      'tier': ana.Tier.auth,
       'inputs_used': const ['user'],
       'note': '$note — showing what you logged',
     };

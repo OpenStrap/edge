@@ -39,6 +39,11 @@ class CalmBreathingScreen extends StatelessWidget {
     context.select<AppState, (bool, bool, Map<String, dynamic>?, String?)>(
       (a) => (a.isConnected, a.breathingActive, a.breathingResult, a.breathingError),
     );
+    // Also watched: a view that mounts mid-session needs the session's own
+    // start and target, not the picker's defaults.
+    context.select<AppState, (DateTime?, Duration?)>(
+      (a) => (a.breathingStartedAt, a.breathingTarget),
+    );
     final app = context.read<AppState>();
     if (autoStart && !app.breathingActive && app.isConnected) {
       // Guarded by breathingActive so this only ever fires once per mount —
@@ -54,6 +59,8 @@ class CalmBreathingScreen extends StatelessWidget {
       result: app.breathingResult,
       error: app.breathingError,
       pattern: app.breathingPattern,
+      startedAt: app.breathingStartedAt,
+      target: app.breathingTarget,
       onStart: app.startBreathingSession,
       onStop: app.stopBreathingSession,
       // Buzzing the strap is what makes this usable with your eyes closed,
@@ -83,6 +90,16 @@ class CalmBreathingView extends StatefulWidget {
 
   /// Called once per phase boundary, to buzz the strap.
   final ValueChanged<BreathPhaseKind>? onPhaseChange;
+
+  /// When the RUNNING session began, and what it was asked to run for.
+  ///
+  /// Authoritative, and owned by the session rather than by this view, because
+  /// the view is remounted every time someone leaves the screen and comes
+  /// back. Timing from a local stopwatch restarted the pacing from zero on
+  /// re-entry and reverted the length to the default, so a five-minute session
+  /// re-entered at 4:00 showed 2:00 and stopped almost immediately.
+  final DateTime? startedAt;
+  final Duration? target;
   final VoidCallback? onBack;
 
   const CalmBreathingView({
@@ -95,6 +112,8 @@ class CalmBreathingView extends StatefulWidget {
     this.onStart,
     this.onStop,
     this.onPhaseChange,
+    this.startedAt,
+    this.target,
     this.onBack,
   });
 
@@ -115,7 +134,10 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
   /// Drives the circle. Its VALUE is ignored — the phase engine decides what
   /// is happening; this just gives us a per-frame tick.
   late AnimationController _ticker;
-  final _clock = Stopwatch();
+
+  /// Fallback start for a view driven without an authoritative one (the pure
+  /// widget tests). The session's own start wins whenever it is known.
+  DateTime? _localStart;
 
   /// Chosen before starting.
   BreathPattern _pattern = _defaultPattern;
@@ -157,7 +179,7 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
       _begin();
     } else if (!widget.active && oldWidget.active) {
       _ticker.stop();
-      _clock.stop();
+      _localStart = null;
       setState(() {});
     }
   }
@@ -166,9 +188,9 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
     _lastPhase = null;
     _lastCycle = -1;
     _finished = false;
-    _clock
-      ..reset()
-      ..start();
+    // Only when the session cannot tell us — otherwise a remount would reset
+    // the clock and restart the session's timing from zero.
+    _localStart ??= DateTime.now();
     _ticker.repeat();
   }
 
@@ -180,10 +202,16 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
     super.dispose();
   }
 
-  Duration get _elapsed => _clock.elapsed;
+  Duration get _elapsed {
+    final from = widget.startedAt ?? _localStart;
+    return from == null ? Duration.zero : DateTime.now().difference(from);
+  }
 
+  /// The running session's target wins over the picker, which is only a draft
+  /// until Begin is pressed and reverts to its default on a remount.
   Duration? get _target =>
-      _minutes == null ? null : Duration(minutes: _minutes!);
+      widget.target ??
+      (_minutes == null ? null : Duration(minutes: _minutes!));
 
   Duration? get _remaining {
     final t = _target;
@@ -202,7 +230,6 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
       // to say that and run until you stopped it.
       _finished = true;
       _ticker.stop();
-      _clock.stop();
       widget.onStop?.call();
       return;
     }
