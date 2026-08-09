@@ -9,7 +9,31 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/auto_backup.dart';
+import 'package:openstrap_edge/data/db.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+/// A real backup writes a real file, so the serialization tests need somewhere
+/// to write and a database to snapshot.
+class _FakePathProvider extends PathProviderPlatform {
+  _FakePathProvider(this.root);
+  final String root;
+  @override
+  Future<String?> getTemporaryPath() async => root;
+  @override
+  Future<String?> getApplicationSupportPath() async => root;
+  @override
+  Future<String?> getApplicationDocumentsPath() async => root;
+  @override
+  Future<String?> getApplicationCachePath() async => root;
+  @override
+  Future<String?> getLibraryPath() async => root;
+  @override
+  Future<String?> getDownloadsPath() async => root;
+  @override
+  Future<String?> getExternalStoragePath() async => root;
+}
 
 void main() {
   group('backupIsDue', () {
@@ -231,15 +255,107 @@ void main() {
     });
   });
 
-  test('runBackupIfDue skips rather than failing when nothing is due',
-      () async {
-    final outcome = await runBackupIfDue(
-      cadence: BackupCadence.daily,
-      lastRun: DateTime(2026, 8, 9, 11),
-      now: DateTime(2026, 8, 9, 12),
-    );
-    expect(outcome.skipped, isTrue);
-    expect(outcome.succeeded, isFalse);
-    expect(outcome.error, isNull, reason: 'not due is not a failure');
+  group('runBackupIfDue', () {
+    late Directory tmp;
+
+    setUpAll(() async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+      tmp = await Directory.systemTemp.createTemp('openstrap_backup_run_');
+      PathProviderPlatform.instance = _FakePathProvider(tmp.path);
+      LocalDb.dbName = 'openstrap_backup_run_test.db';
+      await databaseFactory.deleteDatabase(
+        p.join(await databaseFactory.getDatabasesPath(), LocalDb.dbName),
+      );
+      await LocalDb.instance;
+    });
+
+    tearDownAll(() async {
+      await LocalDb.close();
+      if (await tmp.exists()) await tmp.delete(recursive: true);
+    });
+
+    test('skips rather than failing when nothing is due', () async {
+      var marked = 0;
+      final outcome = await runBackupIfDue(
+        cadence: BackupCadence.daily,
+        lastRun: () => DateTime(2026, 8, 9, 11),
+        markRun: (_) async => marked++,
+        now: DateTime(2026, 8, 9, 12),
+      );
+      expect(outcome.skipped, isTrue);
+      expect(outcome.succeeded, isFalse);
+      expect(outcome.error, isNull, reason: 'not due is not a failure');
+      expect(marked, 0, reason: 'a skip is not a run');
+    });
+
+    test('reads the timestamp inside the lock, not before queueing', () async {
+      // THE RACE this serialization exists to close. Two triggers arrive
+      // together; the first backs up and records it. The second must see that
+      // record when its turn comes, rather than the value it would have read
+      // at call time — which is what a plain `lastRun` VALUE parameter gave it,
+      // and what produced a duplicate export.
+      DateTime? last;
+      final reads = <DateTime?>[];
+      final now = DateTime(2026, 8, 9, 12);
+
+      Future<BackupOutcome> trigger() => runBackupIfDue(
+        cadence: BackupCadence.daily,
+        lastRun: () {
+          reads.add(last);
+          return last;
+        },
+        markRun: (when) async => last = when,
+        now: now,
+      );
+
+      // Fired without awaiting the first, exactly as two resume events would.
+      final results = await Future.wait([trigger(), trigger()]);
+
+      expect(reads, hasLength(2));
+      expect(
+        reads.last,
+        isNotNull,
+        reason: 'the second read must see the first run, not a stale null',
+      );
+      expect(
+        results.where((r) => r.skipped),
+        hasLength(1),
+        reason: 'exactly one of the two should have decided it was due',
+      );
+    });
+
+    test('two runs in the same second get two files, not one overwritten',
+        () async {
+      // Seconds make a collision rare, not impossible. Two manual taps inside
+      // one second would otherwise share a destination and the first snapshot
+      // would be silently replaced by the second.
+      final when = DateTime(2026, 8, 9, 12, 30, 15);
+      final first = await runBackup(now: when);
+      final second = await runBackup(now: when);
+
+      expect(first.succeeded, isTrue, reason: '${first.error}');
+      expect(second.succeeded, isTrue, reason: '${second.error}');
+      expect(first.path, isNot(second.path));
+      expect(File(first.path!).existsSync(), isTrue);
+      expect(File(second.path!).existsSync(), isTrue);
+    });
+
+    test('one failure does not wedge every later backup', () async {
+      // The queue is chained; without an error guard on the tail, a single
+      // throw would leave every subsequent call waiting on a failed future.
+      final before = await runBackupIfDue(
+        cadence: BackupCadence.off,
+        lastRun: () => null,
+        markRun: (_) async {},
+      );
+      expect(before.skipped, isTrue);
+      final after = await runBackupIfDue(
+        cadence: BackupCadence.off,
+        lastRun: () => null,
+        markRun: (_) async {},
+      );
+      expect(after.skipped, isTrue);
+    });
   });
 }

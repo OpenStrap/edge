@@ -784,38 +784,35 @@ class AppState extends ChangeNotifier {
     if (cadence != BackupCadence.off) await runBackupNow();
   }
 
+  void _markBackupRun(DateTime when) {
+    Prefs.setInt(Prefs.backupLastRunMs, when.millisecondsSinceEpoch);
+    notifyListeners();
+  }
+
   /// Take one now, whatever the schedule says. Returns what happened so the
   /// caller can say so — a backup that silently did not happen is the failure
   /// this feature exists to prevent.
   Future<BackupOutcome> runBackupNow() async {
     final outcome = await runBackup();
-    if (outcome.succeeded) {
-      Prefs.setInt(
-        Prefs.backupLastRunMs,
-        DateTime.now().millisecondsSinceEpoch,
-      );
-      notifyListeners();
-    }
+    if (outcome.succeeded) _markBackupRun(DateTime.now());
     return outcome;
   }
 
   /// Foreground hook. Silent unless it actually writes something.
+  ///
+  /// The timestamp is read and written INSIDE the backup lock, via these
+  /// callbacks — reading it here and passing the value in would let a second
+  /// resume decide against a stale timestamp while the first backup was still
+  /// finishing, and start a duplicate export.
   Future<void> runBackupIfDue() async {
     final cadence = backupCadence;
     if (cadence == BackupCadence.off) return;
     final outcome = await backup.runBackupIfDue(
       cadence: cadence,
-      lastRun: lastBackupAt,
+      lastRun: () => lastBackupAt,
+      markRun: (when) async => _markBackupRun(when),
     );
-    if (outcome.succeeded) {
-      Prefs.setInt(
-        Prefs.backupLastRunMs,
-        DateTime.now().millisecondsSinceEpoch,
-      );
-      notifyListeners();
-    } else if (outcome.error != null) {
-      _log('Backup failed: ${outcome.error}');
-    }
+    if (outcome.error != null) _log('Backup failed: ${outcome.error}');
   }
 
   /// Clear the local profile + unpair the band (the former "sign out", now purely

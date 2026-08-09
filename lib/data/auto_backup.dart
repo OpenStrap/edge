@@ -154,25 +154,29 @@ Future<Directory> backupDirectory() async {
   return dir;
 }
 
-/// In-flight guard. A resume can fire more than once, and a cadence change
-/// during a foreground backup would otherwise start a second export against
-/// the same directory while the first was still copying and pruning.
-Future<BackupOutcome>? _inFlight;
+/// The whole backup transaction runs under this, one at a time.
+///
+/// It has to cover MORE than the export. Reading `lastRun`, deciding whether a
+/// backup is due, writing the file, pruning, and persisting the new `lastRun`
+/// are one indivisible sequence: a guard that ended when the export finished
+/// still left a window where a second trigger read the stale timestamp, judged
+/// it due, and started another export. A resume can fire more than once, and a
+/// cadence change lands on the same path.
+Future<void> _tail = Future<void>.value();
+
+Future<T> _serialize<T>(Future<T> Function() body) {
+  final result = _tail.then((_) => body());
+  // The queue must survive a failed run, or one error wedges every later
+  // backup for the life of the process.
+  _tail = result.then((_) {}, onError: (_) {});
+  return result;
+}
 
 /// Take a backup now, regardless of schedule, and prune old ones.
 ///
-/// Serialized: a second caller while one is running joins the first rather
-/// than starting its own.
-Future<BackupOutcome> runBackup({DateTime? now}) {
-  final current = _inFlight;
-  if (current != null) return current;
-  late final Future<BackupOutcome> op;
-  op = _runBackup(now: now).whenComplete(() {
-    if (identical(_inFlight, op)) _inFlight = null;
-  });
-  _inFlight = op;
-  return op;
-}
+/// Serialized against every other backup path.
+Future<BackupOutcome> runBackup({DateTime? now}) =>
+    _serialize(() => _runBackup(now: now));
 
 Future<BackupOutcome> _runBackup({DateTime? now}) async {
   final when = now ?? DateTime.now();
@@ -181,7 +185,7 @@ Future<BackupOutcome> _runBackup({DateTime? now}) async {
     // `exportCopy` is VACUUM INTO — a transactionally consistent snapshot,
     // not a file copy of a database that may be mid-write.
     final snapshot = await LocalDb.exportCopy();
-    final dest = File(p.join(dir.path, backupFileName(when)));
+    final dest = _uniqueDestination(dir, when);
     final tmp = File(snapshot);
     try {
       await tmp.rename(dest.path);
@@ -214,16 +218,43 @@ Future<void> pruneBackups(Directory dir, {required int keep}) async {
   }
 }
 
-/// Run a backup if [cadence] says one is due. Returns a skipped outcome
-/// otherwise, so the caller can tell "not yet" from "it broke".
+/// A free filename in [dir] for a backup taken at [when].
+///
+/// Seconds make a collision rare, not impossible — two manual runs inside one
+/// second would otherwise share a name and the second would overwrite the
+/// first. The suffix is bounded; past it the timestamp is not the problem.
+File _uniqueDestination(Directory dir, DateTime when) {
+  final base = backupFileName(when);
+  var candidate = File(p.join(dir.path, base));
+  for (var i = 2; candidate.existsSync() && i < 100; i++) {
+    final stem = base.substring(0, base.length - 3); // drop '.db'
+    candidate = File(p.join(dir.path, '$stem-$i.db'));
+  }
+  return candidate;
+}
+
+/// Run a backup if [cadence] says one is due.
+///
+/// [lastRun] and [markRun] are CALLBACKS rather than values, so reading the
+/// timestamp, deciding, exporting and persisting the new one all happen inside
+/// the same lock. Passing `lastRun` in as a value would reintroduce exactly
+/// the race this serialization exists to close: the caller would have read it
+/// before queueing, and a backup that finished in the meantime would be
+/// invisible to that decision.
+///
+/// Returns a skipped outcome when nothing was due, so the caller can tell
+/// "not yet" from "it broke".
 Future<BackupOutcome> runBackupIfDue({
   required BackupCadence cadence,
-  required DateTime? lastRun,
+  required DateTime? Function() lastRun,
+  required Future<void> Function(DateTime) markRun,
   DateTime? now,
-}) async {
+}) => _serialize(() async {
   final when = now ?? DateTime.now();
-  if (!backupIsDue(cadence: cadence, lastRun: lastRun, now: when)) {
+  if (!backupIsDue(cadence: cadence, lastRun: lastRun(), now: when)) {
     return const BackupOutcome(skipped: true);
   }
-  return runBackup(now: when);
-}
+  final outcome = await _runBackup(now: when);
+  if (outcome.succeeded) await markRun(when);
+  return outcome;
+});
