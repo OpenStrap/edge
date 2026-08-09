@@ -805,10 +805,13 @@ class AppState extends ChangeNotifier {
   /// resume decide against a stale timestamp while the first backup was still
   /// finishing, and start a duplicate export.
   Future<void> runBackupIfDue() async {
-    final cadence = backupCadence;
-    if (cadence == BackupCadence.off) return;
+    if (backupCadence == BackupCadence.off) return;
     final outcome = await backup.runBackupIfDue(
-      cadence: cadence,
+      // Re-read inside the lock, not captured here: a call that waits behind a
+      // running export would otherwise act on the setting as it was when it
+      // queued, and someone who switched backup off in the meantime would
+      // still get a copy of their health data written after disabling it.
+      cadence: () => backupCadence,
       lastRun: () => lastBackupAt,
       markRun: (when) async => _markBackupRun(when),
     );

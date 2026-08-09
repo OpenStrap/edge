@@ -278,7 +278,7 @@ void main() {
     test('skips rather than failing when nothing is due', () async {
       var marked = 0;
       final outcome = await runBackupIfDue(
-        cadence: BackupCadence.daily,
+        cadence: () => BackupCadence.daily,
         lastRun: () => DateTime(2026, 8, 9, 11),
         markRun: (_) async => marked++,
         now: DateTime(2026, 8, 9, 12),
@@ -300,7 +300,7 @@ void main() {
       final now = DateTime(2026, 8, 9, 12);
 
       Future<BackupOutcome> trigger() => runBackupIfDue(
-        cadence: BackupCadence.daily,
+        cadence: () => BackupCadence.daily,
         lastRun: () {
           reads.add(last);
           return last;
@@ -341,21 +341,73 @@ void main() {
       expect(File(second.path!).existsSync(), isTrue);
     });
 
-    test('one failure does not wedge every later backup', () async {
+    test('a cadence switched off while queued does not still write', () async {
+      // The privacy-shaped half of the same race. Someone turns backup off
+      // while one is running; the queued call must see OFF, not the setting as
+      // it was when it queued, or it writes an unencrypted copy of everything
+      // after they disabled it.
+      var cadence = BackupCadence.daily;
+      var wrote = 0;
+
+      final running = runBackup(
+        exportSnapshot: () async {
+          // Flip the setting while the first export is in flight.
+          cadence = BackupCadence.off;
+          return LocalDb.exportCopy();
+        },
+      );
+      final queued = runBackupIfDue(
+        cadence: () => cadence,
+        lastRun: () => null,
+        markRun: (_) async => wrote++,
+      );
+
+      await running;
+      final outcome = await queued;
+      expect(outcome.skipped, isTrue, reason: 'it must see the new setting');
+      expect(wrote, 0);
+    });
+
+    test('a failed backup does not wedge every later one', () async {
       // The queue is chained; without an error guard on the tail, a single
       // throw would leave every subsequent call waiting on a failed future.
-      final before = await runBackupIfDue(
-        cadence: BackupCadence.off,
-        lastRun: () => null,
-        markRun: (_) async {},
+      final failed = await runBackup(
+        exportSnapshot: () async => throw const FileSystemException('nope'),
       );
-      expect(before.skipped, isTrue);
-      final after = await runBackupIfDue(
-        cadence: BackupCadence.off,
-        lastRun: () => null,
-        markRun: (_) async {},
+      expect(failed.succeeded, isFalse);
+      expect(failed.error, isNotNull);
+
+      final after = await runBackup(now: DateTime(2026, 8, 9, 13, 0, 0));
+      expect(
+        after.succeeded,
+        isTrue,
+        reason: 'the queue must survive the failure before it: ${after.error}',
       );
-      expect(after.skipped, isTrue);
+    });
+
+    test('an occupied destination is never handed back', () async {
+      // Returning the last candidate would give the next backup a real
+      // snapshot to overwrite — the exact loss the unique naming prevents.
+      final when = DateTime(2026, 8, 9, 14, 0, 0);
+      final dir = await backupDirectory();
+      final base = backupFileName(when);
+      final stem = base.substring(0, base.length - 3);
+      for (var i = 1; i < 100; i++) {
+        File(p.join(dir.path, i == 1 ? base : '$stem-$i.db'))
+            .writeAsStringSync('occupied');
+      }
+
+      final outcome = await runBackup(now: when);
+      expect(outcome.succeeded, isFalse);
+      expect(outcome.error, isNotNull);
+      // Every pre-existing file is untouched.
+      for (var i = 1; i < 100; i++) {
+        final f = File(p.join(dir.path, i == 1 ? base : '$stem-$i.db'));
+        expect(f.readAsStringSync(), 'occupied');
+      }
+      for (var i = 1; i < 100; i++) {
+        File(p.join(dir.path, i == 1 ? base : '$stem-$i.db')).deleteSync();
+      }
     });
   });
 }

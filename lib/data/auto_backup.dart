@@ -175,17 +175,29 @@ Future<T> _serialize<T>(Future<T> Function() body) {
 /// Take a backup now, regardless of schedule, and prune old ones.
 ///
 /// Serialized against every other backup path.
-Future<BackupOutcome> runBackup({DateTime? now}) =>
-    _serialize(() => _runBackup(now: now));
+Future<BackupOutcome> runBackup({
+  DateTime? now,
+  Future<String> Function()? exportSnapshot,
+}) => _serialize(() => _runBackup(now: now, exportSnapshot: exportSnapshot));
 
-Future<BackupOutcome> _runBackup({DateTime? now}) async {
+Future<BackupOutcome> _runBackup({
+  DateTime? now,
+  // Test seam. A failing export is otherwise unreachable from a test, which
+  // left the queue-recovery case unverifiable.
+  Future<String> Function()? exportSnapshot,
+}) async {
   final when = now ?? DateTime.now();
   try {
     final dir = await backupDirectory();
     // `exportCopy` is VACUUM INTO — a transactionally consistent snapshot,
     // not a file copy of a database that may be mid-write.
-    final snapshot = await LocalDb.exportCopy();
+    final snapshot = await (exportSnapshot ?? LocalDb.exportCopy)();
     final dest = _uniqueDestination(dir, when);
+    if (dest == null) {
+      return const BackupOutcome(
+        error: 'no free backup filename for this second',
+      );
+    }
     final tmp = File(snapshot);
     try {
       await tmp.rename(dest.path);
@@ -218,43 +230,55 @@ Future<void> pruneBackups(Directory dir, {required int keep}) async {
   }
 }
 
-/// A free filename in [dir] for a backup taken at [when].
+/// A FREE filename in [dir] for a backup taken at [when], or null when the
+/// bounded search found none.
 ///
 /// Seconds make a collision rare, not impossible — two manual runs inside one
 /// second would otherwise share a name and the second would overwrite the
-/// first. The suffix is bounded; past it the timestamp is not the problem.
-File _uniqueDestination(Directory dir, DateTime when) {
+/// first. Null rather than the last candidate: returning an occupied path
+/// would hand back a real snapshot for the next backup to overwrite, which is
+/// the exact data loss this function exists to prevent.
+File? _uniqueDestination(Directory dir, DateTime when) {
   final base = backupFileName(when);
-  var candidate = File(p.join(dir.path, base));
-  for (var i = 2; candidate.existsSync() && i < 100; i++) {
-    final stem = base.substring(0, base.length - 3); // drop '.db'
-    candidate = File(p.join(dir.path, '$stem-$i.db'));
+  final stem = base.substring(0, base.length - 3); // drop '.db'
+  for (var i = 1; i < 100; i++) {
+    final candidate = File(
+      p.join(dir.path, i == 1 ? base : '$stem-$i.db'),
+    );
+    if (!candidate.existsSync()) return candidate;
   }
-  return candidate;
+  return null;
 }
 
 /// Run a backup if [cadence] says one is due.
 ///
-/// [lastRun] and [markRun] are CALLBACKS rather than values, so reading the
-/// timestamp, deciding, exporting and persisting the new one all happen inside
-/// the same lock. Passing `lastRun` in as a value would reintroduce exactly
-/// the race this serialization exists to close: the caller would have read it
-/// before queueing, and a backup that finished in the meantime would be
-/// invisible to that decision.
+/// [cadence], [lastRun] and [markRun] are all CALLBACKS rather than values, so
+/// reading the setting and the timestamp, deciding, exporting and persisting
+/// happen inside the same lock. Passing either in as a value would reintroduce
+/// exactly the race this serialization exists to close: the caller would have
+/// read it before queueing, and both a backup that finished in the meantime
+/// and a setting the user changed in the meantime would be invisible to the
+/// decision.
 ///
 /// Returns a skipped outcome when nothing was due, so the caller can tell
 /// "not yet" from "it broke".
 Future<BackupOutcome> runBackupIfDue({
-  required BackupCadence cadence,
+  required BackupCadence Function() cadence,
   required DateTime? Function() lastRun,
   required Future<void> Function(DateTime) markRun,
   DateTime? now,
+  Future<String> Function()? exportSnapshot,
 }) => _serialize(() async {
   final when = now ?? DateTime.now();
-  if (!backupIsDue(cadence: cadence, lastRun: lastRun(), now: when)) {
+  // Cadence is read here too, for the same reason as the timestamp: a call
+  // that waits behind an export would otherwise act on the setting as it was
+  // when it queued. Someone who switches backup OFF while one is running would
+  // still get another unencrypted copy of their health data written after
+  // they disabled it.
+  if (!backupIsDue(cadence: cadence(), lastRun: lastRun(), now: when)) {
     return const BackupOutcome(skipped: true);
   }
-  final outcome = await _runBackup(now: when);
+  final outcome = await _runBackup(now: when, exportSnapshot: exportSnapshot);
   if (outcome.succeeded) await markRun(when);
   return outcome;
 });
