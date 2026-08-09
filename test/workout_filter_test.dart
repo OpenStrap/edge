@@ -69,6 +69,30 @@ void main() {
       expect(const WorkoutFilter(minStrain: 9).apply(list).length, 2);
     });
 
+    test('a strain floor excludes a session that was never scored', () {
+      // Null strain means the profile lacked an anchor, or the window had no
+      // HR. It cannot be shown to clear the bar, so listing it under
+      // "strain 10+" would be a claim we cannot make.
+      final unscored = {
+        'start_ts': 500,
+        'type': 'run',
+        'duration_min': 60,
+        'strain': null,
+        'status': 'done',
+      };
+      // All three scored sessions clear 5; the unscored one is the only
+      // thing the floor removes.
+      expect(
+        const WorkoutFilter(minStrain: 5).apply([...list, unscored]).length,
+        3,
+      );
+      expect(
+        const WorkoutFilter().apply([...list, unscored]).length,
+        4,
+        reason: 'with no floor it is an ordinary workout',
+      );
+    });
+
     test('floors compose', () {
       final out = const WorkoutFilter(minMinutes: 45, minStrain: 10)
           .apply(list);
@@ -137,6 +161,20 @@ void main() {
             .map((e) => e['start_ts']),
         [200, 100, 300],
       );
+    });
+
+    test('hardest sinks unscored sessions below real zeros', () {
+      final unscored = {
+        'start_ts': 400,
+        'duration_min': 30,
+        'strain': null,
+        'status': 'done',
+      };
+      final zero = w(startTs: 350, strain: 0);
+      final out = const WorkoutFilter(sort: WorkoutSort.hardest)
+          .apply([unscored, zero, ...list]);
+      expect(out.last['start_ts'], 400, reason: 'unscored ranks below a real 0');
+      expect(out[out.length - 2]['start_ts'], 350);
     });
 
     test('hardest orders by strain', () {

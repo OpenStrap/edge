@@ -103,8 +103,14 @@ class WorkoutFilter {
     if (minMinutes > 0 && ((w['duration_min'] as num?) ?? 0) < minMinutes) {
       return false;
     }
-    if (minStrain > 0 && ((w['strain'] as num?) ?? 0) < minStrain) {
-      return false;
+    // An unscored session (null strain — the profile lacked an anchor, or the
+    // window has no HR) cannot be shown to clear a strain floor, so a floor
+    // excludes it. That is the conservative reading and it is deliberate: the
+    // alternative is listing sessions under "strain 10+" that may be nothing
+    // of the sort.
+    if (minStrain > 0) {
+      final s = (w['strain'] as num?)?.toDouble();
+      if (s == null || s < minStrain) return false;
     }
     return true;
   }
@@ -113,7 +119,7 @@ class WorkoutFilter {
     final out = workouts.where(_matches).toList();
     int startOf(Map<String, dynamic> w) => (w['start_ts'] as int?) ?? 0;
     num durOf(Map<String, dynamic> w) => (w['duration_min'] as num?) ?? 0;
-    num strainOf(Map<String, dynamic> w) => (w['strain'] as num?) ?? 0;
+    num? strainOf(Map<String, dynamic> w) => (w['strain'] as num?);
     switch (sort) {
       case WorkoutSort.newest:
         out.sort((a, b) => startOf(b).compareTo(startOf(a)));
@@ -126,10 +132,20 @@ class WorkoutFilter {
           final c = durOf(b).compareTo(durOf(a));
           return c != 0 ? c : startOf(b).compareTo(startOf(a));
         });
+      // An unscored session sinks below every scored one rather than ranking
+      // as a genuine zero — "hardest last" should not be a list of sessions we
+      // could not score.
       case WorkoutSort.hardest:
         out.sort((a, b) {
-          final c = strainOf(b).compareTo(strainOf(a));
-          return c != 0 ? c : startOf(b).compareTo(startOf(a));
+          final sa = strainOf(a);
+          final sb = strainOf(b);
+          if (sa == null || sb == null) {
+            if (sa != sb) return sa == null ? 1 : -1;
+          } else {
+            final c = sb.compareTo(sa);
+            if (c != 0) return c;
+          }
+          return startOf(b).compareTo(startOf(a));
         });
     }
     return out;
