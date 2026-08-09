@@ -38,25 +38,14 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/dart_source.dart';
+
 /// Getters whose value only exists when asserts are enabled.
 const _assertStrippedMembers = <String>[
   'debugNeedsPaint',
   'debugNeedsLayout',
   'debugNeedsCompositedLayerUpdate',
 ];
-
-/// Strip `//` line comments and `/* */` blocks so a member named in an
-/// explanatory comment (this file's own history, for one) isn't a false hit.
-String _stripComments(String source) {
-  final noBlocks = source.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
-  return noBlocks
-      .split('\n')
-      .map((l) {
-        final i = l.indexOf('//');
-        return i == -1 ? l : l.substring(0, i);
-      })
-      .join('\n');
-}
 
 void main() {
   test('no assert-stripped Flutter APIs are called in lib/', () {
@@ -66,7 +55,7 @@ void main() {
     final offences = <String>[];
     for (final entity in lib.listSync(recursive: true)) {
       if (entity is! File || !entity.path.endsWith('.dart')) continue;
-      final code = _stripComments(entity.readAsStringSync());
+      final code = stripCommentsAndStrings(entity.readAsStringSync());
       final lines = code.split('\n');
       for (var i = 0; i < lines.length; i++) {
         for (final member in _assertStrippedMembers) {
@@ -95,17 +84,19 @@ void main() {
     expect(_assertStrippedMembers, contains('debugNeedsPaint'));
   });
 
-  test('the comment stripper does not hide a real call', () {
+  test('the shared source stripper does not hide a real call', () {
     const sample = '''
       // boundary.debugNeedsPaint is mentioned here in prose
       final x = boundary.debugNeedsPaint;
     ''';
-    final stripped = _stripComments(sample);
+    final stripped = stripCommentsAndStrings(sample);
     expect(stripped.contains('.debugNeedsPaint'), isTrue,
         reason: 'the real call on line 2 must survive stripping');
     expect('\n'.allMatches(stripped).length, greaterThan(1));
     // And a comment-only mention must NOT trip it.
     const commentOnly = '// see boundary.debugNeedsPaint for why';
-    expect(_stripComments(commentOnly).contains('.debugNeedsPaint'), isFalse);
+    expect(
+        stripCommentsAndStrings(commentOnly).contains('.debugNeedsPaint'),
+        isFalse);
   });
 }

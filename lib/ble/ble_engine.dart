@@ -641,6 +641,22 @@ class BleEngine {
         hasLiveConsumer: _liveEnabled && !_liveHrOnly,
       );
 
+  /// The last hop: the policy's [LinkPriority] as the radio's own enum.
+  ///
+  /// Lifted out of [_applyLinkPriority] because inline it was the one step
+  /// nothing covered. `desiredLinkPriority` could keep returning exactly the
+  /// right answer while every arm here mapped to `ConnectionPriority.high` —
+  /// which IS issue #200, the link pinned at ~11.25 ms overnight — and the
+  /// whole suite stayed green. Arm-by-arm coverage is in
+  /// `link_priority_policy_test.dart`.
+  @visibleForTesting
+  static ConnectionPriority connectionPriorityFor(LinkPriority want) =>
+      switch (want) {
+        LinkPriority.high => ConnectionPriority.high,
+        LinkPriority.balanced => ConnectionPriority.balanced,
+        LinkPriority.lowPower => ConnectionPriority.lowPower,
+      };
+
   @visibleForTesting
   void debugBeginConnectSetup() => _connectSetup = true;
 
@@ -685,11 +701,7 @@ class BleEngine {
         final generation = _linkGeneration;
         try {
           await session.device.requestConnectionPriority(
-            connectionPriorityRequest: switch (want) {
-              LinkPriority.high => ConnectionPriority.high,
-              LinkPriority.balanced => ConnectionPriority.balanced,
-              LinkPriority.lowPower => ConnectionPriority.lowPower,
-            },
+            connectionPriorityRequest: connectionPriorityFor(want),
           );
           // Only remember it if the link we asked is still the live one. A
           // teardown during the await clears `_appliedPriority` precisely so

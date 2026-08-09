@@ -10,6 +10,7 @@
 // offload always runs at the fast interval, whatever else is going on, because
 // throughput during a drain is what the fast interval was for.
 
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/sync/sync_policy.dart';
@@ -82,6 +83,56 @@ void main() {
         );
       }
     }
+  });
+
+  group('the policy survives the last hop to the radio', () {
+    // The gap this closes: `desiredLinkPriority` can keep returning exactly
+    // the right LinkPriority while the switch that turns it into the radio's
+    // own enum maps every arm to `ConnectionPriority.high`. That IS issue #200
+    // — the link pinned at ~11.25 ms overnight — and with the mapping inline
+    // and untested, the whole suite stayed green through it. Verified by
+    // mutation: all three arms to `.high` passed 13/13 before this existed.
+    const expected = {
+      LinkPriority.high: ConnectionPriority.high,
+      LinkPriority.balanced: ConnectionPriority.balanced,
+      LinkPriority.lowPower: ConnectionPriority.lowPower,
+    };
+
+    test('every arm maps to its own priority, none of them to high', () {
+      for (final want in LinkPriority.values) {
+        expect(
+          BleEngine.connectionPriorityFor(want),
+          expected[want],
+          reason: '${want.name} must not be silently promoted',
+        );
+      }
+    });
+
+    test('the mapping is exhaustive, and no two arms collapse', () {
+      // A LinkPriority added to the enum has to be given a mapping here rather
+      // than inheriting whatever the switch falls through to.
+      expect(expected.keys, unorderedEquals(LinkPriority.values));
+      expect(
+        LinkPriority.values.map(BleEngine.connectionPriorityFor).toSet(),
+        hasLength(LinkPriority.values.length),
+        reason: 'two link priorities collapsing to one radio priority means '
+            'one of the steps is not actually a step',
+      );
+    });
+
+    test('the overnight state reaches the radio as lowPower', () {
+      // End to end through both halves: the rule, then the mapping.
+      expect(
+        BleEngine.connectionPriorityFor(
+          desiredLinkPriority(
+            offloadActive: false,
+            background: true,
+            hasLiveConsumer: false,
+          ),
+        ),
+        ConnectionPriority.lowPower,
+      );
+    });
   });
 
   test('the battery poll is minutes apart, not seconds', () {
