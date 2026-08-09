@@ -49,7 +49,7 @@ OsIcon workoutTypeIcon(String? type) {
   if (raw.contains('autodetected')) return OsIcon.strength;
   if (raw.contains('workout')) return OsIcon.strength;
   for (final e in kWorkoutTypes) {
-    if (e.$1 == type) return e.$3;
+    if (e.$1 == raw) return e.$3;
   }
   return OsIcon.strength;
 }
@@ -57,20 +57,25 @@ OsIcon workoutTypeIcon(String? type) {
 /// Illustrated art for a workout type — null only for autodetected/unknown
 /// types, which stay on the glyph fallback ([workoutTypeIcon]).
 OsIcon? workoutTypeOsIcon(String? type) {
+  final key = (type ?? '').toLowerCase();
   for (final e in kWorkoutTypes) {
-    if (e.$1 == type) return e.$4;
+    if (e.$1 == key) return e.$4;
   }
   return null;
 }
 
 String workoutTypeLabel(String? type) {
   if (type == null || type.isEmpty) return 'Workout';
-  if (type.toLowerCase().contains('autodetected')) return 'Workout';
+  // The stored `type` column is free-form text, so rows written by older
+  // releases, by an import, or by hand can arrive in any case. Every lookup in
+  // this file normalizes first for that reason.
+  final key = type.toLowerCase();
+  if (key.contains('autodetected')) return 'Workout';
   // The table's own label wins over capitalising the key, so the list row and
   // the picker tile always read the same. Capitalising blind is how 'hiit'
   // rendered as "Hiit" everywhere except the picker.
   for (final e in kWorkoutTypes) {
-    if (e.$1 == type) return e.$2;
+    if (e.$1 == key) return e.$2;
   }
   return type[0].toUpperCase() + type.substring(1);
 }

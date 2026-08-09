@@ -75,6 +75,14 @@ void main() {
       expect(out.single['start_ts'], 300);
     });
 
+    test('a live session is still subject to the type filter', () {
+      // Type is known the moment a session starts, so filtering to runs must
+      // not surface the ride that happens to be in progress.
+      final live = w(startTs: 400, type: 'cycle', status: 'live');
+      final out = const WorkoutFilter(types: {'run'}).apply([...list, live]);
+      expect(out.map((e) => e['type']), ['run']);
+    });
+
     test('a live session survives every floor', () {
       // It has no final duration or strain yet, so any numeric floor would
       // hide the one session the user is most likely looking at.

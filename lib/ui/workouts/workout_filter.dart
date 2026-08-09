@@ -89,14 +89,17 @@ class WorkoutFilter {
   }
 
   bool _matches(Map<String, dynamic> w) {
-    // A session that is happening right now always shows. It has no final
-    // duration or strain yet, so every numeric floor would hide the one thing
-    // the user is most likely looking for.
-    if (w['status'] == 'live') return true;
+    // Type is known the moment a session starts, so it applies to a live one
+    // like any other — filtering to runs should not surface the ride that is
+    // in progress.
     if (types.isNotEmpty &&
         !types.contains(canonicalWorkoutType(w['type'] as String?))) {
       return false;
     }
+    // The numeric floors are different: a session happening right now has no
+    // final duration or strain to clear them with, so holding it to them would
+    // hide the one thing the user is most likely looking at.
+    if (w['status'] == 'live') return true;
     if (minMinutes > 0 && ((w['duration_min'] as num?) ?? 0) < minMinutes) {
       return false;
     }
