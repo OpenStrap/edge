@@ -6,22 +6,50 @@
 // surviving an edit becomes a reading nobody made, and it lands in a
 // correlation as if it were real.
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/journal_fields.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+/// `exportDaysDb` writes into the temp directory, which is a platform channel.
+class _FakePathProvider extends PathProviderPlatform {
+  _FakePathProvider(this.root);
+  final String root;
+  @override
+  Future<String?> getTemporaryPath() async => root;
+  @override
+  Future<String?> getApplicationSupportPath() async => root;
+  @override
+  Future<String?> getApplicationDocumentsPath() async => root;
+  @override
+  Future<String?> getApplicationCachePath() async => root;
+  @override
+  Future<String?> getLibraryPath() async => root;
+  @override
+  Future<String?> getDownloadsPath() async => root;
+}
+
 void main() {
+  late Directory tmp;
+
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    tmp = await Directory.systemTemp.createTemp('openstrap_journal_metric_');
+    PathProviderPlatform.instance = _FakePathProvider(tmp.path);
     LocalDb.dbName = 'openstrap_journal_metric_test.db';
     final dir = await databaseFactory.getDatabasesPath();
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
-  tearDownAll(() async => LocalDb.close());
+  tearDownAll(() async {
+    await LocalDb.close();
+    if (await tmp.exists()) await tmp.delete(recursive: true);
+  });
 
   setUp(() async {
     final db = await LocalDb.instance;
@@ -130,6 +158,37 @@ void main() {
       'custom_magnesium',
       'mood',
     ]);
+  });
+
+  test('a day export carries the custom definitions, not just the numbers',
+      () async {
+    // The definitions are not day-scoped, so without an explicit copy an
+    // exported day holds values under `custom_magnesium` with no label, no
+    // unit and no scale — the numbers survive and their meaning does not.
+    await LocalDb.putJournalFieldDef(const JournalFieldSpec(
+      key: 'custom_magnesium',
+      label: 'Magnesium',
+      kind: JournalFieldKind.dose,
+      unit: 'mg',
+      max: 1000,
+      step: 50,
+      custom: true,
+    ));
+    await LocalDb.putJournalMetrics('2026-06-01', {
+      'custom_magnesium': const JournalMetricValue(400),
+    });
+
+    final path = await LocalDb.exportDaysDb({'2026-06-01'});
+    final exported = await databaseFactory.openDatabase(path);
+    try {
+      final metrics = await exported.query('journal_metric');
+      expect(metrics.single['field'], 'custom_magnesium');
+      final defs = await exported.query('journal_field_def');
+      expect(defs.single['label'], 'Magnesium');
+      expect(defs.single['unit'], 'mg');
+    } finally {
+      await exported.close();
+    }
   });
 
   group('custom field definitions', () {

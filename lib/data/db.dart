@@ -3483,6 +3483,11 @@ class LocalDb {
         whereArgs: [dayId],
       );
     }
+    // Custom journal field definitions are not day-scoped, so they ride along
+    // whole. Without them an exported day carries numbers under keys like
+    // `custom_magnesium` with no label, no unit and no idea what scale they
+    // are on — the values survive the export and their meaning does not.
+    await copyRows('journal_field_def');
     await out.close();
     return dest;
   }
