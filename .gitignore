@@ -90,3 +90,11 @@ lib/firebase_options.dart
 # Local agent worktrees and execution ledgers.
 /.worktrees/
 /.superpowers/
+
+.codegraph/
+
+# Rendered previews of docs/*.svg — regenerate from the svg rather than
+# committing them. The svg IS the source; these are just what gets pasted
+# into Discord/issues, and they're ~750kb a piece.
+docs/*.gif
+docs/*.mp4

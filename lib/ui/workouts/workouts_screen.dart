@@ -17,6 +17,7 @@ import '../../models/payloads.dart';
 import '../../data/day_label.dart';
 import '../../compute/manual_session.dart' show ManualWindowException;
 import '../../data/db.dart';
+import 'calorie_heatmap.dart';
 import '../activity/live_session_screen.dart';
 import '../activity/workout_share_card.dart';
 import '../../theme/theme_switcher.dart';
@@ -145,6 +146,11 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
   RecordsData? _records; // for inline PR badges in the feed
   bool _loading = true;
 
+  /// The activity heatmap's own 13-week window — deliberately independent of
+  /// the range selector above, so the board stays a fixed reference point
+  /// while the feed below it filters.
+  List<HeatDay>? _heat;
+
   @override
   void initState() {
     super.initState();
@@ -165,11 +171,32 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       try {
         recs = RecordsData.fromJson(await api.getRecords());
       } catch (_) {}
+
+      // The heatmap needs 13 Monday-aligned weeks — up to 97 days once the
+      // alignment is counted — which getWorkouts(range: 'quarter') cannot
+      // reach: that tops out at 90 and would leave the oldest column silently
+      // short of data. getSessions takes an explicit window and skips the
+      // per-session HR enrichment the grid has no use for. Fetched wide; days
+      // outside the board simply match no cell.
+      List<HeatDay>? heat;
+      try {
+        final now = DateTime.now();
+        final from = DateTime(now.year, now.month, now.day - 105);
+        final sessions = await api.getSessions(
+          from: from.millisecondsSinceEpoch ~/ 1000,
+          to: now.millisecondsSinceEpoch ~/ 1000,
+        );
+        heat = buildHeatDays(loggedForHeatmap(sessions), today: now);
+      } catch (_) {
+        /* the board is an enrichment — the log still renders without it */
+      }
+
       if (mounted) {
         setState(() {
           _data = d;
           _suggestions = sug;
           _records = recs;
+          _heat = heat ?? _heat;
           _loading = false;
         });
       }
@@ -271,6 +298,17 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
                   summary: summary,
                   range: _ranges[_range],
                   workouts: list,
+                ).dsEnter(),
+                const SizedBox(height: Sp.x4),
+              ],
+              // Sits above the feed and OUTSIDE the range filter, so on the
+              // Today tab you still see the quarter's rhythm rather than only
+              // an empty state. Hidden entirely until there is something to
+              // shade — an all-empty board says nothing.
+              if (_heat != null && _heat!.any((d) => d.kcal > 0)) ...[
+                CalorieHeatmapCard(
+                  days: _heat!,
+                  today: DateTime.now(),
                 ).dsEnter(),
                 const SizedBox(height: Sp.x4),
               ],
