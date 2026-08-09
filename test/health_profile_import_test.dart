@@ -13,6 +13,34 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:health/health.dart';
 import 'package:openstrap_edge/health/health_profile_import.dart';
 
+/// Records the window each read asks for, so the platform-specific limits can
+/// be asserted without a health store.
+class _RecordingHealth implements Health {
+  _RecordingHealth(this.windows);
+  final List<(DateTime, DateTime)> windows;
+
+  @override
+  Future<void> configure() async {}
+
+  @override
+  Future<List<HealthDataPoint>> getHealthDataFromTypes({
+    required List<HealthDataType> types,
+    required DateTime startTime,
+    required DateTime endTime,
+    List<RecordingMethod> recordingMethodsToFilter = const [],
+  }) async {
+    windows.add((startTime, endTime));
+    return const [];
+  }
+
+  // Only the two members the importer actually calls are implemented. Anything
+  // else reaching this stub means `read()` changed shape, and that should fail
+  // loudly rather than quietly returning null.
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
+}
+
 HealthDataPoint _point(HealthDataType type, num value, DateTime at) =>
     HealthDataPoint(
       uuid: '$type-$value',
@@ -43,6 +71,44 @@ void main() {
       expect(t, isNot(contains(HealthDataType.BIRTH_DATE)));
       expect(t, contains(HealthDataType.WEIGHT));
       expect(t, contains(HealthDataType.HEIGHT));
+    });
+  });
+
+  group('the read window', () {
+    test('Android asks only for what Health Connect will give', () {
+      // Health Connect caps third-party reads at 30 days unless the user grants
+      // READ_HEALTH_DATA_HISTORY, and the pinned health 11.1.1 has no API to
+      // request it — so a ten-year window would return the same 30 days while
+      // implying otherwise.
+      final windows = <(DateTime, DateTime)>[];
+      final importer = HealthProfileImporter(
+        isApple: false,
+        health: _RecordingHealth(windows),
+      );
+      // The read is wrapped in its own try/catch, so a stub that returns
+      // nothing still exercises the window calculation.
+      return importer.read(now: DateTime(2026, 8, 9)).then((_) {
+        expect(windows, hasLength(1));
+        expect(
+          windows.single.$2.difference(windows.single.$1).inDays,
+          30,
+        );
+      });
+    });
+
+    test('Apple asks for ten years', () {
+      final windows = <(DateTime, DateTime)>[];
+      final importer = HealthProfileImporter(
+        isApple: true,
+        health: _RecordingHealth(windows),
+      );
+      return importer.read(now: DateTime(2026, 8, 9)).then((_) {
+        expect(windows, hasLength(1));
+        expect(
+          windows.single.$2.year - windows.single.$1.year,
+          10,
+        );
+      });
     });
   });
 

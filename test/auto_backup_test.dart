@@ -122,8 +122,16 @@ void main() {
     });
 
     test('is zero-padded so widths match', () {
-      expect(backupFileName(DateTime(2026, 1, 2, 3, 4)),
-          'openstrap-20260102-0304.db');
+      expect(backupFileName(DateTime(2026, 1, 2, 3, 4, 5)),
+          'openstrap-20260102-030405.db');
+    });
+
+    test('two runs in the same minute get different names', () {
+      // Same-minute collisions would silently overwrite the earlier backup.
+      expect(
+        backupFileName(DateTime(2026, 1, 2, 3, 4, 5)),
+        isNot(backupFileName(DateTime(2026, 1, 2, 3, 4, 6))),
+      );
     });
   });
 
@@ -142,29 +150,33 @@ void main() {
         File(p.join(tmp.path, name))..writeAsStringSync('x');
 
     test('orders newest first', () {
-      touch('openstrap-20260101-0000.db');
-      touch('openstrap-20260301-0000.db');
-      touch('openstrap-20260201-0000.db');
+      touch('openstrap-20260101-000000.db');
+      touch('openstrap-20260301-000000.db');
+      touch('openstrap-20260201-000000.db');
       final out = sortBackupsNewestFirst(tmp.listSync());
       expect(
         out.map((f) => p.basename(f.path)),
         [
-          'openstrap-20260301-0000.db',
-          'openstrap-20260201-0000.db',
-          'openstrap-20260101-0000.db',
+          'openstrap-20260301-000000.db',
+          'openstrap-20260201-000000.db',
+          'openstrap-20260101-000000.db',
         ],
       );
     });
 
-    test('ignores anything that is not one of ours', () {
-      // The documents directory is shared with whatever the user drops in it.
-      touch('openstrap-20260101-0000.db');
+    test('matches only the exact shape it emits', () {
+      // This list is what retention DELETES, in a folder the user can drop
+      // files into. A loose openstrap-*.db glob would eat their notes.
+      touch(backupFileName(DateTime(2026, 1, 1, 0, 0, 0)));
       touch('holiday-photos.zip');
       touch('openstrap-notes.txt');
+      touch('openstrap-notes.db');
+      touch('openstrap-2026.db');
+      touch('openstrap-20260101.db');
       touch('random.db');
       final out = sortBackupsNewestFirst(tmp.listSync());
       expect(out.map((f) => p.basename(f.path)), [
-        'openstrap-20260101-0000.db',
+        'openstrap-20260101-000000.db',
       ]);
     });
 
@@ -186,28 +198,33 @@ void main() {
 
     test('keeps the newest and deletes the rest', () async {
       for (final d in ['0101', '0201', '0301', '0401', '0501']) {
-        File(p.join(tmp.path, 'openstrap-2026$d-0000.db'))
+        File(p.join(tmp.path, 'openstrap-2026$d-000000.db'))
             .writeAsStringSync('x');
       }
       await pruneBackups(tmp, keep: 2);
       expect(
         sortBackupsNewestFirst(tmp.listSync()).map((f) => p.basename(f.path)),
-        ['openstrap-20260501-0000.db', 'openstrap-20260401-0000.db'],
+        ['openstrap-20260501-000000.db', 'openstrap-20260401-000000.db'],
       );
     });
 
     test('never touches a file that is not a backup', () async {
-      File(p.join(tmp.path, 'openstrap-20260101-0000.db'))
+      File(p.join(tmp.path, 'openstrap-20260101-000000.db'))
           .writeAsStringSync('x');
       final other = File(p.join(tmp.path, 'important.txt'))
         ..writeAsStringSync('x');
+      // Deliberately close to ours: this is the one retention would have
+      // deleted under a prefix match.
+      final lookalike = File(p.join(tmp.path, 'openstrap-notes.db'))
+        ..writeAsStringSync('x');
       await pruneBackups(tmp, keep: 0);
       expect(other.existsSync(), isTrue);
+      expect(lookalike.existsSync(), isTrue);
       expect(sortBackupsNewestFirst(tmp.listSync()), isEmpty);
     });
 
     test('fewer backups than the limit is a no-op', () async {
-      File(p.join(tmp.path, 'openstrap-20260101-0000.db'))
+      File(p.join(tmp.path, 'openstrap-20260101-000000.db'))
           .writeAsStringSync('x');
       await pruneBackups(tmp, keep: 5);
       expect(sortBackupsNewestFirst(tmp.listSync()), hasLength(1));

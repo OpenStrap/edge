@@ -75,9 +75,9 @@ class CalmBreathingView extends StatefulWidget {
   final Map? result;
   final String? error;
 
-  /// The pattern being paced. Defaults to resonance, which is what this screen
-  /// has always run and the only one carrying a coherence score.
-  final BreathPattern pattern;
+  /// The pattern being paced. Null falls back to resonance, which is what this
+  /// screen has always run and the only one carrying a coherence score.
+  final BreathPattern? pattern;
   final void Function({BreathPattern? pattern})? onStart;
   final VoidCallback? onStop;
 
@@ -91,7 +91,7 @@ class CalmBreathingView extends StatefulWidget {
     required this.active,
     this.result,
     this.error,
-    this.pattern = _defaultPattern,
+    this.pattern,
     this.onStart,
     this.onStop,
     this.onPhaseChange,
@@ -102,17 +102,10 @@ class CalmBreathingView extends StatefulWidget {
   State<CalmBreathingView> createState() => _CalmBreathingViewState();
 }
 
-/// Resonance, the pace this screen has always run.
-const BreathPattern _defaultPattern = BreathPattern(
-  key: 'resonance',
-  label: 'Resonance',
-  description: '',
-  phases: [
-    BreathPhase(BreathPhaseKind.inhale, 5.45),
-    BreathPhase(BreathPhaseKind.exhale, 5.45),
-  ],
-  coherenceRated: true,
-);
+/// Resonance, the pace this screen has always run — the table's own entry, not
+/// a copy of it. A duplicate would drift on any future edit, and its empty
+/// description rendered a blank line on the idle screen.
+final BreathPattern _defaultPattern = kBreathPatterns.first;
 
 /// Session lengths offered. "Open" runs until you stop it.
 const _durationChoices = <int?>[2, 5, 10, null];
@@ -131,10 +124,15 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
   BreathPhaseKind? _lastPhase;
   int _lastCycle = -1;
 
+  /// One-shot, because `onStop` is asynchronous. Without it every frame between
+  /// the timer expiring and the parent flipping `active` false fired another
+  /// stop — sixty of them a second, each one banking a session row.
+  bool _finished = false;
+
   @override
   void initState() {
     super.initState();
-    _pattern = widget.pattern;
+    _pattern = widget.pattern ?? _defaultPattern;
     // A repeating controller used purely as a frame ticker, so the circle is
     // interpolated from real elapsed time rather than from an animation whose
     // own duration would have to be kept in sync with the pattern.
@@ -150,6 +148,7 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
     if (widget.active && !oldWidget.active) {
       _lastPhase = null;
       _lastCycle = -1;
+      _finished = false;
       _clock
         ..reset()
         ..start();
@@ -180,7 +179,7 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
   }
 
   void _onTick() {
-    if (!widget.active) return;
+    if (!widget.active || _finished) return;
     final at = phaseAt(_pattern, _elapsed);
     if (at != null) {
       final changed = at.phase.kind != _lastPhase || at.cycle != _lastCycle;
@@ -194,6 +193,9 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
     if (remaining != null && remaining <= Duration.zero) {
       // The button said two minutes, so two minutes is what it runs. It used
       // to say that and run until you stopped it.
+      _finished = true;
+      _ticker.stop();
+      _clock.stop();
       widget.onStop?.call();
       return;
     }

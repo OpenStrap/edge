@@ -58,6 +58,10 @@ class _IntervalTimerScreenState extends State<IntervalTimerScreen>
 
   @override
   void dispose() {
+    // Releasing here as well as in _stop: popping the screen mid-round never
+    // called _stop, so the wake lock leaked and the phone stayed awake until
+    // something else happened to release it.
+    if (_running) ScreenWake.release();
     _ticker
       ..removeListener(_onTick)
       ..dispose();

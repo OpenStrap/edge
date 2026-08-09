@@ -166,6 +166,22 @@ void main() {
     });
   });
 
+  group('the screen default is the table entry, not a copy', () {
+    test('resonance is first, so a default of kBreathPatterns.first is it', () {
+      // The calm screen defaults to `kBreathPatterns.first`. It used to carry
+      // its own copy of the resonance phases, which could drift on any edit
+      // here and shipped an empty description that rendered as a blank line.
+      expect(kBreathPatterns.first.key, 'resonance');
+      expect(kBreathPatterns.first.description, isNotEmpty);
+    });
+
+    test('every pattern has a description to show', () {
+      for (final p in kBreathPatterns) {
+        expect(p.description, isNotEmpty, reason: p.key);
+      }
+    });
+  });
+
   group('sessionEnd', () {
     test('is null for an open-ended session', () {
       expect(sessionEnd(box, null), isNull);

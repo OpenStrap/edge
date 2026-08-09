@@ -141,9 +141,18 @@ class HealthProfileImporter {
     try {
       await _health.configure();
       final end = now ?? DateTime.now();
-      // Ten years back. A body metric older than that is not worth adopting
-      // silently, and characteristics (sex, DOB) ignore the window anyway.
-      final start = DateTime(end.year - 10, end.month, end.day);
+      // Ten years back on Apple. A body metric older than that is not worth
+      // adopting silently, and characteristics (sex, DOB) ignore the window.
+      //
+      // Health Connect caps third-party reads at the last 30 DAYS unless the
+      // user grants `READ_HEALTH_DATA_HISTORY`, and the pinned `health` 11.1.1
+      // exposes no API to request it — so asking for ten years on Android
+      // returns the same 30 days while implying otherwise. Ask for what we can
+      // actually have. Someone who weighs themselves less often than monthly
+      // gets nothing, which reports honestly as "nothing to read".
+      final start = _isApple
+          ? DateTime(end.year - 10, end.month, end.day)
+          : end.subtract(const Duration(days: 30));
       final points = await _health.getHealthDataFromTypes(
         types: types,
         startTime: start,

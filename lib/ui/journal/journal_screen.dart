@@ -285,9 +285,12 @@ class _JournalScreenState extends State<JournalScreen> {
           InfoDot(
             title: 'What moves your body',
             body:
-                'How each tag tracks with your recovery, sleep and heart data — '
-                'computed from your own tagged days only.',
-            methodNote: 'Correlation, not cause · needs ≥3 tagged days per tag',
+                'How what you log tracks with your recovery, sleep and heart '
+                'data — computed from your own days only. Tags are compared as '
+                'happened-or-not; numbers are ranked, so five coffees and one '
+                'are not the same day.',
+            methodNote: 'Correlation, not cause · tags need ≥3 tagged days, '
+                'numbers need ≥8 days with a value',
           ),
         ],
       ),

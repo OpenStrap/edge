@@ -5,14 +5,13 @@
 // most people do not have. Discussion #214 asked for exactly this: years of
 // health data living in one place on one phone.
 //
-// WHERE IT WRITES, and why not a folder you pick. The files go into the app's
-// own documents directory, which is exposed to Files on iOS
-// (`UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`) and to the
-// file manager on Android. Anything that syncs a folder — iCloud Drive,
-// Synology Drive, Nextcloud — can be pointed at it. A user-chosen folder would
-// need a persisted SAF tree URI or a security-scoped bookmark, both of which
-// silently expire, and a backup that quietly stopped working is worse than one
-// that lives somewhere slightly less convenient.
+// WHERE IT WRITES, and why not a folder you pick. Somewhere the user can
+// actually reach — see [backupDirectory], which is per-platform for exactly
+// that reason. Anything that syncs a folder (iCloud Drive, Synology Drive,
+// Nextcloud) can be pointed at it. A user-chosen folder would need a persisted
+// SAF tree URI or a security-scoped bookmark, both of which silently expire,
+// and a backup that quietly stopped working is worse than one that lives
+// somewhere slightly less convenient.
 //
 // WHEN IT RUNS. On foreground, when due. There is no background scheduler that
 // works on both platforms — Workmanager is Android-only here and iOS's
@@ -52,8 +51,8 @@ enum BackupCadence {
       .firstWhere((c) => c.name == name, orElse: () => BackupCadence.off);
 }
 
-/// Folder name under the documents directory. Named so it is obvious what it
-/// is when someone finds it in Files.
+/// Folder name. Spelled out so it is obvious what it is when someone finds it
+/// in Files or a file manager.
 const kBackupDirName = 'OpenStrap Backups';
 
 /// How many backups are kept. Enough to survive noticing a problem a few days
@@ -83,18 +82,27 @@ bool backupIsDue({
 
 /// Filename for a backup taken at [when]. Sorts chronologically as text, so
 /// retention can order by name without parsing.
+///
+/// Seconds are included: two runs inside the same minute would otherwise land
+/// on one name and the second would overwrite the first.
 String backupFileName(DateTime when) {
   String two(int v) => v.toString().padLeft(2, '0');
   return 'openstrap-${when.year}${two(when.month)}${two(when.day)}'
-      '-${two(when.hour)}${two(when.minute)}.db';
+      '-${two(when.hour)}${two(when.minute)}${two(when.second)}.db';
 }
+
+/// EXACTLY the shape [backupFileName] emits, and nothing else.
+///
+/// Retention DELETES what this matches, and it runs in a directory the user
+/// can put files into. A loose `openstrap-*.db` glob would happily eat
+/// someone's `openstrap-notes.db`.
+final _backupNamePattern = RegExp(r'^openstrap-\d{8}-\d{6}\.db$');
 
 /// Existing backups, newest first.
 List<File> sortBackupsNewestFirst(Iterable<FileSystemEntity> entries) {
   final files = entries
       .whereType<File>()
-      .where((f) => p.basename(f.path).startsWith('openstrap-'))
-      .where((f) => p.extension(f.path) == '.db')
+      .where((f) => _backupNamePattern.hasMatch(p.basename(f.path)))
       .toList();
   files.sort((a, b) => p.basename(b.path).compareTo(p.basename(a.path)));
   return files;
@@ -119,15 +127,54 @@ class BackupOutcome {
 }
 
 /// The backup directory, created if missing.
+///
+/// PLATFORM SPLIT, and it decides whether this feature works at all:
+///   iOS — the app's Documents directory, which `UIFileSharingEnabled` +
+///   `LSSupportsOpeningDocumentsInPlace` expose in Files.
+///   Android — app-specific EXTERNAL storage. `getApplicationDocumentsDirectory`
+///   resolves to `/data/user/0/<pkg>/app_flutter` there, which no file manager
+///   and no sync app can reach, so backups would have been written somewhere
+///   the user could never get at them. External storage needs no permission on
+///   modern Android and is browsable.
+///
+/// Falls back to the documents directory if external storage is unavailable
+/// (no shared volume) — a backup somewhere awkward beats no backup.
 Future<Directory> backupDirectory() async {
-  final docs = await getApplicationDocumentsDirectory();
-  final dir = Directory(p.join(docs.path, kBackupDirName));
+  Directory? root;
+  if (Platform.isAndroid) {
+    try {
+      root = await getExternalStorageDirectory();
+    } catch (_) {
+      root = null;
+    }
+  }
+  root ??= await getApplicationDocumentsDirectory();
+  final dir = Directory(p.join(root.path, kBackupDirName));
   if (!await dir.exists()) await dir.create(recursive: true);
   return dir;
 }
 
+/// In-flight guard. A resume can fire more than once, and a cadence change
+/// during a foreground backup would otherwise start a second export against
+/// the same directory while the first was still copying and pruning.
+Future<BackupOutcome>? _inFlight;
+
 /// Take a backup now, regardless of schedule, and prune old ones.
-Future<BackupOutcome> runBackup({DateTime? now}) async {
+///
+/// Serialized: a second caller while one is running joins the first rather
+/// than starting its own.
+Future<BackupOutcome> runBackup({DateTime? now}) {
+  final current = _inFlight;
+  if (current != null) return current;
+  late final Future<BackupOutcome> op;
+  op = _runBackup(now: now).whenComplete(() {
+    if (identical(_inFlight, op)) _inFlight = null;
+  });
+  _inFlight = op;
+  return op;
+}
+
+Future<BackupOutcome> _runBackup({DateTime? now}) async {
   final when = now ?? DateTime.now();
   try {
     final dir = await backupDirectory();
@@ -135,12 +182,18 @@ Future<BackupOutcome> runBackup({DateTime? now}) async {
     // not a file copy of a database that may be mid-write.
     final snapshot = await LocalDb.exportCopy();
     final dest = File(p.join(dir.path, backupFileName(when)));
-    await File(snapshot).rename(dest.path);
-    // Best-effort: the snapshot lives in temp and a failed delete is harmless.
+    final tmp = File(snapshot);
     try {
-      final tmp = File(snapshot);
-      if (await tmp.exists()) await tmp.delete();
-    } catch (_) {}
+      await tmp.rename(dest.path);
+    } on FileSystemException {
+      // The temp directory and external storage are different filesystems on
+      // Android, where rename fails outright — copy across, then drop the
+      // source.
+      await tmp.copy(dest.path);
+      try {
+        if (await tmp.exists()) await tmp.delete();
+      } catch (_) {}
+    }
 
     await pruneBackups(dir, keep: kBackupsKept);
     return BackupOutcome(path: dest.path);
