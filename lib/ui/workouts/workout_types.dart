@@ -111,9 +111,7 @@ const kWorkoutTypeAliases = <String, String>{
 String? resolveWorkoutTypeKey(String? type) {
   final raw = (type ?? '').toLowerCase().trim();
   if (raw.isEmpty) return null;
-  for (final e in kWorkoutTypes) {
-    if (e.$1 == raw) return e.$1;
-  }
+  if (kWorkoutTypesByKey.containsKey(raw)) return raw;
   return kWorkoutTypeAliases[raw];
 }
 
@@ -123,21 +121,14 @@ OsIcon workoutTypeIcon(String? type) {
   final raw = (type ?? '').toLowerCase();
   if (raw.contains('autodetected')) return OsIcon.strength;
   if (raw.contains('workout')) return OsIcon.strength;
-  final key = resolveWorkoutTypeKey(type);
-  for (final e in kWorkoutTypes) {
-    if (e.$1 == key) return e.$3;
-  }
-  return OsIcon.strength;
+  final e = kWorkoutTypesByKey[resolveWorkoutTypeKey(type)];
+  return e?.$3 ?? OsIcon.strength;
 }
 
 /// Illustrated art for a workout type — null only for autodetected/unknown
 /// types, which stay on the glyph fallback ([workoutTypeIcon]).
 OsIcon? workoutTypeOsIcon(String? type) {
-  final key = resolveWorkoutTypeKey(type);
-  for (final e in kWorkoutTypes) {
-    if (e.$1 == key) return e.$4;
-  }
-  return null;
+  return kWorkoutTypesByKey[resolveWorkoutTypeKey(type)]?.$4;
 }
 
 String workoutTypeLabel(String? type) {
@@ -149,10 +140,8 @@ String workoutTypeLabel(String? type) {
   // The table's own label wins over capitalising the key, so the list row and
   // the picker tile always read the same. Capitalising blind is how 'hiit'
   // rendered as "Hiit" everywhere except the picker.
-  final key = resolveWorkoutTypeKey(type);
-  for (final e in kWorkoutTypes) {
-    if (e.$1 == key) return e.$2;
-  }
+  final e = kWorkoutTypesByKey[resolveWorkoutTypeKey(type)];
+  if (e != null) return e.$2;
   return type[0].toUpperCase() + type.substring(1);
 }
 

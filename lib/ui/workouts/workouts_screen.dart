@@ -893,7 +893,9 @@ class TrainingSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final count = (summary['count'] as num?)?.toInt() ?? 0;
     final totalMin = summary['total_min'] as num?;
-    final kcal = (summary['total_calories'] as num?)?.toInt() ?? 0;
+    // Nullable: a range in which nothing could be costed reports no figure
+    // rather than 0 kcal.
+    final kcal = (summary['total_calories'] as num?)?.toInt();
     final zoneMin = ((summary['zone_min'] as List?) ?? const [])
         .map((e) => (e as num).toDouble())
         .toList();
@@ -952,7 +954,7 @@ class TrainingSummaryCard extends StatelessWidget {
           Row(
             children: [
               _miniStat(context, '$count', 'workouts'),
-              _miniStat(context, '$kcal', 'kcal'),
+              _miniStat(context, kcal?.toString() ?? '—', 'kcal'),
               _miniStat(context, avgBpm == null ? '—' : '$avgBpm', 'avg bpm'),
               _miniStat(
                 context,

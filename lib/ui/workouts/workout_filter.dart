@@ -157,18 +157,21 @@ class WorkoutFilter {
 /// Live sessions are excluded exactly as the repo excludes them — they have no
 /// final numbers to add up.
 Map<String, dynamic> summarizeWorkouts(List<Map<String, dynamic>> workouts) {
-  var count = 0, totalMin = 0, totalCal = 0;
+  var count = 0, totalMin = 0;
+  // Null until something actually contributes. A range where every session
+  // was uncosted must report nothing, not a confident 0 kcal — the same
+  // fabrication this whole change removes, one level up.
+  int? totalCal;
   final zoneSum = <num>[];
   for (final w in workouts) {
     if (w['status'] == 'live') continue;
     count++;
     totalMin += ((w['duration_min'] as num?) ?? 0).toInt();
-    // An absent calorie figure is skipped, not defaulted. Arithmetically that
-    // is the same as adding zero, but writing it as `?? 0` invites someone to
-    // later swap the zero for a "reasonable" estimate and turn the total into
-    // a fabrication — the null is the whole point.
+    // An absent calorie figure is skipped, not defaulted — and if EVERY
+    // session is absent the total stays null rather than collapsing to a
+    // confident zero.
     final cal = (w['calories'] as num?)?.toInt();
-    if (cal != null) totalCal += cal;
+    if (cal != null) totalCal = (totalCal ?? 0) + cal;
     final zm = (w['zone_min'] as List?) ?? const [];
     for (var i = 0; i < zm.length; i++) {
       final v = (zm[i] as num?) ?? 0;

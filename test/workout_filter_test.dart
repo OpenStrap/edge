@@ -257,6 +257,22 @@ void main() {
       expect(out['count'], 2, reason: 'uncosted is still a workout');
       expect(out['total_min'], 60, reason: 'its minutes are real');
     });
+
+    test('a range where nothing could be costed reports no total at all', () {
+      // Not 0. A whole timeframe of uncosted sessions showing "0 kcal" is the
+      // same fabrication as one session showing it.
+      final out = summarizeWorkouts([
+        {'duration_min': 30, 'calories': null, 'status': 'done'},
+        {'duration_min': 45, 'calories': null, 'status': 'done'},
+      ]);
+      expect(out['total_calories'], isNull);
+      expect(out['count'], 2);
+      expect(out['total_min'], 75);
+    });
+
+    test('an empty list has no total either', () {
+      expect(summarizeWorkouts(const [])['total_calories'], isNull);
+    });
   });
 
   group('description', () {
