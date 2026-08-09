@@ -26,6 +26,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'nap_edits.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_performance/firebase_performance.dart';
@@ -608,7 +609,21 @@ import 'substrate.dart';
 //   O(window) sum that ran before its cadence gate was checked. Both curves keep
 //   their sampling intent; points that were previously emitted a beat or two
 //   after a failed attempt now land on the next cadence tick instead.
-const int kAlgoVersion = 60;
+// v61 - NAP EDITS. The nap detector's answer is now a PROPOSAL: a nap the user
+//   logged is added, and one they rejected is suppressed, replayed over the
+//   detector's output on every derivation rather than written into it (so a
+//   better detector later still respects "there was no nap here"). Rejection
+//   matches by OVERLAP, not by exact bounds, because the detector's boundaries
+//   shift between runs and an edit that stopped applying when a boundary moved
+//   by a minute would be worse than useless.
+//
+//   This moves numbers, which is why it is a version bump rather than a read
+//   path: `nap_min` is summed over the merged list, so a logged nap credits
+//   against sleep need and sleep debt exactly as a detected one does — that
+//   was the explicit product decision, not an accident of where the code sat.
+//   Days carrying an edit are force-derived alongside sleep-override days, so
+//   an edit to an already-finalized day actually takes effect.
+const int kAlgoVersion = 61;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -1046,7 +1061,11 @@ class DerivationEngine {
       // FINALIZED (locked) day — it's the user's word. Force those back into the
       // todo set. (No-raw days are guarded in the per-day loop so we never
       // clobber a good manual result with an empty re-derive once raw is pruned.)
-      final overrideDays = await LocalDb.sleepOverrideDays();
+      final overrideDays = {
+        ...await LocalDb.sleepOverrideDays(),
+        // A nap edit on a finalized day has to take effect too — same reason.
+        ...await LocalDb.napEditDays(),
+      };
       final todoDays = [
         for (final day in scope.targetDays)
           if (!finalized.contains(day) || overrideDays.contains(day)) day,
@@ -2416,9 +2435,22 @@ class DerivationEngine {
 
       // Built on THIS isolate so the Isolate.run closure captures only this plain
       // sendable object (never `this`, `day`, or `bundle`).
+      // Read HERE, on the main isolate — the worker has no database.
+      final napEdits = [
+        for (final row in await LocalDb.napEdits(day.date))
+          NapEdit(
+            kind: row['source'] == 'rejected'
+                ? NapEditKind.rejected
+                : NapEditKind.added,
+            startSec: (row['start_ts'] as num).toInt(),
+            endSec: (row['end_ts'] as num).toInt(),
+          ),
+      ];
+
       final blocksInput = _DayBlocksInput(
         daySub: daySub,
         napSub: day.napSub,
+        napEdits: napEdits,
         sleepSub: sleepSub,
         profile: profile,
         onsetSec: day.sleepOnsetSec,
@@ -4357,6 +4389,9 @@ class DerivationEngine {
     int? attributionEndSec,
     List<List<int>> wristOff = const [],
     List<List<int>> charging = const [],
+    // Read on the main isolate and carried in, like every other DB-sourced
+    // input here — this runs inside the compute worker, which has no database.
+    List<NapEdit> napEdits = const [],
   }) {
     try {
       final n = s.length;
@@ -4428,25 +4463,33 @@ class DerivationEngine {
         return t0 + nap.startSec < attributionEndSec;
       }).toList();
 
+      // The detector's answer is a PROPOSAL. The user's edits — a nap it
+      // missed, or one it invented — are stored separately and replayed over
+      // it here on every derivation, so a better detector later still respects
+      // "there was no nap here" instead of the edit being baked into a stale
+      // detection.
+      final detected = <Map<String, dynamic>>[
+        for (final nap in naps)
+          {
+            'start': t0 + nap.startSec,
+            'end': t0 + nap.endSec,
+            // Minutes ASLEEP. `duration_min` kept as the asleep figure so
+            // existing readers do not silently switch to in-bed minutes.
+            'duration_min': (nap.tstSec / 60).round(),
+            'in_bed_min': (nap.tibSec / 60).round(),
+            'efficiency': nap.efficiency,
+            'confidence': nap.confidence,
+          },
+      ];
+      final merged = applyNapEdits(detected, napEdits);
+
       bundle['naps'] = <String, dynamic>{
-        'value': [
-          for (final nap in naps)
-            {
-              'start': t0 + nap.startSec,
-              'end': t0 + nap.endSec,
-              // Minutes ASLEEP. `duration_min` kept as the asleep figure so
-              // existing readers do not silently switch to in-bed minutes.
-              'duration_min': (nap.tstSec / 60).round(),
-              'in_bed_min': (nap.tibSec / 60).round(),
-              'efficiency': nap.efficiency,
-              'confidence': nap.confidence,
-            },
-        ],
-        'count': naps.length,
+        'value': merged,
+        'count': merged.length,
         'confidence': m.confidence,
         'tier': m.tier,
         'inputs_used': m.inputs_used,
-        'note': m.note,
+        'note': napEdits.isEmpty ? m.note : '${m.note} (edited)',
       };
 
       // TST, never TIB. Crediting in-bed minutes against sleep need
@@ -4455,20 +4498,21 @@ class DerivationEngine {
       // Rounded, matching the two display paths exactly. Truncating here while
       // the cards round made the credit disagree with the sum of the minutes
       // shown — up to a minute per nap, in a number the user can add up.
-      final napMin =
-          naps.fold<int>(0, (a, nap) => a + (nap.tstSec / 60).round());
-      scMap?['nap_min'] = napMin.toDouble();
+      // Summed over the MERGED list, so a logged nap counts toward sleep need
+      // and sleep debt exactly as a detected one does.
+      scMap?['nap_min'] = napMinutes(merged).toDouble();
 
       return [
-        for (final nap in naps)
+        for (final nap in merged)
           {
             'is_main': false,
-            'onset_ts': t0 + nap.startSec,
-            'wake_ts': t0 + nap.endSec,
-            'duration_min': (nap.tstSec / 60).round(),
-            'in_bed_min': (nap.tibSec / 60).round(),
-            'efficiency': nap.efficiency,
-            'confidence': nap.confidence,
+            'onset_ts': nap['start'],
+            'wake_ts': nap['end'],
+            'duration_min': nap['duration_min'],
+            'in_bed_min': nap['in_bed_min'],
+            'efficiency': nap['efficiency'],
+            'confidence': nap['confidence'],
+            if (nap['source'] != null) 'source': nap['source'],
           },
       ];
     } catch (e) {
@@ -4711,6 +4755,7 @@ class DerivationEngine {
       attributionEndSec: inp.dayEndSec,
       wristOff: inp.wristOffSpans,
       charging: inp.chargingSpans,
+      napEdits: inp.napEdits,
     );
     bundlePatch['sleep_periods'] = _sleepPeriods(
       onset,
@@ -5089,6 +5134,7 @@ class DerivationEngine {
     int? attributionEndSec,
     List<List<int>> wristOff = const [],
     List<List<int>> charging = const [],
+    List<NapEdit> napEdits = const [],
   }) =>
       _attachNaps(
         bundle,
@@ -5100,6 +5146,7 @@ class DerivationEngine {
         attributionEndSec: attributionEndSec,
         wristOff: wristOff,
         charging: charging,
+        napEdits: napEdits,
       );
 
   void _log(String m) {
@@ -5152,6 +5199,9 @@ class _DayBlocksInput {
   final int dynHistoryDays;
   final List<Map<String, dynamic>> savedSessions;
 
+  /// The user's nap edits for this day, replayed over the detector's output.
+  final List<NapEdit> napEdits;
+
   /// Strap-reported off-wrist spans ([startSec, endSec]) over the nap window.
   /// A band on a table is motionless and reads as deep rest — this is the
   /// dominant nap false positive, and the strap already tells us about it.
@@ -5191,6 +5241,7 @@ class _DayBlocksInput {
     required this.dynFloorG,
     required this.dynHistoryDays,
     required this.savedSessions,
+    this.napEdits = const [],
     required this.wristOffSpans,
     required this.chargingSpans,
     required this.mainTstMin,

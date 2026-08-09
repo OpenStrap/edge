@@ -2761,7 +2761,15 @@ class LocalRepositoryImpl extends LocalRepository {
   }) async {
     final since = _rangeSinceLabel(range);
     final journal = await LocalDb.journalRows(sinceDaysEpoch: since);
-    if (journal.isEmpty) return const {'insights': []};
+    final metricsByDay = await LocalDb.journalMetricsByDay(
+      sinceDaysEpoch: since,
+    );
+    // Read independently of each other: a day can carry numbers with no tags,
+    // and returning early on an empty tag set would silently hide every
+    // numeric finding.
+    if (journal.isEmpty && metricsByDay.isEmpty) {
+      return const {'insights': [], 'numeric_insights': []};
+    }
 
     // Outcome series we correlate behaviours against. Each is read from
     // metric_series and indexed by date. Direction (does HIGHER help?) is encoded
@@ -2806,7 +2814,19 @@ class LocalRepositoryImpl extends LocalRepository {
       for (final j in journal)
         if (j['date'] is String) j['date'] as String,
     }.toList()..sort();
-    if (dates.length < 4) return const {'insights': []};
+
+    final numericInsights = await _numericJournalInsights(
+      metricsByDay: metricsByDay,
+      outcomeDefs: outcomeDefs,
+      maps: maps,
+    );
+
+    // The tag pass needs four tagged days before it says anything. The numeric
+    // pass has its own, stricter floor and is already computed, so an early
+    // return here must not take it down with it.
+    if (dates.length < 4) {
+      return {'insights': const [], 'numeric_insights': numericInsights};
+    }
 
     final tagsByDate = <String, Set<String>>{};
     for (final j in journal) {
@@ -2866,7 +2886,92 @@ class LocalRepositoryImpl extends LocalRepository {
         (a['delta_pct'] as double).abs(),
       ),
     );
-    return {'insights': insights};
+    return {'insights': insights, 'numeric_insights': numericInsights};
+  }
+
+  /// Rank correlations between the numeric journal fields and each outcome.
+  ///
+  /// Deliberately a SEPARATE pass from the tag correlations rather than more
+  /// rows in the same list. A tag answers "were those days different"; a dose
+  /// answers "does more of this go with worse recovery", and they carry
+  /// different evidence (a difference of means with a Cohen's d, versus a rank
+  /// correlation with a confidence interval). Flattening them into one list
+  /// would force one phrasing onto both and lose the distinction.
+  ///
+  /// Its date axis is the days a NUMBER was recorded, which is not the same
+  /// set as the days a tag was — using the tag axis would drop every day the
+  /// user logged only numbers.
+  Future<List<Map<String, dynamic>>> _numericJournalInsights({
+    required Map<String, Map<String, JournalMetricValue>> metricsByDay,
+    required List<Map<String, dynamic>> outcomeDefs,
+    required Map<String, Map<String, double>> maps,
+  }) async {
+    if (metricsByDay.isEmpty) return const [];
+
+    final dates = metricsByDay.keys.toList()..sort();
+    final days = <ana.JournalNumericDay>[
+      for (final d in dates)
+        ana.JournalNumericDay(d, {
+          for (final e in metricsByDay[d]!.entries) e.key: e.value.value,
+        }),
+    ];
+    final outcomes = <String, List<double?>>{
+      for (final od in outcomeDefs)
+        (od['key'] as String): [for (final d in dates) maps[od['key']]![d]],
+    };
+
+    final corr = ana.journalNumericCorrelations(
+      journal: days,
+      dates: dates,
+      outcomes: outcomes,
+    );
+
+    // Custom field definitions so a user-invented field reads by its own name
+    // and unit rather than its storage key.
+    final customs = (await getJournalFields()).where((f) => f.custom).toList();
+    final betterOf = {
+      for (final od in outcomeDefs)
+        od['key'] as String: od['higherBetter'] as bool,
+    };
+    final labelOf = {
+      for (final od in outcomeDefs) od['key'] as String: od['label'] as String,
+    };
+    final unitOf = {
+      for (final od in outcomeDefs) od['key'] as String: od['unit'],
+    };
+
+    final out = <Map<String, dynamic>>[];
+    for (final f in corr) {
+      final spec = journalFieldSpec(f.field, custom: customs);
+      for (final e in f.effects) {
+        if (e.insufficient || !e.meaningful || e.rho == null) continue;
+        final higherBetter = betterOf[e.outcome] ?? true;
+        out.add({
+          'field': f.field,
+          'field_label': spec?.label ?? f.field,
+          'field_unit': spec?.unit ?? '',
+          'outcome': e.outcome,
+          'outcome_label': labelOf[e.outcome],
+          'unit': unitOf[e.outcome],
+          'rho': e.rho,
+          // Outcome units per one unit of the field — the interpretable half.
+          // Null when Theil-Sen could not fit, in which case the UI shows the
+          // direction without a magnitude rather than inventing one.
+          'slope_per_unit': e.slopePerUnit,
+          'rho_low': e.rhoLow,
+          'rho_high': e.rhoHigh,
+          'n': e.n,
+          // More of it moved the outcome the good way.
+          'helped': (e.rho! > 0) == higherBetter,
+        });
+      }
+    }
+    // Strongest relationship first.
+    out.sort(
+      (a, b) =>
+          (b['rho'] as double).abs().compareTo((a['rho'] as double).abs()),
+    );
+    return out;
   }
 
   List<String> _decodeStrList(Object? json) => [

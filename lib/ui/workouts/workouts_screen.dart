@@ -25,6 +25,7 @@ import '../kit/route_map.dart';
 import '../screens/detail_cards.dart' show hm;
 import '../../gps/route_models.dart';
 import 'manual_workout_screen.dart';
+import '../stress/interval_timer_screen.dart';
 import 'workout_filter.dart';
 import 'workout_filter_sheet.dart';
 import 'workout_types.dart';
@@ -92,7 +93,36 @@ Future<void> startWorkoutFlow(BuildContext context) async {
   final type = await showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
-    builder: (ctx) => workoutTypeSheet(ctx, 'Start a workout'),
+    builder: (ctx) => workoutTypeSheet(
+      ctx,
+      'Start a workout',
+      // Reachable from here because this is where someone is standing when
+      // they want one — rounds, HIIT, rest between sets. It records nothing,
+      // so it is not a workout type; it sits under them.
+      footer: Pressable(
+        pressedScale: 0.96,
+        onTap: () {
+          Navigator.pop(ctx);
+          Navigator.of(context).push(
+            themedRoute(
+              (_) => const IntervalTimerScreen(),
+              name: 'IntervalTimerScreen',
+            ),
+          );
+        },
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.timer_outlined, size: 18, color: AppColors.accent),
+            const SizedBox(width: Sp.x2),
+            Text(
+              'Interval timer',
+              style: AppText.label.copyWith(color: AppColors.accent),
+            ),
+          ],
+        ),
+      ),
+    ),
   );
   if (type == null || !context.mounted) return;
   final app = context.read<AppState>();

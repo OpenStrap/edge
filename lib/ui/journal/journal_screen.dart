@@ -51,6 +51,12 @@ class _JournalScreenState extends State<JournalScreen> {
   List<_JournalRow> _rows = const [];
   List<Map<String, dynamic>> _insights = const [];
 
+  /// Rank correlations over the numeric fields. Kept apart from [_insights]
+  /// because they answer a different question and carry different evidence —
+  /// a tag says "those days were different", a dose says "more of this goes
+  /// with less of that".
+  List<Map<String, dynamic>> _numericInsights = const [];
+
   bool _loading = true;
   bool _saving = false;
   String? _error; // network/load error
@@ -92,9 +98,14 @@ class _JournalScreenState extends State<JournalScreen> {
       final rows = journal.map(_JournalRow.fromJson).toList();
 
       List<Map<String, dynamic>> insights = const [];
+      List<Map<String, dynamic>> numeric = const [];
       try {
         final ins = await api.getJournalInsights(range: '90d');
         insights = ((ins['insights'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((e) => e.cast<String, dynamic>())
+            .toList();
+        numeric = ((ins['numeric_insights'] as List?) ?? const [])
             .whereType<Map>()
             .map((e) => e.cast<String, dynamic>())
             .toList();
@@ -108,6 +119,7 @@ class _JournalScreenState extends State<JournalScreen> {
       setState(() {
         _rows = rows;
         _insights = insights;
+        _numericInsights = numeric;
         _fieldSpecs = specs;
         _loading = false;
       });
@@ -405,15 +417,15 @@ class _JournalScreenState extends State<JournalScreen> {
   // ── insights ────────────────────────────────────────────────────────────────
 
   List<Widget> _insightsSection() {
-    if (_insights.isEmpty) {
+    if (_insights.isEmpty && _numericInsights.isEmpty) {
       return const [
         StateCard(
           icon: OsIcon.activity,
           title: 'Insights build over time',
           message:
-              'Tag at least 3 days with how you lived, and OpenStrap starts '
+              'Log a few days — tags, numbers or both — and OpenStrap starts '
               'surfacing how each habit tracks with your recovery, sleep and '
-              'heart rate — drawn from your own data.',
+              'heart rate, drawn from your own data.',
         ),
       ];
     }
@@ -421,6 +433,16 @@ class _JournalScreenState extends State<JournalScreen> {
       for (var i = 0; i < _insights.length; i++) ...[
         JournalInsightCard(insight: _insights[i]).dsEnter(index: i),
         if (i != _insights.length - 1) const SizedBox(height: Sp.x3),
+      ],
+      if (_numericInsights.isNotEmpty) ...[
+        if (_insights.isNotEmpty) const SizedBox(height: Sp.x4),
+        const SectionHeader('How much of it'),
+        for (var i = 0; i < _numericInsights.length; i++) ...[
+          JournalDoseInsightCard(
+            insight: _numericInsights[i],
+          ).dsEnter(index: i),
+          if (i != _numericInsights.length - 1) const SizedBox(height: Sp.x3),
+        ],
       ],
       const SizedBox(height: Sp.x4),
       Center(
@@ -613,4 +635,74 @@ class _JournalRow {
         ((j['tags'] as List?) ?? const []).map((e) => e.toString()).toList(),
         (j['note'] ?? '').toString(),
       );
+}
+
+/// One numeric-field finding: "each extra coffee, about 4 ms less HRV".
+///
+/// Deliberately leads with the SLOPE in the outcome's own units, not with the
+/// correlation coefficient. Rho carries whether the relationship holds at all
+/// and is shown as supporting detail; "0.62" is not a sentence anybody can act
+/// on, and "about 4 ms per cup" is.
+class JournalDoseInsightCard extends StatelessWidget {
+  final Map<String, dynamic> insight;
+  const JournalDoseInsightCard({super.key, required this.insight});
+
+  @override
+  Widget build(BuildContext context) {
+    final field = (insight['field_label'] ?? '').toString();
+    final fieldUnit = (insight['field_unit'] ?? '').toString();
+    final outcome = (insight['outcome_label'] ?? '').toString();
+    final outcomeUnit = (insight['unit'] ?? '').toString();
+    final slope = (insight['slope_per_unit'] as num?)?.toDouble();
+    final rho = (insight['rho'] as num?)?.toDouble() ?? 0;
+    final n = (insight['n'] as num?)?.toInt() ?? 0;
+    final helped = insight['helped'] == true;
+    final tint = helped ? AppColors.good : AppColors.warn;
+
+    // "per 250 ml", "per unit", or just "per point" for a 1–5 rating.
+    final per = fieldUnit.isEmpty ? 'point' : fieldUnit;
+
+    return SurfaceCard(
+      padding: const EdgeInsets.all(Sp.x4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(field, style: AppText.title)),
+              Text(
+                '$n days',
+                style: AppText.caption.copyWith(color: AppColors.inkMuted),
+              ),
+            ],
+          ),
+          const SizedBox(height: Sp.x2),
+          Text(
+            slope == null
+                // Theil–Sen could not fit a slope. The direction still holds,
+                // so say that and nothing more rather than invent a magnitude.
+                ? '${rho > 0 ? 'More' : 'Less'} $field goes with '
+                      'higher $outcome'
+                : 'About ${_fmtSlope(slope)}'
+                      '${outcomeUnit.isEmpty ? '' : ' $outcomeUnit'} '
+                      '$outcome per extra $per',
+            style: AppText.body.copyWith(color: tint),
+          ),
+          const SizedBox(height: Sp.x1),
+          Text(
+            'rank correlation ${rho.toStringAsFixed(2)}',
+            style: AppText.captionMuted,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Signed, so "−4 ms" reads as a fall rather than needing the sentence to
+  /// carry the direction separately.
+  String _fmtSlope(double v) {
+    final a = v.abs();
+    final s = a >= 10 ? a.round().toString() : a.toStringAsFixed(1);
+    return v < 0 ? '−$s' : '+$s';
+  }
 }

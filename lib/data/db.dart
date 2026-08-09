@@ -91,7 +91,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 29;
+  static const int schemaVersion = 31;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -163,6 +163,7 @@ class LocalDb {
         await _createLiveCoverage(db);
         await _createWorkoutSuggestions(db);
         await _createSleepOverride(db);
+        await _createSleepNap(db);
         await _createWorkoutRoute(db);
         await _createNotifFired(db);
         await _ensureCoachViews(db);
@@ -416,6 +417,15 @@ class LocalDb {
           // read or rewritten.
           await _createLabTables(db);
         }
+        if (oldV < 30) {
+          // Paced-breathing history. New table only.
+          await _createBreathingSessions(db);
+        }
+        if (oldV < 31) {
+          // User edits to a day's naps. New table only — the detector's own
+          // output is untouched and the edits replay over it.
+          await _createSleepNap(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -466,6 +476,7 @@ class LocalDb {
     await _ensureSyncStateSchema(db);
     await _createWorkoutSuggestions(db);
     await _createSleepOverride(db);
+    await _createSleepNap(db);
     await _createWorkoutRoute(db);
     await _ensureWorkoutRouteSpeed(db);
     await _ensureDayResultSkippedColumn(db);
@@ -698,6 +709,34 @@ class LocalDb {
       ),
       bestEffort: true,
     );
+  }
+
+  /// sleep_nap — the user's edits to a day's naps.
+  ///
+  /// Separate from `sleep_override` on purpose: that table means "the main
+  /// sleep window for this day", which is one thing, while naps are a list.
+  /// Widening its primary key would have made "the main sleep" and "a nap"
+  /// indistinguishable in storage.
+  ///
+  /// Edits are stored SEPARATELY from the detector's output and replayed over
+  /// it on every derivation. The detector improves; a day re-derived under a
+  /// better stager should still respect "there was no nap here", and baking
+  /// the edit into the result would freeze the old detection alongside it.
+  ///
+  /// `source` is 'manual' (a nap the user logged) or 'rejected' (a detected
+  /// one they removed — the window is stored so it keeps suppressing that nap
+  /// even after the detector's bounds shift by a minute).
+  static Future<void> _createSleepNap(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sleep_nap (
+        day_id TEXT NOT NULL,
+        start_ts INTEGER NOT NULL,
+        end_ts INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (day_id, start_ts)
+      )
+    ''');
   }
 
   static Future<void> _createSleepOverride(Database db) async {
@@ -1418,6 +1457,27 @@ class LocalDb {
     ''');
   }
 
+  /// breathing_session — one row per completed paced-breathing session.
+  ///
+  /// The coherence score was computed live and then thrown away, so the
+  /// feature could tell you how a session went and never whether it was going
+  /// anywhere. A score is only meaningful for a pattern that is TRYING to
+  /// drive heart-rate oscillation at the paced frequency, so `coherence` is
+  /// null for the others rather than a number that grades box breathing on
+  /// resonance breathing's exam.
+  static Future<void> _createBreathingSessions(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS breathing_session (
+        started_at INTEGER PRIMARY KEY,
+        ended_at INTEGER NOT NULL,
+        pattern TEXT NOT NULL,
+        seconds INTEGER NOT NULL,
+        coherence REAL,
+        confidence REAL
+      )
+    ''');
+  }
+
   // ── USER-DATA STORE (journal / cycle / workouts / notifications) ────────────
   // On-device user-entered + locally-generated data. All keyed for idempotent
   // upserts; none of it round-trips to a server (cloud excised).
@@ -1434,6 +1494,7 @@ class LocalDb {
     await _createJournalMetric(db);
     await _createJournalFieldDef(db);
     await _createLabTables(db);
+    await _createBreathingSessions(db);
     // cycle_log — menstrual cycle markers; `kind` is 'start' (cycle start) etc.
     await db.execute('''
       CREATE TABLE IF NOT EXISTS cycle_log (
@@ -3637,6 +3698,7 @@ class LocalDb {
       await deleteByIn(txn, 'cycle_symptom', 'date', sorted);
       await deleteByIn(txn, 'workout_suggestions', 'date', sorted);
       await deleteByIn(txn, 'sleep_override', 'day_id', sorted);
+      await deleteByIn(txn, 'sleep_nap', 'day_id', sorted);
     });
     return deleted;
   }
@@ -3670,6 +3732,7 @@ class LocalDb {
       'journal_field_def',
       'lab_result',
       'lab_marker_def',
+      'breathing_session',
       'cycle_log',
       'notifications',
       'baselines',
@@ -3980,6 +4043,7 @@ class LocalDb {
       'journal_field_def',
       'lab_result',
       'lab_marker_def',
+      'breathing_session',
       'cycle_log',
       'notifications',
       'sync_cursor',
@@ -4771,6 +4835,85 @@ class LocalDb {
       'has_time': spec.hasTime ? 1 : 0,
       'created_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  // ── nap edits ─────────────────────────────────────────────────────────────
+
+  /// Log a nap the detector missed, or suppress one it invented.
+  static Future<void> putNapEdit({
+    required String dayId,
+    required int startTs,
+    required int endTs,
+    required String source,
+  }) async {
+    final db = await instance;
+    await db.insert('sleep_nap', {
+      'day_id': dayId,
+      'start_ts': startTs,
+      'end_ts': endTs,
+      'source': source,
+      'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static Future<void> deleteNapEdit(String dayId, int startTs) async {
+    final db = await instance;
+    await db.delete(
+      'sleep_nap',
+      where: 'day_id = ? AND start_ts = ?',
+      whereArgs: [dayId, startTs],
+    );
+  }
+
+  static Future<List<Map<String, dynamic>>> napEdits(String dayId) async {
+    final db = await instance;
+    return db.query(
+      'sleep_nap',
+      where: 'day_id = ?',
+      whereArgs: [dayId],
+      orderBy: 'start_ts ASC',
+    );
+  }
+
+  /// Every day carrying a nap edit. Force-derived alongside the sleep-override
+  /// days for the same reason: an edit to a finalized day has to take effect.
+  static Future<Set<String>> napEditDays() async {
+    final db = await instance;
+    final rows = await db.query('sleep_nap', columns: ['day_id']);
+    return {for (final r in rows) r['day_id'] as String};
+  }
+
+  // ── breathing sessions ────────────────────────────────────────────────────
+
+  static Future<void> putBreathingSession({
+    required int startedAt,
+    required int endedAt,
+    required String pattern,
+    required int seconds,
+    double? coherence,
+    double? confidence,
+  }) async {
+    final db = await instance;
+    await db.insert('breathing_session', {
+      'started_at': startedAt,
+      'ended_at': endedAt,
+      'pattern': pattern,
+      'seconds': seconds,
+      'coherence': coherence,
+      'confidence': confidence,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Recent sessions, newest first.
+  static Future<List<Map<String, dynamic>>> breathingSessions({
+    int limit = 30,
+  }) async {
+    final db = await instance;
+    return db.query(
+      'breathing_session',
+      orderBy: 'started_at DESC',
+      limit: limit,
+    );
   }
 
   // ── lab results ───────────────────────────────────────────────────────────

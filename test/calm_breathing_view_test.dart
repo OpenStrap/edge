@@ -36,7 +36,7 @@ void main() {
     await tester.pumpWidget(_host(CalmBreathingView(
       connected: true,
       active: false,
-      onStart: () => started = true,
+      onStart: ({pattern}) => started = true,
     )));
     await tester.tap(find.byType(FilledButton));
     expect(started, isTrue);

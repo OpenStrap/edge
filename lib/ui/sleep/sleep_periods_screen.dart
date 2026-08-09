@@ -9,6 +9,8 @@ import 'package:provider/provider.dart';
 
 import '../../data/local_repository.dart';
 import '../../state/app_state.dart';
+import '../../compute/nap_edits.dart';
+import '../../data/db.dart';
 import '../design/design.dart';
 
 class SleepPeriodsScreen extends StatefulWidget {
@@ -78,11 +80,137 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
   int? get _totalAsleep => _num(_data['total_asleep_min'])?.toInt();
   bool get _beta => _data['stages_beta'] == true;
 
+  /// Log a nap the detector missed. Two time pickers rather than a duration,
+  /// because people remember when they lay down, not how long they were out.
+  Future<void> _addNap() async {
+    final start = await showTimePicker(
+      context: context,
+      initialTime: const TimeOfDay(hour: 14, minute: 0),
+      helpText: 'Nap started',
+    );
+    if (start == null || !mounted) return;
+    final end = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: (start.hour + 1) % 24,
+        minute: start.minute,
+      ),
+      helpText: 'Nap ended',
+    );
+    if (end == null || !mounted) return;
+
+    final day = DateTime.parse(widget.date);
+    final startTs =
+        DateTime(day.year, day.month, day.day, start.hour, start.minute)
+            .millisecondsSinceEpoch ~/
+        1000;
+    var endTs =
+        DateTime(day.year, day.month, day.day, end.hour, end.minute)
+            .millisecondsSinceEpoch ~/
+        1000;
+    // An end before the start means it ran past midnight.
+    if (endTs <= startTs) endTs += 24 * 3600;
+
+    if (!manualNapWindowIsValid(startTs, endTs)) {
+      _say(
+        'A nap runs from ${kMinManualNapSec ~/ 60} minutes to '
+        '${kMaxManualNapSec ~/ 3600} hours. Longer than that belongs in your '
+        'main sleep.',
+      );
+      return;
+    }
+    if (napOverlapsExisting(startTs, endTs, _napWindows)) {
+      // Silently merging two overlapping entries would inflate the day's total
+      // while hiding the mistake.
+      _say('That overlaps a sleep already on this day.');
+      return;
+    }
+
+    await LocalDb.putNapEdit(
+      dayId: widget.date,
+      startTs: startTs,
+      endTs: endTs,
+      source: 'manual',
+    );
+    await _rederive();
+  }
+
+  /// Remove a period. A detected nap is SUPPRESSED (its window is remembered,
+  /// so it stays gone when the detector runs again); a logged one is deleted
+  /// outright.
+  Future<void> _removeNap(Map<String, dynamic> period) async {
+    final start = (period['onset_ts'] as num?)?.toInt();
+    final end = (period['wake_ts'] as num?)?.toInt();
+    if (start == null || end == null) return;
+    if (period['source'] == 'manual') {
+      await LocalDb.deleteNapEdit(widget.date, start);
+    } else {
+      await LocalDb.putNapEdit(
+        dayId: widget.date,
+        startTs: start,
+        endTs: end,
+        source: 'rejected',
+      );
+    }
+    await _rederive();
+  }
+
+  List<Map<String, dynamic>> get _napWindows => [
+    for (final p in _periods)
+      if (p['is_main'] != true)
+        {'start': p['onset_ts'], 'end': p['wake_ts']},
+  ];
+
+  Future<void> _rederive() async {
+    // The edit only shows up once the day is re-derived — nap minutes feed
+    // sleep need and sleep debt, so this is a recompute, not a redraw.
+    await context.read<AppState>().reanalyzeForNapEdit();
+    if (mounted) await _load();
+  }
+
+  void _say(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
       title: 'Sleep periods',
       subtitle: 'Every sleep, naps included',
+      actions: [
+        Semantics(
+          button: true,
+          label: 'Log a nap',
+          child: Pressable(
+            pressedScale: 0.94,
+            onTap: _addNap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Sp.x4,
+                vertical: Sp.x3,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.tonalFill(AppColors.accent),
+                borderRadius: BorderRadius.circular(R.pill),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add_rounded, size: 18, color: AppColors.accent),
+                  const SizedBox(width: Sp.x1),
+                  Text(
+                    'Nap',
+                    style: AppText.label.copyWith(color: AppColors.accent),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
       body: RefreshIndicator(
         onRefresh: _load,
         color: AppColors.accent,
@@ -100,12 +228,14 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
               const SizedBox(height: Sp.x3),
               Skeleton.tileRow(rows: 2),
             ] else if (_phase == _Phase.empty)
-              const StateCard(
+              StateCard(
                 icon: OsIcon.bedtime,
                 title: 'No sleep detected',
                 message:
                     'Wear your strap overnight (and through any naps) and sync '
-                    'to see each sleep here.',
+                    'to see each sleep here. You can also log a nap yourself.',
+                actionLabel: 'Log a nap',
+                onAction: _addNap,
               )
             else if (_phase == _Phase.error)
               StateCard(
@@ -201,11 +331,34 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
             children: [
               Expanded(
                 child: TileHeader(
-                  isMain ? 'Main sleep' : 'Nap',
+                  isMain
+                      ? 'Main sleep'
+                      : (p['source'] == 'manual' ? 'Nap · logged' : 'Nap'),
                   icon: isMain ? OsIcon.sleep : OsIcon.bedtime,
                   trailing: _beta ? const Tag('est') : null,
                 ),
               ),
+              // Only naps can be removed. The main sleep window is edited on
+              // the sleep detail screen, where the override lives — deleting
+              // it here would leave the day with no sleep at all rather than
+              // with a corrected one.
+              if (!isMain)
+                Semantics(
+                  button: true,
+                  label: 'Remove this nap',
+                  child: Pressable(
+                    pressedScale: 0.9,
+                    onTap: () => _removeNap(p),
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: Sp.x2),
+                      child: Icon(
+                        Icons.close_rounded,
+                        size: 16,
+                        color: AppColors.inkMuted,
+                      ),
+                    ),
+                  ),
+                ),
               // No dot at all when confidence is unknown — a ConfDot(0) is a
               // red "we are sure this is bad" dot, which is a claim.
               if (conf != null) ConfDot(conf),

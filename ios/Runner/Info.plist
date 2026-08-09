@@ -61,6 +61,15 @@
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>OpenStrap connects to your WHOOP band over Bluetooth to sync your health data.</string>
+	<!-- The automatic-backup folder lives in the app's Documents directory.
+	     Without BOTH of these it exists but is invisible in Files, so nothing
+	     the user might sync it with (iCloud Drive, Nextcloud, a cable) can
+	     reach it — which makes the whole feature pointless rather than broken,
+	     and therefore easy to miss. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSHealthShareUsageDescription</key>
 	<string>OpenStrap reads your step count from Apple Health to show your daily steps, and reads back its own recent samples so it never writes duplicates.</string>
 	<key>NSHealthUpdateUsageDescription</key>

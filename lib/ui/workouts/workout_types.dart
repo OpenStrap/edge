@@ -191,7 +191,13 @@ Widget workoutTypeGrid(BuildContext context) => Wrap(
 /// that the moment it went past nine tiles, and the overflow is invisible in
 /// release — the last rows are simply clipped off and untappable, with no
 /// overflow stripes to give it away.
-Widget workoutTypeSheet(BuildContext context, String title) {
+Widget workoutTypeSheet(
+  BuildContext context,
+  String title, {
+  /// Optional row under the grid. Only safe because the sheet scrolls — see
+  /// the note above; a fixed sheet clipped anything past the grid.
+  Widget? footer,
+}) {
   final maxHeight = MediaQuery.sizeOf(context).height * 0.75;
   return SafeArea(
     top: false,
@@ -207,7 +213,16 @@ Widget workoutTypeSheet(BuildContext context, String title) {
             const SizedBox(height: Sp.x4),
             Flexible(
               child: SingleChildScrollView(
-                child: Builder(builder: workoutTypeGrid),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Builder(builder: workoutTypeGrid),
+                    if (footer != null) ...[
+                      const SizedBox(height: Sp.x4),
+                      footer,
+                    ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: Sp.x4),

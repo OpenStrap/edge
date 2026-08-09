@@ -88,6 +88,11 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       // already-running process (openAppWhenRun doesn't guarantee a fresh
       // launch) — the constructor-time check alone would miss that case.
       unawaited(app.checkPendingSiriRoute());
+      // Backups run on foreground, when due — there is no background scheduler
+      // that works on both platforms, and a schedule that claims "daily" while
+      // delivering whenever the OS feels like it is worse than one that is
+      // honest about when it fires.
+      unawaited(app.runBackupIfDue());
       if (app.isPaired) app.openSession();
     } else if (state == AppLifecycleState.paused) {
       // Backgrounded: hand the band to the iOS restore path so it can wake-and-drain

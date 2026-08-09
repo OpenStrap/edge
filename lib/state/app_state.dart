@@ -41,6 +41,13 @@ import '../compute/manual_session.dart' show strainFromPerMinuteHr;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
 import '../data/day_label.dart';
+import '../data/auto_backup.dart'
+    show BackupCadence, BackupOutcome, runBackup;
+import '../ui/stress/breath_phases.dart';
+// `runBackupIfDue` is also the name of the AppState method below, so the pure
+// scheduler is imported under an alias rather than shadowed by it.
+import '../data/auto_backup.dart' as backup show runBackupIfDue;
+import 'prefs.dart';
 import '../data/db.dart';
 import '../data/live_coverage_policy.dart';
 import '../data/local_repository.dart';
@@ -756,6 +763,59 @@ class AppState extends ChangeNotifier {
     await prefs.setString(_kProfile, jsonEncode(user));
     notifyListeners();
     return user!;
+  }
+
+  // ── automatic backup ────────────────────────────────────────────────────────
+
+  BackupCadence get backupCadence =>
+      BackupCadence.fromName(Prefs.getString(Prefs.backupCadence, ''));
+
+  DateTime? get lastBackupAt {
+    final ms = Prefs.getInt(Prefs.backupLastRunMs, 0);
+    return ms == 0 ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  /// Change the cadence. Switching it ON takes a backup immediately rather
+  /// than waiting for the interval — otherwise nothing visible happens and the
+  /// setting looks broken.
+  Future<void> setBackupCadence(BackupCadence cadence) async {
+    Prefs.setString(Prefs.backupCadence, cadence.name);
+    notifyListeners();
+    if (cadence != BackupCadence.off) await runBackupNow();
+  }
+
+  /// Take one now, whatever the schedule says. Returns what happened so the
+  /// caller can say so — a backup that silently did not happen is the failure
+  /// this feature exists to prevent.
+  Future<BackupOutcome> runBackupNow() async {
+    final outcome = await runBackup();
+    if (outcome.succeeded) {
+      Prefs.setInt(
+        Prefs.backupLastRunMs,
+        DateTime.now().millisecondsSinceEpoch,
+      );
+      notifyListeners();
+    }
+    return outcome;
+  }
+
+  /// Foreground hook. Silent unless it actually writes something.
+  Future<void> runBackupIfDue() async {
+    final cadence = backupCadence;
+    if (cadence == BackupCadence.off) return;
+    final outcome = await backup.runBackupIfDue(
+      cadence: cadence,
+      lastRun: lastBackupAt,
+    );
+    if (outcome.succeeded) {
+      Prefs.setInt(
+        Prefs.backupLastRunMs,
+        DateTime.now().millisecondsSinceEpoch,
+      );
+      notifyListeners();
+    } else if (outcome.error != null) {
+      _log('Backup failed: ${outcome.error}');
+    }
   }
 
   /// Clear the local profile + unpair the band (the former "sign out", now purely
@@ -1592,6 +1652,12 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Re-derive after a nap edit. Same machinery as a sleep-override change —
+  /// nap minutes feed sleep need and sleep debt, so an edit is a recompute
+  /// rather than a redraw, and the engine force-includes nap-edit days even
+  /// when they are finalized.
+  Future<void> reanalyzeForNapEdit() => _reanalyzeForOverride();
 
   Future<int> reanalyzeDays(Set<String> days) async {
     if (days.isEmpty || reanalyzing) return 0;
@@ -3778,6 +3844,14 @@ class AppState extends ChangeNotifier {
   static const double breathingPacedHz = 1000.0 / 10900.0;
   static const Duration _breathingRecomputeInterval = Duration(seconds: 20);
   bool breathingActive = false;
+
+  /// The pattern the running session is pacing to. Coherence is only computed
+  /// for a pattern that claims a resonance frequency — see
+  /// [BreathPattern.coherenceRated].
+  BreathPattern breathingPattern = kBreathPatterns.first;
+
+  /// When the running session started, for the persisted history row.
+  DateTime? _breathingStartedAt;
   Map<String, dynamic>?
   breathingResult; // last {ok, ratio, score, peak_hz, n_beats, confidence, tier, note}
   String? breathingError;
@@ -3786,17 +3860,19 @@ class AppState extends ChangeNotifier {
   bool _breathingEnabledStreams = false;
 
   /// Begin a guided-breathing session. Requires a connected band.
-  Future<void> startBreathingSession() async {
+  Future<void> startBreathingSession({BreathPattern? pattern}) async {
     if (breathingActive) return;
     if (!isConnected) {
       breathingError = 'Connect your band first.';
       notifyListeners();
       return;
     }
+    breathingPattern = pattern ?? breathingPattern;
     breathingActive = true;
     breathingResult = null;
     breathingError = null;
     _breathingFrames.clear();
+    _breathingStartedAt = DateTime.now();
     notifyListeners();
     unawaited(BreathingLiveActivity.start(startedAt: DateTime.now()));
     try {
@@ -3818,7 +3894,11 @@ class AppState extends ChangeNotifier {
     });
   }
 
-  /// End the guided-breathing session.
+  /// End the guided-breathing session and bank it.
+  ///
+  /// A session shorter than a minute is NOT recorded. Opening the screen and
+  /// closing it again is not a breathing session, and a history full of
+  /// 4-second entries would bury the real ones.
   Future<void> stopBreathingSession() async {
     if (!breathingActive) return;
     _breathingRecomputeTimer?.cancel();
@@ -3826,7 +3906,52 @@ class AppState extends ChangeNotifier {
     breathingActive = false;
     _stopBreathingStreams();
     unawaited(BreathingLiveActivity.end());
+
+    final started = _breathingStartedAt;
+    _breathingStartedAt = null;
+    if (started != null) {
+      final ended = DateTime.now();
+      final seconds = ended.difference(started).inSeconds;
+      if (seconds >= 60) {
+        final res = breathingResult;
+        final scored = res != null && res['ok'] == true;
+        // Null unless the pattern is one a coherence score means something
+        // for AND the estimator actually produced one.
+        final rated = breathingPattern.coherenceRated && scored;
+        unawaited(
+          LocalDb.putBreathingSession(
+            startedAt: started.millisecondsSinceEpoch,
+            endedAt: ended.millisecondsSinceEpoch,
+            pattern: breathingPattern.key,
+            seconds: seconds,
+            coherence: rated ? (res['score'] as num?)?.toDouble() : null,
+            confidence: rated ? (res['confidence'] as num?)?.toDouble() : null,
+          ),
+        );
+      }
+    }
     notifyListeners();
+  }
+
+  /// Past sessions, newest first.
+  Future<List<Map<String, dynamic>>> breathingHistory({int limit = 30}) =>
+      LocalDb.breathingSessions(limit: limit);
+
+  /// Buzz the strap at a breathing or interval phase boundary.
+  ///
+  /// Distinct patterns per phase so the cue is legible without looking: a
+  /// longer buzz to breathe in, a shorter one to breathe out, a double for a
+  /// hold. Never throws and never awaits the caller — this fires from a frame
+  /// callback, and a momentary disconnect must not interrupt the session or
+  /// stall the animation.
+  void buzzBreathPhase(BreathPhaseKind kind) {
+    if (!isConnected) return;
+    final pattern = switch (kind) {
+      BreathPhaseKind.inhale || BreathPhaseKind.work => 1,
+      BreathPhaseKind.exhale || BreathPhaseKind.rest => 0,
+      BreathPhaseKind.holdIn || BreathPhaseKind.holdOut => 2,
+    };
+    unawaited(engine.buzzPattern(pattern).catchError((_) {}));
   }
 
   Future<void> _recomputeBreathingCoherence() async {
@@ -3836,7 +3961,10 @@ class AppState extends ChangeNotifier {
     try {
       final res = await repo!.breathingCoherence(
         frames,
-        pacedHz: breathingPacedHz,
+        // The pattern's own paced frequency, not a constant — box breathing at
+        // 3.75 breaths/min scored against a 5.5 breaths/min target would read
+        // as incoherent no matter how well it was done.
+        pacedHz: breathingPattern.pacedHz,
       );
       if (!breathingActive) return; // session ended while we awaited
       breathingResult = res;

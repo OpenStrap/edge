@@ -1,5 +1,10 @@
-// Guided resonance breathing — a paced-breathing circle (5.5 breaths/min,
-// the classic HRV-resonance pace) with a REAL cardiac-coherence readout.
+// Guided paced breathing — a breathing circle with a REAL cardiac-coherence
+// readout, four patterns, a session that actually ends, and a strap that
+// buzzes each phase change so you can shut your eyes.
+//
+// The circle is driven by the shared phase engine (breath_phases.dart), the
+// same one behind the interval timer: both are a repeating sequence of named,
+// timed phases with something to do at each boundary.
 //
 // The coherence score is computed on-device from live beat-to-beat RR
 // (McCraty & Zayas 2014 — see openstrap_analytics's cardiacCoherence) via
@@ -16,6 +21,7 @@ import 'package:provider/provider.dart';
 
 import '../../state/app_state.dart';
 import '../design/design.dart';
+import 'breath_phases.dart';
 
 class CalmBreathingScreen extends StatelessWidget {
   /// Auto-begin the session the moment this screen mounts — used when opened
@@ -47,8 +53,13 @@ class CalmBreathingScreen extends StatelessWidget {
       active: app.breathingActive,
       result: app.breathingResult,
       error: app.breathingError,
+      pattern: app.breathingPattern,
       onStart: app.startBreathingSession,
       onStop: app.stopBreathingSession,
+      // Buzzing the strap is what makes this usable with your eyes closed,
+      // which is the whole point of a breathing exercise you are not supposed
+      // to be staring at a phone during.
+      onPhaseChange: app.buzzBreathPhase,
       onBack: () {
         if (app.breathingActive) app.stopBreathingSession();
         Navigator.of(context).maybePop();
@@ -63,8 +74,15 @@ class CalmBreathingView extends StatefulWidget {
   final bool active;
   final Map? result;
   final String? error;
-  final VoidCallback? onStart;
+
+  /// The pattern being paced. Defaults to resonance, which is what this screen
+  /// has always run and the only one carrying a coherence score.
+  final BreathPattern pattern;
+  final void Function({BreathPattern? pattern})? onStart;
   final VoidCallback? onStop;
+
+  /// Called once per phase boundary, to buzz the strap.
+  final ValueChanged<BreathPhaseKind>? onPhaseChange;
   final VoidCallback? onBack;
 
   const CalmBreathingView({
@@ -73,8 +91,10 @@ class CalmBreathingView extends StatefulWidget {
     required this.active,
     this.result,
     this.error,
+    this.pattern = _defaultPattern,
     this.onStart,
     this.onStop,
+    this.onPhaseChange,
     this.onBack,
   });
 
@@ -82,49 +102,102 @@ class CalmBreathingView extends StatefulWidget {
   State<CalmBreathingView> createState() => _CalmBreathingViewState();
 }
 
+/// Resonance, the pace this screen has always run.
+const BreathPattern _defaultPattern = BreathPattern(
+  key: 'resonance',
+  label: 'Resonance',
+  description: '',
+  phases: [
+    BreathPhase(BreathPhaseKind.inhale, 5.45),
+    BreathPhase(BreathPhaseKind.exhale, 5.45),
+  ],
+  coherenceRated: true,
+);
+
+/// Session lengths offered. "Open" runs until you stop it.
+const _durationChoices = <int?>[2, 5, 10, null];
+
 class _CalmBreathingViewState extends State<CalmBreathingView>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  String _phaseText = "Inhale";
+  /// Drives the circle. Its VALUE is ignored — the phase engine decides what
+  /// is happening; this just gives us a per-frame tick.
+  late AnimationController _ticker;
+  final _clock = Stopwatch();
+
+  /// Chosen before starting.
+  BreathPattern _pattern = _defaultPattern;
+  int? _minutes = 2;
+
+  BreathPhaseKind? _lastPhase;
+  int _lastCycle = -1;
 
   @override
   void initState() {
     super.initState();
-    // A standard resonance frequency is ~5.5 breaths per minute.
-    // 5.5 breaths/min = ~10.9 seconds per breath cycle.
-    // So 5.45 seconds inhale, 5.45 seconds exhale.
-    _controller = AnimationController(
+    _pattern = widget.pattern;
+    // A repeating controller used purely as a frame ticker, so the circle is
+    // interpolated from real elapsed time rather than from an animation whose
+    // own duration would have to be kept in sync with the pattern.
+    _ticker = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 5450),
-    );
-
-    _controller.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        setState(() => _phaseText = "Exhale");
-        _controller.reverse();
-      } else if (status == AnimationStatus.dismissed) {
-        setState(() => _phaseText = "Inhale");
-        _controller.forward();
-      }
-    });
+      duration: const Duration(seconds: 1),
+    )..addListener(_onTick);
   }
 
   @override
   void didUpdateWidget(covariant CalmBreathingView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.active && !oldWidget.active) {
-      _controller.forward();
+      _lastPhase = null;
+      _lastCycle = -1;
+      _clock
+        ..reset()
+        ..start();
+      _ticker.repeat();
     } else if (!widget.active && oldWidget.active) {
-      _controller.stop();
-      _controller.value = 0.0;
-      setState(() => _phaseText = "Inhale");
+      _ticker.stop();
+      _clock.stop();
+      setState(() {});
     }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _ticker
+      ..removeListener(_onTick)
+      ..dispose();
     super.dispose();
+  }
+
+  Duration get _elapsed => _clock.elapsed;
+
+  Duration? get _target =>
+      _minutes == null ? null : Duration(minutes: _minutes!);
+
+  Duration? get _remaining {
+    final t = _target;
+    return t == null ? null : t - _elapsed;
+  }
+
+  void _onTick() {
+    if (!widget.active) return;
+    final at = phaseAt(_pattern, _elapsed);
+    if (at != null) {
+      final changed = at.phase.kind != _lastPhase || at.cycle != _lastCycle;
+      if (changed) {
+        _lastPhase = at.phase.kind;
+        _lastCycle = at.cycle;
+        widget.onPhaseChange?.call(at.phase.kind);
+      }
+    }
+    final remaining = _remaining;
+    if (remaining != null && remaining <= Duration.zero) {
+      // The button said two minutes, so two minutes is what it runs. It used
+      // to say that and run until you stopped it.
+      widget.onStop?.call();
+      return;
+    }
+    setState(() {});
   }
 
   bool get _hasResult => widget.result?['ok'] == true;
@@ -132,8 +205,21 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
   // honesty note) — this threshold is a display choice, not a cited boundary.
   bool _isGood(num score) => score > 60;
 
+  String _fmt(Duration d) {
+    final s = d.inSeconds.clamp(0, 86400);
+    return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final at = widget.active ? phaseAt(_pattern, _elapsed) : null;
+    final kind = at?.phase.kind;
+    // A hold holds the circle where it was, rather than continuing to move and
+    // silently telling you to keep breathing.
+    final progress = at == null
+        ? 0.0
+        : (kind!.isHold ? kind.targetScale : _scaleFor(kind, at.progress));
+
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -144,102 +230,164 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
           onPressed: widget.onBack,
         ),
       ),
-      body: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            'Resonance Breathing',
-            style: AppText.h2,
-          ),
-          const SizedBox(height: Sp.x2),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: Sp.x8),
-            child: Text(
-              'Sync your breath with the circle to maximize your HRV and lower sympathetic stress.',
-              style: AppText.bodySoft,
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const SizedBox(height: 64),
-          Center(
-            child: AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                // Scale from 1.0 to 2.0
-                final scale = 1.0 + (_controller.value * 1.0);
-                return Transform.scale(
-                  scale: scale,
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: DomainAccent.recovery.withValues(alpha: 0.2 + (_controller.value * 0.3)),
-                      border: Border.all(
-                        color: DomainAccent.recovery,
-                        width: 2,
-                      ),
-                    ),
-                    alignment: Alignment.center,
-                    child: Transform.scale(
-                      scale: 1.0 / scale, // keep text unscaled
-                      child: Text(
-                        widget.active ? _phaseText : "Ready",
-                        style: AppText.h2.copyWith(
-                          color: DomainAccent.recovery,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 64),
-          if (widget.active) ...[
-            Text(
-              'Coherence Score',
-              style: AppText.caption,
-            ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: Sp.x6),
+        child: Column(
+          children: [
+            Text(_pattern.label, style: AppText.h2),
             const SizedBox(height: Sp.x2),
-            if (_hasResult)
-              Text(
-                '${(widget.result!['score'] as num).round()}%',
-                style: AppText.h1.copyWith(
-                  color: _isGood(widget.result!['score'] as num)
-                      ? AppColors.good
-                      : AppColors.warn,
-                ),
-              )
-            else
-              // Honest: no fabricated number until enough clean live RR has
-              // accumulated (first recompute lands ~20s in — see AppState's
-              // _breathingRecomputeInterval).
-              Text(
-                'Calibrating…',
-                style: AppText.h2.copyWith(color: AppColors.inkMuted),
-              ),
-            const SizedBox(height: Sp.x8),
-            OutlinedButton(
-              onPressed: widget.onStop,
-              child: const Text('Stop Session'),
-            ),
-          ] else ...[
-            FilledButton(
-              onPressed: widget.connected ? widget.onStart : null,
-              child: const Text('Begin 2-Minute Session'),
-            ),
-            if (!widget.connected || widget.error != null) ...[
-              const SizedBox(height: Sp.x3),
-              Text(
-                widget.error ?? 'Connect your band to start a session.',
-                style: AppText.captionMuted,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: Sp.x8),
+              child: Text(
+                widget.active
+                    ? 'Follow the circle. Your strap buzzes each change, so '
+                          'you can close your eyes.'
+                    : _pattern.description,
+                style: AppText.bodySoft,
                 textAlign: TextAlign.center,
               ),
+            ),
+            const SizedBox(height: Sp.x8),
+            Center(child: _circle(progress, kind)),
+            const SizedBox(height: Sp.x8),
+            if (widget.active) ...[
+              if (_remaining != null)
+                Text(
+                  _fmt(_remaining!),
+                  style: AppText.h2.copyWith(color: AppColors.inkSoft),
+                )
+              else
+                Text(_fmt(_elapsed), style: AppText.h2.copyWith(
+                  color: AppColors.inkSoft,
+                )),
+              const SizedBox(height: Sp.x5),
+              if (_pattern.coherenceRated) ...[
+                Text('Coherence Score', style: AppText.caption),
+                const SizedBox(height: Sp.x2),
+                if (_hasResult)
+                  Text(
+                    '${(widget.result!['score'] as num).round()}%',
+                    style: AppText.h1.copyWith(
+                      color: _isGood(widget.result!['score'] as num)
+                          ? AppColors.good
+                          : AppColors.warn,
+                    ),
+                  )
+                else
+                  // Honest: no fabricated number until enough clean live RR
+                  // has accumulated (first recompute lands ~20s in).
+                  Text(
+                    'Calibrating…',
+                    style: AppText.h2.copyWith(color: AppColors.inkMuted),
+                  ),
+              ] else
+                // Coherence measures oscillation at the RESONANCE frequency.
+                // Scoring the other patterns against it would grade them on an
+                // exam they are not sitting.
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: Sp.x8),
+                  child: Text(
+                    'No coherence score for this pattern — it only means '
+                    'something for resonance breathing.',
+                    style: AppText.captionMuted,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              const SizedBox(height: Sp.x8),
+              OutlinedButton(
+                onPressed: widget.onStop,
+                child: const Text('Stop Session'),
+              ),
+            ] else ...[
+              _patternPicker(),
+              const SizedBox(height: Sp.x5),
+              _durationPicker(),
+              const SizedBox(height: Sp.x6),
+              FilledButton(
+                onPressed: widget.connected
+                    ? () => widget.onStart?.call(pattern: _pattern)
+                    : null,
+                child: Text(
+                  _minutes == null
+                      ? 'Begin'
+                      : 'Begin $_minutes-Minute Session',
+                ),
+              ),
+              if (!widget.connected || widget.error != null) ...[
+                const SizedBox(height: Sp.x3),
+                Text(
+                  widget.error ?? 'Connect your band to start a session.',
+                  style: AppText.captionMuted,
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ],
           ],
-        ],
+        ),
       ),
     );
   }
+
+  /// 0 at rest, 1 fully expanded.
+  double _scaleFor(BreathPhaseKind kind, double progress) => switch (kind) {
+    BreathPhaseKind.inhale || BreathPhaseKind.work => progress,
+    BreathPhaseKind.exhale || BreathPhaseKind.rest => 1 - progress,
+    BreathPhaseKind.holdIn => 1,
+    BreathPhaseKind.holdOut => 0,
+  };
+
+  Widget _circle(double t, BreathPhaseKind? kind) {
+    final scale = 1.0 + t;
+    return Transform.scale(
+      scale: scale,
+      child: Container(
+        width: 120,
+        height: 120,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: DomainAccent.recovery.withValues(alpha: 0.2 + (t * 0.3)),
+          border: Border.all(color: DomainAccent.recovery, width: 2),
+        ),
+        alignment: Alignment.center,
+        child: Transform.scale(
+          scale: 1.0 / scale, // keep the text unscaled
+          child: Text(
+            widget.active ? (kind?.label ?? '') : 'Ready',
+            style: AppText.h2.copyWith(color: DomainAccent.recovery),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _patternPicker() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: Sp.x5),
+    child: Wrap(
+      spacing: Sp.x2,
+      runSpacing: Sp.x2,
+      alignment: WrapAlignment.center,
+      children: [
+        for (final p in kBreathPatterns)
+          ToggleChip(
+            p.label,
+            selected: _pattern.key == p.key,
+            onTap: () => setState(() => _pattern = p),
+          ),
+      ],
+    ),
+  );
+
+  Widget _durationPicker() => Wrap(
+    spacing: Sp.x2,
+    runSpacing: Sp.x2,
+    alignment: WrapAlignment.center,
+    children: [
+      for (final m in _durationChoices)
+        ToggleChip(
+          m == null ? 'Open' : '$m min',
+          selected: _minutes == m,
+          onTap: () => setState(() => _minutes = m),
+        ),
+    ],
+  );
 }

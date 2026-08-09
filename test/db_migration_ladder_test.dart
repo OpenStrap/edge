@@ -370,4 +370,51 @@ void main() {
       expect(health['ok'], isTrue, reason: '$health');
     },
   );
+
+  test(
+    'upgrade from v27 runs the whole ladder to 31 and every new table works',
+    () async {
+      const name = 'migrate_from_v27_to_31_test.db';
+      created.add(name);
+      await _seedOldDb(name, 27, _v5DerivedDdl);
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+
+      // Each rung's table, exercised rather than merely present — a CREATE
+      // that ran with a typo still leaves a table that nothing can write to.
+      await LocalDb.putJournalMetrics('2026-06-01', {
+        'mood': const JournalMetricValue(4),
+      });
+      await LocalDb.putLabResult(
+        marker: 'ferritin',
+        takenOn: '2026-03-04',
+        value: 42,
+        unit: 'ng/mL',
+      );
+      await LocalDb.putBreathingSession(
+        startedAt: 1000,
+        endedAt: 2000,
+        pattern: 'resonance',
+        seconds: 120,
+      );
+      await LocalDb.putNapEdit(
+        dayId: '2026-06-01',
+        startTs: 1000,
+        endTs: 4600,
+        source: 'manual',
+      );
+
+      expect(
+        (await LocalDb.journalMetricsForDay('2026-06-01'))['mood']!.value,
+        4,
+      );
+      expect((await LocalDb.labResults()).single['value'], 42.0);
+      expect((await LocalDb.breathingSessions()).single['seconds'], 120);
+      expect((await LocalDb.napEdits('2026-06-01')).single['source'], 'manual');
+      expect(await LocalDb.napEditDays(), {'2026-06-01'});
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
 }
