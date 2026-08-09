@@ -146,7 +146,12 @@ Map<String, dynamic> summarizeWorkouts(List<Map<String, dynamic>> workouts) {
     if (w['status'] == 'live') continue;
     count++;
     totalMin += ((w['duration_min'] as num?) ?? 0).toInt();
-    totalCal += ((w['calories'] as num?) ?? 0).toInt();
+    // An absent calorie figure is skipped, not defaulted. Arithmetically that
+    // is the same as adding zero, but writing it as `?? 0` invites someone to
+    // later swap the zero for a "reasonable" estimate and turn the total into
+    // a fabrication — the null is the whole point.
+    final cal = (w['calories'] as num?)?.toInt();
+    if (cal != null) totalCal += cal;
     final zm = (w['zone_min'] as List?) ?? const [];
     for (var i = 0; i < zm.length; i++) {
       final v = (zm[i] as num?) ?? 0;

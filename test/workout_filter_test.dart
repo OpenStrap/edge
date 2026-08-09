@@ -175,14 +175,22 @@ void main() {
       expect(out['total_min'], 30);
     });
 
-    test('a missing calorie figure counts as absent, not as a total', () {
-      // Sessions logged against an incomplete profile carry a null kcal — the
-      // sum must skip them rather than treat them as a real zero.
+    test('a missing calorie figure is skipped, never defaulted', () {
+      // Sessions logged against an incomplete profile carry a null kcal. The
+      // total is the sum of what was actually measured — the uncosted session
+      // still counts as a session and still contributes its minutes.
       final out = summarizeWorkouts([
-        {'duration_min': 30, 'calories': null, 'status': 'done'},
+        {
+          'duration_min': 30,
+          'calories': null,
+          'status': 'done',
+          'zone_min': const <num>[],
+        },
         w(startTs: 100, durationMin: 30, calories: 250),
       ]);
       expect(out['total_calories'], 250);
+      expect(out['count'], 2, reason: 'uncosted is still a workout');
+      expect(out['total_min'], 60, reason: 'its minutes are real');
     });
   });
 
