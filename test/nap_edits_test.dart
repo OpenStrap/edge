@@ -115,6 +115,42 @@ void main() {
       expect(out.single['confidence'], isNull);
     });
 
+    test('supersedes a detection it overlaps', () {
+      // The entry screen refuses an overlap against what it can SEE. Log a nap
+      // on a day the detector abstained on, sync more raw, and the detector
+      // may then find the same bout — two periods over one afternoon, and the
+      // hour double-credited into nap minutes, sleep need and sleep debt. The
+      // person who was there outranks the detector.
+      final out = applyNapEdits(
+        [nap(13 * hour, 14 * hour)],
+        const [
+          NapEdit(
+            kind: NapEditKind.added,
+            startSec: 13 * hour + 600,
+            endSec: 14 * hour + 600,
+          ),
+        ],
+      );
+      expect(out, hasLength(1));
+      expect(out.single['source'], 'manual');
+      expect(napMinutes(out), 60, reason: 'counted once, not twice');
+    });
+
+    test('leaves a detection it does not overlap', () {
+      final out = applyNapEdits(
+        [nap(13 * hour, 14 * hour)],
+        const [
+          NapEdit(
+            kind: NapEditKind.added,
+            startSec: 17 * hour,
+            endSec: 18 * hour,
+          ),
+        ],
+      );
+      expect(out, hasLength(2));
+      expect(napMinutes(out), 120);
+    });
+
     test('overlapping additions are kept apart, not fused', () {
       // Fusing them would hide a data-entry mistake while inflating the total.
       // Entry rejects the overlap; the merge does not paper over it.

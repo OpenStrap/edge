@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/theme/theme.dart';
 import 'package:openstrap_edge/theme/tokens.dart';
+import 'package:openstrap_edge/ui/stress/breath_phases.dart';
 import 'package:openstrap_edge/ui/stress/calm_breathing_screen.dart';
 
 Widget _host(Widget child) {
@@ -36,7 +37,7 @@ void main() {
     await tester.pumpWidget(_host(CalmBreathingView(
       connected: true,
       active: false,
-      onStart: ({pattern}) => started = true,
+      onStart: ({pattern, target}) => started = true,
     )));
     await tester.tap(find.byType(FilledButton));
     expect(started, isTrue);
@@ -73,6 +74,34 @@ void main() {
     )));
     expect(find.text('82%'), findsOneWidget);
     expect(find.text('Calibrating…'), findsNothing);
+  });
+
+  testWidgets(
+      'a view that mounts with a session ALREADY running still paces it',
+      (tester) async {
+    // Reachable by swiping back mid-session and re-entering: neither
+    // swipe-back nor system back reaches onBack, so the session keeps running
+    // and the next view mounts with active already true. Starting the clock
+    // only on the false→true edge left that view frozen — no haptics, and a
+    // timed session that never ended.
+    final phases = <BreathPhaseKind>[];
+    await tester.pumpWidget(_host(CalmBreathingView(
+      connected: true,
+      active: true,
+      onPhaseChange: phases.add,
+    )));
+    // Far enough in to have crossed at least one phase boundary.
+    await tester.pump(const Duration(seconds: 7));
+    expect(
+      phases,
+      isNotEmpty,
+      reason: 'the clock never started, so nothing paced',
+    );
+    // Settle the repeating ticker so the test can finish.
+    await tester.pumpWidget(_host(const CalmBreathingView(
+      connected: true,
+      active: false,
+    )));
   });
 
   testWidgets('tapping Stop Session calls onStop', (tester) async {

@@ -69,26 +69,36 @@ bool manualNapWindowIsValid(int startSec, int endSec) {
 ///
 /// Added naps are appended and marked, so the UI can show which came from
 /// where and the user can tell their own entry apart from a detection.
-/// Overlapping additions are NOT merged: two logged naps that overlap are a
-/// data-entry mistake, and silently fusing them would hide it while inflating
-/// the day's total. The caller rejects the overlap at entry instead.
+///
+/// An added nap also SUPPRESSES any detected nap it overlaps. The entry screen
+/// refuses an overlap against what it can see, but that is only a snapshot:
+/// log a nap on a day the detector abstained on, sync more raw, and the
+/// detector may then find the same bout — leaving two periods over one
+/// afternoon and double-crediting it into `nap_min`, sleep need and sleep
+/// debt. The person who was there outranks the detector, so their entry wins
+/// and the detection is dropped.
+///
+/// Overlapping ADDITIONS are still not merged with each other: two logged naps
+/// that overlap are a data-entry mistake, and silently fusing them would hide
+/// it while inflating the total.
 ///
 /// The result is sorted by start, so the timeline draws them in order whatever
 /// order they were added in.
 List<NapMap> applyNapEdits(List<NapMap> detected, List<NapEdit> edits) {
   final rejected = edits.where((e) => e.kind == NapEditKind.rejected);
+  final added = edits.where((e) => e.kind == NapEditKind.added);
+  bool supersedes(NapMap nap) {
+    final start = (nap['start'] as num).toInt();
+    final end = (nap['end'] as num).toInt();
+    return rejected.any((r) => r.overlaps(start, end)) ||
+        added.any((a) => a.overlaps(start, end));
+  }
+
   final out = <NapMap>[
     for (final nap in detected)
-      if (!rejected.any(
-        (r) => r.overlaps(
-          (nap['start'] as num).toInt(),
-          (nap['end'] as num).toInt(),
-        ),
-      ))
-        nap,
-    for (final e in edits)
-      if (e.kind == NapEditKind.added)
-        {
+      if (!supersedes(nap)) nap,
+    for (final e in added)
+      {
           'start': e.startSec,
           'end': e.endSec,
           // A logged nap has no measured sleep/wake split, so asleep and in-bed
@@ -111,9 +121,10 @@ List<NapMap> applyNapEdits(List<NapMap> detected, List<NapEdit> edits) {
 
 /// Total asleep minutes across [naps] — the `nap_min` scalar.
 ///
-/// Null when there are no naps AND the day was never judged, which the caller
-/// distinguishes: a written 0 is a claim that there were no naps, and absent is
-/// a claim that we do not know.
+/// Always a number, including 0 for an empty list. The absent-versus-zero
+/// distinction is the CALLER's: it decides whether to write `nap_min` at all,
+/// because a written 0 claims there were no naps while writing nothing admits
+/// the day could not be judged.
 int napMinutes(List<NapMap> naps) =>
     naps.fold(0, (a, n) => a + ((n['duration_min'] as num?)?.round() ?? 0));
 

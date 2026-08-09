@@ -3733,6 +3733,12 @@ class LocalDb {
       'lab_result',
       'lab_marker_def',
       'breathing_session',
+      // The user's sleep corrections. These are the ONLY copy of them — the
+      // detector's output is deliberately not baked in, so a restore that
+      // skipped these would silently reinstate every nap the user had deleted
+      // and lose every one they logged.
+      'sleep_override',
+      'sleep_nap',
       'cycle_log',
       'notifications',
       'baselines',

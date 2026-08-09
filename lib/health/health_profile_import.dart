@@ -141,8 +141,12 @@ class HealthProfileImporter {
     try {
       await _health.configure();
       final end = now ?? DateTime.now();
-      // Ten years back on Apple. A body metric older than that is not worth
-      // adopting silently, and characteristics (sex, DOB) ignore the window.
+      // One year back on Apple. The point of this is keeping a value CURRENT,
+      // and the merge adopts weight and height unconditionally — so a wider
+      // window would let an eight-year-old reading silently replace a profile
+      // the user has kept up to date, and that stale weight then feeds
+      // calories, BMR and the strain anchors. Characteristics (sex, DOB)
+      // ignore the window entirely.
       //
       // Health Connect caps third-party reads at the last 30 DAYS unless the
       // user grants `READ_HEALTH_DATA_HISTORY`, and the pinned `health` 11.1.1
@@ -151,7 +155,7 @@ class HealthProfileImporter {
       // actually have. Someone who weighs themselves less often than monthly
       // gets nothing, which reports honestly as "nothing to read".
       final start = _isApple
-          ? DateTime(end.year - 10, end.month, end.day)
+          ? DateTime(end.year - 1, end.month, end.day)
           : end.subtract(const Duration(days: 30));
       final points = await _health.getHealthDataFromTypes(
         types: types,

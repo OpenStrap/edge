@@ -102,16 +102,12 @@ class _IntervalTimerScreenState extends State<IntervalTimerScreen>
     final elapsed = _clock.elapsed;
     final end = _sessionEnd;
     if (end != null && elapsed >= end) {
-      // Three buzzes to say the whole thing is over, distinct from the single
-      // cue at a phase change.
-      final app = context.read<AppState>();
-      for (final kind in [
-        BreathPhaseKind.work,
-        BreathPhaseKind.work,
-        BreathPhaseKind.work,
-      ]) {
-        app.buzzBreathPhase(kind);
-      }
+      // A DISTINCT pattern, not three of the ordinary one. Three identical
+      // haptic frames land back-to-back at GATT speed and re-trigger the
+      // firmware mid-playback, so they are felt as a single buzz —
+      // indistinguishable from the phase cue they were meant to be different
+      // from.
+      context.read<AppState>().buzzSessionComplete();
       _stop();
       return;
     }

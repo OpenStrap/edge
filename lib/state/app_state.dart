@@ -806,6 +806,17 @@ class AppState extends ChangeNotifier {
   /// finishing, and start a duplicate export.
   Future<void> runBackupIfDue() async {
     if (backupCadence == BackupCadence.off) return;
+    // Guarded: this is fired with `unawaited` from the resume hook, and
+    // `markRun` notifies listeners — which throws if the state was disposed
+    // during a long export, surfacing as an unhandled async error.
+    try {
+      await _runBackupIfDue();
+    } catch (e) {
+      _log('Backup failed: $e');
+    }
+  }
+
+  Future<void> _runBackupIfDue() async {
     final outcome = await backup.runBackupIfDue(
       // Re-read inside the lock, not captured here: a call that waits behind a
       // running export would otherwise act on the setting as it was when it
@@ -3852,6 +3863,16 @@ class AppState extends ChangeNotifier {
 
   /// When the running session started, for the persisted history row.
   DateTime? _breathingStartedAt;
+
+  /// What the session was SUPPOSED to run for, or null for an open one.
+  ///
+  /// Held because the banked duration is otherwise wall-clock: the screen's
+  /// ticker is muted while the app is suspended, so a two-minute session
+  /// backgrounded at 0:30 and resumed forty minutes later stopped on resume
+  /// and banked a forty-minute session, with a coherence score drawn mostly
+  /// from unpaced breathing. One backgrounded session would poison the trend
+  /// this history exists to build.
+  Duration? _breathingTarget;
   Map<String, dynamic>?
   breathingResult; // last {ok, ratio, score, peak_hz, n_beats, confidence, tier, note}
   String? breathingError;
@@ -3860,7 +3881,10 @@ class AppState extends ChangeNotifier {
   bool _breathingEnabledStreams = false;
 
   /// Begin a guided-breathing session. Requires a connected band.
-  Future<void> startBreathingSession({BreathPattern? pattern}) async {
+  Future<void> startBreathingSession({
+    BreathPattern? pattern,
+    Duration? target,
+  }) async {
     if (breathingActive) return;
     if (!isConnected) {
       breathingError = 'Connect your band first.';
@@ -3868,6 +3892,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     breathingPattern = pattern ?? breathingPattern;
+    _breathingTarget = target;
     breathingActive = true;
     breathingResult = null;
     breathingError = null;
@@ -3908,10 +3933,19 @@ class AppState extends ChangeNotifier {
     unawaited(BreathingLiveActivity.end());
 
     final started = _breathingStartedAt;
+    final target = _breathingTarget;
     _breathingStartedAt = null;
+    _breathingTarget = null;
     if (started != null) {
       final ended = DateTime.now();
-      final seconds = ended.difference(started).inSeconds;
+      var seconds = ended.difference(started).inSeconds;
+      // Clamped to what was asked for. Overshoot is always suspension, never
+      // extra breathing — the pacer stops the moment the app leaves the
+      // foreground, so any second past the target was spent doing something
+      // else.
+      if (target != null && seconds > target.inSeconds) {
+        seconds = target.inSeconds;
+      }
       if (seconds >= 60) {
         final res = breathingResult;
         final scored = res != null && res['ok'] == true;
@@ -3952,6 +3986,18 @@ class AppState extends ChangeNotifier {
       BreathPhaseKind.holdIn || BreathPhaseKind.holdOut => 2,
     };
     unawaited(engine.buzzPattern(pattern).catchError((_) {}));
+  }
+
+  /// The whole session is over, as opposed to one phase of it.
+  ///
+  /// Its own pattern rather than a repeat of the phase cue: repeated
+  /// `runHapticsPattern` frames serialize on the BLE write chain and arrive
+  /// milliseconds apart, re-triggering the firmware's haptic engine while it
+  /// is still playing — so N of them are felt as one, and the user cannot tell
+  /// "round over" from "session over".
+  void buzzSessionComplete() {
+    if (!isConnected) return;
+    unawaited(engine.buzzPattern(4).catchError((_) {}));
   }
 
   Future<void> _recomputeBreathingCoherence() async {

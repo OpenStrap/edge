@@ -4365,6 +4365,54 @@ class DerivationEngine {
   /// distinguishable only by HOW the abstention happened. A reader that checks
   /// `bundle['naps']?['value'] == null` and one that checks
   /// `bundle.containsKey('naps')` would disagree.
+  /// Abstention path that still honours what the USER logged.
+  ///
+  /// The detector abstains on exactly the days this feature exists for — strap
+  /// off for part of the afternoon, a short record, a failure. Returning early
+  /// there dropped every logged nap on the floor: no card to see, no minutes
+  /// credited, and no way to delete the row the user had just created, while
+  /// the edit kept force-re-deriving that day forever.
+  ///
+  /// A logged nap needs nothing from the detector — it carries its own absolute
+  /// bounds — so it is published on its own. The day is still reported as
+  /// unjudged when the user logged nothing, because that is what it is.
+  static List<Map<String, dynamic>>? _napsWhenUnjudged(
+    Map<String, dynamic> bundle,
+    Map<String, dynamic>? scMap,
+    List<NapEdit> napEdits,
+    String note,
+  ) {
+    final merged = applyNapEdits(const [], napEdits);
+    if (merged.isEmpty) {
+      _writeUnknownNaps(bundle, note);
+      return null;
+    }
+    bundle['naps'] = <String, dynamic>{
+      'value': merged,
+      'count': merged.length,
+      // No detection confidence, because there was no detection. These are
+      // reported, not estimated.
+      'confidence': null,
+      'tier': 'reported',
+      'inputs_used': const ['user'],
+      'note': '$note — showing what you logged',
+    };
+    scMap?['nap_min'] = napMinutes(merged).toDouble();
+    return [
+      for (final nap in merged)
+        {
+          'is_main': false,
+          'onset_ts': nap['start'],
+          'wake_ts': nap['end'],
+          'duration_min': nap['duration_min'],
+          'in_bed_min': nap['in_bed_min'],
+          'efficiency': null,
+          'confidence': null,
+          if (nap['source'] != null) 'source': nap['source'],
+        },
+    ];
+  }
+
   static void _writeUnknownNaps(
     Map<String, dynamic> bundle,
     String note,
@@ -4396,8 +4444,12 @@ class DerivationEngine {
     try {
       final n = s.length;
       if (n < 60) {
-        _writeUnknownNaps(bundle, 'too little 1 Hz data to assess naps');
-        return null;
+        return _napsWhenUnjudged(
+          bundle,
+          scMap,
+          napEdits,
+          'too little 1 Hz data to assess naps',
+        );
       }
       final accel = <ana.AccelSample>[
         for (var i = 0; i < n; i++)
@@ -4423,15 +4475,12 @@ class DerivationEngine {
       );
 
       if (!m.present) {
-        bundle['naps'] = <String, dynamic>{
-          'value': null,
-          'count': null,
-          'confidence': 0,
-          'tier': m.tier,
-          'inputs_used': m.inputs_used,
-          'note': m.note,
-        };
-        return null;
+        return _napsWhenUnjudged(
+          bundle,
+          scMap,
+          napEdits,
+          m.note ?? 'naps could not be assessed for this day',
+        );
       }
 
       final t0 = s.tsSec.first;
@@ -4517,8 +4566,12 @@ class DerivationEngine {
       ];
     } catch (e) {
       if (kDebugMode) debugPrint('[derive] naps FAILED/skipped: $e');
-      _writeUnknownNaps(bundle, 'nap detection failed for this day');
-      return null;
+      return _napsWhenUnjudged(
+        bundle,
+        scMap,
+        napEdits,
+        'nap detection failed for this day',
+      );
     }
   }
 

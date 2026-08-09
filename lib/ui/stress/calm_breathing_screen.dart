@@ -78,7 +78,7 @@ class CalmBreathingView extends StatefulWidget {
   /// The pattern being paced. Null falls back to resonance, which is what this
   /// screen has always run and the only one carrying a coherence score.
   final BreathPattern? pattern;
-  final void Function({BreathPattern? pattern})? onStart;
+  final void Function({BreathPattern? pattern, Duration? target})? onStart;
   final VoidCallback? onStop;
 
   /// Called once per phase boundary, to buzz the strap.
@@ -140,24 +140,36 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
       vsync: this,
       duration: const Duration(seconds: 1),
     )..addListener(_onTick);
+    // AFTER the ticker exists — `_begin` repeats it. Started here, not only on
+    // the false→true edge in didUpdateWidget: a session survives leaving the
+    // screen (swipe-back and system back never reach `onBack`, which is the
+    // only thing that stops it), so re-entering mounts a fresh view with
+    // `active` ALREADY true and no edge to catch. The whole session lifecycle
+    // hangs off this clock, so missing it left a frozen circle, no haptics,
+    // and a timed session that never ended.
+    if (widget.active) _begin();
   }
 
   @override
   void didUpdateWidget(covariant CalmBreathingView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.active && !oldWidget.active) {
-      _lastPhase = null;
-      _lastCycle = -1;
-      _finished = false;
-      _clock
-        ..reset()
-        ..start();
-      _ticker.repeat();
+      _begin();
     } else if (!widget.active && oldWidget.active) {
       _ticker.stop();
       _clock.stop();
       setState(() {});
     }
+  }
+
+  void _begin() {
+    _lastPhase = null;
+    _lastCycle = -1;
+    _finished = false;
+    _clock
+      ..reset()
+      ..start();
+    _ticker.repeat();
   }
 
   @override
@@ -180,15 +192,10 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
 
   void _onTick() {
     if (!widget.active || _finished) return;
-    final at = phaseAt(_pattern, _elapsed);
-    if (at != null) {
-      final changed = at.phase.kind != _lastPhase || at.cycle != _lastCycle;
-      if (changed) {
-        _lastPhase = at.phase.kind;
-        _lastCycle = at.cycle;
-        widget.onPhaseChange?.call(at.phase.kind);
-      }
-    }
+    // Expiry FIRST. The Stopwatch keeps counting while the app is suspended
+    // but the ticker does not, so the first tick after a resume can be long
+    // past the end — buzzing on the way out would be a startling cue for a
+    // session that is already over.
     final remaining = _remaining;
     if (remaining != null && remaining <= Duration.zero) {
       // The button said two minutes, so two minutes is what it runs. It used
@@ -198,6 +205,15 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
       _clock.stop();
       widget.onStop?.call();
       return;
+    }
+    final at = phaseAt(_pattern, _elapsed);
+    if (at != null) {
+      final changed = at.phase.kind != _lastPhase || at.cycle != _lastCycle;
+      if (changed) {
+        _lastPhase = at.phase.kind;
+        _lastCycle = at.cycle;
+        widget.onPhaseChange?.call(at.phase.kind);
+      }
     }
     setState(() {});
   }
@@ -307,7 +323,10 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
               const SizedBox(height: Sp.x6),
               FilledButton(
                 onPressed: widget.connected
-                    ? () => widget.onStart?.call(pattern: _pattern)
+                    ? () => widget.onStart?.call(
+                        pattern: _pattern,
+                        target: _target,
+                      )
                     : null,
                 child: Text(
                   _minutes == null

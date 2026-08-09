@@ -96,7 +96,7 @@ void main() {
       });
     });
 
-    test('Apple asks for ten years', () {
+    test('Apple asks for a year, not a decade', () {
       final windows = <(DateTime, DateTime)>[];
       final importer = HealthProfileImporter(
         isApple: true,
@@ -104,10 +104,9 @@ void main() {
       );
       return importer.read(now: DateTime(2026, 8, 9)).then((_) {
         expect(windows, hasLength(1));
-        expect(
-          windows.single.$2.year - windows.single.$1.year,
-          10,
-        );
+        // Wide enough to find a value someone records occasionally, narrow
+        // enough that an ancient reading cannot overwrite a current profile.
+        expect(windows.single.$2.year - windows.single.$1.year, 1);
       });
     });
   });

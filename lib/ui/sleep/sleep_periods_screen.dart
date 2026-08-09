@@ -119,7 +119,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
       );
       return;
     }
-    if (napOverlapsExisting(startTs, endTs, _napWindows)) {
+    if (napOverlapsExisting(startTs, endTs, _sleepWindows)) {
       // Silently merging two overlapping entries would inflate the day's total
       // while hiding the mistake.
       _say('That overlaps a sleep already on this day.');
@@ -132,7 +132,7 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
       endTs: endTs,
       source: 'manual',
     );
-    await _rederive();
+    await _rederive(expectStart: startTs);
   }
 
   /// Remove a period. A detected nap is SUPPRESSED (its window is remembered,
@@ -155,17 +155,34 @@ class _SleepPeriodsScreenState extends State<SleepPeriodsScreen> {
     await _rederive();
   }
 
-  List<Map<String, dynamic>> get _napWindows => [
+  /// Every sleep already on the day, MAIN INCLUDED.
+  ///
+  /// The main sleep has to be in here or a nap can be logged inside it — main
+  /// 23:00–07:00 and a logged 06:00–07:00 would both be accepted, and that
+  /// hour would be counted once in the night's TST and again in nap minutes.
+  List<Map<String, dynamic>> get _sleepWindows => [
     for (final p in _periods)
-      if (p['is_main'] != true)
+      if (p['onset_ts'] != null && p['wake_ts'] != null)
         {'start': p['onset_ts'], 'end': p['wake_ts']},
   ];
 
-  Future<void> _rederive() async {
+  Future<void> _rederive({int? expectStart}) async {
     // The edit only shows up once the day is re-derived — nap minutes feed
     // sleep need and sleep debt, so this is a recompute, not a redraw.
     await context.read<AppState>().reanalyzeForNapEdit();
-    if (mounted) await _load();
+    if (!mounted) return;
+    await _load();
+    if (!mounted || expectStart == null) return;
+    final landed = _periods.any(
+      (p) => (p['onset_ts'] as num?)?.toInt() == expectStart,
+    );
+    if (!landed) {
+      // A day whose raw data has aged out cannot be re-derived, and a derive
+      // already in flight is skipped rather than queued. Either way the row is
+      // saved and will apply next time that day is rebuilt — saying nothing
+      // would look like the tap did nothing at all.
+      _say('Saved. It will show once this day is rebuilt.');
+    }
   }
 
   void _say(String message) {
