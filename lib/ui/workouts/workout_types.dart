@@ -42,14 +42,90 @@ const kWorkoutTypes = <(String, String, OsIcon, OsIcon?)>[
   ('other', 'Other', OsIcon.workoutOther, OsIcon.workoutOther),
 ];
 
+/// Built-ins by key, so a lookup does not walk the list.
+final Map<String, (String, String, OsIcon, OsIcon?)> kWorkoutTypesByKey = {
+  for (final e in kWorkoutTypes) e.$1: e,
+};
+
+/// Alternate spellings that mean an existing [kWorkoutTypes] key.
+///
+/// These are not hypothetical. The WHOOP importer stores the raw slug of the
+/// export's "Activity name" column (`lib/import/whoop_import.dart`), so an
+/// imported library is full of `running`, `weightlifting`, `functional
+/// fitness` — rows the app would otherwise label by blind capitalisation and
+/// treat as unrecognised. Filtering by Run would hide every imported run while
+/// the feed happily showed cards titled "Running".
+///
+/// Keys here must be lowercase, and must never shadow a key in
+/// [kWorkoutTypes].
+const kWorkoutTypeAliases = <String, String>{
+  'running': 'run',
+  'jog': 'run',
+  'jogging': 'run',
+  'treadmill': 'run',
+  'cycling': 'cycle',
+  'bike': 'cycle',
+  'biking': 'cycle',
+  'ride': 'cycle',
+  'spinning': 'cycle',
+  'walking': 'walk',
+  'rucking': 'walk',
+  'swimming': 'swim',
+  'weights': 'strength',
+  'weightlifting': 'strength',
+  'lifting': 'strength',
+  'strength training': 'strength',
+  'functional fitness': 'strength',
+  'crossfit': 'hiit',
+  'interval': 'hiit',
+  'hiking': 'hike',
+  'climbing': 'climb',
+  'bouldering': 'climb',
+  'skiing': 'ski',
+  'snowboarding': 'snowboard',
+  'rowing machine': 'rowing',
+  'row': 'rowing',
+  'erg': 'rowing',
+  'stair climber': 'stairs',
+  'stairmaster': 'stairs',
+  'stair': 'stairs',
+  'racquet': 'tennis',
+  'racquetball': 'tennis',
+  'squash': 'tennis',
+  'padel': 'tennis',
+  'badminton': 'tennis',
+  'table tennis': 'tennis',
+  'pickleball': 'tennis',
+  'football': 'soccer',
+  'boxing training': 'boxing',
+  'kickboxing': 'boxing',
+  'martial arts': 'boxing',
+  'meditation': 'yoga',
+  'stretching': 'pilates',
+  'mobility': 'pilates',
+};
+
+/// The [kWorkoutTypes] key a stored type string means, or null when it belongs
+/// to no known family. One seam for every lookup here and for the filter — a
+/// row must not render as "Running" in the feed and as "Other" to the filter.
+String? resolveWorkoutTypeKey(String? type) {
+  final raw = (type ?? '').toLowerCase().trim();
+  if (raw.isEmpty) return null;
+  for (final e in kWorkoutTypes) {
+    if (e.$1 == raw) return e.$1;
+  }
+  return kWorkoutTypeAliases[raw];
+}
+
 /// Glyph fallback for a workout type — always returns something renderable,
 /// even for autodetected/unrecognized types.
 OsIcon workoutTypeIcon(String? type) {
   final raw = (type ?? '').toLowerCase();
   if (raw.contains('autodetected')) return OsIcon.strength;
   if (raw.contains('workout')) return OsIcon.strength;
+  final key = resolveWorkoutTypeKey(type);
   for (final e in kWorkoutTypes) {
-    if (e.$1 == raw) return e.$3;
+    if (e.$1 == key) return e.$3;
   }
   return OsIcon.strength;
 }
@@ -57,7 +133,7 @@ OsIcon workoutTypeIcon(String? type) {
 /// Illustrated art for a workout type — null only for autodetected/unknown
 /// types, which stay on the glyph fallback ([workoutTypeIcon]).
 OsIcon? workoutTypeOsIcon(String? type) {
-  final key = (type ?? '').toLowerCase();
+  final key = resolveWorkoutTypeKey(type);
   for (final e in kWorkoutTypes) {
     if (e.$1 == key) return e.$4;
   }
@@ -69,11 +145,11 @@ String workoutTypeLabel(String? type) {
   // The stored `type` column is free-form text, so rows written by older
   // releases, by an import, or by hand can arrive in any case. Every lookup in
   // this file normalizes first for that reason.
-  final key = type.toLowerCase();
-  if (key.contains('autodetected')) return 'Workout';
+  if (type.toLowerCase().contains('autodetected')) return 'Workout';
   // The table's own label wins over capitalising the key, so the list row and
   // the picker tile always read the same. Capitalising blind is how 'hiit'
   // rendered as "Hiit" everywhere except the picker.
+  final key = resolveWorkoutTypeKey(type);
   for (final e in kWorkoutTypes) {
     if (e.$1 == key) return e.$2;
   }

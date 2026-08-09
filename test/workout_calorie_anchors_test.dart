@@ -52,26 +52,29 @@ void main() {
   });
 
   group('LiveWorkoutState.caloriesOrNull', () {
-    test('is null without anchors, however much was accrued', () {
-      final s = _session(const Profile());
-      s.calories = 431.7;
-      expect(
-        s.caloriesOrNull,
-        isNull,
-        reason: 'a stale accumulator must not resurrect a fabricated total',
-      );
-    });
-
-    test('rounds the accrued figure when anchored', () {
+    test('rounds the accrued figure once something was actually costed', () {
       final s = _session(_anchored);
-      s.calories = 431.7;
+      s.accrueCalories(431.7);
       expect(s.caloriesOrNull, 432);
     });
 
-    test('an anchored session that burned nothing reports zero, not absent', () {
-      // Absent and zero are different claims and both are reachable — this is
-      // the one that means "we measured, and it was nothing".
-      expect(_session(_anchored).caloriesOrNull, 0);
+    test('is null until the estimate has run even once', () {
+      // "Can we score this" and "did we score this" are different questions
+      // and both have a zero-shaped answer. A complete profile whose band
+      // never delivered a heart rate — link dropped, strap off — accrues
+      // nothing, and reporting that as 0 kcal claims a measurement nobody
+      // took. Strain already reports that case as absent.
+      expect(_session(_anchored).caloriesOrNull, isNull);
+      expect(_session(const Profile()).caloriesOrNull, isNull);
+    });
+
+    test('a costed session that came to nothing reports zero, not absent', () {
+      // Reachable: the Keytel term goes negative at a low enough heart rate
+      // and is clamped at zero. That IS a measurement, and it is not the same
+      // claim as never having measured.
+      final s = _session(_anchored);
+      s.accrueCalories(0);
+      expect(s.caloriesOrNull, 0);
     });
   });
 

@@ -22,6 +22,16 @@ void main() {
       expect(workoutTypeLabel('STRENGTH'), 'Strength');
     });
 
+    test('resolves the spellings an import can carry', () {
+      // The WHOOP importer stores the raw slug of the export's activity name,
+      // so a real library is full of these.
+      expect(workoutTypeLabel('running'), 'Run');
+      expect(workoutTypeLabel('weightlifting'), 'Strength');
+      expect(workoutTypeLabel('functional fitness'), 'Strength');
+      expect(workoutTypeLabel('hiking'), 'Hike');
+      expect(workoutTypeLabel('squash'), 'Racquet');
+    });
+
     test('falls back to capitalising an unknown type', () {
       expect(workoutTypeLabel('kitesurfing'), 'Kitesurfing');
     });
@@ -51,5 +61,40 @@ void main() {
     for (final e in kWorkoutTypes) {
       expect(e.$1, e.$1.toLowerCase(), reason: '${e.$1} breaks the lookups');
     }
+  });
+
+  group('aliases', () {
+    test('resolve to a real key, and real keys resolve to themselves', () {
+      for (final e in kWorkoutTypes) {
+        expect(resolveWorkoutTypeKey(e.$1), e.$1);
+      }
+      for (final entry in kWorkoutTypeAliases.entries) {
+        expect(
+          kWorkoutTypesByKey.containsKey(entry.value),
+          isTrue,
+          reason: '"${entry.key}" points at "${entry.value}", which is not a '
+              'real type — the alias is unreachable',
+        );
+      }
+    });
+
+    test('never shadow a real key', () {
+      // An alias that collides with a key would be dead code at best and a
+      // silent re-routing of a real type at worst.
+      for (final key in kWorkoutTypeAliases.keys) {
+        expect(
+          kWorkoutTypesByKey.containsKey(key),
+          isFalse,
+          reason: '"$key" is both a type and an alias',
+        );
+        expect(key, key.toLowerCase());
+      }
+    });
+
+    test('an unknown string resolves to nothing', () {
+      expect(resolveWorkoutTypeKey('kitesurfing'), isNull);
+      expect(resolveWorkoutTypeKey(''), isNull);
+      expect(resolveWorkoutTypeKey(null), isNull);
+    });
   });
 }

@@ -29,17 +29,15 @@ enum WorkoutSort {
       this == WorkoutSort.newest || this == WorkoutSort.oldest;
 }
 
-/// Canonical type key for filtering. Anything outside the [kWorkoutTypes]
-/// vocabulary — an auto-detector string, a type from an older release, an
-/// imported session — collapses to `other`, so the "Other" chip actually
-/// catches those instead of leaving them unreachable by any filter.
-String canonicalWorkoutType(String? raw) {
-  final t = (raw ?? '').toLowerCase();
-  for (final e in kWorkoutTypes) {
-    if (e.$1 == t) return t;
-  }
-  return 'other';
-}
+/// Canonical type key for filtering. Alternate spellings resolve to their real
+/// family via [resolveWorkoutTypeKey] — an imported session stored as
+/// `running` must be found by the Run chip, not hidden under Other while the
+/// feed shows it titled "Run".
+///
+/// Anything genuinely outside the vocabulary — an auto-detector string, a type
+/// from an older release — still collapses to `other`, so the Other chip
+/// catches those rather than leaving them unreachable by any filter.
+String canonicalWorkoutType(String? raw) => resolveWorkoutTypeKey(raw) ?? 'other';
 
 /// A filter over the workout feed. All fields are floors, not ranges — the
 /// range picker above the list already bounds the window in time.

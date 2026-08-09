@@ -215,9 +215,20 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
     final list = _filter.apply(inRange);
     // A narrowed list gets a summary recomputed over exactly what's visible —
     // showing whole-range totals above a filtered feed is just a wrong number.
+    final repoSummary = (_data?['summary'] as Map?)?.cast<String, dynamic>();
+    // A narrowed list gets a summary recomputed over exactly what's visible —
+    // showing whole-range totals above a filtered feed is just a wrong number.
+    // `classifier` rides along untouched: it describes how well auto-typing did
+    // over the whole range, which a filter does not change, and recomputing
+    // only the totals would otherwise make the accuracy note vanish whenever
+    // any filter is on.
     final summary = _filter.isNarrowing
-        ? summarizeWorkouts(list)
-        : (_data?['summary'] as Map?)?.cast<String, dynamic>();
+        ? {
+            ...summarizeWorkouts(list),
+            if (repoSummary?['classifier'] != null)
+              'classifier': repoSummary!['classifier'],
+          }
+        : repoSummary;
 
     return AppScaffold(
       title: 'Workouts',
@@ -569,45 +580,59 @@ class _FilterBar extends StatelessWidget {
               : 'Sorted: ${filter.sort.label.toLowerCase()}');
     return Row(
       children: [
-        Semantics(
-          button: true,
-          label: active ? 'Filter workouts, active: $label' : 'Filter workouts',
-          child: Pressable(
-            pressedScale: 0.96,
-            onTap: onTap,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: Sp.x3,
-                vertical: Sp.x2,
-              ),
-              decoration: BoxDecoration(
-                color: active
-                    ? AppColors.tonalFill(AppColors.accent)
-                    : Elevation.surfaceAt(1),
-                borderRadius: BorderRadius.circular(R.pill),
-                border: Border.all(
-                  color: active
-                      ? AppColors.accent.withValues(alpha: 0.55)
-                      : AppColors.divider,
+        // Flexible + ellipsis, and no Spacer. The description grows with every
+        // chip and floor the user picks ("Basketball, Snowboard · 90m+ ·
+        // strain 17+" is a real reachable string) while the header row is only
+        // ~350 pt wide on a 390 pt phone. Unconstrained this is a RenderFlex
+        // overflow at default text scale, and release builds clip it silently.
+        Flexible(
+          child: Semantics(
+            button: true,
+            label: active
+                ? 'Filter workouts, active: $label'
+                : 'Filter workouts',
+            child: Pressable(
+              pressedScale: 0.96,
+              onTap: onTap,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Sp.x3,
+                  vertical: Sp.x2,
                 ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.tune_rounded, size: 16, color: tint),
-                  const SizedBox(width: Sp.x1),
-                  Text(
-                    label,
-                    style: AppText.label
-                        .copyWith(color: tint, fontWeight: FontWeight.w700),
+                decoration: BoxDecoration(
+                  color: active
+                      ? AppColors.tonalFill(AppColors.accent)
+                      : Elevation.surfaceAt(1),
+                  borderRadius: BorderRadius.circular(R.pill),
+                  border: Border.all(
+                    color: active
+                        ? AppColors.accent.withValues(alpha: 0.55)
+                        : AppColors.divider,
                   ),
-                ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.tune_rounded, size: 16, color: tint),
+                    const SizedBox(width: Sp.x1),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.label.copyWith(
+                          color: tint,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
-        if (active) ...[
-          const SizedBox(width: Sp.x2),
+        if (active)
           Semantics(
             button: true,
             label: 'Clear workout filter',
@@ -624,8 +649,6 @@ class _FilterBar extends StatelessWidget {
               ),
             ),
           ),
-        ],
-        const Spacer(),
       ],
     );
   }
@@ -1665,7 +1688,9 @@ class WorkoutDetailContent extends StatelessWidget {
               children: [
                 _toneStat(tone, noData ? '—' : '${d['avg_hr'] ?? '—'}', 'avg bpm'),
                 _toneStat(tone, noData ? '—' : '${d['max_hr'] ?? '—'}', 'max bpm'),
-                _toneStat(tone, '${d['calories'] ?? 0}', 'kcal'),
+                // A dash, not a 0 — this is the most-viewed place a session
+                // that was never costed could claim to have burned nothing.
+                _toneStat(tone, '${d['calories'] ?? '—'}', 'kcal'),
                 if (distanceLabel != null)
                   _toneStat(tone, distanceLabel!, 'distance')
                 // Steps are recorded only for manual workouts ridden by the live

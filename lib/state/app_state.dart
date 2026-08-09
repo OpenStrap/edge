@@ -4439,7 +4439,7 @@ class AppState extends ChangeNotifier {
             4.184;
       }
       // Add per-second slice (kcal/min / 60). Clamp to 0 in case of low HR.
-      w.calories += (kcalMin.clamp(0.0, 30.0) / 60.0);
+      w.accrueCalories(kcalMin.clamp(0.0, 30.0) / 60.0);
 
       // Strain is NOT accrued here. `accrueHr` (called above) recomputes it
       // from the session's per-minute HR through the one shared Banister ->
@@ -4472,16 +4472,30 @@ class LiveWorkoutState {
   final String type; // exercise type label
   Duration elapsed = Duration.zero;
 
-  /// Accrued kcal. Only ever added to when [Profile.hasCalorieAnchors] holds,
-  /// so a zero here means "never scored", not "burned nothing" — read
-  /// [caloriesOrNull] rather than this field anywhere a user can see it.
+  /// Accrued kcal. Zero here is ambiguous on its own — read [caloriesOrNull]
+  /// anywhere a user can see it.
   double calories = 0.0;
 
-  /// Accrued kcal, or null when the profile lacks the anchors Keytel needs.
-  /// Absent beats fabricated: an unanchored session shows "—" instead of a
-  /// number computed for a stand-in body.
-  int? get caloriesOrNull =>
-      profile.hasCalorieAnchors ? calories.round() : null;
+  /// Whether the calorie estimate has run even once this session.
+  ///
+  /// Separate from [Profile.hasCalorieAnchors] because "can we score this" and
+  /// "did we score this" are different questions and both have a zero-shaped
+  /// answer. A complete profile whose band never delivered a heart rate — the
+  /// link dropped, the strap was off — accrues nothing, and reporting that as
+  /// 0 kcal claims a measurement that was never taken. Strain already reports
+  /// that case as absent; this makes calories agree.
+  bool _caloriesScored = false;
+
+  /// Accrued kcal, or null when this session was never costed at all — either
+  /// the profile lacks the anchors Keytel needs, or no heart rate ever
+  /// arrived. Absent beats fabricated, and absent also beats a confident zero.
+  int? get caloriesOrNull => _caloriesScored ? calories.round() : null;
+
+  /// Record a per-second slice. The only writer of [calories].
+  void accrueCalories(double kcal) {
+    _caloriesScored = true;
+    calories += kcal;
+  }
 
   /// Headline 0–21 strain, or null when the profile lacks an anchor the
   /// Banister formula needs. Recomputed on every HR sample by [accrueHr] — it

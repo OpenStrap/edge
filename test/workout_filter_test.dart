@@ -36,6 +36,12 @@ void main() {
         expect(canonicalWorkoutType(t), 'other');
       }
     });
+
+    test('resolves an alias rather than collapsing it', () {
+      expect(canonicalWorkoutType('running'), 'run');
+      expect(canonicalWorkoutType('weightlifting'), 'strength');
+      expect(canonicalWorkoutType('HIKING'), 'hike');
+    });
   });
 
   group('filtering', () {
@@ -53,6 +59,19 @@ void main() {
     test('type filter keeps only that type', () {
       final out = const WorkoutFilter(types: {'run'}).apply(list);
       expect(out.map((e) => e['type']), ['run']);
+    });
+
+    test('an alias is found by its real family chip', () {
+      // Imported sessions carry the export's own spelling. Filtering by Run
+      // must find the row the feed titles "Run", not leave it under Other.
+      final imported = w(startTs: 600, type: 'running');
+      final out = const WorkoutFilter(types: {'run'}).apply([imported]);
+      expect(out, hasLength(1));
+      expect(
+        const WorkoutFilter(types: {'other'}).apply([imported]),
+        isEmpty,
+        reason: 'it is a run, so Other must not claim it as well',
+      );
     });
 
     test('the other chip catches unrecognised types', () {
