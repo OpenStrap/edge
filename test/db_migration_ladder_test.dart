@@ -293,4 +293,29 @@ void main() {
       );
     },
   );
+
+  test(
+    'upgrade from v27 creates the lab tables and they accept a write '
+    'immediately, not on the next launch',
+    () async {
+      const name = 'migrate_from_v27_labs_test.db';
+      created.add(name);
+      await _seedOldDb(name, 27, _v5DerivedDdl);
+
+      final version = await _openThroughLocalDb(name);
+      expect(version, LocalDb.schemaVersion);
+
+      await LocalDb.putLabResult(
+        marker: 'ferritin',
+        takenOn: '2026-03-04',
+        value: 42,
+        unit: 'ng/mL',
+      );
+      expect((await LocalDb.labResults()).single['value'], 42.0);
+      expect(await LocalDb.labMarkerDefs(), isEmpty);
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
 }

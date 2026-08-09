@@ -5,11 +5,31 @@
 // once the file is in a spreadsheet, and a column of zeroes where a metric was
 // never computed is a fabrication the user will then average.
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/csv_export.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+class _FakePathProvider extends PathProviderPlatform {
+  _FakePathProvider(this.root);
+  final String root;
+  @override
+  Future<String?> getTemporaryPath() async => root;
+  @override
+  Future<String?> getApplicationSupportPath() async => root;
+  @override
+  Future<String?> getApplicationDocumentsPath() async => root;
+  @override
+  Future<String?> getApplicationCachePath() async => root;
+  @override
+  Future<String?> getLibraryPath() async => root;
+  @override
+  Future<String?> getDownloadsPath() async => root;
+}
 
 void main() {
   group('csvField', () {
@@ -145,6 +165,107 @@ void main() {
       final line = csv.trim().split('\n').last.split(',');
       expect(line[daily.columns.indexOf('hrv')], '');
       expect(line[daily.columns.indexOf('resting_hr')], '52');
+    });
+  });
+
+  group('formula injection', () {
+    test('neutralises a text cell a spreadsheet would execute', () {
+      // These files go through a share sheet, so whoever opens the spreadsheet
+      // runs whatever the cell evaluates to.
+      for (final leader in ['=', '+', '-', '@', '\t', '\r']) {
+        final out = csvField('${leader}cmd|calc');
+        expect(out.startsWith("'") || out.startsWith('"\''), isTrue,
+            reason: 'a cell starting "$leader" was left executable');
+      }
+    });
+
+    test('a negative number stays a number', () {
+      // Only strings are prefixed. Quoting every negative delta in the file
+      // would make the numeric columns unusable.
+      expect(csvField(-5), '-5');
+      expect(csvField(-5.5), '-5.5');
+      expect(csvField(-5.0), '-5');
+    });
+
+    test('ordinary text is untouched', () {
+      expect(csvField('felt rough'), 'felt rough');
+      expect(csvField('2026-06-01'), '2026-06-01');
+    });
+  });
+
+  group('exportCsvFiles', () {
+    late Directory tmp;
+
+    setUpAll(() async {
+      tmp = await Directory.systemTemp.createTemp('openstrap_csv_files_');
+      PathProviderPlatform.instance = _FakePathProvider(tmp.path);
+    });
+
+    tearDownAll(() async {
+      if (await tmp.exists()) await tmp.delete(recursive: true);
+    });
+
+    test('writes a BOM, skips empty sets, and reports failures', () async {
+      final db = await LocalDb.instance;
+      await db.insert('metric_series', {
+        'date': '2026-07-01',
+        'key': 'rhr',
+        'value': 51.0,
+      });
+
+      const broken = CsvExportSet(
+        name: 'broken',
+        title: 'Broken',
+        columns: ['x'],
+        sql: 'SELECT x FROM a_table_that_does_not_exist',
+      );
+      final daily = kCsvExportSets.firstWhere((s) => s.name == 'daily');
+      final labs = kCsvExportSets.firstWhere((s) => s.name == 'labs');
+
+      final result = await exportCsvFiles([daily, labs, broken]);
+
+      expect(result.paths, hasLength(1), reason: 'labs is empty, so no file');
+      expect(result.failed, ['broken']);
+      expect(result.hasFailures, isTrue);
+      expect(result.isEmpty, isFalse);
+
+      final bytes = await File(result.paths.single).readAsBytes();
+      expect(bytes.take(3), [0xEF, 0xBB, 0xBF],
+          reason: 'without the BOM, Excel on Windows mangles every note');
+    });
+
+    test('a run clears the previous run rather than piling up copies', () async {
+      // These are plaintext health files; one export's worth may exist at a
+      // time, not one per tap forever.
+      final daily = kCsvExportSets.firstWhere((s) => s.name == 'daily');
+      final first = await exportCsvFiles([daily], now: DateTime(2026, 7, 1));
+      expect(first.paths, hasLength(1));
+
+      final second = await exportCsvFiles([daily], now: DateTime(2026, 7, 2));
+      expect(second.paths, hasLength(1));
+      expect(File(first.paths.single).existsSync(), isFalse);
+      expect(File(second.paths.single).existsSync(), isTrue);
+
+      final dir = Directory(p.dirname(second.paths.single));
+      expect(dir.listSync().whereType<File>(), hasLength(1));
+    });
+
+    test('nothing to export is not the same as everything failing', () async {
+      const broken = CsvExportSet(
+        name: 'broken',
+        title: 'Broken',
+        columns: ['x'],
+        sql: 'SELECT x FROM nope',
+      );
+      final labs = kCsvExportSets.firstWhere((s) => s.name == 'labs');
+
+      final empty = await exportCsvFiles([labs]);
+      expect(empty.isEmpty, isTrue);
+      expect(empty.hasFailures, isFalse);
+
+      final failed = await exportCsvFiles([broken]);
+      expect(failed.isEmpty, isTrue);
+      expect(failed.hasFailures, isTrue);
     });
   });
 }

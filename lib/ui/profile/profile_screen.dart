@@ -268,16 +268,33 @@ class ProfileScreen extends StatelessWidget {
                   final messenger = ScaffoldMessenger.of(rowCtx);
                   final origin = shareOriginFor(rowCtx);
                   try {
-                    final paths = await exportCsvFiles(kCsvExportSets);
+                    final result = await exportCsvFiles(kCsvExportSets);
                     if (!rowCtx.mounted) return;
-                    if (paths.isEmpty) {
+                    if (result.isEmpty) {
+                      // "Nothing to export" and "the export broke" are
+                      // different answers and must not share a message.
                       messenger.showSnackBar(
-                        const SnackBar(content: Text('Nothing to export yet')),
+                        SnackBar(
+                          content: Text(
+                            result.hasFailures
+                                ? 'Export failed'
+                                : 'Nothing to export yet',
+                          ),
+                        ),
                       );
                       return;
                     }
+                    if (result.hasFailures) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Exported all but ${result.failed.join(', ')}',
+                          ),
+                        ),
+                      );
+                    }
                     await Share.shareXFiles(
-                      [for (final p in paths) XFile(p)],
+                      [for (final p in result.paths) XFile(p)],
                       text: 'OpenStrap CSV export',
                       sharePositionOrigin: origin,
                     );

@@ -122,7 +122,17 @@ const kCsvExportSets = <CsvExportSet>[
   ),
 ];
 
-/// RFC 4180 field escaping.
+/// Characters that make Excel, Google Sheets and LibreOffice treat a cell as a
+/// FORMULA rather than text.
+///
+/// Journal notes, journal tags and lab notes are free text the user typed, and
+/// these files are handed to a share sheet — so whoever opens the spreadsheet
+/// executes whatever a cell starting with one of these evaluates to. A note
+/// beginning "=" is a formula in every mainstream spreadsheet, and formulas
+/// can reach the network and the filesystem.
+final _formulaLeaders = RegExp(r'^[=+\-@\t\r]');
+
+/// RFC 4180 field escaping, plus formula-injection neutralisation.
 ///
 /// Null becomes an EMPTY field rather than the string "null" or a 0 — the
 /// distinction between "not measured" and "measured as nothing" has to survive
@@ -134,9 +144,13 @@ String csvField(Object? v) {
       // false impression of precision the metric does not have.
       ? (v == v.roundToDouble() ? v.toInt().toString() : v.toString())
       : v.toString();
+  // A leading apostrophe is the convention every mainstream spreadsheet reads
+  // as "this is text" — it is not displayed, and the value stays legible.
+  // Applied only to strings: a negative NUMBER starts with `-` and must stay a
+  // number, or every negative delta in the file becomes unusable text.
+  if (v is String && _formulaLeaders.hasMatch(s)) s = "'$s";
   if (s.contains(RegExp('[",\n\r]'))) {
-    s = '"${s.replaceAll('"', '""')}"';
-    return s;
+    return '"${s.replaceAll('"', '""')}"';
   }
   return s;
 }
@@ -153,25 +167,56 @@ String renderCsv(List<String> columns, List<Map<String, Object?>> rows) {
   return b.toString();
 }
 
-/// Write the chosen [sets] to CSV files in the temp directory and return their
-/// paths, ready for a share sheet.
+/// What an export produced.
+class CsvExportResult {
+  const CsvExportResult({required this.paths, required this.failed});
+
+  /// Files actually written. A set with no rows writes nothing, so an empty
+  /// list here genuinely means there was nothing to export.
+  final List<String> paths;
+
+  /// Sets whose query or write threw, by name. Kept separate from [paths] so
+  /// the caller can tell "you have no data yet" apart from "the export broke",
+  /// which the previous single-list return could not express — a total failure
+  /// looked exactly like an empty database.
+  final List<String> failed;
+
+  bool get isEmpty => paths.isEmpty;
+  bool get hasFailures => failed.isNotEmpty;
+}
+
+/// Subdirectory every CSV export writes into, so the previous run can be
+/// cleared wholesale.
+const _csvDirName = 'openstrap_csv';
+
+/// Write the chosen [sets] to CSV files and return what landed.
 ///
-/// A set whose query fails is SKIPPED rather than failing the whole export —
-/// a view can be missing on a database that predates it, and losing five
-/// exports because the sixth is unavailable helps nobody. The caller can tell
-/// from the returned list which ones landed.
-Future<List<String>> exportCsvFiles(
+/// The output directory is WIPED first. These files are plaintext readiness,
+/// sleep, journal notes and lab results, and they were previously left in the
+/// temp directory indefinitely under a unique per-run stamp, so every export
+/// added another copy that nothing ever removed. One export's worth exists at
+/// a time now.
+Future<CsvExportResult> exportCsvFiles(
   List<CsvExportSet> sets, {
   DateTime? now,
 }) async {
   final db = await LocalDb.instance;
-  final dir = await getTemporaryDirectory();
+  final root = await getTemporaryDirectory();
+  final dir = Directory(p.join(root.path, _csvDirName));
+  if (await dir.exists()) await dir.delete(recursive: true);
+  await dir.create(recursive: true);
+
   final stamp = (now ?? DateTime.now()).millisecondsSinceEpoch;
-  final out = <String>[];
+  final paths = <String>[];
+  final failed = <String>[];
 
   for (final set in sets) {
     try {
       final rows = await db.rawQuery(set.sql);
+      // No rows means no file. A header-only CSV is not "your data", and
+      // emitting one made an empty database indistinguishable from a working
+      // export to the caller.
+      if (rows.isEmpty) continue;
       final file = File(p.join(dir.path, 'openstrap_${set.name}_$stamp.csv'));
       // utf8 with a BOM: without it Excel on Windows reads the file as the
       // local code page and mangles every non-ASCII character in a note.
@@ -181,10 +226,12 @@ Future<List<String>> exportCsvFiles(
         0xBF,
         ...utf8.encode(renderCsv(set.columns, rows)),
       ]);
-      out.add(file.path);
+      paths.add(file.path);
     } catch (_) {
-      // Skip this set; the rest still export.
+      // One set failing must not lose the other five — but it is reported
+      // rather than swallowed, which is what the bare catch used to do.
+      failed.add(set.name);
     }
   }
-  return out;
+  return CsvExportResult(paths: paths, failed: failed);
 }

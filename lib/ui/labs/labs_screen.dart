@@ -73,11 +73,6 @@ class _LabsScreenState extends State<LabsScreen> {
     }
   }
 
-  /// The profile's sex, used only to pick which reference interval applies.
-  /// Null means several markers simply show no interval — which is the honest
-  /// outcome, not a reason to guess one.
-  String? get _sex => (context.read<AppState>().user?['sex'] as String?)
-      ?.toLowerCase();
 
   Future<void> _add() async {
     if (await showLabEntrySheet(context, custom: _custom) && mounted) {
@@ -106,6 +101,13 @@ class _LabsScreenState extends State<LabsScreen> {
   @override
   Widget build(BuildContext context) {
     final grouped = _byMarker;
+    // Watched, not read: setting a sex in Profile and coming back here has to
+    // re-resolve the reference intervals, and several markers show none at all
+    // until it is set. `read` would have left them resolved against the old
+    // value until something else happened to rebuild this screen.
+    final sex = context
+        .select<AppState, String?>((a) => a.user?['sex'] as String?)
+        ?.toLowerCase();
     return AppScaffold(
       title: 'Labs',
       actions: [
@@ -175,7 +177,7 @@ class _LabsScreenState extends State<LabsScreen> {
                     marker: labMarker(entry.key, custom: _custom),
                     fallbackKey: entry.key,
                     results: entry.value,
-                    sex: _sex,
+                    sex: sex,
                     onTapResult: _edit,
                   ),
                 ),
@@ -287,9 +289,13 @@ class _MarkerCard extends StatelessWidget {
                         ),
                       ),
                       Text(
+                        // The row's own unit, always — the definition may have
+                        // changed its canonical unit since this was entered,
+                        // and only the row knows what was measured.
                         m == null
                             ? '${r['value']} ${r['unit']}'
-                            : m.formatWithUnit((r['value'] as num).toDouble()),
+                            : '${m.format((r['value'] as num).toDouble())} '
+                                  '${r['unit']}',
                         style: AppText.body,
                       ),
                     ],

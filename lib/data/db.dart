@@ -90,7 +90,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 29;
+  static const int schemaVersion = 28;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -402,7 +402,7 @@ class LocalDb {
           // for steps), and falls back to band rows otherwise.
           await _ensureLiveCoverageSource(db);
         }
-        if (oldV < 29) {
+        if (oldV < 28) {
           // Hand-entered blood work. Purely new tables; nothing existing is
           // read or rewritten.
           await _createLabTables(db);
@@ -1312,9 +1312,17 @@ class LocalDb {
   /// the marker's canonical unit. Silently reinterpreting 400 ng/mL as
   /// 400 nmol/L would be a fabrication of the worst kind.
   ///
-  /// NOT day-scoped and NOT pruned: a lab result belongs to the date the blood
-  /// was drawn, not to a band-data day, and it must survive the raw retention
-  /// window that everything else here is subject to.
+  /// NOT day-scoped, NOT pruned, and deliberately NOT removed by `deleteDays`.
+  /// A lab result belongs to the date the blood was drawn, not to a band-data
+  /// day. "Delete this day" in the data manager is about reclaiming space from
+  /// sensor data; a blood test is neither sensor data nor large, it was typed
+  /// in by hand on a different screen, and it has its own delete there. Losing
+  /// a year-old blood panel because the band data from that date was cleared
+  /// would be a genuinely surprising deletion.
+  ///
+  /// Indexed by its PRIMARY KEY alone — `(marker, taken_on)` already gives
+  /// SQLite an implicit index on exactly the columns every read here filters
+  /// and orders by, so a second one would only be another b-tree to maintain.
   static Future<void> _createLabTables(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS lab_result (
@@ -1327,10 +1335,6 @@ class LocalDb {
         PRIMARY KEY (marker, taken_on)
       )
     ''');
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_lab_result_marker '
-      'ON lab_result(marker, taken_on)',
-    );
     await db.execute('''
       CREATE TABLE IF NOT EXISTS lab_marker_def (
         key TEXT PRIMARY KEY,

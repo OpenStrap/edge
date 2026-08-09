@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/lab_catalogue.dart';
 import '../design/design.dart';
@@ -73,18 +74,24 @@ class _LabEntrySheetState extends State<_LabEntrySheet> {
     super.dispose();
   }
 
-  String get _dateLabel =>
-      '${_takenOn.year}-${_takenOn.month.toString().padLeft(2, '0')}'
-      '-${_takenOn.day.toString().padLeft(2, '0')}';
+  // The one local-day-label formatter, shared with every other layer.
+  String get _dateLabel => dayLabelOf(_takenOn);
 
   Future<void> _pickDate() async {
     final now = DateTime.now();
+    // Blood cannot be drawn in the future, and a decade covers any history
+    // worth typing in by hand.
+    final first = DateTime(now.year - 10);
+    // showDatePicker ASSERTS that initialDate sits inside the bounds, so a row
+    // older than the window — or an imported one dated in the future — would
+    // throw instead of opening the picker.
+    final initial = _takenOn.isBefore(first)
+        ? first
+        : (_takenOn.isAfter(now) ? now : _takenOn);
     final picked = await showDatePicker(
       context: context,
-      initialDate: _takenOn,
-      // Blood cannot be drawn in the future, and a decade covers any history
-      // worth typing in by hand.
-      firstDate: DateTime(now.year - 10),
+      initialDate: initial,
+      firstDate: first,
       lastDate: now,
     );
     if (picked != null) setState(() => _takenOn = picked);
@@ -107,8 +114,11 @@ class _LabEntrySheetState extends State<_LabEntrySheet> {
       takenOn: _dateLabel,
       value: value,
       // Stored per row so the reading keeps the unit it was entered under,
-      // even if the catalogue's canonical unit changes later.
-      unit: marker?.unit ?? '',
+      // even if the catalogue's canonical unit changes later. Editing an
+      // existing row therefore keeps ITS unit rather than adopting whatever
+      // the definition says now — and a row whose definition has been deleted
+      // keeps its unit instead of being blanked.
+      unit: marker?.unit ?? (widget.existing?['unit'] as String?) ?? '',
       note: _noteCtrl.text.trim(),
     );
     if (mounted) Navigator.pop(context, true);
@@ -131,6 +141,17 @@ class _LabEntrySheetState extends State<_LabEntrySheet> {
     final key = customLabMarkerKey(label);
     if (key == 'custom_') {
       setState(() => _error = 'Use at least one letter or number');
+      return;
+    }
+    // "Lp(a)", "Lp a" and "LP-A" all slug to the same key, and the write
+    // replaces on key — so without this the second one silently overwrites the
+    // first's unit, and every reading already stored under it starts rendering
+    // in a unit it was never measured in.
+    final clash = widget.custom.where((m) => m.key == key).firstOrNull;
+    if (clash != null && (clash.label != label || clash.unit != unit)) {
+      setState(
+        () => _error = 'You already track "${clash.label}" (${clash.unit})',
+      );
       return;
     }
     await LocalDb.putLabMarkerDef({
@@ -203,7 +224,12 @@ class _LabEntrySheetState extends State<_LabEntrySheet> {
                         ..._customFields()
                       else ...[
                         if (!_isEdit) ..._markerPicker(),
-                        if (marker != null) ..._valueFields(marker),
+                        if (marker != null)
+                          ..._valueFields(marker)
+                        // An edit whose definition has since been deleted must
+                        // still be editable — its own row carries the unit.
+                        else if (_isEdit)
+                          ..._valueFieldsForDeletedMarker(),
                       ],
                       if (_error != null) ...[
                         const SizedBox(height: Sp.x3),
@@ -337,6 +363,20 @@ class _LabEntrySheetState extends State<_LabEntrySheet> {
       decoration: _fieldDecoration('Note (optional)'),
     ),
   ];
+
+  /// Edit fields for a row whose marker definition no longer exists. The row's
+  /// own `unit` is the authority, so it stays fully editable rather than
+  /// becoming a value nobody can correct.
+  List<Widget> _valueFieldsForDeletedMarker() => _valueFields(
+    LabMarker(
+      key: _markerKey ?? '',
+      label: _markerKey ?? 'Result',
+      unit: (widget.existing?['unit'] as String?) ?? '',
+      category: LabCategory.blood,
+      decimals: 2,
+      custom: true,
+    ),
+  );
 
   List<Widget> _customFields() => [
     Text(
