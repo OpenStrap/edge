@@ -25,6 +25,8 @@ import '../kit/route_map.dart';
 import '../screens/detail_cards.dart' show hm;
 import '../../gps/route_models.dart';
 import 'manual_workout_screen.dart';
+import 'workout_filter.dart';
+import 'workout_filter_sheet.dart';
 import 'workout_types.dart';
 
 const _ranges = ['Today', 'Week', 'Month', '3M'];
@@ -80,33 +82,17 @@ String _whenLabel(int? startTs) {
 
 /// Bottom-sheet exercise picker → starts a workout → opens the live screen.
 ///
-/// NOTE — do not grow this sheet. `showModalBottomSheet` defaults to
-/// `isScrollControlled: false`, which caps it at 9/16 of the screen (~475 pt on
-/// a 390x844 device). The nine type tiles already wrap to three rows (~294 pt)
-/// and, with the title and gutters, land close to that ceiling. A fourth child
-/// was added here once and was clipped clean off the bottom — invisible and
-/// untappable in release, where there are no overflow stripes to give it away.
-/// Logging a PAST workout is a header action ([_AddButton]) for exactly that
-/// reason.
+/// NOTE — the sheet body lives in [workoutTypeSheet] and is scroll-controlled
+/// for a reason documented there: a default (unscrolled) sheet caps at 9/16 of
+/// the screen and silently clips whatever doesn't fit, with no overflow
+/// stripes in release to give it away. Anything added here must stay inside
+/// that scrollable. Logging a PAST workout remains a header action
+/// ([_AddButton]) rather than a tile, so the grid stays one vocabulary.
 Future<void> startWorkoutFlow(BuildContext context) async {
   final type = await showModalBottomSheet<String>(
     context: context,
-    builder: (_) => SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.all(Sp.x5),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Start a workout', style: AppText.h2),
-            const SizedBox(height: Sp.x4),
-            Builder(builder: workoutTypeGrid),
-            const SizedBox(height: Sp.x4),
-          ],
-        ),
-      ),
-    ),
+    isScrollControlled: true,
+    builder: (ctx) => workoutTypeSheet(ctx, 'Start a workout'),
   );
   if (type == null || !context.mounted) return;
   final app = context.read<AppState>();
@@ -140,6 +126,10 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
     Prefs.workoutsRange,
     0,
   ).clamp(0, _ranges.length - 1);
+  // Deliberately NOT persisted, unlike the timeframe. A filter that survives a
+  // relaunch reads as "my workouts are gone" — the timeframe is visible in the
+  // segmented control, a type/duration floor is not.
+  WorkoutFilter _filter = const WorkoutFilter();
   Map<String, dynamic>? _data;
   List<Map<String, dynamic>> _suggestions = const [];
   RecordsData? _records; // for inline PR badges in the feed
@@ -199,6 +189,15 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
     if (await showManualWorkoutScreen(context) && mounted) await _load();
   }
 
+  Future<void> _openFilter(List<Map<String, dynamic>> inRange) async {
+    final next = await showWorkoutFilterSheet(
+      context,
+      current: _filter,
+      workouts: inRange,
+    );
+    if (next != null && mounted) setState(() => _filter = next);
+  }
+
   // LOCAL calendar day — "today's workouts" must match the local day model
   // (a UTC comparison shifted early-morning sessions into yesterday's bucket).
   bool _isToday(int startTs) =>
@@ -208,12 +207,28 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
   @override
   Widget build(BuildContext context) {
     final all = (_data?['workouts'] as List?) ?? const [];
-    final list = _range == 0
-        ? all
-              .where((w) => _isToday((w as Map)['start_ts'] as int? ?? 0))
-              .toList()
-        : all;
-    final summary = (_data?['summary'] as Map?)?.cast<String, dynamic>();
+    final inRange = (_range == 0
+            ? all.where((w) => _isToday((w as Map)['start_ts'] as int? ?? 0))
+            : all)
+        .cast<Map<String, dynamic>>()
+        .toList();
+    final list = _filter.apply(inRange);
+    // A narrowed list gets a summary recomputed over exactly what's visible —
+    // showing whole-range totals above a filtered feed is just a wrong number.
+    final repoSummary = (_data?['summary'] as Map?)?.cast<String, dynamic>();
+    // A narrowed list gets a summary recomputed over exactly what's visible —
+    // showing whole-range totals above a filtered feed is just a wrong number.
+    // `classifier` rides along untouched: it describes how well auto-typing did
+    // over the whole range, which a filter does not change, and recomputing
+    // only the totals would otherwise make the accuracy note vanish whenever
+    // any filter is on.
+    final summary = _filter.isNarrowing
+        ? {
+            ...summarizeWorkouts(list),
+            if (repoSummary?['classifier'] != null)
+              'classifier': repoSummary!['classifier'],
+          }
+        : repoSummary;
 
     return AppScaffold(
       title: 'Workouts',
@@ -225,15 +240,26 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
         _StartButton(
             onTap: () => startWorkoutFlow(context).then((_) => _load())),
       ],
-      header: SegmentedControl(
-        options: _ranges,
-        index: _range,
-        expanded: true,
-        onChanged: (i) {
-          setState(() => _range = i);
-          Prefs.setInt(Prefs.workoutsRange, i);
-          _load();
-        },
+      header: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SegmentedControl(
+            options: _ranges,
+            index: _range,
+            expanded: true,
+            onChanged: (i) {
+              setState(() => _range = i);
+              Prefs.setInt(Prefs.workoutsRange, i);
+              _load();
+            },
+          ),
+          const SizedBox(height: Sp.x2),
+          _FilterBar(
+            filter: _filter,
+            onTap: () => _openFilter(inRange),
+            onClear: () => setState(() => _filter = const WorkoutFilter()),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _load,
@@ -274,7 +300,17 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
                 ).dsEnter(),
                 const SizedBox(height: Sp.x4),
               ],
-              if (list.isEmpty)
+              if (list.isEmpty && _filter.isNarrowing)
+                StateCard(
+                  icon: OsIcon.run,
+                  title: 'Nothing matches',
+                  message: 'No workout in this timeframe fits the filter. '
+                      'Widen it, or clear it to see everything again.',
+                  actionLabel: 'Clear filter',
+                  onAction: () =>
+                      setState(() => _filter = const WorkoutFilter()),
+                )
+              else if (list.isEmpty)
                 StateCard(
                   icon: OsIcon.run,
                   title: 'No workouts',
@@ -284,7 +320,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
                   onAction: () => startWorkoutFlow(context).then((_) => _load()),
                 )
               else
-                ..._feed(list.cast<Map<String, dynamic>>()),
+                ..._feed(list),
             ],
           ],
         ),
@@ -306,7 +342,13 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
           .add(w);
     }
 
-    if (_range == 0) {
+    if (!_filter.sort.isChronological) {
+      // Week buckets only mean something in calendar order. Under "longest" or
+      // "hardest" the list is flat, headed by what it's ordered by.
+      for (final w in list) {
+        add('${_filter.sort.label} first', w);
+      }
+    } else if (_range == 0) {
       for (final w in list) {
         add('Today', w);
       }
@@ -418,7 +460,9 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       type: (w['type'] as String?) ?? 'other',
       duration: Duration(minutes: (w['duration_min'] as num?)?.toInt() ?? 0),
       peakHr: (w['max_hr'] as num?)?.toInt() ?? 0,
-      calories: ((w['calories'] as num?) ?? 0).toDouble(),
+      // Nullable for the same reason `steps` below is — a session logged
+      // against an incomplete profile was never costed, not costed at zero.
+      calories: (w['calories'] as num?)?.toInt(),
       strain: (w['strain'] as num?)?.toDouble(),
       // Nullable: an unmeasured workout is not a zero-step one.
       steps: (w['steps'] as num?)?.toInt(),
@@ -507,6 +551,105 @@ class _AddButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The filter/sort row under the timeframe control. Idle it's one quiet pill;
+/// once something is narrowing the list it states what, and grows a clear
+/// affordance so the filter can never be silently stuck on.
+class _FilterBar extends StatelessWidget {
+  const _FilterBar({
+    required this.filter,
+    required this.onTap,
+    required this.onClear,
+  });
+
+  final WorkoutFilter filter;
+  final VoidCallback onTap;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = filter.isNarrowing;
+    final tint = active ? AppColors.accent : AppColors.inkSoft;
+    final label = active
+        ? filter.description
+        : (filter.sort == WorkoutSort.newest
+              ? 'Filter'
+              : 'Sorted: ${filter.sort.label.toLowerCase()}');
+    return Row(
+      children: [
+        // Flexible + ellipsis, and no Spacer. The description grows with every
+        // chip and floor the user picks ("Basketball, Snowboard · 90m+ ·
+        // strain 17+" is a real reachable string) while the header row is only
+        // ~350 pt wide on a 390 pt phone. Unconstrained this is a RenderFlex
+        // overflow at default text scale, and release builds clip it silently.
+        Flexible(
+          child: Semantics(
+            button: true,
+            label: active
+                ? 'Filter workouts, active: $label'
+                : 'Filter workouts',
+            child: Pressable(
+              pressedScale: 0.96,
+              onTap: onTap,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: Sp.x3,
+                  vertical: Sp.x2,
+                ),
+                decoration: BoxDecoration(
+                  color: active
+                      ? AppColors.tonalFill(AppColors.accent)
+                      : Elevation.surfaceAt(1),
+                  borderRadius: BorderRadius.circular(R.pill),
+                  border: Border.all(
+                    color: active
+                        ? AppColors.accent.withValues(alpha: 0.55)
+                        : AppColors.divider,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.tune_rounded, size: 16, color: tint),
+                    const SizedBox(width: Sp.x1),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.label.copyWith(
+                          color: tint,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (active)
+          Semantics(
+            button: true,
+            label: 'Clear workout filter',
+            child: Pressable(
+              pressedScale: 0.9,
+              onTap: onClear,
+              child: Padding(
+                padding: const EdgeInsets.all(Sp.x2),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 16,
+                  color: AppColors.inkSoft,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -750,7 +893,9 @@ class TrainingSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final count = (summary['count'] as num?)?.toInt() ?? 0;
     final totalMin = summary['total_min'] as num?;
-    final kcal = (summary['total_calories'] as num?)?.toInt() ?? 0;
+    // Nullable: a range in which nothing could be costed reports no figure
+    // rather than 0 kcal.
+    final kcal = (summary['total_calories'] as num?)?.toInt();
     final zoneMin = ((summary['zone_min'] as List?) ?? const [])
         .map((e) => (e as num).toDouble())
         .toList();
@@ -809,7 +954,7 @@ class TrainingSummaryCard extends StatelessWidget {
           Row(
             children: [
               _miniStat(context, '$count', 'workouts'),
-              _miniStat(context, '$kcal', 'kcal'),
+              _miniStat(context, kcal?.toString() ?? '—', 'kcal'),
               _miniStat(context, avgBpm == null ? '—' : '$avgBpm', 'avg bpm'),
               _miniStat(
                 context,
@@ -1216,7 +1361,7 @@ class _WorkoutDetailBodyState extends State<_WorkoutDetailBody> {
           : DateTime.now(),
       maxHr: context.read<AppState>().maxHr,
       strain: (d['strain'] as num?)?.toDouble(),
-      calories: (d['calories'] as num?)?.toInt() ?? 0,
+      calories: (d['calories'] as num?)?.toInt(),
       route: _route,
       avgHr: (d['avg_hr'] as num?)?.toInt(),
     );
@@ -1545,7 +1690,9 @@ class WorkoutDetailContent extends StatelessWidget {
               children: [
                 _toneStat(tone, noData ? '—' : '${d['avg_hr'] ?? '—'}', 'avg bpm'),
                 _toneStat(tone, noData ? '—' : '${d['max_hr'] ?? '—'}', 'max bpm'),
-                _toneStat(tone, '${d['calories'] ?? 0}', 'kcal'),
+                // A dash, not a 0 — this is the most-viewed place a session
+                // that was never costed could claim to have burned nothing.
+                _toneStat(tone, '${d['calories'] ?? '—'}', 'kcal'),
                 if (distanceLabel != null)
                   _toneStat(tone, distanceLabel!, 'distance')
                 // Steps are recorded only for manual workouts ridden by the live

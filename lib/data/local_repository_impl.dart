@@ -26,6 +26,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'day_label.dart';
 import 'db.dart';
+import 'journal_fields.dart';
 import 'local_repository.dart';
 import '../gps/route_models.dart';
 import '../gps/route_math.dart' as rmath;
@@ -2705,6 +2706,52 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<void> postJournal(String date, List<String> tags, String note) async {
     await LocalDb.putJournal(date, jsonEncode(tags), note);
   }
+
+  @override
+  Future<Map<String, JournalMetricValue>> getJournalMetrics(String date) =>
+      LocalDb.journalMetricsForDay(date);
+
+  @override
+  Future<void> postJournalMetrics(
+    String date,
+    Map<String, JournalMetricValue> fields,
+  ) async {
+    // Clamp on the way in rather than trusting the editor. A value past the
+    // field's ceiling is almost always a mis-tap, and a single 40-coffee day
+    // would dominate every correlation that field appears in for months.
+    final specs = await getJournalFields();
+    final clamped = <String, JournalMetricValue>{};
+    for (final e in fields.entries) {
+      final spec = journalFieldSpec(
+        e.key,
+        custom: specs.where((s) => s.custom).toList(),
+      );
+      final v = spec == null
+          ? e.value.value
+          : e.value.value.clamp(0.0, spec.max).toDouble();
+      // A zero is a real answer ("no caffeine today") and is stored as one.
+      // Absence is expressed by leaving the field out of the map entirely.
+      clamped[e.key] = JournalMetricValue(
+        v,
+        atMinuteOfDay: e.value.atMinuteOfDay,
+      );
+    }
+    await LocalDb.putJournalMetrics(date, clamped);
+  }
+
+  @override
+  Future<List<JournalFieldSpec>> getJournalFields() async => [
+    ...kJournalFields,
+    ...await LocalDb.journalFieldDefs(),
+  ];
+
+  @override
+  Future<void> postCustomJournalField(JournalFieldSpec spec) =>
+      LocalDb.putJournalFieldDef(spec);
+
+  @override
+  Future<void> deleteCustomJournalField(String key) =>
+      LocalDb.deleteJournalFieldDef(key);
 
   /// For each distinct tag in the window, compare mean readiness on tagged days
   /// vs the window mean and emit a metric-delta card (only when n_with >= 2).

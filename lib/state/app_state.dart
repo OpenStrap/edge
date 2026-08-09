@@ -3873,7 +3873,12 @@ class AppState extends ChangeNotifier {
   // no session is live or the type isn't route-eligible / permission denied.
   RouteTracker? _routeTracker;
   RouteTracker? get routeTracker => _routeTracker;
-  static const Set<String> _routeTypes = {'run', 'cycle', 'walk'};
+  // A hike is a walk that goes somewhere, so it records a route like one.
+  // Ski and snowboard are deliberately NOT here despite being outdoors: the
+  // route screen's hero numbers are distance and pace, and pace down a
+  // lift-served descent is not the same claim as pace on a walk — it would
+  // read as a performance figure while measuring gravity.
+  static const Set<String> _routeTypes = {'run', 'cycle', 'walk', 'hike'};
 
   DateTime _lastLaPush = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -4031,7 +4036,9 @@ class AppState extends ChangeNotifier {
   /// is granted. Denial is surfaced (routeLocationIssue) — the workout still
   /// runs without a map, but the user is told why and how to fix it.
   Future<void> _maybeStartRouteTracking(String id, String type) async {
-    if (!_routeTypes.contains(type)) return;
+    // Lowercased for the same reason every other type lookup is: the stored
+    // `type` column is free-form text and older rows carry mixed case.
+    if (!_routeTypes.contains(type.toLowerCase())) return;
     if (_routeTracker != null) return;
     routeLocationIssue = null;
     var perm = GpsPermissionStatus.error;
@@ -4222,7 +4229,10 @@ class AppState extends ChangeNotifier {
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     final w = activeWorkout!;
-    final finalKcal = w.calories.round();
+    // Nullable for the same reason `steps` below is: an unanchored profile
+    // means this session was never costed, and a 0 in the column reads as
+    // "burned nothing" rather than "not measured".
+    final finalKcal = w.caloriesOrNull;
     // Nullable: an unmeasured workout must leave the column unset rather than
     // bank a zero that reads as "you took no steps".
     final wSteps = workoutStepsMeasured;
@@ -4237,7 +4247,7 @@ class AppState extends ChangeNotifier {
       'end_ts': endTs,
       'type': w.type,
       'status': 'done',
-      'calories': w.calories,
+      'calories': finalKcal,
       'strain': w.strain,
       'max_hr': w.maxHrSeen > 0 ? w.maxHrSeen : null,
       'duration_min': w.elapsed.inMinutes,
@@ -4260,7 +4270,11 @@ class AppState extends ChangeNotifier {
     _workoutRawBase = null;
     _workoutSawSamples = false;
     notifyListeners();
-    _log('Live session ended. Burned $finalKcal kcal.');
+    _log(
+      finalKcal == null
+          ? 'Live session ended. No calorie anchors in the profile.'
+          : 'Live session ended. Burned $finalKcal kcal.',
+    );
     LiveActivity.end();
     // A workout often rides the live feed; if the connection blipped during it, the
     // band may hold that window in flash. Pull it now over the live connection so the
@@ -4396,13 +4410,17 @@ class AppState extends ChangeNotifier {
     // zone_min at stop — this is what feeds the Time-in-Zones bar).
     if (w.currentHr > 0) w.zoneSeconds[_zoneFor(w.currentHr)] += 1;
 
-    if (w.currentHr > 0) {
-      // Calorie burn formula (estimate per second). Personalized from the LOCAL
-      // profile, with representative fallbacks (30y, 70kg, male) when unset.
-      final u = user ?? const {};
-      final age = (u['age'] as num?)?.toDouble() ?? 30.0;
-      final weight = (u['weight_kg'] as num?)?.toDouble() ?? 70.0;
-      final female = u['sex'] == 'f';
+    if (w.currentHr > 0 && w.profile.hasCalorieAnchors) {
+      // Keytel (2005) per second, from the profile this session is being
+      // performed under. No fallbacks: this used to substitute 30y / 70 kg /
+      // male for whatever the profile was missing, which is how an untouched
+      // profile still produced a confident calorie total — and why the number
+      // read high for anyone lighter than the stand-in. The re-score path has
+      // always refused to guess (`hasCalorieAnchors`); now so does this one,
+      // and an unanchored session reports no calories at all.
+      final age = w.profile.ageYears!.toDouble();
+      final weight = w.profile.weightKg!;
+      final female = w.profile.sex == 'f' || w.profile.sex == 'female';
 
       double kcalMin;
       if (female) {
@@ -4421,7 +4439,7 @@ class AppState extends ChangeNotifier {
             4.184;
       }
       // Add per-second slice (kcal/min / 60). Clamp to 0 in case of low HR.
-      w.calories += (kcalMin.clamp(0.0, 30.0) / 60.0);
+      w.accrueCalories(kcalMin.clamp(0.0, 30.0) / 60.0);
 
       // Strain is NOT accrued here. `accrueHr` (called above) recomputes it
       // from the session's per-minute HR through the one shared Banister ->
@@ -4435,9 +4453,9 @@ class AppState extends ChangeNotifier {
         hr: w.currentHr,
         zone: _zoneFor(w.currentHr),
         // The Live Activity widget has no absent state; the in-app gauge
-        // shows "—" when strain is null, this pushes 0.
+        // shows "—" when strain or calories are null, this pushes 0.
         strain: w.strain ?? 0,
-        calories: w.calories.round(),
+        calories: w.caloriesOrNull ?? 0,
         maxHr: _maxHr,
         rhr: _restingHr,
       );
@@ -4453,7 +4471,31 @@ class LiveWorkoutState {
   final String? workoutId; // local session id (for the breakdown on finish)
   final String type; // exercise type label
   Duration elapsed = Duration.zero;
+
+  /// Accrued kcal. Zero here is ambiguous on its own — read [caloriesOrNull]
+  /// anywhere a user can see it.
   double calories = 0.0;
+
+  /// Whether the calorie estimate has run even once this session.
+  ///
+  /// Separate from [Profile.hasCalorieAnchors] because "can we score this" and
+  /// "did we score this" are different questions and both have a zero-shaped
+  /// answer. A complete profile whose band never delivered a heart rate — the
+  /// link dropped, the strap was off — accrues nothing, and reporting that as
+  /// 0 kcal claims a measurement that was never taken. Strain already reports
+  /// that case as absent; this makes calories agree.
+  bool _caloriesScored = false;
+
+  /// Accrued kcal, or null when this session was never costed at all — either
+  /// the profile lacks the anchors Keytel needs, or no heart rate ever
+  /// arrived. Absent beats fabricated, and absent also beats a confident zero.
+  int? get caloriesOrNull => _caloriesScored ? calories.round() : null;
+
+  /// Record a per-second slice. The only writer of [calories].
+  void accrueCalories(double kcal) {
+    _caloriesScored = true;
+    calories += kcal;
+  }
 
   /// Headline 0–21 strain, or null when the profile lacks an anchor the
   /// Banister formula needs. Recomputed on every HR sample by [accrueHr] — it

@@ -49,4 +49,17 @@ class Profile {
 
   bool get isComplete =>
       ageYears != null && weightKg != null && heightCm != null && sex != null;
+
+  /// The anchors Keytel (2005) needs to turn heart rate into kcal: age, body
+  /// mass and sex. Height is not one of them, so it is deliberately absent
+  /// here — gating calories on [isComplete] would refuse to score a profile
+  /// that has everything the formula actually reads.
+  ///
+  /// The one definition of "can we cost this session in calories", shared by
+  /// the live tick and the substrate re-score. They used to disagree: the
+  /// re-score refused to guess while the live tick silently substituted a
+  /// 30-year-old 70 kg male, so an unfinished profile produced a confident
+  /// kcal number that was simply somebody else's.
+  bool get hasCalorieAnchors =>
+      ageYears != null && weightKg != null && sex != null;
 }

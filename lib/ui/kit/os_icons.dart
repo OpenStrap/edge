@@ -100,6 +100,25 @@ enum OsIcon {
   walk,
   swim,
   hiit,
+  // Sport glyphs for the workout-type vocabulary beyond the original nine.
+  // A type earns a place in `kWorkoutTypes` only when a pack draws something
+  // recognisable for it, because a picker full of near-identical stand-ins is
+  // worse than a shorter picker. That bar is "recognisable", not "literal":
+  // two of these are acknowledged approximations (see `rowing` and `pilates`
+  // in the map below), which is exactly why elliptical and dance were left
+  // out — nothing in any pack reads as either.
+  boxing,
+  rowing,
+  hike,
+  climb,
+  ski,
+  snowboard,
+  stairs,
+  pilates,
+  tennis,
+  basketball,
+  soccer,
+  golf,
   workoutOther,
   hydration,
   /// Period/flow marker on the cycle screen. NEW member — the cycle screen
@@ -219,6 +238,28 @@ const Map<OsIcon, IconData> _glyphs = {
   // No pack has a literal "HIIT" glyph — a lightning bolt approximates
   // explosive interval training.
   OsIcon.hiit: PhosphorIconsDuotone.lightning,
+  OsIcon.boxing: PhosphorIconsDuotone.boxingGlove,
+  // An indoor rower has no glyph in any pack; a rowing boat is the nearest
+  // honest read of the movement.
+  OsIcon.rowing: PhosphorIconsDuotone.boat,
+  OsIcon.hike: PhosphorIconsDuotone.personSimpleHike,
+  // A ladder, not `mountains`. Mountains is terrain rather than a person, and
+  // it sits next to `hike: personSimpleHike` in the picker — between "a person
+  // hiking" and "some mountains", the mountains are the tile that reads as
+  // hiking. A ladder reads as vertical ascent and separates the pair.
+  OsIcon.climb: PhosphorIconsDuotone.ladderSimple,
+  OsIcon.ski: PhosphorIconsDuotone.personSimpleSki,
+  OsIcon.snowboard: PhosphorIconsDuotone.personSimpleSnowboard,
+  OsIcon.stairs: PhosphorIconsDuotone.stairs,
+  // `personSimpleTaiChi` is already spoken for by yoga — arms-spread reads as
+  // the mat/mobility register without colliding with it.
+  OsIcon.pilates: PhosphorIconsDuotone.personArmsSpread,
+  // One racquet glyph stands for the whole racquet family (tennis, squash,
+  // padel, badminton) rather than four tiles that all look the same.
+  OsIcon.tennis: PhosphorIconsDuotone.racquet,
+  OsIcon.basketball: PhosphorIconsDuotone.basketball,
+  OsIcon.soccer: PhosphorIconsDuotone.soccerBall,
+  OsIcon.golf: PhosphorIconsDuotone.golf,
   OsIcon.workoutOther: FluentIcons.sport_24_regular,
   OsIcon.hydration: PhosphorIconsDuotone.drop,
   // Literal blood-drop — the second concept hugeicons was picked for (see
@@ -283,6 +324,18 @@ Color _defaultTint(OsIcon icon) {
     case OsIcon.yoga:
     case OsIcon.hiit:
     case OsIcon.cardio:
+    case OsIcon.boxing:
+    case OsIcon.rowing:
+    case OsIcon.hike:
+    case OsIcon.climb:
+    case OsIcon.ski:
+    case OsIcon.snowboard:
+    case OsIcon.stairs:
+    case OsIcon.pilates:
+    case OsIcon.tennis:
+    case OsIcon.basketball:
+    case OsIcon.soccer:
+    case OsIcon.golf:
     case OsIcon.workoutOther:
     case OsIcon.strength:
     case OsIcon.streak:
