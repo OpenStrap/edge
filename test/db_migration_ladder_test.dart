@@ -21,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/journal_fields.dart';
 
 /// The pre-v3 raw_records shape: keyed by frame hex, NO rec_ts column.
 const _legacyRawDdl = '''
@@ -291,6 +292,56 @@ void main() {
         ),
         isEmpty,
       );
+    },
+  );
+
+  test(
+    'upgrade from v27 adds the numeric journal tables without touching the '
+    'tags and note already stored for a day',
+    () async {
+      const name = 'migrate_from_v27_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        27,
+        [
+          ..._v5DerivedDdl,
+          "CREATE TABLE journal (date TEXT PRIMARY KEY, "
+              "tags_json TEXT NOT NULL DEFAULT '[]', "
+              "note TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL)",
+        ],
+        seedRows: (db) async {
+          await db.insert('journal', {
+            'date': '2026-06-01',
+            'tags_json': '["caffeine","late meal"]',
+            'note': 'felt rough',
+            'updated_at': 1,
+          });
+        },
+      );
+
+      final version = await _openThroughLocalDb(name);
+      expect(version, LocalDb.schemaVersion);
+
+      // The upgrade is purely additive: a day that only ever had tags keeps
+      // them, and simply has no numeric rows.
+      final rows = await LocalDb.journalRows();
+      expect(rows.single['tags_json'], '["caffeine","late meal"]');
+      expect(rows.single['note'], 'felt rough');
+      expect(await LocalDb.journalMetricsForDay('2026-06-01'), isEmpty);
+
+      // And the new tables are usable immediately, not on the next launch.
+      await LocalDb.putJournalMetrics('2026-06-01', {
+        'mood': const JournalMetricValue(4),
+      });
+      expect(
+        (await LocalDb.journalMetricsForDay('2026-06-01'))['mood']!.value,
+        4,
+      );
+      expect(await LocalDb.journalFieldDefs(), isEmpty);
+
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
     },
   );
 }
