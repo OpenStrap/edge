@@ -398,8 +398,11 @@ class _CalorieHeatmapCardState extends State<CalorieHeatmapCard>
     final scale = heatScale(widget.days);
     final peak = _peak;
     // Derived, not hardcoded: `days` is a constructor argument, so a caller
-    // that builds a different span must not be described as 13 weeks.
+    // that builds a different span must not be described as 13 weeks. Pluralised
+    // because the whole point is serving spans other than 13 — "1 weeks" would
+    // be the derivation announcing itself.
     final weeks = (widget.days.length / 7).ceil();
+    final weekLabel = weeks == 1 ? '1 week' : '$weeks weeks';
 
     // Resolved by lookup rather than firstWhere: the window slides forward as
     // days pass and on a refresh that crosses midnight the selected date can
@@ -426,10 +429,10 @@ class _CalorieHeatmapCardState extends State<CalorieHeatmapCard>
           children: [
             Row(
               children: [
-                Expanded(child: TileHeader('Activity · $weeks weeks')),
+                Expanded(child: TileHeader('Activity · $weekLabel')),
                 InfoDot(
                   title: 'Activity heatmap',
-                  body: 'Every day of the last $weeks weeks, shaded by the '
+                  body: 'Every day of the last $weekLabel, shaded by the '
                       'calories you burned in logged workouts. Empty squares '
                       'are days you did not train.',
                   methodNote: 'Shade is scaled to your own 90th-percentile '

@@ -530,6 +530,28 @@ void main() {
       expect(find.textContaining('13 WEEKS'), findsNothing);
     });
 
+    testWidgets('a single-week board says "1 week", not "1 weeks"', (t) async {
+      // Three days still round up to one column, and deriving the count is
+      // pointless if the only spans it serves read as broken English.
+      await t.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: CalorieHeatmapCard(
+              days: buildHeatDays(const [], today: today, weeks: 1)
+                  .take(3)
+                  .toList(),
+              today: today,
+            ),
+          ),
+        ),
+      ));
+      await settleAnimated(t);
+
+      expect(t.takeException(), isNull);
+      expect(find.textContaining('1 WEEK'), findsOneWidget);
+      expect(find.textContaining('1 WEEKS'), findsNothing);
+    });
+
     testWidgets('the board fits without overflowing a narrow phone',
         (t) async {
       // Cell size is derived from the available width but clamped at both

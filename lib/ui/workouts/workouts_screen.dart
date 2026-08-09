@@ -184,7 +184,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
     _load();
   }
 
-  Future<void> _load({bool refreshHeat = true}) async {
+  Future<void> _load() async {
     final api = context.read<AppState>().repo;
     if (api == null) return;
     setState(() => _loading = true);
@@ -210,22 +210,30 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       // Leaving it on would read every recent day bundle — the whole hr_curve /
       // hypnogram / HRV payload — on every load and every pull-to-refresh, just
       // to build detections loggedForHeatmap discards a line later.
+      //
+      // Read on EVERY load, including a range-selector tap. The window doesn't
+      // depend on the selector but the table does, and a tap is one of the few
+      // paths that re-reads at all: a suggestion confirmed from the pushed
+      // "did you work out?" screen never reloads this one, so skipping the read
+      // would refresh the feed and leave the board still calling that day a
+      // rest day — the feed/board disagreement loggedForHeatmap exists to
+      // prevent, arriving from the caching side instead. What remains is one
+      // indexed query over sessions; the expensive part was the day-bundle
+      // decode, and includeDetected: false already removed it.
       List<HeatDay>? heat;
       DateTime? heatToday;
-      if (refreshHeat || _heat == null) {
-        try {
-          final now = DateTime.now();
-          final from = DateTime(now.year, now.month, now.day - 105);
-          final sessions = await api.getSessions(
-            from: from.millisecondsSinceEpoch ~/ 1000,
-            to: now.millisecondsSinceEpoch ~/ 1000,
-            includeDetected: false,
-          );
-          heat = buildHeatDays(loggedForHeatmap(sessions), today: now);
-          heatToday = now;
-        } catch (_) {
-          /* the board is an enrichment — the log still renders without it */
-        }
+      try {
+        final now = DateTime.now();
+        final from = DateTime(now.year, now.month, now.day - 105);
+        final sessions = await api.getSessions(
+          from: from.millisecondsSinceEpoch ~/ 1000,
+          to: now.millisecondsSinceEpoch ~/ 1000,
+          includeDetected: false,
+        );
+        heat = buildHeatDays(loggedForHeatmap(sessions), today: now);
+        heatToday = now;
+      } catch (_) {
+        /* the board is an enrichment — the log still renders without it */
       }
 
       if (mounted) {
@@ -329,9 +337,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
             onChanged: (i) {
               setState(() => _range = i);
               Prefs.setInt(Prefs.workoutsRange, i);
-              // The board's window is fixed and independent of this selector,
-              // so re-reading it here could not change a single cell.
-              _load(refreshHeat: false);
+              _load();
             },
           ),
           const SizedBox(height: Sp.x2),
