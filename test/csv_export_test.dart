@@ -222,7 +222,13 @@ void main() {
       final daily = kCsvExportSets.firstWhere((s) => s.name == 'daily');
       final labs = kCsvExportSets.firstWhere((s) => s.name == 'labs');
 
-      final result = await exportCsvFiles([daily, labs, broken]);
+      // Explicit stamps throughout this group: run directories are named by
+      // timestamp and pruned newest-first, so a `now()` default here would
+      // outrank the fixed dates the later tests use.
+      final result = await exportCsvFiles(
+        [daily, labs, broken],
+        now: DateTime(2026, 1, 1),
+      );
 
       expect(result.paths, hasLength(1), reason: 'labs is empty, so no file');
       expect(result.failed, ['broken']);
@@ -234,20 +240,34 @@ void main() {
           reason: 'without the BOM, Excel on Windows mangles every note');
     });
 
-    test('a run clears the previous run rather than piling up copies', () async {
-      // These are plaintext health files; one export's worth may exist at a
-      // time, not one per tap forever.
+    test('an export does not delete the previous run out from under a share',
+        () async {
+      // exportCsvFiles returns BEFORE the caller finishes handing the files to
+      // a share sheet, and the share target reads them lazily. A run that
+      // wiped every earlier run would delete files a still-open share session
+      // was about to read.
       final daily = kCsvExportSets.firstWhere((s) => s.name == 'daily');
       final first = await exportCsvFiles([daily], now: DateTime(2026, 7, 1));
-      expect(first.paths, hasLength(1));
-
       final second = await exportCsvFiles([daily], now: DateTime(2026, 7, 2));
-      expect(second.paths, hasLength(1));
-      expect(File(first.paths.single).existsSync(), isFalse);
-      expect(File(second.paths.single).existsSync(), isTrue);
 
-      final dir = Directory(p.dirname(second.paths.single));
-      expect(dir.listSync().whereType<File>(), hasLength(1));
+      expect(File(first.paths.single).existsSync(), isTrue,
+          reason: 'the previous run must survive the next one starting');
+      expect(File(second.paths.single).existsSync(), isTrue);
+    });
+
+    test('copies stay bounded rather than accumulating forever', () async {
+      // The other half of the trade: these are plaintext health files, so old
+      // runs are still cleaned up — just not the one that may still be in use.
+      final daily = kCsvExportSets.firstWhere((s) => s.name == 'daily');
+      final oldest = await exportCsvFiles([daily], now: DateTime(2026, 8, 1));
+      await exportCsvFiles([daily], now: DateTime(2026, 8, 2));
+      final newest = await exportCsvFiles([daily], now: DateTime(2026, 8, 3));
+
+      expect(File(oldest.paths.single).existsSync(), isFalse);
+      expect(File(newest.paths.single).existsSync(), isTrue);
+
+      final parent = Directory(p.dirname(p.dirname(newest.paths.single)));
+      expect(parent.listSync().whereType<Directory>(), hasLength(2));
     });
 
     test('nothing to export is not the same as everything failing', () async {
@@ -259,11 +279,11 @@ void main() {
       );
       final labs = kCsvExportSets.firstWhere((s) => s.name == 'labs');
 
-      final empty = await exportCsvFiles([labs]);
+      final empty = await exportCsvFiles([labs], now: DateTime(2026, 9, 1));
       expect(empty.isEmpty, isTrue);
       expect(empty.hasFailures, isFalse);
 
-      final failed = await exportCsvFiles([broken]);
+      final failed = await exportCsvFiles([broken], now: DateTime(2026, 9, 2));
       expect(failed.isEmpty, isTrue);
       expect(failed.hasFailures, isTrue);
     });

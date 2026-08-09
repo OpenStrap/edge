@@ -185,9 +185,19 @@ class CsvExportResult {
   bool get hasFailures => failed.isNotEmpty;
 }
 
-/// Subdirectory every CSV export writes into, so the previous run can be
-/// cleared wholesale.
+/// Parent directory for CSV exports. Each run gets its own subdirectory under
+/// it, named by timestamp.
 const _csvDirName = 'openstrap_csv';
+
+/// How many runs survive a cleanup.
+///
+/// Not one. `exportCsvFiles` returns before the caller has finished handing
+/// the files to a share sheet, and the share target reads them lazily — so
+/// wiping every earlier run at the start of a new one would delete files out
+/// from under a share session that was still open. Keeping the previous run
+/// as well means a second export cannot destroy the first one's files, while
+/// still bounding how many copies of plaintext health data survive on disk.
+const _csvRunsKept = 2;
 
 /// Write the chosen [sets] to CSV files and return what landed.
 ///
@@ -202,11 +212,13 @@ Future<CsvExportResult> exportCsvFiles(
 }) async {
   final db = await LocalDb.instance;
   final root = await getTemporaryDirectory();
-  final dir = Directory(p.join(root.path, _csvDirName));
-  if (await dir.exists()) await dir.delete(recursive: true);
-  await dir.create(recursive: true);
+  final parent = Directory(p.join(root.path, _csvDirName));
+  await parent.create(recursive: true);
 
   final stamp = (now ?? DateTime.now()).millisecondsSinceEpoch;
+  final dir = Directory(p.join(parent.path, '$stamp'));
+  await dir.create(recursive: true);
+  await _pruneOldRuns(parent, keep: _csvRunsKept);
   final paths = <String>[];
   final failed = <String>[];
 
@@ -234,4 +246,31 @@ Future<CsvExportResult> exportCsvFiles(
     }
   }
   return CsvExportResult(paths: paths, failed: failed);
+}
+
+/// Delete all but the [keep] newest run directories under [parent].
+///
+/// Run directories are named by millisecond timestamp, so a lexicographic sort
+/// over equal-length names is chronological. Anything that is not a plausible
+/// run directory is left alone rather than deleted — this runs inside the
+/// app's temp directory and must never reach beyond its own folder.
+Future<void> _pruneOldRuns(Directory parent, {required int keep}) async {
+  try {
+    final runs =
+        parent
+            .listSync()
+            .whereType<Directory>()
+            .where((d) => int.tryParse(p.basename(d.path)) != null)
+            .toList()
+          ..sort((a, b) {
+            final ai = int.parse(p.basename(a.path));
+            final bi = int.parse(p.basename(b.path));
+            return bi.compareTo(ai);
+          });
+    for (final old in runs.skip(keep)) {
+      await old.delete(recursive: true);
+    }
+  } catch (_) {
+    // Housekeeping only — a failure here must never fail the export itself.
+  }
 }

@@ -39,6 +39,14 @@ import 'gesture_section.dart';
 import 'notification_relay_section.dart';
 import 'notification_settings_screen.dart';
 
+/// True while a CSV export is being handed to the share sheet.
+///
+/// File-scoped rather than widget state on purpose: the resource being guarded
+/// is the export directory on disk, which is global, and `ProfileScreen` is
+/// stateless and rebuilt freely. Two Profile screens on the navigation stack
+/// must not be able to clean up each other's in-flight export.
+bool _csvExportInFlight = false;
+
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
@@ -265,6 +273,11 @@ class ProfileScreen extends StatelessWidget {
                 title: 'Export data (.csv)',
                 value: 'Share',
                 onTap: () async {
+                  // A second export while the first share sheet is still open
+                  // would start cleaning up run directories underneath it. The
+                  // share is awaited, so this flag covers exactly that window.
+                  if (_csvExportInFlight) return;
+                  _csvExportInFlight = true;
                   final messenger = ScaffoldMessenger.of(rowCtx);
                   final origin = shareOriginFor(rowCtx);
                   try {
@@ -299,9 +312,12 @@ class ProfileScreen extends StatelessWidget {
                       sharePositionOrigin: origin,
                     );
                   } catch (e) {
+                    if (!rowCtx.mounted) return;
                     messenger.showSnackBar(
                       SnackBar(content: Text('Export failed: $e')),
                     );
+                  } finally {
+                    _csvExportInFlight = false;
                   }
                 },
                 divider: true,

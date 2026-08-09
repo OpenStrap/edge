@@ -94,7 +94,7 @@ class _LabEntrySheetState extends State<_LabEntrySheet> {
       firstDate: first,
       lastDate: now,
     );
-    if (picked != null) setState(() => _takenOn = picked);
+    if (picked != null && mounted) setState(() => _takenOn = picked);
   }
 
   Future<void> _save() async {
