@@ -204,14 +204,21 @@ String groupThousands(int n) {
 /// asking to be confirmed. Live sessions are held back for a different reason —
 /// their calorie tally isn't final, so they'd shade in as an artificially cold
 /// day and then jump when the session ends.
+///
+/// The test is `status`, NOT `source`. `source: 'auto'` records that a workout
+/// ORIGINATED in the detector, and that stays true once the user confirms it:
+/// the row `_logDetectedSession` saves carries `source: 'auto'` with
+/// `status: 'done'`, and the feed renders it with an `auto` tag. Filtering on
+/// source therefore drops real logged workouts, producing the very
+/// disagreement this filter exists to prevent, only inverted — the day sits in
+/// the feed and in the training summary but reads as a rest day on the grid.
+/// Only the synthetic shape built for an UNCONFIRMED bout carries
+/// `status: 'detected'`, so status alone is the complete test.
 List<Map<String, dynamic>> loggedForHeatmap(
         List<Map<String, dynamic>> sessions) =>
     [
       for (final w in sessions)
-        if (w['source'] != 'auto' &&
-            w['status'] != 'detected' &&
-            w['status'] != 'live')
-          w,
+        if (w['status'] != 'detected' && w['status'] != 'live') w,
     ];
 
 /// Build the [weeks]x7 grid ending on the Sunday that closes [today]'s week.
@@ -576,8 +583,8 @@ class _HeatGrid extends StatelessWidget {
                 for (var row = 0; row < 7; row++)
                   SizedBox(
                     height: cell + gap,
-                    // Label alternate rows only (M/W/F) — seven stacked labels
-                    // at this cell size is denser than the grid itself.
+                    // Label alternate rows only (M/W/F/S) — seven stacked
+                    // labels at this cell size is denser than the grid itself.
                     child: row.isOdd
                         ? const SizedBox.shrink()
                         : Align(
@@ -655,33 +662,47 @@ class _HeatGrid extends StatelessWidget {
               key: ValueKey(_cellKey(d.date)),
               behavior: HitTestBehavior.opaque,
               onTap: () => onTap(d),
-              child: AnimatedScale(
-                scale: isSelected ? 1.14 : 1.0,
-                duration: Motion.springy.d,
-                curve: Motion.springy.c,
-                child: Container(
-                  width: size,
-                  height: size,
-                  decoration: BoxDecoration(
-                    color: heatColor(heatLevel(d.kcal, scale)),
-                    borderRadius: BorderRadius.circular(radius),
-                    border: isSelected
-                        ? Border.all(color: AppColors.ink, width: 2)
-                        : isToday
-                            ? Border.all(
-                                color: AppColors.ink.withValues(alpha: 0.9),
-                                width: 1.4)
-                            : null,
-                    boxShadow: glow > 0
-                        ? [
-                            BoxShadow(
-                              color: AppColors.coral
-                                  .withValues(alpha: 0.10 + 0.28 * glow),
-                              blurRadius: 4 + 10 * glow,
-                              spreadRadius: 1 + 2 * glow,
-                            ),
-                          ]
-                        : null,
+              child: Semantics(
+                button: true,
+                selected: isSelected,
+                // Colour IS the content here, so a screen reader gets nothing
+                // from the grid without this. Read the day and its burn rather
+                // than the intensity level — "level 3 of 4" describes the
+                // rendering, not the training.
+                label: d.sessions == 0
+                    ? '${_readoutDate(d.date)}, no workout'
+                    : '${_readoutDate(d.date)}, ${d.kcal} kcal, '
+                        '${d.sessions} '
+                        '${d.sessions == 1 ? 'session' : 'sessions'}, '
+                        '${d.durationMin} minutes',
+                child: AnimatedScale(
+                  scale: isSelected ? 1.14 : 1.0,
+                  duration: Motion.springy.d,
+                  curve: Motion.springy.c,
+                  child: Container(
+                    width: size,
+                    height: size,
+                    decoration: BoxDecoration(
+                      color: heatColor(heatLevel(d.kcal, scale)),
+                      borderRadius: BorderRadius.circular(radius),
+                      border: isSelected
+                          ? Border.all(color: AppColors.ink, width: 2)
+                          : isToday
+                              ? Border.all(
+                                  color: AppColors.ink.withValues(alpha: 0.9),
+                                  width: 1.4)
+                              : null,
+                      boxShadow: glow > 0
+                          ? [
+                              BoxShadow(
+                                color: AppColors.coral
+                                    .withValues(alpha: 0.10 + 0.28 * glow),
+                                blurRadius: 4 + 10 * glow,
+                                spreadRadius: 1 + 2 * glow,
+                              ),
+                            ]
+                          : null,
+                    ),
                   ),
                 ),
               ),

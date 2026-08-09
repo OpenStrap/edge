@@ -1237,7 +1237,11 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> getSessions({int? from, int? to}) async {
+  Future<List<Map<String, dynamic>>> getSessions({
+    int? from,
+    int? to,
+    bool includeDetected = true,
+  }) async {
     // Manual/live sessions (the sessions table) MERGED with auto-detected
     // workouts from the per-day bundle. Manual/saved WINS on overlap: a detected
     // bout overlapping a manual session is dropped here (and is already dropped
@@ -1252,6 +1256,14 @@ class LocalRepositoryImpl extends LocalRepository {
 
     final manualRows = await LocalDb.sessionsInRange(fromSec, toSec);
     final manual = [for (final r in manualRows) _workoutOf(r)];
+
+    // Finding the detected half means reading every recent day bundle, and
+    // recentDayResults does SELECT r.* — the whole hr_curve/hypnogram/HRV
+    // payload, tens of KB a day, across the isolate boundary and back through
+    // jsonDecode. A caller that only wants saved sessions must not pay that.
+    // Already newest-first — sessionsInRange orders by start_ts DESC, the same
+    // order the merged path sorts into below.
+    if (!includeDetected) return manual;
 
     // Saved spans (manual) for overlap-dedup of detected bouts.
     final savedSpans = <List<int>>[];

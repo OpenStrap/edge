@@ -98,6 +98,14 @@ void main() {
 
     // Sorted newest-first by start_ts: the later detected bout comes first.
     expect(sessions.first['start_ts'], base + 2000);
+
+    // includeDetected: false skips the day-bundle scan entirely — saved
+    // sessions only, still newest-first. Callers with no use for the detected
+    // half must not pay to read every recent day's full payload.
+    final savedOnly = await repo.getSessions(includeDetected: false);
+    expect(savedOnly, hasLength(1));
+    expect(savedOnly.single['id'], 'manual1');
+    expect(savedOnly.any((s) => s['status'] == 'detected'), isFalse);
   });
 }
 

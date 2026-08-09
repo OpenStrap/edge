@@ -54,8 +54,16 @@ abstract class LocalRepository {
       throw UnimplementedError('re-layer: getSleep');
   Future<List<Map<String, dynamic>>> getStrain({int? from, int? to}) =>
       throw UnimplementedError('re-layer: getStrain');
-  Future<List<Map<String, dynamic>>> getSessions({int? from, int? to}) =>
-      throw UnimplementedError('re-layer: getSessions');
+  /// Saved sessions in the window, merged with unconfirmed auto-detected bouts.
+  ///
+  /// Pass `includeDetected: false` when only saved sessions are wanted: the
+  /// detected half has to read every recent day bundle to find them, and those
+  /// rows carry the full hr_curve/hypnogram/HRV payload.
+  Future<List<Map<String, dynamic>>> getSessions({
+    int? from,
+    int? to,
+    bool includeDetected = true,
+  }) => throw UnimplementedError('re-layer: getSessions');
   Future<Map<String, dynamic>> getHistory({String range = '30d'}) =>
       throw UnimplementedError('re-layer: getHistory');
 

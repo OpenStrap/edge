@@ -198,6 +198,11 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
       // short of data. getSessions takes an explicit window and skips the
       // per-session HR enrichment the grid has no use for. Fetched wide; days
       // outside the board simply match no cell.
+      //
+      // includeDetected: false because the grid shades saved sessions only.
+      // Leaving it on would read every recent day bundle — the whole hr_curve /
+      // hypnogram / HRV payload — on every load and every pull-to-refresh, just
+      // to build detections loggedForHeatmap discards a line later.
       List<HeatDay>? heat;
       try {
         final now = DateTime.now();
@@ -205,6 +210,7 @@ class _WorkoutsScreenState extends State<WorkoutsScreen> {
         final sessions = await api.getSessions(
           from: from.millisecondsSinceEpoch ~/ 1000,
           to: now.millisecondsSinceEpoch ~/ 1000,
+          includeDetected: false,
         );
         heat = buildHeatDays(loggedForHeatmap(sessions), today: now);
       } catch (_) {

@@ -31,8 +31,11 @@ class _FakeRepo extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getDaySleep(String date) async => daySleep;
   @override
-  Future<List<Map<String, dynamic>>> getSessions({int? from, int? to}) async =>
-      sessions;
+  Future<List<Map<String, dynamic>>> getSessions({
+    int? from,
+    int? to,
+    bool includeDetected = true,
+  }) async => sessions;
 }
 
 Map<String, dynamic> _sampleToday() => {

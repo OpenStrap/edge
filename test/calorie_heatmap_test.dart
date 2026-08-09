@@ -262,6 +262,29 @@ void main() {
     expect(kept.map((w) => w['id']), ['a', 'c']);
   });
 
+  test('a CONFIRMED auto-detection is a logged workout and reaches the grid',
+      () {
+    // The row _logDetectedSession saves when the user taps Confirm on a
+    // suggestion. `source` stays 'auto' forever — it records where the workout
+    // came from, not whether it is still a proposal — while `status` moves to
+    // 'done'. Filtering on source would drop it, which is how a real workout
+    // ends up in the feed (tagged `auto`) and in TrainingSummaryCard while the
+    // grid shows that day as rest. Someone whose training is mostly
+    // detected-then-confirmed would get a near-empty board, and since the card
+    // is hidden until a day has kcal, no board at all.
+    final kept = loggedForHeatmap([
+      {
+        'id': 'auto:1749000000',
+        'source': 'auto',
+        'status': 'done',
+        'calories': 480,
+      },
+      {'id': 'manual-1', 'source': 'manual', 'status': 'done', 'calories': 300},
+    ]);
+
+    expect(kept.map((w) => w['id']), ['auto:1749000000', 'manual-1']);
+  });
+
   // The ramp is the whole feature: if two adjacent buckets read as one colour,
   // the grid is decoration. Asserted numerically in BOTH palettes so a future
   // token edit can't quietly collapse a step — the same reasoning as
