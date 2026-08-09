@@ -130,6 +130,37 @@ void main() {
     )));
   });
 
+  testWidgets('an open-ended session stays open across a remount',
+      (tester) async {
+    // A null target on a RUNNING session means open-ended. Reading that as
+    // "no answer" fell through to the picker's two minutes, so an open
+    // session remounted past 2:00 stopped immediately.
+    var stopped = 0;
+    await tester.pumpWidget(_host(CalmBreathingView(
+      connected: true,
+      active: true,
+      startedAt: DateTime.now().subtract(const Duration(minutes: 9)),
+      onStop: () => stopped++,
+    )));
+    await tester.pump(const Duration(seconds: 1));
+
+    expect(stopped, 0, reason: 'an open session never expires on its own');
+    // Counting UP from the session start, not down from a target it never
+    // had. Matched loosely because elapsed comes from the wall clock, which
+    // the test's pump does not control.
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is Text && (w.data ?? '').startsWith('9:0'),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.pumpWidget(_host(const CalmBreathingView(
+      connected: true,
+      active: false,
+    )));
+  });
+
   testWidgets('tapping Stop Session calls onStop', (tester) async {
     var stopped = false;
     await tester.pumpWidget(_host(CalmBreathingView(

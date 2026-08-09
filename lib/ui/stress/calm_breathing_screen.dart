@@ -209,9 +209,15 @@ class _CalmBreathingViewState extends State<CalmBreathingView>
 
   /// The running session's target wins over the picker, which is only a draft
   /// until Begin is pressed and reverts to its default on a remount.
-  Duration? get _target =>
-      widget.target ??
-      (_minutes == null ? null : Duration(minutes: _minutes!));
+  ///
+  /// Keyed on [CalmBreathingView.startedAt], NOT on the target being non-null:
+  /// a null target on a running session means OPEN-ENDED, and treating that as
+  /// "no answer" fell through to the picker's two minutes — so an open session
+  /// remounted showed a countdown it never had and stopped at 2:00.
+  Duration? get _target {
+    if (widget.startedAt != null) return widget.target;
+    return _minutes == null ? null : Duration(minutes: _minutes!);
+  }
 
   Duration? get _remaining {
     final t = _target;
