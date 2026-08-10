@@ -33,6 +33,7 @@ import 'package:firebase_performance/firebase_performance.dart';
 
 import '../data/db.dart';
 import '../data/day_label.dart';
+import '../data/series_codec.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
@@ -3203,15 +3204,16 @@ class DerivationEngine {
     }
   }
 
-  static Map<String, dynamic>? _decodeBundle(Object? json) {
-    if (json is! String) return null;
-    try {
-      final d = jsonDecode(json);
-      return d is Map ? d.cast<String, dynamic>() : null;
-    } catch (_) {
-      return null;
-    }
-  }
+  /// Decode a stored day bundle, normalizing the compact curve format back to
+  /// plain [{t,v}] lists.
+  ///
+  /// The normalization is LOAD-BEARING on the re-derive path, not just hygiene:
+  /// `_deriveOneDay` reads the previous row through here and merges its series
+  /// into the fresh bundle. Without normalizing, an encoded `prev` would be
+  /// merged beside newly-computed legacy lists and the day would carry two
+  /// different shapes for the same curve.
+  static Map<String, dynamic>? _decodeBundle(Object? json) =>
+      SeriesCodec.decodePayloadJson(json);
 
   /// Build the cross-day record from a day_result row + its payload bundle.
   static Map<String, dynamic>? _crossDayRecord(
@@ -3311,6 +3313,14 @@ class DerivationEngine {
     final stale = await LocalDb.pruneSupersededIntermediates();
     if (stale > 0) {
       _log('pruned $stale superseded intermediate rows');
+    }
+    // Convert the back catalogue to the compact curve format, a bounded batch
+    // at a time. Same reasoning as the prune above: recomputable/rewritable
+    // housekeeping belongs here, off the path to a durable commit, and never in
+    // a migration under iOS's CPU watchdog.
+    final reencoded = await LocalDb.reencodeLegacyDayResults();
+    if (reencoded > 0) {
+      _log('re-encoded $reencoded legacy day bundles');
     }
   }
 

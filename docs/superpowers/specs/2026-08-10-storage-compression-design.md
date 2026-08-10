@@ -125,15 +125,21 @@ curves, `zone_timeline`, and the root `activity_curve`. Each branch is guarded
 so a row in one shape contributes to exactly one branch. Views are DROP+CREATE
 on every open, so they need no migration.
 
-### Schema v32
+### The duplicate index
 
-- `DROP INDEX IF EXISTS idx_decoded_rr_counter` in the `onUpgrade` ladder and in
-  `_repairOpenSchema`, and stop creating it in `_createDecodedStore`.
-  It is an exact duplicate of `sqlite_autoindex_decoded_rr_1`, which
-  `PRIMARY KEY (counter, beat_index)` already creates. Verified: both measured
-  3,264,512 bytes on a 3-day fill, and after dropping it the planner still
-  serves `counter` lookups from the auto-index. Saves ~1.09 MB/day plus one
-  b-tree write on the hottest insert path in the app.
+`idx_decoded_rr_counter` is an exact duplicate of the index
+`PRIMARY KEY (counter, beat_index)` already creates
+(`sqlite_autoindex_decoded_rr_1`) — same table, same columns, same order.
+Verified: both measured 3,264,512 bytes on a 3-day fill, and after dropping it
+the planner still serves `counter` lookups and `(counter, beat_index)` ordering
+from the auto-index. Saves ~1.09 MB/day plus one b-tree write on the hottest
+insert path in the app.
+
+**No `schemaVersion` bump.** The drop lives inside `_createDecodedStore`, which
+`_repairOpenSchema` already re-runs on every open, so it self-heals on existing
+installs and is never created on new ones. This follows the precedent one line
+above it — the `idx_decoded_rr_ts` drop was done exactly this way. A ladder
+entry would force `onUpgrade` to run for no additional effect.
 
 ### History backfill
 
@@ -191,9 +197,16 @@ encoded payloads:
 | `payload_null.json` | 57,252 | 27,786 | 2.06x | identical |
 | **Total** | 213,622 | 100,227 | **2.13x** | **byte-identical** |
 
-- Derived data: ~33 MB/yr -> ~15 MB/yr
-- Substrate: -1.09 MB/day
-- Backups: ~360 MB -> ~120 MB
+End-to-end, rebuilding the real schema both ways and reading `dbstat` — a
+one-year-old install with three days of 1 Hz substrate and five auto-backups:
+
+| Component | Before | After | Saved |
+|---|---|---|---|
+| 1 Hz substrate (3-day window) | 37,703,680 | 34,443,264 | 3,260,416 |
+| Derived bundles (365 days) | 26,447,872 | 12,484,608 | 13,963,264 |
+| **Database file** | **65,290,240** | **48,066,560** | **1.36x** |
+| Backups (5 copies) | 326,451,200 | 94,812,300 | 3.44x |
+| **Total on device** | **392 MB** | **143 MB** | **2.74x** |
 
 No decompression on any read path.
 

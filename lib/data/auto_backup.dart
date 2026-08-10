@@ -80,6 +80,11 @@ bool backupIsDue({
   return now.difference(lastRun) >= interval;
 }
 
+/// Extension for a backup written by the CURRENT code. Backups are gzipped:
+/// the database is JSON-heavy and mostly text, so this is roughly a 3x saving
+/// on the one thing here that is kept five times over.
+const kBackupExtension = '.db.gz';
+
 /// Filename for a backup taken at [when]. Sorts chronologically as text, so
 /// retention can order by name without parsing.
 ///
@@ -88,15 +93,26 @@ bool backupIsDue({
 String backupFileName(DateTime when) {
   String two(int v) => v.toString().padLeft(2, '0');
   return 'openstrap-${when.year}${two(when.month)}${two(when.day)}'
-      '-${two(when.hour)}${two(when.minute)}${two(when.second)}.db';
+      '-${two(when.hour)}${two(when.minute)}${two(when.second)}$kBackupExtension';
 }
 
-/// EXACTLY the shape [backupFileName] emits, and nothing else.
+/// EXACTLY the shapes this file has ever emitted, and nothing else.
 ///
 /// Retention DELETES what this matches, and it runs in a directory the user
 /// can put files into. A loose `openstrap-*.db` glob would happily eat
 /// someone's `openstrap-notes.db`.
-final _backupNamePattern = RegExp(r'^openstrap-\d{8}-\d{6}\.db$');
+///
+/// Covers THREE shapes deliberately:
+///   • `.db.gz` — what is written now.
+///   • `.db` — what earlier versions wrote. An install that upgrades still has
+///     up to [kBackupsKept] of these. If the pattern stopped matching them they
+///     would become invisible to [sortBackupsNewestFirst], never be counted
+///     toward retention and never be pruned — five stale full-size copies
+///     leaked permanently, which is the opposite of what this change is for.
+///   • a `-N` collision suffix — [_uniqueDestination] emits these when two runs
+///     land in the same second, and the pattern never matched them, so they
+///     leaked for the same reason.
+final _backupNamePattern = RegExp(r'^openstrap-\d{8}-\d{6}(-\d+)?\.db(\.gz)?$');
 
 /// Existing backups, newest first.
 List<File> sortBackupsNewestFirst(Iterable<FileSystemEntity> entries) {
@@ -202,12 +218,22 @@ Future<BackupOutcome> _runBackup({
     final snapshot = await (exportSnapshot ?? LocalDb.exportCopy)();
     final tmp = File(snapshot);
     try {
-      await tmp.rename(dest.path);
-    } on FileSystemException {
-      // The temp directory and external storage are different filesystems on
-      // Android, where rename fails outright — copy across, then drop the
-      // source.
-      await tmp.copy(dest.path);
+      // STREAMED, not read-then-compress: the snapshot is the whole database
+      // and buffering it twice in memory to save disk would trade one resource
+      // problem for a worse one on the devices that have the most data.
+      //
+      // This also replaces the old rename/copy fallback — that existed because
+      // temp and external storage are different filesystems on Android, where
+      // rename fails outright. A stream never had that problem.
+      await tmp.openRead().transform(gzip.encoder).pipe(dest.openWrite());
+    } catch (_) {
+      // A half-written .gz is not a backup, and leaving one behind would let it
+      // count toward retention and push a GOOD backup out of the window.
+      try {
+        if (await dest.exists()) await dest.delete();
+      } catch (_) {}
+      rethrow;
+    } finally {
       try {
         if (await tmp.exists()) await tmp.delete();
       } catch (_) {}
@@ -242,10 +268,10 @@ Future<void> pruneBackups(Directory dir, {required int keep}) async {
 /// the exact data loss this function exists to prevent.
 File? _uniqueDestination(Directory dir, DateTime when) {
   final base = backupFileName(when);
-  final stem = base.substring(0, base.length - 3); // drop '.db'
+  final stem = base.substring(0, base.length - kBackupExtension.length);
   for (var i = 1; i < 100; i++) {
     final candidate = File(
-      p.join(dir.path, i == 1 ? base : '$stem-$i.db'),
+      p.join(dir.path, i == 1 ? base : '$stem-$i$kBackupExtension'),
     );
     if (!candidate.existsSync()) return candidate;
   }

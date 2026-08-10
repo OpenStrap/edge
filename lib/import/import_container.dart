@@ -177,6 +177,56 @@ class ResolvedNoopDatabase {
   }
 }
 
+/// Inflate a gzip file into [dir] and return the path, or null if [path] is not
+/// gzip.
+///
+/// STREAMED with a running ceiling rather than decoded in memory. A gzip
+/// declares nothing about its output size, so the only way to refuse a
+/// pathological one is to count bytes as they land and stop — and the file this
+/// most often is (a full database backup) is exactly the size that must never
+/// be buffered twice.
+///
+/// The caller owns [dir] and the file inside it.
+Future<String?> inflateGzip(String path, Directory dir) async {
+  if (await sniffFile(path) != ImportContainer.gzip) return null;
+
+  var base = p.basename(path);
+  if (base.toLowerCase().endsWith('.gz')) {
+    base = base.substring(0, base.length - 3);
+  }
+  if (base.isEmpty) base = 'inflated';
+  final destPath = p.join(dir.path, base);
+  final sink = File(destPath).openWrite();
+  var written = 0;
+  try {
+    await for (final chunk in File(path).openRead().transform(gzip.decoder)) {
+      written += chunk.length;
+      if (written > _kMaxUncompressedBytes) {
+        throw ImportFormatException(
+          '“${p.basename(path)}” unpacks to more than '
+          '${_kMaxUncompressedBytes ~/ (1024 * 1024 * 1024)} GB, which is not '
+          'something we can import.',
+        );
+      }
+      sink.add(chunk);
+    }
+    await sink.close();
+  } catch (e) {
+    try {
+      await sink.close();
+    } catch (_) {}
+    try {
+      final partial = File(destPath);
+      if (await partial.exists()) await partial.delete();
+    } catch (_) {}
+    if (e is ImportFormatException) rethrow;
+    throw ImportFormatException(
+      'Could not read “${p.basename(path)}” as a gzip archive: $e',
+    );
+  }
+  return destPath;
+}
+
 /// If [path] is a NOOP full backup, return its database ready to open.
 ///
 /// Handles both shapes users arrive with: the `.noopbak` itself (a ZIP whose
@@ -192,6 +242,26 @@ Future<ResolvedNoopDatabase?> resolveNoopDatabase(String path) async {
       return ResolvedNoopDatabase(path, null);
     case ImportContainer.zip:
       break;
+    case ImportContainer.gzip:
+      // A gzipped database — the shape this app's own auto-backups take, and
+      // what `gzip -k` leaves behind for anyone compressing an export by hand.
+      // Inflate, then re-sniff: only a real SQLite file is claimed here, so a
+      // gzipped CSV still falls through to the CSV path.
+      final tempDir = await Directory.systemTemp.createTemp('openstrap_gz_');
+      try {
+        final inflated = await inflateGzip(path, tempDir);
+        if (inflated != null &&
+            await sniffFile(inflated) == ImportContainer.sqlite) {
+          return ResolvedNoopDatabase(inflated, tempDir);
+        }
+      } catch (_) {
+        // Not readable as gzip — let the CSV path produce the user-facing
+        // message rather than throwing a database-flavoured one here.
+      }
+      try {
+        if (tempDir.existsSync()) await tempDir.delete(recursive: true);
+      } catch (_) {}
+      return null;
     default:
       return null;
   }
@@ -328,10 +398,27 @@ Future<ResolvedImportFiles> resolveImportCsvPaths(
             'export.',
           );
         case ImportContainer.gzip:
-          throw ImportFormatException(
-            '“${p.basename(path)}” is a gzip archive. Unzip it first and pick '
-            'the CSV inside.',
-          );
+          // Used to be a flat refusal ("unzip it first"). It is inflated now:
+          // gzip is what every command-line tool and most file managers produce
+          // when someone compresses a CSV, and it is the shape this app's own
+          // auto-backups take.
+          tempDir ??=
+              await Directory.systemTemp.createTemp('openstrap_import_');
+          final gzInto = Directory(p.join(tempDir.path, 'a${archiveIndex++}'));
+          await gzInto.create(recursive: true);
+          final inflated = await inflateGzip(path, gzInto);
+          // Re-sniff rather than assume: a gzipped ZIP or database is still not
+          // a CSV, and the message for those should say so.
+          final inner = inflated == null
+              ? ImportContainer.binary
+              : await sniffFile(inflated);
+          if (inner != ImportContainer.text) {
+            throw ImportFormatException(
+              '“${p.basename(path)}” unpacks to something that is not a '
+              '$flavor CSV export.',
+            );
+          }
+          out.add(inflated!);
         case ImportContainer.utf16:
           throw ImportFormatException(
             '“${p.basename(path)}” is saved as UTF-16 text. Re-save it as '

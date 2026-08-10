@@ -147,7 +147,7 @@ void main() {
 
     test('is zero-padded so widths match', () {
       expect(backupFileName(DateTime(2026, 1, 2, 3, 4, 5)),
-          'openstrap-20260102-030405.db');
+          'openstrap-20260102-030405.db.gz');
     });
 
     test('two runs in the same minute get different names', () {
@@ -198,10 +198,35 @@ void main() {
       touch('openstrap-2026.db');
       touch('openstrap-20260101.db');
       touch('random.db');
+      touch('openstrap-20260101-000000.db.gz.bak');
       final out = sortBackupsNewestFirst(tmp.listSync());
       expect(out.map((f) => p.basename(f.path)), [
+        'openstrap-20260101-000000.db.gz',
+      ]);
+    });
+
+    test('still matches the UNCOMPRESSED names earlier versions wrote', () {
+      // An install that upgrades still holds up to kBackupsKept plain `.db`
+      // backups. If the pattern stopped matching them they would never be
+      // counted toward retention and never pruned — five full-size copies
+      // leaked permanently, which is the opposite of the point.
+      touch('openstrap-20260101-000000.db');
+      touch('openstrap-20260102-000000.db.gz');
+      final out = sortBackupsNewestFirst(tmp.listSync());
+      expect(out.map((f) => p.basename(f.path)), [
+        'openstrap-20260102-000000.db.gz',
         'openstrap-20260101-000000.db',
       ]);
+    });
+
+    test('matches the -N collision names _uniqueDestination emits', () {
+      // These leaked for the same reason: two runs inside one second produce a
+      // `-2` suffix that the pattern never covered, so the file was invisible
+      // to retention forever.
+      touch('openstrap-20260101-000000.db.gz');
+      touch('openstrap-20260101-000000-2.db.gz');
+      touch('openstrap-20260101-000000-3.db');
+      expect(sortBackupsNewestFirst(tmp.listSync()).length, 3);
     });
 
     test('an empty directory is empty, not an error', () {
@@ -385,15 +410,57 @@ void main() {
       );
     });
 
+    test('a backup is gzip on disk and inflates back to the database', () async {
+      // The whole point of the extension change. A backup that is smaller but
+      // cannot be read back is not a backup, so this asserts BOTH: the file is
+      // really gzip, and what comes out of it is really the snapshot.
+      final outcome = await runBackup(now: DateTime(2026, 8, 9, 15, 0, 0));
+      expect(outcome.succeeded, isTrue, reason: outcome.error);
+
+      final file = File(outcome.path!);
+      expect(p.basename(file.path), endsWith('.db.gz'));
+
+      final bytes = await file.readAsBytes();
+      expect(bytes.length, greaterThan(2));
+      expect(bytes[0], 0x1F, reason: 'gzip magic byte 0');
+      expect(bytes[1], 0x8B, reason: 'gzip magic byte 1');
+
+      final inflated = gzip.decode(bytes);
+      expect(
+        String.fromCharCodes(inflated.take(15)),
+        'SQLite format 3',
+        reason: 'the inflated backup must be an openable database',
+      );
+      expect(
+        inflated.length,
+        greaterThan(bytes.length),
+        reason: 'a compressed backup must be smaller than the database',
+      );
+    });
+
+    test('a snapshot is never left behind in temp', () async {
+      // The export is a full second copy of the database. The old code renamed
+      // it into place; the new one streams and must still delete the source.
+      final outcome = await runBackup(now: DateTime(2026, 8, 9, 16, 0, 0));
+      expect(outcome.succeeded, isTrue, reason: outcome.error);
+      final leftovers = tmp
+          .listSync()
+          .whereType<File>()
+          .map((f) => p.basename(f.path))
+          .where((n) => n.startsWith('openstrap_export_'))
+          .toList();
+      expect(leftovers, isEmpty);
+    });
+
     test('an occupied destination is never handed back', () async {
       // Returning the last candidate would give the next backup a real
       // snapshot to overwrite — the exact loss the unique naming prevents.
       final when = DateTime(2026, 8, 9, 14, 0, 0);
       final dir = await backupDirectory();
       final base = backupFileName(when);
-      final stem = base.substring(0, base.length - 3);
+      final stem = base.substring(0, base.length - kBackupExtension.length);
       for (var i = 1; i < 100; i++) {
-        File(p.join(dir.path, i == 1 ? base : '$stem-$i.db'))
+        File(p.join(dir.path, i == 1 ? base : '$stem-$i$kBackupExtension'))
             .writeAsStringSync('occupied');
       }
 
@@ -412,11 +479,11 @@ void main() {
       expect(exported, 0, reason: 'nothing should have been exported');
       // Every pre-existing file is untouched.
       for (var i = 1; i < 100; i++) {
-        final f = File(p.join(dir.path, i == 1 ? base : '$stem-$i.db'));
+        final f = File(p.join(dir.path, i == 1 ? base : '$stem-$i$kBackupExtension'));
         expect(f.readAsStringSync(), 'occupied');
       }
       for (var i = 1; i < 100; i++) {
-        File(p.join(dir.path, i == 1 ? base : '$stem-$i.db')).deleteSync();
+        File(p.join(dir.path, i == 1 ? base : '$stem-$i$kBackupExtension')).deleteSync();
       }
     });
   });

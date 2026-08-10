@@ -37,6 +37,38 @@ void main() {
     expect(idx, contains('idx_decoded_rr_ts_beat_unique'));
   });
 
+  test('the duplicate-of-primary-key rr index is gone', () async {
+    // idx_decoded_rr_counter(counter, beat_index) duplicated, column for column,
+    // the index PRIMARY KEY (counter, beat_index) already creates. Measured on a
+    // 3-day fill: both b-trees 3,264,512 bytes — ~1.09 MB/day of pure
+    // duplication plus a second b-tree write per beat on the hottest insert
+    // path in the app.
+    final db = await LocalDb.instance;
+    final idx = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='decoded_rr'",
+    )).map((r) => r['name'] as String?).whereType<String>().toList();
+    expect(idx, isNot(contains('idx_decoded_rr_counter')));
+  });
+
+  test('counter lookups are still index-served without it', () async {
+    // Dropping an index is only safe if the planner has another. The PK's
+    // auto-index covers exactly the same columns in the same order.
+    final db = await LocalDb.instance;
+    for (final sql in const [
+      'EXPLAIN QUERY PLAN SELECT * FROM decoded_rr WHERE counter = 42 '
+          'ORDER BY beat_index',
+      'EXPLAIN QUERY PLAN SELECT * FROM decoded_rr WHERE counter BETWEEN 1 AND 9',
+    ]) {
+      final detail = (await db.rawQuery(sql))
+          .map((r) => r['detail'].toString())
+          .join(' | ');
+      expect(detail.toUpperCase(), contains('USING'),
+          reason: 'planner fell back to a full scan: $detail');
+      expect(detail, contains('sqlite_autoindex_decoded_rr_1'),
+          reason: 'expected the primary key auto-index: $detail');
+    }
+  });
+
   test('rr_ts_ms range scans are still served by an index', () async {
     final db = await LocalDb.instance;
     final plan = await db.rawQuery(

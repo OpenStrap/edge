@@ -20,6 +20,7 @@ import 'day_label.dart';
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
 import 'models.dart';
+import 'series_codec.dart';
 
 class LocalDb {
   static Database? _db;
@@ -1751,29 +1752,57 @@ class LocalDb {
     ''');
     // Intra-day curves UNNESTED from the latest day_result bundle. HEAVY — always
     // filter by date AND series. zone_timeline uses 'z'; activity_curve is root.
+    //
+    // THREE SHAPES, one row each. A curve is stored either legacy
+    // (`[{t,v},…]`), grid (`{t0,dt,v[]}`) or offset (`{t0,to[],v[]}`) — see
+    // data/series_codec.dart for why. Old rows keep their legacy shape forever,
+    // so this view must read all three, and the branch guards are what keep a
+    // row from being emitted twice: legacy requires an `array`, grid requires
+    // `.dt`, offset requires `.to`, and no stored curve ever satisfies two.
+    //
+    // The grid branch needs no running sum because json_each exposes an array's
+    // index as `key`, so t = t0 + key*dt. Offset pairs `to` and `v` on that
+    // same key. Verified row-for-row against the pre-codec view on the three
+    // tracked bundle fixtures, including a database holding both shapes at once
+    // (test/coach_views_series_shapes_test.dart).
     await db.execute('''
       CREATE VIEW v_series AS
       WITH latest AS (
         SELECT r.day_id, r.payload_json FROM day_result r
         JOIN (SELECT day_id, MAX(algo_version) v FROM day_result GROUP BY day_id) m
           ON r.day_id = m.day_id AND r.algo_version = m.v
+      ),
+      curve(sk, pth, vk) AS (
+        SELECT 'hr_curve','\$.series.hr_curve','\$.v'
+        UNION ALL SELECT 'strain_curve','\$.series.strain_curve','\$.v'
+        UNION ALL SELECT 'hrv_timeline','\$.series.hrv_timeline','\$.v'
+        UNION ALL SELECT 'hrv_day','\$.series.hrv_day','\$.v'
+        UNION ALL SELECT 'resp_day','\$.series.resp_day','\$.v'
+        UNION ALL SELECT 'skin_temp_day','\$.series.skin_temp_day','\$.v'
+        UNION ALL SELECT 'zone_timeline','\$.series.zone_timeline','\$.z'
+        UNION ALL SELECT 'activity_curve','\$.activity_curve','\$.v'
       )
-      SELECT l.day_id AS date, s.sk AS series,
+      SELECT l.day_id AS date, c.sk AS series,
              json_extract(e.value,'\$.t') AS t,
-             json_extract(e.value,'\$.v') AS v
-      FROM latest l
-      JOIN (SELECT 'hr_curve' sk UNION ALL SELECT 'strain_curve'
-            UNION ALL SELECT 'hrv_timeline' UNION ALL SELECT 'hrv_day'
-            UNION ALL SELECT 'resp_day' UNION ALL SELECT 'skin_temp_day') s
-      JOIN json_each(json_extract(l.payload_json,'\$.series.'||s.sk)) e
+             json_extract(e.value, c.vk) AS v
+      FROM latest l JOIN curve c
+      JOIN json_each(json_extract(l.payload_json, c.pth)) e
+      WHERE json_type(json_extract(l.payload_json, c.pth)) = 'array'
       UNION ALL
-      SELECT l.day_id, 'zone_timeline',
-             json_extract(e.value,'\$.t'), json_extract(e.value,'\$.z')
-      FROM latest l, json_each(json_extract(l.payload_json,'\$.series.zone_timeline')) e
+      SELECT l.day_id, c.sk,
+             json_extract(l.payload_json, c.pth||'.t0')
+               + e.key * json_extract(l.payload_json, c.pth||'.dt'),
+             e.value
+      FROM latest l JOIN curve c
+      JOIN json_each(json_extract(l.payload_json, c.pth||'.v')) e
+      WHERE json_extract(l.payload_json, c.pth||'.dt') IS NOT NULL
       UNION ALL
-      SELECT l.day_id, 'activity_curve',
-             json_extract(e.value,'\$.t'), json_extract(e.value,'\$.v')
-      FROM latest l, json_each(json_extract(l.payload_json,'\$.activity_curve')) e
+      SELECT l.day_id, c.sk,
+             json_extract(l.payload_json, c.pth||'.t0') + et.value, ev.value
+      FROM latest l JOIN curve c
+      JOIN json_each(json_extract(l.payload_json, c.pth||'.to')) et
+      JOIN json_each(json_extract(l.payload_json, c.pth||'.v')) ev ON ev.key = et.key
+      WHERE json_extract(l.payload_json, c.pth||'.to') IS NOT NULL
     ''');
     // Sleep stage segments (different element shape from the {t,v} curves).
     await db.execute('''
@@ -2037,9 +2066,6 @@ class LocalDb {
       )
     ''');
     await db.execute(
-      'CREATE INDEX IF NOT EXISTS idx_decoded_rr_counter ON decoded_rr(counter, beat_index)',
-    );
-    await db.execute(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_decoded_rr_ts_beat_unique '
       'ON decoded_rr(rr_ts_ms, beat_index)',
     );
@@ -2048,6 +2074,15 @@ class LocalDb {
     // from it. The narrower index only added a second b-tree to maintain on
     // the hottest write path in the app.
     await db.execute('DROP INDEX IF EXISTS idx_decoded_rr_ts');
+    // idx_decoded_rr_counter(counter, beat_index) was an EXACT duplicate of the
+    // index `PRIMARY KEY (counter, beat_index)` already creates
+    // (sqlite_autoindex_decoded_rr_1) — same table, same columns, same order.
+    // Measured on a 3-day fill: both b-trees 3,264,512 bytes, i.e. ~1.09 MB/day
+    // of pure duplication, plus a second b-tree write per beat on the hottest
+    // insert path in the app. After dropping it the planner still serves
+    // `counter` lookups and (counter, beat_index) ordering from the auto-index
+    // — pinned by test/db_storage_hygiene_test.dart, same as the drop above.
+    await db.execute('DROP INDEX IF EXISTS idx_decoded_rr_counter');
   }
 
   /// Rebuild the decoded substrate into noop-style canonical time-keyed rows:
@@ -3106,11 +3141,17 @@ class LocalDb {
   }) async {
     final db = await instance;
     final now = DateTime.now().millisecondsSinceEpoch;
+    // THE write seam for the compact curve format. All four callers
+    // (DerivationEngine x2, cloud_import, whoop_import) funnel through here, so
+    // no producer needs to know the wire format exists — upstream code keeps
+    // merging and patching plain [{t,v}] lists in memory. Lossless or no-op:
+    // SeriesCodec leaves anything it cannot encode exactly as it found it.
+    final encodedPayload = SeriesCodec.encodePayloadJson(payloadJson);
     await db.transaction((txn) async {
       await txn.insert('day_result', {
         'day_id': dayId,
         'algo_version': algoVersion,
-        'payload_json': payloadJson,
+        'payload_json': encodedPayload,
         'window_json': windowJson,
         'computed_at': now,
         'finalized': finalized ? 1 : 0,
@@ -4166,16 +4207,9 @@ class LocalDb {
     final rawByDay = await decodedRecTsMaxByDay();
     final out = <Map<String, dynamic>>[];
     for (final row in rows) {
-      final payload = row['payload_json'] as String?;
-      Map<String, dynamic> decoded = const {};
-      if (payload != null && payload.isNotEmpty) {
-        try {
-          final d = jsonDecode(payload);
-          if (d is Map) decoded = d.cast<String, dynamic>();
-        } catch (_) {
-          /* ignore */
-        }
-      }
+      final decoded =
+          SeriesCodec.decodePayloadJson(row['payload_json']) ??
+          const <String, dynamic>{};
       final scalars = ((decoded['scalars'] as Map?) ?? const {})
           .cast<String, dynamic>();
       final dayId = row['day_id'] as String? ?? '';
@@ -4384,6 +4418,128 @@ class LocalDb {
     return rows.isEmpty ? null : rows.first;
   }
 
+  /// Bookkeeping key for the one-time walk in [reencodeLegacyDayResults].
+  static const String kReencodeCursorKey = 'series_reencode';
+
+  /// Re-encode a BOUNDED batch of pre-codec `day_result` rows into the compact
+  /// curve format, newest first. Returns how many rows were rewritten.
+  ///
+  /// WHY A BACKFILL AT ALL. `SeriesCodec` reads the legacy shape forever, so
+  /// nothing breaks without this — but a user's existing history would stay at
+  /// ~88 KB/day while only new days shrank, and `day_result` is precisely the
+  /// store that grows without bound. This converts the back catalogue once.
+  ///
+  /// WHERE IT RUNS. Called from the derivation engine's post-derive
+  /// housekeeping, beside `pruneSupersededIntermediates` — off the path to a
+  /// durable commit, and NEVER inside a migration: `onUpgrade` runs inside
+  /// `openDatabase` under iOS's CPU watchdog, where rewriting a year of bundles
+  /// would be a launch hang (invariant 11).
+  ///
+  /// A FORWARD-ONLY CURSOR, not a rescan. Progress is stored in
+  /// `compute_freshness`, so each call walks strictly older days than the last
+  /// and the whole history costs one pass. Re-scanning from the newest day
+  /// every time would re-read (and re-parse) every already-converted bundle
+  /// forever — tens of MB of I/O per derivation.
+  ///
+  /// IMMUTABILITY. `day_result` rows are immutable PER VERSION, meaning their
+  /// derived VALUES never change without a `kAlgoVersion` bump. This rewrite
+  /// changes only how those same values are spelled, and every row is gated on
+  /// [SeriesCodec.verifyLossless] before it is touched — a bundle whose
+  /// round-trip is not provably exact is skipped and left legacy. Nothing but
+  /// `payload_json` is written: `computed_at`, `finalized`, `partial` and the
+  /// indexed scalars are untouched, so no day is re-finalized or re-dated.
+  static Future<int> reencodeLegacyDayResults({int limit = 40}) async {
+    final db = await instance;
+
+    String? cursorDay;
+    int? cursorVersion;
+    final prev = await computeFreshness(kReencodeCursorKey);
+    final prevJson = prev?['payload_json'];
+    if (prevJson is String && prevJson.isNotEmpty) {
+      try {
+        final d = jsonDecode(prevJson);
+        if (d is Map) {
+          if (d['done'] == true) return 0; // whole history already walked
+          final c = d['cursor'];
+          if (c is String && c.isNotEmpty) cursorDay = c;
+          final v = d['cursor_version'];
+          if (v is int) cursorVersion = v;
+        }
+      } catch (_) {
+        /* unreadable bookkeeping ⇒ start over; the walk is idempotent */
+      }
+    }
+
+    // The cursor is the COMPOSITE key, not just the day. `day_result` is keyed
+    // (day_id, algo_version) and one day can hold several generations, so a
+    // day-only cursor stepped straight past a day's older rows and left them
+    // legacy forever.
+    //
+    // Spelled out rather than as the row-value form `(day_id, algo_version) <
+    // (?, ?)`: row values need SQLite 3.15, and on Android sqflite uses the
+    // OS's SQLite, which is older than that on the devices this app still
+    // supports.
+    final String? where;
+    final List<Object?>? whereArgs;
+    if (cursorDay == null) {
+      where = null;
+      whereArgs = null;
+    } else if (cursorVersion == null) {
+      where = 'day_id < ?';
+      whereArgs = [cursorDay];
+    } else {
+      where = 'day_id < ? OR (day_id = ? AND algo_version < ?)';
+      whereArgs = [cursorDay, cursorDay, cursorVersion];
+    }
+
+    final rows = await db.query(
+      'day_result',
+      columns: ['day_id', 'algo_version', 'payload_json'],
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: 'day_id DESC, algo_version DESC',
+      limit: limit,
+    );
+    if (rows.isEmpty) {
+      await putComputeFreshness(kReencodeCursorKey, jsonEncode({'done': true}));
+      return 0;
+    }
+
+    var rewritten = 0;
+    await db.transaction((txn) async {
+      for (final row in rows) {
+        final pj = row['payload_json'];
+        if (pj is! String || pj.isEmpty) continue;
+        if (!SeriesCodec.needsReencode(pj)) continue;
+        if (!SeriesCodec.verifyLossless(pj)) continue;
+        final encoded = SeriesCodec.encodePayloadJson(pj);
+        if (encoded.length >= pj.length) continue; // never grow a row
+        await txn.update(
+          'day_result',
+          {'payload_json': encoded},
+          where: 'day_id = ? AND algo_version = ?',
+          whereArgs: [row['day_id'], row['algo_version']],
+        );
+        rewritten++;
+      }
+    });
+
+    // The cursor advances past every row we LOOKED at, not just the ones we
+    // rewrote — a row we skipped (already encoded, or not provably lossless)
+    // would otherwise be re-examined on every future pass and the walk would
+    // never terminate.
+    await putComputeFreshness(
+      kReencodeCursorKey,
+      jsonEncode({
+        'cursor': rows.last['day_id'],
+        'cursor_version': rows.last['algo_version'],
+        'done': rows.length < limit,
+        'rewritten_last': rewritten,
+      }),
+    );
+    return rewritten;
+  }
+
   static Future<void> putComputeFreshness(
     String key,
     String payloadJson,
@@ -4415,16 +4571,9 @@ class LocalDb {
       final dayId = row['day_id']?.toString();
       if (dayId == null || dayId.isEmpty) continue;
       if (dayId == today && todayRow == null) todayRow = row;
-      final payload = row['payload_json'] as String?;
-      Map<String, dynamic> decoded = const {};
-      if (payload != null && payload.isNotEmpty) {
-        try {
-          final d = jsonDecode(payload);
-          if (d is Map) decoded = d.cast<String, dynamic>();
-        } catch (_) {
-          decoded = const {};
-        }
-      }
+      final decoded =
+          SeriesCodec.decodePayloadJson(row['payload_json']) ??
+          const <String, dynamic>{};
       if (decoded['skipped'] == true) continue;
       final scalars = ((decoded['scalars'] as Map?) ?? const {})
           .cast<String, dynamic>();
