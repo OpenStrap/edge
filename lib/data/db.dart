@@ -11,11 +11,13 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import '../import/import_container.dart';
 import 'day_label.dart';
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
@@ -3763,10 +3765,44 @@ class LocalDb {
   /// table missing in the source is skipped. Locally FINALIZED day_result rows
   /// are protected — an import never overwrites them. Returns per-table counts
   /// of rows actually copied.
+  ///
+  /// The picked file may be COMPRESSED. Auto-backups are written gzipped, so
+  /// the file a user reinstalling onto a new phone reaches for is a `.db.gz`,
+  /// and handing that straight to `openDatabase` fails with "file is not a
+  /// database" — the app could write backups it could not restore. Detected by
+  /// MAGIC BYTES, not by extension: a file manager or a sync client that
+  /// renames on the way through is exactly the situation a restore has to
+  /// survive. Plain `.db` files (older backups, and `exportCopy` output) take
+  /// the same path they always did.
   static Future<Map<String, int>> importFromDbFile(String path) async {
     if (!await File(path).exists()) {
       throw const FileSystemException('Backup file not found');
     }
+    if (await sniffFile(path) != ImportContainer.gzip) {
+      return _mergeFromDbFile(path);
+    }
+    final work = await Directory.systemTemp.createTemp('openstrap_restore_');
+    try {
+      final inflated = await inflateGzip(path, work);
+      if (inflated == null ||
+          await sniffFile(inflated) != ImportContainer.sqlite) {
+        throw const ImportFormatException(
+          'That file unpacked to something that is not an OpenStrap database.',
+        );
+      }
+      return await _mergeFromDbFile(inflated);
+    } finally {
+      // The inflated copy is a full second copy of the database, so it goes
+      // whether the import worked or not.
+      try {
+        if (work.existsSync()) await work.delete(recursive: true);
+      } catch (_) {
+        /* the OS reclaims the temp dir eventually */
+      }
+    }
+  }
+
+  static Future<Map<String, int>> _mergeFromDbFile(String path) async {
     final src = await openDatabase(path, readOnly: true);
     final db = await instance;
     // Order: independent tables; all use INSERT OR REPLACE so re-import is safe.
@@ -4527,36 +4563,73 @@ class LocalDb {
       return 0;
     }
 
-    // PREPARE OUTSIDE THE TRANSACTION. Each eligible bundle costs several JSON
+    // PREPARE ON A WORKER ISOLATE, outside the transaction.
+    //
+    // Outside the transaction because each eligible bundle costs several JSON
     // parse/serialize passes (needsReencode, then verifyLossless, which encodes
-    // and decodes to prove the round trip, then the real encode). Doing that
-    // inside db.transaction held the write lock open across ~40 x ~88 KB of
-    // pure CPU while the rest of the app waited to write.
-    final updates = <({String dayId, int algoVersion, String encoded})>[];
-    for (final row in rows) {
-      final pj = row['payload_json'];
-      if (pj is! String || pj.isEmpty) continue;
-      if (!SeriesCodec.needsReencode(pj)) continue;
-      if (!SeriesCodec.verifyLossless(pj)) continue;
-      final encoded = SeriesCodec.encodePayloadJson(pj);
-      if (encoded.length >= pj.length) continue; // never grow a row
+    // and decodes to prove the round trip, then the real encode), and doing
+    // that inside db.transaction held the write lock open across ~40 x ~88 KB
+    // of pure CPU while the rest of the app waited to write.
+    //
+    // Off THIS isolate because that CPU is otherwise synchronous on whichever
+    // isolate called the derive, and the derive is called from the UI one:
+    // measured at 0.1-0.4 s per batch on a desktop, which is several times that
+    // on a mid-tier phone, with no await in the loop for the frame scheduler to
+    // get a word in. This app has shipped a derive-correlated main-isolate
+    // freeze before. `SeriesCodec` is pure — no I/O, no plugins, no Flutter —
+    // so it is safe anywhere, and the batch is bounded by `limit`.
+    final payloads = [
+      for (final row in rows)
+        (row['payload_json'] is String) ? row['payload_json'] as String : '',
+    ];
+    final prepared = await Isolate.run(() => _reencodeBatch(payloads));
+
+    final updates =
+        <({int rowIndex, String dayId, int algoVersion, String from, String to})>[];
+    for (var i = 0; i < rows.length; i++) {
+      final encoded = prepared[i];
+      if (encoded == null) continue;
       updates.add((
-        dayId: row['day_id'] as String,
-        algoVersion: (row['algo_version'] as num).toInt(),
-        encoded: encoded,
+        rowIndex: i,
+        dayId: rows[i]['day_id'] as String,
+        algoVersion: (rows[i]['algo_version'] as num).toInt(),
+        from: payloads[i],
+        to: encoded,
       ));
     }
 
-    final rewritten = updates.length;
+    var rewritten = 0;
+    // Index of the OLDEST-ranked row (first in this newest-first batch) whose
+    // compare-and-set found something other than what we read.
+    int? missedIndex;
     if (updates.isNotEmpty) {
       await db.transaction((txn) async {
         for (final u in updates) {
-          await txn.update(
+          // COMPARE-AND-SET on the payload we actually read.
+          //
+          // The prepare above deliberately runs outside any transaction and
+          // takes hundreds of milliseconds, and derivation runs in more than
+          // one isolate (see updateBaseline's exclusive transaction for the
+          // same hazard). A blind `WHERE day_id = ? AND algo_version = ?` will
+          // happily write a stale bundle over a row that a concurrent derive
+          // rewrote in the meantime — and because this walk starts at the
+          // NEWEST day with kAlgoVersion unbumped, its first targets are
+          // exactly the rows a light derive is rewriting. The row would end up
+          // holding the new scalar columns beside the old payload.
+          //
+          // A row that has moved is left alone. It is not lost: the cursor is
+          // held back below so a later pass looks at it again.
+          final n = await txn.update(
             'day_result',
-            {'payload_json': u.encoded},
-            where: 'day_id = ? AND algo_version = ?',
-            whereArgs: [u.dayId, u.algoVersion],
+            {'payload_json': u.to},
+            where: 'day_id = ? AND algo_version = ? AND payload_json = ?',
+            whereArgs: [u.dayId, u.algoVersion, u.from],
           );
+          if (n > 0) {
+            rewritten++;
+          } else {
+            missedIndex ??= u.rowIndex;
+          }
         }
       });
     }
@@ -4565,14 +4638,39 @@ class LocalDb {
     // rewrote — a row we skipped (already encoded, or not provably lossless)
     // would otherwise be re-examined on every future pass and the walk would
     // never terminate.
-    await putComputeFreshness(
-      kReencodeCursorKey,
-      jsonEncode({
+    //
+    // A row that lost the compare-and-set is the one exception: it is parked
+    // just BEHIND the cursor so the next pass reads it again, and `done` is
+    // withheld so the walk cannot latch shut over it. A missed FIRST row leaves
+    // the cursor exactly where it was, which costs one repeated batch and
+    // converges — the second look either re-encodes the row or finds it already
+    // encoded and steps past.
+    final Map<String, Object?> mark;
+    final missed = missedIndex;
+    if (missed == null) {
+      mark = {
         'cursor': rows.last['day_id'],
         'cursor_version': rows.last['algo_version'],
         'done': rows.length < limit,
-        'rewritten_last': rewritten,
-      }),
+      };
+    } else if (missed > 0) {
+      mark = {
+        'cursor': rows[missed - 1]['day_id'],
+        'cursor_version': rows[missed - 1]['algo_version'],
+        'done': false,
+      };
+    } else if (cursorDay == null) {
+      mark = const {};
+    } else {
+      mark = {
+        'cursor': cursorDay,
+        'cursor_version': cursorVersion,
+        'done': false,
+      };
+    }
+    await putComputeFreshness(
+      kReencodeCursorKey,
+      jsonEncode({...mark, 'rewritten_last': rewritten}),
     );
     return rewritten;
   }
@@ -5599,4 +5697,28 @@ class LocalDb {
       ),
     );
   }
+}
+
+/// One batch of curve re-encodes: for each input bundle, the compacted
+/// replacement, or null when the row must be left exactly as it is.
+///
+/// TOP-LEVEL and pure so it can be handed to `Isolate.run` — it touches nothing
+/// but `SeriesCodec`, which has no I/O, no plugins and no Flutter. The null
+/// cases are all "leave it legacy": already encoded, not provably lossless
+/// (see `verifyLossless` — this OVERWRITES durable user data, and a day past
+/// `rawRetentionDays` has no substrate left to re-derive from), or an encode
+/// that did not actually shrink the row.
+List<String?> _reencodeBatch(List<String> payloads) {
+  final out = <String?>[];
+  for (final pj in payloads) {
+    if (pj.isEmpty ||
+        !SeriesCodec.needsReencode(pj) ||
+        !SeriesCodec.verifyLossless(pj)) {
+      out.add(null);
+      continue;
+    }
+    final encoded = SeriesCodec.encodePayloadJson(pj);
+    out.add(encoded.length < pj.length ? encoded : null);
+  }
+  return out;
 }

@@ -26,6 +26,7 @@
 // imported for real; anything we cannot use gets a message naming the file we
 // DO want, instead of a byte offset.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
@@ -126,6 +127,18 @@ bool _isCsvMember(String name) {
 const int _kMaxArchiveMembers = 5000;
 const int _kMaxUncompressedBytes = 4 * 1024 * 1024 * 1024; // 4 GiB
 
+/// Ceiling for a STREAMED gzip inflate, which is a different problem from the
+/// ZIP one above: there the size is declared in the member header and can be
+/// refused before a byte is written, whereas gzip declares nothing, so the only
+/// way to refuse one is to count bytes that are already landing on disk. A
+/// ceiling in the multi-gigabyte range is therefore no protection at all on a
+/// phone — the storage is gone long before the guard trips. 2 GiB is more than
+/// an order of magnitude above the largest real database this app produces and
+/// still leaves a device with room to notice. Dart has no portable free-space
+/// API, so this is the bound available; the partial file is deleted on the way
+/// out either way.
+const int _kMaxInflatedBytes = 2 * 1024 * 1024 * 1024; // 2 GiB
+
 /// CSV files on disk for an import, plus the temp directory (if any) that has
 /// to be cleaned up once they have been read.
 class ResolvedImportFiles {
@@ -198,19 +211,32 @@ Future<String?> inflateGzip(String path, Directory dir) async {
   final destPath = p.join(dir.path, base);
   final sink = File(destPath).openWrite();
   var written = 0;
-  try {
-    await for (final chunk in File(path).openRead().transform(gzip.decoder)) {
+  // COUNT INSIDE A TRANSFORMER, then `pipe`. The obvious `await for (…)
+  // sink.add(chunk)` reads as streaming but is not: `IOSink.add` queues without
+  // back-pressure, so an inflate that outruns the disk buffers the ENTIRE
+  // inflated database in memory — the 256 MB-heap OOM this file's header is
+  // about, reintroduced by the code meant to avoid it. `pipe` goes through
+  // `addStream`, which pauses the source while a write is in flight, and the
+  // transformer propagates that pause upstream to the decoder.
+  final counted = StreamTransformer<List<int>, List<int>>.fromHandlers(
+    handleData: (chunk, out) {
       written += chunk.length;
-      if (written > _kMaxUncompressedBytes) {
-        throw ImportFormatException(
-          '“${p.basename(path)}” unpacks to more than '
-          '${_kMaxUncompressedBytes ~/ (1024 * 1024 * 1024)} GB, which is not '
-          'something we can import.',
+      if (written > _kMaxInflatedBytes) {
+        out.addError(
+          ImportFormatException(
+            '“${p.basename(path)}” unpacks to more than '
+            '${_kMaxInflatedBytes ~/ (1024 * 1024 * 1024)} GB, which is not '
+            'something we can import.',
+          ),
         );
+        out.close();
+        return;
       }
-      sink.add(chunk);
-    }
-    await sink.close();
+      out.add(chunk);
+    },
+  );
+  try {
+    await File(path).openRead().transform(gzip.decoder).transform(counted).pipe(sink);
   } catch (e) {
     try {
       await sink.close();

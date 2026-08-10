@@ -36,11 +36,11 @@ Map<String, dynamic> bundleFor(int t0, {int n = 30}) => {
   ],
 };
 
-Future<void> seedLegacy(Database db, String dayId, int t0) async {
+Future<void> seedLegacy(Database db, String dayId, int t0, {int n = 30}) async {
   await db.insert('day_result', {
     'day_id': dayId,
     'algo_version': 47,
-    'payload_json': jsonEncode(bundleFor(t0)),
+    'payload_json': jsonEncode(bundleFor(t0, n: n)),
     'window_json': '{}',
     'computed_at': 1234567,
     'finalized': 1,
@@ -225,25 +225,131 @@ void main() {
     expect(after, jsonEncode(tiny));
   });
 
+  test('a concurrent derive is never overwritten with a stale bundle', () async {
+    // The prepare is deliberately done outside any transaction, on a worker
+    // isolate, and takes hundreds of milliseconds — and derivation itself runs
+    // in more than one isolate. The update used to key on (day_id,
+    // algo_version) alone, so a bundle read before that work started was
+    // written back over whatever the other isolate had committed in the
+    // meantime, leaving the row holding the new scalar columns beside the old
+    // payload. The walk starts at the NEWEST day and kAlgoVersion is unbumped,
+    // so its first targets are exactly the rows a light derive is rewriting.
+    //
+    // A full heavy batch is seeded so the prepare genuinely occupies the window
+    // the write below lands in; the assertion on the return value pins that.
+    for (var d = 1; d <= 40; d++) {
+      await seedLegacy(db, '2026-01-${d.toString().padLeft(2, '0')}',
+          t0 + d * 86400, n: 800);
+    }
+    const newest = '2026-01-40';
+
+    final walk = LocalDb.reencodeLegacyDayResults();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    // The other isolate finishing a derive of the newest day — the first row
+    // this walk read.
+    final fresh = bundleFor(t0 + 40 * 86400 + 3600, n: 900);
+    await db.update(
+      'day_result',
+      {'payload_json': jsonEncode(fresh)},
+      where: 'day_id = ? AND algo_version = ?',
+      whereArgs: [newest, 47],
+    );
+
+    expect(
+      await walk,
+      39,
+      reason: 'the moved row must be the one row the walk declines to write',
+    );
+
+    final after = SeriesCodec.decodePayloadJson(
+      (await db.query(
+        'day_result',
+        columns: ['payload_json'],
+        where: 'day_id = ?',
+        whereArgs: [newest],
+      )).first['payload_json'],
+    );
+    expect(jsonEncode(after), jsonEncode(fresh));
+  });
+
+  test('a row that lost the compare-and-set is converted later', () async {
+    // Declining the write is only half of it: the cursor must not step past
+    // the row and latch `done`, or it keeps the legacy shape forever.
+    for (var d = 1; d <= 40; d++) {
+      await seedLegacy(db, '2026-01-${d.toString().padLeft(2, '0')}',
+          t0 + d * 86400, n: 800);
+    }
+    const newest = '2026-01-40';
+
+    final walk = LocalDb.reencodeLegacyDayResults();
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    await db.update(
+      'day_result',
+      {'payload_json': jsonEncode(bundleFor(t0 + 40 * 86400 + 3600, n: 900))},
+      where: 'day_id = ? AND algo_version = ?',
+      whereArgs: [newest, 47],
+    );
+    expect(await walk, 39, reason: 'precondition: the row was skipped');
+
+    var total = 0;
+    for (var i = 0; i < 5; i++) {
+      final n = await LocalDb.reencodeLegacyDayResults();
+      if (n == 0) break;
+      total += n;
+    }
+    expect(total, 1, reason: 'the skipped row is picked up by a later pass');
+    final after = (await db.query(
+      'day_result',
+      columns: ['payload_json'],
+      where: 'day_id = ?',
+      whereArgs: [newest],
+    )).first['payload_json'] as String;
+    expect(SeriesCodec.needsReencode(after), isFalse);
+  });
+
   test('an import rewinds a finished walk', () async {
     // importFromDbFile writes day_result rows with a raw batch.insert, so they
     // arrive in whatever shape the source device stored. The walk latches
     // `done` and is forward-only, so without a rewind those rows would keep the
     // legacy shape forever and the import would silently undo the compression.
+    //
+    // Driven through the REAL import rather than a hand-written cursor reset:
+    // written the other way, this test still passed with the rewind deleted
+    // from production, which is the only thing it exists to protect.
     await seedLegacy(db, '2026-01-01', t0);
     expect(await LocalDb.reencodeLegacyDayResults(), 1);
     expect(await LocalDb.reencodeLegacyDayResults(), 0); // walk is done
 
-    // What an import leaves behind: a legacy row that never met the write seam.
-    await seedLegacy(db, '2026-02-01', t0 + 86400 * 40);
-    expect(
-      await LocalDb.reencodeLegacyDayResults(),
-      0,
-      reason: 'precondition: a latched walk ignores it',
+    // A source export holding one legacy row, the shape an older device wrote.
+    final srcPath = p.join(
+      await databaseFactory.getDatabasesPath(),
+      'openstrap_reencode_src.db',
     );
+    await databaseFactory.deleteDatabase(srcPath);
+    final src = await databaseFactory.openDatabase(srcPath);
+    await src.execute(
+      'CREATE TABLE day_result ('
+      'day_id TEXT NOT NULL, algo_version INTEGER NOT NULL, '
+      'payload_json TEXT, window_json TEXT, computed_at INTEGER, '
+      'finalized INTEGER DEFAULT 0, skipped INTEGER DEFAULT 0, '
+      'partial INTEGER DEFAULT 0, rhr REAL, rmssd REAL, readiness REAL, '
+      'PRIMARY KEY (day_id, algo_version))',
+    );
+    await src.insert('day_result', {
+      'day_id': '2026-02-01',
+      'algo_version': 47,
+      'payload_json': jsonEncode(bundleFor(t0 + 86400 * 40)),
+      'window_json': '{}',
+      'computed_at': 1234567,
+      'finalized': 0,
+      'skipped': 0,
+      'partial': 0,
+    });
+    await src.close();
 
-    // The rewind importFromDbFile performs.
-    await LocalDb.putComputeFreshness(LocalDb.kReencodeCursorKey, '{}');
+    final counts = await LocalDb.importFromDbFile(srcPath);
+    expect(counts['day_result'], 1);
 
     var total = 0;
     for (var i = 0; i < 10; i++) {

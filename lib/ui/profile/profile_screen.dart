@@ -62,6 +62,8 @@ Future<void> _backupSheet(BuildContext ctx, AppState app) async {
               'folder you can reach from Files. Point iCloud Drive, Synology '
               'or Nextcloud at it and your history lives somewhere other than '
               'this phone. The last $kBackupsKept are kept.\n\n'
+              'Each one is compressed (a .db.gz file). Import from Edge backup '
+              'reads it back as it is — there is nothing to unzip first.\n\n'
               'It is not encrypted, and it runs when you open the app rather '
               'than in the background.',
               style: AppText.bodySoft.copyWith(color: AppColors.inkSoft),

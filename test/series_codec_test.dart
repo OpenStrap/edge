@@ -227,29 +227,33 @@ void main() {
   });
 
   group('malformed input degrades, never throws', () {
-    test('an envelope with neither dt nor to yields an empty curve', () {
-      expect(SeriesCodec.decodeCurve({'t0': 1, 'v': [1, 2]}), isEmpty);
+    // An unrecognised map is handed BACK, not replaced with an empty curve.
+    // decodePayload is the read seam for every stored payload — baselines and
+    // freshness rows go through it too — so emptying what it does not
+    // understand would silently destroy data it was only passing along.
+    test('an envelope with neither dt nor to is returned unchanged', () {
+      final raw = {
+        't0': 1,
+        'v': [1, 2],
+      };
+      expect(SeriesCodec.decodeCurve(raw), same(raw));
     });
 
-    test('a ragged offset envelope yields an empty curve', () {
-      expect(
-        SeriesCodec.decodeCurve({
-          't0': 1,
-          'to': [0, 5],
-          'v': [1, 2, 3],
-        }),
-        isEmpty,
-      );
+    test('a ragged offset envelope is returned unchanged', () {
+      final raw = {
+        't0': 1,
+        'to': [0, 5],
+        'v': [1, 2, 3],
+      };
+      expect(SeriesCodec.decodeCurve(raw), same(raw));
     });
 
-    test('a missing t0 yields an empty curve', () {
-      expect(
-        SeriesCodec.decodeCurve({
-          'dt': 60,
-          'v': [1, 2],
-        }),
-        isEmpty,
-      );
+    test('a missing t0 is returned unchanged', () {
+      final raw = {
+        'dt': 60,
+        'v': [1, 2],
+      };
+      expect(SeriesCodec.decodeCurve(raw), same(raw));
     });
 
     test('unparseable json decodes to null, not a throw', () {

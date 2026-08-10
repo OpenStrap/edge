@@ -85,8 +85,7 @@ bool backupIsDue({
 /// on the one thing here that is kept five times over.
 const kBackupExtension = '.db.gz';
 
-/// Filename for a backup taken at [when]. Sorts chronologically as text, so
-/// retention can order by name without parsing.
+/// Filename for a backup taken at [when].
 ///
 /// Seconds are included: two runs inside the same minute would otherwise land
 /// on one name and the second would overwrite the first.
@@ -120,6 +119,24 @@ final _backupNamePattern = RegExp(r'^openstrap-\d{8}-\d{6}(-\d+)?\.db(\.gz)?$');
 /// a good one.
 const kBackupStagingSuffix = '.partial';
 
+/// True when [basename] is one of OUR staging files.
+///
+/// The suffix alone is not enough. This directory is app-specific external
+/// storage on Android and the file-sharing Documents directory on iOS — the
+/// whole point of picking it is that users and sync clients can reach it, and
+/// `.partial` is exactly what a half-finished Nextcloud or iCloud download is
+/// called. Deleting on the suffix alone reached outside this feature's own
+/// files, for the same reason [_backupNamePattern] is strict rather than a
+/// loose `openstrap-*` glob.
+bool _isOurStagingFile(String basename) {
+  if (!basename.endsWith(kBackupStagingSuffix)) return false;
+  final published = basename.substring(
+    0,
+    basename.length - kBackupStagingSuffix.length,
+  );
+  return _backupNamePattern.hasMatch(published);
+}
+
 /// Delete staging files left by a run that was killed mid-write.
 ///
 /// Retention cannot do this — it only sees names it matches, and the whole
@@ -128,11 +145,27 @@ const kBackupStagingSuffix = '.partial';
 Future<void> pruneStagingFiles(Directory dir) async {
   try {
     for (final f in dir.listSync().whereType<File>()) {
-      if (p.basename(f.path).endsWith(kBackupStagingSuffix)) await f.delete();
+      if (_isOurStagingFile(p.basename(f.path))) await f.delete();
     }
   } catch (_) {
     /* housekeeping only */
   }
+}
+
+/// Sort key for a backup filename: its timestamp, then its collision index.
+///
+/// NOT the raw basename. Names sort chronologically as text right up until a
+/// same-second collision suffix appears, because `-` (0x2D) sorts before `.`
+/// (0x2E): `…-000000-2.db.gz` compares LESS than `…-000000.db.gz`, so the
+/// second backup of that second was ranked as the older one and retention
+/// would evict it first. A higher index is always the later write —
+/// [_uniqueDestination] only reaches `-2` because `-1`'s name was taken.
+(String, int) _backupSortKey(String basename) {
+  final m = _backupNamePattern.firstMatch(basename);
+  if (m == null) return ('', 0);
+  final stamp = basename.substring(0, 'openstrap-00000000-000000'.length);
+  final collision = m.group(1);
+  return (stamp, collision == null ? 1 : (int.tryParse(collision.substring(1)) ?? 1));
 }
 
 /// Existing backups, newest first.
@@ -141,7 +174,17 @@ List<File> sortBackupsNewestFirst(Iterable<FileSystemEntity> entries) {
       .whereType<File>()
       .where((f) => _backupNamePattern.hasMatch(p.basename(f.path)))
       .toList();
-  files.sort((a, b) => p.basename(b.path).compareTo(p.basename(a.path)));
+  files.sort((a, b) {
+    final ka = _backupSortKey(p.basename(a.path));
+    final kb = _backupSortKey(p.basename(b.path));
+    final byStamp = kb.$1.compareTo(ka.$1);
+    if (byStamp != 0) return byStamp;
+    final byCollision = kb.$2.compareTo(ka.$2);
+    if (byCollision != 0) return byCollision;
+    // Same second, same index — an upgraded install can hold both the old
+    // `.db` and the new `.db.gz`. Any stable order will do; pick one.
+    return p.basename(b.path).compareTo(p.basename(a.path));
+  });
   return files;
 }
 

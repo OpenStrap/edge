@@ -1,0 +1,6 @@
+# Dart sources are text, always. A test that needs a NUL byte in a fixture can
+# write one as a literal, and git's binary heuristic then calls the whole file
+# binary: the diff collapses to "Binary files differ" with no line counts, so
+# nobody reviews it. Escape sequences are the fix in the source; this makes the
+# diff readable even when a file slips through.
+*.dart text diff

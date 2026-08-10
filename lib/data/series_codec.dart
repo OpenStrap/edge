@@ -167,16 +167,22 @@ class SeriesCodec {
 
   /// Normalize one curve back to the legacy `[{t, valueKey}, …]` shape.
   ///
-  /// A `List` (legacy) is returned as-is. A malformed envelope yields an EMPTY
-  /// curve rather than throwing — the same observable outcome callers already
-  /// get from a missing key, and the contract every decode path in this repo
-  /// keeps.
+  /// A `List` (legacy) is returned as-is, and so is a Map that is not one of
+  /// the envelope shapes this file writes.
+  ///
+  /// PASS THROUGH rather than empty. This used to return `const []` for
+  /// anything it did not recognise, which is a silent TOTAL LOSS: [decodePayload]
+  /// is the read seam for every stored payload, not just day bundles — baselines,
+  /// `compute_freshness` and wake features share it — so a foreign map that
+  /// happened to sit under a curve key would be replaced by nothing on the way
+  /// out. Handing the value back unchanged costs the same and cannot destroy
+  /// anything; a caller that wanted a curve still sees a non-List and ignores it.
   static Object? decodeCurve(Object? raw, {String valueKey = 'v'}) {
     if (raw is! Map) return raw;
 
     final t0 = raw['t0'];
     final vs = raw['v'];
-    if (t0 is! int || vs is! List) return const [];
+    if (t0 is! int || vs is! List) return raw;
 
     final dt = raw['dt'];
     if (dt is int) {
@@ -186,7 +192,7 @@ class SeriesCodec {
     }
 
     final to = raw['to'];
-    if (to is! List || to.length != vs.length) return const [];
+    if (to is! List || to.length != vs.length) return raw;
     return [
       for (var i = 0; i < vs.length; i++)
         if (to[i] is int) {'t': t0 + (to[i] as int), valueKey: vs[i]},
