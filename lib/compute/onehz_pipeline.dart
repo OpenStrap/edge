@@ -491,6 +491,23 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   );
   Map<String, int> hrZones = const {};
   double? caloriesKcal;
+  // Fitness anchor for the calorie model (Uth: 15.3 x HRmax/RHR). Absent
+  // whenever the day carries no usable resting HR — `vo2maxEstimate` abstains
+  // on a non-positive or non-finite one — in which case the estimate falls
+  // back to Keytel's published age/mass/sex model rather than inventing a
+  // fitness level. Mirrors `vo2maxFor` in manual_session.dart; this pipeline
+  // is deliberately dependency-free, so it resolves the same anchor inline.
+  final vo2maxAnchor = (hrMax == null || rhrForTrimp == null)
+      ? null
+      : () {
+          final m = vo2maxEstimate(
+            restingHr: rhrForTrimp,
+            maxHr: hrMax,
+            sex: sex == 'f' ? Sex.female : Sex.male,
+            age: age,
+          );
+          return m.present ? m.value : null;
+        }();
   if (hrMax != null && perMin.isNotEmpty) {
     if (rhrForTrimp != null && sex != null && dayHrValid.isNotEmpty) {
       trimp = banisterTrimp(
@@ -511,6 +528,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           sex: sex == 'f' ? 'female' : (sex == 'm' ? 'male' : 'nonbinary'),
         ),
         hrmax: hrMax,
+        vo2max: vo2maxAnchor,
       ).active; // active-energy component (Keytel surplus over basal)
     }
   }

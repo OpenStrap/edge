@@ -37,7 +37,7 @@ import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
-import '../compute/manual_session.dart' show strainFromPerMinuteHr;
+import '../compute/manual_session.dart' show strainFromPerMinuteHr, vo2maxFor;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
 import '../data/day_label.dart';
@@ -4590,42 +4590,17 @@ class AppState extends ChangeNotifier {
     // zone_min at stop — this is what feeds the Time-in-Zones bar).
     if (w.currentHr > 0) w.zoneSeconds[_zoneFor(w.currentHr)] += 1;
 
-    if (w.currentHr > 0 && w.profile.hasCalorieAnchors) {
-      // Keytel (2005) per second, from the profile this session is being
-      // performed under. No fallbacks: this used to substitute 30y / 70 kg /
-      // male for whatever the profile was missing, which is how an untouched
-      // profile still produced a confident calorie total — and why the number
-      // read high for anyone lighter than the stand-in. The re-score path has
-      // always refused to guess (`hasCalorieAnchors`); now so does this one,
-      // and an unanchored session reports no calories at all.
-      final age = w.profile.ageYears!.toDouble();
-      final weight = w.profile.weightKg!;
-      final female = w.profile.sex == 'f' || w.profile.sex == 'female';
-
-      double kcalMin;
-      if (female) {
-        kcalMin =
-            (-20.4022 +
-                (0.4472 * w.currentHr) -
-                (0.1263 * weight) +
-                (0.074 * age)) /
-            4.184;
-      } else {
-        kcalMin =
-            (-55.0969 +
-                (0.6309 * w.currentHr) +
-                (0.1988 * weight) +
-                (0.2017 * age)) /
-            4.184;
-      }
-      // Add per-second slice (kcal/min / 60). Clamp to 0 in case of low HR.
-      w.accrueCalories(kcalMin.clamp(0.0, 30.0) / 60.0);
-
-      // Strain is NOT accrued here. `accrueHr` (called above) recomputes it
-      // from the session's per-minute HR through the one shared Banister ->
-      // log-squash path, so the live gauge, a manually logged session and the
-      // day's own strain all mean the same thing on the same 0–21 scale.
-    }
+    // Neither strain NOR calories is accrued here. `accrueHr` (called above)
+    // recomputes both from the session's per-minute HR through the one shared
+    // path each has — Banister -> log-squash for strain, and the published
+    // Keytel/Harris-Benedict rates behind `Calories.estimateBoutCalories` for
+    // kcal. So the live gauge, a manually logged session and the day's own
+    // figures all mean the same thing.
+    //
+    // Calories used to be billed HERE, per second, from an inline copy of
+    // Keytel with no activity gate and no resting floor. That copy charged the
+    // full active rate at any heart rate the band reported, so the number on
+    // the gauge did not survive the re-score of its own stream.
     // Push to the Live Activity at most ~every 4s (ActivityKit throttles; saves battery).
     if (DateTime.now().difference(_lastLaPush).inSeconds >= 4) {
       _lastLaPush = DateTime.now();
@@ -4652,8 +4627,15 @@ class LiveWorkoutState {
   final String type; // exercise type label
   Duration elapsed = Duration.zero;
 
-  /// Accrued kcal. Zero here is ambiguous on its own — read [caloriesOrNull]
-  /// anywhere a user can see it.
+  /// Live kcal for the bout so far. Zero here is ambiguous on its own — read
+  /// [caloriesOrNull] anywhere a user can see it.
+  ///
+  /// RECOMPUTED from the retained per-minute series on every sample, not
+  /// accrued. Same reason [strain] is: [restingHr] is loaded asynchronously and
+  /// can land after the session starts, and it sets the gate that decides
+  /// whether a minute is billed at the active or the resting rate. An
+  /// incremental tally could only ever have corrected the seconds after the
+  /// anchor arrived, leaving the earlier ones scored against a guess.
   double calories = 0.0;
 
   /// Whether the calorie estimate has run even once this session.
@@ -4666,15 +4648,80 @@ class LiveWorkoutState {
   /// that case as absent; this makes calories agree.
   bool _caloriesScored = false;
 
-  /// Accrued kcal, or null when this session was never costed at all — either
-  /// the profile lacks the anchors Keytel needs, or no heart rate ever
-  /// arrived. Absent beats fabricated, and absent also beats a confident zero.
+  /// Live kcal, or null when this session cannot be costed at all — the
+  /// profile lacks the anchors Keytel needs, no resting HR has arrived to set
+  /// the bout gate, or no heart rate ever landed. Absent beats fabricated, and
+  /// absent also beats a confident zero.
   int? get caloriesOrNull => _caloriesScored ? calories.round() : null;
 
-  /// Record a per-second slice. The only writer of [calories].
-  void accrueCalories(double kcal) {
+  /// Re-cost the bout so far. The only writer of [calories].
+  ///
+  /// Uses the SAME published rates, coefficients and activity gate as
+  /// `Calories.estimateBoutCalories`, which is what the substrate re-score and
+  /// every manually logged session run on — so the figure on the live gauge
+  /// survives its own re-score. It used to bill the raw Keytel active rate for
+  /// every second the band reported a heart rate, with no gate and no resting
+  /// floor, which roughly doubled the cost of warm-up, rest between sets and
+  /// cool-down against what the re-score would later say about the same stream.
+  ///
+  /// Per-minute rather than per-second because that is the series the session
+  /// retains (see [_perMinuteHr]). Keytel is linear in HR, so averaging within
+  /// a minute is exact for any minute that stays on one side of the gate.
+  void _scoreCalories() {
+    final rhr = restingHr;
+    final hrMax = profile.hrMaxTanaka;
+    // The re-score refuses to invent a 220/60 anchor pair, so neither does
+    // this. A resting HR landing later re-scores the whole bout.
+    if (!profile.hasCalorieAnchors || rhr == null || hrMax == null) {
+      _caloriesScored = false;
+      calories = 0.0;
+      return;
+    }
+    final perMin = perMinuteHr();
+    if (perMin.isEmpty) {
+      _caloriesScored = false;
+      calories = 0.0;
+      return;
+    }
+
+    final age = profile.ageYears!.toDouble();
+    final weightKg = profile.weightKg!;
+    final sex = profile.sex?.toLowerCase();
+    final coeffs = ana.Calories.resolveCoeffs(
+      sex == 'f' || sex == 'female' ? 'female' : 'male',
+    );
+    // Height is not a Keytel term; it only moves the Harris-Benedict resting
+    // floor. Defaulted to match `computeManualSessionStats`, so the two paths
+    // cannot disagree for a profile that carries no height.
+    final heightCm = profile.heightCm ?? 170.0;
+    final gate = rhr + ana.Calories.activeHRRFraction * (hrMax - rhr);
+    final restingRate =
+        ana.Calories.restingKcalPerS(coeffs, weightKg, heightCm, age);
+    // Same fitness anchor the re-score uses, from the same helper, so the two
+    // cannot end up on different Keytel models for one workout.
+    final vo2max = vo2maxFor(profile, rhr);
+
+    // Completed minutes bill a full 60 s; the minute still in progress bills
+    // only the seconds actually elapsed in it, so the gauge climbs smoothly
+    // instead of running up to a minute ahead of the athlete.
+    var kcal = 0.0;
+    for (var i = 0; i < perMin.length; i++) {
+      final hr = perMin[i];
+      final seconds = i < _perMinuteHr.length ? 60.0 : _minuteCount.toDouble();
+      final rate = hr < gate
+          ? restingRate
+          : ana.Calories.activeKcalPerS(
+              coeffs,
+              hr,
+              hrMax,
+              weightKg,
+              age,
+              vo2max: vo2max,
+            );
+      kcal += rate * seconds;
+    }
+    calories = kcal;
     _caloriesScored = true;
-    calories += kcal;
   }
 
   /// Headline 0–21 strain, or null when the profile lacks an anchor the
@@ -4777,5 +4824,10 @@ class LiveWorkoutState {
       profile: profile,
       restingHr: restingHr,
     );
+
+    // Calories re-score off the same series, through the same estimator the
+    // substrate re-score uses, so both live figures on the gauge mean the same
+    // thing the finished session will.
+    _scoreCalories();
   }
 }

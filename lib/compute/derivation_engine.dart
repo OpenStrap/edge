@@ -39,6 +39,7 @@ import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
 import '../telemetry/telemetry_service.dart';
 import 'crossday_pipeline.dart';
 import 'derive_pacing.dart';
+import 'manual_session.dart' show vo2maxFor;
 import 'movement_floor_policy.dart' as mfp;
 import 'sleep_profile_policy.dart';
 import 'derive_prepare.dart';
@@ -623,7 +624,33 @@ import 'substrate.dart';
 //   was the explicit product decision, not an accident of where the code sat.
 //   Days carrying an edit are force-derived alongside sleep-override days, so
 //   an edit to an already-finalized day actually takes effect.
-const int kAlgoVersion = 61;
+// v62 - CALORIE DOUBLE COUNT. The day's active calories were summed by a
+//   derivation-local copy of Keytel (`_keytelCaloriesWake`) that billed the FULL
+//   Keytel rate on every active minute, while `calories_total` came from
+//   `Calories.dailyEnergy`, whose active component nets out the basal minute
+//   already counted inside the total. The same minute was paid for twice, so
+//   `calories` read high by basalPerMin x active-minutes (~70 kcal on a day with
+//   one hard hour, and it scales with active time). It also propagated: the
+//   Health export writes BASAL_ENERGY_BURNED as `calories_total - calories`, so
+//   basal was understated by exactly the same amount.
+//
+//   Both figures now come from ONE `wakeDayEnergy` pass over the full-day
+//   series, so `total - active == basal` holds by construction. The local copy
+//   is deleted — a second implementation of a published formula is what let the
+//   two drift in the first place. This moves numbers on every derived day,
+//   hence the bump; finalized days recompute onto the corrected figure.
+//
+//   SAME BUMP, second change: the active term now uses Keytel's OTHER published
+//   model, the one that reads VO2max, whenever the day carries a resting HR to
+//   estimate it from (Uth: 15.3 x HRmax/RHR). Fitness is what decides how much
+//   energy a heart rate represents — a higher VO2max means a greater stroke
+//   volume, so the same beat moves more oxygen — and the age/mass/sex-only
+//   model has to substitute the derivation cohort's mean fitness instead. The
+//   anchor was already being computed for the Body screen and simply never
+//   reached the consumer that most benefits from it. Days WITHOUT a usable
+//   resting HR are unaffected: `vo2maxFor` abstains and the original model runs,
+//   so this never fabricates a fitness level. Also moves numbers, same bump.
+const int kAlgoVersion = 62;
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
@@ -3356,22 +3383,62 @@ class DerivationEngine {
     return ana.HeartRateZones.timeInZone(samples, zoneSet).toRoundedMinuteMap();
   }
 
-  static double _keytelCaloriesWake(
-    List<double> perMin,
-    double age,
-    double weight,
-    double hrMax,
-    bool female,
-  ) {
-    var kcal = 0.0;
-    for (final hr in perMin) {
-      if (hr < 0.50 * hrMax) continue;
-      final kjMin = female
-          ? (-20.4022 + 0.4472 * hr - 0.1263 * weight + 0.074 * age) / 4.184
-          : (-55.0969 + 0.6309 * hr + 0.1988 * weight + 0.2017 * age) / 4.184;
-      if (kjMin > 0) kcal += kjMin;
-    }
-    return kcal;
+  /// ONE HR-flex pass over the day's per-minute HR, returning the active,
+  /// basal and total figures TOGETHER so they cannot disagree.
+  ///
+  /// This replaces a derivation-local Keytel sum (`_keytelCaloriesWake`) that
+  /// billed the full Keytel rate on every active minute while `calories_total`
+  /// came from `ana.Calories.dailyEnergy`, whose active component nets out the
+  /// basal minute already counted inside the total. The same minute was paid
+  /// for twice, so `calories` read high by basalPerMin x active-minutes and the
+  /// basal the Health export derives as `total - active` read low by the same
+  /// amount. Active and total now come from a single call, and the invariant
+  /// `total - active == basal` holds by construction.
+  ///
+  /// Returns null when the profile lacks an anchor Keytel actually reads
+  /// ([Profile.hasCalorieAnchors]) or when no heart rate was recorded — absent
+  /// beats fabricated, and "no HR at all" is not the same claim as "this day
+  /// burned exactly your BMR".
+  ///
+  /// Height is the one input this needs that Keytel itself does not: the
+  /// Mifflin basal floor reads it. It falls back to 170 cm rather than
+  /// abstaining, matching the two other callers of the shared estimator
+  /// (`onehz_pipeline`, `manual_session`), so a profile carrying every Keytel
+  /// anchor still gets a figure. Height moves the Mifflin floor ~6 kcal/cm/day,
+  /// well inside this estimate's error bar — unlike body mass or sex, which
+  /// change the active rate directly and are therefore hard-gated above.
+  /// [restingHr] is optional and only feeds the fitness anchor: with one, the
+  /// active term uses Keytel's VO2max-adjusted model; without one, his
+  /// age/mass/sex model, unchanged. It never fabricates a resting HR to get
+  /// there — see `vo2maxFor`.
+  @visibleForTesting
+  static ({double active, double basal, double total})? wakeDayEnergy(
+    List<double> hrPerMin, {
+    required Profile profile,
+    int? dayMinutes,
+    double? restingHr,
+  }) {
+    if (!profile.hasCalorieAnchors) return null;
+    // Off-skin samples are the package's 0 sentinel; billing them would credit
+    // lost contact at the resting rate.
+    final hr = <double>[
+      for (final h in hrPerMin)
+        if (h > 0) h,
+    ];
+    if (hr.isEmpty) return null;
+    final e = ana.Calories.dailyEnergy(
+      hr,
+      profile: ana.WorkoutUserProfile(
+        weightKg: profile.weightKg!,
+        heightCm: profile.heightCm ?? 170.0,
+        age: profile.ageYears!.toDouble(),
+        sex: _workoutSex(profile.sex),
+      ),
+      hrmax: profile.hrMaxTanaka,
+      dayMinutes: dayMinutes ?? 1440,
+      vo2max: vo2maxFor(profile, restingHr),
+    );
+    return (active: e.active, basal: e.basal, total: e.total);
   }
 
   static double? _meanWake(List<double> xs) {
@@ -3731,8 +3798,8 @@ class DerivationEngine {
     // `Profile`'s own doc, and the pure `onehz_pipeline` which already gates on
     // exactly these fields) enforces. A missing input now makes the DEPENDENT
     // metric absent — the UI already renders "—" correctly.
-    final age = profile.ageYears?.toDouble();
-    final weightKg = profile.weightKg;
+    // age/weight are read by `wakeDayEnergy` straight off the profile now, so
+    // they are no longer unpacked here — TRIMP only needs the sex constant.
     final sex = profile.sex?.toLowerCase();
     final hrMax = profile.hrMaxTanaka; // null when age is unknown
     final rhrForTrimp = restingHr ?? profile.restingHrManual?.toDouble();
@@ -3759,10 +3826,10 @@ class DerivationEngine {
       }
       // Zones are pure %HRmax bands — real as soon as HRmax is real.
       zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
-      // Keytel takes age, weight and sex directly.
-      if (age != null && weightKg != null && sex != null) {
-        calories = _keytelCaloriesWake(perMin, age, weightKg, hrMax, sex == 'f');
-      }
+      // Calories are NOT computed here any more. Active and total both come
+      // from the single `wakeDayEnergy` pass below, over the full-day series —
+      // scoring active separately here, off a different series and without the
+      // basal netting, is exactly how the two figures drifted apart.
     }
     if (motion.isNotEmpty) {
       // STEPS ARE NOT COMPUTED HERE. This is the EARLY-READ path (what Today
@@ -3785,24 +3852,21 @@ class DerivationEngine {
       if (movementMetric.present && movementMetric.value != null) {
         movementMin = movementMetric.value!.activeMinutes.toDouble();
       }
-      // TDEE needs the full anthropometric set (Mifflin BMR + Keytel surplus).
-      if (age != null &&
-          weightKg != null &&
-          sex != null &&
-          profile.heightCm != null) {
-        final energy = ana.Calories.dailyEnergy(
-          hrPerMinAll,
-          profile: ana.WorkoutUserProfile(
-            weightKg: weightKg,
-            heightCm: profile.heightCm!,
-            age: age,
-            sex: _workoutSex(profile.sex),
-          ),
-          hrmax: hrMax,
-          dayMinutes: motion.length,
-        );
+      // Mifflin BMR floor + Keytel active surplus, in ONE pass, so `calories`
+      // and `calories_total` are two components of the same estimate rather
+      // than two separate ones. `dayMinutes` pro-rates the basal floor over the
+      // span actually covered, so a partial day is not billed a full 24 h BMR.
+      final energy = wakeDayEnergy(
+        hrPerMinAll,
+        profile: profile,
+        dayMinutes: motion.length,
+        // Nightly measured RHR when the night produced one, else the
+        // user-supplied value — the same anchor TRIMP is scored against above.
+        restingHr: rhrForTrimp,
+      );
+      if (energy != null) {
+        calories = energy.active;
         caloriesTotal = energy.total;
-        calories ??= energy.active;
       }
     }
     final hrStats = dayHrValid.isEmpty
