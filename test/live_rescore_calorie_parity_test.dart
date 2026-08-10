@@ -256,6 +256,30 @@ void main() {
     expect(live.calories, closeTo(61.28, 0.25));
   });
 
+  test('an outage longer than the cap stops billing at the cap', () {
+    // The case above leaves the 150 s cap itself untested: a 61 s gap bills the
+    // same whether the bound is there or not, so it pins gap HANDLING and not
+    // the bound. A strap off the wrist for three and a half minutes is what
+    // separates them — the pre-gap sample is evidence about the next 150 s at
+    // most, and past that the athlete may simply have stopped. Both sides have
+    // to give up at the same point, or the gauge and its own re-score part
+    // company by whatever the outage ran over.
+    final longGap = <int>[
+      for (var i = 0; i < 120; i++) 140,
+      for (var i = 0; i < 200; i++) 0,
+      for (var i = 0; i < 120; i++) 140,
+    ];
+
+    final live = _run(longGap);
+
+    expect(live.calories, closeTo(_rescore(longGap), 0.25));
+    // 389 billed seconds at 140 bpm, NOT the 439 seconds of wall clock: 119
+    // one-second steps before the outage, 150 (not 200) carried across it, 119
+    // after, and one representative second for the final sample.
+    // 389 * 0.2042539 = 79.45 kcal.
+    expect(live.calories, closeTo(79.45, 0.25));
+  });
+
   test('a non-1 Hz stream bills real seconds, not sample counts', () {
     // A 5 s notify rate. The per-minute scoring billed a completed minute a flat
     // 60 s however few samples backed it, and billed the minute in progress
