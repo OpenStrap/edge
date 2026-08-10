@@ -184,6 +184,65 @@ void main() {
     );
   });
 
+  test('a curve carrying BOTH dt and to is not doubled', () async {
+    // The codec never writes both, but the storage layer does not enforce that
+    // — an import from a foreign device or a corrupted row can. When the grid
+    // and offset branches were only guarded on their own field, such a curve
+    // matched both and the coach saw every point twice.
+    await db.insert('day_result', {
+      'day_id': '2026-01-03',
+      'algo_version': 47,
+      'payload_json': jsonEncode({
+        'series': {
+          'hr_curve': {
+            't0': 100,
+            'dt': 60,
+            'to': [0, 60, 120],
+            'v': [1, 2, 3],
+          },
+        },
+      }),
+      'window_json': '{}',
+      'computed_at': 0,
+    });
+
+    final rows = await seriesRows(db, '2026-01-03');
+    expect(rows, hasLength(3), reason: 'each point exactly once');
+    // `dt` wins, matching SeriesCodec.decodeCurve, so SQL and Dart agree on
+    // what an ambiguous curve means rather than disagreeing.
+    expect(rows.map((r) => r['t']), [100, 160, 220]);
+  });
+
+  test('one corrupt payload does not fail the whole view', () async {
+    // json_extract RAISES on a malformed document. Without a json_valid guard
+    // in the `latest` CTE, a single unparseable row took down every other day's
+    // curves with it — the coach got an error instead of the data it could
+    // still have had.
+    await db.insert('day_result', {
+      'day_id': '2026-01-04',
+      'algo_version': 47,
+      'payload_json': '{ this is not json',
+      'window_json': '{}',
+      'computed_at': 0,
+    });
+    try {
+      final rows = await db.rawQuery(
+        "SELECT COUNT(*) c FROM v_series WHERE date = '2026-01-01'",
+      );
+      expect((rows.first['c'] as num).toInt(), greaterThan(0));
+      expect(await seriesRows(db, '2026-01-04'), isEmpty);
+    } finally {
+      // Removed here rather than left for the shared teardown: this row is
+      // deliberately malformed, and the "encoder never emits invalid JSON"
+      // assertion further down scans the whole table.
+      await db.delete(
+        'day_result',
+        where: 'day_id = ?',
+        whereArgs: ['2026-01-04'],
+      );
+    }
+  });
+
   test('v_hypnogram is unaffected by the encoding', () async {
     final legacy = await db.rawQuery(
       "SELECT start_ts, end_ts, stage FROM v_hypnogram "

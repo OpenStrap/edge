@@ -438,6 +438,56 @@ void main() {
       );
     });
 
+    test('the final backup name never exists as a partial file', () async {
+      // Compressing straight into `dest` published the final name while the
+      // file was still being written. Kill the process mid-stream and a
+      // truncated file carries a name retention matches, so it counts as one of
+      // the five and evicts a good backup. `catch` cannot save that — the
+      // process is gone. So: stage under a name retention does NOT match, and
+      // publish by rename.
+      //
+      // Asserted through a failing export, which is the only mid-write failure
+      // reachable from a test: no final-named file may be left behind, and
+      // nothing invisible may accumulate either.
+      final dir = await backupDirectory();
+      final before = dir.listSync().length;
+
+      final outcome = await runBackup(
+        now: DateTime(2026, 8, 9, 17, 0, 0),
+        exportSnapshot: () async => throw const FileSystemException('boom'),
+      );
+      expect(outcome.succeeded, isFalse);
+
+      final names = dir.listSync().map((f) => p.basename(f.path)).toList();
+      expect(
+        names.where((n) => n.contains('20260809-170000')),
+        isEmpty,
+        reason: 'a failed backup must leave neither a final nor a staging file',
+      );
+      expect(dir.listSync().length, before);
+    });
+
+    test('staging files are invisible to retention', () async {
+      // The suffix only protects a good backup if retention genuinely cannot
+      // see it — otherwise a partial would still be counted and still evict.
+      final dir = await backupDirectory();
+      File(
+        p.join(dir.path, 'openstrap-20260809-180000.db.gz$kBackupStagingSuffix'),
+      ).writeAsStringSync('half a backup');
+      try {
+        final seen = sortBackupsNewestFirst(dir.listSync())
+            .map((f) => p.basename(f.path));
+        expect(seen.where((n) => n.contains('180000')), isEmpty);
+      } finally {
+        await pruneStagingFiles(dir);
+      }
+      expect(
+        dir.listSync().where((f) => f.path.endsWith(kBackupStagingSuffix)),
+        isEmpty,
+        reason: 'pruneStagingFiles must reclaim what retention cannot see',
+      );
+    });
+
     test('a snapshot is never left behind in temp', () async {
       // The export is a full second copy of the database. The old code renamed
       // it into place; the new one streams and must still delete the source.

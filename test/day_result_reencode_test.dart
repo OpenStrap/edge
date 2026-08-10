@@ -225,6 +225,40 @@ void main() {
     expect(after, jsonEncode(tiny));
   });
 
+  test('an import rewinds a finished walk', () async {
+    // importFromDbFile writes day_result rows with a raw batch.insert, so they
+    // arrive in whatever shape the source device stored. The walk latches
+    // `done` and is forward-only, so without a rewind those rows would keep the
+    // legacy shape forever and the import would silently undo the compression.
+    await seedLegacy(db, '2026-01-01', t0);
+    expect(await LocalDb.reencodeLegacyDayResults(), 1);
+    expect(await LocalDb.reencodeLegacyDayResults(), 0); // walk is done
+
+    // What an import leaves behind: a legacy row that never met the write seam.
+    await seedLegacy(db, '2026-02-01', t0 + 86400 * 40);
+    expect(
+      await LocalDb.reencodeLegacyDayResults(),
+      0,
+      reason: 'precondition: a latched walk ignores it',
+    );
+
+    // The rewind importFromDbFile performs.
+    await LocalDb.putComputeFreshness(LocalDb.kReencodeCursorKey, '{}');
+
+    var total = 0;
+    for (var i = 0; i < 10; i++) {
+      final n = await LocalDb.reencodeLegacyDayResults(limit: 2);
+      if (n == 0) break;
+      total += n;
+    }
+    expect(total, 1, reason: 'the imported row gets converted');
+
+    final rows = await db.query('day_result', columns: ['payload_json']);
+    for (final r in rows) {
+      expect(SeriesCodec.needsReencode(r['payload_json'] as String), isFalse);
+    }
+  });
+
   test('every algo_version generation of a day is converted', () async {
     // day_result is keyed (day_id, algo_version); a day can hold more than one
     // generation and the walk must not stop at the newest.

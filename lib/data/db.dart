@@ -1758,7 +1758,17 @@ class LocalDb {
     // data/series_codec.dart for why. Old rows keep their legacy shape forever,
     // so this view must read all three, and the branch guards are what keep a
     // row from being emitted twice: legacy requires an `array`, grid requires
-    // `.dt`, offset requires `.to`, and no stored curve ever satisfies two.
+    // `.dt`, offset requires `.to` AND no `.dt`. The codec never writes both,
+    // but "never" is not enforced by the storage layer — a foreign or corrupted
+    // curve carrying both fields matched the grid and offset branches at once
+    // and silently doubled the curve. The `.dt` precedence also matches
+    // SeriesCodec.decodeCurve, so SQL and Dart resolve an ambiguous curve the
+    // same way rather than disagreeing.
+    //
+    // `latest` filters on json_valid first: json_extract raises on a malformed
+    // document, and without the guard ONE corrupt payload fails the entire
+    // v_series query instead of dropping that one day. Same guard, same reason,
+    // as daysWithSleepTst.
     //
     // The grid branch needs no running sum because json_each exposes an array's
     // index as `key`, so t = t0 + key*dt. Offset pairs `to` and `v` on that
@@ -1771,6 +1781,7 @@ class LocalDb {
         SELECT r.day_id, r.payload_json FROM day_result r
         JOIN (SELECT day_id, MAX(algo_version) v FROM day_result GROUP BY day_id) m
           ON r.day_id = m.day_id AND r.algo_version = m.v
+        WHERE json_valid(r.payload_json)
       ),
       curve(sk, pth, vk) AS (
         SELECT 'hr_curve','\$.series.hr_curve','\$.v'
@@ -1803,6 +1814,7 @@ class LocalDb {
       JOIN json_each(json_extract(l.payload_json, c.pth||'.to')) et
       JOIN json_each(json_extract(l.payload_json, c.pth||'.v')) ev ON ev.key = et.key
       WHERE json_extract(l.payload_json, c.pth||'.to') IS NOT NULL
+        AND json_extract(l.payload_json, c.pth||'.dt') IS NULL
     ''');
     // Sleep stage segments (different element shape from the {t,v} curves).
     await db.execute('''
@@ -3931,6 +3943,16 @@ class LocalDb {
     } finally {
       await src.close();
     }
+    // An import writes day_result rows with a raw batch.insert, deliberately
+    // bypassing putDayResult (and therefore the curve-encode seam), so the rows
+    // arrive in whatever shape the source device stored — legacy, if it was on
+    // an older build. The re-encode walk is forward-only and latches `done`, so
+    // once it has finished those rows would never be looked at again and the
+    // growth this walk exists to remove would come straight back with the
+    // import. Rewind it.
+    if ((counts['day_result'] ?? 0) > 0) {
+      await putComputeFreshness(kReencodeCursorKey, jsonEncode({}));
+    }
     return counts;
   }
 
@@ -4505,24 +4527,39 @@ class LocalDb {
       return 0;
     }
 
-    var rewritten = 0;
-    await db.transaction((txn) async {
-      for (final row in rows) {
-        final pj = row['payload_json'];
-        if (pj is! String || pj.isEmpty) continue;
-        if (!SeriesCodec.needsReencode(pj)) continue;
-        if (!SeriesCodec.verifyLossless(pj)) continue;
-        final encoded = SeriesCodec.encodePayloadJson(pj);
-        if (encoded.length >= pj.length) continue; // never grow a row
-        await txn.update(
-          'day_result',
-          {'payload_json': encoded},
-          where: 'day_id = ? AND algo_version = ?',
-          whereArgs: [row['day_id'], row['algo_version']],
-        );
-        rewritten++;
-      }
-    });
+    // PREPARE OUTSIDE THE TRANSACTION. Each eligible bundle costs several JSON
+    // parse/serialize passes (needsReencode, then verifyLossless, which encodes
+    // and decodes to prove the round trip, then the real encode). Doing that
+    // inside db.transaction held the write lock open across ~40 x ~88 KB of
+    // pure CPU while the rest of the app waited to write.
+    final updates = <({String dayId, int algoVersion, String encoded})>[];
+    for (final row in rows) {
+      final pj = row['payload_json'];
+      if (pj is! String || pj.isEmpty) continue;
+      if (!SeriesCodec.needsReencode(pj)) continue;
+      if (!SeriesCodec.verifyLossless(pj)) continue;
+      final encoded = SeriesCodec.encodePayloadJson(pj);
+      if (encoded.length >= pj.length) continue; // never grow a row
+      updates.add((
+        dayId: row['day_id'] as String,
+        algoVersion: (row['algo_version'] as num).toInt(),
+        encoded: encoded,
+      ));
+    }
+
+    final rewritten = updates.length;
+    if (updates.isNotEmpty) {
+      await db.transaction((txn) async {
+        for (final u in updates) {
+          await txn.update(
+            'day_result',
+            {'payload_json': u.encoded},
+            where: 'day_id = ? AND algo_version = ?',
+            whereArgs: [u.dayId, u.algoVersion],
+          );
+        }
+      });
+    }
 
     // The cursor advances past every row we LOOKED at, not just the ones we
     // rewrote — a row we skipped (already encoded, or not provably lossless)

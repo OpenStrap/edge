@@ -114,6 +114,27 @@ String backupFileName(DateTime when) {
 ///     leaked for the same reason.
 final _backupNamePattern = RegExp(r'^openstrap-\d{8}-\d{6}(-\d+)?\.db(\.gz)?$');
 
+/// Appended while a backup is still being written. Chosen so
+/// [_backupNamePattern] does NOT match it: a partial file must be invisible to
+/// retention, or a process killed mid-write would let a truncated backup evict
+/// a good one.
+const kBackupStagingSuffix = '.partial';
+
+/// Delete staging files left by a run that was killed mid-write.
+///
+/// Retention cannot do this — it only sees names it matches, and the whole
+/// point of the staging suffix is that it does not. Best-effort: a leftover
+/// costs disk, never correctness.
+Future<void> pruneStagingFiles(Directory dir) async {
+  try {
+    for (final f in dir.listSync().whereType<File>()) {
+      if (p.basename(f.path).endsWith(kBackupStagingSuffix)) await f.delete();
+    }
+  } catch (_) {
+    /* housekeeping only */
+  }
+}
+
 /// Existing backups, newest first.
 List<File> sortBackupsNewestFirst(Iterable<FileSystemEntity> entries) {
   final files = entries
@@ -217,6 +238,15 @@ Future<BackupOutcome> _runBackup({
     }
     final snapshot = await (exportSnapshot ?? LocalDb.exportCopy)();
     final tmp = File(snapshot);
+    // STAGE, then publish by rename. Compressing straight into `dest` meant the
+    // final backup name existed while it was still being written: kill the
+    // process mid-stream and a truncated file is left behind carrying a name
+    // `_backupNamePattern` matches, so retention counts it as one of the five
+    // and evicts a good backup to make room. `catch` cannot help — the process
+    // is gone. The staging name is deliberately one retention does NOT match,
+    // and rename is atomic within the directory, so `dest.path` only ever
+    // exists as a complete file.
+    final staging = File('${dest.path}$kBackupStagingSuffix');
     try {
       // STREAMED, not read-then-compress: the snapshot is the whole database
       // and buffering it twice in memory to save disk would trade one resource
@@ -224,13 +254,14 @@ Future<BackupOutcome> _runBackup({
       //
       // This also replaces the old rename/copy fallback — that existed because
       // temp and external storage are different filesystems on Android, where
-      // rename fails outright. A stream never had that problem.
-      await tmp.openRead().transform(gzip.encoder).pipe(dest.openWrite());
+      // rename fails outright. Staging lives in the destination directory, so
+      // the publish step is a same-filesystem rename.
+      final sink = staging.openWrite();
+      await tmp.openRead().transform(gzip.encoder).pipe(sink);
+      await staging.rename(dest.path);
     } catch (_) {
-      // A half-written .gz is not a backup, and leaving one behind would let it
-      // count toward retention and push a GOOD backup out of the window.
       try {
-        if (await dest.exists()) await dest.delete();
+        if (await staging.exists()) await staging.delete();
       } catch (_) {}
       rethrow;
     } finally {
@@ -239,6 +270,10 @@ Future<BackupOutcome> _runBackup({
       } catch (_) {}
     }
 
+    // Sweep any staging files a previous run was killed midway through. They
+    // are invisible to retention by design, so nothing else would ever remove
+    // them.
+    await pruneStagingFiles(dir);
     await pruneBackups(dir, keep: kBackupsKept);
     return BackupOutcome(path: dest.path);
   } catch (e) {

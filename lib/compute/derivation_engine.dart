@@ -1076,6 +1076,9 @@ class DerivationEngine {
         if (scope.fullHistory) {
           await _pruneOldDecoded(todoDays, dataNowSec);
         }
+        // Unconditional: an install whose days are all finalized still has a
+        // back catalogue to convert, and this is the path it takes every time.
+        await _runStorageHousekeeping();
         return 0;
       }
       _diag['todo_days'] = todoDays.length;
@@ -1175,7 +1178,12 @@ class DerivationEngine {
         _diag['stage'] = 'notifications';
         await _runNotifications();
       }
-      // 5. Prune raw — never for a day still inside its raw window / un-derived.
+      // 5. Storage housekeeping. OUTSIDE the fullHistory gate below — see
+      // _runStorageHousekeeping for why.
+      _diag['stage'] = 'housekeeping';
+      await _runStorageHousekeeping();
+
+      // 6. Prune raw — never for a day still inside its raw window / un-derived.
       if (scope.fullHistory) {
         _diag['stage'] = 'prune';
         await _pruneOldDecoded(todoDays, dataNowSec);
@@ -3314,10 +3322,20 @@ class DerivationEngine {
     if (stale > 0) {
       _log('pruned $stale superseded intermediate rows');
     }
-    // Convert the back catalogue to the compact curve format, a bounded batch
-    // at a time. Same reasoning as the prune above: recomputable/rewritable
-    // housekeeping belongs here, off the path to a durable commit, and never in
-    // a migration under iOS's CPU watchdog.
+  }
+
+  /// Storage housekeeping that must run on EVERY derive.
+  ///
+  /// Deliberately NOT inside [_pruneOldDecoded]: both of that method's call
+  /// sites sit behind `if (scope.fullHistory)`, and ordinary light/heavy
+  /// derives run with `fullHistory: false`. Putting the back-catalogue rewrite
+  /// there made it resumable but effectively unreachable — a normal install
+  /// would have converted nothing.
+  ///
+  /// Bounded and resumable, so running it on every pass costs one small batch.
+  /// Off the path to a durable commit, and never inside a migration: `onUpgrade`
+  /// runs under iOS's CPU watchdog (invariant 11).
+  Future<void> _runStorageHousekeeping() async {
     final reencoded = await LocalDb.reencodeLegacyDayResults();
     if (reencoded > 0) {
       _log('re-encoded $reencoded legacy day bundles');
