@@ -710,5 +710,24 @@ void main() {
         isFalse,
       );
     });
+
+    test('a battery event stamped beyond the window into the future is '
+        'rejected', () {
+      // A strap RTC running ahead put the stamp in the future rather than the
+      // past. "Recent" has to mean recent in both directions, or the gate lets
+      // an event through on the one side it never checked.
+      expect(
+        BatteryPolicy.acceptsEventReading(
+            wall + BatteryPolicy.maxEventAgeSec + 1, wall),
+        isFalse,
+      );
+    });
+
+    test('small clock skew ahead of the phone is still accepted', () {
+      expect(
+        BatteryPolicy.acceptsEventReading(wall + 60, wall),
+        isTrue,
+      );
+    });
   });
 }

@@ -205,13 +205,15 @@ class BatteryPolicy {
   static const int maxEventAgeSec = 1800;
 
   /// [tsEpoch] is the event's own strap-clock stamp, or null for a poll
-  /// response. A reading past the [kFutureMargin] ceiling comes from an unset
-  /// or corrupt RTC and is refused for the same reason [ClockPolicy] refuses
-  /// one — with no accepted event the 30-second poll still owns the value.
+  /// response. The window is symmetric on purpose: a strap RTC running ahead
+  /// stamps an event in the FUTURE, and a one-sided age check never looks at
+  /// that side — a future-dated replay would sail through and overwrite the
+  /// live value. Beyond the window in either direction is a drifting or unset
+  /// RTC, refused for the same reason [ClockPolicy] refuses one: with no
+  /// accepted event the 30-second poll still owns the value.
   static bool acceptsEventReading(int? tsEpoch, int wallNow) {
     if (tsEpoch == null) return true;
-    if (tsEpoch > wallNow + kFutureMargin) return false;
-    return wallNow - tsEpoch <= maxEventAgeSec;
+    return (wallNow - tsEpoch).abs() <= maxEventAgeSec;
   }
 }
 
