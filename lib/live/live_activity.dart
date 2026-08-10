@@ -23,7 +23,9 @@ class LiveActivity {
         'name': name,
         'startedAtMs': startedAt.millisecondsSinceEpoch,
         'targetKcal': targetKcal,
-        'hr': 0, 'zone': 0, 'strain': 0.0, 'calories': 0,
+        // Null, not 0 — nothing has been measured at the moment the activity
+        // starts, and the widget renders an absent strain/kcal as "—".
+        'hr': 0, 'zone': 0, 'strain': null, 'calories': null,
         'maxHr': maxHr, 'rhr': rhr,
       });
       _active = true;
@@ -31,11 +33,17 @@ class LiveActivity {
   }
 
   /// Push a new content state. Caller should throttle (~every 3–5s).
+  ///
+  /// [strain] and [calories] are NULLABLE and must be passed through as null
+  /// when the session cannot be scored — a profile without the anchors Keytel
+  /// and Banister read, or a band that has not delivered a heart rate yet. They
+  /// were coerced to 0 here, so a new user's lock screen read a confident
+  /// "0 kcal" for a whole workout while the in-app gauge correctly read "—".
   static Future<void> update({
     required int hr,
     required int zone,
-    required double strain,
-    required int calories,
+    required double? strain,
+    required int? calories,
     required int maxHr,
     required int rhr,
   }) async {

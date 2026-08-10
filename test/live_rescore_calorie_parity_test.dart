@@ -10,11 +10,25 @@
 // between sets and cool-down were billed at roughly double, and the number on
 // the live gauge did not survive its own re-score.
 //
-// The live tick now RECOMPUTES from the retained per-minute series through the
-// same published rates and the same gate, rather than accruing. That is the
-// shape `accrueHr` already uses for strain, and it is what lets a nightly
-// resting HR that lands mid-session correct the whole bout instead of only the
-// seconds after it arrived.
+// The live tick now RECOMPUTES from the retained series through the same
+// published rates and the same gate, rather than accruing. That is the shape
+// `accrueHr` already uses for strain, and it is what lets a nightly resting HR
+// that lands mid-session correct the whole bout instead of only the seconds
+// after it arrived.
+//
+// The retained series is per-SAMPLE seconds-at-each-bpm, not per-minute means.
+// The first version of this fix used per-minute means and stayed wrong in three
+// ways none of the original cases here could see, because they all ran a 1 Hz
+// stream whose single transition landed exactly on a minute boundary:
+//
+//   * the gate is per sample in the re-score and was per minute-MEAN here, so a
+//     minute straddling the gate went wholly to one rate;
+//   * a completed minute billed a flat 60 s regardless of how many samples
+//     backed it, and the minute in progress billed its SAMPLE COUNT as seconds;
+//   * a contact-loss gap billed 0 s live while the re-score bills the pre-gap
+//     sample for the gap, capped at 150 s.
+//
+// The last four cases in this file are each one of those.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/manual_session.dart';
@@ -44,7 +58,12 @@ final _hr = <int>[
 
 final _startedAt = DateTime(2026, 1, 1, 7);
 
-LiveWorkoutState _run(List<int> hr, {double? restingHr = _restingHr}) {
+/// Play [hr] into a live session, one sample every [stepSec] seconds.
+LiveWorkoutState _run(
+  List<int> hr, {
+  double? restingHr = _restingHr,
+  int stepSec = 1,
+}) {
   final s = LiveWorkoutState(
     startTime: _startedAt,
     targetKcal: 300,
@@ -52,7 +71,7 @@ LiveWorkoutState _run(List<int> hr, {double? restingHr = _restingHr}) {
     restingHr: restingHr,
   );
   for (var i = 0; i < hr.length; i++) {
-    s.elapsed = Duration(seconds: i);
+    s.elapsed = Duration(seconds: i * stepSec);
     s.accrueHr(hr[i]);
   }
   return s;
@@ -66,10 +85,10 @@ LiveWorkoutState _run(List<int> hr, {double? restingHr = _restingHr}) {
 /// stand-in kept passing the old model and this test correctly went red. The
 /// property under test is agreement with the shipping code, so it has to call
 /// the shipping code.
-double _rescore(List<int> hr) {
+double _rescore(List<int> hr, {int stepSec = 1}) {
   final base = _startedAt.millisecondsSinceEpoch ~/ 1000;
   final s = computeManualSessionStats(
-    hrTs: [for (var i = 0; i < hr.length; i++) base + i],
+    hrTs: [for (var i = 0; i < hr.length; i++) base + i * stepSec],
     hrBpm: hr,
     profile: _profile,
     zoneMaxHr: _hrMax,
@@ -161,6 +180,117 @@ void main() {
       reason: 'the anchor arriving must score the seconds already banked',
     );
     expect(s.calories, greaterThan(60.0));
+  });
+
+  test('an interval that crosses the gate mid-minute splits the minute', () {
+    // 30 s at 130 alternating with 30 s at 60 — the shape of any interval
+    // session. Every minute has a mean of 95, which is ABOVE the 93.76 gate, so
+    // scoring off minute means bills all six minutes at the active rate for
+    // 130 bpm's mean. Per sample, half of every minute is resting.
+    final intervals = <int>[
+      for (var block = 0; block < 6; block++) ...[
+        for (var i = 0; i < 30; i++) 130,
+        for (var i = 0; i < 30; i++) 60,
+      ],
+    ];
+
+    final live = _run(intervals);
+
+    expect(live.calories, closeTo(_rescore(intervals), 0.25));
+    // 180 s * activeKcalPerS(130) + 180 s * restingRate
+    //   = 180 * 0.1789830 + 180 * 0.0198397 = 35.79 kcal
+    expect(live.calories, closeTo(35.79, 0.25));
+    // Gating on the minute mean (95 bpm, active, for all 360 s) says 32.61.
+    expect(
+      live.calories,
+      isNot(closeTo(32.61, 1.0)),
+      reason: 'the gate is a per-sample decision, not a per-minute one',
+    );
+  });
+
+  test('a sawtooth hovering at the gate does not collapse to one side', () {
+    // The worst case for minute-mean gating, and an entirely ordinary heart
+    // rate: 30 s at 94 and 30 s at 93 against a 93.76 gate. Every minute mean
+    // is 93.5, just under, so the whole session reads as rest.
+    final sawtooth = <int>[
+      for (var block = 0; block < 10; block++) ...[
+        for (var i = 0; i < 30; i++) 94,
+        for (var i = 0; i < 30; i++) 93,
+      ],
+    ];
+
+    final live = _run(sawtooth);
+
+    expect(live.calories, closeTo(_rescore(sawtooth), 0.25));
+    // 300 s * activeKcalPerS(94) + 300 s * restingRate
+    //   = 300 * 0.0880493 + 300 * 0.0198397 = 32.37 kcal
+    expect(live.calories, closeTo(32.37, 0.25));
+    // Minute-mean gating bills all 600 s at the resting rate: 11.90 kcal, i.e.
+    // 1.19 kcal/min where the re-score says 3.24 — about 123 kcal adrift over a
+    // zone-2 hour, off a stream that never looks unusual.
+    expect(
+      live.calories,
+      greaterThan(20.0),
+      reason: 'billing a 94 bpm half-minute as rest is the bug this pins',
+    );
+  });
+
+  test('a contact-loss gap is billed the same way on both sides', () {
+    // Two minutes of contact, a minute of nothing, two more minutes. The band
+    // reports 0 for off-skin, which is not a heart rate, so it is dropped — but
+    // the TIME is not. `estimateBoutCalories` sees the filtered stream and bills
+    // the pre-gap sample for the gap (capped at 150 s), and the live tick has to
+    // do the same or the gauge loses a minute the re-score keeps.
+    final withGap = <int>[
+      for (var i = 0; i < 120; i++) 140,
+      for (var i = 0; i < 60; i++) 0,
+      for (var i = 0; i < 120; i++) 140,
+    ];
+
+    final live = _run(withGap);
+
+    expect(live.calories, closeTo(_rescore(withGap), 0.25));
+    // 300 billed seconds at 140 bpm: 239 one-second steps, the 61 s the pre-gap
+    // sample carries across the outage, and one representative second for the
+    // final sample. 300 * 0.2042539 = 61.28 kcal.
+    expect(live.calories, closeTo(61.28, 0.25));
+  });
+
+  test('a non-1 Hz stream bills real seconds, not sample counts', () {
+    // A 5 s notify rate. The per-minute scoring billed a completed minute a flat
+    // 60 s however few samples backed it, and billed the minute in progress
+    // `_minuteCount` — a SAMPLE count — as if it were seconds, so the trailing
+    // minute was worth 12 s.
+    final sparse = <int>[
+      for (var i = 0; i < 60; i++) 140,
+      for (var i = 0; i < 60; i++) 70,
+    ];
+
+    final live = _run(sparse, stepSec: 5);
+
+    expect(live.calories, closeTo(_rescore(sparse, stepSec: 5), 0.25));
+    // 300 s at 140 (60 samples x 5 s) + 296 s at 70 (59 x 5 s + the final
+    // sample's one representative second) = 61.28 + 5.87 = 67.15 kcal.
+    expect(live.calories, closeTo(67.15, 0.25));
+  });
+
+  test('time before the first sample is not billed', () {
+    // A session started before the band delivered anything — permissions, a
+    // reconnect, a cold strap. Nothing was measured for those seconds and they
+    // must cost nothing; the re-score never sees them at all.
+    final s = LiveWorkoutState(
+      startTime: _startedAt,
+      targetKcal: 300,
+      profile: _profile,
+      restingHr: _restingHr,
+    );
+    for (var i = 0; i < 60; i++) {
+      s.elapsed = Duration(seconds: 45 + i);
+      s.accrueHr(140);
+    }
+
+    // 60 billed seconds (59 one-second steps + the trailing second), not 105.
+    expect(s.calories, closeTo(60 * 0.2042539, 0.25));
   });
 
   test('abstains for a profile without the Keytel anchors', () {

@@ -248,22 +248,19 @@ List<double> zoneMinutesFor(List<int> hrBpm, double zoneMaxHr) {
 /// fitness signal rather than a circular one, because resting HR is measured
 /// overnight and the workout HR is not.
 ///
-/// ONE definition, shared by the live tick, the substrate re-score and the day
-/// derivation, so the fitness term cannot reach one calorie path and miss
-/// another. `vo2maxEstimate` already abstains on a non-positive or non-finite
-/// resting HR and on an HRmax at or below it, so every "we cannot know this"
-/// case arrives here as null and the caller falls back to Keytel's published
-/// age/mass/sex model.
-double? vo2maxFor(Profile profile, double? restingHr) {
-  final sex = profile.sex?.toLowerCase();
-  final m = ana.vo2maxEstimate(
-    restingHr: restingHr,
-    maxHr: profile.hrMaxTanaka,
-    sex: sex == 'f' || sex == 'female' ? ana.Sex.female : ana.Sex.male,
-    age: profile.ageYears?.toDouble(),
-  );
-  return m.present ? m.value : null;
-}
+/// The [Profile]-shaped face of `vo2maxAnchor`, which is the one definition,
+/// shared by the live tick, the substrate re-score, the day derivation and the
+/// pure day pipeline, so the fitness term cannot reach one calorie path and
+/// miss another. `vo2maxEstimate` already abstains on a non-positive or
+/// non-finite resting HR and on an HRmax at or below it, so every "we cannot
+/// know this" case arrives here as null and the caller falls back to Keytel's
+/// published age/mass/sex model.
+double? vo2maxFor(Profile profile, double? restingHr) => vo2maxAnchor(
+      restingHr: restingHr,
+      maxHr: profile.hrMaxTanaka,
+      sex: profile.sex,
+      age: profile.ageYears?.toDouble(),
+    );
 
 double? strainFromPerMinuteHr(
   List<double> perMinuteHr, {
@@ -279,7 +276,7 @@ double? strainFromPerMinuteHr(
     perMinuteHr,
     restingHr: restingHr,
     maxHr: hrMax,
-    sex: sex == 'f' || sex == 'female' ? ana.Sex.female : ana.Sex.male,
+    sex: workoutSex(sex) == 'female' ? ana.Sex.female : ana.Sex.male,
   );
   if (!trimp.present || trimp.value == null) return null;
   final score = ana.strainScoreMetric(trimp.value);
@@ -350,7 +347,7 @@ ManualSessionStats computeManualSessionStats({
         weightKg: weightKg,
         heightCm: profile.heightCm ?? 170.0,
         age: age,
-        sex: sex == 'f' || sex == 'female' ? 'female' : 'male',
+        sex: workoutSex(sex),
       ),
       hrmax: hrMax,
       restingHr: restingHr,

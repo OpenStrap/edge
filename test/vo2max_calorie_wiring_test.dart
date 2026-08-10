@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/manual_session.dart';
+import 'package:openstrap_edge/compute/onehz_pipeline.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 
@@ -141,6 +142,109 @@ void main() {
 
     expect(withoutRhr.active, closeTo(reference.active, 1e-9));
     expect(withoutRhr.total, closeTo(reference.total, 1e-9));
+  });
+
+  test('the pure day pipeline picks the anchor up too', () {
+    // `deriveDayBundle` was the one calorie path with no test at all, and the
+    // one that kept its OWN copy of the anchor closure rather than calling the
+    // shared helper. Both are covered here.
+    Map<String, dynamic> bundleFor({int? restingHr}) {
+      const dayStart = 1767225600;
+      const hours = 3;
+      final ts = <int>[];
+      final hr = <int>[];
+      for (var t = dayStart; t < dayStart + hours * 3600; t++) {
+        ts.add(t);
+        hr.add(140);
+      }
+      return deriveDayBundle(
+        DayBundleInput(
+          date: '2026-01-01',
+          dayTsSec: ts,
+          dayHr: hr,
+          // No sleep window: onset == offset, so nothing is excluded from the
+          // wake series and `rhrToday` stays absent, which is what lets the
+          // profile's own resting HR be the variable under test.
+          sleepTsSec: const [],
+          sleepHr: const [],
+          sleepRrTsMs: const [],
+          sleepRrMs: const [],
+          sleepSpo2Red: const [],
+          sleepSpo2Ir: const [],
+          sleepSkinTemp: const [],
+          sleepJson: const {},
+          hypnoStages: const [],
+          sleepOnsetSec: 0,
+          sleepOffsetSec: 0,
+          profile: {
+            'age': 34,
+            'sex': 'm',
+            'weight_kg': 72,
+            'height_cm': 178,
+            'resting_hr': ?restingHr,
+          },
+          dayConfidence: 1.0,
+          dayFlags: const [],
+        ).toJson(),
+      );
+    }
+
+    final anchorless = bundleFor()['calories'] as num?;
+    final fit = bundleFor(restingHr: 45)['calories'] as num?;
+
+    expect(anchorless, isNotNull, reason: 'the day has heart rate and a profile');
+    expect(fit, isNotNull);
+
+    // 180 wake minutes at 140 bpm, netting the basal minute out of each.
+    // Mifflin (male, 72 kg, 178 cm, 34 y) = 1667.5/day = 1.15799 kcal/min.
+    //   age/mass/sex model: 54.4005 kJ/min = 13.00203 kcal/min
+    //     -> (13.00203 - 1.15799) * 180 = 2131.9 kcal
+    //   VO2max 62.63 model:  55.8703 kJ/min = 13.35333 kcal/min
+    //     -> (13.35333 - 1.15799) * 180 = 2195.2 kcal
+    expect(anchorless!.toDouble(), closeTo(2131.9, 2.0));
+    expect(fit!.toDouble(), closeTo(2195.2, 2.0));
+    expect(
+      fit,
+      greaterThan(anchorless),
+      reason: 'a 45 bpm resting HR is above the cohort mean fitness the '
+          'age/mass/sex model bakes in',
+    );
+  });
+
+  test('every path resolves the fitness anchor from one definition', () {
+    // The pipeline used to inline its own copy of this, whose sex mapping
+    // accepted 'f' but not 'female' — inert only because `vo2maxEstimate`
+    // ignores its sex and age arguments today. Pin the agreement rather than
+    // depending on that staying true.
+    const short = Profile(ageYears: 34, weightKg: 72, sex: 'f');
+    const long = Profile(ageYears: 34, weightKg: 72, sex: 'female');
+    const capitalised = Profile(ageYears: 34, weightKg: 72, sex: 'Female');
+
+    expect(vo2maxFor(short, 55), isNotNull);
+    expect(vo2maxFor(long, 55), vo2maxFor(short, 55));
+    expect(vo2maxFor(capitalised, 55), vo2maxFor(short, 55));
+
+    expect(
+      vo2maxAnchor(
+        restingHr: 55,
+        maxHr: short.hrMaxTanaka,
+        sex: 'female',
+        age: 34,
+      ),
+      vo2maxFor(short, 55),
+      reason: 'the raw-value entry point the pure pipeline uses and the '
+          'Profile-shaped one must be the same function',
+    );
+
+    // And the sex normalisation itself, which both the calorie coefficients and
+    // Banister's constant now key on.
+    expect(workoutSex('f'), 'female');
+    expect(workoutSex('female'), 'female');
+    expect(workoutSex('m'), 'male');
+    expect(workoutSex('male'), 'male');
+    // Reachable from the profile screen, whose options are male/female/other.
+    expect(workoutSex('other'), 'nonbinary');
+    expect(workoutSex(null), 'nonbinary');
   });
 
   test('an implausible resting HR does not poison the estimate', () {

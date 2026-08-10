@@ -18,6 +18,10 @@ import 'dart:math' as math;
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
+// Pure value helper — the shared sex normalisation, so this pipeline agrees
+// with day derivation about what a stored profile means.
+import 'profile.dart' show workoutSex;
+
 /// Build the cross-day analytics bundle from a time-ordered (OLDEST FIRST) list
 /// of per-day records and the user profile.
 ///
@@ -317,9 +321,7 @@ Map<String, dynamic> buildCrossDayBundle(
   //    steps vs age-norms. All ESTIMATE, absent on missing inputs.
   final age = _numOrNull(profile['age']);
   final sexStr = (profile['sex'] as String?)?.toLowerCase();
-  final sex = sexStr == 'f' || sexStr == 'female'
-      ? ana.Sex.female
-      : ana.Sex.male;
+  final sex = workoutSex(sexStr) == 'female' ? ana.Sex.female : ana.Sex.male;
   final maxHr = age == null ? null : 208 - 0.7 * age; // Tanaka
   final baseRhr = _median(<double>[for (final v in rhrList) ?v]);
   final baseRmssd = _median(<double>[for (final v in rmssdList) ?v]);

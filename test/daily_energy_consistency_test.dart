@@ -18,6 +18,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/profile.dart';
+import 'package:openstrap_edge/compute/substrate.dart';
 
 // age 34 -> Tanaka HRmax = 208 - 0.7*34 = 184.2, HR-flex point = 0.50 * = 92.1
 const _profile = Profile(
@@ -130,6 +131,140 @@ void main() {
         DerivationEngine.wakeDayEnergy(const <double>[], profile: _profile),
         isNull,
       );
+    });
+  });
+
+  // The helper above holds the invariant on its own. The invariant that matters
+  // is the one on the PERSISTED PAIR, and that is a different claim: the
+  // scalars survive a whole day-block composition after the helper returns, and
+  // a second `dailyEnergy` further down that composition — differently gated,
+  // over a different span, without the fitness anchor — used to overwrite
+  // `calories_total` on the way out. Every assertion in the group above passed
+  // throughout, which is exactly why the group below exists.
+  group('the scalar pair a persisted day carries', () {
+    // A 70-year-old is the sharpest case for the wake-vs-whole-day question:
+    // `dailyEnergy`'s flex gate is 0.50 x Tanaka HRmax = 104 - 0.35*age, so at
+    // 70 it sits at 79.5 bpm — under a perfectly ordinary sleeping heart rate.
+    const older = Profile(ageYears: 70, weightKg: 80, heightCm: 175, sex: 'm');
+    // Mifflin (male): 10*80 + 6.25*175 - 5*70 + 5 = 1548.75 kcal/day
+    const olderBasalPerMin = 1548.75 / 1440.0;
+
+    // Six hours of substrate: two asleep at 82 bpm (above the 79.5 flex point),
+    // one awake and working at 120, three awake and quiet at 60.
+    const dayStart = 1767225600; // a whole minute, so the sleep window aligns
+    const sleepOnset = dayStart;
+    const sleepOffset = dayStart + 2 * 3600;
+    const hardUntil = dayStart + 3 * 3600;
+    const dayEnd = dayStart + 6 * 3600;
+
+    Substrate build() {
+      final ts = <int>[];
+      final hr = <int>[];
+      final ax = <double>[], ay = <double>[], az = <double>[];
+      for (var t = dayStart; t < dayEnd; t++) {
+        ts.add(t);
+        hr.add(t < sleepOffset ? 82 : (t < hardUntil ? 120 : 60));
+        // A little movement so ENMO produces real minutes; the figures under
+        // test are HR-driven and do not depend on its magnitude.
+        ax.add(0.01 * ((t % 7) - 3));
+        ay.add(0.01 * ((t % 5) - 2));
+        az.add(1.0);
+      }
+      final n = ts.length;
+      return Substrate(
+        tsSec: ts,
+        hr: hr,
+        rrTsMs: const [],
+        rrMs: const [],
+        ax: ax,
+        ay: ay,
+        az: az,
+        spo2Red: List<int>.filled(n, 0),
+        spo2Ir: List<int>.filled(n, 0),
+        skinTemp: List<int>.filled(n, 0),
+        skinContact: List<int>.filled(n, 0),
+      );
+    }
+
+    ({Map<String, dynamic> bundle, Map<String, dynamic> scalars}) run() {
+      final bundle = <String, dynamic>{};
+      final scalars = <String, dynamic>{};
+      DerivationEngine.applyDayActivity(
+        bundle: bundle,
+        scalars: scalars,
+        daySub: build(),
+        profile: older,
+        sleepOnsetSec: sleepOnset,
+        sleepOffsetSec: sleepOffset,
+      );
+      return (bundle: bundle, scalars: scalars);
+    }
+
+    test('calories_total - calories == basal on the pair, not just the helper',
+        () {
+      final out = run();
+      final active = out.scalars['calories'] as double;
+      final total = out.scalars['calories_total'] as double;
+      final block = (out.bundle['calories_total'] as Map).cast<String, dynamic>();
+
+      // The subtraction health_export performs to write BASAL_ENERGY_BURNED.
+      expect(total - active, closeTo((block['basal'] as int).toDouble(), 0.51));
+      // Six covered hours of Mifflin, pro-rated: 1.07552 * 360 = 387.19 kcal.
+      expect(total - active, closeTo(olderBasalPerMin * 360, 2.0));
+    });
+
+    test('sleep is not billed as active energy', () {
+      final out = run();
+      final active = out.scalars['calories'] as double;
+
+      // Only the hard wake hour is active. Keytel (male, 80 kg, 70 y) at 120
+      // bpm is 50.6341 kJ/min = 12.1018 kcal/min; netting the basal minute
+      // leaves 11.0263 kcal/min over 60 minutes.
+      expect(active, closeTo(661.58, 2.0));
+
+      // Scoring the whole-day series instead would add the two sleeping hours:
+      // Keytel at 82 bpm is 6.3721 kcal/min, 5.2966 over basal, x 120 minutes =
+      // 635.6 kcal of fabricated "active" energy per night.
+      expect(
+        active,
+        lessThan(800.0),
+        reason: 'an 82 bpm sleeping heart rate clears the 79.5 bpm flex gate, '
+            'so a whole-day active term bills the night as exercise',
+      );
+    });
+
+    test('the quiet wake hours contribute nothing, and are not dropped', () {
+      // The three hours at 60 bpm sit below the flex point, so they add no
+      // active energy — but they are still COVERED minutes and must still be
+      // billed basal, or a sedentary afternoon shortens the day's BMR.
+      final out = run();
+      final block = (out.bundle['calories_total'] as Map).cast<String, dynamic>();
+
+      expect(block['basal'] as int, closeTo(olderBasalPerMin * 360, 2.0));
+      expect(block['active'] as int, closeTo(661.58, 2.0));
+      expect(block['value'] as int, (block['active'] as int) + (block['basal'] as int));
+    });
+
+    test('an unanchored profile leaves the pair absent, not zero', () {
+      // No sex means no Keytel coefficient block. The day still has heart rate,
+      // movement and a step count; it must simply carry no calorie figure.
+      final bundle = <String, dynamic>{};
+      final scalars = <String, dynamic>{};
+      DerivationEngine.applyDayActivity(
+        bundle: bundle,
+        scalars: scalars,
+        daySub: build(),
+        profile: const Profile(ageYears: 70, weightKg: 80, heightCm: 175),
+        sleepOnsetSec: sleepOnset,
+        sleepOffsetSec: sleepOffset,
+      );
+
+      expect(scalars.containsKey('calories'), isFalse);
+      expect(scalars.containsKey('calories_total'), isFalse);
+      expect(bundle.containsKey('calories_total'), isFalse);
+      // The unrelated blocks still ran — abstaining from energy must not
+      // silently take movement down with it.
+      expect(bundle['movement'], isNotNull);
     });
   });
 }

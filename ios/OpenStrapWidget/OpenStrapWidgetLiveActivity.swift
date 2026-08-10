@@ -23,8 +23,12 @@ struct OpenStrapWidgetAttributes: ActivityAttributes {
   public struct ContentState: Codable, Hashable {
     var hr: Int
     var zone: Int
-    var strain: Double
-    var calories: Int
+    // Optional because unmeasured is not zero. A profile without the anchors
+    // Keytel and Banister read cannot be scored at all, and the in-app gauge
+    // shows "—" for exactly that case; these used to arrive coerced to 0, so
+    // the lock screen claimed a real 0.0 strain / 0 kcal instead.
+    var strain: Double?
+    var calories: Int?
     var maxHr: Int
     var rhr: Int
   }
@@ -129,6 +133,9 @@ private struct ZoneBar: View {
 }
 
 private func hrText(_ v: Int) -> String { v > 0 ? "\(v)" : "—" }
+// Unscored sessions push null rather than 0 — render the absence.
+private func strainText(_ v: Double?) -> String { v.map { String(format: "%.1f", $0) } ?? "—" }
+private func kcalText(_ v: Int?) -> String { v.map { "\($0)" } ?? "—" }
 
 // MARK: - Finish (interactive, iOS 17+)
 
@@ -162,8 +169,8 @@ private struct LockScreenView: View {
         }
         Spacer()
         HStack(spacing: 14) {
-          stat("STRAIN", String(format: "%.1f", s.strain), .coralDeep)
-          stat("KCAL", "\(s.calories)", .coral)
+          stat("STRAIN", strainText(s.strain), .coralDeep)
+          stat("KCAL", kcalText(s.calories), .coral)
         }
       }
       VStack(alignment: .leading, spacing: 5) {
@@ -208,7 +215,7 @@ struct OpenStrapWidgetLiveActivity: Widget {
         }
         DynamicIslandExpandedRegion(.trailing) {
           VStack(alignment: .trailing, spacing: 0) {
-            Text(String(format: "%.1f", s.strain))
+            Text(strainText(s.strain))
               .font(.system(size: 20, weight: .bold, design: .rounded))
               .foregroundStyle(Color.coral).contentTransition(.numericText())
             Text("STRAIN").font(.system(size: 8, weight: .semibold)).tracking(1).foregroundStyle(.secondary)
@@ -222,7 +229,7 @@ struct OpenStrapWidgetLiveActivity: Widget {
         DynamicIslandExpandedRegion(.bottom) {
           HStack(spacing: 10) {
             ZoneBar(zone: s.zone)
-            Text("\(s.calories) kcal").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+            Text("\(kcalText(s.calories)) kcal").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
             if #available(iOSApplicationExtension 17.0, *) {
               Button(intent: EndSessionIntent()) {
                 Image(systemName: "stop.fill").font(.system(size: 12, weight: .bold))

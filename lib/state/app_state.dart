@@ -4607,10 +4607,12 @@ class AppState extends ChangeNotifier {
       LiveActivity.update(
         hr: w.currentHr,
         zone: _zoneFor(w.currentHr),
-        // The Live Activity widget has no absent state; the in-app gauge
-        // shows "—" when strain or calories are null, this pushes 0.
-        strain: w.strain ?? 0,
-        calories: w.caloriesOrNull ?? 0,
+        // Absent stays absent. These used to be coerced to 0, so a new user
+        // with no profile anchors — the case where both correctly abstain and
+        // the in-app gauge shows "—" — got a confident "0 kcal" pushed to the
+        // lock screen for the whole session. Unmeasured is not zero.
+        strain: w.strain,
+        calories: w.caloriesOrNull,
         maxHr: _maxHr,
         rhr: _restingHr,
       );
@@ -4664,9 +4666,23 @@ class LiveWorkoutState {
   /// floor, which roughly doubled the cost of warm-up, rest between sets and
   /// cool-down against what the re-score would later say about the same stream.
   ///
-  /// Per-minute rather than per-second because that is the series the session
-  /// retains (see [_perMinuteHr]). Keytel is linear in HR, so averaging within
-  /// a minute is exact for any minute that stays on one side of the gate.
+  /// PER SAMPLE, not per minute. [_secondsByBpm] holds how many seconds the
+  /// bout spent at each whole-bpm value, so this reproduces
+  /// `estimateBoutCalories`'s sample-by-sample billing exactly while staying
+  /// O(distinct bpm) in memory instead of retaining every raw sample.
+  ///
+  /// It scored per MINUTE, off the mean of each minute, and that lost the two
+  /// things the re-score gets right:
+  ///
+  ///   * The gate is per sample there and was per minute-mean here. A minute
+  ///     that straddles the gate — 30 s at 93 and 30 s at 94 against a 93.76
+  ///     gate — billed as a whole resting minute (1.19 kcal) where the
+  ///     re-score bills half of it active (3.24). About 123 kcal adrift over a
+  ///     zone-2 hour, in a stream that never looks unusual.
+  ///   * The seconds were wrong. A completed minute billed a flat 60 s no
+  ///     matter how few samples backed it, and the minute in progress billed
+  ///     `_minuteCount`, a SAMPLE count used as a second count — 12 s instead
+  ///     of 60 at a 5 s notify rate.
   void _scoreCalories() {
     final rhr = restingHr;
     final hrMax = profile.hrMaxTanaka;
@@ -4677,8 +4693,7 @@ class LiveWorkoutState {
       calories = 0.0;
       return;
     }
-    final perMin = perMinuteHr();
-    if (perMin.isEmpty) {
+    if (_secondsByBpm.isEmpty && _lastSampleHr == null) {
       _caloriesScored = false;
       calories = 0.0;
       return;
@@ -4686,10 +4701,7 @@ class LiveWorkoutState {
 
     final age = profile.ageYears!.toDouble();
     final weightKg = profile.weightKg!;
-    final sex = profile.sex?.toLowerCase();
-    final coeffs = ana.Calories.resolveCoeffs(
-      sex == 'f' || sex == 'female' ? 'female' : 'male',
-    );
+    final coeffs = ana.Calories.resolveCoeffs(workoutSex(profile.sex));
     // Height is not a Keytel term; it only moves the Harris-Benedict resting
     // floor. Defaulted to match `computeManualSessionStats`, so the two paths
     // cannot disagree for a profile that carries no height.
@@ -4701,18 +4713,13 @@ class LiveWorkoutState {
     // cannot end up on different Keytel models for one workout.
     final vo2max = vo2maxFor(profile, rhr);
 
-    // Completed minutes bill a full 60 s; the minute still in progress bills
-    // only the seconds actually elapsed in it, so the gauge climbs smoothly
-    // instead of running up to a minute ahead of the athlete.
     var kcal = 0.0;
-    for (var i = 0; i < perMin.length; i++) {
-      final hr = perMin[i];
-      final seconds = i < _perMinuteHr.length ? 60.0 : _minuteCount.toDouble();
-      final rate = hr < gate
+    void bill(int bpm, double seconds) {
+      final rate = bpm < gate
           ? restingRate
           : ana.Calories.activeKcalPerS(
               coeffs,
-              hr,
+              bpm.toDouble(),
               hrMax,
               weightKg,
               age,
@@ -4720,6 +4727,15 @@ class LiveWorkoutState {
             );
       kcal += rate * seconds;
     }
+
+    _secondsByBpm.forEach(bill);
+    // The newest sample has no successor yet, so its own duration is unknown.
+    // `estimateBoutCalories` gives the final sample one representative second;
+    // matching that is what keeps the gauge and the re-score equal at every
+    // instant rather than only at the end.
+    final trailing = _lastSampleHr;
+    if (trailing != null) bill(trailing, 1.0);
+
     calories = kcal;
     _caloriesScored = true;
   }
@@ -4787,6 +4803,32 @@ class LiveWorkoutState {
         if (_minuteCount > 0) _minuteSum / _minuteCount,
       ];
 
+  /// Seconds the bout has spent at each whole-bpm value — the calorie series.
+  ///
+  /// Deliberately NOT the per-minute means above. `estimateBoutCalories`, which
+  /// the substrate re-score and every manually logged session run on, decides
+  /// active-vs-resting per SAMPLE and weights each sample by the elapsed time to
+  /// the next one. A per-minute mean cannot express either: it collapses a
+  /// minute that straddles the activity gate onto one side of it, and it has no
+  /// idea how many seconds actually backed the samples in it.
+  ///
+  /// A histogram rather than a sample list because heart rate is a small
+  /// integer — this is bounded at a couple of hundred entries for a bout of any
+  /// length, while retaining raw 1 Hz samples is not.
+  final Map<int, double> _secondsByBpm = {};
+
+  /// The most recent accepted sample, still unbilled: its duration is the time
+  /// until the NEXT sample, which has not arrived. Also what makes a gap in the
+  /// stream bill correctly — the sample before a contact-loss gap is charged
+  /// for the gap, capped, exactly as the re-score charges it.
+  int? _lastSampleHr;
+  double? _lastSampleSec;
+
+  /// `estimateBoutCalories`'s `mergeGapCapS` default. A stream that stops for
+  /// longer than this stopped being one bout; billing the pre-gap heart rate
+  /// across an hour of no data would invent the hour.
+  static const double _gapCapS = 150.0;
+
   LiveWorkoutState({
     required this.startTime,
     required this.targetKcal,
@@ -4797,12 +4839,33 @@ class LiveWorkoutState {
     this.restingHr,
   }) : _hrPeak = RollingMaxHr(age: age);
 
-  /// Feed a live 1 Hz HR sample; updates the spike-suppressed [maxHrSeen], the
-  /// per-minute accumulator, and the Banister strain derived from it.
+  /// Feed a live HR sample; updates the spike-suppressed [maxHrSeen], the
+  /// per-minute accumulator behind strain, the per-bpm second counts behind
+  /// calories, and both derived figures.
+  ///
+  /// A non-positive reading is off-skin, not a heart rate, so it is dropped —
+  /// but the time it covers is NOT thrown away. It is billed to the last real
+  /// sample when the next one arrives, capped at [_gapCapS], which is what
+  /// `estimateBoutCalories` does with the same gap once the zeros have been
+  /// filtered out of the stream it re-scores.
   void accrueHr(int hr) {
     if (hr <= 0) return;
     _hrPeak.add(hr);
     if (_hrPeak.max > maxHrSeen) maxHrSeen = _hrPeak.max;
+
+    // Close out the previous sample: its duration is the time until this one.
+    // Sub-second and out-of-order arrivals fall back to one second, matching
+    // `estimateBoutCalories`'s handling of a non-positive gap.
+    final nowSec = elapsed.inMicroseconds / Duration.microsecondsPerSecond;
+    final prevHr = _lastSampleHr;
+    final prevSec = _lastSampleSec;
+    if (prevHr != null && prevSec != null) {
+      final gap = nowSec - prevSec;
+      final dur = gap > 0 ? math.min(gap, _gapCapS) : 1.0;
+      _secondsByBpm[prevHr] = (_secondsByBpm[prevHr] ?? 0) + dur;
+    }
+    _lastSampleHr = hr;
+    _lastSampleSec = nowSec;
 
     // Fold into the current minute, measured from the session start so the
     // buckets are the session's own minutes rather than wall-clock ones.

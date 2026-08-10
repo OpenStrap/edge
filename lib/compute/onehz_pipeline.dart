@@ -25,6 +25,12 @@ import 'dart:math' as math;
 
 import 'package:openstrap_analytics/onehz.dart';
 
+// Pure value helpers only — no DB, no IO, no Flutter binding — so importing
+// them does not compromise this file's isolate safety. They are here so the
+// sex normalisation and the VO2max anchor have ONE definition across the
+// pipeline and the coordinator instead of two that can drift.
+import 'profile.dart' show vo2maxAnchor, workoutSex;
+
 const MetricCfg _skinTempAdcCfg = MetricCfg(
   minVal: 1.0,
   maxVal: 65535.0,
@@ -491,44 +497,45 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   );
   Map<String, int> hrZones = const {};
   double? caloriesKcal;
-  // Fitness anchor for the calorie model (Uth: 15.3 x HRmax/RHR). Absent
-  // whenever the day carries no usable resting HR — `vo2maxEstimate` abstains
-  // on a non-positive or non-finite one — in which case the estimate falls
-  // back to Keytel's published age/mass/sex model rather than inventing a
-  // fitness level. Mirrors `vo2maxFor` in manual_session.dart; this pipeline
-  // is deliberately dependency-free, so it resolves the same anchor inline.
-  final vo2maxAnchor = (hrMax == null || rhrForTrimp == null)
-      ? null
-      : () {
-          final m = vo2maxEstimate(
-            restingHr: rhrForTrimp,
-            maxHr: hrMax,
-            sex: sex == 'f' ? Sex.female : Sex.male,
-            age: age,
-          );
-          return m.present ? m.value : null;
-        }();
+  // Fitness anchor for the calorie model (Uth: 15.3 x HRmax/RHR), from the one
+  // shared definition. Absent whenever the day carries no usable resting HR —
+  // `vo2maxEstimate` abstains on a non-positive or non-finite one — in which
+  // case the estimate falls back to Keytel's published age/mass/sex model
+  // rather than inventing a fitness level.
+  final fitnessAnchor = vo2maxAnchor(
+    restingHr: rhrForTrimp,
+    maxHr: hrMax,
+    sex: sex,
+    age: age,
+  );
   if (hrMax != null && perMin.isNotEmpty) {
     if (rhrForTrimp != null && sex != null && dayHrValid.isNotEmpty) {
       trimp = banisterTrimp(
         perMin,
         restingHr: rhrForTrimp,
         maxHr: hrMax,
-        sex: sex == 'f' ? Sex.female : Sex.male,
+        sex: workoutSex(sex) == 'female' ? Sex.female : Sex.male,
       );
     }
     hrZones = _wakeZoneMinutesFromSeries(wakeHr, hrMax);
     if (age != null && sex != null && weightKg != null) {
+      // ACTIVE energy only, over the WAKE series — the same quantity, from the
+      // same series, that `DerivationEngine.wakeDayEnergy` publishes as the
+      // day's `calories`. That method is canonical; this is the early-read
+      // mirror the pure pipeline can compute without the coordinator, and the
+      // two must stay on the same series. `basal`/`total` are deliberately not
+      // read here: the pipeline does not know how many minutes of the calendar
+      // day the substrate covers, so it cannot pro-rate the BMR floor honestly.
       caloriesKcal = Calories.dailyEnergy(
         perMin,
         profile: WorkoutUserProfile(
           weightKg: weightKg,
           heightCm: heightCm ?? 170.0,
           age: age,
-          sex: sex == 'f' ? 'female' : (sex == 'm' ? 'male' : 'nonbinary'),
+          sex: workoutSex(sex),
         ),
         hrmax: hrMax,
-        vo2max: vo2maxAnchor,
+        vo2max: fitnessAnchor,
       ).active; // active-energy component (Keytel surplus over basal)
     }
   }
@@ -1088,7 +1095,10 @@ List<Map<String, num>> _strainCurve(
       sex == null) {
     return const [];
   }
-  final b = sex == 'f' ? 1.67 : 1.92;
+  // Banister's sex constant, via the shared normalisation — a profile stored
+  // as 'female' by the profile screen used to fall through to the male value
+  // here while scoring female everywhere else.
+  final b = workoutSex(sex) == 'female' ? 1.67 : 1.92;
   final reserve = maxHr - restingHr;
   var trimp = 0.0;
   final out = <Map<String, num>>[];

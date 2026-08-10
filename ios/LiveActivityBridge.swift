@@ -17,8 +17,12 @@ struct OpenStrapWidgetAttributes: ActivityAttributes {
   public struct ContentState: Codable, Hashable {
     var hr: Int
     var zone: Int
-    var strain: Double
-    var calories: Int
+    // Optional because unmeasured is not zero. A profile without the anchors
+    // Keytel and Banister read cannot be scored at all, and the in-app gauge
+    // shows "—" for exactly that case; these used to arrive coerced to 0, so
+    // the lock screen claimed a real 0.0 strain / 0 kcal instead.
+    var strain: Double?
+    var calories: Int?
     var maxHr: Int
     var rhr: Int
   }
@@ -50,11 +54,19 @@ enum LiveActivityBridge {
   private static func dbl(_ a: [String: Any], _ k: String, _ d: Double = 0) -> Double {
     (a[k] as? NSNumber)?.doubleValue ?? d
   }
+  // Absent-preserving reads. Dart sends null for a figure it refuses to
+  // fabricate; substituting a default here would put the fabrication back.
+  private static func iOpt(_ a: [String: Any], _ k: String) -> Int? {
+    (a[k] as? NSNumber)?.intValue
+  }
+  private static func dblOpt(_ a: [String: Any], _ k: String) -> Double? {
+    (a[k] as? NSNumber)?.doubleValue
+  }
 
   @available(iOS 16.2, *)
   private static func state(_ a: [String: Any]) -> OpenStrapWidgetAttributes.ContentState {
-    .init(hr: i(a, "hr"), zone: i(a, "zone"), strain: dbl(a, "strain"),
-          calories: i(a, "calories"), maxHr: i(a, "maxHr", 190), rhr: i(a, "rhr", 60))
+    .init(hr: i(a, "hr"), zone: i(a, "zone"), strain: dblOpt(a, "strain"),
+          calories: iOpt(a, "calories"), maxHr: i(a, "maxHr", 190), rhr: i(a, "rhr", 60))
   }
 
   @available(iOS 16.2, *)
