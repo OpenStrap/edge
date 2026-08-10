@@ -2178,8 +2178,19 @@ class BleEngine {
       }
     }
     if (f.containsKey('battery_pct')) {
-      state.batteryPct = (f['battery_pct'] as num).toDouble();
-      onState(state);
+      // Gate on the EVENT's own strap timestamp, for the same reason the
+      // `charging` flag below carries one: the band re-serves its buffered
+      // event log on connect, so a BATTERY_LEVEL event is not evidence of the
+      // current charge. Applied blind, a first pair with a long backlog walked
+      // the live indicator through weeks of battery history before settling.
+      // A GET_BATTERY_LEVEL poll response has no `ts_epoch` and is always
+      // live — see [BatteryPolicy].
+      final batteryTs = (f['ts_epoch'] as num?)?.toInt();
+      final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (BatteryPolicy.acceptsEventReading(batteryTs, wallNow)) {
+        state.batteryPct = (f['battery_pct'] as num).toDouble();
+        onState(state);
+      }
     }
     if (f.containsKey('charging')) {
       state.charging = f['charging'] as bool;

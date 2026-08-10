@@ -680,4 +680,35 @@ void main() {
       );
     });
   });
+
+  // The strap re-serves its whole buffered EVENT log on connect, so a
+  // BATTERY_LEVEL event is not evidence of the CURRENT charge — only its
+  // timestamp is. Without this gate a first pair with a long backlog replays
+  // weeks of battery history straight into the live indicator.
+  group('battery reading acceptance', () {
+    test('a poll response carries no event timestamp and is always live', () {
+      expect(BatteryPolicy.acceptsEventReading(null, wall), isTrue);
+    });
+
+    test('a battery event stamped just now is accepted', () {
+      expect(BatteryPolicy.acceptsEventReading(wall - 60, wall), isTrue);
+    });
+
+    test('a battery event replayed from days ago is rejected', () {
+      // The real shape of the bug: an event stamped 33 days before the
+      // session that arrived during a backlog drain.
+      expect(
+        BatteryPolicy.acceptsEventReading(wall - 33 * 86400, wall),
+        isFalse,
+      );
+    });
+
+    test('a battery event from an implausibly far-future clock is rejected',
+        () {
+      expect(
+        BatteryPolicy.acceptsEventReading(wall + kFutureMargin + 1, wall),
+        isFalse,
+      );
+    });
+  });
 }
