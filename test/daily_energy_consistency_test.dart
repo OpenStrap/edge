@@ -207,20 +207,26 @@ void main() {
     test('a day with no sleep session gets no fitness anchor', () {
       // `restingHr` is the day's published `rhr` scalar, and with no sleep the
       // pipeline derives that from WAKING heart rate. Feeding it to Uth reads
-      // as a deconditioned athlete and prices the whole day low. The day still
-      // gets calories — from the published age/mass/sex model — so the test is
-      // that the two differ, not that one is absent.
-      final slept = run(restingHr: 48.0).scalars['calories'] as double;
-      final noSleep =
-          run(restingHr: 48.0, withSleep: false).scalars['calories'] as double;
+      // as a deconditioned athlete and prices the whole day low.
+      //
+      // Both comparisons hold the HR SERIES fixed and vary only the anchor.
+      // Comparing a slept day against a no-sleep one directly would not: with
+      // no window, `_perMinuteMeanWake` stops excluding the sleep hours, so the
+      // wake series grows from four hours to six and two of the added hours sit
+      // above this profile's flex point. That moves calories for a reason that
+      // has nothing to do with the fitness anchor, and an assertion resting on
+      // it passes whether the gate is there or not.
+      final sleptAnchored = run(restingHr: 48.0).scalars['calories'] as double;
+      final sleptBare = run().scalars['calories'] as double;
+      expect(sleptAnchored, isNot(closeTo(sleptBare, 0.5)),
+          reason: 'with a night, the resting HR must reach the fitness model');
 
-      expect(slept, isNot(closeTo(noSleep, 0.5)),
-          reason: 'the sleep-gated day must use the fitness model');
-      // And the ungated day matches what a day with no resting HR at all gets,
-      // i.e. it fell all the way back rather than using a waking pseudo-RHR.
-      final anchorless =
+      final wakingAnchored = run(restingHr: 48.0, withSleep: false)
+          .scalars['calories'] as double;
+      final wakingBare =
           run(withSleep: false).scalars['calories'] as double;
-      expect(noSleep, closeTo(anchorless, 0.001));
+      expect(wakingAnchored, closeTo(wakingBare, 0.001),
+          reason: 'without a night, the same resting HR must change nothing');
     });
 
     test('calories_total - calories == basal on the pair, not just the helper',

@@ -660,16 +660,26 @@ import 'substrate.dart';
 //   series; `wakeDayEnergy` is canonical and the pipeline mirrors it.
 //
 //   SAME BUMP, second change: the active term now uses Keytel's OTHER published
-//   model, the one that reads VO2max, whenever the day carries a resting HR to
-//   estimate it from (Uth 2004: 15.3 x HRmax/RHR). Fitness is what decides how
-//   much energy a heart rate represents — a higher VO2max means a greater
-//   stroke volume, so the same beat moves more oxygen — and the age/mass/sex
-//   model has to substitute the derivation cohort's mean fitness instead. The
-//   anchor was already being computed for the Body screen and simply never
-//   reached the consumer that most benefits from it. Days WITHOUT a usable
-//   resting HR are unaffected: `vo2maxEstimate` abstains on a non-positive
-//   resting HR or one at/above HRmax, `vo2maxAnchor` passes that abstention
-//   through, and the original model runs. It never fabricates a fitness level.
+//   model, the one that reads VO2max, on any day that produced a SLEEP-DERIVED
+//   resting HR (Uth 2004: 15.3 x HRmax/RHR). Fitness is what decides how much
+//   energy a heart rate represents — a higher VO2max means a greater stroke
+//   volume, so the same beat moves more oxygen — and the age/mass/sex model has
+//   to substitute the derivation cohort's mean fitness instead. The anchor was
+//   already being computed for the Body screen and simply never reached the
+//   consumer that most benefits from it.
+//
+//   SLEEP-DERIVED is the operative word, and it is narrower than "has a resting
+//   HR". The `rhr` scalar is `nocturnalRhr(sleepHr or, failing that, dayHr)`, so
+//   on a day the band captured no sleep it is a low-30 mean of WAKING heart
+//   rate. That is not a resting HR: it reads high, Uth divides by it, and the
+//   fitness model would price the day as though the user were deconditioned.
+//   The 1 Hz pipeline already refuses that value (`rhrToday`, gated on
+//   `hasSleep`), so the engine refuses it too and both paths pick the same
+//   Keytel model for a given day. A no-sleep day therefore MOVES even though it
+//   carries an `rhr` scalar: it drops to the published age/mass/sex model, or
+//   to the user's manual resting HR if they set one. Nothing fabricates a
+//   fitness level — `vo2maxEstimate` abstains on a non-positive resting HR or
+//   one at/above HRmax and `vo2maxAnchor` passes that abstention through.
 //
 //   SAME BUMP, third change: TRIMP's sex constant read `sex == 'f'` while the
 //   calorie path beside it accepted 'female' too, so a profile written by the
@@ -3486,6 +3496,23 @@ class DerivationEngine {
     return (active: e.active, basal: e.basal, total: e.total);
   }
 
+  /// Whether this day has a sleep window that actually holds substrate.
+  ///
+  /// Mirrors the pipeline's `hasSleep && sleepHr.isNotEmpty` exactly, and the
+  /// second half of that is load-bearing: a window can be non-null while its
+  /// slice comes back empty, and then the pipeline's `nocturnalRhr` silently
+  /// falls back to the whole day's HR. A window-only test would call that day
+  /// slept, take a waking pseudo-RHR as its fitness anchor, and put the engine
+  /// on a different Keytel model from the pipeline for the same day — the
+  /// divergence the gate exists to close, reintroduced one step in.
+  static bool _sleptWithData(Substrate s, int onsetSec, int offsetSec) {
+    if (offsetSec <= onsetSec) return false;
+    for (final t in s.tsSec) {
+      if (t >= onsetSec && t < offsetSec) return true;
+    }
+    return false;
+  }
+
   static double? _meanWake(List<double> xs) {
     if (xs.isEmpty) return null;
     var s = 0.0;
@@ -3979,7 +4006,7 @@ class DerivationEngine {
         // the two paths have to pick the same Keytel model for a given day or
         // the early-read and the canonical calories disagree. No night, no
         // fitness anchor, and the published age/mass/sex model runs instead.
-        restingHr: sleepOffsetSec > sleepOnsetSec
+        restingHr: _sleptWithData(daySub, sleepOnsetSec, sleepOffsetSec)
             ? rhrForTrimp
             : profile.restingHrManual?.toDouble(),
       );
