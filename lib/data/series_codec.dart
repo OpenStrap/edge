@@ -193,9 +193,25 @@ class SeriesCodec {
 
     final to = raw['to'];
     if (to is! List || to.length != vs.length) return raw;
+    // ALL the offsets or none of them. Skipping just the entries that are not
+    // ints emitted a SHORT curve — a plausible-looking curve quietly missing
+    // samples, which is worse than one the reader can see is unusable, and
+    // `verifyLossless` could not tell because it compares decode against
+    // decode, not against the original. [encodeCurve] cannot produce this (it
+    // only writes int offsets); a foreign or corrupted payload can, and for
+    // those the file's rule applies — leave it alone rather than half-read it.
+    //
+    // SQL DIVERGES HERE and cannot be made to agree cheaply: `v_series` adds
+    // `to[key]` to `t0` per row, so a fractional offset comes out as a
+    // fractional `t` rather than being suppressed. Checking every offset's type
+    // in the view would cost a json_type call per sample on the coach's hottest
+    // path, to defend a shape nothing in this app writes.
+    for (final o in to) {
+      if (o is! int) return raw;
+    }
     return [
       for (var i = 0; i < vs.length; i++)
-        if (to[i] is int) {'t': t0 + (to[i] as int), valueKey: vs[i]},
+        {'t': t0 + (to[i] as int), valueKey: vs[i]},
     ];
   }
 

@@ -1774,10 +1774,24 @@ class LocalDb {
     // as daysWithSleepTst.
     //
     // The grid branch needs no running sum because json_each exposes an array's
-    // index as `key`, so t = t0 + key*dt. Offset pairs `to` and `v` on that
-    // same key. Verified row-for-row against the pre-codec view on the three
-    // tracked bundle fixtures, including a database holding both shapes at once
-    // (test/coach_views_series_shapes_test.dart).
+    // index as `key`, so t = t0 + key*dt. Verified row-for-row against the
+    // pre-codec view on the three tracked bundle fixtures, including a database
+    // holding both shapes at once (test/coach_views_series_shapes_test.dart).
+    //
+    // The offset branch walks `.v` ONCE and indexes into `.to` by that key. The
+    // obvious form — json_each over `.to` joined to json_each over `.v` on
+    // `key` — is quadratic: SQLite cannot index a table-valued function, so the
+    // join degrades to a full cross product of the two and the cost grows with
+    // the SQUARE of the curve length. hrv_day, hrv_timeline and resp_day are
+    // all irregularly sampled and therefore all offset-encoded, so this is the
+    // hot path, not a corner: on 365 real days a `SELECT AVG(v)` measured 877 ms
+    // against 89 ms, and on 1440-point curves a 30-day slice took 2.1 s. The
+    // `e.key < json_array_length(.to)` bound is what keeps the rewrite
+    // row-for-row identical rather than merely equivalent on well-formed data —
+    // the join emitted min(len(to), len(v)) rows, and without the bound a `to`
+    // shorter than `v` would gain rows with a NULL `t`. Pinned by a query-plan
+    // assertion in test/coach_views_series_shapes_test.dart: two nested virtual
+    // table scans in this branch is the regression.
     await db.execute('''
       CREATE VIEW v_series AS
       WITH latest AS (
@@ -1812,20 +1826,27 @@ class LocalDb {
       WHERE json_extract(l.payload_json, c.pth||'.dt') IS NOT NULL
       UNION ALL
       SELECT l.day_id, c.sk,
-             json_extract(l.payload_json, c.pth||'.t0') + et.value, ev.value
+             json_extract(l.payload_json, c.pth||'.t0')
+               + json_extract(l.payload_json, c.pth||'.to['||e.key||']'),
+             e.value
       FROM latest l JOIN curve c
-      JOIN json_each(json_extract(l.payload_json, c.pth||'.to')) et
-      JOIN json_each(json_extract(l.payload_json, c.pth||'.v')) ev ON ev.key = et.key
-      WHERE json_extract(l.payload_json, c.pth||'.to') IS NOT NULL
-        AND json_extract(l.payload_json, c.pth||'.dt') IS NULL
+      JOIN json_each(json_extract(l.payload_json, c.pth||'.v')) e
+      WHERE json_extract(l.payload_json, c.pth||'.dt') IS NULL
+        AND json_extract(l.payload_json, c.pth||'.to') IS NOT NULL
+        AND e.key < json_array_length(json_extract(l.payload_json, c.pth||'.to'))
     ''');
     // Sleep stage segments (different element shape from the {t,v} curves).
+    // Same json_valid guard as v_series and for the same reason: without it one
+    // malformed payload_json anywhere in day_result makes this view THROW, so a
+    // single corrupt row takes every day's sleep stages away from the coach
+    // instead of just its own.
     await db.execute('''
       CREATE VIEW v_hypnogram AS
       WITH latest AS (
         SELECT r.day_id, r.payload_json FROM day_result r
         JOIN (SELECT day_id, MAX(algo_version) v FROM day_result GROUP BY day_id) m
           ON r.day_id = m.day_id AND r.algo_version = m.v
+        WHERE json_valid(r.payload_json)
       )
       SELECT l.day_id AS date,
              json_extract(e.value,'\$.start') AS start_ts,

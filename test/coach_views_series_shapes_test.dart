@@ -243,6 +243,95 @@ void main() {
     }
   });
 
+  test('the offset branch stays linear in the curve length', () async {
+    // SQLite cannot index a table-valued function. Written as json_each over
+    // `.to` JOINed to json_each over `.v` on `key`, the offset branch therefore
+    // has no way to resolve the join except a full cross product of the two,
+    // and its cost grows with the SQUARE of the curve length — 877 ms against
+    // 89 ms on a year of real days, worse the denser the sampling gets. Since
+    // hrv_day, hrv_timeline and resp_day are all irregularly sampled, every one
+    // of them takes that path.
+    //
+    // The shape is what the plan shows: one virtual-table scan nested inside
+    // another. v_series has exactly three json_each calls, one per branch, so a
+    // fourth scan appearing here means the join came back.
+    final plan = await db.rawQuery('EXPLAIN QUERY PLAN SELECT * FROM v_series');
+    final scans = plan
+        .map((r) => r['detail'] as String? ?? '')
+        .where((d) => d.contains('VIRTUAL TABLE'))
+        .toList();
+    expect(
+      scans,
+      hasLength(3),
+      reason:
+          'one json_each per branch, never a TVF joined to a TVF:\n'
+          '${plan.map((r) => r['detail']).join('\n')}',
+    );
+  });
+
+  test('an offset curve with fewer offsets than values gains no rows', () async {
+    // Only a foreign or corrupt payload can carry a `to` shorter than its `v` —
+    // the codec writes them in lockstep. It still pins the bound that keeps the
+    // linear form row-for-row identical to the join it replaced: the join
+    // emitted min(len(to), len(v)) rows, so a value with no offset has to be
+    // dropped rather than emitted with a NULL timestamp.
+    await db.insert('day_result', {
+      'day_id': '2026-01-05',
+      'algo_version': 47,
+      'payload_json': jsonEncode({
+        'series': {
+          'hrv_day': {
+            't0': 100,
+            'to': [0, 5],
+            'v': [1, 2, 3, 4],
+          },
+        },
+      }),
+      'window_json': '{}',
+      'computed_at': 0,
+    });
+    try {
+      final rows = await seriesRows(db, '2026-01-05');
+      expect(rows.map((r) => r['t']), [100, 105]);
+    } finally {
+      await db.delete(
+        'day_result',
+        where: 'day_id = ?',
+        whereArgs: ['2026-01-05'],
+      );
+    }
+  });
+
+  test('one corrupt payload does not fail v_hypnogram either', () async {
+    // Same failure and same guard as v_series above. Without json_valid in the
+    // `latest` CTE, one unparseable row made json_extract raise for the whole
+    // query, so a single corrupt day removed EVERY day's sleep stages from the
+    // coach rather than only its own.
+    await db.insert('day_result', {
+      'day_id': '2026-01-06',
+      'algo_version': 47,
+      'payload_json': '{ this is not json',
+      'window_json': '{}',
+      'computed_at': 0,
+    });
+    try {
+      // Scanned unfiltered, the way csv_export and the coach actually read it.
+      // A `WHERE date = …` proves nothing here: SQLite pushes that predicate
+      // into the CTE and never evaluates json_extract on the corrupt row.
+      final rows = await db.rawQuery(
+        'SELECT date, start_ts, end_ts, stage FROM v_hypnogram '
+        'ORDER BY date ASC, start_ts ASC',
+      );
+      expect(rows.where((r) => r['date'] == '2026-01-01'), hasLength(3));
+    } finally {
+      await db.delete(
+        'day_result',
+        where: 'day_id = ?',
+        whereArgs: ['2026-01-06'],
+      );
+    }
+  });
+
   test('v_hypnogram is unaffected by the encoding', () async {
     final legacy = await db.rawQuery(
       "SELECT start_ts, end_ts, stage FROM v_hypnogram "

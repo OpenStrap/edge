@@ -404,9 +404,8 @@ void main() {
     test('a corrupt gzip fails with guidance and leaves nothing behind',
         () async {
       // Valid magic so the sniff routes it here, garbage where the deflate
-      // stream should be. This is the damaged-file case; a merely TRUNCATED
-      // gzip is not reliably detectable, because Dart's decoder does not fail
-      // on a missing trailer.
+      // stream should be. The deflate stream itself rejects this one; the two
+      // tests below cover the damage the decoder does NOT notice.
       final path = await write('broken.csv.gz', <int>[
         0x1F, 0x8B, 0x08, 0x00, 0, 0, 0, 0, 0x00, 0x03,
         ...List<int>.generate(64, (i) => (i * 37 + 11) & 0xFF),
@@ -422,6 +421,60 @@ void main() {
           isEmpty,
           reason: 'a half-inflated file must not be left for a caller to read',
         );
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    });
+
+    test('a truncated gzip is refused instead of restored short', () async {
+      // The half-synced-backup case, and the one that mattered: `gzip.decoder`
+      // returns what it managed to inflate from a stream that just stops, with
+      // no error. A backup cut at 99.9% inflated, sniffed as SQLite, merged and
+      // reported success one row short of the data the user was restoring.
+      final body = utf8.encode(
+        List.generate(400, (i) => 'row,$i,${i * 7},value-$i').join('\n'),
+      );
+      final full = gzip.encode(body);
+      final path = await write(
+        'cut.csv.gz',
+        full.sublist(0, full.length - (full.length ~/ 200) - 1),
+      );
+      final dir = await Directory.systemTemp.createTemp('gz_cut_');
+      try {
+        await expectLater(
+          inflateGzip(path, dir),
+          throwsA(isA<ImportFormatException>()),
+        );
+        expect(
+          dir.listSync(),
+          isEmpty,
+          reason: 'a short inflate must not be left where a caller can read it',
+        );
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    });
+
+    test('a gzip whose contents no longer match its checksum is refused',
+        () async {
+      // The boundary of the case above: when the stream is COMPLETE, zlib
+      // reaches the trailer and checks it itself, so this is refused whether or
+      // not inflateGzip verifies anything. Pinned because that is exactly why
+      // truncation was missed — the checking only ever happened at the end of a
+      // stream that arrived, and a cut file never gets there.
+      final full = <int>[
+        ...gzip.encode(utf8.encode('a,b,c\n' * 500)),
+      ];
+      final crcAt = full.length - 8;
+      full[crcAt] = full[crcAt] ^ 0xFF;
+      final path = await write('flipped.csv.gz', full);
+      final dir = await Directory.systemTemp.createTemp('gz_crc_');
+      try {
+        await expectLater(
+          inflateGzip(path, dir),
+          throwsA(isA<ImportFormatException>()),
+        );
+        expect(dir.listSync(), isEmpty);
       } finally {
         await dir.delete(recursive: true);
       }

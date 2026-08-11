@@ -28,6 +28,7 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
@@ -199,6 +200,22 @@ class ResolvedNoopDatabase {
 /// most often is (a full database backup) is exactly the size that must never
 /// be buffered twice.
 ///
+/// VERIFIED against the gzip trailer, which the decoder alone does not get to.
+/// A gzip ends with a CRC32 and an ISIZE over the uncompressed bytes, and zlib
+/// does check them — but only on reaching the end of the stream. A stream that
+/// simply STOPS never gets there, and Dart's decoder returns whatever it
+/// managed to inflate without raising. So a backup truncated to 99.9% inflated
+/// cleanly, sniffed as SQLite, merged, and reported success one row short of
+/// what the user was restoring; a half-synced iCloud or Nextcloud copy is
+/// exactly the case restore exists for. Cuts between 50% and 99% were caught
+/// only incidentally, by sqlite, and surfaced as a raw ffi exception rather
+/// than something a user could act on. Reading the trailer off the file instead
+/// of waiting for the decoder to reach it catches every cut at the container,
+/// where the message can name what is wrong.
+///
+/// Single-member gzip only, which is what every writer in this app produces.
+/// Concatenated members would carry a trailer per member and be rejected here.
+///
 /// The caller owns [dir] and the file inside it.
 Future<String?> inflateGzip(String path, Directory dir) async {
   if (await sniffFile(path) != ImportContainer.gzip) return null;
@@ -211,6 +228,7 @@ Future<String?> inflateGzip(String path, Directory dir) async {
   final destPath = p.join(dir.path, base);
   final sink = File(destPath).openWrite();
   var written = 0;
+  var crc = 0;
   // COUNT INSIDE A TRANSFORMER, then `pipe`. The obvious `await for (…)
   // sink.add(chunk)` reads as streaming but is not: `IOSink.add` queues without
   // back-pressure, so an inflate that outruns the disk buffers the ENTIRE
@@ -232,11 +250,16 @@ Future<String?> inflateGzip(String path, Directory dir) async {
         out.close();
         return;
       }
+      // Folded into the same pass as the ceiling: the inflated bytes are only
+      // in memory here, and re-reading the restored file to checksum it would
+      // double the I/O on a multi-hundred-MB backup.
+      crc = getCrc32(chunk, crc);
       out.add(chunk);
     },
   );
   try {
     await File(path).openRead().transform(gzip.decoder).transform(counted).pipe(sink);
+    await _checkGzipTrailer(path, written: written, crc: crc);
   } catch (e) {
     try {
       await sink.close();
@@ -252,6 +275,49 @@ Future<String?> inflateGzip(String path, Directory dir) async {
   }
   return destPath;
 }
+
+/// Compare the gzip trailer of [path] against what actually came out of the
+/// decoder, and throw [ImportFormatException] when they disagree.
+///
+/// The last eight bytes of a gzip member are CRC32 then ISIZE, both
+/// little-endian over the UNCOMPRESSED data, ISIZE modulo 2^32. Either one
+/// mismatching means the file we read is not the file that was written — the
+/// usual cause being a copy that was still syncing.
+Future<void> _checkGzipTrailer(
+  String path, {
+  required int written,
+  required int crc,
+}) async {
+  final file = File(path);
+  final length = await file.length();
+  // 10-byte header + 2-byte empty deflate block + 8-byte trailer is the
+  // smallest possible gzip; anything shorter lost its trailer outright.
+  if (length < 18) throw _gzipTruncated(path);
+
+  final raf = await file.open();
+  final Uint8List trailer;
+  try {
+    await raf.setPosition(length - 8);
+    trailer = await raf.read(8);
+  } finally {
+    await raf.close();
+  }
+  if (trailer.length != 8) throw _gzipTruncated(path);
+
+  final expectedCrc =
+      trailer[0] | trailer[1] << 8 | trailer[2] << 16 | trailer[3] << 24;
+  final expectedSize =
+      trailer[4] | trailer[5] << 8 | trailer[6] << 16 | trailer[7] << 24;
+  if (written % 0x100000000 != expectedSize || crc != expectedCrc) {
+    throw _gzipTruncated(path);
+  }
+}
+
+ImportFormatException _gzipTruncated(String path) => ImportFormatException(
+  '“${p.basename(path)}” is incomplete or damaged — the compressed data does '
+  'not match the checksum stored in the file. If it came from a cloud folder, '
+  'wait for it to finish downloading, or export it again.',
+);
 
 /// If [path] is a NOOP full backup, return its database ready to open.
 ///

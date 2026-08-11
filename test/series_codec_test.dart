@@ -53,8 +53,9 @@ void main() {
 
       test('$name shrinks by at least half', () {
         final before = jsonEncode(loadFixture(name)).length;
-        final after = jsonEncode(SeriesCodec.encodePayload(loadFixture(name)))
-            .length;
+        final after = jsonEncode(
+          SeriesCodec.encodePayload(loadFixture(name)),
+        ).length;
         expect(
           after,
           lessThan(before),
@@ -256,6 +257,19 @@ void main() {
       expect(SeriesCodec.decodeCurve(raw), same(raw));
     });
 
+    test('an offset envelope with a non-int offset is returned unchanged', () {
+      // Dropping only the bad entry returned a SHORT curve — three stored
+      // samples, two handed to the reader, nothing said about the third. A
+      // curve the caller can see is not a curve is recoverable; one that is
+      // silently two thirds of itself is not.
+      final raw = {
+        't0': 1,
+        'to': [0, 1.5, 3],
+        'v': [1, 2, 3],
+      };
+      expect(SeriesCodec.decodeCurve(raw), same(raw));
+    });
+
     test('unparseable json decodes to null, not a throw', () {
       expect(SeriesCodec.decodePayloadJson('{not json'), isNull);
       expect(SeriesCodec.decodePayloadJson(null), isNull);
@@ -272,6 +286,71 @@ void main() {
       final once = SeriesCodec.decodePayload({...baseline});
       expect(deepEquals(once, baseline), isTrue);
       expect(deepEquals(SeriesCodec.decodePayload(once), baseline), isTrue);
+    });
+  });
+
+  // The per-row gate the backfill consults before OVERWRITING a stored bundle.
+  // Days older than rawRetentionDays have no substrate left to re-derive from,
+  // so a wrong `true` here is unrecoverable data loss. It has to fail closed:
+  // anything it cannot fully account for must come back false, not "probably
+  // fine".
+  group('verifyLossless', () {
+    for (final name in fixtures) {
+      test('$name vouches for itself', () {
+        expect(
+          SeriesCodec.verifyLossless(File(name).readAsStringSync()),
+          isTrue,
+        );
+      });
+    }
+
+    test('an already-encoded bundle still vouches for itself', () {
+      // The backfill can meet a row a previous pass converted. Re-encoding it
+      // is a no-op, so the gate must not refuse it.
+      final encoded = jsonEncode(
+        SeriesCodec.encodePayload(loadFixture(fixtures.first)),
+      );
+      expect(SeriesCodec.verifyLossless(encoded), isTrue);
+    });
+
+    test('a hand-built bundle covering all three shapes vouches', () {
+      final bundle = jsonEncode({
+        'scalars': {'rhr': 55.0},
+        'series': {
+          'hr_curve': [
+            for (var i = 0; i < 12; i++) {'t': 1000 + i * 60, 'v': 60 + i},
+          ],
+          'hrv_day': [
+            {'t': 1009, 'v': 36.8},
+            {'t': 1071, 'v': null},
+            {'t': 1325, 'v': 72.5},
+          ],
+          'zone_timeline': [
+            {'t': 1000, 'z': 0},
+            {'t': 1060, 'z': 3},
+          ],
+          'hypnogram': [
+            {'start': 1000, 'end': 4600, 'stage': 'light'},
+          ],
+        },
+        'activity_curve': [
+          for (var i = 0; i < 10; i++) {'t': 1000 + i * 300, 'v': i * 1.5},
+        ],
+      });
+      expect(SeriesCodec.verifyLossless(bundle), isTrue);
+    });
+
+    test('a payload that is not an object is refused', () {
+      // Nothing in day_result should look like this, which is the point: the
+      // gate has no idea what it is and therefore will not vouch for it.
+      expect(SeriesCodec.verifyLossless('[1,2,3]'), isFalse);
+      expect(SeriesCodec.verifyLossless('42'), isFalse);
+      expect(SeriesCodec.verifyLossless('null'), isFalse);
+    });
+
+    test('an unparseable payload is refused', () {
+      expect(SeriesCodec.verifyLossless('{not json'), isFalse);
+      expect(SeriesCodec.verifyLossless(''), isFalse);
     });
   });
 }
