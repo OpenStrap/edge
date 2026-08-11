@@ -37,7 +37,7 @@ import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
-import '../compute/manual_session.dart' show strainFromPerMinuteHr, vo2maxFor;
+import '../compute/manual_session.dart' show strainFromPerMinuteHr;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
 import '../data/day_label.dart';
@@ -4677,7 +4677,7 @@ class LiveWorkoutState {
   ///   * The gate is per sample there and was per minute-mean here. A minute
   ///     that straddles the gate — 30 s at 93 and 30 s at 94 against a 93.76
   ///     gate — billed as a whole resting minute (1.19 kcal) where the
-  ///     re-score bills half of it active (3.24). About 123 kcal adrift over a
+  ///     re-score bills half of it active (3.63). About 146 kcal adrift over a
   ///     zone-2 hour, in a stream that never looks unusual.
   ///   * The seconds were wrong. A completed minute billed a flat 60 s no
   ///     matter how few samples backed it, and the minute in progress billed
@@ -4709,9 +4709,6 @@ class LiveWorkoutState {
     final gate = rhr + ana.Calories.activeHRRFraction * (hrMax - rhr);
     final restingRate =
         ana.Calories.restingKcalPerS(coeffs, weightKg, heightCm, age);
-    // Same fitness anchor the re-score uses, from the same helper, so the two
-    // cannot end up on different Keytel models for one workout.
-    final vo2max = vo2maxFor(profile, rhr);
 
     var kcal = 0.0;
     void bill(int bpm, double seconds) {
@@ -4723,7 +4720,6 @@ class LiveWorkoutState {
               hrMax,
               weightKg,
               age,
-              vo2max: vo2max,
             );
       kcal += rate * seconds;
     }

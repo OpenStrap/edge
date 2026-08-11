@@ -25,11 +25,11 @@ import 'dart:math' as math;
 
 import 'package:openstrap_analytics/onehz.dart';
 
-// Pure value helpers only — no DB, no IO, no Flutter binding — so importing
-// them does not compromise this file's isolate safety. They are here so the
-// sex normalisation and the VO2max anchor have ONE definition across the
-// pipeline and the coordinator instead of two that can drift.
-import 'profile.dart' show vo2maxAnchor, workoutSex;
+// Pure value helper only — no DB, no IO, no Flutter binding — so importing it
+// does not compromise this file's isolate safety. It is here so the sex
+// normalisation has ONE definition across the pipeline and the coordinator
+// instead of two that can drift.
+import 'profile.dart' show workoutSex;
 
 const MetricCfg _skinTempAdcCfg = MetricCfg(
   minVal: 1.0,
@@ -497,26 +497,6 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   );
   Map<String, int> hrZones = const {};
   double? caloriesKcal;
-  // Fitness anchor for the calorie model (Uth: 15.3 x HRmax/RHR), from the one
-  // shared definition. Absent whenever the day carries no usable resting HR —
-  // `vo2maxEstimate` abstains on a non-positive or non-finite one — in which
-  // case the estimate falls back to Keytel's published age/mass/sex model
-  // rather than inventing a fitness level.
-  //
-  // Anchored on `rhrForTrimp`, which is the SLEEP-GATED resting HR. That gate
-  // is load-bearing here and not just for readiness: with no sleep session
-  // `nocturnalRhr` falls back to the whole day's HR, and a daytime low-30 mean
-  // is not a resting heart rate — it reads high, so Uth returns a low VO2max
-  // and the fitness model quietly prices the day as if the user were
-  // deconditioned. No sleep, no fitness anchor, and the published age/mass/sex
-  // model runs instead. `DerivationEngine` applies the same gate for the same
-  // reason, so both paths pick the same Keytel model for a given day.
-  final fitnessAnchor = vo2maxAnchor(
-    restingHr: rhrForTrimp,
-    maxHr: hrMax,
-    sex: sex,
-    age: age,
-  );
   if (hrMax != null && perMin.isNotEmpty) {
     if (rhrForTrimp != null && sex != null && dayHrValid.isNotEmpty) {
       trimp = banisterTrimp(
@@ -527,24 +507,34 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       );
     }
     hrZones = _wakeZoneMinutesFromSeries(wakeHr, hrMax);
-    if (age != null && sex != null && weightKg != null) {
-      // ACTIVE energy only, over the WAKE series — the same quantity, from the
-      // same series, that `DerivationEngine.wakeDayEnergy` publishes as the
-      // day's `calories`. That method is canonical; this is the early-read
-      // mirror the pure pipeline can compute without the coordinator, and the
-      // two must stay on the same series. `basal`/`total` are deliberately not
-      // read here: the pipeline does not know how many minutes of the calendar
-      // day the substrate covers, so it cannot pro-rate the BMR floor honestly.
+    // ACTIVE energy only, over the WAKE series — the same quantity, from the
+    // same series, that `DerivationEngine.wakeDayEnergy` publishes as the day's
+    // `calories`. That method is canonical; this is the early-read mirror the
+    // pure pipeline can compute without the coordinator, and the two must stay
+    // on the same series AND the same gate. `basal`/`total` are deliberately
+    // not read here: the pipeline does not know how many minutes of the
+    // calendar day the substrate covers, so it cannot pro-rate the BMR floor
+    // honestly.
+    //
+    // HEIGHT IS REQUIRED, and it used to be defaulted to 170 cm. Keytel does
+    // not read height but `dailyEnergy`'s ACTIVE term is the surplus over the
+    // Mifflin basal minute, and Mifflin does — so a stand-in height moves the
+    // active figure this line publishes (about 117 kcal/day across a
+    // 150-195 cm profile). `wakeDayEnergy` abstains for that reason; so does
+    // this, or Today shows an imputed number the derived day then withdraws.
+    if (age != null &&
+        sex != null &&
+        weightKg != null &&
+        heightCm != null) {
       caloriesKcal = Calories.dailyEnergy(
         perMin,
         profile: WorkoutUserProfile(
           weightKg: weightKg,
-          heightCm: heightCm ?? 170.0,
+          heightCm: heightCm,
           age: age,
           sex: workoutSex(sex),
         ),
         hrmax: hrMax,
-        vo2max: fitnessAnchor,
       ).active; // active-energy component (Keytel surplus over basal)
     }
   }

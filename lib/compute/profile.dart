@@ -8,8 +8,6 @@
 // (never a fabricated default). The engine therefore passes nullable getters and
 // only computes profile-gated metrics when the input is present.
 
-import 'package:openstrap_analytics/onehz.dart' as ana;
-
 class Profile {
   final int? ageYears;
   final double? weightKg;
@@ -91,34 +89,4 @@ String workoutSex(String? sex) {
     default:
       return 'nonbinary';
   }
-}
-
-/// The ONE definition of the calorie model's fitness anchor (Uth 2004:
-/// VO2max ≈ 15.3 × HRmax/RHR), shared by every path that costs heart rate.
-///
-/// Lives here, on raw values rather than on [Profile], because the pure day
-/// pipeline carries the profile as a plain map across an isolate boundary and
-/// cannot construct a [Profile]. That pipeline previously kept an inline copy
-/// of this closure whose sex mapping accepted only 'f' where the shared
-/// helper's accepted 'f' and 'female' — inert only because `vo2maxEstimate`
-/// ignores its sex and age arguments today, which is not a property to depend
-/// on.
-///
-/// Returns null whenever Uth's inputs are absent or implausible. A calorie
-/// estimate with no fitness anchor falls back to Keytel's published
-/// age/mass/sex model; it never invents a fitness level.
-double? vo2maxAnchor({
-  required double? restingHr,
-  required double? maxHr,
-  String? sex,
-  double? age,
-}) {
-  if (restingHr == null || maxHr == null) return null;
-  final m = ana.vo2maxEstimate(
-    restingHr: restingHr,
-    maxHr: maxHr,
-    sex: workoutSex(sex) == 'female' ? ana.Sex.female : ana.Sex.male,
-    age: age,
-  );
-  return m.present ? m.value : null;
 }

@@ -239,29 +239,6 @@ List<double> zoneMinutesFor(List<int> hrBpm, double zoneMaxHr) {
 /// [restingHr] and the profile's Tanaka HRmax and sex are all TERMS in the
 /// formula — a missing one abstains rather than substituting a default (the
 /// old live path silently used 30 y / 70 kg / 60 bpm).
-/// The fitness anchor Keytel's better model reads, or null when it cannot be
-/// estimated from what we have.
-///
-/// Uth (2004): VO2max ~ 15.3 x HRmax/HRrest, over Tanaka HRmax. This is a
-/// DERIVED anchor, not a measured one — threading it into the calorie estimate
-/// is really "let resting heart rate inform the burn", which is an independent
-/// fitness signal rather than a circular one, because resting HR is measured
-/// overnight and the workout HR is not.
-///
-/// The [Profile]-shaped face of `vo2maxAnchor`, which is the one definition,
-/// shared by the live tick, the substrate re-score, the day derivation and the
-/// pure day pipeline, so the fitness term cannot reach one calorie path and
-/// miss another. `vo2maxEstimate` already abstains on a non-positive or
-/// non-finite resting HR and on an HRmax at or below it, so every "we cannot
-/// know this" case arrives here as null and the caller falls back to Keytel's
-/// published age/mass/sex model.
-double? vo2maxFor(Profile profile, double? restingHr) => vo2maxAnchor(
-      restingHr: restingHr,
-      maxHr: profile.hrMaxTanaka,
-      sex: profile.sex,
-      age: profile.ageYears?.toDouble(),
-    );
-
 double? strainFromPerMinuteHr(
   List<double> perMinuteHr, {
   required Profile profile,
@@ -351,9 +328,6 @@ ManualSessionStats computeManualSessionStats({
       ),
       hrmax: hrMax,
       restingHr: restingHr,
-      // Keytel's fitness-adjusted model when the resting HR supports a VO2max
-      // estimate; his age/mass/sex model when it does not.
-      vo2max: vo2maxFor(profile, restingHr),
     );
     if (!bout.usedDefaultAnchors && bout.kcal > 0) calories = bout.kcal;
   }

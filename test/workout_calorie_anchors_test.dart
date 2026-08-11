@@ -9,6 +9,7 @@
 // one predicate.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/compute/manual_session.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/state/app_state.dart';
@@ -43,11 +44,43 @@ void main() {
       );
     });
 
-    test('does not require height, unlike isComplete', () {
-      // Gating calories on `isComplete` would refuse to score a profile that
-      // has everything the formula reads.
+    test('does not require height — Keytel does not read one', () {
+      // This predicate gates the BOUT paths: the live tick and a manually
+      // logged session, both of which price heart rate through Keytel, whose
+      // terms are HR, body mass, age and sex. Height enters those only through
+      // the resting floor, and only for the seconds below the activity gate.
       expect(_anchored.isComplete, isFalse);
       expect(_anchored.hasCalorieAnchors, isTrue);
+    });
+
+    test('is not enough for the DAY figures, which also need a height', () {
+      // The day's calories are not the bout's. `Calories.dailyEnergy` defines
+      // ACTIVE as the surplus over the Mifflin basal minute, so the Mifflin
+      // height term is inside the active scalar as well as the total, and a
+      // stand-in 170 cm moves both — figures that are persisted to `day_result`
+      // and exported to Apple Health / Health Connect. `wakeDayEnergy`
+      // therefore abstains outright rather than imputing; see
+      // daily_energy_consistency_test for the size of it.
+      expect(
+        DerivationEngine.wakeDayEnergy(
+          <double>[for (var i = 0; i < 60; i++) 140.0],
+          profile: _anchored,
+        ),
+        isNull,
+        reason: 'the Keytel anchors alone do not buy a day figure',
+      );
+      expect(
+        DerivationEngine.wakeDayEnergy(
+          <double>[for (var i = 0; i < 60; i++) 140.0],
+          profile: const Profile(
+            ageYears: 34,
+            weightKg: 72,
+            heightCm: 178,
+            sex: 'm',
+          ),
+        ),
+        isNotNull,
+      );
     });
   });
 

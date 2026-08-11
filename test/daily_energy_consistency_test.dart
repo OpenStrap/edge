@@ -17,6 +17,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
+import 'package:openstrap_edge/compute/onehz_pipeline.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/compute/substrate.dart';
 
@@ -124,6 +125,31 @@ void main() {
       );
     });
 
+    test('abstains without a height, and the whole triple goes with it', () {
+      // Height is not a Keytel term, so the instinct is that only the basal
+      // floor needs it and the ACTIVE figure could still be published. It
+      // cannot: `dailyEnergy` defines active as the surplus over the Mifflin
+      // basal minute, so the height term is inside active too. Standing 170 cm
+      // in moves a scalar that is persisted to `day_result` and exported to
+      // Apple Health.
+      const noHeight = Profile(ageYears: 34, weightKg: 72, sex: 'm');
+      expect(DerivationEngine.wakeDayEnergy(_dayHr, profile: noHeight), isNull);
+    });
+
+    test('a stand-in height would move ACTIVE, not just the basal floor', () {
+      // The measurement behind the gate above, pinned so the reasoning cannot
+      // quietly stop being true. Same profile, same series, height alone.
+      const short = Profile(ageYears: 35, weightKg: 80, heightCm: 150, sex: 'm');
+      const tall = Profile(ageYears: 35, weightKg: 80, heightCm: 195, sex: 'm');
+      final hr = <double>[for (var i = 0; i < 600; i++) 130.0];
+
+      final s = DerivationEngine.wakeDayEnergy(hr, profile: short)!;
+      final t = DerivationEngine.wakeDayEnergy(hr, profile: tall)!;
+
+      expect((s.active - t.active).abs(), greaterThan(100.0));
+      expect((s.total - t.total).abs(), greaterThan(100.0));
+    });
+
     test('abstains on an empty HR series rather than reporting a bare BMR', () {
       // No heart rate at all is "we did not measure this day", which is not
       // the same claim as "this day burned exactly your BMR".
@@ -137,9 +163,9 @@ void main() {
   // The helper above holds the invariant on its own. The invariant that matters
   // is the one on the PERSISTED PAIR, and that is a different claim: the
   // scalars survive a whole day-block composition after the helper returns, and
-  // a second `dailyEnergy` further down that composition — differently gated,
-  // over a different span, without the fitness anchor — used to overwrite
-  // `calories_total` on the way out. Every assertion in the group above passed
+  // a second `dailyEnergy` further down that composition — differently gated
+  // and over a different span — used to overwrite `calories_total` on the way
+  // out. Every assertion in the group above passed
   // throughout, which is exactly why the group below exists.
   group('the scalar pair a persisted day carries', () {
     // A 70-year-old is the sharpest case for the wake-vs-whole-day question:
@@ -186,10 +212,7 @@ void main() {
       );
     }
 
-    ({Map<String, dynamic> bundle, Map<String, dynamic> scalars}) run({
-      double? restingHr,
-      bool withSleep = true,
-    }) {
+    ({Map<String, dynamic> bundle, Map<String, dynamic> scalars}) run() {
       final bundle = <String, dynamic>{};
       final scalars = <String, dynamic>{};
       DerivationEngine.applyDayActivity(
@@ -197,37 +220,11 @@ void main() {
         scalars: scalars,
         daySub: build(),
         profile: older,
-        sleepOnsetSec: withSleep ? sleepOnset : 0,
-        sleepOffsetSec: withSleep ? sleepOffset : 0,
-        restingHr: restingHr,
+        sleepOnsetSec: sleepOnset,
+        sleepOffsetSec: sleepOffset,
       );
       return (bundle: bundle, scalars: scalars);
     }
-
-    test('a day with no sleep session gets no fitness anchor', () {
-      // `restingHr` is the day's published `rhr` scalar, and with no sleep the
-      // pipeline derives that from WAKING heart rate. Feeding it to Uth reads
-      // as a deconditioned athlete and prices the whole day low.
-      //
-      // Both comparisons hold the HR SERIES fixed and vary only the anchor.
-      // Comparing a slept day against a no-sleep one directly would not: with
-      // no window, `_perMinuteMeanWake` stops excluding the sleep hours, so the
-      // wake series grows from four hours to six and two of the added hours sit
-      // above this profile's flex point. That moves calories for a reason that
-      // has nothing to do with the fitness anchor, and an assertion resting on
-      // it passes whether the gate is there or not.
-      final sleptAnchored = run(restingHr: 48.0).scalars['calories'] as double;
-      final sleptBare = run().scalars['calories'] as double;
-      expect(sleptAnchored, isNot(closeTo(sleptBare, 0.5)),
-          reason: 'with a night, the resting HR must reach the fitness model');
-
-      final wakingAnchored = run(restingHr: 48.0, withSleep: false)
-          .scalars['calories'] as double;
-      final wakingBare =
-          run(withSleep: false).scalars['calories'] as double;
-      expect(wakingAnchored, closeTo(wakingBare, 0.001),
-          reason: 'without a night, the same resting HR must change nothing');
-    });
 
     test('calories_total - calories == basal on the pair, not just the helper',
         () {
@@ -307,6 +304,68 @@ void main() {
       // The unrelated blocks still ran — abstaining from energy must not
       // silently take movement down with it.
       expect(bundle['movement'], isNotNull);
+    });
+  });
+
+  // The 1 Hz pipeline computes the SAME active quantity for the early-read path
+  // that Today draws before a full day result exists. It has to gate on height
+  // for the same reason `wakeDayEnergy` does, or Today shows an imputed figure
+  // that the derived day then withdraws.
+  group('the pure pipeline mirrors the gate', () {
+    const dayStart = 1767225600;
+    const n = 3600;
+
+    Map<String, dynamic> bundleFor(Map<String, dynamic> profile) {
+      final ts = [for (var i = 0; i < n; i++) dayStart + i];
+      final hr = [for (var i = 0; i < n; i++) 130];
+      return deriveDayBundle(
+        DayBundleInput(
+          date: '2026-01-01',
+          dayTsSec: ts,
+          dayHr: hr,
+          sleepTsSec: const [],
+          sleepHr: const [],
+          sleepRrTsMs: const [],
+          sleepRrMs: const [],
+          sleepSpo2Red: const [],
+          sleepSpo2Ir: const [],
+          sleepSkinTemp: const [],
+          sleepJson: const {},
+          hypnoStages: const [],
+          sleepOnsetSec: 0,
+          sleepOffsetSec: 0,
+          profile: profile,
+          dayConfidence: 0.5,
+          dayFlags: const [],
+        ).toJson(),
+      );
+    }
+
+    num? caloriesOf(Map<String, dynamic> profile) {
+      final scalars =
+          (bundleFor(profile)['scalars'] as Map).cast<String, dynamic>();
+      return scalars['calories'] as num?;
+    }
+
+    test('scores the day when the profile carries a real height', () {
+      expect(
+        caloriesOf(const {
+          'age': 34,
+          'sex': 'm',
+          'weight_kg': 72,
+          'height_cm': 178,
+        }),
+        isNotNull,
+      );
+    });
+
+    test('abstains without one instead of standing 170 cm in', () {
+      expect(
+        caloriesOf(const {'age': 34, 'sex': 'm', 'weight_kg': 72}),
+        isNull,
+        reason: 'the active term is a surplus over the Mifflin basal minute, '
+            'so an imputed height moves it',
+      );
     });
   });
 }

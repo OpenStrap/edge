@@ -81,10 +81,9 @@ LiveWorkoutState _run(
 ///
 /// Deliberately the REAL entry point rather than a hand-rolled call to
 /// `estimateBoutCalories`. A stand-in only proves the live tick matches the
-/// test's idea of the re-score; when the fitness term was threaded in, the
-/// stand-in kept passing the old model and this test correctly went red. The
-/// property under test is agreement with the shipping code, so it has to call
-/// the shipping code.
+/// test's idea of the re-score, and it keeps on proving that after the shipping
+/// estimator has moved underneath it. The property under test is agreement with
+/// the shipping code, so it has to call the shipping code.
 double _rescore(List<int> hr, {int stepSec = 1}) {
   final base = _startedAt.millisecondsSinceEpoch ~/ 1000;
   final s = computeManualSessionStats(
@@ -108,14 +107,13 @@ void main() {
     );
 
     // Pinned against the published formulas by hand, so this test fails if the
-    // two paths ever agree on a WRONG number. A 55 bpm resting HR gives
-    // Uth VO2max = 15.3 * 184.2/55 = 51.24, so the ACTIVE term is Keytel's
-    // fitness-adjusted model:
-    //   -95.7735 + 0.271*34 + 0.394*72 + 0.404*51.24 + 0.634*140
-    //     = 51.270 kJ/min / 251.04                   = 0.2042539 kcal/s
+    // two paths ever agree on a WRONG number. Keytel (male, 72 kg, 34 y) at
+    // 140 bpm:
+    //   -55.0969 + 0.6309*140 + 0.1988*72 + 0.2017*34
+    //     = 54.4005 kJ/min / 251.04                  = 0.2167005 kcal/s
     //   Harris-Benedict resting = 1714.15 kcal/day / 86400 = 0.0198397 kcal/s
-    //   300 * 0.2042539 + 300 * 0.0198397            = 67.22 kcal
-    expect(live.calories, closeTo(67.22, 0.25));
+    //   300 * 0.2167005 + 300 * 0.0198397            = 70.96 kcal
+    expect(live.calories, closeTo(70.96, 0.25));
   });
 
   test('seconds below the bout gate bill the resting rate, not the Keytel rate',
@@ -128,7 +126,7 @@ void main() {
 
     // 600 s * 0.0198397 kcal/s = 11.90 kcal
     expect(live.calories, closeTo(11.90, 0.25));
-    // The old tick billed Keytel(70) = 10.2375 kJ/min -> 0.0407803 kcal/s,
+    // The old tick billed Keytel(70) = 10.2375 kJ/min -> 0.0407804 kcal/s,
     // i.e. 24.47 kcal, more than double.
     expect(
       live.calories,
@@ -139,13 +137,13 @@ void main() {
 
   test('a stream that never leaves the active zone agrees too', () {
     // The all-active case, where the gate never fires and the whole bout is
-    // priced by the fitness-adjusted term alone.
+    // priced by the Keytel term alone.
     final hard = <int>[for (var i = 0; i < 600; i++) 140];
 
     final live = _run(hard);
 
-    // 600 s * 0.2042539 = 122.55 kcal
-    expect(live.calories, closeTo(122.55, 0.25));
+    // 600 s * 0.2167005 = 130.02 kcal
+    expect(live.calories, closeTo(130.02, 0.25));
     expect(live.calories, closeTo(_rescore(hard), 0.25));
   });
 
@@ -198,12 +196,15 @@ void main() {
 
     expect(live.calories, closeTo(_rescore(intervals), 0.25));
     // 180 s * activeKcalPerS(130) + 180 s * restingRate
-    //   = 180 * 0.1789830 + 180 * 0.0198397 = 35.79 kcal
-    expect(live.calories, closeTo(35.79, 0.25));
-    // Gating on the minute mean (95 bpm, active, for all 360 s) says 32.61.
+    //   = 180 * 0.1915691 + 180 * 0.0198397 = 38.05 kcal
+    expect(live.calories, closeTo(38.05, 0.25));
+    // Gating on the minute mean (95 bpm, active, for all 360 s) says 37.30.
+    // The two are only 0.75 kcal apart on this shape, because Keytel is nearly
+    // linear over 60-130 bpm and the mean lands close to the split. The gap
+    // widens with the swing; the sawtooth case below is where it is decisive.
     expect(
       live.calories,
-      isNot(closeTo(32.61, 1.0)),
+      greaterThan(37.6),
       reason: 'the gate is a per-sample decision, not a per-minute one',
     );
   });
@@ -223,10 +224,10 @@ void main() {
 
     expect(live.calories, closeTo(_rescore(sawtooth), 0.25));
     // 300 s * activeKcalPerS(94) + 300 s * restingRate
-    //   = 300 * 0.0880493 + 300 * 0.0198397 = 32.37 kcal
-    expect(live.calories, closeTo(32.37, 0.25));
+    //   = 300 * 0.1010958 + 300 * 0.0198397 = 36.28 kcal
+    expect(live.calories, closeTo(36.28, 0.25));
     // Minute-mean gating bills all 600 s at the resting rate: 11.90 kcal, i.e.
-    // 1.19 kcal/min where the re-score says 3.24 — about 123 kcal adrift over a
+    // 1.19 kcal/min where the re-score says 3.63 — about 146 kcal adrift over a
     // zone-2 hour, off a stream that never looks unusual.
     expect(
       live.calories,
@@ -252,8 +253,8 @@ void main() {
     expect(live.calories, closeTo(_rescore(withGap), 0.25));
     // 300 billed seconds at 140 bpm: 239 one-second steps, the 61 s the pre-gap
     // sample carries across the outage, and one representative second for the
-    // final sample. 300 * 0.2042539 = 61.28 kcal.
-    expect(live.calories, closeTo(61.28, 0.25));
+    // final sample. 300 * 0.2167005 = 65.01 kcal.
+    expect(live.calories, closeTo(65.01, 0.25));
   });
 
   test('an outage longer than the cap stops billing at the cap', () {
@@ -276,8 +277,8 @@ void main() {
     // 389 billed seconds at 140 bpm, NOT the 439 seconds of wall clock: 119
     // one-second steps before the outage, 150 (not 200) carried across it, 119
     // after, and one representative second for the final sample.
-    // 389 * 0.2042539 = 79.45 kcal.
-    expect(live.calories, closeTo(79.45, 0.25));
+    // 389 * 0.2167005 = 84.30 kcal.
+    expect(live.calories, closeTo(84.30, 0.25));
   });
 
   test('a non-1 Hz stream bills real seconds, not sample counts', () {
@@ -294,8 +295,9 @@ void main() {
 
     expect(live.calories, closeTo(_rescore(sparse, stepSec: 5), 0.25));
     // 300 s at 140 (60 samples x 5 s) + 296 s at 70 (59 x 5 s + the final
-    // sample's one representative second) = 61.28 + 5.87 = 67.15 kcal.
-    expect(live.calories, closeTo(67.15, 0.25));
+    // sample's one representative second) = 65.01 + 5.87 = 70.88 kcal. 70 bpm
+    // is below the gate, so those 296 s bill the resting rate.
+    expect(live.calories, closeTo(70.88, 0.25));
   });
 
   test('time before the first sample is not billed', () {
@@ -314,7 +316,7 @@ void main() {
     }
 
     // 60 billed seconds (59 one-second steps + the trailing second), not 105.
-    expect(s.calories, closeTo(60 * 0.2042539, 0.25));
+    expect(s.calories, closeTo(60 * 0.2167005, 0.25));
   });
 
   test('abstains for a profile without the Keytel anchors', () {
