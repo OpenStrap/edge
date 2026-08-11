@@ -1,0 +1,11 @@
+# A test that needs a NUL byte in a fixture can write one as a literal, and
+# git's binary heuristic then calls the whole file binary: the diff collapses to
+# "Binary files differ" with no line counts, so nobody reviews it. Escape
+# sequences are the fix in the source; this makes the diff readable even when a
+# file slips through.
+#
+# `diff`, not `text diff`. `diff` alone is the part that keeps such a file
+# reviewable. `text` additionally turns on end-of-line normalisation for every
+# Dart file in the repo, which is a working-tree-wide change with nothing to do
+# with reviewable diffs.
+*.dart diff

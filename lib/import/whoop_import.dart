@@ -18,6 +18,7 @@ import '../compute/derivation_engine.dart' show kAlgoVersion, DerivationEngine;
 import '../compute/profile.dart';
 import '../compute/substrate.dart' show localDateLabel;
 import '../data/db.dart';
+import '../data/series_codec.dart';
 import 'import_container.dart';
 
 class WhoopImportResult {
@@ -193,8 +194,10 @@ class WhoopImporter {
     if (row == null) return false;
     if (((row['skipped'] as num?) ?? 0).toInt() == 1) return false;
     try {
-      final p = jsonDecode((row['payload_json'] as String?) ?? '{}');
-      if (p is Map) {
+      final p = SeriesCodec.decodePayloadJson(
+        (row['payload_json'] as String?) ?? '{}',
+      );
+      if (p != null) {
         if (p['skipped'] == true) return false;
         // A prior import (this importer, or the cloud one) is replaceable —
         // both are vendor snapshots, neither is measured on-device data.

@@ -28,6 +28,7 @@ import 'day_label.dart';
 import 'db.dart';
 import 'journal_fields.dart';
 import 'local_repository.dart';
+import 'series_codec.dart';
 import '../gps/route_models.dart';
 import '../gps/route_math.dart' as rmath;
 
@@ -109,15 +110,15 @@ class LocalRepositoryImpl extends LocalRepository {
       await _bundle(date) ??
       (_isTodayLabel(date) ? await _latestBundle() : null);
 
-  static Map<String, dynamic>? _decode(Object? json) {
-    if (json is! String) return null;
-    try {
-      final d = jsonDecode(json);
-      return d is Map ? d.cast<String, dynamic>() : null;
-    } catch (_) {
-      return null;
-    }
-  }
+  /// THE read seam for the compact curve format: every bundle this class serves
+  /// comes through here, so downstream readers keep seeing plain [{t,v}] lists
+  /// and none of them has to know the wire format exists.
+  ///
+  /// Safe on the non-day_result payloads that also use it (baselines,
+  /// freshness, wake features): SeriesCodec only rewrites keys already in
+  /// grid/offset shape, which nothing but `putDayResult` ever writes.
+  static Map<String, dynamic>? _decode(Object? json) =>
+      SeriesCodec.decodePayloadJson(json);
 
   /// Pull a sub-map by dotted path (e.g. 'clinical.hrv_time').
   Map<String, dynamic>? _sub(Map<String, dynamic>? b, String path) {

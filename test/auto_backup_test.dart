@@ -147,7 +147,7 @@ void main() {
 
     test('is zero-padded so widths match', () {
       expect(backupFileName(DateTime(2026, 1, 2, 3, 4, 5)),
-          'openstrap-20260102-030405.db');
+          'openstrap-20260102-030405.db.gz');
     });
 
     test('two runs in the same minute get different names', () {
@@ -198,10 +198,53 @@ void main() {
       touch('openstrap-2026.db');
       touch('openstrap-20260101.db');
       touch('random.db');
+      touch('openstrap-20260101-000000.db.gz.bak');
       final out = sortBackupsNewestFirst(tmp.listSync());
       expect(out.map((f) => p.basename(f.path)), [
+        'openstrap-20260101-000000.db.gz',
+      ]);
+    });
+
+    test('still matches the UNCOMPRESSED names earlier versions wrote', () {
+      // An install that upgrades still holds up to kBackupsKept plain `.db`
+      // backups. If the pattern stopped matching them they would never be
+      // counted toward retention and never pruned — five full-size copies
+      // leaked permanently, which is the opposite of the point.
+      touch('openstrap-20260101-000000.db');
+      touch('openstrap-20260102-000000.db.gz');
+      final out = sortBackupsNewestFirst(tmp.listSync());
+      expect(out.map((f) => p.basename(f.path)), [
+        'openstrap-20260102-000000.db.gz',
         'openstrap-20260101-000000.db',
       ]);
+    });
+
+    test('matches the -N collision names _uniqueDestination emits', () {
+      // These leaked for the same reason: two runs inside one second produce a
+      // `-2` suffix that the pattern never covered, so the file was invisible
+      // to retention forever.
+      touch('openstrap-20260101-000000.db.gz');
+      touch('openstrap-20260101-000000-2.db.gz');
+      touch('openstrap-20260101-000000-3.db');
+      expect(sortBackupsNewestFirst(tmp.listSync()).length, 3);
+    });
+
+    test('a collision suffix ranks NEWER, not older', () {
+      // Sorting the raw basename got this backwards: `-` (0x2D) sorts before
+      // `.` (0x2E), so `-2` compared LESS than the unsuffixed name and the
+      // second backup of that second was ranked the older of the pair — the
+      // one retention evicts first. A higher index is always the later write.
+      touch('openstrap-20260101-000000.db.gz');
+      touch('openstrap-20260101-000000-2.db.gz');
+      touch('openstrap-20260101-000000-10.db.gz');
+      expect(
+        sortBackupsNewestFirst(tmp.listSync()).map((f) => p.basename(f.path)),
+        [
+          'openstrap-20260101-000000-10.db.gz',
+          'openstrap-20260101-000000-2.db.gz',
+          'openstrap-20260101-000000.db.gz',
+        ],
+      );
     });
 
     test('an empty directory is empty, not an error', () {
@@ -385,15 +428,236 @@ void main() {
       );
     });
 
+    test('a backup is gzip on disk and inflates back to the database', () async {
+      // The whole point of the extension change. A backup that is smaller but
+      // cannot be read back is not a backup, so this asserts BOTH: the file is
+      // really gzip, and what comes out of it is really the snapshot.
+      final outcome = await runBackup(now: DateTime(2026, 8, 9, 15, 0, 0));
+      expect(outcome.succeeded, isTrue, reason: outcome.error);
+
+      final file = File(outcome.path!);
+      expect(p.basename(file.path), endsWith('.db.gz'));
+
+      final bytes = await file.readAsBytes();
+      expect(bytes.length, greaterThan(2));
+      expect(bytes[0], 0x1F, reason: 'gzip magic byte 0');
+      expect(bytes[1], 0x8B, reason: 'gzip magic byte 1');
+
+      final inflated = gzip.decode(bytes);
+      expect(
+        String.fromCharCodes(inflated.take(15)),
+        'SQLite format 3',
+        reason: 'the inflated backup must be an openable database',
+      );
+      expect(
+        inflated.length,
+        greaterThan(bytes.length),
+        reason: 'a compressed backup must be smaller than the database',
+      );
+    });
+
+    test('the final backup name never exists as a partial file', () async {
+      // Compressing straight into `dest` published the final name while the
+      // file was still being written. Kill the process mid-stream and a
+      // truncated file carries a name retention matches, so it counts as one of
+      // the five and evicts a good backup. `catch` cannot save that — the
+      // process is gone. So: stage under a name retention does NOT match, and
+      // publish by rename.
+      //
+      // Asserted through a failing export, which is the only mid-write failure
+      // reachable from a test: no final-named file may be left behind, and
+      // nothing invisible may accumulate either.
+      final dir = await backupDirectory();
+      final before = dir.listSync().length;
+
+      final outcome = await runBackup(
+        now: DateTime(2026, 8, 9, 17, 0, 0),
+        exportSnapshot: () async => throw const FileSystemException('boom'),
+      );
+      expect(outcome.succeeded, isFalse);
+
+      final names = dir.listSync().map((f) => p.basename(f.path)).toList();
+      expect(
+        names.where((n) => n.contains('20260809-170000')),
+        isEmpty,
+        reason: 'a failed backup must leave neither a final nor a staging file',
+      );
+      expect(dir.listSync().length, before);
+    });
+
+    test('a failure AFTER the staging file exists still removes it', () async {
+      // The test above throws before the sink is ever opened, so it proves
+      // nothing about the cleanup that matters: the case worth covering is a
+      // staging file that has already been created and then has to be reclaimed
+      // when the write fails. Reached here by handing back a snapshot path that
+      // cannot be read as a file, so the failure lands inside the write rather
+      // than in front of it.
+      final dir = await backupDirectory();
+      final when = DateTime(2026, 8, 9, 19, 0, 0);
+      final dest = File(p.join(dir.path, backupFileName(when)));
+      final staging = File('${dest.path}$kBackupStagingSuffix');
+      staging.writeAsStringSync('a previous attempt got this far');
+
+      final unreadable = Directory(p.join(tmp.path, 'not-a-snapshot'))
+        ..createSync();
+      final outcome = await runBackup(
+        now: when,
+        exportSnapshot: () async => unreadable.path,
+      );
+
+      expect(outcome.succeeded, isFalse);
+      expect(dest.existsSync(), isFalse, reason: 'no final name may be published');
+      expect(
+        staging.existsSync(),
+        isFalse,
+        reason: 'a staging file that was created must be deleted on failure',
+      );
+      unreadable.deleteSync();
+    });
+
+    test('staging files are invisible to retention', () async {
+      // The suffix only protects a good backup if retention genuinely cannot
+      // see it — otherwise a partial would still be counted and still evict.
+      final dir = await backupDirectory();
+      File(
+        p.join(dir.path, 'openstrap-20260809-180000.db.gz$kBackupStagingSuffix'),
+      ).writeAsStringSync('half a backup');
+      try {
+        final seen = sortBackupsNewestFirst(dir.listSync())
+            .map((f) => p.basename(f.path));
+        expect(seen.where((n) => n.contains('180000')), isEmpty);
+      } finally {
+        await pruneStagingFiles(dir);
+      }
+      expect(
+        dir.listSync().where((f) => f.path.endsWith(kBackupStagingSuffix)),
+        isEmpty,
+        reason: 'pruneStagingFiles must reclaim what retention cannot see',
+      );
+    });
+
+    test('a .partial that is not ours is left alone', () async {
+      // This folder is app-specific external storage on Android and the
+      // file-sharing Documents directory on iOS — chosen precisely so sync
+      // clients can point at it, and `.partial` is what a half-finished
+      // Nextcloud or iCloud download is called. Deleting on the suffix alone
+      // reached outside this feature's own files.
+      final dir = await backupDirectory();
+      final foreign = File(p.join(dir.path, 'holiday-video.mp4.partial'))
+        ..writeAsStringSync('someone else is downloading this');
+      final lookalike = File(p.join(dir.path, 'openstrap-notes.db.partial'))
+        ..writeAsStringSync('not ours either');
+      final ours = File(
+        p.join(dir.path, 'openstrap-20260809-181500.db.gz$kBackupStagingSuffix'),
+      )..writeAsStringSync('half a backup');
+
+      await pruneStagingFiles(dir);
+
+      expect(ours.existsSync(), isFalse);
+      expect(foreign.existsSync(), isTrue);
+      expect(lookalike.existsSync(), isTrue);
+      foreign.deleteSync();
+      lookalike.deleteSync();
+    });
+
+    test('a backup this code writes can actually be restored', () async {
+      // THE boundary this feature turns on, and nothing crossed it. The write
+      // side gzips; the restore side handed the picked path straight to
+      // openDatabase, so every backup written here came back as "file is not a
+      // database" — a user who lost their phone, reinstalled, and picked their
+      // own backup got nothing.
+      final db = await LocalDb.instance;
+      const dayId = '2026-08-09';
+      const payload = '{"scalars":{"rhr":52.0}}';
+      await db.insert('day_result', {
+        'day_id': dayId,
+        'algo_version': 61,
+        'payload_json': payload,
+        'window_json': '{}',
+        'computed_at': 1,
+        'finalized': 0,
+        'skipped': 0,
+        'partial': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+      final outcome = await runBackup(now: DateTime(2026, 8, 9, 20, 0, 0));
+      expect(outcome.succeeded, isTrue, reason: outcome.error);
+      expect(outcome.path, endsWith('.db.gz'));
+      // Out of the retention folder, so a later backup in this group cannot
+      // evict the file under the assertion.
+      final picked = File(p.join(tmp.path, 'picked-backup.db.gz'));
+      await File(outcome.path!).copy(picked.path);
+
+      await db.delete('day_result', where: 'day_id = ?', whereArgs: [dayId]);
+      expect(
+        await db.query('day_result', where: 'day_id = ?', whereArgs: [dayId]),
+        isEmpty,
+      );
+
+      final counts = await LocalDb.importFromDbFile(picked.path);
+      expect(counts['day_result'], greaterThanOrEqualTo(1));
+      final restored = await db.query(
+        'day_result',
+        where: 'day_id = ?',
+        whereArgs: [dayId],
+      );
+      expect(restored, hasLength(1));
+      expect(restored.first['payload_json'], payload);
+      await picked.delete();
+      await db.delete('day_result', where: 'day_id = ?', whereArgs: [dayId]);
+    });
+
+    test('a plain uncompressed .db still restores', () async {
+      // Older backups and exportCopy output are not compressed. Sniffing by
+      // magic bytes rather than by extension has to leave that path alone.
+      final db = await LocalDb.instance;
+      const dayId = '2026-08-10';
+      await db.insert('day_result', {
+        'day_id': dayId,
+        'algo_version': 61,
+        'payload_json': '{"scalars":{"rhr":48.0}}',
+        'window_json': '{}',
+        'computed_at': 1,
+        'finalized': 0,
+        'skipped': 0,
+        'partial': 0,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+      final snapshot = await LocalDb.exportCopy();
+      await db.delete('day_result', where: 'day_id = ?', whereArgs: [dayId]);
+
+      await LocalDb.importFromDbFile(snapshot);
+      expect(
+        await db.query('day_result', where: 'day_id = ?', whereArgs: [dayId]),
+        hasLength(1),
+      );
+      await File(snapshot).delete();
+      await db.delete('day_result', where: 'day_id = ?', whereArgs: [dayId]);
+    });
+
+    test('a snapshot is never left behind in temp', () async {
+      // The export is a full second copy of the database. The old code renamed
+      // it into place; the new one streams and must still delete the source.
+      final outcome = await runBackup(now: DateTime(2026, 8, 9, 16, 0, 0));
+      expect(outcome.succeeded, isTrue, reason: outcome.error);
+      final leftovers = tmp
+          .listSync()
+          .whereType<File>()
+          .map((f) => p.basename(f.path))
+          .where((n) => n.startsWith('openstrap_export_'))
+          .toList();
+      expect(leftovers, isEmpty);
+    });
+
     test('an occupied destination is never handed back', () async {
       // Returning the last candidate would give the next backup a real
       // snapshot to overwrite — the exact loss the unique naming prevents.
       final when = DateTime(2026, 8, 9, 14, 0, 0);
       final dir = await backupDirectory();
       final base = backupFileName(when);
-      final stem = base.substring(0, base.length - 3);
+      final stem = base.substring(0, base.length - kBackupExtension.length);
       for (var i = 1; i < 100; i++) {
-        File(p.join(dir.path, i == 1 ? base : '$stem-$i.db'))
+        File(p.join(dir.path, i == 1 ? base : '$stem-$i$kBackupExtension'))
             .writeAsStringSync('occupied');
       }
 
@@ -412,11 +676,11 @@ void main() {
       expect(exported, 0, reason: 'nothing should have been exported');
       // Every pre-existing file is untouched.
       for (var i = 1; i < 100; i++) {
-        final f = File(p.join(dir.path, i == 1 ? base : '$stem-$i.db'));
+        final f = File(p.join(dir.path, i == 1 ? base : '$stem-$i$kBackupExtension'));
         expect(f.readAsStringSync(), 'occupied');
       }
       for (var i = 1; i < 100; i++) {
-        File(p.join(dir.path, i == 1 ? base : '$stem-$i.db')).deleteSync();
+        File(p.join(dir.path, i == 1 ? base : '$stem-$i$kBackupExtension')).deleteSync();
       }
     });
   });

@@ -33,6 +33,7 @@ import 'package:firebase_performance/firebase_performance.dart';
 
 import '../data/db.dart';
 import '../data/day_label.dart';
+import '../data/series_codec.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/tap_router.dart' show kRouteWorkoutSuggestion;
@@ -1274,6 +1275,11 @@ class DerivationEngine {
       _log('derive ERROR: $e\n$st');
       return 0;
     } finally {
+      // Storage housekeeping runs here, after everything, still holding
+      // `_running`. See _runStorageHousekeeping — this is the only place every
+      // entry path and every early return actually reaches.
+      _diag['stage'] = 'housekeeping';
+      await _runStorageHousekeeping();
       _running = false;
       final finishedAt = DateTime.now().millisecondsSinceEpoch;
       _diag
@@ -1400,6 +1406,7 @@ class DerivationEngine {
       _log('derive selected ERROR: $e\n$st');
       return 0;
     } finally {
+      await _runStorageHousekeeping();
       final finishedAt = DateTime.now().millisecondsSinceEpoch;
       _diag
         ..['running'] = false
@@ -2128,6 +2135,7 @@ class DerivationEngine {
       _log('rescan ERROR: $e\n$st');
       return 0;
     } finally {
+      await _runStorageHousekeeping();
       _running = false;
     }
   }
@@ -3276,15 +3284,16 @@ class DerivationEngine {
     }
   }
 
-  static Map<String, dynamic>? _decodeBundle(Object? json) {
-    if (json is! String) return null;
-    try {
-      final d = jsonDecode(json);
-      return d is Map ? d.cast<String, dynamic>() : null;
-    } catch (_) {
-      return null;
-    }
-  }
+  /// Decode a stored day bundle, normalizing the compact curve format back to
+  /// plain [{t,v}] lists.
+  ///
+  /// The normalization is LOAD-BEARING on the re-derive path, not just hygiene:
+  /// `_deriveOneDay` reads the previous row through here and merges its series
+  /// into the fresh bundle. Without normalizing, an encoded `prev` would be
+  /// merged beside newly-computed legacy lists and the day would carry two
+  /// different shapes for the same curve.
+  static Map<String, dynamic>? _decodeBundle(Object? json) =>
+      SeriesCodec.decodePayloadJson(json);
 
   /// Build the cross-day record from a day_result row + its payload bundle.
   static Map<String, dynamic>? _crossDayRecord(
@@ -3384,6 +3393,44 @@ class DerivationEngine {
     final stale = await LocalDb.pruneSupersededIntermediates();
     if (stale > 0) {
       _log('pruned $stale superseded intermediate rows');
+    }
+  }
+
+  /// Storage housekeeping that must run on EVERY derive.
+  ///
+  /// Deliberately NOT inside [_pruneOldDecoded]: both of that method's call
+  /// sites sit behind `if (scope.fullHistory)`, and ordinary light/heavy
+  /// derives run with `fullHistory: false`. Putting the back-catalogue rewrite
+  /// there made it resumable but effectively unreachable — a normal install
+  /// would have converted nothing.
+  ///
+  /// CALLED FROM THE `finally` OF EVERY ENTRY PATH, and it swallows its own
+  /// errors, for two reasons that were both live:
+  ///
+  ///   • Reach. Called from the body, it sat below `if (dataNowSec <= 0)
+  ///     return 0` and below two other early returns — so the install that most
+  ///     needs it, one restored from a backup with years of derived history and
+  ///     no decoded rows at all (they are capped at `rawRetentionDays`, so a
+  ///     backup carries almost none), converted nothing, ever. runDays and
+  ///     rescanRecent never reached it at all.
+  ///   • Blast radius. Called unguarded from the body, a throw — SQLITE_BUSY
+  ///     from the other derivation isolate, a full disk — skipped the raw prune
+  ///     that enforces `rawRetentionDays`, skipped the timezone re-baseline, and
+  ///     landed in the run-wide catch, so a derive that had actually completed
+  ///     every day reported 0 back to `reanalyzeAll`. This work is a storage
+  ///     optimization; nothing it does may change what the derive returns.
+  ///
+  /// Bounded and resumable, so running it on every pass costs one small batch.
+  /// Off the path to a durable commit, and never inside a migration: `onUpgrade`
+  /// runs under iOS's CPU watchdog (invariant 11).
+  Future<void> _runStorageHousekeeping() async {
+    try {
+      final reencoded = await LocalDb.reencodeLegacyDayResults();
+      if (reencoded > 0) {
+        _log('re-encoded $reencoded legacy day bundles');
+      }
+    } catch (e) {
+      _log('storage housekeeping skipped: $e');
     }
   }
 

@@ -55,6 +55,7 @@ import '../gps/gps_source.dart';
 import '../gps/route_tracker.dart';
 import '../gps/screen_wake.dart';
 import '../data/local_repository_impl.dart';
+import '../data/series_codec.dart';
 import '../notify/battery_forecast.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
@@ -1301,8 +1302,10 @@ class AppState extends ChangeNotifier {
       // Sleep hours from the day's bundle accounting (tst), for the body copy.
       String slept = '';
       try {
-        final payload = jsonDecode((row['payload_json'] ?? '{}').toString());
-        if (payload is Map) {
+        final payload = SeriesCodec.decodePayloadJson(
+          (row['payload_json'] ?? '{}').toString(),
+        );
+        if (payload != null) {
           final acct = ((payload['sleep'] as Map?)?['accounting'] as Map?);
           final tstSec = ((acct?['value'] as Map?)?['tst_sec'] as num?)
               ?.toDouble();

@@ -680,4 +680,54 @@ void main() {
       );
     });
   });
+
+  // The strap re-serves its whole buffered EVENT log on connect, so a
+  // BATTERY_LEVEL event is not evidence of the CURRENT charge — only its
+  // timestamp is. Without this gate a first pair with a long backlog replays
+  // weeks of battery history straight into the live indicator.
+  group('battery reading acceptance', () {
+    test('a poll response carries no event timestamp and is always live', () {
+      expect(BatteryPolicy.acceptsEventReading(null, wall), isTrue);
+    });
+
+    test('a battery event stamped just now is accepted', () {
+      expect(BatteryPolicy.acceptsEventReading(wall - 60, wall), isTrue);
+    });
+
+    test('a battery event replayed from days ago is rejected', () {
+      // The real shape of the bug: an event stamped 33 days before the
+      // session that arrived during a backlog drain.
+      expect(
+        BatteryPolicy.acceptsEventReading(wall - 33 * 86400, wall),
+        isFalse,
+      );
+    });
+
+    test('a battery event from an implausibly far-future clock is rejected',
+        () {
+      expect(
+        BatteryPolicy.acceptsEventReading(wall + kFutureMargin + 1, wall),
+        isFalse,
+      );
+    });
+
+    test('a battery event stamped beyond the window into the future is '
+        'rejected', () {
+      // A strap RTC running ahead put the stamp in the future rather than the
+      // past. "Recent" has to mean recent in both directions, or the gate lets
+      // an event through on the one side it never checked.
+      expect(
+        BatteryPolicy.acceptsEventReading(
+            wall + BatteryPolicy.maxEventAgeSec + 1, wall),
+        isFalse,
+      );
+    });
+
+    test('small clock skew ahead of the phone is still accepted', () {
+      expect(
+        BatteryPolicy.acceptsEventReading(wall + 60, wall),
+        isTrue,
+      );
+    });
+  });
 }

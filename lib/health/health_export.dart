@@ -25,6 +25,7 @@ import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 
 import '../data/db.dart';
+import '../data/series_codec.dart';
 import 'health_heart_rate_batch.dart';
 import 'health_sleep_session.dart';
 
@@ -1030,15 +1031,12 @@ class HealthExporter {
   HealthWorkoutActivityType _activity(String? type) =>
       healthActivityForType(type, ios: isApple);
 
-  static Map<String, dynamic>? _decode(Object? json) {
-    if (json is! String) return null;
-    try {
-      final d = jsonDecode(json);
-      return d is Map ? d.cast<String, dynamic>() : null;
-    } catch (_) {
-      return null;
-    }
-  }
+  /// Decode a stored day bundle, normalizing the compact curve format back to
+  /// plain [{t,v}] lists. Hypnogram segments are never encoded (no `t` key), so
+  /// today only the sleep export reads through here — but every day_result
+  /// reader goes through the codec so a future one cannot silently miss it.
+  static Map<String, dynamic>? _decode(Object? json) =>
+      SeriesCodec.decodePayloadJson(json);
 
   static Map<String, dynamic>? _sub(Map<String, dynamic>? b, String path) {
     var cur = b;

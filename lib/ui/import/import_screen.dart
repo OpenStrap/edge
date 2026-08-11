@@ -180,7 +180,8 @@ class _ImportScreenState extends State<ImportScreen> {
           ImportOptionCard(
             icon: OsIcon.server,
             title: 'Import from Edge backup',
-            body: 'A .db exported from another OpenStrap device.',
+            body: 'A .db or .db.gz from another OpenStrap device — or one of '
+                'this app’s own automatic backups.',
             onTap: _locked ? null : _importEdge,
           ),
           const SizedBox(height: Sp.x3),

@@ -188,6 +188,35 @@ enum BackfillTrigger {
   autoContinue,
 }
 
+/// Whether a decoded battery reading describes the band's CURRENT charge.
+///
+/// Two sources populate the same battery field. A GET_BATTERY_LEVEL response is
+/// live by construction — it is answered on the spot and carries no timestamp.
+/// A BATTERY_LEVEL event does carry one, and cannot be trusted without it: the
+/// band re-serves its whole buffered event log on connect, so a first pair with
+/// a long backlog delivers weeks of historical readings at speed. Applied
+/// blind, they walk the live indicator through the band's entire battery
+/// history before it settles. Same hazard the `charging` flag already guards
+/// via [DeviceState.chargingTs].
+class BatteryPolicy {
+  /// How recent a BATTERY_LEVEL event must be to count as the current charge.
+  /// The band emits one roughly every 8 minutes, so a half-hour window keeps
+  /// every genuinely live event while rejecting a replayed backlog.
+  static const int maxEventAgeSec = 1800;
+
+  /// [tsEpoch] is the event's own strap-clock stamp, or null for a poll
+  /// response. The window is symmetric on purpose: a strap RTC running ahead
+  /// stamps an event in the FUTURE, and a one-sided age check never looks at
+  /// that side — a future-dated replay would sail through and overwrite the
+  /// live value. Beyond the window in either direction is a drifting or unset
+  /// RTC, refused for the same reason [ClockPolicy] refuses one: with no
+  /// accepted event the 30-second poll still owns the value.
+  static bool acceptsEventReading(int? tsEpoch, int wallNow) {
+    if (tsEpoch == null) return true;
+    return (wallNow - tsEpoch).abs() <= maxEventAgeSec;
+  }
+}
+
 class BackfillPolicy {
   static const double periodicFloorSeconds = 900.0;
   static const double eventFloorSeconds = 90.0;
