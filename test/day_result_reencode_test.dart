@@ -78,6 +78,8 @@ void main() {
   });
 
   tearDown(() async {
+    // Static, so it would otherwise leak into whatever runs after it.
+    LocalDb.debugAfterReencodePrepare = null;
     await LocalDb.close();
     final dir = await databaseFactory.getDatabasesPath();
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
@@ -243,21 +245,22 @@ void main() {
     }
     const newest = '2026-01-40';
 
-    final walk = LocalDb.reencodeLegacyDayResults();
-    await Future<void>.delayed(const Duration(milliseconds: 80));
-
     // The other isolate finishing a derive of the newest day — the first row
-    // this walk read.
+    // this walk read. Driven from the seam between the prepare and the write
+    // rather than raced against a sleep, so the interleave is placed and the
+    // test cannot quietly stop exercising it on a slower runner.
     final fresh = bundleFor(t0 + 40 * 86400 + 3600, n: 900);
-    await db.update(
-      'day_result',
-      {'payload_json': jsonEncode(fresh)},
-      where: 'day_id = ? AND algo_version = ?',
-      whereArgs: [newest, 47],
-    );
+    LocalDb.debugAfterReencodePrepare = () async {
+      await db.update(
+        'day_result',
+        {'payload_json': jsonEncode(fresh)},
+        where: 'day_id = ? AND algo_version = ?',
+        whereArgs: [newest, 47],
+      );
+    };
 
     expect(
-      await walk,
+      await LocalDb.reencodeLegacyDayResults(),
       39,
       reason: 'the moved row must be the one row the walk declines to write',
     );
@@ -282,15 +285,18 @@ void main() {
     }
     const newest = '2026-01-40';
 
-    final walk = LocalDb.reencodeLegacyDayResults();
-    await Future<void>.delayed(const Duration(milliseconds: 80));
-    await db.update(
-      'day_result',
-      {'payload_json': jsonEncode(bundleFor(t0 + 40 * 86400 + 3600, n: 900))},
-      where: 'day_id = ? AND algo_version = ?',
-      whereArgs: [newest, 47],
-    );
-    expect(await walk, 39, reason: 'precondition: the row was skipped');
+    LocalDb.debugAfterReencodePrepare = () async {
+      await db.update(
+        'day_result',
+        {'payload_json': jsonEncode(bundleFor(t0 + 40 * 86400 + 3600, n: 900))},
+        where: 'day_id = ? AND algo_version = ?',
+        whereArgs: [newest, 47],
+      );
+    };
+    expect(await LocalDb.reencodeLegacyDayResults(), 39,
+        reason: 'precondition: the row was skipped');
+    // Only the first pass races; the retries below must run clean.
+    LocalDb.debugAfterReencodePrepare = null;
 
     var total = 0;
     for (var i = 0; i < 5; i++) {

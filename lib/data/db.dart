@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -4479,6 +4480,18 @@ class LocalDb {
   /// Bookkeeping key for the one-time walk in [reencodeLegacyDayResults].
   static const String kReencodeCursorKey = 'series_reencode';
 
+  /// Test seam: awaited inside [reencodeLegacyDayResults] between the batch
+  /// prepare and the write transaction. Null in production, and the only cost
+  /// there is one null check per batch.
+  ///
+  /// It exists because the race the compare-and-set guards is a placement
+  /// problem, not a timing one: a competing derive has to land in that exact
+  /// window. Pinning it with a sleep meant the test asserted a real property
+  /// only as long as the runner stayed inside the delay, which is the shape of
+  /// a test that passes on a laptop and goes red on a loaded CI box.
+  @visibleForTesting
+  static Future<void> Function()? debugAfterReencodePrepare;
+
   /// Re-encode a BOUNDED batch of pre-codec `day_result` rows into the compact
   /// curve format, newest first. Returns how many rows were rewritten.
   ///
@@ -4583,6 +4596,13 @@ class LocalDb {
         (row['payload_json'] is String) ? row['payload_json'] as String : '',
     ];
     final prepared = await Isolate.run(() => _reencodeBatch(payloads));
+    // The window the compare-and-set below exists to close: the rows were read,
+    // the encode took real time, and nothing has been locked yet. A test drives
+    // a competing write through here rather than racing a sleep against it —
+    // the interleave is the whole property, so it has to be placed rather than
+    // hoped for.
+    final afterPrepare = debugAfterReencodePrepare;
+    if (afterPrepare != null) await afterPrepare();
 
     final updates =
         <({int rowIndex, String dayId, int algoVersion, String from, String to})>[];
