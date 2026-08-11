@@ -3967,9 +3967,21 @@ class DerivationEngine {
         perMin,
         profile: profile,
         dayMinutes: motion.length,
-        // Nightly measured RHR when the night produced one, else the
-        // user-supplied value — the same anchor TRIMP is scored against above.
-        restingHr: rhrForTrimp,
+        // SLEEP-GATED, unlike the TRIMP anchor a few lines up.
+        //
+        // `restingHr` here is the day's published `rhr` scalar, which the
+        // pipeline computes as `nocturnalRhr(sleepHr` — or, with no sleep,
+        // `dayHr)`. On a night the band did not capture, that is a low-30 mean
+        // of WAKING heart rate. It is not a resting HR: it reads high, Uth
+        // divides by it, and the fitness model then prices the whole day as
+        // though the user were deconditioned. The pipeline already refuses the
+        // value for exactly this reason (`rhrToday`, gated on `hasSleep`), and
+        // the two paths have to pick the same Keytel model for a given day or
+        // the early-read and the canonical calories disagree. No night, no
+        // fitness anchor, and the published age/mass/sex model runs instead.
+        restingHr: sleepOffsetSec > sleepOnsetSec
+            ? rhrForTrimp
+            : profile.restingHrManual?.toDouble(),
       );
       if (energy != null) {
         calories = energy.active;

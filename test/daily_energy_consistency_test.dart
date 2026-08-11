@@ -186,7 +186,10 @@ void main() {
       );
     }
 
-    ({Map<String, dynamic> bundle, Map<String, dynamic> scalars}) run() {
+    ({Map<String, dynamic> bundle, Map<String, dynamic> scalars}) run({
+      double? restingHr,
+      bool withSleep = true,
+    }) {
       final bundle = <String, dynamic>{};
       final scalars = <String, dynamic>{};
       DerivationEngine.applyDayActivity(
@@ -194,11 +197,31 @@ void main() {
         scalars: scalars,
         daySub: build(),
         profile: older,
-        sleepOnsetSec: sleepOnset,
-        sleepOffsetSec: sleepOffset,
+        sleepOnsetSec: withSleep ? sleepOnset : 0,
+        sleepOffsetSec: withSleep ? sleepOffset : 0,
+        restingHr: restingHr,
       );
       return (bundle: bundle, scalars: scalars);
     }
+
+    test('a day with no sleep session gets no fitness anchor', () {
+      // `restingHr` is the day's published `rhr` scalar, and with no sleep the
+      // pipeline derives that from WAKING heart rate. Feeding it to Uth reads
+      // as a deconditioned athlete and prices the whole day low. The day still
+      // gets calories — from the published age/mass/sex model — so the test is
+      // that the two differ, not that one is absent.
+      final slept = run(restingHr: 48.0).scalars['calories'] as double;
+      final noSleep =
+          run(restingHr: 48.0, withSleep: false).scalars['calories'] as double;
+
+      expect(slept, isNot(closeTo(noSleep, 0.5)),
+          reason: 'the sleep-gated day must use the fitness model');
+      // And the ungated day matches what a day with no resting HR at all gets,
+      // i.e. it fell all the way back rather than using a waking pseudo-RHR.
+      final anchorless =
+          run(withSleep: false).scalars['calories'] as double;
+      expect(noSleep, closeTo(anchorless, 0.001));
+    });
 
     test('calories_total - calories == basal on the pair, not just the helper',
         () {
@@ -242,7 +265,20 @@ void main() {
 
       expect(block['basal'] as int, closeTo(olderBasalPerMin * 360, 2.0));
       expect(block['active'] as int, closeTo(661.58, 2.0));
-      expect(block['value'] as int, (block['active'] as int) + (block['basal'] as int));
+      // Within a kcal, not exactly equal. The three ints are rounded
+      // independently off one double triple that DOES satisfy
+      // total == basal + active, and round(a + b) is not round(a) + round(b)
+      // once the fractional parts carry. This fixture happens not to carry, so
+      // exact equality passed on the arithmetic of these particular numbers and
+      // would have failed by one on a different bpm, duration or profile while
+      // the production invariant stayed intact. The exact form is asserted on
+      // the doubles above, which is where it actually holds.
+      expect(
+        ((block['value'] as int) -
+                ((block['active'] as int) + (block['basal'] as int)))
+            .abs(),
+        lessThanOrEqualTo(1),
+      );
     });
 
     test('an unanchored profile leaves the pair absent, not zero', () {

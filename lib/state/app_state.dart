@@ -4824,10 +4824,14 @@ class LiveWorkoutState {
   int? _lastSampleHr;
   double? _lastSampleSec;
 
-  /// `estimateBoutCalories`'s `mergeGapCapS` default. A stream that stops for
-  /// longer than this stopped being one bout; billing the pre-gap heart rate
-  /// across an hour of no data would invent the hour.
-  static const double _gapCapS = 150.0;
+  /// A stream that stops for longer than this stopped being one bout; billing
+  /// the pre-gap heart rate across an hour of no data would invent the hour.
+  ///
+  /// Taken from the analytics constant rather than restated, because the whole
+  /// point of this scoring path is that it gives up at the same instant the
+  /// re-score of the same stream does. A second literal 150.0 here would agree
+  /// today and diverge silently the day the published cap moved.
+  static const double _gapCapS = ana.Calories.defaultMergeGapCapS;
 
   LiveWorkoutState({
     required this.startTime,

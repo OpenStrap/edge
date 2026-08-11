@@ -502,6 +502,15 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // `vo2maxEstimate` abstains on a non-positive or non-finite one — in which
   // case the estimate falls back to Keytel's published age/mass/sex model
   // rather than inventing a fitness level.
+  //
+  // Anchored on `rhrForTrimp`, which is the SLEEP-GATED resting HR. That gate
+  // is load-bearing here and not just for readiness: with no sleep session
+  // `nocturnalRhr` falls back to the whole day's HR, and a daytime low-30 mean
+  // is not a resting heart rate — it reads high, so Uth returns a low VO2max
+  // and the fitness model quietly prices the day as if the user were
+  // deconditioned. No sleep, no fitness anchor, and the published age/mass/sex
+  // model runs instead. `DerivationEngine` applies the same gate for the same
+  // reason, so both paths pick the same Keytel model for a given day.
   final fitnessAnchor = vo2maxAnchor(
     restingHr: rhrForTrimp,
     maxHr: hrMax,
