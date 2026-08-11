@@ -88,7 +88,17 @@ dependencies:
       # Verified against the SHA:
       #   `git show ebe45da:lib/src/onehz/human/coaching.dart |
       #      grep -E 'journalNumericCorrelations|class JournalNumericDay'`
-      ref: ebe45da6271ec99fbda353067b6deadc757ff2d8
+      #
+      # analytics main @ #42 merge (e047c59). Names the sample gap cap that
+      # `estimateBoutCalories` applies when the next HR sample is late, so the
+      # live workout scorer in app_state can read the same 150 s rather than
+      # restating it. A default-argument literal is unreachable from another
+      # package, so the second copy was going to drift the day the cap moved.
+      #
+      # Verified against the SHA:
+      #   `git show e047c59:lib/src/onehz/workout/calories.dart |
+      #      grep defaultMergeGapCapS`
+      ref: e047c5920ea2e0def28f028d0fc990c1fe64cd6b
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
