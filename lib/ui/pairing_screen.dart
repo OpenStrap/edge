@@ -172,6 +172,14 @@ class _StrapPlaceholder extends StatelessWidget {
 /// Public so the pure [PairingStateView] can be rendered per-state in tests.
 enum PairPhase { scanning, found, notFound, pairing, askReady, bluetoothOff }
 
+/// Shown alongside a failed pick. WHOOP 5.0 / MG discovery is experimental and the
+/// most common way it fails is the system sheet simply staying empty — which reads
+/// as "my band is broken" unless we say otherwise.
+const String kGen5PairingHint =
+    'Have a WHOOP 5.0 or MG? Support for those is experimental and your band '
+    'may not be discoverable yet. Tap Diagnostics to capture what your phone '
+    'can actually see — that capture is what makes a fix possible.';
+
 /// Turns whatever a BLE plugin throws into something a normal person can act
 /// on. flutter_blue_plus/AccessorySetupKit exceptions come through as raw
 /// PlatformException text — nobody should ever see that on screen.
@@ -202,6 +210,9 @@ class _ScanStepState extends State<_ScanStep> {
   PairPhase _phase = PairPhase.scanning;
   BluetoothDevice? _device;
   String? _error;
+  // Only offered after discovery has actually failed once — see _runDiagnostics.
+  bool _offerDiagnostics = false;
+  bool _diagnosticsRunning = false;
 
   @override
   void initState() {
@@ -248,8 +259,49 @@ class _ScanStepState extends State<_ScanStep> {
       setState(() {
         _error = humanizePairError(e);
         _phase = PairPhase.askReady;
+        // The sheet came back empty-handed at least once — offer the gen5 capture
+        // route from here on. Not offered up front: it costs a Bluetooth permission
+        // prompt, and on iOS the ASK flow deliberately avoids CoreBluetooth until an
+        // accessory exists.
+        _offerDiagnostics = true;
       });
     }
+  }
+
+  /// Runs the unfiltered discovery probe and shows the report. This is the artifact
+  /// a WHOOP 5.0 / MG owner attaches to an issue — no maintainer owns gen5 hardware,
+  /// so it is the only way gen5 discovery gets fixed.
+  Future<void> _runDiagnostics() async {
+    final app = context.read<AppState>(); // capture before async gaps
+    setState(() => _diagnosticsRunning = true);
+    String report;
+    String? path;
+    try {
+      report = await app.runDiscoveryProbe();
+      path = await app.diagnosticsLogPath();
+    } catch (e) {
+      report = 'Diagnostics failed: $e';
+    }
+    if (!mounted) return;
+    setState(() => _diagnosticsRunning = false);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Discovery diagnostics'),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            path == null ? report : '$report\nSaved to:\n$path',
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _scan() async {
@@ -277,12 +329,14 @@ class _ScanStepState extends State<_ScanStep> {
       setState(() {
         _device = d;
         _phase = d == null ? PairPhase.notFound : PairPhase.found;
+        if (d == null) _offerDiagnostics = true;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = humanizePairError(e);
         _phase = PairPhase.notFound;
+        _offerDiagnostics = true;
       });
     }
   }
@@ -310,6 +364,9 @@ class _ScanStepState extends State<_ScanStep> {
 
   @override
   Widget build(BuildContext context) {
+    final failed =
+        _phase == PairPhase.notFound ||
+        (_phase == PairPhase.askReady && _error != null);
     return PairingStateView(
       phase: _phase,
       deviceName: _device == null ? null : _name(_device!),
@@ -317,6 +374,8 @@ class _ScanStepState extends State<_ScanStep> {
       onBack: widget.onBack,
       onPair: _phase == PairPhase.askReady ? _pairViaAsk : _pair,
       onRetry: _scan,
+      onDiagnostics: _offerDiagnostics && failed ? _runDiagnostics : null,
+      diagnosticsRunning: _diagnosticsRunning,
     );
   }
 }
@@ -331,6 +390,12 @@ class PairingStateView extends StatelessWidget {
   final VoidCallback onPair;
   final VoidCallback onRetry;
 
+  /// Non-null once discovery has failed at least once: reveals the WHOOP 5.0 / MG
+  /// hint and the capture button. Null (the default) keeps the view exactly as it
+  /// was for every state that hasn't failed yet.
+  final VoidCallback? onDiagnostics;
+  final bool diagnosticsRunning;
+
   const PairingStateView({
     super.key,
     required this.phase,
@@ -339,6 +404,8 @@ class PairingStateView extends StatelessWidget {
     required this.onBack,
     required this.onPair,
     required this.onRetry,
+    this.onDiagnostics,
+    this.diagnosticsRunning = false,
   });
 
   @override
@@ -399,7 +466,18 @@ class PairingStateView extends StatelessWidget {
                   ]),
                   const SizedBox(height: Sp.x4),
                 ],
+                if (onDiagnostics != null) ...[
+                  Text(kGen5PairingHint, style: AppText.caption),
+                  const SizedBox(height: Sp.x3),
+                ],
                 _actions(),
+                if (onDiagnostics != null)
+                  TextButton(
+                    onPressed: diagnosticsRunning ? null : onDiagnostics,
+                    child: Text(
+                      diagnosticsRunning ? 'Capturing…' : 'Diagnostics',
+                    ),
+                  ),
               ],
             ),
           ),

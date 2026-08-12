@@ -143,9 +143,13 @@ shortcuts, a smart alarm that buzzes the band.
   against a lab, don't treat any of it as a diagnosis.
 - Not on the App Store or Play Store yet. iOS is a public TestFlight beta, which is a
   normal install but still a beta; Android is an APK straight off Releases.
-- WHOOP 5.0 / MG support is in progress and **experimental** — the band is detected and
-  spoken to, but it hasn't been validated against real 5.0 hardware. WHOOP 4.0 is the
-  only one that's actually tested.
+- WHOOP 5.0 / MG support is **experimental and discovery-only**. Pairing now looks for
+  a gen5 band (by its reported service UUID and by name) instead of silently ignoring
+  it, and a Diagnostics button on the pairing screen captures what your phone can
+  actually see. But there is no gen5 transport: a 5.0 / MG band that connects will
+  still fail at service discovery, on purpose, logging its real GATT tree. Nothing here
+  has been validated against 5.0 hardware — no maintainer owns one, so those captures
+  are how it gets fixed. WHOOP 4.0 is the only family that actually works.
 
 ## Run it
 

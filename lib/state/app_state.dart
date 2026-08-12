@@ -2908,6 +2908,19 @@ class AppState extends ChangeNotifier {
   // ── pairing (LOCAL only) ────────────────────────────────────────────────────
   Future<BluetoothDevice?> scanForBand() => engine.scan();
 
+  /// Unfiltered BLE discovery dump for gen5 (WHOOP 5.0 / MG) triage. Returns a
+  /// paste-into-an-issue report and — via the engine's log sink — appends it to the
+  /// shareable [FileLog], whose path [diagnosticsLogPath] returns.
+  ///
+  /// MUST stay behind an explicit user action: on iOS this is the first thing that
+  /// touches CoreBluetooth, and the pairing screen deliberately avoids that before an
+  /// accessory is provisioned (the adapter reports unauthorized until then, so an
+  /// automatic call here would regress pairing for WHOOP 4.0 users too).
+  Future<String> runDiscoveryProbe() => engine.discoveryProbe();
+
+  /// Where [runDiscoveryProbe]'s output can be found on disk, for sharing.
+  Future<String?> diagnosticsLogPath() => FileLog.path();
+
   /// True on iOS 18+, where pairing must go through the AccessorySetupKit picker so
   /// the band is provisioned for iOS-26 background relaunch (TN3115). False on Android
   /// and iOS < 18 — those use the service-filtered scan flow ([scanForBand]/[pairWith]).

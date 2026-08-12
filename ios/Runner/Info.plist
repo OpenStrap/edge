@@ -51,9 +51,28 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Every criterion an ASDiscoveryDescriptor uses must be declared here or the
+	     system silently ignores it, so this list is the real gate on what the
+	     AccessorySetupKit pairing sheet can ever show. Keep it in sync with the
+	     constants in AccessorySetup.swift. -->
 	<key>NSAccessorySetupBluetoothServices</key>
 	<array>
+		<!-- WHOOP 4.0 "Harvard" GATT service. The tested, supported path. -->
 		<string>61080001-8D6D-82B8-614A-1C8CB0F8DCC6</string>
+		<!-- EXPERIMENTAL (WHOOP 5.0 / MG): the 16-bit member service 0xFD4B expanded
+		     against the Bluetooth Base UUID. UNCONFIRMED — no maintainer owns gen5
+		     hardware, so this comes from community reports. Harmless if wrong: a
+		     declared service that nothing advertises simply never matches. -->
+		<string>0000FD4B-0000-1000-8000-00805F9B34FB</string>
+	</array>
+	<!-- EXPERIMENTAL (WHOOP 5.0 / MG): name-substring net for the case where the
+	     gen5 service UUID above is wrong, or where iOS hides it (128-bit UUIDs can
+	     land in the scan response's hashed overflow area, where they are unreadable —
+	     the advertised local name is not). MG advertises as "WHOOP MGB…", 5.0 as
+	     "WHOOP 5…", 4.0 as "WHOOP 4…", so one substring covers every family. -->
+	<key>NSAccessorySetupBluetoothNames</key>
+	<array>
+		<string>WHOOP</string>
 	</array>
 	<key>NSAccessorySetupKitSupports</key>
 	<array>

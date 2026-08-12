@@ -53,6 +53,30 @@ import 'ble_state.dart';
 int u32(Uint8List b, int o) =>
     b.buffer.asByteData(b.offsetInBytes, b.length).getUint32(o, Endian.little);
 
+// ── WHOOP 5.0 / MG (gen5) — EXPERIMENTAL ────────────────────────────────────
+// The 16-bit member service 0xFD4B expanded against the Bluetooth Base UUID.
+// UNCONFIRMED against hardware: no maintainer owns a gen5 strap, so this is a
+// community-reported candidate used for DISCOVERY ONLY. There is no gen5
+// transport — a gen5 band that connects still fails at service discovery below,
+// deliberately and with a log line describing its real GATT tree.
+//
+// Deliberately local to the app rather than added to package:openstrap_protocol
+// (separate repo, pinned by hash in pubspec.lock): an unverified guess should not
+// become a protocol constant. Promote it there once a capture confirms it, and
+// keep it in sync with gen5ServiceUUID in ios/Runner/AccessorySetup.swift and
+// NSAccessorySetupBluetoothServices in ios/Runner/Info.plist.
+const String kGen5ServiceUuid = '0000fd4b-0000-1000-8000-00805f9b34fb';
+
+/// True for either WHOOP family's advertised service UUID.
+///
+/// Platforms disagree on spelling: iOS reports 16-bit UUIDs in short form
+/// ("fd4b") while Android reports the full 128-bit Base-UUID expansion, so both
+/// have to be accepted. Gen4 is matched on its 32-bit prefix exactly as before.
+bool isWhoopServiceUuid(String raw) {
+  final u = raw.toLowerCase();
+  return u.startsWith('61080001') || u == 'fd4b' || u.startsWith('0000fd4b');
+}
+
 typedef SampleSink = Future<void> Function(Sample? sample, RawRecord raw);
 typedef StateSink = void Function(DeviceState state);
 typedef LogSink = void Function(String line);
@@ -1197,24 +1221,37 @@ class BleEngine {
       await FlutterBluePlus.stopScan();
     }
     _setPhase(BleConnState.scanning);
-    final svc = Guid(GattUuids.service);
+    final gen4 = Guid(GattUuids.service);
+    // EXPERIMENTAL gen5. `withServices` is OR-combined on both platforms (one
+    // ScanFilter per service on Android, CBCentralManager's service array on iOS),
+    // so adding this strictly widens discovery — the 4.0 path cannot be narrowed.
+    final gen5 = Guid(kGen5ServiceUuid);
     BluetoothDevice? found;
+    // Everything the scan saw, for the log line below. A silent "no WHOOP found" is
+    // useless to a gen5 owner filing a report; the candidate list is the evidence.
+    final seen = <String>{};
     final sub = FlutterBluePlus.onScanResults.listen((results) {
       for (final r in results) {
         final name = r.device.platformName.toLowerCase();
-        final advNames = r.advertisementData.serviceUuids.map(
+        final advUuids = r.advertisementData.serviceUuids.map(
           (g) => g.str.toLowerCase(),
         );
+        seen.add(
+          '${r.device.platformName.isEmpty ? "(no name)" : r.device.platformName}'
+          ' rssi=${r.rssi} svc=[${advUuids.join(",")}]',
+        );
         if (found == null &&
-            (name.contains('whoop') ||
-                advNames.any((s) => s.startsWith('61080001')))) {
+            (name.contains('whoop') || advUuids.any(isWhoopServiceUuid))) {
           found = r.device;
           FlutterBluePlus.stopScan();
         }
       }
     });
     try {
-      await FlutterBluePlus.startScan(withServices: [svc], timeout: timeout);
+      await FlutterBluePlus.startScan(
+        withServices: [gen4, gen5],
+        timeout: timeout,
+      );
       await FlutterBluePlus.isScanning.where((on) => on == false).first;
     } catch (e) {
       _log('scan error: $e');
@@ -1224,8 +1261,102 @@ class BleEngine {
     if (found == null) {
       _setPhase(BleConnState.idle);
       _log('No WHOOP found (force-quit the official app; band must be free).');
+      // WHOOP 5.0 / MG is experimental: if the band advertises a service we don't
+      // know about, this list is what identifies it. Empty means nothing matching
+      // either family's service UUID was in range at all.
+      _log(
+        seen.isEmpty
+            ? 'Scan saw no advertisers matching either WHOOP service UUID.'
+            : 'Scan candidates: ${seen.join(" | ")}',
+      );
     }
     return found;
+  }
+
+  /// UNFILTERED discovery probe — a diagnostic, never part of the pairing path.
+  ///
+  /// WHY THIS EXISTS: WHOOP 5.0 / MG support is experimental and no maintainer owns
+  /// gen5 hardware, so every gen5 fix depends on a capture from someone who does.
+  /// This dumps every BLE advertiser in range with its local name, RSSI, advertised
+  /// service UUIDs and manufacturer data — which is exactly what identifies the gen5
+  /// service UUID that [kGen5ServiceUuid] is currently only guessing at.
+  ///
+  /// PLATFORM NOTE: Android returns the complete advertisement, so an Android capture
+  /// is strictly more informative. iOS surfaces 16-bit service UUIDs normally but
+  /// hashes 128-bit UUIDs that land in the scan response's overflow area, so an iOS
+  /// capture can show a band by name while still hiding a custom 128-bit service.
+  ///
+  /// COST: this needs Bluetooth permission. On iOS the pairing flow deliberately
+  /// avoids touching CoreBluetooth before an accessory is provisioned (the adapter
+  /// reports as unauthorized until then), so callers MUST keep this behind an
+  /// explicit user action rather than running it automatically.
+  ///
+  /// Returns a human-readable, paste-into-an-issue report. Never throws.
+  Future<String> discoveryProbe({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final lines = <String>[];
+    final byId = <String, String>{}; // remoteId → newest formatted line
+    StreamSubscription? sub;
+    try {
+      if (FlutterBluePlus.isScanningNow) {
+        await FlutterBluePlus.stopScan();
+      }
+      sub = FlutterBluePlus.onScanResults.listen((results) {
+        for (final r in results) {
+          final adv = r.advertisementData;
+          final name = r.device.platformName.isNotEmpty
+              ? r.device.platformName
+              : (adv.advName.isNotEmpty ? adv.advName : '(no name)');
+          final services = adv.serviceUuids.map((g) => g.str).join(',');
+          final mfg = adv.manufacturerData.entries
+              .map(
+                (e) =>
+                    '0x${e.key.toRadixString(16).padLeft(4, "0")}:'
+                    '${e.value.map((b) => b.toRadixString(16).padLeft(2, "0")).join()}',
+              )
+              .join(' ');
+          final svcData = adv.serviceData.entries
+              .map(
+                (e) =>
+                    '${e.key.str}:'
+                    '${e.value.map((b) => b.toRadixString(16).padLeft(2, "0")).join()}',
+              )
+              .join(' ');
+          byId[r.device.remoteId.str] =
+              '$name  id=${r.device.remoteId.str}  rssi=${r.rssi}  '
+              'connectable=${adv.connectable}  '
+              'services=[$services]  mfg=[$mfg]  svcData=[$svcData]';
+        }
+      });
+      // No `withServices` — that is the entire point of the probe.
+      await FlutterBluePlus.startScan(timeout: timeout);
+      await FlutterBluePlus.isScanning.where((on) => on == false).first;
+    } catch (e) {
+      lines.add('probe error: $e');
+    } finally {
+      await sub?.cancel();
+    }
+    lines.addAll(byId.values);
+    final report = StringBuffer()
+      ..writeln('── OpenStrap discovery probe ──')
+      ..writeln('platform: ${Platform.operatingSystem} '
+          '${Platform.operatingSystemVersion}')
+      ..writeln('gen4 service: ${GattUuids.service}')
+      ..writeln('gen5 service (EXPERIMENTAL, unverified): $kGen5ServiceUuid')
+      ..writeln('advertisers seen: ${byId.length}');
+    if (lines.isEmpty) {
+      report.writeln(
+        '(nothing seen — is Bluetooth on and permission granted?)',
+      );
+    } else {
+      for (final l in lines) {
+        report.writeln(l);
+      }
+    }
+    final text = report.toString();
+    _log(text);
+    return text;
   }
 
   /// Reconnect to a previously-paired device by its persisted remote id.
@@ -1394,7 +1525,20 @@ class BleEngine {
         if (s.uuid.str.toLowerCase().startsWith('61080001')) svc = s;
       }
       if (svc == null) {
-        _log('Harvard service not found on device.');
+        // Still fatal: there is no gen5 transport to fall through to, only the 4.0
+        // (Harvard) framing. But dump what the band DOES expose before giving up —
+        // for a WHOOP 5.0 / MG this log is the entire basis on which a gen5
+        // transport could eventually be written, and it costs one line here.
+        final tree = services
+            .map(
+              (s) =>
+                  '${s.uuid.str}[${s.characteristics.map((c) => c.uuid.str).join(",")}]',
+            )
+            .join(' ');
+        _log(
+          'Harvard (WHOOP 4.0) service not found on device. '
+          'Discovered services: ${tree.isEmpty ? "(none)" : tree}',
+        );
         await _failConnect();
         return false;
       }
