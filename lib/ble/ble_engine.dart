@@ -70,15 +70,18 @@ int u32(Uint8List b, int o) =>
 // (GooseSwift/GooseBLEClient.swift `whoopServices`) and its Kotlin port
 // dsp515/GooseAndroid (WhoopUUIDs.SERVICE_PRIMARY), which agree exactly.
 //
+// A gen5 band now connects, subscribes and syncs: the V5 framing lives in
+// gen5_framing.dart (8-byte header with a crc16-modbus over it, against gen4's
+// 4-byte header and crc8 over the length), and everything above the envelope is
+// the protocol 4.0 already speaks. Discovery below selects the family and
+// installs its codecs.
+//
 // Deliberately local to the app rather than added to package:openstrap_protocol
-// (separate repo, pinned by hash in pubspec.lock): the app can discover and
-// identify a gen5 band, but there is still no gen5 TRANSPORT — the V5 framing
-// differs from gen4 (8-byte header, crc16-modbus over the header, vs gen4's
-// 4-byte header and crc8 over the length), so a gen5 band that connects still
-// stops at service discovery below, deliberately and with a log line describing
-// its real GATT tree. Promote these to the protocol package with the transport.
-// Keep in sync with gen5ServiceUUID in ios/Runner/AccessorySetup.swift and
-// NSAccessorySetupBluetoothServices in ios/Runner/Info.plist.
+// (separate repo, pinned by hash in pubspec.lock): no maintainer owns gen5
+// hardware, so this should stay revisable without a protocol-package release.
+// Promote it once captures confirm it. Keep in sync with gen5ServiceUUID in
+// ios/Runner/AccessorySetup.swift and NSAccessorySetupBluetoothServices in
+// ios/Runner/Info.plist.
 const String kGen5ServiceUuid = 'fd4b0001-cce1-4033-93ce-002d5875f58a';
 
 /// The gen5 characteristic suffix. Gen5 mirrors gen4's GATT layout one-for-one
