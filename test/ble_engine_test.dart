@@ -284,6 +284,64 @@ void main() {
       expect(isWhoopServiceUuid(''), isFalse);
     });
 
+    test('probe redaction: a WHOOP strap may print in full', () {
+      expect(probeMayPrintInFull(name: 'WHOOP 4A1B2C', serviceUuids: const []),
+          isTrue);
+      expect(probeMayPrintInFull(name: 'WHOOP MGB1234', serviceUuids: const []),
+          isTrue);
+      expect(probeMayPrintInFull(name: 'whoop 5ag0296841', serviceUuids: const []),
+          isTrue);
+      // Matched by service UUID even when the name is absent — a band whose
+      // advertised name we do not expect must still be caught.
+      expect(
+        probeMayPrintInFull(name: '(no name)', serviceUuids: [kGen5ServiceUuid]),
+        isTrue,
+      );
+      expect(
+        probeMayPrintInFull(name: '', serviceUuids: [proto.GattUuids.service]),
+        isTrue,
+      );
+      expect(
+        probeMayPrintInFull(name: '', serviceUuids: const ['fd4b']),
+        isTrue,
+      );
+    });
+
+    test('probe redaction: a bystander device is NOT printed in full', () {
+      // The security boundary. Every one of these is somebody else's property,
+      // and the probe report is written to be pasted into a public issue: a
+      // local name is very often a person's name, and a remoteId is a MAC.
+      for (final name in const [
+        "Sarah's iPhone",
+        'AirPods Pro',
+        'Tesla Model 3',
+        'Galaxy Watch5',
+        '(no name)',
+        '',
+      ]) {
+        expect(
+          probeMayPrintInFull(name: name, serviceUuids: const [
+            '0000180d-0000-1000-8000-00805f9b34fb', // heart rate
+            '0000180f-0000-1000-8000-00805f9b34fb', // battery
+          ]),
+          isFalse,
+          reason: '"$name" must be redacted',
+        );
+      }
+    });
+
+    test('probe redaction: a standard HR strap does not qualify as WHOOP', () {
+      // Deliberate: plenty of chest straps advertise 0x180D. Advertising a
+      // standard service is not evidence of being the user's own hardware.
+      expect(
+        probeMayPrintInFull(
+          name: 'Polar H10',
+          serviceUuids: const ['0000180d-0000-1000-8000-00805f9b34fb'],
+        ),
+        isFalse,
+      );
+    });
+
     test('the scan UUID and the transport family agree', () {
       // kGen5ServiceUuid drives the scan filter and is hand-copied into iOS;
       // WhoopFamily.gen5 drives service discovery and characteristic lookup.

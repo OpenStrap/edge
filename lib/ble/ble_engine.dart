@@ -106,6 +106,25 @@ bool isWhoopServiceUuid(String raw) {
   return u == kWhoopMemberUuid16 || u.startsWith('0000fd4b');
 }
 
+/// May this advertiser print its identity in a discovery-probe report?
+///
+/// TRUE only for a WHOOP strap — the user's own hardware, and the entire point
+/// of the probe. Everything else in range belongs to a bystander, and the report
+/// is written to be pasted into a public issue, so it is redacted.
+///
+/// Deliberately a named, tested function rather than an inline condition: it is
+/// the single decision that separates "diagnostic" from "leaks the names and MAC
+/// addresses of everyone nearby", and it should be impossible to loosen by
+/// accident. Matching is broad on purpose — a band whose service UUID we have
+/// wrong must still be caught by its name, or the probe hides the one device it
+/// exists to find.
+bool probeMayPrintInFull({
+  required String name,
+  required Iterable<String> serviceUuids,
+}) =>
+    name.toLowerCase().contains('whoop') ||
+    serviceUuids.any(isWhoopServiceUuid);
+
 typedef SampleSink = Future<void> Function(Sample? sample, RawRecord raw);
 typedef StateSink = void Function(DeviceState state);
 typedef LogSink = void Function(String line);
@@ -1336,11 +1355,20 @@ class BleEngine {
   ///
   /// WHY THIS EXISTS: WHOOP 5.0 / MG support is experimental and no maintainer owns
   /// gen5 hardware, so every gen5 fix depends on a capture from someone who does.
-  /// This dumps every BLE advertiser in range with its local name, RSSI, advertised
-  /// service UUIDs and manufacturer data — which is exactly what identifies the gen5
-  /// advertisement a gen5 band actually emits — which is what confirms whether it
-  /// exposes [kGen5ServiceUuid] in full, only the 16-bit [kWhoopMemberUuid16], or
-  /// neither (name-only), and therefore which net has to catch it.
+  /// An unfiltered scan is what confirms whether a band exposes [kGen5ServiceUuid]
+  /// in full, only the 16-bit [kWhoopMemberUuid16], or neither (name-only), and
+  /// therefore which net has to catch it.
+  ///
+  /// PRIVACY: the scan is unfiltered, but the REPORT is not. WHOOP straps print in
+  /// full — they are the point, and they are the user's own hardware. Every other
+  /// advertiser in range belongs to whoever is nearby, and this report exists to be
+  /// pasted into a public issue, so their name, address and manufacturer data are
+  /// withheld and only an anonymous per-report index, RSSI and connectability
+  /// remain. A local name is very often a person's name; a remoteId is a MAC on
+  /// Android; manufacturer data can carry a serial. None of it helps diagnose WHOOP
+  /// discovery. [includeThirdPartyDetail] restores the full dump for the case where
+  /// a strap genuinely is not being matched — it makes the report unsafe to post
+  /// unread, and says so in the report itself.
   ///
   /// PLATFORM NOTE: Android returns the complete advertisement, so an Android capture
   /// is strictly more informative. iOS surfaces 16-bit service UUIDs normally but
@@ -1355,9 +1383,16 @@ class BleEngine {
   /// Returns a human-readable, paste-into-an-issue report. Never throws.
   Future<String> discoveryProbe({
     Duration timeout = const Duration(seconds: 10),
+    bool includeThirdPartyDetail = false,
   }) async {
     final lines = <String>[];
     final byId = <String, String>{}; // remoteId → newest formatted line
+    // Stable per-report label for a redacted advertiser. An index, not a hash:
+    // a hash of a MAC is reversible by brute force over a small space, and the
+    // only property this needs is "the same device reads the same within one
+    // report". Never persisted, never comparable across reports.
+    final anonIndex = <String, int>{};
+    var redacted = 0;
     StreamSubscription? sub;
     try {
       if (FlutterBluePlus.isScanningNow) {
@@ -1384,10 +1419,37 @@ class BleEngine {
                     '${e.value.map((b) => b.toRadixString(16).padLeft(2, "0")).join()}',
               )
               .join(' ');
-          byId[r.device.remoteId.str] =
-              '$name  id=${r.device.remoteId.str}  rssi=${r.rssi}  '
-              'connectable=${adv.connectable}  '
-              'services=[$services]  mfg=[$mfg]  svcData=[$svcData]';
+          // WHOOP straps are the point of the probe and are the user's own
+          // hardware, so they print in full. Everything else in range belongs
+          // to whoever is nearby — their phone, headphones, car — and this
+          // report is written to be pasted into a public issue. A local name is
+          // very often a person's name; a remoteId is a MAC on Android and a
+          // stable per-phone identifier on iOS; manufacturer data can carry a
+          // serial. None of it helps diagnose WHOOP discovery, so none of it
+          // leaves the device unless explicitly asked for.
+          final id = r.device.remoteId.str;
+          final isWhoop = probeMayPrintInFull(
+            name: name,
+            serviceUuids: adv.serviceUuids.map((g) => g.str),
+          );
+          if (isWhoop || includeThirdPartyDetail) {
+            byId[id] =
+                '$name  id=$id  rssi=${r.rssi}  '
+                'connectable=${adv.connectable}  '
+                'services=[$services]  mfg=[$mfg]  svcData=[$svcData]';
+          } else {
+            // Keep the shape of the evidence — that the scan worked, how
+            // crowded the band is, whether anything nearby is connectable —
+            // without the identity. Service UUIDs are omitted too: they
+            // fingerprint a product as precisely as a name does.
+            final n = anonIndex.putIfAbsent(id, () => anonIndex.length + 1);
+            if (!byId.containsKey(id)) redacted++;
+            byId[id] =
+                '(third-party device #$n — redacted)  rssi=${r.rssi}  '
+                'connectable=${adv.connectable}  '
+                'services=${adv.serviceUuids.length}  '
+                'mfgEntries=${adv.manufacturerData.length}';
+          }
         }
       });
       // No `withServices` — that is the entire point of the probe.
@@ -1406,6 +1468,20 @@ class BleEngine {
       ..writeln('gen4 service: ${GattUuids.service}')
       ..writeln('gen5 service: $kGen5ServiceUuid (16-bit: $kWhoopMemberUuid16)')
       ..writeln('advertisers seen: ${byId.length}');
+    if (includeThirdPartyDetail) {
+      report.writeln(
+        'THIRD-PARTY DETAIL IS ON: the lines below include the names and '
+        'addresses of other people\'s nearby devices. Read this through and '
+        'remove anything that is not your strap BEFORE posting it anywhere.',
+      );
+    } else if (redacted > 0) {
+      report.writeln(
+        '$redacted non-WHOOP advertiser(s) redacted (names, addresses and '
+        'manufacturer data withheld — they cannot help diagnose WHOOP '
+        'discovery). Re-run with third-party detail only if a strap is '
+        'genuinely not being matched.',
+      );
+    }
     if (lines.isEmpty) {
       report.writeln(
         '(nothing seen — is Bluetooth on and permission granted?)',
