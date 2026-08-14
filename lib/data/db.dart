@@ -2542,22 +2542,37 @@ class LocalDb {
       final r = proto.FirmwareAwareR24Decoder().decode(
         proto.hexToBytes(raw.hex),
       );
-      if (r == null || r.tsEpoch <= 0) return null;
-      return Sample(
-        tsEpoch: r.tsEpoch,
-        counter: r.counter,
-        hr: r.hr,
-        rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
-        ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
-        ay: r.accelG.length > 1 ? r.accelG[1] : 0,
-        az: r.accelG.length > 2 ? r.accelG[2] : 0,
-        spo2RedRaw: r.spo2RedRaw,
-        spo2IrRaw: r.spo2IrRaw,
-        skinTempRaw: r.skinTempRaw,
-      );
+      if (r != null && r.tsEpoch > 0) {
+        return Sample(
+          tsEpoch: r.tsEpoch,
+          counter: r.counter,
+          hr: r.hr,
+          rrIntervalsMs: List<int>.from(r.rrIntervalsMs),
+          ax: r.accelG.isNotEmpty ? r.accelG[0] : 0,
+          ay: r.accelG.length > 1 ? r.accelG[1] : 0,
+          az: r.accelG.length > 2 ? r.accelG[2] : 0,
+          spo2RedRaw: r.spo2RedRaw,
+          spo2IrRaw: r.spo2IrRaw,
+          skinTempRaw: r.skinTempRaw,
+        );
+      }
     } catch (_) {
-      return null;
+      // fall through to the partial sample below
     }
+    // PARTIAL SAMPLES MUST NOT BE DROPPED HERE. Returning null when the re-decode
+    // fails is safe for gen4 — there, a `preferred` that fails [hasDecodedOneHz]
+    // means the hex is the better source, and if the hex will not decode there is
+    // nothing to write. It is NOT safe for a caller that supplies a deliberately
+    // partial sample: a WHOOP 5.0 record decodes to HR + time but carries no
+    // accel/SpO2, so it fails [hasDecodedOneHz] AND cannot be re-decoded by the
+    // gen4 decoder above. Returning null there wrote no `decoded_onehz` row while
+    // the same transaction still advanced `strap_trim` — so the band was told to
+    // erase records that never reached the table derivation reads.
+    //
+    // Falling back to [preferred] changes nothing for gen4: a complete sample
+    // already returned at the top, and a successful re-decode already returned
+    // above. It only stops a partial sample being silently discarded.
+    return preferred;
   }
 
   /// Queues the decoded_onehz + decoded_rr writes for one raw onto [batch].

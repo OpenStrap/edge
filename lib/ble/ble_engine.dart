@@ -2576,9 +2576,11 @@ class BleEngine {
     // refuses) — and one capture cannot tell us where those fields really live.
     // Leaving them null costs actigraphy-driven sleep detail; guessing an offset
     // would silently corrupt every metric downstream of it. See gen5_records.dart.
+    var gen5Partial = false;
     if (sample == null && _session?.family == WhoopFamily.gen5) {
       final g = decodeGen5History(frame.inner);
       if (g != null) {
+        gen5Partial = true;
         sample = Sample(
           tsEpoch: g.tsEpoch,
           counter: g.counter,
@@ -2608,6 +2610,34 @@ class BleEngine {
         unawaited(onArchiveRecord?.call(archive) ?? Future<void>.value());
       }
       return;
+    }
+    // SAFE-TRIM FOR PARTIAL DECODES. A gen5 record decodes to HR + time but NOT
+    // accel / RR / SpO2, and the bytes carrying those are gone the moment the
+    // band trims flash on our HISTORY_END ACK. A partial sample is NOT the same
+    // as a decoded one: ACKing on the strength of it would quietly make the
+    // missing fields unrecoverable, which is exactly what the invariant exists
+    // to prevent. So archive the frame as well — the archive rides the SAME
+    // commit that runs before the ACK, so "nothing is ACKed that we have not
+    // durably kept" keeps meaning what it says, and a future decoder that
+    // learns where those fields live can reprocess every record we ever saw.
+    //
+    // COST: gen5 records are stored twice (raw_records + the never-pruned
+    // archive). That is deliberate — it buys back the only copy of the fields
+    // this build cannot read, and it stops as soon as the decode is complete.
+    if (gen5Partial) {
+      final archive = ArchiveRecord(
+        counter: counter,
+        hex: _innerHex(frame.inner),
+        packetType: frame.inner.isNotEmpty ? frame.inner[0] : 0,
+        capturedAt: DateTime.now().millisecondsSinceEpoch,
+        reason: 'gen5_partial_k$recType',
+      );
+      final d = _drain;
+      if (d != null) {
+        d.onUndecodableRecord(archive);
+      } else {
+        unawaited(onArchiveRecord?.call(archive) ?? Future<void>.value());
+      }
     }
     // PLAUSIBILITY GATE + FRONTIER (RecordGate, shared with the detectors).
     // Drop records whose unix is implausible vs wall-clock and (when known) the
