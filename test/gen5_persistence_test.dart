@@ -166,10 +166,13 @@ void main() {
     const ts = 1577582800;
     await LocalDb.commitSyncBatch([_raw(ts, 21)], [_gen4Complete(ts, 21)]);
 
+    // Unfiltered on purpose. `decoded_rr` is keyed on `counter` in older
+    // schemas and on `rec_ts` after the time-keyed migration, so naming either
+    // column ties this test to one of them. setUp empties the table and this
+    // commits exactly one record, so every row present belongs to it.
     final db = await LocalDb.instance;
     final rr = await db.rawQuery(
-      'SELECT rr_ms FROM decoded_rr WHERE rec_ts = ? ORDER BY beat_index',
-      [ts],
+      'SELECT rr_ms FROM decoded_rr ORDER BY beat_index',
     );
     expect(rr.map((r) => r['rr_ms']).toList(), [900, 910]);
   });
