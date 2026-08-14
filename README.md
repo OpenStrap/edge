@@ -79,7 +79,9 @@ drawer-bracelet problem can use it, or go dig through the code themselves.
 
 ## Checklist
 
-- **WHOOP 4.0 only.** Haven't touched a WHOOP 5, don't know if it even shares a protocol.
+- **WHOOP 4.0 is the validated path.** WHOOP 5.0 / MG shares the protocol above the
+  frame envelope and is now implemented, but nobody here owns one to confirm it — see
+  the gen5 note further down for exactly what works and what is still missing.
 - Not affiliated with WHOOP, doesn't talk to their servers.
 - Not a clone of their algorithms — different math, published methods, cited in the
   analytics repo. Don't expect identical numbers to what their app shows.
@@ -143,13 +145,26 @@ shortcuts, a smart alarm that buzzes the band.
   against a lab, don't treat any of it as a diagnosis.
 - Not on the App Store or Play Store yet. iOS is a public TestFlight beta, which is a
   normal install but still a beta; Android is an APK straight off Releases.
-- WHOOP 5.0 / MG support is **experimental and discovery-only**. Pairing now looks for
-  a gen5 band (by its reported service UUID and by name) instead of silently ignoring
-  it, and a Diagnostics button on the pairing screen captures what your phone can
-  actually see. But there is no gen5 transport: a 5.0 / MG band that connects will
-  still fail at service discovery, on purpose, logging its real GATT tree. Nothing here
-  has been validated against 5.0 hardware — no maintainer owns one, so those captures
-  are how it gets fixed. WHOOP 4.0 is the only family that actually works.
+- WHOOP 5.0 / MG support is **experimental — implemented, not yet hardware-confirmed.**
+  Gen5 turns out not to be a separate protocol: the packet types, command opcodes and
+  record header are the same ones 4.0 uses, and only two things differ — the GATT UUID
+  prefix (`fd4b0001…` instead of `61080001…`) and the frame envelope (an 8-byte header
+  with a CRC-16/MODBUS over it, instead of 4 bytes with a CRC-8). Both are implemented
+  and unit-tested against real 5.0 captures and against two independent open-source
+  gen5 clients, so pairing, commands, the historical sync handshake and realtime heart
+  rate should all work.
+
+  Two caveats. **One:** an earlier build declared the wrong gen5 service UUID (the
+  16-bit `0xFD4B` expanded against the Bluetooth base UUID, which no band advertises),
+  which is why the iOS pairing sheet used to say "No Accessory Found"; that is fixed,
+  but if your band still shows as *Connected* in iOS Settings it is not advertising and
+  no app can find it — forget the device first. **Two:** gen5's historical records store
+  heart rate, timestamp, respiratory rate and skin temperature where we can read them,
+  but **accelerometer, RR intervals and SpO₂ are not decoded** — those fields are not
+  where 4.0 keeps them, and one capture is not enough to locate them without guessing.
+  So expect heart-rate-driven metrics to work and motion-driven sleep detail to be
+  thinner. No maintainer owns a 5.0 or MG, so reports and captures are how this
+  finishes. WHOOP 4.0 remains the fully validated path.
 
 ## Run it
 

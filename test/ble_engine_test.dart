@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
+import 'package:openstrap_edge/ble/gen5_framing.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
 void main() {
@@ -238,6 +239,61 @@ void main() {
     // drain through under the bad clock).
     test('the last INIT packet is the historical drain', () {
       expect(proto.initPackets.last, proto.cmdSendHistorical(4));
+    });
+  });
+
+  // These constants are load-bearing in a way a unit test can't otherwise reach:
+  // they are copied by hand into ios/Runner/AccessorySetup.swift and the
+  // NSAccessorySetupBluetoothServices array in ios/Runner/Info.plist. iOS matches
+  // an AccessorySetupKit descriptor against the advertisement byte-for-byte, so a
+  // single wrong digit here is not a degraded match — it is "No Accessory Found"
+  // forever, with no error to debug. That is exactly the bug this group pins shut.
+  group('WHOOP service UUIDs', () {
+    test('gen5 is the 128-bit vendor service, not the Base-UUID expansion', () {
+      expect(kGen5ServiceUuid, 'fd4b0001-cce1-4033-93ce-002d5875f58a');
+      // The regression itself: 0xFD4B expanded against the Bluetooth Base UUID is
+      // a DIFFERENT UUID that no gen5 band advertises.
+      expect(kGen5ServiceUuid, isNot('0000fd4b-0000-1000-8000-00805f9b34fb'));
+    });
+
+    test('gen5 mirrors the gen4 layout — 0001 service, shared suffix', () {
+      expect(kGen5ServiceUuid, endsWith(kGen5UuidSuffix));
+      expect(kGen5ServiceUuid, startsWith('fd4b0001'));
+    });
+
+    test('matches both families', () {
+      expect(isWhoopServiceUuid('61080001-8d6d-82b8-614a-1c8cb0f8dcc6'), isTrue);
+      expect(isWhoopServiceUuid(kGen5ServiceUuid), isTrue);
+    });
+
+    test('matching is case-insensitive (platforms disagree on spelling)', () {
+      expect(isWhoopServiceUuid('FD4B0001-CCE1-4033-93CE-002D5875F58A'), isTrue);
+      expect(isWhoopServiceUuid('61080001-8D6D-82B8-614A-1C8CB0F8DCC6'), isTrue);
+    });
+
+    test('accepts the 16-bit member UUID in either spelling', () {
+      // iOS reports 16-bit UUIDs short; Android expands them against the Base UUID.
+      expect(isWhoopServiceUuid(kWhoopMemberUuid16), isTrue);
+      expect(isWhoopServiceUuid('FD4B'), isTrue);
+      expect(isWhoopServiceUuid('0000fd4b-0000-1000-8000-00805f9b34fb'), isTrue);
+    });
+
+    test('does not match unrelated services', () {
+      expect(isWhoopServiceUuid('0000180d-0000-1000-8000-00805f9b34fb'), isFalse);
+      expect(isWhoopServiceUuid('0000180f-0000-1000-8000-00805f9b34fb'), isFalse);
+      expect(isWhoopServiceUuid(''), isFalse);
+    });
+
+    test('the scan UUID and the transport family agree', () {
+      // kGen5ServiceUuid drives the scan filter and is hand-copied into iOS;
+      // WhoopFamily.gen5 drives service discovery and characteristic lookup.
+      // If these two ever disagree, the band is found and then cannot be talked
+      // to (or the reverse) — a failure mode with no obvious symptom.
+      expect(kGen5ServiceUuid, startsWith(WhoopFamily.gen5.servicePrefix));
+      expect(
+        proto.GattUuids.service,
+        startsWith(WhoopFamily.gen4.servicePrefix),
+      );
     });
   });
 }

@@ -30,14 +30,26 @@ enum AccessorySetup {
   // `fileprivate` so the iOS-18 Impl below can read it.
   fileprivate static let gen4ServiceUUID = "61080001-8d6d-82b8-614a-1c8cb0f8dcc6"
 
-  // EXPERIMENTAL — WHOOP 5.0 / MG. The 16-bit member service 0xFD4B expanded against
-  // the Bluetooth Base UUID. NOT validated against hardware: no maintainer owns a gen5
-  // strap, so this is a community-reported candidate. If a capture proves it wrong,
-  // this is the one line to change (plus its twin in Info.plist and ble_engine.dart).
-  fileprivate static let gen5ServiceUUID = "0000FD4B-0000-1000-8000-00805F9B34FB"
+  // WHOOP 5.0 / MG. A full 128-bit VENDOR service, in the same shape as the gen4
+  // service above — NOT the 16-bit member UUID 0xFD4B expanded against the Bluetooth
+  // Base UUID. That earlier guess (0000FD4B-0000-1000-8000-00805F9B34FB) is a
+  // different UUID that gen5 bands never advertise, and since ASK matches the declared
+  // service byte-for-byte, it is the reason the picker only ever said "No Accessory
+  // Found" for a 5.0 / MG. Cross-checked against b-nnett/goose and dsp515/GooseAndroid.
+  // Keep in sync with kGen5ServiceUuid in lib/ble/ble_engine.dart and Info.plist.
+  fileprivate static let gen5ServiceUUID = "FD4B0001-CCE1-4033-93CE-002D5875F58A"
+
+  // The 16-bit member UUID as a second descriptor. A 128-bit service UUID often does
+  // not fit the 31-byte advertisement, and iOS hashes any that spill into the scan
+  // response's overflow area — so on iOS the short form is sometimes the only service
+  // the picker can actually see.
+  fileprivate static let gen5MemberUUID16 = "FD4B"
 
   // EXPERIMENTAL — the net that catches a gen5 band whose service UUID we have wrong.
-  // Matches the advertised local name: "WHOOP MGB…", "WHOOP 5…", "WHOOP 4…".
+  // Matches the advertised local name. Reported gen5 forms differ by batch/report —
+  // "WHOOP MGB…" (this project's MG reporter) and "WHOOP 5AM…" / "WHOOP 5AG…" (the
+  // serial prefixes GenieMax uses to tell MG from 5.0) — plus gen4's "WHOOP 4…".
+  // The single substring "WHOOP" covers every one of them, which is the point.
   // Must stay in sync with NSAccessorySetupBluetoothNames in Info.plist.
   fileprivate static let nameSubstring = "WHOOP"
 
@@ -176,13 +188,20 @@ private final class Impl {
       makeItem("WHOOP band") {
         $0.bluetoothServiceUUID = CBUUID(string: AccessorySetup.gen4ServiceUUID)
       },
-      // EXPERIMENTAL — WHOOP 5.0 / MG by its (community-reported) service UUID.
+      // WHOOP 5.0 / MG by its 128-bit vendor service UUID.
       makeItem("WHOOP 5.0 / MG") {
         $0.bluetoothServiceUUID = CBUUID(string: AccessorySetup.gen5ServiceUUID)
       },
-      // EXPERIMENTAL — WHOOP 5.0 / MG by advertised name, for when the UUID above is
-      // wrong or iOS won't surface it. Drop this item once a real capture confirms
-      // the gen5 service UUID.
+      // WHOOP 5.0 / MG by the 16-bit member UUID. Separate item, not an extra
+      // criterion on the one above: criteria within a descriptor AND-combine, and a
+      // band advertising only one of the two forms would then match neither.
+      makeItem("WHOOP 5.0 / MG") {
+        $0.bluetoothServiceUUID = CBUUID(string: AccessorySetup.gen5MemberUUID16)
+      },
+      // Last net — by advertised name, for firmware that fits neither service UUID
+      // into the 31-byte advertisement. Keep this even though the UUIDs above are
+      // now confirmed: it costs nothing and it is the only criterion that survives
+      // iOS hashing 128-bit UUIDs into the scan response's overflow area.
       makeItem("WHOOP band") {
         $0.bluetoothNameSubstring = AccessorySetup.nameSubstring
       },

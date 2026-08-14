@@ -47,34 +47,63 @@ import '../data/models.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
 import '../sync/sync_policy.dart';
 import 'ble_state.dart';
+import 'gen5_framing.dart';
+import 'gen5_records.dart';
 
 // Little-endian u32 reader. The package keeps `u32` private, and the engine only
 // needs it to peek the record-counter / ts out of a raw historical frame header.
 int u32(Uint8List b, int o) =>
     b.buffer.asByteData(b.offsetInBytes, b.length).getUint32(o, Endian.little);
 
-// ── WHOOP 5.0 / MG (gen5) — EXPERIMENTAL ────────────────────────────────────
-// The 16-bit member service 0xFD4B expanded against the Bluetooth Base UUID.
-// UNCONFIRMED against hardware: no maintainer owns a gen5 strap, so this is a
-// community-reported candidate used for DISCOVERY ONLY. There is no gen5
-// transport — a gen5 band that connects still fails at service discovery below,
-// deliberately and with a log line describing its real GATT tree.
+// ── WHOOP 5.0 / MG (gen5) ───────────────────────────────────────────────────
+// The gen5 GATT service. This is a full 128-bit VENDOR UUID in exactly the same
+// shape as the gen4 "Harvard" service (61080001-8d6d-…): a `xxxx0001-` base with
+// the characteristics numbered 0002..0007 off the same suffix.
+//
+// IT IS NOT the 16-bit member UUID 0xFD4B expanded against the Bluetooth Base
+// UUID. That earlier guess (0000fd4b-0000-1000-8000-00805f9b34fb) is a DIFFERENT
+// UUID that gen5 bands never advertise, which is why the AccessorySetupKit sheet
+// could only ever report "No Accessory Found" for a WHOOP 5.0 / MG — ASK matches
+// the declared service UUID byte-for-byte, so one wrong UUID means zero results.
+//
+// Cross-checked against two independent public gen5 clients: b-nnett/goose
+// (GooseSwift/GooseBLEClient.swift `whoopServices`) and its Kotlin port
+// dsp515/GooseAndroid (WhoopUUIDs.SERVICE_PRIMARY), which agree exactly.
 //
 // Deliberately local to the app rather than added to package:openstrap_protocol
-// (separate repo, pinned by hash in pubspec.lock): an unverified guess should not
-// become a protocol constant. Promote it there once a capture confirms it, and
-// keep it in sync with gen5ServiceUUID in ios/Runner/AccessorySetup.swift and
+// (separate repo, pinned by hash in pubspec.lock): the app can discover and
+// identify a gen5 band, but there is still no gen5 TRANSPORT — the V5 framing
+// differs from gen4 (8-byte header, crc16-modbus over the header, vs gen4's
+// 4-byte header and crc8 over the length), so a gen5 band that connects still
+// stops at service discovery below, deliberately and with a log line describing
+// its real GATT tree. Promote these to the protocol package with the transport.
+// Keep in sync with gen5ServiceUUID in ios/Runner/AccessorySetup.swift and
 // NSAccessorySetupBluetoothServices in ios/Runner/Info.plist.
-const String kGen5ServiceUuid = '0000fd4b-0000-1000-8000-00805f9b34fb';
+const String kGen5ServiceUuid = 'fd4b0001-cce1-4033-93ce-002d5875f58a';
+
+/// The gen5 characteristic suffix. Gen5 mirrors gen4's GATT layout one-for-one
+/// (0002 = command write, 0003/0004/0005 = notify, 0007 = debug), so only the
+/// 32-bit prefix differs between the families.
+const String kGen5UuidSuffix = '-cce1-4033-93ce-002d5875f58a';
+
+/// The 16-bit Bluetooth SIG member UUID assigned to WHOOP. Some gen5 firmware
+/// puts this in the advertisement alongside (or instead of) the 128-bit service
+/// above — a 128-bit UUID often does not fit the 31-byte AD and gets dropped or,
+/// on iOS, hashed into the unreadable overflow area. Matching it too costs
+/// nothing and is sometimes the only thing visible on iOS.
+const String kWhoopMemberUuid16 = 'fd4b';
 
 /// True for either WHOOP family's advertised service UUID.
 ///
 /// Platforms disagree on spelling: iOS reports 16-bit UUIDs in short form
 /// ("fd4b") while Android reports the full 128-bit Base-UUID expansion, so both
-/// have to be accepted. Gen4 is matched on its 32-bit prefix exactly as before.
+/// have to be accepted. Gen4 and gen5 are matched on their 32-bit prefixes.
 bool isWhoopServiceUuid(String raw) {
   final u = raw.toLowerCase();
-  return u.startsWith('61080001') || u == 'fd4b' || u.startsWith('0000fd4b');
+  // WhoopFamily owns the per-generation prefixes — one source of truth, so a
+  // future family cannot be added to the transport but forgotten by discovery.
+  if (WhoopFamily.ofServiceUuid(u) != null) return true;
+  return u == kWhoopMemberUuid16 || u.startsWith('0000fd4b');
 }
 
 typedef SampleSink = Future<void> Function(Sample? sample, RawRecord raw);
@@ -320,11 +349,36 @@ class _SessionGapSummary {
 class _Session {
   final BluetoothDevice device;
   BluetoothCharacteristic? cmdTo;
-  final Map<String, FrameReassembler> asm = {
-    'cmd_from': FrameReassembler(),
-    'events': FrameReassembler(),
-    'data': FrameReassembler(),
+
+  /// Which WHOOP generation this link is speaking.
+  ///
+  /// Defaults to gen4 and is set for real by [useFamily] once service discovery
+  /// has seen the band's GATT tree. Defaulting to gen4 keeps the 4.0 path
+  /// identical if anything ever reads this before discovery: gen5 is only ever
+  /// entered by positively identifying a gen5 service, never by falling back.
+  WhoopFamily family = WhoopFamily.gen4;
+
+  /// Per-role frame reassemblers. Replaced wholesale by [useFamily] because the
+  /// two generations need different frame codecs (see gen5_framing.dart).
+  Map<String, WhoopReassembler> asm = {
+    'cmd_from': WhoopReassembler.of(WhoopFamily.gen4),
+    'events': WhoopReassembler.of(WhoopFamily.gen4),
+    'data': WhoopReassembler.of(WhoopFamily.gen4),
   };
+
+  /// Commit this session to [f], installing that generation's frame codecs.
+  ///
+  /// MUST be called before any subscription starts: a reassembler that has
+  /// already buffered bytes under the wrong header length cannot recover them.
+  void useFamily(WhoopFamily f) {
+    family = f;
+    asm = {
+      'cmd_from': WhoopReassembler.of(f),
+      'events': WhoopReassembler.of(f),
+      'data': WhoopReassembler.of(f),
+    };
+  }
+
   final List<StreamSubscription> subs = [];
   Timer? heartbeat;
   // Session-owned timers; a disconnect cancels them.
@@ -1222,10 +1276,15 @@ class BleEngine {
     }
     _setPhase(BleConnState.scanning);
     final gen4 = Guid(GattUuids.service);
-    // EXPERIMENTAL gen5. `withServices` is OR-combined on both platforms (one
-    // ScanFilter per service on Android, CBCentralManager's service array on iOS),
-    // so adding this strictly widens discovery — the 4.0 path cannot be narrowed.
+    // Gen5. `withServices` is OR-combined on both platforms (one ScanFilter per
+    // service on Android, CBCentralManager's service array on iOS), so adding
+    // these strictly widens discovery — the 4.0 path cannot be narrowed.
     final gen5 = Guid(kGen5ServiceUuid);
+    // …and the 16-bit member UUID as a second net: a 128-bit service UUID often
+    // does not fit the 31-byte advertisement, so some gen5 firmware advertises
+    // only the short form. A service-filtered scan matches ONLY what is actually
+    // in the AD, so missing this is indistinguishable from the band being absent.
+    final gen5Short = Guid(kWhoopMemberUuid16);
     BluetoothDevice? found;
     // Everything the scan saw, for the log line below. A silent "no WHOOP found" is
     // useless to a gen5 owner filing a report; the candidate list is the evidence.
@@ -1249,7 +1308,7 @@ class BleEngine {
     });
     try {
       await FlutterBluePlus.startScan(
-        withServices: [gen4, gen5],
+        withServices: [gen4, gen5, gen5Short],
         timeout: timeout,
       );
       await FlutterBluePlus.isScanning.where((on) => on == false).first;
@@ -1279,7 +1338,9 @@ class BleEngine {
   /// gen5 hardware, so every gen5 fix depends on a capture from someone who does.
   /// This dumps every BLE advertiser in range with its local name, RSSI, advertised
   /// service UUIDs and manufacturer data — which is exactly what identifies the gen5
-  /// service UUID that [kGen5ServiceUuid] is currently only guessing at.
+  /// advertisement a gen5 band actually emits — which is what confirms whether it
+  /// exposes [kGen5ServiceUuid] in full, only the 16-bit [kWhoopMemberUuid16], or
+  /// neither (name-only), and therefore which net has to catch it.
   ///
   /// PLATFORM NOTE: Android returns the complete advertisement, so an Android capture
   /// is strictly more informative. iOS surfaces 16-bit service UUIDs normally but
@@ -1343,7 +1404,7 @@ class BleEngine {
       ..writeln('platform: ${Platform.operatingSystem} '
           '${Platform.operatingSystemVersion}')
       ..writeln('gen4 service: ${GattUuids.service}')
-      ..writeln('gen5 service (EXPERIMENTAL, unverified): $kGen5ServiceUuid')
+      ..writeln('gen5 service: $kGen5ServiceUuid (16-bit: $kWhoopMemberUuid16)')
       ..writeln('advertisers seen: ${byId.length}');
     if (lines.isEmpty) {
       report.writeln(
@@ -1520,15 +1581,25 @@ class BleEngine {
       final services = await device
           .discoverServices()
           .timeout(_serviceDiscoveryTimeout);
+      // Pick the family from what the band actually exposes. Gen4 is preferred
+      // when both are somehow present, so a 4.0 band can never be dragged onto
+      // the newer, less-proven path by a stray service.
       BluetoothService? svc;
-      for (final s in services) {
-        if (s.uuid.str.toLowerCase().startsWith('61080001')) svc = s;
+      WhoopFamily? family;
+      for (final want in WhoopFamily.values) {
+        for (final s in services) {
+          if (s.uuid.str.toLowerCase().startsWith(want.servicePrefix)) {
+            svc = s;
+            family = want;
+            break;
+          }
+        }
+        if (svc != null) break;
       }
-      if (svc == null) {
-        // Still fatal: there is no gen5 transport to fall through to, only the 4.0
-        // (Harvard) framing. But dump what the band DOES expose before giving up —
-        // for a WHOOP 5.0 / MG this log is the entire basis on which a gen5
-        // transport could eventually be written, and it costs one line here.
+      if (svc == null || family == null) {
+        // Dump what the band DOES expose before giving up — for an unrecognised
+        // strap this log is the entire basis on which support could be written,
+        // and it costs one line here.
         final tree = services
             .map(
               (s) =>
@@ -1536,12 +1607,18 @@ class BleEngine {
             )
             .join(' ');
         _log(
-          'Harvard (WHOOP 4.0) service not found on device. '
+          'No WHOOP GATT service found (looked for '
+          '${WhoopFamily.values.map((f) => f.servicePrefix).join(" / ")}). '
           'Discovered services: ${tree.isEmpty ? "(none)" : tree}',
         );
         await _failConnect();
         return false;
       }
+      // Install this generation's frame codecs BEFORE any subscription starts —
+      // a reassembler that has buffered bytes under the wrong header length
+      // cannot recover them.
+      session.useFamily(family);
+
       BluetoothCharacteristic? find(String prefix) {
         for (final c in svc!.characteristics) {
           if (c.uuid.str.toLowerCase().startsWith(prefix)) return c;
@@ -1549,18 +1626,28 @@ class BleEngine {
         return null;
       }
 
-      session.cmdTo = find('61080002');
-      final cmdFrom = find('61080003');
-      final events = find('61080004');
-      final data = find('61080005');
+      session.cmdTo = find(family.cmdToPrefix);
+      final cmdFrom = find(family.cmdFromPrefix);
+      final events = find(family.eventsPrefix);
+      final data = find(family.dataPrefix);
       if (session.cmdTo == null ||
           cmdFrom == null ||
           events == null ||
           data == null) {
-        _log('Missing one or more Harvard characteristics.');
+        _log(
+          'Missing one or more ${family.label} characteristics on service '
+          '${svc.uuid.str}. Found: '
+          '${svc.characteristics.map((c) => c.uuid.str).join(",")}',
+        );
         await _failConnect();
         return false;
       }
+      _log(
+        'Link is ${family.label} (service ${svc.uuid.str}).'
+        '${family == WhoopFamily.gen5 ? " Gen5 is newer than the 4.0 path and "
+              "has not been confirmed against hardware by a maintainer — "
+              "please report what works and what does not." : ""}',
+      );
 
       _setPhase(BleConnState.subscribing);
       await _subscribe(session, cmdFrom, 'cmd_from');
@@ -2111,9 +2198,23 @@ class BleEngine {
           _log('write skipped: it belongs to a session that is no longer live.');
           return;
         }
+        // THE ONE PLACE GENERATIONS DIVERGE ON THE WRITE PATH. Every command
+        // builder in package:openstrap_protocol emits a gen4-enveloped frame,
+        // and the inner content is identical across generations, so a gen5 link
+        // re-wraps here instead of every builder learning about families. Doing
+        // it at the characteristic also makes it structurally impossible to send
+        // a gen5-framed command to a 4.0 band: this is the last point at which
+        // the session — and therefore the family — is known.
+        final wire = session.family == WhoopFamily.gen5
+            ? reframeGen4ToGen5(raw)
+            : raw;
+        // The seam observes `wire`, not `raw`, for the same reason the guards
+        // above run before it: a seam that sees different bytes than the radio
+        // would makes every test relying on it prove the wrong thing. On a gen4
+        // link `wire` IS `raw`, so this is a no-op for every existing test.
         final hook = debugWriteHook;
         if (hook != null) {
-          ok = await hook(raw);
+          ok = await hook(wire);
           return;
         }
         final cmd = session.cmdTo;
@@ -2127,7 +2228,7 @@ class BleEngine {
         // never rose, and _send would swallow the alarm silently. Long writes are
         // a no-op for the small (<=20B) frames every other command uses.
         await cmd
-            .write(raw, withoutResponse: false, allowLongWrite: true)
+            .write(wire, withoutResponse: false, allowLongWrite: true)
             .timeout(_writeTimeout);
         ok = true;
       } on TimeoutException {
@@ -2462,6 +2563,28 @@ class BleEngine {
       final r = parseR10Lite(frame.inner);
       if (r != null) {
         sample = Sample(tsEpoch: r.tsEpoch, counter: r.counter, hr: r.hr);
+      }
+    }
+    // GEN5 FALLBACK. Ordered last on purpose: a gen4 link never reaches it, and
+    // on a gen5 link the richer decoders above still get first refusal, so if a
+    // gen5 k-domain ever does match the full v24 field map we keep the extra
+    // fields rather than dropping to this subset.
+    //
+    // WHAT THIS DELIBERATELY DOES NOT FILL: accelerometer, RR intervals and
+    // SpO2. Gen5's k18 body does not follow the gen4 v24 map — measured, not
+    // assumed (parseR24 reads its gravity vector at 0.27 g and correctly
+    // refuses) — and one capture cannot tell us where those fields really live.
+    // Leaving them null costs actigraphy-driven sleep detail; guessing an offset
+    // would silently corrupt every metric downstream of it. See gen5_records.dart.
+    if (sample == null && _session?.family == WhoopFamily.gen5) {
+      final g = decodeGen5History(frame.inner);
+      if (g != null) {
+        sample = Sample(
+          tsEpoch: g.tsEpoch,
+          counter: g.counter,
+          hr: g.hr,
+          skinTempRaw: g.skinTempCentiC,
+        );
       }
     }
     // FIRMWARE RESILIENCE: a historical record we could NOT decode (unknown/
