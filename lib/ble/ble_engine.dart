@@ -89,6 +89,54 @@ typedef ArchiveSink = Future<void> Function(ArchiveRecord archive);
 /// trigger now that listening is continuous and there's no discrete sync end.
 typedef DataStoredSink = void Function();
 
+// ── WHOOP 5.0 / MG discovery (not wire-format) ──────────────────────────────
+// Transport/framing lives in package:openstrap_protocol (BandProfile / GattProfile).
+// Edge only decides what to *look for*. The 128-bit vendor service is already
+// on main; what is still unsettled on hardware is whether a real band puts it
+// in the primary advertisement or only the scan response (#238 close note).
+//
+// A 128-bit UUID often does not fit the 31-byte AD. iOS hashes anything that
+// spills into the scan-response overflow area, so AccessorySetupKit never sees
+// it. The SIG member UUID 0xFD4B (2 bytes) and the advertised name
+// (`WHOOP MGB…` / `WHOOP 5A…`) still fit. That 16-bit form is NOT the
+// Bluetooth-base expansion `0000FD4B-0000-1000-8000-00805F9B34FB` — no band
+// advertises that 128-bit value.
+
+/// 16-bit Bluetooth SIG member UUID assigned to WHOOP. Distinct from
+/// [GattProfile.gen5.service]. Platforms disagree on spelling: iOS reports
+/// `"fd4b"`; Android reports the Base-UUID expansion.
+const String kWhoopMemberUuid16 = 'fd4b';
+
+/// Service UUIDs used as the BLE `withServices` scan filter.
+///
+/// `withServices` is OR-combined on both platforms. The 16-bit member UUID
+/// must be its own entry: filtering only on the 128-bit vendor UUID misses a
+/// band that advertised the 2-byte form.
+List<Guid> whoopScanServiceUuids() => [
+      Guid(GattProfile.gen4.service),
+      Guid(GattProfile.gen5.service),
+      Guid(kWhoopMemberUuid16),
+    ];
+
+/// True when a scan result is a WHOOP strap of either generation.
+///
+/// Matching is broad on purpose: a band whose 128-bit service UUID is hidden
+/// in the scan-response overflow must still be caught by the 16-bit member
+/// UUID or by its advertised name, or pairing never starts.
+bool advertisementLooksLikeWhoop({
+  required String platformName,
+  required Iterable<String> serviceUuids,
+}) {
+  if (platformName.toLowerCase().contains('whoop')) return true;
+  for (final raw in serviceUuids) {
+    final u = raw.toLowerCase();
+    if (u.startsWith(GattProfile.gen4.servicePrefix.toLowerCase())) return true;
+    if (u.startsWith(GattProfile.gen5.servicePrefix.toLowerCase())) return true;
+    if (u == kWhoopMemberUuid16 || u.startsWith('0000fd4b')) return true;
+  }
+  return false;
+}
+
 
 /// Map a decoded gen5 historical record onto the band-agnostic `Sample` type,
 /// or null when this record kind has no `Sample` equivalent (yet).
@@ -1369,21 +1417,18 @@ class BleEngine {
       await FlutterBluePlus.stopScan();
     }
     _setPhase(BleConnState.scanning);
-    // Advertise-filter on BOTH generations' service UUIDs (gen4 6108xxxx +
-    // gen5 fd4bxxxx); the actual generation is pinned later at discovery.
-    final gen4Svc = Guid(GattProfile.gen4.service);
-    final gen5Svc = Guid(GattProfile.gen5.service);
+    // Advertise-filter on both 128-bit vendor UUIDs plus the 16-bit member
+    // UUID. Generation is pinned later at GATT discovery. See
+    // [whoopScanServiceUuids] / [advertisementLooksLikeWhoop].
     BluetoothDevice? found;
     final sub = FlutterBluePlus.onScanResults.listen((results) {
       for (final r in results) {
-        final name = r.device.platformName.toLowerCase();
-        final advNames = r.advertisementData.serviceUuids.map(
-          (g) => g.str.toLowerCase(),
-        );
         if (found == null &&
-            (name.contains('whoop') ||
-                advNames.any((s) =>
-                    s.startsWith('61080001') || s.startsWith('fd4b0001')))) {
+            advertisementLooksLikeWhoop(
+              platformName: r.device.platformName,
+              serviceUuids:
+                  r.advertisementData.serviceUuids.map((g) => g.str),
+            )) {
           found = r.device;
           FlutterBluePlus.stopScan();
         }
@@ -1391,7 +1436,7 @@ class BleEngine {
     });
     try {
       await FlutterBluePlus.startScan(
-          withServices: [gen4Svc, gen5Svc], timeout: timeout);
+          withServices: whoopScanServiceUuids(), timeout: timeout);
       await FlutterBluePlus.isScanning.where((on) => on == false).first;
     } catch (e) {
       // Android reports a missing runtime permission by throwing here rather

@@ -26,13 +26,19 @@ import AccessorySetupKit
 ///   - `removeAll`          -> nil    (deprovision all — used on unpair)
 enum AccessorySetup {
   private static let channelName = "openstrap/accessory_setup"
-  // WHOOP GATT service UUIDs, one per generation (match GattProfile in Dart).
-  // `fileprivate` so the iOS-18 Impl below can read them. BOTH must also be
-  // listed in Info.plist under NSAccessorySetupBluetoothServices.
-  //   • gen4 ("Harvard", WHOOP 4)  — 6108…
-  //   • gen5 ("fd4b", WHOOP 5)     — fd4b…  (EXPERIMENTAL)
+  // WHOOP GATT service UUIDs (match GattProfile / kWhoopMemberUuid16 in Dart).
+  // `fileprivate` so the iOS-18 Impl below can read them. Every criterion used
+  // in an ASDiscoveryDescriptor must also be listed in Info.plist or iOS
+  // silently ignores it.
+  //   • gen4 ("Harvard", WHOOP 4)           — 6108… 128-bit vendor service
+  //   • gen5 ("fd4b", WHOOP 5.0 / MG)       — fd4b0001-cce1-… 128-bit vendor
+  //   • 16-bit SIG member UUID 0xFD4B       — what still fits a 31-byte AD
+  // The 16-bit form is NOT 0000FD4B-0000-1000-8000-00805F9B34FB; no band
+  // advertises that Bluetooth-base expansion.
   fileprivate static let whoopServiceUUIDGen4 = "61080001-8d6d-82b8-614a-1c8cb0f8dcc6"
   fileprivate static let whoopServiceUUIDGen5 = "fd4b0001-cce1-4033-93ce-002d5875f58a"
+  fileprivate static let whoopMemberUUID16 = "FD4B"
+  fileprivate static let nameSubstring = "WHOOP"
 
   static func register(messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
@@ -140,44 +146,68 @@ private final class Impl {
       return
     }
 
-    // Match on the WHOOP custom service UUID alone. The foreground scan finds the
-    // band via startScan(withServices:[…]) and succeeds, which proves the band
-    // advertises this service — so it's a reliable, sufficient filter. Every
-    // descriptor criterion must be declared in Info.plist; the UUIDs are listed
-    // under NSAccessorySetupBluetoothServices. (No bluetoothNameSubstring: a
-    // single descriptor AND-combines its criteria, and a name filter would also
-    // require an NSAccessorySetupBluetoothNames entry and risk excluding the band
-    // on a name mismatch.)
+    // ONE ITEM PER MATCH STRATEGY. A single ASDiscoveryDescriptor AND-combines
+    // its criteria, so folding gen5's 128-bit UUID, 16-bit 0xFD4B, and a name
+    // substring onto one descriptor would match nothing. showPicker(for:) takes
+    // an array so each strategy is its own accessory; the sheet de-duplicates
+    // by peripheral.
     //
-    // ASK matches ANY item in the picker list, so we offer one item per WHOOP
-    // generation: gen4 (WHOOP 4) and gen5 (WHOOP 5, experimental). A band that
-    // advertises either service can be provisioned; the provisioned identifier is
-    // the same CoreBluetooth UUID regardless of generation.
+    // Why three gen5-relevant items: we do not yet know (no nRF Connect capture)
+    // whether fd4b0001-… is in the primary advertisement or only the scan
+    // response. The 16-bit member UUID is what still fits a 31-byte AD; the
+    // name (`WHOOP MGB…` / `WHOOP 5A…`) survives even if iOS hashes the 128-bit
+    // UUID in the overflow area.
     let productImage = UIImage(named: "StrapProduct")
       ?? UIImage(systemName: "sensor.tag.radiowave.forward")
       ?? UIImage()
-    func item(_ serviceUUID: String, _ name: String) -> ASPickerDisplayItem {
+    func makeItem(_ label: String,
+                  _ configure: (ASDiscoveryDescriptor) -> Void) -> ASPickerDisplayItem {
       let descriptor = ASDiscoveryDescriptor()
-      descriptor.bluetoothServiceUUID = CBUUID(string: serviceUUID)
-      return ASPickerDisplayItem(
-        name: name, productImage: productImage, descriptor: descriptor)
+      configure(descriptor)
+      return ASPickerDisplayItem(name: label, productImage: productImage,
+                                 descriptor: descriptor)
     }
-    let items = [
-      item(AccessorySetup.whoopServiceUUIDGen4, "WHOOP band"),
-      item(AccessorySetup.whoopServiceUUIDGen5, "WHOOP 5 band"),
+    let items: [ASPickerDisplayItem] = [
+      makeItem("WHOOP band") {
+        $0.bluetoothServiceUUID = CBUUID(string: AccessorySetup.whoopServiceUUIDGen4)
+      },
+      makeItem("WHOOP 5.0 / MG") {
+        $0.bluetoothServiceUUID = CBUUID(string: AccessorySetup.whoopServiceUUIDGen5)
+      },
+      makeItem("WHOOP 5.0 / MG") {
+        $0.bluetoothServiceUUID = CBUUID(string: AccessorySetup.whoopMemberUUID16)
+      },
+      makeItem("WHOOP band") {
+        $0.bluetoothNameSubstring = AccessorySetup.nameSubstring
+      },
     ]
 
     pickerResult = completion
+    present(items, allowGen4Retry: true)
+  }
+
+  /// Presents the picker and resolves `pickerResult`.
+  ///
+  /// If iOS rejects the widened descriptor list (a name-only item is the
+  /// experimental one), retry once with the WHOOP 4.0 item that already ships,
+  /// so the experiment can never take down 4.0 pairing.
+  private func present(_ items: [ASPickerDisplayItem], allowGen4Retry: Bool) {
     session.showPicker(for: items) { [weak self] error in
       guard let self = self else { return }
       if let error = error {
-        if let cb = self.pickerResult {
-          self.pickerResult = nil
-          cb(.failure(PickerError(message: error.localizedDescription)))
+        guard let cb = self.pickerResult else { return }
+        let message = error.localizedDescription
+        let looksCancelled = message.lowercased().contains("cancel")
+        if allowGen4Retry, !looksCancelled, items.count > 1 {
+          NSLog("[ASK] picker rejected the %d-item descriptor list (%@) — "
+                + "retrying with the WHOOP 4.0 item only.", items.count, message)
+          self.present([items[0]], allowGen4Retry: false)
+          return
         }
+        self.pickerResult = nil
+        cb(.failure(PickerError(message: message)))
         return
       }
-      // Picker succeeded — read the newly provisioned accessory's identifier.
       let id = self.session.accessories
         .compactMap { $0.bluetoothIdentifier }
         .first?.uuidString.uppercased()

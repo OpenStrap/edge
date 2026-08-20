@@ -55,6 +55,18 @@
 	<array>
 		<string>61080001-8D6D-82B8-614A-1C8CB0F8DCC6</string>
 		<string>FD4B0001-CCE1-4033-93CE-002D5875F58A</string>
+		<!-- 16-bit SIG member UUID. Distinct from the 128-bit vendor service
+		     above, and NOT the Bluetooth-base expansion
+		     0000FD4B-0000-1000-8000-00805F9B34FB (no band advertises that).
+		     A 128-bit UUID often does not fit the 31-byte advertisement. -->
+		<string>FD4B</string>
+	</array>
+	<!-- Last net for ASK: MG advertises as WHOOP MGB…, 5.0 as WHOOP 5A…,
+	     4.0 as WHOOP 4…. Criteria inside one descriptor AND-combine, so the
+	     name lives on its own ASPickerDisplayItem, not on the UUID items. -->
+	<key>NSAccessorySetupBluetoothNames</key>
+	<array>
+		<string>WHOOP</string>
 	</array>
 	<key>NSAccessorySetupKitSupports</key>
 	<array>
