@@ -1328,8 +1328,14 @@ const int kAlgoVersion = 76;
 // the same answers. The gen5 records it adds are new: no released build could
 // decode them, so no stored day at v76 was derived from one, and there is
 // nothing for a same-version serve to confuse.
+//
+// The protocol repin to 4ce8f02 (protocol #33 rebased onto b7990e1) holds at
+// 76 and is checkable the same way: the whole hop is one commit adding alarm
+// COMMAND builders (alarmRev1Payload and friends) plus their exports and
+// test. Commands go TO the strap; no decoder line moves, so no stored number
+// can.
 const String kAnalyticsPin = 'd9362a66fbeac326d5d7d7b1fe27b28e41169a79';
-const String kProtocolPin = 'b7990e1499f9ae83dbd4c1fa8481dbe8413e7337';
+const String kProtocolPin = '4ce8f021568a4cd9a1d86c91004f91c6b21980da';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

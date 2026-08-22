@@ -5590,19 +5590,32 @@ class BleEngine {
   /// frames queued ahead of the response, not to be a plausible steady state.
   static const Duration _clockReadTimeout = Duration(seconds: 3);
 
-  /// On-device wake alarm (SET_ALARM_TIME = 0x42) — the RICH 20-byte form that
-  /// actually FIRES:
+  /// On-device wake alarm (SET_ALARM_TIME = 0x42), band-generation aware via
+  /// [AlarmPayloads.setPayloadForBand]:
+  ///
+  /// WHOOP 4 — the REV-1 9-byte form the firmware actually EXECUTES:
   /// ```
-  ///   [0]      0x04              rich-form marker
-  ///   [1]      u8  index         alarm slot (gen4: 0; gen5: 1)
-  ///   [2..6]   u32 epoch-sec LE  the wake time
-  ///   [6..8]   u16 subsec  LE    (millis % 1000) * 32768 ~/ 1000 (1/32768 s units)
-  ///   [8..20]  12-byte haptic pattern (see [AlarmPayloads.defaultHaptics])
+  ///   [0]      0x01              rev-1 form marker
+  ///   [1..5]   u32 epoch-sec LE  the wake time
+  ///   [5..7]   u16 subsec  LE    (millis % 1000) * 32768 ~/ 1000 (1/32768 s units)
+  ///   [7..9]   u16 haptic-mode   0 = the stock wake buzz
   /// ```
-  /// WHOOP 5 requires slot index 1: index 0 is
-  /// rejected with `arm info is invalid, error 0xb`. The short 7-byte
-  /// time-only form ([setAlarmSimple]) is ACKed but never buzzes. The strap
-  /// confirms via event 56 and reports firing via 57/58 + 60.
+  /// This is what the official WHOOP app sends (btsnoop wire capture), and on
+  /// our band (fw 41.17.4, 2026-08-19/20) it fired autonomously at the armed
+  /// second (HAPTICS_FIRED 60 + STRAP_DRIVEN_ALARM_EXECUTED 57, then
+  /// auto-disable 59) while the rich 0x04 form previously armed here latched
+  /// (event 56) without executing. Execution of the rich form is
+  /// firmware-dependent — at least one other WHOOP 4 executes it (see
+  /// [AlarmPayloads]). The 7-byte short form ([setAlarmSimple]) is rev-1
+  /// minus the haptic-mode u16 — the same bytes on the wire once padded, not
+  /// a distinct form.
+  ///
+  /// WHOOP 5 — the rich 21-byte slot-1 body, unchanged (#194; index 0 is
+  /// rejected with `arm info is invalid, error 0xb`).
+  ///
+  /// The strap confirms via event 56 and reports firing via 57/58 + 60 —
+  /// delivered through the band's history stream (typically the NEXT sync),
+  /// not necessarily live.
   ///
   /// Returns the wall-clock instant armed, or null when the strap did not take
   /// the alarm — so the caller never persists a phantom alarm. Null means one
@@ -5637,11 +5650,14 @@ class BleEngine {
     // on its OWN clock, so if that clock is offset from wall time (SET_CLOCK not
     // latched / drift) the raw wall epoch fires at the wrong strap-time — or
     // never (a raw wall epoch is decades ahead of a strap clock still near its
-    // factory epoch, which is exactly why an immediate RUN_ALARM / Maverick buzz
-    // works but a scheduled alarm never fires). Shift the target by the
-    // GET_CLOCK drift; fall back to the raw epoch when we have no correlation
-    // yet (e.g. just after a reconnect, before this session's GET_CLOCK reply).
-    // Byte layout + the frame conversion both live in the pure [AlarmPayloads].
+    // factory epoch). (Historical note: drift was once blamed for the gen4
+    // silent alarm, and later the payload form — which held on fw 41.17.4 but
+    // is firmware-dependent, see the doc above. The shift stays either way:
+    // it is correct for a genuinely offset RTC.) Fall back to
+    // the raw epoch when we have no correlation yet (e.g. just after a
+    // reconnect, before this session's GET_CLOCK reply). Frame conversion +
+    // generation dispatch live in the pure [AlarmPayloads]; the gen4 rev-1
+    // byte layout itself is sourced from `openstrap_protocol`.
     final ref = _clockRef;
     final driftSec = ref?.driftSec ?? 0;
     final armWhen = AlarmPayloads.toStrapFrame(when, driftSec);
@@ -5652,12 +5668,14 @@ class BleEngine {
       haptics: haptics,
     );
     final out = await _sendAwaited(Cmd.setAlarmTime, payload);
+    // rev-1 has no slot byte — payload[1] there is an epoch byte, so only the
+    // gen5 rich body logs an idx.
     _log(
-      'SET_ALARM_TIME (${isGen5 ? "gen5 rich index1" : "rich"} ${payload.length}B) '
+      'SET_ALARM_TIME (${isGen5 ? "gen5 rich index1" : "rev1"} ${payload.length}B) '
       '→ wallSec=${when.millisecondsSinceEpoch ~/ 1000} '
       'strapSec=${armWhen.millisecondsSinceEpoch ~/ 1000} drift=${driftSec}s '
       'correlated=${ref != null} subsec=${AlarmPayloads.subsecOf(armWhen)} '
-      'idx=${payload.length >= 2 ? payload[1] : -1} '
+      '${isGen5 && payload.length >= 2 ? 'idx=${payload[1]} ' : ''}'
       'write=${out.written ? 'ok' : 'FAILED'}',
     );
     if (!out.written) return null;
@@ -5690,11 +5708,14 @@ class BleEngine {
 
   /// Time-only alarm (SET_ALARM_TIME = 0x42), SHORT 7-byte form:
   /// `[0x01][u32 epoch-sec LE][u16 subsec LE]`. Kept for diagnostics/parity —
-  /// the band ACKs it but never fires it (no haptic waveform). Use [setAlarm].
+  /// it is the rev-1 form minus the trailing haptic-mode u16 and pads to the
+  /// identical frame when that u16 is 0, so it is not a distinct wire form.
+  /// Use [setAlarm], which also converts to the strap's RTC frame; this sends
+  /// the raw epoch.
   Future<void> setAlarmSimple(DateTime when) async {
     await _send(Cmd.setAlarmTime, AlarmPayloads.simple(when));
-    _log('SET_ALARM_TIME (simple 7B) → sec=${when.millisecondsSinceEpoch ~/ 1000} '
-        '(ACKs but will not fire)');
+    _log('SET_ALARM_TIME (simple 7B) → '
+        'sec=${when.millisecondsSinceEpoch ~/ 1000}');
   }
 
   /// Read the armed alarm back. Body is band-specific (see

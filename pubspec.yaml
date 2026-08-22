@@ -79,7 +79,14 @@ dependencies:
       # #31 carries the gen5 hello map, the real clock opcodes and the v18
       # record field map this branch's decoders need. main's pre-gen5 pin is
       # deliberate THERE; this is the branch that wants gen5.
-      ref: b7990e1499f9ae83dbd4c1fa8481dbe8413e7337
+      #
+      # REPIN (this branch): protocol #33 head @ 4ce8f02, which is b7990e1
+      # (everything above) rebased under #33's one commit — alarmRev1Payload,
+      # the single home of the rev-1 9-byte SET_ALARM_TIME layout this branch
+      # arms gen4 with. b7990e1 itself does NOT export the symbol, so the old
+      # pin failed analysis on a fresh checkout. #33 is unmerged, so this is a
+      # PR-branch-head pin; repin to the main merge commit when it lands.
+      ref: 4ce8f021568a4cd9a1d86c91004f91c6b21980da
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
