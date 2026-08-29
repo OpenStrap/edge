@@ -48,8 +48,9 @@ unless it is pure orchestration.
 - `notify/` — `notification_center.dart` is the **single emitter**;
   `fired_keys.dart` is the persistent fire-once guard.
 - `coach/` — read-only SQL over allow-listed `v_*` views behind a deny-list guard.
-- `ui/` — ~120 files: `ui/design` (design system), `ui/kit/charts.dart`,
-  `ui/screens/` (shared metric/trend IA).
+- `ui2/` — screens live here now (`lib/ui` was deleted in the UI rebuild):
+  `ui2/theme.dart`/`grammar.dart` (design system), `ui2/charts.dart`,
+  `ui2/screens/` (shared metric/trend IA).
 - Also `ai/` (BYOK), `gps/`, `health/` (HealthKit/Health Connect export),
   `telemetry/` (opt-in), `widget/` (App-Group snapshot for WidgetKit/watch).
 

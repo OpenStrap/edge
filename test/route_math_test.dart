@@ -1,5 +1,7 @@
 // Tests for the pure GPS route analytics: distance, per-unit splits, and the
-// HR → zone colouring join. No DB / no geolocator — pure functions only.
+// HR → zone colouring join. No DB, no location fixes — haversineMeters calls
+// into geolocator's static distance math, but nothing here touches a sensor
+// or the platform channel.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/gps/route_math.dart';
