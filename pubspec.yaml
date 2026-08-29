@@ -330,9 +330,6 @@ dependencies:
   provider: ^6.1.2
   shared_preferences: ^2.3.3
 
-  # Charts (for the future server-analytics view).
-  fl_chart: ^0.69.2
-
   # Interactive maps for GPS workout routes (run/ride/walk). Raster tiles are
   # fetched on demand from CARTO (basemaps.cartocdn.com) — OSM data, but served
   # by CARTO rather than tile.openstreetmap.org, whose tile-usage policy does

@@ -134,6 +134,17 @@ reconnects.
 weekly recap, a BYOK AI assistant, home-screen widgets, iOS Live Activities, Siri
 shortcuts, a smart alarm that buzzes the band.
 
+## The three OpenStrap repos
+
+OpenStrap is split across three repos, each with a strict job:
+
+- **[edge](https://github.com/OpenStrap/edge)** (this repo) — the app: Bluetooth link
+  management, local storage, background sync, the UI.
+- **[protocol](https://github.com/OpenStrap/protocol)** — the reverse-engineered WHOOP
+  4.0 Bluetooth protocol: GATT, framing, CRC, opcodes, turning raw bytes into records.
+- **[analytics](https://github.com/OpenStrap/analytics)** — the metrics: HRV, sleep
+  staging, recovery/readiness, strain, each derived from scratch from public research.
+
 ## What doesn't work (yet, or maybe ever)
 
 - iOS background sync is best-effort. It genuinely works (see above), but Apple doesn't
@@ -221,7 +232,7 @@ lib/ble/       Bluetooth + sync
 lib/data/      local storage + the repository seam the UI reads from
 lib/compute/   runs the analytics pipeline, writes results
 lib/state/     AppState, the one source of truth
-lib/ui/        every screen
+lib/ui2/       every screen
 ```
 
 Protocol decoding and analytics live in their own repos —

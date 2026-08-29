@@ -1,11 +1,11 @@
 # AGENTS.md — OpenStrap `edge`
 
-Reviewer context, verified against code at `kAlgoVersion 47`, schema `v25`,
-`0.9.19+50`. Where a source comment disagrees with an implementation, **the
-implementation wins** — header comments here go stale (e.g.
-`lib/compute/substrate.dart:10-12` still describes a wake-to-wake day model that
-`calendarDays()` at `:429` no longer implements; it walks local midnight to
-local midnight).
+Reviewer context. This doc is not re-verified on every release — treat exact
+version numbers, file sizes, and line-number citations below as approximate
+and check them against current code before relying on them (run `grep -n` for
+any symbol named here rather than trusting the line number). Where a source
+comment disagrees with an implementation, **the implementation wins** — code
+is the only ground truth.
 
 ## 1. What this is
 
@@ -23,15 +23,15 @@ New opcode/record → protocol. New metric → analytics. New screen/flow/table 
 edge. A PR implementing a metric inside `edge/lib/compute` is in the wrong repo
 unless it is pure orchestration.
 
-## 2. Architecture map (`lib/`, 164 files, ~67k lines)
+## 2. Architecture map (`lib/`; for a live size count run `find lib -name '*.dart' | xargs wc -l`)
 
-| file | lines | owns |
-|---|---|---|
-| `data/db.dart` | 3966 | `LocalDb`: schema v25, `onUpgrade` ladder, all CRUD, coach views |
-| `compute/derivation_engine.dart` | 3553 | `DerivationEngine`, `kAlgoVersion` (:267), day scheduling, isolate offload |
-| `state/app_state.dart` | 3456 | `AppState` ChangeNotifier — BLE↔DB↔UI orchestration |
-| `ble/ble_engine.dart` | 3267 | GATT connect/drain/history-sync state machine |
-| `data/local_repository_impl.dart` | 2518 | read seam: `day_result`/`metric_series` → screen shapes; zero compute on read |
+| file | owns |
+|---|---|
+| `data/db.dart` | `LocalDb`: schema (see `schemaVersion` in that file), `onUpgrade` ladder, all CRUD, coach views |
+| `compute/derivation_engine.dart` | `DerivationEngine`, `kAlgoVersion`, day scheduling, isolate offload |
+| `state/app_state.dart` | `AppState` ChangeNotifier — BLE↔DB↔UI orchestration |
+| `ble/ble_engine.dart` | GATT connect/drain/history-sync state machine |
+| `data/local_repository_impl.dart` | read seam: `day_result`/`metric_series` → screen shapes; zero compute on read |
 
 - `ble/` — engine + `ble_state.dart` **pure policies**: `ReconnectPolicy`,
   `SeqAllocator`, `DrainStopEvaluator`, `RecordGate`, `CounterRegressionDetector`,
@@ -69,7 +69,8 @@ a hotspot.
 
 ## 3. Hard invariants — violating these is a P0 regression
 
-1. **Commit before ACK.** In the history-sync drain (`ble/ble_engine.dart:~2116`)
+1. **Commit before ACK.** In the history-sync drain (`ble/ble_engine.dart`,
+   around the cursor-commit + `buildHistoryResultOk` call)
    decoded rows + cursor commit in one transaction *before*
    `buildHistoryResultOk` echoes the verbatim 8-byte HISTORY_END token. The band
    trims flash on ACK. Reordering, or echoing a regenerated/mangled token, causes
@@ -80,7 +81,7 @@ a hotspot.
 3. **Never fabricate a metric.** Absent input ⇒ null / `Metric.absent` / "—". No
    imputation, no substituted defaults, no deriving one metric from another as a
    fallback. Most-violated rule in the repo (§4.1).
-4. **Bump `kAlgoVersion`** (`compute/derivation_engine.dart:267`) whenever any
+4. **Bump `kAlgoVersion`** (`compute/derivation_engine.dart`) whenever any
    analytics *output* changes, including via a sibling re-pin. Rows are immutable
    per version; without a bump nothing recomputes. Add a changelog entry above
    the constant.
@@ -114,8 +115,8 @@ a hotspot.
 13. **The coach reads only allow-listed `v_*` views** — never `decoded_*`,
     `raw_*`, or base tables.
 14. **Live high-rate streams (0x28/0x2B/0x33) are never persisted** — RAM-only.
-15. **Dangerous opcodes are never auto-sent** (`dangerousCmds`, gated at
-    `ble/ble_engine.dart:1471`): force-trim, reboot, power-cycle, firmware load.
+15. **Dangerous opcodes are never auto-sent** (`dangerousCmds`, gated in
+    `ble/ble_engine.dart`): force-trim, reboot, power-cycle, firmware load.
 
 ## 4. Recurring bug patterns — what actually ships broken here
 

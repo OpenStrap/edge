@@ -2,14 +2,16 @@
 //
 // Everything here is a pure function of its inputs (no DB, no I/O, no clock),
 // so it is directly unit-testable and shared by the repository (splits) and the
-// UI (zone-coloured polylines). Distances use the haversine great-circle
-// formula on WGS84 mean radius; good to well under a metre at running scale.
+// UI (zone-coloured polylines). Distance uses geolocator's haversine
+// implementation (pure math, no platform channel); good to well under a
+// metre at running scale.
 
 import 'dart:math' as math;
 
+import 'package:geolocator/geolocator.dart';
+
 import 'route_models.dart';
 
-const double kEarthRadiusM = 6371008.8; // WGS84 mean radius
 const double kMetersPerKm = 1000.0;
 const double kMetersPerMile = 1609.344;
 
@@ -65,18 +67,8 @@ double? fallbackSpeedMps(RoutePoint? prev, RoutePoint cur) {
 }
 
 /// Great-circle distance in metres between two lat/lng points.
-double haversineMeters(double lat1, double lng1, double lat2, double lng2) {
-  const deg2rad = math.pi / 180.0;
-  final dLat = (lat2 - lat1) * deg2rad;
-  final dLng = (lng2 - lng1) * deg2rad;
-  final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-      math.cos(lat1 * deg2rad) *
-          math.cos(lat2 * deg2rad) *
-          math.sin(dLng / 2) *
-          math.sin(dLng / 2);
-  final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-  return kEarthRadiusM * c;
-}
+double haversineMeters(double lat1, double lng1, double lat2, double lng2) =>
+    Geolocator.distanceBetween(lat1, lng1, lat2, lng2);
 
 /// Total path length in metres over an ordered list of route points.
 /// Implausible segments (a teleport across a recording gap — see
