@@ -5,12 +5,14 @@
 // directly. Each group names the bug it guards.
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/health/health_export.dart';
 import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/state/app_state.dart';
@@ -185,6 +187,51 @@ void main() {
               'WorkoutIdleWatch counts any positive reading as active — a '
               'forgotten session sitting at resting HR would never be asked '
               'about after an app restart, the exact case the watch is for');
+    });
+
+    test('a stale (past-ceiling) orphan is finalized locally but NEVER '
+        'exported to Health', () async {
+      // Its real end time is unknown — the reconcile stamps end_ts to
+      // reconcile-time as an honest "we closed this out", not a fact. Writing
+      // that fabricated span to Apple Health / Health Connect as a real
+      // workout would be a lie in the user's own health records.
+      const channel = MethodChannel('flutter_health');
+      final calls = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call.method);
+            return call.method == 'hasPermissions' ? false : true;
+          });
+      addTearDown(() => TestDefaultBinaryMessengerBinding
+          .instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null));
+      SharedPreferences.setMockInitialValues({kHealthSyncPref: true});
+
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      const staleId = 'stale-past-ceiling';
+      await LocalDb.putSession({
+        'id': staleId,
+        'start_ts': nowSec - 7 * 60 * 60, // 7h old, past the 6h ceiling
+        'end_ts': null,
+        'type': 'run',
+        'status': 'live',
+        'source': 'manual',
+        'created_at': (nowSec - 7 * 60 * 60) * 1000,
+      });
+
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      await app.debugReconcileOrphanedLiveWorkout();
+      // exportWorkoutId is fired unawaited from the reconcile; give it a
+      // chance to run before asserting nothing came through.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(calls, isEmpty,
+          reason: 'a stale orphan has a fabricated end_ts and must never '
+              'reach the platform health store');
+      final row = await LocalDb.session(staleId);
+      expect(row?['status'], 'done');
+      expect(row?['end_ts'], isNotNull);
     });
   });
 

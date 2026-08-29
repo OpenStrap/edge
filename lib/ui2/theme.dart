@@ -232,17 +232,12 @@ class P {
     return out;
   }
 
-  /// WCAG 2.1 relative luminance.
-  static double luminance(Color c) {
-    double ch(double v) =>
-        v <= 0.03928 ? v / 12.92 : math.pow((v + 0.055) / 1.055, 2.4) as double;
-    return 0.2126 * ch(c.r) + 0.7152 * ch(c.g) + 0.0722 * ch(c.b);
-  }
-
   /// WCAG 2.1 contrast ratio, 1.0 … 21.0. Public so the contrast test and any
   /// future palette work measure with exactly the same function the tokens do.
+  /// Luminance is `Color.computeLuminance()` — same WCAG formula, no need to
+  /// carry our own copy of it.
   static double contrast(Color a, Color b) {
-    final la = luminance(a), lb = luminance(b);
+    final la = a.computeLuminance(), lb = b.computeLuminance();
     final hi = math.max(la, lb), lo = math.min(la, lb);
     return (hi + 0.05) / (lo + 0.05);
   }

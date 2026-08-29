@@ -116,6 +116,10 @@ ios/build/
 # its date) and this repo is public. They stay on disk and out of git.
 docs/internal/
 
+# Same leak class as docs/internal/ above — local debug dumps of real dated
+# HRV/sleep payloads (RMSSD/SDNN/pNN50 tied to a calendar date). Never commit.
+payload*.json
+
 # Golden images. 416 PNGs, 27 MB, regenerated locally with
 # `flutter test --update-goldens`. They are machine- and SDK-specific — the two
 # Flutter SDKs on this machine already disagree on antialiasing — so a

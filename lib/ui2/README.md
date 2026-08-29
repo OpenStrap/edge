@@ -76,7 +76,7 @@ Raw pigment is **not** legible as text — `C.green` on white is 2.28:1. Convert
 | `p.wash(accent)` | a tint for a card background or an active chip — never carries its own text; pair with `p.on` |
 | `p.inkOnFill` | the ink that goes on top of `p.fill` |
 
-`P.contrast(a, b)` and `P.luminance(c)` are public if you need to measure.
+`P.contrast(a, b)` is public if you need to measure.
 
 ### Type — 7 steps, 3 weights
 
