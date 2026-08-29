@@ -221,12 +221,21 @@ lib/ble/       Bluetooth + sync
 lib/data/      local storage + the repository seam the UI reads from
 lib/compute/   runs the analytics pipeline, writes results
 lib/state/     AppState, the one source of truth
-lib/ui/        every screen
+lib/ui2/       every screen
 ```
 
 Protocol decoding and analytics live in their own repos —
 [protocol](https://github.com/OpenStrap/protocol),
 [analytics](https://github.com/OpenStrap/analytics).
+
+## Guides
+
+- [`guides/IOS_INSTALLATION.md`](guides/IOS_INSTALLATION.md) — building and installing on an iPhone.
+- [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md) — sideloading without a paid developer account.
+- [`guides/WATCH_SETUP.md`](guides/WATCH_SETUP.md) — the Apple Watch companion app.
+- [`guides/AI_COACH.md`](guides/AI_COACH.md) — bring-your-own-key AI coach, briefings, and journal.
+- [`guides/TASKER_INTEGRATION.md`](guides/TASKER_INTEGRATION.md) — buzzing the strap from Tasker/automation.
+- [`guides/BUZZ_MEANINGS.md`](guides/BUZZ_MEANINGS.md) — what each buzz pattern means.
 
 ## Contributing
 

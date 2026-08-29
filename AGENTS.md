@@ -1,8 +1,11 @@
 # AGENTS.md — OpenStrap `edge`
 
-Reviewer context, verified against code at `kAlgoVersion 47`, schema `v25`,
-`0.9.19+50`. Where a source comment disagrees with an implementation, **the
-implementation wins** — header comments here go stale (e.g.
+Reviewer context. This doc drifts from code between edits — check
+`kAlgoVersion` (`lib/compute/derivation_engine.dart`), `schemaVersion`
+(`lib/data/db.dart`), and the `version:` line in `pubspec.yaml` directly
+rather than trusting a number written here. Where a source comment disagrees
+with an implementation, **the implementation wins** — header comments here go
+stale (e.g.
 `lib/compute/substrate.dart:10-12` still describes a wake-to-wake day model that
 `calendarDays()` at `:429` no longer implements; it walks local midnight to
 local midnight).
@@ -48,8 +51,10 @@ unless it is pure orchestration.
 - `notify/` — `notification_center.dart` is the **single emitter**;
   `fired_keys.dart` is the persistent fire-once guard.
 - `coach/` — read-only SQL over allow-listed `v_*` views behind a deny-list guard.
-- `ui/` — ~120 files: `ui/design` (design system), `ui/kit/charts.dart`,
-  `ui/screens/` (shared metric/trend IA).
+- `ui2/` — 66 files (`lib/ui` was deleted in the UI rebuild): `ui2/theme.dart`
+  and `ui2/grammar.dart` (design system), `ui2/charts.dart`, `ui2/screens/`
+  (shared metric/trend IA), plus `ui2/onboarding/`, `ui2/activity/`,
+  `ui2/profile/`.
 - Also `ai/` (BYOK), `gps/`, `health/` (HealthKit/Health Connect export),
   `telemetry/` (opt-in), `widget/` (App-Group snapshot for WidgetKit/watch).
 
