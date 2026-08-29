@@ -5445,11 +5445,17 @@ class AppState extends ChangeNotifier {
           // (edge#277) — and for the same reason this is NEVER exported to
           // Health: [end_ts] here is fabricated, so a [start,end_ts] Health
           // workout sample would report a bogus duration as real data.
+          // `end_ts_fabricated` records that so `_writeOneWorkout` can skip it
+          // on every later periodic export pass too, not just this call site —
+          // without the flag the row looks like any other finished workout and
+          // gets exported on the next drain/derive cycle regardless.
           final reconciledEndTs = nowMs ~/ 1000;
+          final hadRealEnd = row['end_ts'] != null;
           await LocalDb.putSession({
             ...row,
             'status': 'done',
             'end_ts': row['end_ts'] ?? reconciledEndTs,
+            'end_ts_fabricated': hadRealEnd ? (row['end_ts_fabricated'] ?? 0) : 1,
           });
           _log('[workout] finalized a stale live-session row from a previous run (id=${row['id']}).');
         }

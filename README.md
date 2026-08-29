@@ -199,9 +199,9 @@ Being precise about the network, since "no cloud" gets said too loosely. Nothing
 is required for the app to work, and none of it carries health data except the two you
 turn on yourself:
 
-- **Anonymous diagnostics** (Firebase crash/performance). **On by default in GitHub
-  release builds** — switch it off in your profile and collection stops immediately.
-  **Not present at all** in App Store / Play Store builds. Never includes health data.
+- **Anonymous diagnostics** (Firebase crash/performance). **Off by default in every
+  build** — nothing is collected until you turn it on in your profile, and switching
+  it back off stops collection immediately. Never includes health data.
 - **OTA/announcement pointer** — checks whether there's a newer build.
 - **Legacy account import** — one-time, only if you had an old OpenStrap cloud account.
 - **BYOK AI assistant** — only if you configure a provider. Your key, your account. Be

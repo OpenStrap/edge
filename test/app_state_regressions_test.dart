@@ -232,6 +232,10 @@ void main() {
       final row = await LocalDb.session(staleId);
       expect(row?['status'], 'done');
       expect(row?['end_ts'], isNotNull);
+      expect(row?['end_ts_fabricated'], 1,
+          reason: 'without this flag the row looks like any other finished '
+              'workout and _writeOneWorkout would export it on the very next '
+              'periodic exportAll pass, minutes later');
     });
   });
 

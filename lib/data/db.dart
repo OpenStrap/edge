@@ -3267,6 +3267,18 @@ class LocalDb {
     // `ble/live_cadence.dart`). NULL means the session had no walking to have a
     // cadence for, which is most of them: it is an absence, never a 0.
     await _addColumnIfMissing(db, 'sessions', 'cadence_spm', 'INTEGER');
+    // Set only by `_reconcileOrphanedLiveWorkout` on a stale `status='live'`
+    // row it finalizes without ever having seen the real finish: `end_ts` there
+    // is reconcile-time, not a measurement. `_writeOneWorkout` skips any row
+    // with this set so that fabricated duration never reaches Apple
+    // Health/Health Connect on the next periodic export pass. NOT NULL DEFAULT
+    // 0: every existing/normal row really did finish for real.
+    await _addColumnIfMissing(
+      db,
+      'sessions',
+      'end_ts_fabricated',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
     await _ensureSessionTraceColumns(db);
     // `sessions` is keyed by a TEXT id, so every read that matters — the
     // workouts list, the activity tab, both `decoded_onehz` HR joins,

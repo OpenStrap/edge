@@ -1211,6 +1211,12 @@ class HealthExporter {
     if ((r['status']?.toString() ?? '') == 'live') {
       return null; // skip, not a failure
     }
+    // Set by `_reconcileOrphanedLiveWorkout` on a crash-orphaned session it
+    // finalized without ever seeing the real finish — `end_ts` there is
+    // reconcile-time, not a measurement, so this must never reach Health.
+    if ((r['end_ts_fabricated'] as num?)?.toInt() == 1) {
+      return null; // skip, not a failure
+    }
     final st = (r['start_ts'] as num?)?.toInt();
     final en = (r['end_ts'] as num?)?.toInt();
     if (st == null || en == null || en <= st) {

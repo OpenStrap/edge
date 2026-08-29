@@ -126,6 +126,22 @@ void main() {
       expect(ok, isTrue);
       expect(store.calls, containsAllInOrder(['delete', 'writeWorkoutData']));
     });
+
+    test(
+        'a reconciled orphan (end_ts_fabricated) is never written, even '
+        'though it looks like any other finished row', () async {
+      store = _FakeHealthStore(deleteResult: true)..install();
+
+      final ok = await HealthExporter().exportWorkout({
+        ..._session(),
+        'end_ts_fabricated': 1,
+      });
+
+      expect(ok, isFalse);
+      expect(store.calls, isNot(contains('writeWorkoutData')),
+          reason: 'end_ts here is reconcile-time, not a measurement — this '
+              'must never reach Health, on the periodic export path either');
+    });
   });
 
   group('deleteWorkoutWindow (retime cleanup)', () {

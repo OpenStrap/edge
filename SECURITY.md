@@ -46,8 +46,8 @@ data on-device, and there's no account or server holding it. Two qualifications,
 so the boundary is exact:
 
 - **Anonymous diagnostics** (Firebase crash/performance, never health data) are
-  **on by default in GitHub release builds** and absent from App Store / Play
-  Store builds. Switchable off in-app.
+  **off by default in every build** — nothing is collected until you turn it on
+  in-app, and switching it back off stops collection immediately.
 - **Health-data contribution** uploads the local database, but is opt-in, off by
   default, and compiled out of store builds entirely.
 
