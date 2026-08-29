@@ -3170,13 +3170,9 @@ class DerivationEngine {
   static List<String> _adjacentDayIds(String dayId) {
     final d = DateTime.tryParse(dayId);
     if (d == null) return const [];
-    String label(DateTime x) =>
-        '${x.year.toString().padLeft(4, '0')}-'
-        '${x.month.toString().padLeft(2, '0')}-'
-        '${x.day.toString().padLeft(2, '0')}';
     return [
-      label(DateTime(d.year, d.month, d.day - 1)),
-      label(DateTime(d.year, d.month, d.day + 1)),
+      dayLabelOf(DateTime(d.year, d.month, d.day - 1)),
+      dayLabelOf(DateTime(d.year, d.month, d.day + 1)),
     ];
   }
 

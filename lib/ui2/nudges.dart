@@ -149,10 +149,15 @@ class _AskCard extends StatelessWidget {
               icon: LucideIcons.externalLink,
               color: color,
               soft: true,
-              onTap: () {
-                open3rdPartyLink(url);
-                // Acted on, not just seen — no reason to ask again.
-                onSilence(ask);
+              onTap: () async {
+                // Only silence permanently once the link actually opened —
+                // a failed launch (no app registered, no browser default)
+                // should not look "acted on".
+                if (await open3rdPartyLink(url)) {
+                  onSilence(ask);
+                } else {
+                  onSnooze(ask);
+                }
               }),
           const SizedBox(height: S.x2),
           Center(

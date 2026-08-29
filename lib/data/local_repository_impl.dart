@@ -3479,10 +3479,7 @@ class LocalRepositoryImpl extends LocalRepository {
     if (range == 'all') return null;
     final m = RegExp(r'(\d+)').firstMatch(range);
     final days = m == null ? 30 : int.parse(m.group(1)!);
-    final d = DateTime.now().subtract(Duration(days: days));
-    return '${d.year.toString().padLeft(4, '0')}-'
-        '${d.month.toString().padLeft(2, '0')}-'
-        '${d.day.toString().padLeft(2, '0')}';
+    return dayLabelOf(DateTime.now().subtract(Duration(days: days)));
   }
 
   // ── menstrual cycle — local log + honest phase/prediction ───────────────────
@@ -3567,7 +3564,7 @@ class LocalRepositoryImpl extends LocalRepository {
     num? daysUntilNext;
     if (predictOk && lastStart != null && medianLength != null) {
       final next = lastStart.add(Duration(days: medianLength.round()));
-      predictedNext = _ymd(next);
+      predictedNext = dayLabelOf(next);
       final t0 = DateTime(today.year, today.month, today.day);
       daysUntilNext = DateTime(
         next.year,
@@ -3576,8 +3573,8 @@ class LocalRepositoryImpl extends LocalRepository {
       ).difference(t0).inDays;
       if (gapSpread != null) {
         final w = gapSpread.round();
-        predictedFrom = _ymd(next.subtract(Duration(days: w)));
-        predictedTo = _ymd(next.add(Duration(days: w)));
+        predictedFrom = dayLabelOf(next.subtract(Duration(days: w)));
+        predictedTo = dayLabelOf(next.add(Duration(days: w)));
       }
     }
 
@@ -3696,11 +3693,6 @@ class LocalRepositoryImpl extends LocalRepository {
       'overlay': overlay,
     };
   }
-
-  String _ymd(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
 
   @override
   Future<void> postCycleLog(

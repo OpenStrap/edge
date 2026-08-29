@@ -32,6 +32,7 @@ import 'dart:convert';
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
+import '../data/day_label.dart';
 import '../data/db.dart';
 import 'derivation_engine.dart' show kAlgoVersion, rawRetentionDays;
 
@@ -257,9 +258,5 @@ Map<String, dynamic>? _decode(Object? json) {
 }
 
 /// Shift a 'YYYY-MM-DD' label by [days] calendar days.
-String _shiftDays(String day, int days) {
-  final t = DateTime.parse(day).add(Duration(days: days));
-  final mm = t.month.toString().padLeft(2, '0');
-  final dd = t.day.toString().padLeft(2, '0');
-  return '${t.year}-$mm-$dd';
-}
+String _shiftDays(String day, int days) =>
+    dayLabelOf(DateTime.parse(day).add(Duration(days: days)));

@@ -217,12 +217,33 @@ Full detail in [PRIVACY.md](PRIVACY.md).
 ## Repo layout
 
 ```
-lib/ble/       Bluetooth + sync
-lib/data/      local storage + the repository seam the UI reads from
+lib/ai/        BYOK AI assistant — briefings, journal AI, nightly sweep
+lib/ble/       Bluetooth link + history-sync state machine
+lib/cloud/     optional companion/backend + cloud import clients
+lib/coach/     read-only SQL coach over allow-listed views
 lib/compute/   runs the analytics pipeline, writes results
+lib/data/      local storage + the repository seam the UI reads from
+lib/debug/     debug-mode flags
+lib/gestures/  device action / gesture dispatch
+lib/gps/       GPS route tracking for outdoor activities
+lib/health/    HealthKit / Health Connect import + export
+lib/import/    backup + third-party data import
+lib/l10n/      translations (.arb)
+lib/live/      Live Activity / breathing session
+lib/models/    shared data models (Metric, payloads, app status)
+lib/notify/    the single notification emitter + alert policies
+lib/platform/  platform-channel glue (app icon, Tasker, device actions)
 lib/state/     AppState, the one source of truth
+lib/stress/    guided-breathing session logic
+lib/sync/      background/headless sync policies
+lib/telemetry/ opt-in error + usage telemetry
+lib/theme/     design tokens, theming, transitions
 lib/ui2/       every screen
+lib/widget/    App-Group snapshot for the home-screen/watch widget
 ```
+
+See `AGENTS.md` §2 for the full architecture map, invariants, and the biggest
+files by ownership.
 
 Protocol decoding and analytics live in their own repos —
 [protocol](https://github.com/OpenStrap/protocol),

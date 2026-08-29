@@ -12,9 +12,16 @@ const kDiscordUrl = 'https://discord.gg/dUXds5MWkd';
 const kSponsorUrl = 'https://github.com/sponsors/abdulsaheel';
 
 /// Every link here is external — the browser/app the platform already picks
-/// for that URL scheme, never a WebView inside this app.
-Future<void> open3rdPartyLink(String url) =>
-    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+/// for that URL scheme, never a WebView inside this app. Reports whether it
+/// actually opened, so callers that gate a permanent flag on it (nudges.dart)
+/// don't fire that flag when there was nowhere for the link to go.
+Future<bool> open3rdPartyLink(String url) async {
+  try {
+    return await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  } catch (_) {
+    return false;
+  }
+}
 
 /// A brand mark (assets/icons/*.svg — official, single-fill-path logos),
 /// tinted to match whatever accent its row is drawn in, same 16×16 as the

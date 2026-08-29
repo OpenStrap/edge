@@ -17,6 +17,8 @@ import 'dart:typed_data';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
+import '../data/day_label.dart';
+
 /// Minimum fraction of a nocturnal search window that must carry a REAL
 /// gravity vector before accel-led (van Hees) sleep detection is trusted.
 ///
@@ -956,11 +958,8 @@ class SleepWindowOverride {
 }
 
 /// Local YYYY-MM-DD label for an epoch-second instant.
-String localDateLabel(int epochSec) {
-  final d = DateTime.fromMillisecondsSinceEpoch(epochSec * 1000, isUtc: false);
-  String two(int x) => x.toString().padLeft(2, '0');
-  return '${d.year.toString().padLeft(4, '0')}-${two(d.month)}-${two(d.day)}';
-}
+String localDateLabel(int epochSec) =>
+    dayLabelOf(DateTime.fromMillisecondsSinceEpoch(epochSec * 1000));
 
 /// Split the substrate into CALENDAR days (local midnight → next local midnight).
 ///

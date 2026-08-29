@@ -18,6 +18,8 @@ import 'dart:math' as math;
 
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
+import '../data/day_label.dart';
+
 // Pure string helper only (the `need_input:name=…` note grammar) — no DB, no
 // IO, no Flutter binding, so importing it does not compromise this file's
 // isolate safety. One grammar for "a required input was missing" across both
@@ -752,15 +754,10 @@ List<double> _denseDailyTrimp(List<String> dates, List<double?> trimps) {
       // than an arbitrarily long zero-padded one.
       return [for (final v in trimps) v ?? 0.0];
     }
-    out.add(byDate[_dateKey(cursor)] ?? 0.0);
+    out.add(byDate[dayLabelOf(cursor)] ?? 0.0);
     cursor = DateTime(cursor.year, cursor.month, cursor.day + 1);
   }
   return out;
-}
-
-String _dateKey(DateTime d) {
-  String two(int x) => x.toString().padLeft(2, '0');
-  return '${d.year.toString().padLeft(4, '0')}-${two(d.month)}-${two(d.day)}';
 }
 
 /// Absolute value of each present element (used to orient skin-temp by |z|).
