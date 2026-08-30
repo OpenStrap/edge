@@ -1815,7 +1815,7 @@
   "activitySetupPrivateLabel": "Sesión privada",
   "activitySetupPrivateDetail": "Oculta en resúmenes y exportaciones",
   "activitySetupCaloriesNeedWeight": "Las calorías necesitan tu peso.",
-  "activitySetupNoMetEstimate": "Sin estimación previa: ningún MET publicado se aplica a una sesión que no nombra una actividad. Las calorías salen de tu frecuencia cardíaca — siempre que tu edad, peso y sexo estén configurados, y que tus frecuencias en reposo y máxima estén medidas y no supuestas.",
+  "activitySetupNoMetEstimate": "Sin estimación previa: ningún MET publicado se aplica a una sesión que no nombra una actividad. Las calorías salen de tu frecuencia cardíaca — siempre que tu edad, peso y sexo estén configurados, y que tu frecuencia cardíaca en reposo y tu frecuencia cardíaca máxima estén medidas y no supuestas.",
   "activitySummaryCalorieNoMet": "Estimado a partir de tu frecuencia cardíaca y tu peso. En esta cifra no hay ningún MET: la sesión no nombró ninguna actividad a la que aplicarlo.",
   "activitySetupCalorieEstimate": "Unas {est} kcal cada {minutes} min, a partir de {met} MET y tu peso.",
   "activitySetupTrackSets": "Series, repeticiones y carga: registradas por ti",
