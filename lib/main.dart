@@ -15,8 +15,7 @@ import 'sync/headless_boot.dart';
 import 'sync/ios_bg_task.dart';
 import 'theme/theme_controller.dart';
 import 'widget/widget_service.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
+import 'telemetry/firebase_bridge.dart';
 import 'package:workmanager/workmanager.dart';
 import 'dart:async';
 import 'dart:io';
@@ -37,9 +36,7 @@ Future<void> main() async {
   // OPTIONAL: a build with no real google-services.json / GoogleService-Info.plist
   // throws here and the app carries on without any Firebase at all.
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    ).timeout(_kStartupInitTimeout);
+    await FirebaseBridge.initialize(timeout: _kStartupInitTimeout);
   } catch (e) {
     debugPrint('Firebase init failed (run flutterfire configure!): $e');
   }
