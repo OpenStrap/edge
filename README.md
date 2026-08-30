@@ -1,6 +1,6 @@
 # Openstrap Edge
 
-An app that makes a WHOOP band useful without a WHOOP subscription. Connects over Bluetooth, computes everything on your phone, iOS and Android.
+An app that makes your wearable useful without its subscription. Pairs over Bluetooth, computes everything on your phone, iOS and Android. WHOOP 4/5/MG get full support today; see [Supports](#supports) for what else it talks to.
 
 [![test](https://github.com/OpenStrap/edge/actions/workflows/test.yml/badge.svg)](https://github.com/OpenStrap/edge/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -174,7 +174,7 @@ longer story — see `guides/IOS_INSTALLATION.md`.
 ## How it works
 
 ```
-WHOOP band → Bluetooth → protocol decoder → local storage → analytics → the UI
+wearable → Bluetooth → protocol decoder → local storage → analytics → the UI
 ```
 
 - `openstrap_protocol` turns bytes off the band into records.
