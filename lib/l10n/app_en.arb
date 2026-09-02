@@ -5419,6 +5419,25 @@
       }
     }
   },
+  "metricDetailUsingForX": "Using {device} for {metric}.",
+  "@metricDetailUsingForX": {
+    "description": "Which device currently feeds one metric, under the device filter row.",
+    "placeholders": {
+      "device": {"type": "String"},
+      "metric": {"type": "String"}
+    }
+  },
+  "metricDetailPreferX": "Prefer {device}",
+  "@metricDetailPreferX": {
+    "description": "Button: make the selected device win this metric's signal(s).",
+    "placeholders": {
+      "device": {"type": "String"}
+    }
+  },
+  "metricDetailHistoryKeepsSource": "Days already finished keep the source they were calculated with.",
+  "@metricDetailHistoryKeepsSource": {
+    "description": "Copy under the device-preference control explaining a priority change is not retroactive."
+  },
   "metricDetailDimmedCaption": "These are the days {device} was involved. The line is your merged reading.",
   "@metricDetailDimmedCaption": {
     "description": "Caption under a metric-detail chart when a device pill is selected and dims non-contributing days.",

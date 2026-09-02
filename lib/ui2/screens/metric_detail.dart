@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 
 import '../../ble/adapters/signals.dart';
 import '../../data/day_label.dart';
+import '../../data/db.dart' show LocalDb;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -25,7 +26,8 @@ import 'day_steps.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'journal_compose.dart' show OsTextField;
-import '../profile/devices.dart' show DeviceFilter, DeviceOption;
+import '../profile/devices.dart'
+    show DeviceFilter, DeviceOption, signalCandidates;
 import 'sleep_detail.dart';
 
 // ═══════════════════ the vocabulary ═══════════════════
@@ -657,6 +659,12 @@ class _MetricDetailState extends State<MetricDetail> {
   /// selection is about a window, and slot semantics change with the window.
   String? _device;
 
+  /// The device currently winning this metric's first required signal — read
+  /// once per load from `signal_priority`, falling through to the physics
+  /// ladder (§4.5 rule 3, already encoded in `d.sources`' rankSources order)
+  /// when no row exists. Drives "Prefer this device"'s visibility.
+  String? _preferredId;
+
   /// How many range buttons this install has data behind.
   ///
   /// Nothing prunes the derived series, so the honest horizon is the life of
@@ -716,8 +724,24 @@ class _MetricDetailState extends State<MetricDetail> {
       return;
     }
     try {
-      final d = await MetricData.load(repo, widget.metricKey);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      final spec = specOf(widget.metricKey);
+      // Registry-only, no query — signalCandidates on a single-device install
+      // returns const [], so this costs nothing for the protected case.
+      final candidates = mounted
+          ? signalCandidates(context.read<AppState>(), requires: spec.requires)
+          : const <DeviceOption>[];
+      final d = await MetricData.load(repo, widget.metricKey,
+          candidates: candidates);
+      String? preferredId;
+      if (d.sources.length >= 2 && spec.requires.isNotEmpty) {
+        final order = await LocalDb.signalPriority(spec.requires.first);
+        preferredId = order.isNotEmpty
+            ? order.first
+            : d.sources.firstWhereOrNull((o) => o.selectable)?.deviceId;
+      }
+      if (mounted) {
+        setState(() => (_d = d, _preferredId = preferredId, _loading = false));
+      }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -893,6 +917,41 @@ class _MetricDetailState extends State<MetricDetail> {
   // that looks broken: with one day of history, seven days and thirty days
   // really do average to the same number, and "1 of 30 days" says so where
   // a bare figure looked like a bug.
+  /// The label of the device currently winning, or the placeholder while
+  /// nothing has resolved yet.
+  String _preferredLabel(MetricData d) =>
+      d.sources.firstWhereOrNull((o) => o.deviceId == _preferredId)?.label ??
+      'the default source';
+
+  /// Non-null exactly when the pill row has a SELECTED, SELECTABLE device
+  /// that is not already the one winning — the condition under which the
+  /// "Prefer this device" button does something.
+  DeviceOption? _preferCandidate(MetricData d) => d.sources.firstWhereOrNull(
+      (o) => o.deviceId == _device && o.selectable && o.deviceId != _preferredId);
+
+  Future<void> _prefer(DeviceOption o) async {
+    final d = _d;
+    if (d == null) return;
+    final spec = specOf(widget.metricKey);
+    // PER SIGNAL, never per metric. "Priority for readiness" has no meaning —
+    // readiness has four inputs (final-plan §4.5). A per-metric control is
+    // therefore a mapping DOWN to that metric's signals, written for each of
+    // them, and it is the only per-metric form allowed.
+    final order = [
+      o.deviceId,
+      for (final s in d.sources) if (s.deviceId != o.deviceId && s.selectable) s.deviceId,
+    ];
+    for (final sig in spec.requires) {
+      await LocalDb.setSignalPriority(sig.name, order);
+    }
+    // Bounded re-derive: `invalidateForPriorityChange` is M5's; M6 only calls
+    // it if present. It has not landed on this branch yet (verified via
+    // grep), so the write above stands on its own and the numbers move on the
+    // next natural derive rather than immediately — stated here rather than
+    // left for the reader to wonder.
+    if (mounted) setState(() => _preferredId = o.deviceId);
+  }
+
   Widget _hero(BuildContext c, MetricSpec spec, List<ChartPoint> all,
       List<double?> series, List<double> vals, int win,
       List<ChartPoint> wear, List<int> algoBreaks, MetricData d) {
@@ -952,6 +1011,37 @@ class _MetricDetailState extends State<MetricDetail> {
             selected: _device,
             onSelect: (id) => setState(() => _device = id),
             color: spec.color,
+          ),
+          const SizedBox(height: S.x2),
+          Row(children: [
+            Expanded(
+              child: Text(
+                l?.metricDetailUsingForX(
+                        _preferredLabel(d), spec.title.toLowerCase()) ??
+                    'Using ${_preferredLabel(d)} for ${spec.title.toLowerCase()}.',
+                style: F.over.copyWith(color: p.ink3),
+              ),
+            ),
+            // Only offered for a SELECTED, SELECTABLE device that is not
+            // already winning. A button whose effect is already true is a
+            // button that teaches the control does nothing.
+            if (_preferCandidate(d) case final o?)
+              Pressable(
+                onTap: () => _prefer(o),
+                semanticLabel: 'Prefer ${o.label} for ${spec.title.toLowerCase()}',
+                child: Text(
+                  l?.metricDetailPreferX(o.label) ?? 'Prefer ${o.label}',
+                  style: F.cap.copyWith(
+                      color: p.on(spec.color), fontWeight: FontWeight.w600),
+                ),
+              ),
+          ]),
+          const SizedBox(height: S.x1),
+          Text(
+            l?.metricDetailHistoryKeepsSource ??
+                'Days already finished keep the source they were calculated '
+                    'with.',
+            style: F.over.copyWith(color: p.ink3),
           ),
         ],
         // No chart on Today. These series carry one value per day, so a
