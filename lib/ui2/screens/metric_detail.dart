@@ -9,6 +9,7 @@
 // Every metric goes through THIS screen. Forty bespoke detail screens is how
 // the old UI ended up with forty different opinions about what a chart is.
 
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
@@ -24,7 +25,7 @@ import 'day_steps.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'journal_compose.dart' show OsTextField;
-import '../profile/devices.dart' show DeviceOption;
+import '../profile/devices.dart' show DeviceFilter, DeviceOption;
 import 'sleep_detail.dart';
 
 // ═══════════════════ the vocabulary ═══════════════════
@@ -651,6 +652,11 @@ class _MetricDetailState extends State<MetricDetail> {
   /// 30-day window is not slot 12 of a year.
   int? _pick;
 
+  /// The device selected on the pill row, or null for the merged view. A
+  /// window change clears it the same way it clears [_pick] — a device
+  /// selection is about a window, and slot semantics change with the window.
+  String? _device;
+
   /// How many range buttons this install has data behind.
   ///
   /// Nothing prunes the derived series, so the honest horizon is the life of
@@ -683,7 +689,7 @@ class _MetricDetailState extends State<MetricDetail> {
     final note = _lockedNote(c, d);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       SubTabs(_labelsOf(c).sublist(0, n), _range.clamp(0, n - 1),
-          (i) => setState(() => (_range = i, _pick = null)),
+          (i) => setState(() => (_range = i, _pick = null, _device = null)),
           color: color),
       if (note != null) ...[
         const SizedBox(height: S.x2),
@@ -939,6 +945,15 @@ class _MetricDetailState extends State<MetricDetail> {
                 style: F.cap.copyWith(color: p.ink3)),
           ),
         ],
+        if (d.sources.length >= 2) ...[
+          const SizedBox(height: S.x4),
+          DeviceFilter(
+            options: d.sources,
+            selected: _device,
+            onSelect: (id) => setState(() => _device = id),
+            color: spec.color,
+          ),
+        ],
         // No chart on Today. These series carry one value per day, so a
         // one-day window is a single point — and a single point drawn on an
         // axis is a shape pretending to be a trend. "Your normal range" below
@@ -971,6 +986,17 @@ class _MetricDetailState extends State<MetricDetail> {
                     when b >= 0 && b < series.length && series.length - 1 - b > 0)
                   (series.length - 1 - b - .5) / (series.length - 1),
           ];
+          // Selecting a device keeps the MERGED line and dims the days that
+          // device was not part of. The honest statement is "these are the
+          // days your ring was involved", not "this is your ring's 90-day
+          // RHR" (final-plan §6.4) — and the caption below says which.
+          final dim = _device == null
+              ? null
+              : <bool>[
+                  for (var i = 0; i < series.length; i++)
+                    !(d.coverage[_dayOfSlot(i, series.length)] ?? const [])
+                        .contains(_device),
+                ];
           return ChartFrame(
             title: spec.title,
             unit: spec.unit.isEmpty ? 'score' : spec.unit,
@@ -1024,21 +1050,68 @@ class _MetricDetailState extends State<MetricDetail> {
                   _slotSays(c, spec, series, _slotAt(v, series.length), d),
               onChanged: (v) =>
                   setState(() => _pick = _slotAt(v, series.length)),
-              child: CustomPaint(
-                size: Size.infinite,
-                // Fill only when the axis genuinely starts at zero. Shaded to
-                // a baseline of 52 bpm, a 52→60 week reads as a mountain — the
-                // truncated-axis form with the truncation hidden.
-                painter: LineChart(series, p.on(spec.color),
-                    fill: axis?.min == 0,
-                    dots: series.length <= 40,
-                    t: animate(c, 1),
-                    dotInk: p.card,
-                    axis: axis),
-              ),
+              // Fill only when the axis genuinely starts at zero. Shaded to
+              // a baseline of 52 bpm, a 52→60 week reads as a mountain — the
+              // truncated-axis form with the truncation hidden.
+              child: dim == null
+                  ? CustomPaint(
+                      size: Size.infinite,
+                      painter: LineChart(series, p.on(spec.color),
+                          fill: axis?.min == 0,
+                          dots: series.length <= 40,
+                          t: animate(c, 1),
+                          dotInk: p.card,
+                          axis: axis),
+                    )
+                  // No painter signature changes: the merged series drawn
+                  // dim UNDER the same series masked to the contributing
+                  // days, drawn on top — the painter's own null-break
+                  // behaviour is what makes the mask legible.
+                  : Stack(children: [
+                      CustomPaint(
+                        size: Size.infinite,
+                        painter: LineChart(series, p.ink3,
+                            fill: axis?.min == 0,
+                            dots: series.length <= 40,
+                            t: animate(c, 1),
+                            dotInk: p.card,
+                            axis: axis),
+                      ),
+                      CustomPaint(
+                        size: Size.infinite,
+                        painter: LineChart(
+                            [
+                              for (var i = 0; i < series.length; i++)
+                                dim[i] ? null : series[i],
+                            ],
+                            p.on(spec.color),
+                            fill: axis?.min == 0,
+                            dots: series.length <= 40,
+                            t: animate(c, 1),
+                            dotInk: p.card,
+                            axis: axis),
+                      ),
+                    ]),
             ),
           );
         }),
+        // Which device is selected, one line, only when it dims the chart.
+        if (win > 1 && _device != null)
+          Padding(
+            padding: const EdgeInsets.only(top: S.x2),
+            child: Text(
+              l?.metricDetailDimmedCaption(
+                      d.sources
+                              .firstWhereOrNull((o) => o.deviceId == _device)
+                              ?.label ??
+                          '',
+                    ) ??
+                  'These are the days '
+                      '${d.sources.firstWhereOrNull((o) => o.deviceId == _device)?.label ?? ''} '
+                      'was involved. The line is your merged reading.',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+          ),
         if (_pick != null) _picked(c, spec, series, d),
         // L4 — the coverage denominator, under the curve it belongs to.
         //

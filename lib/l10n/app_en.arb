@@ -5419,6 +5419,15 @@
       }
     }
   },
+  "metricDetailDimmedCaption": "These are the days {device} was involved. The line is your merged reading.",
+  "@metricDetailDimmedCaption": {
+    "description": "Caption under a metric-detail chart when a device pill is selected and dims non-contributing days.",
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "metricDetailSlotNoValueRecording": "{day}, no value · {who}",
   "@metricDetailSlotNoValueRecording": {
     "description": "Screen-reader readout for a chart slot with no value but something was recording (multi-device only).",
