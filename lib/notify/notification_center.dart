@@ -219,7 +219,30 @@ class NotificationCenter {
   /// `checkInDoneToday`/`medDefs`, it costs no extra read (AppState already
   /// holds the armed epoch), so there is no "caller doesn't know" case to
   /// preserve through.
+  /// Public entry point — serialized through [_synchronized] so two
+  /// overlapping callers (e.g. a foreground resume racing a sync-completion
+  /// callback) can't interleave their cancel/re-arm passes and have a stale
+  /// call clobber a newer one's result.
   Future<void> scheduleStandingReminders(
+    NotificationPrefs prefs, {
+    double? bedtimeMinOfDay,
+    String? weeklyFinding,
+    bool? checkInDoneToday,
+    List<MedDef>? medDefs,
+    Map<String, Map<int, Map<String, Object?>>> medDosesToday = const {},
+    bool armedTonight = false,
+  }) =>
+      _synchronized(() => _scheduleStandingReminders(
+            prefs,
+            bedtimeMinOfDay: bedtimeMinOfDay,
+            weeklyFinding: weeklyFinding,
+            checkInDoneToday: checkInDoneToday,
+            medDefs: medDefs,
+            medDosesToday: medDosesToday,
+            armedTonight: armedTonight,
+          ));
+
+  Future<void> _scheduleStandingReminders(
     NotificationPrefs prefs, {
     double? bedtimeMinOfDay,
     String? weeklyFinding,
@@ -321,7 +344,16 @@ class NotificationCenter {
     if (windDownMin != null) await _armWindDown(svc, windDownMin);
     if (checkIn != null) await _armCheckIn(svc, checkIn);
     await _armMedSlots(svc, meds);
-    if (nightCheck != null) await _armAlarmNightCheck(svc, nightCheck);
+    // Recomputed fresh right before arming, not reused from the `now` this
+    // call started with — the awaits above (zone resolve + every slot ahead
+    // of this one) are real wall-clock time, and this is the one slot whose
+    // hour boundary (19:00) a stale `nowMin` could cross mid-call.
+    final freshNow = DateTime.now();
+    final freshNightCheck = alarmNightCheckSlot(prefs,
+        armedTonight: armedTonight, nowMin: freshNow.hour * 60 + freshNow.minute);
+    if (freshNightCheck != null) {
+      await _armAlarmNightCheck(svc, freshNightCheck);
+    }
   }
 
   /// The hour the 7pm no-alarm-tonight check-in fires at, when armed.

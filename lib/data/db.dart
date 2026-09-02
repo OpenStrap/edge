@@ -5715,6 +5715,24 @@ class LocalDb {
     );
   }
 
+  /// Whether an ALARM_SET (event 56) row landed at or after [sinceMs]
+  /// (`captured_at`, device receive time — the band's own `ts` can be
+  /// RTC-skewed). The headless alarm-arm path (background_sync.dart) polls
+  /// this for a short grace window to confirm a SET actually latched before
+  /// the background connection closes, since there's no live AppState there
+  /// to catch a late event 56 the way the foreground confirmation machine
+  /// does.
+  static Future<bool> alarmSetConfirmedSince(int sinceMs) async {
+    final db = await instance;
+    final rows = await db.query(
+      'events',
+      where: 'event_id = ? AND captured_at >= ?',
+      whereArgs: [56, sinceMs],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
   static Future<void> deleteEvents(List<String> hexes) async {
     if (hexes.isEmpty) return;
     final db = await instance;

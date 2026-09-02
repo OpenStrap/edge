@@ -2162,7 +2162,21 @@ class AppState extends ChangeNotifier {
     _lastRecTs =
         await LocalDb.getCursorInt('rec_ts_hw') ?? lastSynced?.tsEpoch;
     await LocalDb.refreshComputeFreshness();
-    _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
+    final alarmPrefs = await SharedPreferences.getInstance();
+    _savedAlarm = alarmPrefs.getInt('alarm_epoch');
+    // Seed the confirmation machine from what the last session (foreground OR
+    // headless — background_sync.dart writes the same two keys) actually
+    // learned, so a relaunch doesn't forget a confirmed headless arm and
+    // wrongly read it as unconfirmed, nor trust an arm that never confirmed.
+    // `setAtMs` is stamped as "now" rather than the true original arm time —
+    // ponytail: harmless imprecision (worst case a few extra seconds of
+    // "pending" after launch before an unconfirmed arm shows its warning),
+    // add real persistence of setAtMs if that grace window ever needs to be
+    // exact across relaunches.
+    if (_savedAlarm != null) {
+      _alarm.set(_savedAlarm!, DateTime.now().millisecondsSinceEpoch);
+      _alarm.confirmed = alarmPrefs.getBool('alarm_epoch_confirmed') ?? false;
+    }
     await _loadAlarmSchedule();
     await _seedAlarmScheduleFromLegacyIfNeeded();
     // Band-gesture mapping: load the saved action + query native capabilities so the
@@ -4009,11 +4023,35 @@ class AppState extends ChangeNotifier {
   Future<void> _armNextAlarmOccurrence() async {
     if (!isConnected) return;
     try {
-      final epoch = await armNextScheduledOccurrence(
+      // A headless re-arm (background_sync.dart) can have rewritten
+      // `alarm_epoch`/`alarm_epoch_confirmed` under this same live process
+      // since init() last read them — refresh from the shared store before
+      // comparing, or a stale in-memory `_savedAlarm` makes this issue a
+      // needless duplicate setAlarm write on every connect.
+      final prefs = await SharedPreferences.getInstance();
+      final onDisk = prefs.getInt('alarm_epoch');
+      if (onDisk != _savedAlarm) {
+        _savedAlarm = onDisk;
+        if (onDisk != null) {
+          _alarm.set(onDisk, DateTime.now().millisecondsSinceEpoch);
+          _alarm.confirmed = prefs.getBool('alarm_epoch_confirmed') ?? false;
+        } else {
+          _alarm.disable();
+        }
+      }
+      final result = await armNextScheduledOccurrence(
         engine: engine,
         schedule: _schedule,
         currentArmedEpoch: _savedAlarm ?? device.alarmEpoch,
       );
+      if (result.disabled) {
+        // Every weekday got disabled since the last arm — the strap doesn't
+        // give up its old alarm on its own (PR #329 review).
+        _clearArmedAlarmState();
+        notifyListeners();
+        return;
+      }
+      final epoch = result.epoch;
       if (epoch == null) return;
       await _onArmed(DateTime.fromMillisecondsSinceEpoch(epoch * 1000), epoch);
     } catch (e) {
@@ -4030,7 +4068,18 @@ class AppState extends ChangeNotifier {
   /// [alarmArmsTonight], whose window is "after now, before noon tomorrow" —
   /// a wake alarm armed tonight for tomorrow morning still counts, unlike a
   /// same-calendar-date check would (see PR #329).
-  bool get _alarmArmedTonight => alarmArmsTonight(alarmEpoch, DateTime.now());
+  bool get _alarmArmedTonight {
+    final epoch = alarmEpoch;
+    if (!alarmArmsTonight(epoch, DateTime.now())) return false;
+    // The window match alone isn't enough — an epoch that was WRITTEN but
+    // never actually latched (headless failure, or the write is still inside
+    // its grace window with no confirmation yet) must not suppress the 7pm
+    // check; that gap is exactly what this check exists to catch (CodeRabbit
+    // review, PR #329).
+    if (_alarm.targetEpoch != epoch) return false;
+    return _alarm.confirmed ||
+        _alarm.isPending(DateTime.now().millisecondsSinceEpoch);
+  }
 
   // ── alarm confirmation state machine ────────────────────────────────────────
   // The strap CONFIRMS an alarm actually latched via event 56 (ALARM_SET) and
@@ -4090,6 +4139,8 @@ class AppState extends ChangeNotifier {
     _alarmAutoRetried = false; // a fresh arm gets its one retry
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('alarm_epoch', epoch);
+    // Not confirmed yet — event 56 (below, in _handleAlarmEvent) flips this.
+    await prefs.setBool('alarm_epoch_confirmed', false);
     // Nudge the UI once the grace window elapses so an unconfirmed alarm flips to
     // its soft warning even if no event ever arrives.
     _armAlarmGraceTimer(when);
@@ -4213,6 +4264,7 @@ class AppState extends ChangeNotifier {
     _alarmGraceTimer?.cancel();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('alarm_epoch');
+    await prefs.remove('alarm_epoch_confirmed');
     await LocalDb.clearAlarmSchedule();
     _schedule = fillDefaultAlarmSchedule(const []);
     notifyListeners();
@@ -4235,6 +4287,14 @@ class AppState extends ChangeNotifier {
         // Diagnostic: ALARM_SET (event 56) means the arm LATCHED on the band.
         // Its absence after a SET is the tell that the write never took.
         _log('[alarm] strap CONFIRMED arm — ALARM_SET (event $id) received.');
+        unawaited(() async {
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('alarm_epoch_confirmed', true);
+          } catch (e) {
+            _log('[alarm] persisting confirmation failed: $e');
+          }
+        }());
         break;
       case AlarmEffect.fired:
         _log('[alarm] strap FIRED — EXECUTED (event $id) received.');
@@ -4269,6 +4329,7 @@ class AppState extends ChangeNotifier {
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove('alarm_epoch');
+        await prefs.remove('alarm_epoch_confirmed');
       } catch (e) {
         _log('[alarm] clearing the persisted epoch failed: $e');
       }
