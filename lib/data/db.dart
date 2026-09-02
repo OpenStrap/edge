@@ -6881,6 +6881,16 @@ class LocalDb {
     // straps or carries no stamp at all. Same rule as [source]: never guessed.
     // See [_createMetricSeriesVersion] and [foreignFamilyDates].
     String? deviceFamily,
+    // M5: the day's contributor set (`daySub.deviceIds`, comma-joined,
+    // sorted for determinism) — '' alone for every single-device install
+    // today. Null, never guessed, same discipline as [deviceFamily].
+    String? coverageDevices,
+    // M5: the priority order in force when this day derived — the STRING a
+    // change-point search can refuse across (`coverage_resolver.dart
+    // .priorityKey`), not a hash. Column is named `priority_hash` (already
+    // migrated in by M3); this stores the readable string under that name
+    // rather than renaming a shipped column.
+    String? priorityHash,
   }) async {
     final db = await instance;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -6936,6 +6946,8 @@ class LocalDb {
             // here rather than inheriting the previous writer's claim.
             'source': source,
             'device_family': deviceFamily,
+            'coverage_devices': coverageDevices,
+            'priority_hash': priorityHash,
           }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
       }

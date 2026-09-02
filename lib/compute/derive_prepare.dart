@@ -450,6 +450,16 @@ class _PrepareAccumulator {
   /// an event that happens at most a handful of times in a band's life.
   final Set<String> _families = {};
 
+  /// Distinct `device_id`s seen across every page fed in (see
+  /// [Substrate.deviceIds]). Unlike [_families] this is NOT collapsed to a
+  /// singleton — it answers "which devices contributed", not "whose
+  /// calibration applies", and a real multi-device day has more than one.
+  final Set<String> _deviceIds = {};
+
+  void _noteDeviceId(Object? v) {
+    if (v is String) _deviceIds.add(v);
+  }
+
   /// Which column supplied this day's skin temperature: `'raw'` (a relative
   /// ADC count) or `'c'` (centi-°C). Null until the first row carries one.
   ///
@@ -567,6 +577,7 @@ class _PrepareAccumulator {
     for (final recTs in seconds) {
       final row = frameByRecTs[recTs];
       _noteFamily(row?['device_family']);
+      _noteDeviceId(row?['device_id']);
       tsSec.add(recTs);
       // NULL (absent), a beat-only second (no row at all) and an impossible
       // byte all land on the same 0 — the array's one "no usable HR this
@@ -672,6 +683,7 @@ class _PrepareAccumulator {
       stepCount: stepCount,
       hrValid: hrValid,
       deviceFamily: deviceFamily,
+      deviceIds: _deviceIds,
     );
   }
 }

@@ -273,6 +273,19 @@ class Substrate {
   /// guessing here is how a fabricated number gets published.
   final String? deviceFamily;
 
+  /// The distinct `device_id`s whose rows survive in this substrate — "which
+  /// devices actually became numbers", for `metric_series_version
+  /// .coverage_devices` (M5). Unlike [deviceFamily] this is NOT collapsed to
+  /// a singleton-or-null: a day with two contributing devices legitimately
+  /// has two entries, because the question this answers ("who contributed")
+  /// is different from "whose calibration applies" (which DOES need a
+  /// singleton, hence [deviceFamily]'s different collapse rule).
+  ///
+  /// Empty (never null) when nothing stamped a `device_id` — every row
+  /// predating the resolver, or a substrate built by a path that never reads
+  /// the column (e.g. the raw-hex replay path, imports).
+  final Set<String> deviceIds;
+
   /// Pack a `List<double>` into a `Float64List` (an already-packed list passes
   /// straight through).
   ///
@@ -306,9 +319,11 @@ class Substrate {
     List<int> stepCount = const [],
     List<int> hrValid = const [],
     String? deviceFamily,
+    Set<String> deviceIds = const {},
   }) =>
       Substrate._(
         deviceFamily: deviceFamily,
+        deviceIds: deviceIds,
         tsSec: tsSec,
         hr: hr,
         rrTsMs: _packed(rrTsMs),
@@ -339,6 +354,7 @@ class Substrate {
     this.stepCount = const [],
     this.hrValid = const [],
     this.deviceFamily,
+    this.deviceIds = const {},
   });
 
   static const Substrate empty = Substrate._(
@@ -485,6 +501,7 @@ class Substrate {
       stepCount: _stepSlice(lo, hi),
       hrValid: _perSecSlice(hrValid, lo, hi),
       deviceFamily: deviceFamily,
+      deviceIds: deviceIds,
       rrTsMs: rr.$1,
       rrMs: rr.$2,
     );
@@ -513,6 +530,7 @@ class Substrate {
       stepCount: _stepSlice(lo, hi),
       hrValid: _perSecSlice(hrValid, lo, hi),
       deviceFamily: deviceFamily,
+      deviceIds: deviceIds,
       rrTsMs: rr.$1,
       rrMs: rr.$2,
     );
@@ -531,6 +549,7 @@ class Substrate {
       skinTemp: const [],
       skinContact: const [],
       deviceFamily: deviceFamily,
+      deviceIds: deviceIds,
       rrTsMs: rr.$1,
       rrMs: rr.$2,
     );
@@ -578,6 +597,7 @@ class Substrate {
         'hr_valid': hrValid,
         // Null (unknown provenance) is a real answer — emit the key regardless.
         'device_family': deviceFamily,
+        'device_ids': deviceIds.toList(),
       };
 
   static Substrate fromJson(Map<String, dynamic> m) {
@@ -634,6 +654,9 @@ class Substrate {
         return l.length == n ? l : List<int>.filled(n, -1);
       }(),
       deviceFamily: m['device_family'] as String?,
+      deviceIds: ((m['device_ids'] as List?) ?? const [])
+          .map((e) => e.toString())
+          .toSet(),
     );
   }
 }
