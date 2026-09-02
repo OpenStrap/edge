@@ -320,9 +320,11 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
                         ReorderableListView(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
-                          onReorderItem: (from, to) async {
+                          onReorder: (from, to) async {
                             final ids = [...?_order[sig]];
-                            ids.insert(to, ids.removeAt(from));
+                            // ReorderableListView's `to` is the index BEFORE removal.
+                            ids.insert(
+                                to > from ? to - 1 : to, ids.removeAt(from));
                             await LocalDb.setSignalPriority(sig.name, ids);
                             setState(() => (
                               _order = {..._order, sig: ids},
