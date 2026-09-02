@@ -580,6 +580,11 @@ class TimelineData {
       }
     });
 
+    // WHAT OTHER SOURCES SAY about this day (M6). Gated on isNotEmpty being
+    // the ONLY behaviour change: zero rows today, on every install, so the
+    // list below is empty and this section renders nothing.
+    final observations = await repo.getDayObservations(day);
+
     return TimelineData(
       day: day,
       days: days,
@@ -594,13 +599,27 @@ class TimelineData {
         fields: fields,
         l: l,
       ),
-      notes: dayNotes(
-        meals: [for (final m in meals) m.sanitised],
-        journal: journal,
-        fields: fields,
-        journalRows: [for (final r in notes) if (r['date'] == day) r],
-        l: l,
-      ),
+      notes: [
+        ...dayNotes(
+          meals: [for (final m in meals) m.sanitised],
+          journal: journal,
+          fields: fields,
+          journalRows: [for (final r in notes) if (r['date'] == day) r],
+          l: l,
+        ),
+        // ONE ROW PER OBSERVATION. Attribution always shown and never
+        // abbreviated — a vendor number rendered without its source is a
+        // number the user will read as ours. No tier, no confidence, no
+        // dot — Observation deliberately carries none. A vendorKey renders
+        // verbatim ('BioCharge' stays 'BioCharge'; mapping it onto one of
+        // our keys is the worst available mistake here).
+        for (final r in observations)
+          DayNote(
+            (r['vendor_key'] as String?) ?? (r['key'] as String?) ?? '',
+            '${r['value']}${(r['unit'] as String?)?.isNotEmpty == true ? ' ${r['unit']}' : ''} · ${r['attribution']}',
+            LucideIcons.tag,
+          ),
+      ],
     );
   }
 }

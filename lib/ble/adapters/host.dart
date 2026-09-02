@@ -188,6 +188,29 @@ class BandHost {
       case BandNote(:final key, :final value):
         onNote?.call(key, value);
         onLog('[${adapter.id}] $key = $value');
+      case VendorScalars():
+        unawaited(_bankVendorScalars(e));
+    }
+  }
+
+  /// Bank one device's vendor scalars. Returns rows written.
+  ///
+  /// NOT part of the commit-then-confirm chain. A vendor scalar is not
+  /// substrate: it gates no trim, it is not what an ACK promises has landed,
+  /// and a failure here must never hold up the flash release that
+  /// `commitSyncBatch` earns. So it is written OUTSIDE the ACK txn, best-effort
+  /// — the opposite ordering from a `SampleBatch`, deliberately.
+  ///
+  /// `attribution` is the VENDOR'S name and is what the user sees beside the
+  /// number. An observation without it is not renderable, so the adapter
+  /// supplies it; the host never invents one.
+  Future<int> _bankVendorScalars(VendorScalars e) async {
+    if (e.rows.isEmpty) return 0;
+    try {
+      return await LocalDb.putObservations(e.rows, deviceId: deviceId);
+    } catch (err) {
+      onLog('[${adapter.id}] vendor scalars not banked: $err');
+      return 0;
     }
   }
 
