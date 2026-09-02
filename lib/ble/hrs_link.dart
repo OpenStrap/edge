@@ -601,6 +601,10 @@ class HrsLink {
     // would silently drop the tail.
     await link.close();
     await done;
+    // Captured BEFORE stop(), which clears the host's own reading: a real
+    // session leaves its last beat on screen until disarm() is called, and
+    // ingestForTest has to leave the same thing true for a test to observe.
+    _reading.value = host.reading.value;
     await host.stop();
   }
 }

@@ -30,6 +30,9 @@ import '../ai/nightly_sweep.dart';
 import '../coach/coach_config.dart';
 import '../models/app_status.dart';
 import '../ble/accessory_setup.dart';
+import '../ble/adapters/_registry.dart' show kWhoopGen4;
+import '../ble/adapters/host.dart' show BandHost;
+import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
 import '../ble/hrs_link.dart';
@@ -138,6 +141,12 @@ PairedDevice? healedPairing(PairedDevice? current, String? reportedSerial) {
 
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
+
+  /// The primary band's route through [BandHost.commitNativeBatch] — see
+  /// `WhoopFramedAdapter`'s own header for why `run()` stays unwired this
+  /// wave. Constructed right after [engine] since [WhoopFramedAdapter]
+  /// delegates to it.
+  late final BandHost _bandHost;
   PairedDevice? paired;
   BandLease? _foregroundLease;
 
@@ -1201,13 +1210,12 @@ class AppState extends ChangeNotifier {
       onRecordsBatch: LocalDb.insertRecordsBatch,
       // RESUMABLE SYNC: atomic commit of decoded rows + continuation cursor
       // before the HISTORY_END ACK, and a reader to seed the offload frontier
-      // from the durable high-water on (re)connect.
+      // from the durable high-water on (re)connect. Routed through BandHost
+      // (M1a) rather than calling LocalDb.commitSyncBatch directly — same
+      // durable commit, same arguments, one extra await frame.
       onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
-          LocalDb.commitSyncBatch(raws, samples,
-              trimToken: trimTokenHex,
-              archives: archives,
-              deviceFamily: deviceFamily,
-              onCheckpoint: (msg) => _log('[COMMIT] $msg')),
+          _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
+              archives: archives, deviceFamily: deviceFamily),
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: LocalDb.archiveRawRecord,
       cursorReader: (base) =>
@@ -1237,6 +1245,11 @@ class AppState extends ChangeNotifier {
       // gate (see pauseForBackground/openSession); reusing it here costs
       // nothing new and keeps both signals consistent with each other.
       isForegroundActive: () => !_background,
+    );
+    _bandHost = BandHost(
+      adapter: WhoopFramedAdapter(engine, kWhoopGen4),
+      deviceId: LocalDb.kPrimaryDeviceId,
+      onLog: (msg) => _log('[COMMIT] $msg'),
     );
     // Seed the engine's link-power state (issue #200). `setBackground` is
     // otherwise only called on TRANSITIONS, and a headless start begins
