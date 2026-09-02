@@ -48,7 +48,6 @@ import 'package:collection/collection.dart' show IterableExtension;
 import 'package:flutter/foundation.dart'
     show ValueListenable, ValueNotifier, debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 
 import '../data/db.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
@@ -57,15 +56,12 @@ import 'adapters/_registry.dart';
 import 'adapters/adapter.dart';
 import 'adapters/ble_hrs.dart';
 import 'adapters/gatt_link.dart';
+import 'adapters/host.dart' show BandHost, HrsReading;
 import 'ble_state.dart'
     show BleBlocker, BleUnavailableException, classifyBleBlocker, withScanLock;
 import 'oura_link.dart' show OuraLink;
 
-/// One arrival second's worth of notifications.
-class _Second {
-  int? hr;
-  final List<int> rr = [];
-}
+export 'adapters/host.dart' show HrsReading;
 
 /// One peripheral a pairing scan heard, in the shape a picker needs.
 ///
@@ -75,32 +71,11 @@ class _Second {
 /// band's own label instead.
 typedef BandCandidate = ({BluetoothDevice device, String? label, int rssi});
 
-/// What a paired sensor is saying RIGHT NOW. Display only — see
-/// [HrsLink.reading].
-class HrsReading {
-  /// The last bpm the sensor reported, or null while the link is up and
-  /// nothing has arrived yet. A strap takes seconds to find a signal, and that
-  /// is a real state; it is never rendered as a zero. The parser already
-  /// refuses 0 bpm, so a non-null value here was measured.
-  final int? bpm;
-
-  /// Arrival second of [bpm] — `TimeAnchor.arrival`, same caveat as every
-  /// other timestamp on this path. Null with [bpm].
-  final int? atSec;
-
-  const HrsReading({this.bpm, this.atSec});
-}
-
 /// The live link to a paired heart-rate sensor. One instance; a second
 /// concurrent sensor is not a thing anyone asked for.
 class HrsLink {
   HrsLink._();
   static final HrsLink instance = HrsLink._();
-
-  /// Flush cadence for the write buffer. A sensor notifies ~1 Hz, and one
-  /// transaction per beat on the UI isolate is the mistake `commitSyncBatch`
-  /// already chunks around.
-  static const Duration _flushEvery = Duration(seconds: 15);
 
   BluetoothDevice? _device;
 
@@ -108,35 +83,24 @@ class HrsLink {
   /// write the adapter queued before the teardown from landing on a LATER
   /// connection to the same strap — see the field's own doc.
   GattBandLink? _link;
-  StreamSubscription<BandEvent>? _runSub;
   StreamSubscription<BluetoothConnectionState>? _connSub;
-  Completer<void>? _runDone;
-  Timer? _flushTimer;
 
-  /// Arrival second -> that second's readings. Keyed by second because that is
-  /// the key `decoded_onehz` / `decoded_rr` are written under: accumulating
-  /// per second is what stops two notifications landing in the same second
-  /// from REPLACE-ing each other's beat 0.
-  final Map<int, _Second> _pending = {};
-
-  /// `device.id` of the paired sensor — the `device_id` every row it writes
-  /// carries. Never [LocalDb.kPrimaryDeviceId]: `''` is the primary band,
-  /// permanently (ASSUMPTIONS A1).
-  String? _deviceId;
+  /// The session driving [kBleHrsAdapter] over [_link] — see `adapters/host.dart`.
+  /// Null when nothing is armed. Carries the paired sensor's `device_id`
+  /// (never [LocalDb.kPrimaryDeviceId] — `''` is the primary band,
+  /// permanently, ASSUMPTIONS A1).
+  BandHost? _host;
 
   bool _armed = false;
 
   /// What the sensor is saying right now, or null when none is armed.
   ///
-  /// THE DISPLAY PATH, AND ONLY THAT. [_flush] stays the single writer into
-  /// `decoded_*`; this notifier persists nothing and is read by nothing that
-  /// derives. A second write path built on the live number is exactly how a
-  /// displayed value and a stored value start disagreeing with no way to tell
-  /// which one a metric used.
-  ///
   /// A [ValueListenable] rather than a stream because there is one current
   /// reading and every consumer wants the latest one — a late listener on a
-  /// broadcast stream would render nothing until the next beat.
+  /// broadcast stream would render nothing until the next beat. Mirrors
+  /// [BandHost.reading] rather than exposing it directly, so this listenable's
+  /// IDENTITY stays stable across an arm/disarm cycle — a widget holding a
+  /// reference to it does not need to notice a new host underneath.
   ValueListenable<HrsReading?> get reading => _reading;
   final ValueNotifier<HrsReading?> _reading = ValueNotifier(null);
 
@@ -497,9 +461,8 @@ class HrsLink {
   /// SERIALISED, because every caller fires it `unawaited` and the body awaits
   /// a database read, a 12 s connect and service discovery before it publishes
   /// anything. A second call used to sail past the `_armed` check while the
-  /// first was still connecting and overwrite `_device`, `_link`, `_runSub` and
-  /// `_flushTimer` — the first one's timer and subscription then ran forever
-  /// with nothing holding them.
+  /// first was still connecting and overwrite `_device`, `_link` and `_host` —
+  /// the first one's session then ran forever with nothing holding it.
   Future<bool> arm() {
     if (_armed) return Future.value(true);
     return _arming ??= _arm().whenComplete(() => _arming = null);
@@ -526,7 +489,6 @@ class HrsLink {
           'device id — re-pair it with a minted id.');
       return false;
     }
-    _deviceId = deviceId;
     try {
       final device = BluetoothDevice.fromId(remoteId);
       _device = device;
@@ -534,10 +496,9 @@ class HrsLink {
       // Connect, bond, MTU and discovery are HOST work and stay on this side
       // of the seam. The adapter is handed the result and nothing else.
       final services = await device.discoverServices();
-      // A `disarm()` that landed WHILE this was connecting has already torn the
-      // session down — it nulls `_device` and `_deviceId`. Publishing on top of
-      // it would set `_armed = true` over no device and no `_deviceId`, so
-      // `_flush` would discard every second and every later `arm()` would
+      // A `disarm()` that landed WHILE this was connecting has already torn
+      // the session down — it nulls `_device`. Publishing on top of it would
+      // set `_armed = true` over no device, so every later `arm()` would
       // short-circuit on `_armed`: the sensor stays dead for the rest of the
       // process. Reachable by the most ordinary thing a user does — start a
       // workout and stop it inside twelve seconds.
@@ -562,13 +523,19 @@ class HrsLink {
         await disarm();
         return false;
       }
-      _startRun(link);
+      final host = BandHost(
+        adapter: kBleHrsAdapter,
+        deviceId: deviceId,
+        onLog: (m) => debugPrint('[hrs] $m'),
+      );
+      _host = host;
+      host.reading.addListener(() => _reading.value = host.reading.value);
+      unawaited(host.run(link));
       // A sensor that walks out of range mid-session ends the log there rather
       // than leaving the link claiming to be armed when it is gone.
       _connSub = device.connectionState.listen((s) {
         if (s == BluetoothConnectionState.disconnected) unawaited(disarm());
       });
-      _flushTimer = Timer.periodic(_flushEvery, (_) => unawaited(_flush()));
       _armed = true;
       // "Live, nothing yet" — a distinct state from "no sensor", and the one
       // a surface shows for the seconds a strap spends finding a signal.
@@ -585,19 +552,16 @@ class HrsLink {
   /// unawaited stop is how the last buffered batch goes missing.
   Future<void> disarm() async {
     _disarms++;
-    _flushTimer?.cancel();
-    _flushTimer = null;
-    // Before the run subscription is cancelled: an adapter's `finally` can
-    // still write on the way out, and that write must not reach the radio.
+    // Before the host's run subscription is cancelled: an adapter's `finally`
+    // can still write on the way out, and that write must not reach the radio.
     _link?.close();
     _link = null;
-    await _stopRun();
+    await _host?.stop();
+    _host = null;
     await _connSub?.cancel();
     _connSub = null;
-    await _flush(all: true);
     final d = _device;
     _device = null;
-    _deviceId = null;
     _armed = false;
     // Null, not the last reading: a number left on screen after the link died
     // is the one lie this surface can tell.
@@ -609,95 +573,26 @@ class HrsLink {
     }
   }
 
-  /// Drive the adapter over [link]. Cancelling [_runSub] is the ONLY way the
-  /// session ends from this side — an adapter does not get to hang up, so
-  /// every timer and buffer it owns dies with its `async*` body.
-  void _startRun(BandLink link) {
-    final done = Completer<void>();
-    _runDone = done;
-    void finish() {
-      if (!done.isCompleted) done.complete();
-    }
-
-    _runSub = kBleHrsAdapter.run(link).listen(
-      _onEvent,
-      onDone: finish,
-      onError: (Object e) {
-        debugPrint('[hrs] session ended on error: $e');
-        finish();
-        // ponytail: `setNotifyValue` is now awaited inside the link's stream
-        // rather than inside [arm], so a rejected subscribe surfaces HERE
-        // instead of propagating out of `arm()` as a `false`. The ceiling is
-        // that `arm()` can briefly answer true for a session that is already
-        // dying; the callers all ignore its result. Tearing down here is what
-        // stops the link sitting "armed" over a dead stream. Give `arm()` back
-        // its answer only if a caller ever starts reading it.
-        if (_armed) unawaited(disarm());
-      },
-      cancelOnError: true,
-    );
-  }
-
-  Future<void> _stopRun() async {
-    await _runSub?.cancel();
-    _runSub = null;
-    _runDone = null;
-  }
-
-  void _onEvent(BandEvent e) {
-    switch (e) {
-      case SampleBatch(:final samples, :final ephemeral):
-        // EPHEMERAL IS NEVER PERSISTED, and the check is the HOST's, not the
-        // adapter's promise. This band always sends false; the line exists so
-        // the one place that decides what reaches the database is the one
-        // place that reads the flag.
-        if (ephemeral) return;
-        for (final s in samples) {
-          final slot = _pending.putIfAbsent(s.tsEpoch, _Second.new);
-          // Last notification in the second wins.
-          if (s.hr != null) slot.hr = s.hr;
-          slot.rr.addAll(s.rrMs);
-          // The live surface, updated from the SAME sample that was just
-          // buffered so the two can never disagree. It is below the
-          // `ephemeral` guard on purpose: no adapter emits an ephemeral batch
-          // today, and if one ever does, this publish moves ABOVE the guard —
-          // display-only is precisely what ephemeral means — while the guard
-          // itself stays where it is, deciding what reaches the database.
-          if (s.hr != null) {
-            _reading.value = HrsReading(bpm: s.hr, atSec: s.tsEpoch);
-          }
-        }
-      case OffloadCheckpoint():
-        // A sensor with no flash cannot have anything to forget. If this ever
-        // fires, the adapter grew a store and this host has no
-        // commit-then-confirm path to honour the safe-trim invariant with —
-        // so it must NOT be confirmed. Dropping it stalls; confirming it would
-        // authorise a delete of data we never banked.
-        assert(false, 'ble_hrs emitted an OffloadCheckpoint; it stores nothing');
-      case BandNote(:final key, :final value):
-        debugPrint('[hrs] $key = $value');
-    }
-  }
-
   /// Feed raw notification bytes as if a sensor with [deviceId] were armed,
   /// and write them. The only way in: the real entry point is a BLE
   /// notification and `flutter_blue_plus` has no simulator path, so without
   /// this seam nothing below the parser could be exercised at all.
   ///
-  /// It replays through the SAME [BleHrsAdapter.run] the radio drives, over a
-  /// [ReplayBandLink]. A test seam that skipped the adapter would prove the
+  /// It replays through the SAME [BandHost] the radio drives, over a
+  /// [ReplayBandLink]. A test seam that skipped the host would prove the
   /// wrong thing.
-  ///
-  /// [reading] is LEFT SET when this returns, exactly as a real session leaves
-  /// its last beat on screen — call [disarm] if a test needs it back at null.
   @visibleForTesting
   Future<void> ingestForTest(
     String deviceId,
     List<(int, List<int>)> arrivals,
   ) async {
-    _deviceId = deviceId;
+    final host = BandHost(
+      adapter: kBleHrsAdapter,
+      deviceId: deviceId,
+      onLog: (m) => debugPrint('[hrs] $m'),
+    );
     final link = ReplayBandLink();
-    _startRun(link);
+    final done = host.run(link);
     for (final (sec, value) in arrivals) {
       link.feed(kHeartRateMeasurementUuid, value, atSec: sec);
     }
@@ -705,100 +600,7 @@ class HrsLink {
     // a delay: the adapter's `await for` is asynchronous and a flush racing it
     // would silently drop the tail.
     await link.close();
-    await _runDone?.future;
-    await _flush(all: true);
-    await _stopRun();
-    _deviceId = null;
-  }
-
-  /// Write out every second that can no longer receive more notifications.
-  ///
-  /// The CURRENT second is held back unless [all]: a second written twice
-  /// would restart `beat_index` at 0 and REPLACE the beats already stored for
-  /// it. `disarm` passes `all: true` because nothing more is coming.
-  Future<void> _flush({bool all = false}) async {
-    final deviceId = _deviceId;
-    if (_pending.isEmpty) return;
-    if (deviceId == null) {
-      _pending.clear();
-      return;
-    }
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final ready = _pending.keys.where((s) => all || s < now).toList()..sort();
-    if (ready.isEmpty) return;
-    // Taken out of the buffer BEFORE the await: losing a batch to a failed
-    // write is better than replaying it under a later second's beat indices.
-    final batchRows = [for (final s in ready) (s, _pending.remove(s)!)];
-    // `beat_ts_ms` is deliberately absent from every row below. It means "where
-    // the beat actually was", and for an arrival-anchored source we do not know
-    // — anchor-minus-durations would be a measured claim we cannot make. NULL
-    // is the column's own word for "not kept".
-    assert(kBleHrsAdapter.entry.timeAnchor == TimeAnchor.arrival);
-    // Its own transaction, NOT `commitSyncBatch`: that path is the ACK-gating
-    // commit, it raises `synchronous` for the duration and it refuses a
-    // non-primary `device_id` outright (the `sync_cursor` namespace is global).
-    // Nothing here trims a band's flash, so none of the safe-trim invariant is
-    // in play — this only has to queue politely behind a drain on the shared
-    // connection, which sqflite does.
-    try {
-      final db = await LocalDb.instance;
-      await db.transaction((txn) async {
-        final b = txn.batch();
-        for (final (sec, slot) in batchRows) {
-          b.insert(
-            'decoded_onehz',
-            {
-              'device_id': deviceId,
-              'ts_ms': sec * 1000,
-              'rec_ts': sec,
-              // ponytail: `counter` is NOT NULL and is a WHOOP flash-record
-              // number this sensor does not have. 0 for every row is a
-              // constant, not a measurement, and nothing reads the column
-              // except `ORDER BY rec_ts, counter`. Make it nullable when
-              // db.dart is next open.
-              'counter': 0,
-              'hr': slot.hr,
-              'device_family': kBleHrsAdapter.id,
-              'source': kBleHrsAdapter.id,
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-          // CLEAR THE SECOND BEFORE REINSERTING, exactly as `_queueRrBeats`
-          // does on the band path and for the same reason: REPLACE only
-          // overwrites `beat_index` 0..n-1, so a second that once carried more
-          // beats keeps the stale tail and reports beats the sensor never sent.
-          // Within one armed session a second is written once (`_pending`
-          // removes it), but re-arming inside the same second is not — and the
-          // 15 s flush cadence means the second on either side of a stop is
-          // exactly the one at risk. Scoped to THIS device, so it can never
-          // reach the band's beats for the same second.
-          b.rawDelete(
-            'DELETE FROM decoded_rr WHERE device_id = ? AND ts_ms = ?',
-            [deviceId, sec * 1000],
-          );
-          for (var i = 0; i < slot.rr.length; i++) {
-            b.insert(
-              'decoded_rr',
-              {
-                'device_id': deviceId,
-                'ts_ms': sec * 1000,
-                'rec_ts': sec,
-                'beat_index': i,
-                'rr_ts_ms': sec * 1000,
-                'rr_ms': slot.rr[i],
-                'device_family': kBleHrsAdapter.id,
-                'source': kBleHrsAdapter.id,
-              },
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
-          }
-        }
-        await b.commit(noResult: true);
-      });
-    } catch (e) {
-      // Losing a buffered batch is better than throwing out of a timer on the
-      // UI isolate; the next flush carries on.
-      debugPrint('[hrs] flush failed, ${batchRows.length} second(s) lost: $e');
-    }
+    await done;
+    await host.stop();
   }
 }
