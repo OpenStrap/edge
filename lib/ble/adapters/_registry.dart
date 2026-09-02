@@ -243,6 +243,14 @@ class BandEntry {
   /// WHOOP 4 that emits one is silently dropped on the floor.
   final bool logsConsoleOutput;
 
+  /// Extra scan-time name match for a band that advertises its name but not
+  /// (reliably) its service UUID. Null for a band with no such fallback.
+  ///
+  /// This is the per-entry replacement for the `name.contains('whoop')`
+  /// literal `scan()` used to carry directly — see `transport.dart`. Takes
+  /// the ALREADY-LOWERCASED platform name.
+  final bool Function(String lowercaseName)? nameMatcher;
+
   /// A framed WHOOP-family band: an envelope, a command characteristic, and a
   /// flash the offload engine trims.
   const BandEntry.framed({
@@ -260,6 +268,7 @@ class BandEntry {
     this.setClockDriftGated = false,
     this.burstCountGateEnforced = false,
     this.logsConsoleOutput = false,
+    this.nameMatcher,
   })  : _requiredCharacteristics = requiredCharacteristics,
         _commands = commands,
         _service = null,
@@ -290,6 +299,7 @@ class BandEntry {
         setClockDriftGated = false,
         burstCountGateEnforced = false,
         logsConsoleOutput = false,
+        nameMatcher = null,
         innerOpcodeOffset = -1,
         innerVersionOffset = -1,
         innerCounterOffset = -1;
@@ -315,6 +325,8 @@ class BandEntry {
   int get frameOpcodeIndex => wire!.headerLen + innerOpcodeOffset;
 }
 
+bool _nameContainsWhoop(String lowercaseName) => lowercaseName.contains('whoop');
+
 /// WHOOP 4 ("Harvard", 6108xxxx).
 ///
 /// Every value below is the gen4 arm of an `isGen5` branch that used to live in
@@ -334,6 +346,10 @@ const BandEntry kWhoopGen4 = BandEntry.framed(
   setClockDriftGated: false,
   burstCountGateEnforced: false,
   logsConsoleOutput: false,
+  // A gen4 sometimes advertises its name but not a matchable service UUID —
+  // see `transport.dart`'s scan(). WHOOP 5 has no such fallback: its `fd4b`
+  // member UUID is reliable.
+  nameMatcher: _nameContainsWhoop,
   commands: BandWireCommands(
     hello: Cmd.getHelloHarvard,
     helloBody: <int>[0x00],

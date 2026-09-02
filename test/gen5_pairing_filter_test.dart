@@ -145,7 +145,10 @@ void main() {
     setUpAll(() {
       plist = _readRepoFile('ios/Runner/Info.plist');
       swift = _readRepoFile('ios/Runner/AccessorySetup.swift');
-      engine = _readRepoFile('lib/ble/ble_engine.dart');
+      // M2 §15: scan() moved from ble_engine.dart to transport.dart (a `part
+      // of` extension, same library) — the literals this test pins moved
+      // with it.
+      engine = _readRepoFile('lib/ble/transport.dart');
     });
 
     test('Info.plist declares the 128-bit vendor service and 16-bit FD4B', () {

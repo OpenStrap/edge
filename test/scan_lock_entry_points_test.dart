@@ -13,7 +13,13 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-const _allowlist = {'lib/ble/ble_engine.dart', 'lib/ble/hrs_link.dart'};
+const _allowlist = {
+  'lib/ble/ble_engine.dart',
+  // M2 §15: scan()/_scanLocked() moved here — a `part of` extension on
+  // BleEngine, not a new entry point.
+  'lib/ble/transport.dart',
+  'lib/ble/hrs_link.dart',
+};
 
 final _pureComment = RegExp(r'^\s*(///|//|\*|/\*)');
 
