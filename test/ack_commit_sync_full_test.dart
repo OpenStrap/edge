@@ -95,4 +95,35 @@ void main() {
     expect(await restingSynchronous(), 1,
         reason: 'FULL did not leak past the throwing commit');
   });
+
+  test('two overlapping commits do not interleave their FULL/NORMAL brackets',
+      () async {
+    // Same deviceId (primary) on purpose: as of this commit db.dart's
+    // deviceId StateError still refuses a non-primary caller (that refusal
+    // is deleted in the very next commit of this milestone, per
+    // spec-m0-m2.md §3's strict ordering), so a genuinely second DEVICE isn't
+    // reachable here yet. The mutex itself doesn't look at deviceId — it
+    // serialises ANY two overlapping commitSyncBatch calls on this
+    // connection — so two primary commits already exercise the property this
+    // test exists for.
+    syncStmts.clear();
+    await Future.wait([
+      LocalDb.commitSyncBatch([recAt(7001)], <Sample?>[
+        Sample(tsEpoch: 1750007001, counter: 7001, hr: 60),
+      ], trimToken: 'aa'),
+      LocalDb.commitSyncBatch([recAt(7002)], <Sample?>[
+        Sample(tsEpoch: 1750007002, counter: 7002, hr: 61),
+      ], trimToken: 'bb'),
+    ]);
+    // Serialised: one complete bracket, then the next. NOT
+    // [full, full, normal, normal], which is the interleave that silently
+    // downgrades the first commit while its transaction is still open.
+    expect(syncStmts, [
+      'pragma synchronous=full',
+      'pragma synchronous=normal',
+      'pragma synchronous=full',
+      'pragma synchronous=normal',
+    ]);
+    expect(await restingSynchronous(), 1);
+  });
 }

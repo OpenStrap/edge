@@ -9,6 +9,7 @@
 // read from canonical decoded tables keyed by physiological time so replayed or
 // duplicated historical seconds cannot bloat compute.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -2501,7 +2502,63 @@ class LocalDb {
   /// Read-only view of [_syncFullDowngrades] for diagnostics/tests.
   static int get syncFullDowngrades => _syncFullDowngrades;
 
+  /// Serialises the ACK-gating commit process-wide.
+  ///
+  /// `PRAGMA synchronous` is PER-CONNECTION and there is one sqflite
+  /// connection per isolate, so two overlapping [commitSyncBatch] calls
+  /// interleave their FULL/NORMAL brackets: the inner one's `finally` restores
+  /// NORMAL while the outer transaction is still open, and the outer commit —
+  /// the one an ACK is about to be written for — silently runs at NORMAL. Two
+  /// bands offloading at once is the concurrency this exists for; today the
+  /// offload processor is single-flight and BandOwnership yields the headless
+  /// drain, which is the serialization this replaces with a mechanism.
+  ///
+  /// Same shape as `withScanLock` (`lib/ble/ble_state.dart`), copied rather
+  /// than imported because that file depends on Flutter and this one must not.
+  ///
+  /// ponytail: ONE global lock, so two bands' commits queue rather than run
+  /// concurrently. That is correct anyway — they share one SQLite write lock —
+  /// and per-device locks would not help. Revisit only if a measured
+  /// throughput problem appears, which needs two simultaneously-offloading
+  /// bands and has never been observed.
+  // No refcount: the gate serialises, so the bracket is never nested. A count
+  // would be dead code whose only reachable state is a leak.
+  static Future<void> _commitGate = Future.value();
+
+  static Future<T> _withCommitGate<T>(Future<T> Function() body) {
+    final completer = Completer<T>();
+    _commitGate = _commitGate.then((_) async {
+      try {
+        completer.complete(await body());
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
+
   static Future<void> commitSyncBatch(
+    List<RawRecord> raws,
+    List<Sample?> samples, {
+    String? trimToken,
+    Map<String, String>? extraCursors,
+    List<ArchiveRecord>? archives,
+    void Function(String)? onCheckpoint,
+    String? deviceFamily,
+    String deviceId = kPrimaryDeviceId,
+  }) =>
+      _withCommitGate(() => _commitSyncBatchLocked(
+            raws,
+            samples,
+            trimToken: trimToken,
+            extraCursors: extraCursors,
+            archives: archives,
+            onCheckpoint: onCheckpoint,
+            deviceFamily: deviceFamily,
+            deviceId: deviceId,
+          ));
+
+  static Future<void> _commitSyncBatchLocked(
     List<RawRecord> raws,
     List<Sample?> samples, {
     String? trimToken,
