@@ -34,6 +34,8 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_performance/firebase_performance.dart';
 
+import '../ble/adapters/signals.dart';
+import '../data/coverage_resolver.dart';
 import '../data/db.dart';
 import '../data/day_label.dart';
 import '../data/series_codec.dart';
@@ -2551,6 +2553,51 @@ class DerivationEngine {
     final candidate = await _sleepCandidateForDay(dayId, stats: stats);
     final dayStart = _localDayLabelToSec(dayId);
     final dayEnd = _localNextDayLabelToSec(dayId);
+
+    // M5: resolve ownership ONCE, over the union of every window this method
+    // loads, and pass the same span lists to both the row filter and the
+    // bundle write — the equality between them is then true by
+    // construction, not an agreement between separate computations.
+    // `_targetDayWindow` is cheap/pure (it has its own test seam,
+    // `debugTargetDayWindow`) — called again here rather than hoisting the
+    // call already inside `_sleepCandidateForDay`, which stays local to that
+    // function and runs before `candidate` exists.
+    final range = _targetDayWindow(dayId);
+    final unionFrom = [
+      dayStart,
+      range.$1,
+      if (candidate.present) candidate.sleepOnsetSec,
+    ].reduce(math.min);
+    final unionTo = [
+      dayEnd - 1 + napBoundaryBufferSec,
+      range.$2,
+      if (candidate.present) candidate.sleepOffsetSec,
+    ].reduce(math.max);
+
+    final ownership = <InputSignal, List<OwnedSpan>>{};
+    for (final sig in const [InputSignal.hr1Hz, InputSignal.rrIntervals]) {
+      // BINDING: `signal_priority` ships EMPTY by design (M3 deliberately did
+      // not seed a physics ladder). "No priority row" means "the primary
+      // device owns this window", never "skip masking" and never "let every
+      // candidate in unranked" — so an empty read here becomes a
+      // single-candidate priority list of just the primary, not the raw
+      // empty list `resolveOwnership` would otherwise read as "nothing is a
+      // candidate; abstain". A second device's rows stay excluded from the
+      // substrate until the user (or a future milestone's physics ladder)
+      // gives it a rank — the conservative default, and the one that keeps
+      // today's single-device installs byte-identical.
+      final rawPriority = await LocalDb.signalPriority(sig);
+      ownership[sig] = resolveOwnership(
+        coverage: await LocalDb.coverageIntervals(sig, unionFrom, unionTo),
+        priority: rawPriority.isEmpty
+            ? const [LocalDb.kPrimaryDeviceId]
+            : rawPriority,
+        from: unionFrom,
+        to: unionTo,
+        signal: sig,
+      );
+    }
+
     // Load the day PLUS the nap boundary buffer in ONE pass (each
     // _loadSubstrateRange spawns its own isolate, so a second load would
     // double that cost) and slice the calendar day back out of it. Without
@@ -2562,6 +2609,7 @@ class DerivationEngine {
       dayEnd - 1 + napBoundaryBufferSec,
       dayId: dayId,
       stats: stats,
+      ownership: ownership,
     );
     final daySub = napSub.slice(dayStart, dayEnd);
     Substrate sleepSub = Substrate.empty;
@@ -2572,6 +2620,7 @@ class DerivationEngine {
         candidate.sleepOffsetSec - 1,
         dayId: dayId,
         stats: stats,
+        ownership: ownership,
       );
     }
     // Single safe merge into the shared max-tracking diagnostics — one
@@ -2587,6 +2636,7 @@ class DerivationEngine {
       daySub: daySub,
       napSub: napSub,
       sleepSub: sleepSub,
+      ownership: ownership,
     );
   }
 
@@ -2945,6 +2995,13 @@ class DerivationEngine {
     int toRecTs, {
     required String dayId,
     _PrepareStats? stats,
+    // M5: the resolved ownership spans for this call's window, keyed by
+    // anchor signal. Defaults to empty so the ONE caller that cannot supply
+    // it yet (`_sleepCandidateForDay`'s own searchSub load, which runs
+    // BEFORE ownership can be computed) stays unfiltered — identical to
+    // pre-M5 behaviour, and identical to a single-device install regardless
+    // of caller.
+    Map<InputSignal, List<OwnedSpan>> ownership = const {},
   }) async {
     if (toRecTs < fromRecTs) return Substrate.empty;
     final port = ReceivePort();
@@ -3003,6 +3060,11 @@ class DerivationEngine {
         fail(StateError('prepare worker exited without a result'));
       }
     });
+    // M5: the resolved spans for this call's window, one list per anchor
+    // signal. Read once, outside the loop — `ownership` never changes while
+    // this range loads.
+    final oneHzSpans = ownership[InputSignal.hr1Hz] ?? const <OwnedSpan>[];
+    final rrOwnedSpans = ownership[InputSignal.rrIntervals] ?? const <OwnedSpan>[];
     try {
       final worker = await ready.future;
       worker.send(const {'type': 'config', 'mode': 'substrate'});
@@ -3046,15 +3108,47 @@ class DerivationEngine {
           // The page is ordered rec_ts ASC, so last = max second. decoded_rr
           // shares the rec_ts key, so [rrFrom, lastRecTs] is a PK range read —
           // no counter span (which broke across the strap's reboot reset).
+          //
+          // THE CURSOR ADVANCES OFF THE UNFILTERED PAGE, ALWAYS. `afterRecTs`/
+          // `afterCursor`, the `decodedRows.length < _rawDecodeBatchSize`
+          // break, and `rrFrom` below are all driven by `decodedRows`/
+          // `lastRecTs` — never by the filtered `frames`/`rrRows` sent to the
+          // worker. Filtering first would stall the keyset cursor on a page
+          // whose surviving rows are fewer than the batch size and silently
+          // truncate the day; a fully-filtered page still advances the
+          // cursor and still `send`s (an empty list is harmless — the
+          // worker's page handler iterates it).
           final lastRecTs = (decodedRows.last['rec_ts'] as num?)?.toInt();
-          final rrRows = lastRecTs == null
+          final rawRrRows = lastRecTs == null
               ? const <Map<String, dynamic>>[]
               : await LocalDb.decodedRrByRecTsRange(
                   fromRecTs: rrFrom,
                   toRecTs: lastRecTs,
                 );
           if (lastRecTs != null) rrFrom = lastRecTs + 1;
-          worker.send({'type': 'page', 'frames': decodedRows, 'rr': rrRows});
+          // GUARDED ON span COUNT — the single-device identity: one span
+          // means one owner means nothing to arbitrate, so the predicate is
+          // not evaluated and the lists reach the worker as the same objects
+          // they are today.
+          final frames = oneHzSpans.length > 1
+              ? [
+                  for (final r in decodedRows)
+                    if (spanAt(oneHzSpans, (r['rec_ts'] as num).toInt())
+                            ?.deviceId ==
+                        (r['device_id'] as String? ?? LocalDb.kPrimaryDeviceId))
+                      r,
+                ]
+              : decodedRows;
+          final rrRows = rrOwnedSpans.length > 1
+              ? [
+                  for (final r in rawRrRows)
+                    if (spanAt(rrOwnedSpans, (r['rec_ts'] as num).toInt())
+                            ?.deviceId ==
+                        (r['device_id'] as String? ?? LocalDb.kPrimaryDeviceId))
+                      r,
+                ]
+              : rawRrRows;
+          worker.send({'type': 'page', 'frames': frames, 'rr': rrRows});
           final last = decodedRows.last;
           afterRecTs = (last['rec_ts'] as num?)?.toInt() ?? afterRecTs;
           afterCursor = (last['counter'] as num?)?.toInt() ?? afterCursor;
@@ -3068,10 +3162,19 @@ class DerivationEngine {
       // lookup; when it is not, these are seconds the band recorded and only
       // reported beats for.
       if (rrFrom <= toRecTs) {
-        final tailRr = await LocalDb.decodedRrByRecTsRange(
+        final rawTailRr = await LocalDb.decodedRrByRecTsRange(
           fromRecTs: rrFrom,
           toRecTs: toRecTs,
         );
+        final tailRr = rrOwnedSpans.length > 1
+            ? [
+                for (final r in rawTailRr)
+                  if (spanAt(rrOwnedSpans, (r['rec_ts'] as num).toInt())
+                          ?.deviceId ==
+                      (r['device_id'] as String? ?? LocalDb.kPrimaryDeviceId))
+                    r,
+              ]
+            : rawTailRr;
         if (tailRr.isNotEmpty) {
           worker.send({
             'type': 'page',
@@ -3958,6 +4061,32 @@ class DerivationEngine {
           );
       scMap?.addAll(blocks.scalarPatch);
 
+      // M5: COVERAGE. Same map, one key, written only when there is
+      // something to attribute. `ownersOf` counts DISTINCT NON-NULL owners
+      // across every anchor signal's spans: one owner means the day had one
+      // contributor and the key is omitted entirely — not `{}` — because
+      // `day_result` is permanent and nearly every install is single-device.
+      //
+      // REBUILT as a plain `Map<String, dynamic>`, not written through the
+      // existing `series` map's cast view: every other value under `series`
+      // is a curve (`List<Map<String, dynamic>>`), so Dart's map-literal
+      // inference locked THAT map's value type to exactly that shape —
+      // writing a differently-shaped value (this one is a `Map`) through a
+      // `.cast<String, dynamic>()` VIEW checks the write against the
+      // underlying (non-dynamic) value type and throws. Copying into a
+      // fresh dynamic-valued map first sidesteps that entirely.
+      final owners = ownersOf(day.ownership);
+      if (owners.length > 1) {
+        final seriesMap = Map<String, dynamic>.from(
+          (bundle['series'] as Map?) ?? const {},
+        );
+        seriesMap['coverage'] = {
+          for (final e in day.ownership.entries)
+            e.key.name: coverageToJson(e.value),
+        };
+        bundle['series'] = seriesMap;
+      }
+
       // ONE ANSWER FOR STRAIN. The second half just recomputed it from the same
       // nocturnal-or-user resting HR the pure pipeline gated on, and its scalar
       // is what every surface reads. When that recompute abstains, stamp
@@ -4112,6 +4241,29 @@ class DerivationEngine {
       // day's substrate spans two straps or carries no stamp — the same
       // "unknown, never guessed" value the column is documented with.
       deviceFamily: daySub.deviceFamily,
+      // M5: the day's contributor set. Null exactly like `deviceFamily`
+      // above when there is nothing to attribute (the import path, which
+      // never populates `deviceIds`).
+      coverageDevices: daySub.deviceIds.isEmpty
+          ? null
+          : (daySub.deviceIds.toList()..sort()).join(','),
+      // M5: the priority order actually used to resolve this day — read
+      // fresh from `signal_priority` rather than reconstructed from the
+      // resolved spans (a span list only names OWNERS, not the full ranked
+      // candidate list), with the SAME empty-table fallback
+      // `_prepareTargetDay` applied when resolving (signal_priority ships
+      // empty by design; "no priority row" reads as "the primary owns this
+      // window", never as an empty candidate list). Null only when no
+      // resolve ran at all (the import path — `day.ownership` empty).
+      priorityHash: day.ownership.isEmpty
+          ? null
+          : priorityKey({
+              for (final sig in day.ownership.keys)
+                sig: await () async {
+                  final p = await LocalDb.signalPriority(sig);
+                  return p.isEmpty ? const [LocalDb.kPrimaryDeviceId] : p;
+                }(),
+            }),
       series: {
         'rhr': sc('rhr'),
         'rmssd': sc('rmssd'),

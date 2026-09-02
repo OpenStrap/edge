@@ -3,6 +3,8 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
+import '../ble/adapters/signals.dart';
+import '../data/coverage_resolver.dart';
 import 'substrate.dart';
 
 class PreparedDerivationDay {
@@ -26,6 +28,16 @@ class PreparedDerivationDay {
   /// the strict [daySub] so steps/wear/activity are never double-counted.
   final Substrate napSub;
 
+  /// M5: the resolved exclusive-owner spans, one entry per anchor signal
+  /// (`hr1Hz`, `rrIntervals`), over the union window `_prepareTargetDay`
+  /// resolved once. Empty (never populated) on the import path — a bulk
+  /// import has no `device_coverage` rows to resolve, and the masking call
+  /// site treats a missing signal key the same way an empty-table single-
+  /// device install does: one full-window span owned by the primary.
+  ///
+  /// NOT threaded through `toJson`/`fromJson` — see the ponytail note below.
+  final Map<InputSignal, List<OwnedSpan>> ownership;
+
   const PreparedDerivationDay({
     required this.date,
     required this.endSec,
@@ -39,6 +51,7 @@ class PreparedDerivationDay {
     required this.sleepSub,
     Substrate? napSub,
     this.sleepSource = 'auto',
+    this.ownership = const {},
   }) : napSub = napSub ?? daySub;
 
   Map<String, dynamic> toJson() => {
@@ -54,6 +67,11 @@ class PreparedDerivationDay {
     'day_sub': daySub.toJson(),
     'sleep_sub': sleepSub.toJson(),
     'nap_sub': napSub.toJson(),
+    // ponytail: `ownership` is NOT round-tripped here. Grepped for real
+    // callers of PreparedDerivationDay.toJson()/fromJson() outside this file
+    // — none exist (only `candidate.toPreparedDay(...)` at
+    // derivation_engine.dart constructs one, and it is consumed directly,
+    // never serialized). Add JSON threading if a real caller appears.
   };
 
   static PreparedDerivationDay fromJson(Map<String, dynamic> m) {
@@ -198,6 +216,7 @@ class SleepSessionCandidate {
     required Substrate daySub,
     required Substrate sleepSub,
     Substrate? napSub,
+    Map<InputSignal, List<OwnedSpan>> ownership = const {},
   }) => PreparedDerivationDay(
     date: dayId,
     // `endSec` is what the engine anchors FINALIZATION on
@@ -220,6 +239,7 @@ class SleepSessionCandidate {
     daySub: daySub,
     napSub: napSub,
     sleepSub: sleepSub,
+    ownership: ownership,
   );
 }
 
