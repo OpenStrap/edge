@@ -2572,25 +2572,6 @@ class LocalDb {
     // WHICH PHYSICAL DEVICE these rows belong to (see [kPrimaryDeviceId]).
     String deviceId = kPrimaryDeviceId,
   }) async {
-    // B4: `sync_cursor` is a SINGLE GLOBAL `name TEXT PRIMARY KEY` namespace
-    // shared with everything else that keeps a scalar (`frozen_headline`, …),
-    // and `band_backlog` carries `device_family` but no device id. So the trim
-    // token, `counter_hw`, `rec_ts_hw` and the data range of a SECOND
-    // offloading band would land on the first band's cursor and mis-trim its
-    // flash. Namespacing that key space is a phase-4 job (it needs the device
-    // table and a decision about which keys are per-device at all); refusing is
-    // the honest thing until then, and it refuses in the SAFE direction —
-    // nothing commits, so nothing is ACKed and the band keeps its data.
-    //
-    // ponytail: global cursor namespace, one offloading device. Per-device
-    // namespacing when a second adapter can actually offload.
-    if (deviceId != kPrimaryDeviceId) {
-      throw StateError(
-        'commitSyncBatch: sync_cursor is a single global namespace and cannot '
-        'hold a second offloading device (deviceId="$deviceId"). Namespace it '
-        'before enabling a non-primary offload path.',
-      );
-    }
     void checkpoint(String msg) {
       try {
         onCheckpoint?.call(msg);
