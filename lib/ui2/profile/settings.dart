@@ -948,6 +948,34 @@ class NotificationSettingsView extends StatelessWidget {
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
                             deviceEnabled: !prefs.deviceEnabled))),
+                    // On by default, unlike the reminders below: this exists to
+                    // catch a wake alarm that silently isn't going to fire, and
+                    // starting silent would defeat the point.
+                    SetRow(LucideIcons.alarmClock, C.red,
+                        l?.settingsAlarmLatchFailedRowTitle ??
+                            'Alarm not confirmed',
+                        sub: l?.settingsAlarmLatchFailedRowSub ??
+                            'Warn when the band never confirms an alarm this '
+                                'app just armed',
+                        value: prefs.alarmLatchFailedEnabled ? on : off,
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            alarmLatchFailedEnabled:
+                                !prefs.alarmLatchFailedEnabled))),
+                    // Also on by default, same reasoning: silent whenever an
+                    // alarm IS armed for tonight, so it only ever speaks up
+                    // about a real gap.
+                    SetRow(LucideIcons.moon, C.red,
+                        l?.settingsAlarmNightCheckRowTitle ??
+                            'No-alarm check-in',
+                        sub: l?.settingsAlarmNightCheckRowSub ??
+                            'A 7pm heads-up on any night with no wake alarm '
+                                'armed — silent otherwise',
+                        value: prefs.alarmNightCheckEnabled ? on : off,
+                        chevron: false,
+                        onTap: () => set(prefs.copyWith(
+                            alarmNightCheckEnabled:
+                                !prefs.alarmNightCheckEnabled))),
                     // The low-battery threshold, only while band alerts are
                     // on — an interval for a muted alert is furniture, same
                     // rule as the water row below.

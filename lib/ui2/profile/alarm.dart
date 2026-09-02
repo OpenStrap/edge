@@ -14,14 +14,23 @@
 // confirmation at all — only the epoch we wrote down. Three different states,
 // and the screen says which one it is rather than drawing a confident green
 // tick over all three.
+//
+// A single next-occurrence time picker used to live here. It is gone: the
+// weekly schedule below is now the ONLY thing that arms the band (AppState
+// computes the next enabled occurrence on every connect/sync), so a second,
+// independent "set one alarm" affordance would just be a second source of
+// truth that the schedule engine silently overwrites on the next sync.
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../state/alarm_schedule.dart';
 import '../../state/app_state.dart';
+import '../screens/home_screen.dart' show weekdayShortName;
 import '../ui2.dart';
+import 'profile.dart' show SetRow, settingsGroup;
 
 /// What we actually know about the armed alarm.
 enum AlarmArmState {
@@ -61,7 +70,11 @@ class AlarmScreen extends StatelessWidget {
                   ? AlarmArmState.pending
                   : AlarmArmState.unknown,
       connected: app.isConnected,
-      onSet: (when) => app.setAlarm(when),
+      schedule: app.alarmSchedule,
+      onToggleDay: (weekday, enabled) =>
+          app.setScheduleDay(weekday: weekday, enabled: enabled),
+      onSetDayTime: (weekday, hour, minute) =>
+          app.setScheduleDay(weekday: weekday, hour: hour, minute: minute),
       onTest: app.testAlarmBuzz,
       onCancel: app.disableAlarm,
     );
@@ -77,9 +90,17 @@ class AlarmScreenView extends StatelessWidget {
   /// this screen is otherwise a function of when the suite happens to run.
   final DateTime? now;
 
-  /// All three talk to the band and all three throw when it is not connected —
-  /// the screen reports the failure rather than pretending it worked.
-  final Future<void> Function(DateTime when)? onSet;
+  /// Always exactly 7 entries in weekday order — see
+  /// `fillDefaultAlarmSchedule` in state/alarm_schedule.dart, which is what
+  /// [AppState.alarmSchedule] guarantees.
+  final List<AlarmScheduleEntry> schedule;
+
+  /// All four talk to the band or its schedule and all throw when it is not
+  /// connected — the screen reports the failure rather than pretending it
+  /// worked.
+  final Future<void> Function(int weekday, bool enabled)? onToggleDay;
+  final Future<void> Function(int weekday, int hour, int minute)?
+      onSetDayTime;
   final Future<void> Function()? onTest, onCancel;
 
   const AlarmScreenView({
@@ -88,7 +109,9 @@ class AlarmScreenView extends StatelessWidget {
     this.state = AlarmArmState.none,
     this.connected = false,
     this.now,
-    this.onSet,
+    this.schedule = const [],
+    this.onToggleDay,
+    this.onSetDayTime,
     this.onTest,
     this.onCancel,
   });
@@ -98,6 +121,7 @@ class AlarmScreenView extends StatelessWidget {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final at = armedAt;
+    final anyDayEnabled = schedule.any((d) => d.enabled);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -116,10 +140,10 @@ class AlarmScreenView extends StatelessWidget {
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(l?.alarmArmedFor ?? 'ARMED FOR',
+                          Text(l?.alarmNextLabel ?? 'NEXT',
                               style: F.over.copyWith(color: p.ink3)),
                           const SizedBox(height: S.x1),
-                          Text(_hhmm(at),
+                          Text(_dayAndTime(c, at),
                               style: F.n48.copyWith(color: p.ink)),
                           Text(_whichDay(c, at, now ?? DateTime.now()),
                               style: F.cap.copyWith(color: p.ink2)),
@@ -133,24 +157,39 @@ class AlarmScreenView extends StatelessWidget {
                     StatusCard(_stateHeadline(c, state), detail,
                         icon: _stateIcon(state)),
                   ],
+                  const SizedBox(height: S.x4),
                 ],
-                const SizedBox(height: S.x4),
                 if (!connected)
                   StatusCard(
                     l?.alarmNotConnectedTitle ?? 'The band is not connected',
                     l?.alarmNotConnectedBody ??
-                        'Setting, testing and cancelling all write to the band, so '
-                            'they need a live connection. An alarm that is already '
-                            'armed is unaffected — it lives on the band.',
+                        'Changing the schedule, testing and cancelling all '
+                            'write to the band, so they need a live '
+                            'connection. An alarm that is already armed is '
+                            'unaffected — it lives on the band.',
                     icon: LucideIcons.bluetoothOff,
                   )
                 else ...[
-                  BigButton(
-                      at == null
-                          ? (l?.alarmSetAnAlarm ?? 'Set an alarm')
-                          : (l?.alarmChangeTheTime ?? 'Change the time'),
-                      icon: LucideIcons.clock,
-                      onTap: () => _pick(c, at)),
+                  settingsGroup(c, l?.alarmScheduleGroup ?? 'Weekly schedule', [
+                    for (final day in schedule) ...[
+                      SetRow(
+                          LucideIcons.calendarDays,
+                          C.orange,
+                          _weekdayLabel(c, day.weekday),
+                          value: day.enabled
+                              ? (l?.stateOn ?? 'On')
+                              : (l?.stateOff ?? 'Off'),
+                          chevron: false,
+                          onTap: () =>
+                              onToggleDay?.call(day.weekday, !day.enabled)),
+                      if (day.enabled)
+                        SetRow(LucideIcons.clock, C.blue,
+                            l?.alarmWakeTimeRowTitle ?? 'Wake time',
+                            value: _hhmmOf(day.hour, day.minute),
+                            chevron: false,
+                            onTap: () => _pickDayTime(c, day)),
+                    ],
+                  ]),
                   const SizedBox(height: S.x3),
                   if (at != null) ...[
                     BigButton(l?.alarmTestTheBuzz ?? 'Test the buzz',
@@ -160,13 +199,14 @@ class AlarmScreenView extends StatelessWidget {
                         onTap: () => _run(
                             c, onTest, l?.alarmBuzzingTheBand ?? 'Buzzing the band')),
                     const SizedBox(height: S.x3),
+                  ],
+                  if (at != null || anyDayEnabled)
                     BigButton(l?.alarmCancelTheAlarm ?? 'Cancel the alarm',
                         icon: LucideIcons.bellOff,
                         color: C.red,
                         soft: true,
                         onTap: () => _run(
                             c, onCancel, l?.alarmCancelled ?? 'Alarm cancelled')),
-                  ],
                 ],
               ],
             ),
@@ -176,31 +216,20 @@ class AlarmScreenView extends StatelessWidget {
     );
   }
 
-  Future<void> _pick(BuildContext c, DateTime? current) async {
-    final wall = DateTime.now();
+  Future<void> _pickDayTime(BuildContext c, AlarmScheduleEntry day) async {
     final picked = await showTimePicker(
       context: c,
-      initialTime: TimeOfDay.fromDateTime(current ?? wall),
+      initialTime: TimeOfDay(hour: day.hour, minute: day.minute),
     );
     if (picked == null || !c.mounted) return;
-    await _run(c, () => onSet!(nextAt(picked.hour, picked.minute, wall)),
+    await _run(
+        c,
+        () => onSetDayTime!(day.weekday, picked.hour, picked.minute),
         AppLocalizations.of(c)?.alarmSentToBand ?? 'Alarm sent to the band');
   }
 
-  /// The next wall-clock instant at [hour]:[minute], today if it is still
-  /// ahead, otherwise tomorrow. CALENDAR arithmetic — `add(Duration(days: 1))`
-  /// is 24 elapsed hours, which is a different wall-clock time across a DST
-  /// change and would arm the alarm an hour out.
-  @visibleForTesting
-  static DateTime nextAt(int hour, int minute, DateTime now) {
-    final today = DateTime(now.year, now.month, now.day, hour, minute);
-    return today.isAfter(now)
-        ? today
-        : DateTime(now.year, now.month, now.day + 1, hour, minute);
-  }
-
-  /// Run a band write and report what happened. Every one of these throws when
-  /// the band is not connected, and silence would read as success.
+  /// Run a band/schedule write and report what happened. Every one of these
+  /// throws when the band is not connected, and silence would read as success.
   static Future<void> _run(
       BuildContext c, Future<void> Function()? action, String ok) async {
     if (action == null) return;
@@ -215,8 +244,22 @@ class AlarmScreenView extends StatelessWidget {
   static void _say(BuildContext c, String msg) =>
       ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(msg)));
 
-  static String _hhmm(DateTime d) =>
-      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  static String _hhmm(DateTime d) => _hhmmOf(d.hour, d.minute);
+
+  static String _hhmmOf(int hour, int minute) =>
+      '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+
+  /// "Tue 07:30" — the weekday plus the time, both from the ARMED instant
+  /// (not merely from the schedule row), so this never claims a day the band
+  /// hasn't actually latched yet.
+  static String _dayAndTime(BuildContext c, DateTime at) =>
+      '${weekdayShortName(at.weekday, AppLocalizations.of(c))} ${_hhmm(at)}';
+
+  /// Short weekday label for a schedule row. [weekday] is the 0=Mon..6=Sun
+  /// convention `AlarmScheduleEntry` uses; `weekdayShortName` wants
+  /// `DateTime.weekday` (1=Mon..7=Sun), hence the `+ 1`.
+  static String _weekdayLabel(BuildContext c, int weekday) =>
+      weekdayShortName(weekday + 1, AppLocalizations.of(c));
 
   static String _whichDay(BuildContext c, DateTime d, DateTime now) {
     final l = AppLocalizations.of(c);

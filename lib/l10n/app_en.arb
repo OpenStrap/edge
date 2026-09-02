@@ -244,11 +244,23 @@
   "@alarmArmedFor": {
     "description": "Armed-for section label."
   },
+  "alarmNextLabel": "NEXT",
+  "@alarmNextLabel": {
+    "description": "Next-occurrence section label."
+  },
+  "alarmScheduleGroup": "Weekly schedule",
+  "@alarmScheduleGroup": {
+    "description": "Settings group: the 7-day alarm schedule."
+  },
+  "alarmWakeTimeRowTitle": "Wake time",
+  "@alarmWakeTimeRowTitle": {
+    "description": "Row: a weekday's configured wake time."
+  },
   "alarmNotConnectedTitle": "The band is not connected",
   "@alarmNotConnectedTitle": {
     "description": "Status card: band not connected."
   },
-  "alarmNotConnectedBody": "Setting, testing and cancelling all write to the band, so they need a live connection. An alarm that is already armed is unaffected — it lives on the band.",
+  "alarmNotConnectedBody": "Changing the schedule, testing and cancelling all write to the band, so they need a live connection. An alarm that is already armed is unaffected — it lives on the band.",
   "@alarmNotConnectedBody": {
     "description": "Status card body: band not connected."
   },
@@ -11096,6 +11108,22 @@
   "settingsBandAlertsRowSub": "Flat battery, on the charger, gone quiet",
   "@settingsBandAlertsRowSub": {
     "description": "Notification row subtitle for band device alerts"
+  },
+  "settingsAlarmLatchFailedRowTitle": "Alarm not confirmed",
+  "@settingsAlarmLatchFailedRowTitle": {
+    "description": "Notification row title for the alarm latch-failure alert"
+  },
+  "settingsAlarmLatchFailedRowSub": "Warn when the band never confirms an alarm this app just armed",
+  "@settingsAlarmLatchFailedRowSub": {
+    "description": "Notification row subtitle for the alarm latch-failure alert"
+  },
+  "settingsAlarmNightCheckRowTitle": "No-alarm check-in",
+  "@settingsAlarmNightCheckRowTitle": {
+    "description": "Notification row title for the 7pm no-alarm-tonight check"
+  },
+  "settingsAlarmNightCheckRowSub": "A 7pm heads-up on any night with no wake alarm armed — silent otherwise",
+  "@settingsAlarmNightCheckRowSub": {
+    "description": "Notification row subtitle for the 7pm no-alarm-tonight check"
   },
   "settingsAlertMeAtRowTitle": "Alert me at",
   "@settingsAlertMeAtRowTitle": {
