@@ -5415,6 +5415,27 @@
       }
     }
   },
+  "metricDetailSlotNoValueRecording": "{day}, no value · {who}",
+  "@metricDetailSlotNoValueRecording": {
+    "description": "Screen-reader readout for a chart slot with no value but something was recording (multi-device only).",
+    "placeholders": {
+      "day": {
+        "type": "String"
+      },
+      "who": {
+        "type": "String"
+      }
+    }
+  },
+  "metricDetailSlotNothingRecording": "{day}, nothing was recording",
+  "@metricDetailSlotNothingRecording": {
+    "description": "Screen-reader readout for a chart slot with no value and nothing recording (multi-device only).",
+    "placeholders": {
+      "day": {
+        "type": "String"
+      }
+    }
+  },
   "metricDetailOpenDay": "Open {day}",
   "@metricDetailOpenDay": {
     "description": "Semantic label for the tappable row that opens a touched day's detail screen.",

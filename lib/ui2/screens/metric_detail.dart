@@ -24,6 +24,7 @@ import 'day_steps.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'journal_compose.dart' show OsTextField;
+import '../profile/devices.dart' show DeviceOption;
 import 'sleep_detail.dart';
 
 // ═══════════════════ the vocabulary ═══════════════════
@@ -417,6 +418,41 @@ class MetricData {
   /// draws it.
   final int stepGoal;
 
+  /// WHICH DEVICES CONTRIBUTED TO EACH DAY in this series, keyed by day label.
+  ///
+  /// A DAY, NOT A SPAN. `MetricDetail`'s scrubber is per-calendar-day
+  /// (`_dayOfSlot`), so a day with two contributing devices has no single
+  /// owner and claiming one would be fabricated precision (final-plan §1.4,
+  /// §4.4). Values are `device_id`s — `''` is the primary band.
+  ///
+  /// EMPTY on every single-device day, and on every day derived before schema
+  /// 50: `metric_series_version.coverage_devices` is NULL there and NULL is
+  /// never retro-filled with a guess. An empty map makes every gate in §8
+  /// false, which is what keeps this screen byte-identical for one device.
+  final Map<String, List<String>> coverage;
+
+  /// WHAT WAS PHYSICALLY RECORDING on each day, keyed by day label, from
+  /// `device_coverage` — which is written at ingest and never pruned, so it
+  /// answers for days whose substrate is long gone.
+  ///
+  /// Loaded ONLY when [coverage] already shows two or more distinct devices
+  /// across the window. Its single job is the middle row of §6.2's table:
+  /// separating "your ring was on your finger and produced nothing" from
+  /// "nothing was on your body". A single-device install never pays for it.
+  final Map<String, List<String>> recording;
+
+  /// The filter's rows. Registry facts crossed with [coverage] — see
+  /// [_deviceOptions]. Empty means no filter is drawn.
+  final List<DeviceOption> sources;
+
+  /// The device whose data [series] holds, or NULL for the merged view.
+  ///
+  /// Null is the ONLY value on this screen in M6: `metric_series` holds one
+  /// merged value per day and a per-device daily trend does not exist and must
+  /// not be faked (final-plan §6.4, §7.3). Selecting a device DIMS the days it
+  /// did not contribute to; it does not re-query.
+  final String? viewingDeviceId;
+
   const MetricData({
     this.series = const [],
     this.wear = const [],
@@ -425,12 +461,26 @@ class MetricData {
     this.daysAvailable = 0,
     this.algoBreaks = const [],
     this.stepGoal = kDefaultStepGoal,
+    this.coverage = const {},
+    this.recording = const {},
+    this.sources = const [],
+    this.viewingDeviceId,
   });
 
-  static Future<MetricData> load(LocalRepository repo, String key) async {
+  static Future<MetricData> load(
+    LocalRepository repo,
+    String key, {
+    /// Registry-only candidates, from `signalCandidates(app, requires: …)`.
+    /// Const-empty default so every existing caller and every test compiles
+    /// unchanged and gets today's screen.
+    List<DeviceOption> candidates = const [],
+  }) async {
     final spec = specOf(key);
     if (spec.suppress != null) return const MetricData();
-    final chart = await repo.getChart(spec.chartKey);
+    final chart = await repo.getChart(
+      spec.chartKey,
+      signals: {for (final s in spec.requires) s.name},
+    );
     final days = await repo.availableDays();
     final outcome = _outcomeOf[key];
     final stepGoal = key == 'steps'
@@ -452,6 +502,8 @@ class MetricData {
           if (e is Map && e['outcome'] == outcome) e.cast<String, dynamic>(),
       ];
     }
+    final coverage = _coverageOf(chart['coverage_devices']);
+    final recording = _coverageOf(chart['coverage_recording']);
     return MetricData(
       series: pointsOf(chart),
       wear: pointsOf({'points': chart['wear']}),
@@ -463,8 +515,95 @@ class MetricData {
           if (b is Map && b['t'] is num) (b['t'] as num).round(),
       ],
       stepGoal: stepGoal,
+      coverage: coverage,
+      recording: recording,
+      sources: _deviceOptions(candidates, coverage),
+      // viewingDeviceId stays null: see the field's doc.
     );
   }
+}
+
+/// `{day: [deviceId, …]}` out of a `getChart` payload. A malformed or absent
+/// key is an EMPTY map, never a partial one — a half-read coverage map would
+/// attribute a day to fewer devices than actually fed it, which is the one
+/// error this whole feature exists to avoid making.
+Map<String, List<String>> _coverageOf(Object? raw) {
+  if (raw is! Map) return const {};
+  final out = <String, List<String>>{};
+  for (final e in raw.entries) {
+    final day = e.key;
+    final ids = e.value;
+    if (day is! String || ids is! List) continue;
+    out[day] = [for (final v in ids) if (v is String) v];
+  }
+  return out;
+}
+
+/// Registry candidacy crossed with what the window actually holds.
+///
+/// A candidate with no coverage anywhere in the window stays SELECTABLE and
+/// gains a reason — "you may ask this device, and the answer for this window is
+/// nothing" is a different statement from "this device cannot answer at all",
+/// and §6.3 draws both.
+List<DeviceOption> _deviceOptions(
+  List<DeviceOption> candidates,
+  Map<String, List<String>> coverage,
+) {
+  if (candidates.length < 2) return const [];
+  final seen = {for (final ids in coverage.values) ...ids};
+  return [
+    for (final o in candidates)
+      if (!o.selectable || seen.contains(o.deviceId))
+        o
+      else
+        (
+          deviceId: o.deviceId,
+          label: o.label,
+          selectable: true,
+          reason: 'no data in this range',
+        ),
+  ];
+}
+
+/// TWO OR MORE DISTINCT DEVICES APPEAR IN THE VISIBLE WINDOW'S ATTRIBUTION.
+///
+/// Not "two are paired" — two actually CONTRIBUTED. Two devices that both
+/// measure HR where only one had data yesterday get pills (you can ask the
+/// other one) and no label (there is nothing to disambiguate).
+/// The devices behind one day, as the user's own words for them, in a stable
+/// order. Empty when the day has no attribution — which is every day on a
+/// single-device install and every day derived before schema 50.
+List<String> _labelsFor(
+  String day,
+  Map<String, List<String>> coverage,
+  List<DeviceOption> sources,
+) {
+  final ids = coverage[day];
+  if (ids == null || ids.isEmpty) return const [];
+  // `sources` order is `rankSources`' order, so `Ring + Band` is the same way
+  // round on every day and in every readout.
+  return [for (final o in sources) if (ids.contains(o.deviceId)) o.label];
+}
+
+/// "Ring", "Ring + Band", "" — the trailing clause of a readout with a value.
+String _contributors(List<String> names) => names.join(' + ');
+
+/// "Ring was recording", "2 devices were recording" — the trailing clause of a
+/// readout with NO value but with coverage. Plural-safe without a plural rule:
+/// naming two devices and getting the verb agreement wrong is how this reads as
+/// machine output.
+String _wereRecording(List<String> names) => names.length == 1
+    ? '${names.first} was recording'
+    : '${names.length} devices were recording';
+
+bool _labelSources(MetricData d) {
+  if (d.coverage.isEmpty) return false;
+  final seen = <String>{};
+  for (final ids in d.coverage.values) {
+    seen.addAll(ids);
+    if (seen.length >= 2) return true;
+  }
+  return false;
 }
 
 class MetricDetail extends StatefulWidget {
@@ -663,7 +802,7 @@ class _MetricDetailState extends State<MetricDetail> {
       ] else ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
-        _hero(c, spec, all, series, vals, win, d.wear, d.algoBreaks),
+        _hero(c, spec, all, series, vals, win, d.wear, d.algoBreaks, d),
         // Today's count against the goal set on this screen's own edit
         // affordance — a trend average has no goal to be measured against, so
         // this stays win == 1 only, same gate as the Breakdown link below.
@@ -750,7 +889,7 @@ class _MetricDetailState extends State<MetricDetail> {
   // a bare figure looked like a bug.
   Widget _hero(BuildContext c, MetricSpec spec, List<ChartPoint> all,
       List<double?> series, List<double> vals, int win,
-      List<ChartPoint> wear, List<int> algoBreaks) {
+      List<ChartPoint> wear, List<int> algoBreaks, MetricData d) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final mean = vals.reduce((a, b) => a + b) / vals.length;
@@ -882,7 +1021,7 @@ class _MetricDetailState extends State<MetricDetail> {
               step: 1 / (series.length - 1),
               label: spec.title,
               describe: (v) =>
-                  _slotSays(c, spec, series, _slotAt(v, series.length)),
+                  _slotSays(c, spec, series, _slotAt(v, series.length), d),
               onChanged: (v) =>
                   setState(() => _pick = _slotAt(v, series.length)),
               child: CustomPaint(
@@ -900,7 +1039,7 @@ class _MetricDetailState extends State<MetricDetail> {
             ),
           );
         }),
-        if (_pick != null) _picked(c, spec, series),
+        if (_pick != null) _picked(c, spec, series, d),
         // L4 — the coverage denominator, under the curve it belongs to.
         //
         // Deliberately unflattering, and gated to the ranges where it changes
@@ -964,17 +1103,51 @@ class _MetricDetailState extends State<MetricDetail> {
     return dayLabelOf(DateTime(n.year, n.month, n.day - (len - 1 - i)));
   }
 
-  /// What the slider reads out. The value, or the fact that the day is a hole.
-  String _slotSays(BuildContext c, MetricSpec spec, List<double?> series, int i) {
+  /// What the slider reads out. The value, the fact that the day is a hole,
+  /// and — only when two devices contributed to this window — which of them
+  /// was behind it (final-plan §6.2, at day granularity per §6.0).
+  String _slotSays(
+    BuildContext c,
+    MetricSpec spec,
+    List<double?> series,
+    int i,
+    MetricData d,
+  ) {
     final l = AppLocalizations.of(c);
-    final day = prettyDay(_dayOfSlot(i, series.length), l);
+    final day = _dayOfSlot(i, series.length);
+    final pretty = prettyDay(day, l);
     final v = series[i];
-    return v == null
-        ? (l?.metricDetailSlotNoRecord(day) ?? '$day, no record')
-        : (l?.metricDetailSlotWithValue(
-                    day, _fmt(spec, v), unitBeside(spec.unit)) ??
-                '$day, ${_fmt(spec, v)} ${unitBeside(spec.unit)}')
-            .trimRight();
+
+    // THE GATE. `_labelSources` is false on every single-device install, and
+    // when it is false the two `return`s below are the two strings this
+    // function returned before this change, character for character.
+    final attribute = _labelSources(d);
+
+    if (v != null) {
+      final base = (l?.metricDetailSlotWithValue(
+                  pretty, _fmt(spec, v), unitBeside(spec.unit)) ??
+              '$pretty, ${_fmt(spec, v)} ${unitBeside(spec.unit)}')
+          .trimRight();
+      if (!attribute) return base;
+      final who = _contributors(_labelsFor(day, d.coverage, d.sources));
+      // A day inside a two-device window that nevertheless has one
+      // contributor names that one; a day with NO attribution names none.
+      // Never a single name on a day two devices fed (final-plan §4.4).
+      return who.isEmpty ? base : '$base · $who';
+    }
+
+    // NO VALUE. Two different facts, and only the second is the user's doing.
+    if (attribute) {
+      final rec = _labelsFor(day, d.recording, d.sources);
+      if (rec.isNotEmpty) {
+        return l?.metricDetailSlotNoValueRecording(
+                pretty, _wereRecording(rec)) ??
+            '$pretty, no value · ${_wereRecording(rec)}';
+      }
+      return l?.metricDetailSlotNothingRecording(pretty) ??
+          '$pretty, nothing was recording';
+    }
+    return l?.metricDetailSlotNoRecord(pretty) ?? '$pretty, no record';
   }
 
   /// The touched day, and the door into it.
@@ -982,43 +1155,62 @@ class _MetricDetailState extends State<MetricDetail> {
   /// A day with a value is a day that derived, so the door always leads
   /// somewhere. A day with no value says so and offers nothing — an action
   /// button is a promise, and there is no screen behind an empty day.
-  Widget _picked(BuildContext c, MetricSpec spec, List<double?> series) {
+  Widget _picked(
+    BuildContext c,
+    MetricSpec spec,
+    List<double?> series,
+    MetricData d,
+  ) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final i = _pick!.clamp(0, series.length - 1);
     final day = _dayOfSlot(i, series.length);
     final v = series[i];
+    final attributed = _labelSources(d) && _labelsFor(day, d.coverage, d.sources).isNotEmpty;
+    final who = attributed ? _contributors(_labelsFor(day, d.coverage, d.sources)) : '';
     return Padding(
       padding: const EdgeInsets.only(top: S.x3),
       child: Surface(
         color: p.card2,
         elevation: 0,
         onTap: v == null ? null : () => go(c, _dayScreen(widget.metricKey, day)),
-        semanticLabel: v == null
-            ? (l?.metricDetailSlotNoRecord(prettyDay(day, l)) ??
-                '${prettyDay(day, l)}, no record')
-            : (l?.metricDetailOpenDay(prettyDay(day, l)) ??
-                'Open ${prettyDay(day, l)}'),
-        child: Row(children: [
-          Expanded(
-            child: Text(dayNavLabel(day),
-                style:
-                    F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-          ),
-          const SizedBox(width: S.x3),
-          Text(
-            v == null
-                ? (l?.metricDetailNoRecordLabel ?? 'No record')
-                : '${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight(),
-            style: v == null
-                ? F.cap.copyWith(color: p.ink3)
-                : F.n17.copyWith(color: p.ink),
-          ),
-          if (v != null) ...[
-            const SizedBox(width: S.x2),
-            Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+        semanticLabel: [
+          v == null
+              ? (l?.metricDetailSlotNoRecord(prettyDay(day, l)) ??
+                  '${prettyDay(day, l)}, no record')
+              : (l?.metricDetailOpenDay(prettyDay(day, l)) ??
+                  'Open ${prettyDay(day, l)}'),
+          if (attributed) who,
+        ].join(' · '),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: Text(dayNavLabel(day),
+                  style: F.body
+                      .copyWith(color: p.ink, fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+            ),
+            const SizedBox(width: S.x3),
+            Text(
+              v == null
+                  ? (l?.metricDetailNoRecordLabel ?? 'No record')
+                  : '${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight(),
+              style: v == null
+                  ? F.cap.copyWith(color: p.ink3)
+                  : F.n17.copyWith(color: p.ink),
+            ),
+            if (v != null) ...[
+              const SizedBox(width: S.x2),
+              Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+            ],
+          ]),
+          // WHICH DEVICE, second line, only under the gate. A day-level scalar
+          // from a merged substrate has no single producer, so this names the
+          // SET (final-plan §4.4) and never picks one of two.
+          if (attributed) ...[
+            const SizedBox(height: S.x1),
+            Text(who, style: F.over.copyWith(color: p.ink3)),
           ],
         ]),
       ),
