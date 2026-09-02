@@ -63,7 +63,8 @@ class BleRestoreManager: NSObject {
   static let shared = BleRestoreManager()
 
   private static let restoreId = "openstrap.ble.restore"
-  private static let bandUUIDKey = "openstrap.ble.band_uuid"
+  private static let bandUUIDKey = "openstrap.ble.band_uuid"   // LEGACY scalar. Never removed.
+  private static let bandUUIDsKey = "openstrap.ble.band_uuids"  // [String], the new truth.
 
   private var central: CBCentralManager?
   private var bandUUID: UUID?
@@ -98,17 +99,18 @@ class BleRestoreManager: NSObject {
   /// (scoped Bluetooth authorization is already granted, and we never show the picker), so
   /// iOS can still call willRestoreState to relaunch us for a Bluetooth event.
   func start(launchOptions: [UIApplication.LaunchOptionsKey: Any]?) {
-    bandUUID = loadBandUUID()
+    for u in loadBandUUIDs() { arms[u] = ArmState() }
     let nc = NotificationCenter.default
     nc.addObserver(self, selector: #selector(appDidEnterBackground),
                    name: UIApplication.didEnterBackgroundNotification, object: nil)
     nc.addObserver(self, selector: #selector(appWillEnterForeground),
                    name: UIApplication.willEnterForegroundNotification, object: nil)
-    if bandUUID != nil {
+    if !arms.isEmpty {
       // Already provisioned on a prior launch → safe to create the restore central now so
       // iOS can relaunch us via willRestoreState. (No picker is ever shown in this case.)
       ensureCentral()
-      NSLog("[ble-restore] started (band=\(bandUUID!.uuidString)) — restore central up")
+      NSLog("[ble-restore] started (bands=\(arms.keys.map(\.uuidString).joined(separator: ","))) "
+            + "— restore central up")
     } else {
       // Fresh install / no provisioned accessory → DEFER central creation so the ASK
       // picker can be shown with no CBCentralManager alive.
@@ -341,7 +343,7 @@ class BleRestoreManager: NSObject {
     guard let uuid = uuid else {
       cancelPending()
       arms = [:]
-      clearBandUUID()
+      clearBandUUIDs()
       bandUUID = nil
       // Release the restore central so the process has NO CBCentralManager again. This
       // matters when the user unpairs and then re-pairs in the same app session: ASK's
@@ -360,6 +362,7 @@ class BleRestoreManager: NSObject {
     }
     cancelPending(uuid)
     arms.removeValue(forKey: uuid)
+    clearBandUUIDs(uuid)
     if bandUUID == uuid { bandUUID = nil }
     if arms.isEmpty, central != nil {
       central?.delegate = nil
@@ -414,14 +417,64 @@ class BleRestoreManager: NSObject {
 
   // MARK: - Persistence
 
+  /// Every provisioned band's peripheral UUID.
+  ///
+  /// MIGRATION, and the order matters: read the NEW list first, fall back to the OLD
+  /// scalar, and never delete the scalar. An install that upgrades and then rolls back
+  /// (TestFlight, a reverted build) still finds its band under the old key; an install
+  /// that upgrades and never rolls back reads the list from the first launch after the
+  /// first save. The scalar costs 36 bytes forever, which is the entire price of never
+  /// having to be right about this on a phone we cannot debug.
+  private func loadBandUUIDs() -> [UUID] {
+    let d = UserDefaults.standard
+    if let list = d.stringArray(forKey: BleRestoreManager.bandUUIDsKey), !list.isEmpty {
+      return list.compactMap(UUID.init(uuidString:))
+    }
+    // Pre-M4 install: the scalar is the only record. Do NOT write the list here —
+    // a read must not have a side effect, and `start()` runs before Dart is alive.
+    if let one = d.string(forKey: BleRestoreManager.bandUUIDKey),
+       let u = UUID(uuidString: one) {
+      return [u]
+    }
+    return []
+  }
+
+  /// Additive. Writes BOTH keys: the list gains the uuid, and the scalar keeps naming
+  /// the PRIMARY (the first band ever provisioned) so a rollback still reconnects it.
   private func saveBandUUID(_ u: UUID) {
-    UserDefaults.standard.set(u.uuidString, forKey: BleRestoreManager.bandUUIDKey)
+    let d = UserDefaults.standard
+    var list = d.stringArray(forKey: BleRestoreManager.bandUUIDsKey) ?? []
+    if list.isEmpty, let legacy = d.string(forKey: BleRestoreManager.bandUUIDKey) {
+      list = [legacy]                       // carry the pre-M4 band across, in position 0
+    }
+    let s = u.uuidString
+    if !list.contains(s) { list.append(s) }
+    d.set(list, forKey: BleRestoreManager.bandUUIDsKey)
+    if d.string(forKey: BleRestoreManager.bandUUIDKey) == nil {
+      d.set(s, forKey: BleRestoreManager.bandUUIDKey)   // first band ever = the mirror
+    }
   }
-  private func loadBandUUID() -> UUID? {
-    UserDefaults.standard.string(forKey: BleRestoreManager.bandUUIDKey).flatMap(UUID.init(uuidString:))
-  }
-  private func clearBandUUID() {
-    UserDefaults.standard.removeObject(forKey: BleRestoreManager.bandUUIDKey)
+
+  /// nil = forget everything (unpair). A uuid = forget one, and the scalar mirror is
+  /// only cleared when the list empties, never when a secondary is removed.
+  private func clearBandUUIDs(_ u: UUID? = nil) {
+    let d = UserDefaults.standard
+    guard let u = u else {
+      d.removeObject(forKey: BleRestoreManager.bandUUIDsKey)
+      d.removeObject(forKey: BleRestoreManager.bandUUIDKey)
+      return
+    }
+    var list = (d.stringArray(forKey: BleRestoreManager.bandUUIDsKey) ?? loadBandUUIDs().map(\.uuidString))
+    list.removeAll { $0 == u.uuidString }
+    if list.isEmpty {
+      d.removeObject(forKey: BleRestoreManager.bandUUIDsKey)
+      d.removeObject(forKey: BleRestoreManager.bandUUIDKey)
+    } else {
+      d.set(list, forKey: BleRestoreManager.bandUUIDsKey)
+      if d.string(forKey: BleRestoreManager.bandUUIDKey) == u.uuidString {
+        d.set(list[0], forKey: BleRestoreManager.bandUUIDKey)
+      }
+    }
   }
 }
 
