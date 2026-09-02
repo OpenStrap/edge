@@ -974,6 +974,29 @@ class LocalDb {
           // block for them.
           await _createDeviceCoverage(db);
           await _createSignalPriority(db);
+          // Step 2: device.role / .wearing. ADD COLUMN with a constant
+          // DEFAULT does not rewrite the table, so this is O(1) in device
+          // rows. The primary band's row IS the primary, permanently — that
+          // is what `id = ''` (kPrimaryDeviceId) means. Roles move, keys do
+          // not. A no-op on a database with no device row yet.
+          await _addColumnIfMissing(
+            db, 'device', 'role', "TEXT NOT NULL DEFAULT 'paired'",
+          );
+          await _addColumnIfMissing(
+            db, 'device', 'wearing', 'INTEGER NOT NULL DEFAULT 1',
+          );
+          // A rung must no-op on a table this ladder has not created yet
+          // (the same rule _addColumnIfMissing follows above).
+          if ((await _columnsOf(db, 'device')).isNotEmpty) {
+            await db.execute(
+              "UPDATE device SET role = 'primary' WHERE id = ?",
+              [kPrimaryDeviceId],
+            );
+          }
+          // Step 3 (metric_series_version.coverage_devices/.priority_hash)
+          // needs NO rung code: _createMetricSeriesVersion adds them with its
+          // own guarded ALTERs and is already reached from _createDerived,
+          // which _repairOpenSchema calls on every open.
         }
       },
       onOpen: (db) async {
@@ -1740,7 +1763,9 @@ class LocalDb {
         label       TEXT,
         tier        TEXT,
         first_seen  INTEGER NOT NULL,
-        last_seen   INTEGER NOT NULL
+        last_seen   INTEGER NOT NULL,
+        role        TEXT NOT NULL DEFAULT 'paired',
+        wearing     INTEGER NOT NULL DEFAULT 1
       )
     ''');
   }
@@ -2982,6 +3007,31 @@ class LocalDb {
       );
     } catch (_) {
       /* already present */
+    }
+    // v51: WHICH DEVICES contributed to this day at all, and WHICH PRIORITY
+    // ORDER was in force when it derived.
+    //
+    // Same rules as `source` and `device_family` above, and they matter more
+    // here: nullable, NO DEFAULT, and NEVER retro-filled. A day derived before
+    // this column existed has no recorded contributor set, and the honest
+    // answer is "not recorded" — attributing it to the primary by assumption
+    // would fabricate the one fact this column exists to carry.
+    //
+    // `coverage_devices` is a comma-joined device_id list, not JSON: it is read
+    // as a set for a label ("Ring + Band") and written once per day. A day with
+    // one contributor writes that one id, so a single-device install's column
+    // reads '' — which is the primary, and is not the same as NULL.
+    //
+    // `priority_hash` is a short hash of the priority order, for the same
+    // reason `algo_version` is here: a change-point search must refuse to run
+    // across a priority seam rather than report the day the arbitration
+    // changed as a finding about the user.
+    for (final c in const ['coverage_devices TEXT', 'priority_hash TEXT']) {
+      try {
+        await db.execute('ALTER TABLE metric_series_version ADD COLUMN $c');
+      } catch (_) {
+        /* already present */
+      }
     }
   }
 

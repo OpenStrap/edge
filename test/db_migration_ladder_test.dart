@@ -1281,4 +1281,48 @@ void main() {
       expect(await db2.query('signal_priority'), isEmpty);
     },
   );
+
+  test(
+    'v50 gives device.role/.wearing: the primary row becomes role=primary, '
+    'wearing=1 everywhere',
+    () async {
+      const name = 'migrate_v50_device_role_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        50,
+        [
+          '''
+          CREATE TABLE device (
+            id TEXT PRIMARY KEY, adapter_id TEXT, remote_id TEXT,
+            label TEXT, tier TEXT,
+            first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL
+          )
+          ''',
+          ..._v5DerivedDdl,
+        ],
+        seedRows: (db) async {
+          await db.insert('device', {
+            'id': '',
+            'first_seen': 1786000000,
+            'last_seen': 1786000000,
+          });
+          await db.insert('device', {
+            'id': 'second-strap',
+            'first_seen': 1786000000,
+            'last_seen': 1786000000,
+          });
+        },
+      );
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+      final rows = await db.query('device', orderBy: 'id ASC');
+      expect(rows.length, 2);
+      final byId = {for (final r in rows) r['id']: r};
+      expect(byId['']!['role'], 'primary');
+      expect(byId['second-strap']!['role'], 'paired');
+      expect([for (final r in rows) r['wearing']], [1, 1]);
+    },
+  );
 }
