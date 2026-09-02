@@ -1584,7 +1584,35 @@ import 'substrate.dart';
 // chain (nap.dart); `_attachNaps` tests that flag directly instead of
 // re-deriving it from the index. Real output change (nap minutes / sleep
 // need on days with a midnight-arousal-split nap), so the bump is real.
-const int kAlgoVersion = 86;
+//
+// 86 → 87 (M5, edge-only — no sibling repin): the multi-device coverage
+// resolver lands. Three real output changes, all gated on more than one
+// device actually having contributed to a day (a single-device install's
+// `day_result.payload_json` is byte-identical — see coverage_resolver.dart
+// §2 and test/multidevice_coverage_derive_test.dart's identity-case
+// assertion):
+//   1. THE SUBSTRATE ROW FILTER. `_loadSubstrateRange`'s page loop now
+//      admits a `decoded_onehz`/`decoded_rr` row only when its `device_id`
+//      matches the resolved span owner for its second, once more than one
+//      device has real coverage. Before this, two devices' rows for the
+//      same second both entered the substrate and the union/dedup logic in
+//      `addDecodedPage` kept whichever page happened to arrive first —
+//      order-dependent, not owner-decided.
+//   2. PER-OWNER wristOff/charging MASKING. A window owned by device A is
+//      masked by device A's own off-body/charging events only; before this,
+//      one unfiltered query over the whole nap/sleep window meant band B on
+//      the charger could exclude band A's real worn night.
+//   3. `series.coverage` is written into the bundle (omitted entirely, not
+//      `{}`, on any day with one contributor) — the per-signal span
+//      attribution a future device-aware UI reads (M6).
+// Do NOT read this as citing an analytics change: the baseline-dispersion-
+// below-quantum guard (readiness_composite.dart) some earlier draft of this
+// bump would have named is ALREADY IN the pinned SHA below — citing it here
+// would repeat the v43 mistake (a changelog naming a change the pin already
+// had) in exactly the shape that kept "readiness —" live for three releases.
+// kAnalyticsPin/kProtocolPin are UNCHANGED: M5 touches no analytics or
+// protocol code.
+const int kAlgoVersion = 87;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
