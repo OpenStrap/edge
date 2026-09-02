@@ -73,10 +73,12 @@ class BandHost {
     this.onNote,
     this.onLog = _noLog,
     bool Function(int tsEpoch)? admitSample,
-    ArchiveRecord Function(List<int> raw, int capturedAtMs)? buildArchive,
+    ArchiveRecord? Function(List<int> raw, int capturedAtMs)? buildArchive,
+    Map<String, String> Function()? extraCursors,
     int Function()? nowSeconds,
   })  : _admitSample = admitSample,
         _buildArchive = buildArchive,
+        _extraCursors = extraCursors,
         _nowSeconds =
             nowSeconds ?? (() => DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
@@ -112,6 +114,13 @@ class BandHost {
   /// `reason` mapping) because the reason a frame is archived is a host-side
   /// storage fact, not an adapter fact.
   final ArchiveRecord? Function(List<int> raw, int capturedAtMs)? _buildArchive;
+
+  /// Extra `sync_cursor` writes to fold into the SAME commit transaction as
+  /// this flush — e.g. Oura's `(ring decisecond, Unix second)` time anchor,
+  /// which must survive a commit its own rows did not and no later than one
+  /// its rows did. Called once per flush, so the caller can hand back
+  /// whatever it holds right now rather than a value frozen at construction.
+  final Map<String, String> Function()? _extraCursors;
 
   final int Function() _nowSeconds;
 
@@ -246,6 +255,7 @@ class BandHost {
         ),
     ];
     try {
+      final extra = _extraCursors?.call();
       await LocalDb.commitSyncBatch(
         const [],
         const [],
@@ -253,6 +263,7 @@ class BandHost {
         deviceFamily: adapter.id,
         neutrals: neutrals,
         archives: archive.isEmpty ? null : archive,
+        extraCursors: extra == null || extra.isEmpty ? null : extra,
         onCheckpoint: onLog,
       );
       return true;
