@@ -28,7 +28,9 @@ import '../compute/substrate.dart' show beatTimesMs;
 import '../coach/coach_db.dart' show CoachDb;
 import '../compute/derivation_engine.dart' show kAlgoVersion;
 import '../ble/adapters/adapter.dart' show NeutralSample;
+import '../ble/adapters/signals.dart' show InputSignal;
 import '../import/import_container.dart';
+import 'coverage_resolver.dart' show CoverageInterval;
 import 'day_label.dart';
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
@@ -6747,7 +6749,7 @@ class LocalDb {
         'SELECT counter, rec_ts, hr, ax, ay, az, '
         'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
         'step_count, step_cadence, activity_class, skin_temp_c, '
-        'on_wrist, hr_valid, hr_alt, device_family '
+        'on_wrist, hr_valid, hr_alt, device_family, device_id '
         'FROM decoded_onehz '
         'WHERE rec_ts >= ? AND rec_ts <= ? AND ${derivableSourceSql()} '
         'ORDER BY rec_ts ASC, counter ASC LIMIT ?',
@@ -6758,7 +6760,7 @@ class LocalDb {
       'SELECT counter, rec_ts, hr, ax, ay, az, '
       'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
       'step_count, step_cadence, activity_class, skin_temp_c, '
-      'on_wrist, hr_valid, hr_alt, device_family '
+      'on_wrist, hr_valid, hr_alt, device_family, device_id '
       'FROM decoded_onehz '
       'WHERE rec_ts >= ? AND rec_ts <= ? AND ${derivableSourceSql()} '
       'AND (rec_ts > ? OR (rec_ts = ? AND counter > ?)) '
@@ -6789,11 +6791,58 @@ class LocalDb {
       // one record happened at the same millisecond. Both are returned because
       // `beat_ts_ms` is NULL on every row banked before the column existed and
       // on every source that carries no sub-second — the reader coalesces.
-      'SELECT rec_ts, beat_index, rr_ts_ms, rr_ms, beat_ts_ms FROM decoded_rr '
+      'SELECT rec_ts, beat_index, rr_ts_ms, rr_ms, beat_ts_ms, device_id '
+      'FROM decoded_rr '
       'WHERE rec_ts >= ? AND rec_ts <= ? AND ${derivableSourceSql()} '
       'ORDER BY rec_ts ASC, beat_index ASC',
       [lo, hi],
     );
+  }
+
+  // ── M5: the resolver's two reads (device_coverage / signal_priority) ───────
+
+  /// Devices that declare [signal], highest priority first. ALSO the
+  /// candidate list: a device with no row here does not declare the signal,
+  /// so it is not competing (candidacy before rank).
+  ///
+  /// The user's explicit order and the physics-seeded order live in the same
+  /// table and differ only by `user_set`, so ORDER BY rank is the whole
+  /// chain — the row IS the decision. Ties broken by device_id so the order
+  /// is TOTAL (a re-derive must get the same answer every run, and that only
+  /// holds if the sort keys reach a total order — see
+  /// live_coverage_policy.dart's steps resolver for the same lesson).
+  static Future<List<String>> signalPriority(InputSignal signal) async {
+    final db = await instance;
+    final rows = await db.query(
+      'signal_priority',
+      columns: ['device_id'],
+      where: 'signal = ?',
+      whereArgs: [signal.name],
+      orderBy: 'rank ASC, device_id ASC',
+    );
+    return [for (final r in rows) r['device_id'] as String];
+  }
+
+  /// [signal]'s coverage intervals overlapping [from, to), every device.
+  static Future<List<CoverageInterval>> coverageIntervals(
+    InputSignal signal,
+    int from,
+    int to,
+  ) async {
+    final db = await instance;
+    final rows = await db.query(
+      'device_coverage',
+      where: 'signal = ? AND end_ts > ? AND start_ts < ?',
+      whereArgs: [signal.name, from, to], // rides idx_coverage_window
+    );
+    return [
+      for (final r in rows)
+        (
+          deviceId: r['device_id'] as String,
+          start: (r['start_ts'] as num).toInt(),
+          end: (r['end_ts'] as num).toInt(),
+        ),
+    ];
   }
 
   // ── VERSIONED DERIVED STORE I/O (day_result; main isolate only) ─────────────
