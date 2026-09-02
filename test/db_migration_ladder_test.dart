@@ -1255,4 +1255,30 @@ void main() {
       expect(await LocalDb.deviceRow(), isNull);
     },
   );
+
+  test(
+    'v50 adds device_coverage + signal_priority, both empty, idempotent reopen',
+    () async {
+      const name = 'migrate_v50_device_coverage_test.db';
+      created.add(name);
+      await _seedOldDb(name, 50, _v5DerivedDdl);
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+
+      expect(await db.query('device_coverage'), isEmpty);
+      expect(await db.query('signal_priority'), isEmpty);
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+
+      // Reopening (same-version repair pass) must not throw or duplicate.
+      await LocalDb.close();
+      LocalDb.lastRebuild = null;
+      LocalDb.dbName = name;
+      final db2 = await LocalDb.instance;
+      expect(LocalDb.lastRebuild, isNull);
+      expect(await db2.query('device_coverage'), isEmpty);
+      expect(await db2.query('signal_priority'), isEmpty);
+    },
+  );
 }

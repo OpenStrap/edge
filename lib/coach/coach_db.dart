@@ -89,6 +89,7 @@ class CoachDb {
     // raw / decoded substrate
     'raw_records', 'raw_archive', 'decoded_onehz', 'decoded_rr', 'samples',
     'events', 'band_events', 'band_battery',
+    'device_coverage', 'signal_priority',
     // sync / compute bookkeeping
     'sync_ledger', 'sync_quarantine', 'sync_cursor', 'sync_ledger_legacy',
     'sync_quarantine_legacy', 'sync_cursor_legacy', 'compute_jobs',

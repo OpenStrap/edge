@@ -189,6 +189,8 @@ class LocalDb {
     'metric_series_version',
     'baselines',
     'raw_archive',
+    'device_coverage',
+    'signal_priority',
     'sync_cursor',
     // The retention window. Big, and last for that reason.
     'decoded_onehz',
@@ -339,7 +341,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 50;
+  static const int schemaVersion = 51;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -441,6 +443,8 @@ class LocalDb {
         await _createPrimitiveArtifacts(db);
         await _createLiveCoverage(db);
         await _createDevice(db);
+        await _createDeviceCoverage(db);
+        await _createSignalPriority(db);
         await _createWorkoutSuggestions(db);
         await _createSleepOverride(db);
         await _createSleepNap(db);
@@ -960,6 +964,17 @@ class LocalDb {
           // metric and nothing here changes a derived number.
           await _createAlarmSchedule(db);
         }
+        if (oldV < 51) {
+          // MULTI-DEVICE ATTRIBUTION, commit 1 of 7 (M3). Two new empty
+          // tables only in this commit — device_coverage / signal_priority —
+          // no backfill, nothing read. Rewrites no existing row's value, so
+          // this ships without a kAlgoVersion bump. Later M3 commits add
+          // steps 2-7 to this SAME rung (device.role/.wearing, the four
+          // rekeys, the coverage backfill); do not add a new `if (oldV < 51)`
+          // block for them.
+          await _createDeviceCoverage(db);
+          await _createSignalPriority(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1012,6 +1027,8 @@ class LocalDb {
     await _ensureLiveCoverageSource(db);
     await _ensureLiveCoverageDeviceId(db);
     await _createDevice(db);
+    await _createDeviceCoverage(db);
+    await _createSignalPriority(db);
     await _createExternalHr(db);
     await _createImportedMeasurement(db);
     // CREATE TABLE IF NOT EXISTS on the every-open repair path, and NO schema
@@ -2101,6 +2118,81 @@ class LocalDb {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)',
     );
+  }
+
+  /// device_coverage — WHEN a device was physically emitting a signal. NEVER a
+  /// conclusion, never a value, never physiology: five integers saying "this
+  /// device produced `signal` rows across [start_ts, end_ts)".
+  ///
+  /// WHY IT IS A TABLE AND NOT A DERIVE-TIME COMPUTATION. The 1 Hz substrate is
+  /// pruned at `rawRetentionDays = 3`, so "what was recording last March" cannot
+  /// be reconstructed from rows — they are gone. This is written at INGEST and
+  /// survives the prune, which makes it the only artifact that can answer the
+  /// question at all. Five integers per few hours per device: a decade of two
+  /// devices is well under a megabyte.
+  ///
+  /// NOT PRUNED by retention, for the `band_battery` reason (`pruneDecodedBeforeRecTs`):
+  /// a 3-day cap on a series whose only use is comparing a day to the days
+  /// around it destroys it.
+  ///
+  /// `signal` is an `InputSignal.name` — an INPUT the device emits, never a
+  /// metric key. See `ble/adapters/signals.dart`: a metric key here would make
+  /// this a capability table, which is the thing that file exists to refuse.
+  ///
+  /// INTERVALS FROM ONE DEVICE MAY OVERLAP. The key is only `start_ts`, and
+  /// `mergeFrom` can import a foreign export's intervals over local ones. Every
+  /// reader must union same-device intervals rather than assume disjointness.
+  static Future<void> _createDeviceCoverage(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS device_coverage (
+        device_id TEXT NOT NULL,
+        signal    TEXT NOT NULL,
+        start_ts  INTEGER NOT NULL,
+        end_ts    INTEGER NOT NULL,
+        PRIMARY KEY (device_id, signal, start_ts)
+      )
+    ''');
+    // The resolver's only query shape: every device's coverage for ONE signal
+    // over ONE window. `signal` leads because it is always an equality, then
+    // start_ts for the range scan.
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coverage_window '
+      'ON device_coverage(signal, start_ts, end_ts)',
+    );
+    // The ingest writer's query: the OPEN interval for one (device, signal),
+    // which is the one with the highest start_ts. Without this, extending an
+    // interval on every commit is a scan of the whole table.
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coverage_device '
+      'ON device_coverage(device_id, signal, start_ts DESC)',
+    );
+  }
+
+  /// signal_priority — the user's explicit per-signal device order.
+  ///
+  /// SPARSE BY CONSTRUCTION, and that is the whole design. No row for a
+  /// (signal, device) means "use the physics ladder" — `rankSources()` in
+  /// `ui2/profile/devices.dart`. A user who never touches a control has ZERO
+  /// rows here and gets exactly today's behaviour, which is what makes this
+  /// table free for every single-device install.
+  ///
+  /// `user_set = 1` means the user reordered this signal. It is what the
+  /// one-tap reset deletes and what `priority_hash` hashes. Rows are written
+  /// only from the point of evidence (the filter row under a chart) or the
+  /// device screen's per-signal reorder list — never as an N x M settings grid.
+  ///
+  /// `signal` is an `InputSignal.name`, same as `device_coverage.signal`.
+  /// Priority for a METRIC has no meaning: readiness has four inputs.
+  static Future<void> _createSignalPriority(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS signal_priority (
+        signal    TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        rank      INTEGER NOT NULL,
+        user_set  INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (signal, device_id)
+      )
+    ''');
   }
 
   /// Ensure `live_coverage.source` exists (v27).
@@ -7344,6 +7436,8 @@ class LocalDb {
       // `decoded_onehz` pointing at a `device_id` nothing can name. The PRIMARY
       // row is deliberately skipped on the way in; see the guard below.
       'device',
+      'device_coverage',
+      'signal_priority',
       'sync_cursor',
     ];
     // Columns this app's schema actually has, per table — so a row from a NEWER
@@ -7813,6 +7907,8 @@ class LocalDb {
       'imported_workout',
       'observation',
       'device',
+      'device_coverage',
+      'signal_priority',
     ];
 
     final missingTables = <String>[];
