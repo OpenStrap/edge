@@ -163,6 +163,76 @@ typedef DeviceOption = ({
   String? reason,
 });
 
+/// The metric-screen device filter: one pill per candidate, plus the reason
+/// under it when there is one.
+///
+/// ABSENT, not empty, when [options] has fewer than two entries — the widget
+/// returns `SizedBox.shrink()` so a single-device screen has no row, no
+/// padding, and no layout shift. That is the assertion the single-device
+/// goldens make (final-plan §6.5).
+class DeviceFilter extends StatelessWidget {
+  const DeviceFilter({
+    super.key,
+    required this.options,
+    required this.selected,
+    required this.onSelect,
+    this.color = C.blue,
+  });
+
+  final List<DeviceOption> options;
+
+  /// Null is "All devices" — the merged view, and the default.
+  final String? selected;
+
+  /// Null argument means All devices.
+  final ValueChanged<String?> onSelect;
+  final Color color;
+
+  @override
+  Widget build(BuildContext c) {
+    if (options.length < 2) return const SizedBox.shrink();
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final all = l?.deviceFilterAllDevices ?? 'All devices';
+    final labels = [all, for (final o in options) o.label];
+    final index = selected == null
+        ? 0
+        : options.indexWhere((o) => o.deviceId == selected) + 1;
+    // Index 0 is All devices and is always tappable, so every disabled index
+    // is shifted by one — the off-by-one that would otherwise grey the wrong
+    // pill.
+    final disabled = <int>{
+      for (var i = 0; i < options.length; i++)
+        if (!options[i].selectable) i + 1,
+    };
+    final shown = index <= 0 ? null : options[index - 1];
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      SubTabs(
+        labels,
+        index < 0 ? 0 : index,
+        (i) => onSelect(i == 0 ? null : options[i - 1].deviceId),
+        color: color,
+        disabled: disabled,
+      ),
+      // THE REASON, for the selected pill and for any disabled one. Never an
+      // unexplained empty chart and never an unexplained dead option.
+      if (shown?.reason case final r?) ...[
+        const SizedBox(height: S.x2),
+        Text('${shown!.label} · $r', style: F.over.copyWith(color: p.ink3)),
+      ] else if (disabled.isNotEmpty) ...[
+        const SizedBox(height: S.x2),
+        Text(
+          [
+            for (final o in options)
+              if (!o.selectable) '${o.label} · ${o.reason}',
+          ].join('   '),
+          style: F.over.copyWith(color: p.ink3),
+        ),
+      ],
+    ]);
+  }
+}
+
 /// Why this device cannot serve a metric, from the signals it does NOT declare.
 ///
 /// Generated, never written per device per metric: it stays true when an

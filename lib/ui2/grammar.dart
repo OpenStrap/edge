@@ -1708,12 +1708,19 @@ class SubTabs extends StatelessWidget {
   final ValueChanged<int> onTap;
   final Color color;
 
+  /// Indices that are shown but not tappable — a device that physically cannot
+  /// supply this metric (final-plan §6.3). Drawn, because an option that
+  /// silently is not there is the thing users hunt for; untappable, because
+  /// there is nothing behind it.
+  final Set<int> disabled;
+
   const SubTabs(
     this.items,
     this.index,
     this.onTap, {
     super.key,
     this.color = C.green,
+    this.disabled = const {},
   });
 
   @override
@@ -1731,9 +1738,10 @@ class SubTabs extends StatelessWidget {
           itemCount: items.length,
           separatorBuilder: (_, _) => const SizedBox(width: S.x2),
           itemBuilder: (_, i) {
-            final on = i == index;
+            final off = disabled.contains(i);
+            final on = i == index && !off;
             return Pressable(
-              onTap: () => onTap(i),
+              onTap: off ? null : () => onTap(i),
               child: AnimatedContainer(
                 duration: motion(c, Motion.base),
                 constraints: const BoxConstraints(minWidth: S.tap),

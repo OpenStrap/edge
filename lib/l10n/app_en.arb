@@ -751,6 +751,10 @@
   "@devicesCouldNotReachRing": {
     "description": "Snackbar: sync failed."
   },
+  "deviceFilterAllDevices": "All devices",
+  "@deviceFilterAllDevices": {
+    "description": "First pill in a metric screen's per-device filter — the merged view."
+  },
   "devicesForgetSensor": "Forget {name}?",
   "@devicesForgetSensor": {
     "description": "Dialog title: forget a paired sensor.",

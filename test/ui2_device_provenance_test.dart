@@ -5,12 +5,13 @@
 // `HealthSource` lists, the same idiom `device_sources_test.dart` already
 // uses, rather than constructing a live `AppState`.
 
-import 'package:flutter/material.dart' show Icons;
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
 import 'package:openstrap_edge/data/db.dart' show LocalDb;
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
+import 'package:openstrap_edge/ui2/ui2.dart';
 
 const _keys = [
   'resting_hr', 'hrv', 'readiness', 'resp_rate', 'sleep', 'efficiency', 'deep',
@@ -115,5 +116,56 @@ void main() {
     final contended = contendedSignalsOf([_band(), _hrs()]);
     expect(contended, contains(InputSignal.rrIntervals));
     expect(contended, isNot(contains(InputSignal.accel1Hz)));
+  });
+
+  // Test 12: fewer than two options renders nothing at all.
+  testWidgets('DeviceFilter with one option renders SizedBox.shrink', (t) async {
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: Scaffold(
+        body: DeviceFilter(
+          options: const [
+            (deviceId: '', label: 'Band', selectable: true, reason: null),
+          ],
+          selected: null,
+          onSelect: (_) {},
+        ),
+      ),
+    ));
+    await t.pumpAndSettle();
+    expect(find.byType(SubTabs), findsNothing);
+    expect(
+      find.byWidgetPredicate((w) => w is SizedBox && w.width == 0 && w.height == 0),
+      findsOneWidget,
+    );
+  });
+
+  // Test 13: a non-selectable option is present, untappable, and explained.
+  testWidgets('DeviceFilter with a non-selectable option: pill present, '
+      'onTap null, reason renders', (t) async {
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: Scaffold(
+        body: DeviceFilter(
+          options: const [
+            (deviceId: '', label: 'Band', selectable: true, reason: null),
+            (
+              deviceId: 'ble_hrs-1',
+              label: 'Chest strap',
+              selectable: false,
+              reason: 'no accelerometer',
+            ),
+          ],
+          selected: null,
+          onSelect: (_) {},
+        ),
+      ),
+    ));
+    await t.pumpAndSettle();
+    expect(find.text('Chest strap'), findsOneWidget);
+    expect(find.textContaining('no accelerometer'), findsOneWidget);
+    final subTabs = t.widget<SubTabs>(find.byType(SubTabs));
+    // Index 0 is "All devices"; the strap sits at index 2 (band is 1).
+    expect(subTabs.disabled, contains(2));
   });
 }

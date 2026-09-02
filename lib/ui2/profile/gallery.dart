@@ -261,6 +261,29 @@ Map<String, Widget> goldenCases() => {
       'sub_tabs': SubTabs(
           const ['Today', 'Sleep', 'Recovery', 'Strain'], 1, (_) {},
           color: C.domHealth),
+      // The three states a metric screen's per-device filter draws: a
+      // selectable pill with real coverage, a selectable pill with no data in
+      // the visible range, and a non-selectable pill with a physical reason —
+      // exercises the 3.1x/tap-floor sweep on the disabled path (M6 §7.2).
+      'device_filter': DeviceFilter(
+        options: const [
+          (deviceId: '', label: 'Band', selectable: true, reason: null),
+          (
+            deviceId: 'ring-A1B2',
+            label: 'Ring',
+            selectable: true,
+            reason: 'no data in this range',
+          ),
+          (
+            deviceId: 'ble_hrs-0a1b2c',
+            label: 'Chest strap',
+            selectable: false,
+            reason: 'no accelerometer',
+          ),
+        ],
+        selected: null,
+        onSelect: (_) {},
+      ),
       'nav_bar': const NavBar('Last night', sub: 'MON 14 AUG'),
       // The stepper every single-day screen wears. Shot mid-history, where
       // both arrows are live and the middle opens the calendar — the state a
