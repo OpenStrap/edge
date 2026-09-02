@@ -450,6 +450,41 @@ class _PrepareAccumulator {
   /// an event that happens at most a handful of times in a band's life.
   final Set<String> _families = {};
 
+  /// Which column supplied this day's skin temperature: `'raw'` (a relative
+  /// ADC count) or `'c'` (centi-°C). Null until the first row carries one.
+  ///
+  /// ONE UNIT PER DAY, AND THE FIRST ROW PICKS IT. `skinTemp` is a positional
+  /// array with no unit tag and the two columns are different quantities —
+  /// gen4's raw count is ~30 000, centi-°C is ~3 300 — so a day holding both
+  /// produces a z over a 10x step change and renders as a fever. A row in the
+  /// minority unit lands on the array's ABSENT sentinel (0, which every ADC
+  /// consumer's `v > 0` gate already reads as "no reading"), never converted
+  /// and never scaled: there is no per-family calibration that would make the
+  /// conversion honest.
+  ///
+  /// Unreachable today — a day's admitted rows are all one family, because
+  /// `derivableSourceSql()` renders `source IS NULL` (db.dart:116) — and that
+  /// is exactly why it is written now rather than discovered when the M5
+  /// resolver starts admitting two devices to one day.
+  String? _skinTempUnit;
+  // Read only by test/skin_temp_unit_test.dart today (via _skinTempFor's
+  // return value, not this field directly); M5 surfaces it as a refusal note.
+  // ignore: unused_field
+  int _skinTempUnitDrops = 0;
+
+  /// The array value for one row's two temperature columns, in the day's
+  /// established unit. 0 = absent (see [_skinTempUnit]).
+  int _skinTempFor(int? tempRaw, double? tempC) {
+    final unit = tempRaw != null ? 'raw' : (tempC != null ? 'c' : null);
+    if (unit == null) return 0;
+    _skinTempUnit ??= unit;
+    if (unit != _skinTempUnit) {
+      _skinTempUnitDrops++;
+      return 0;
+    }
+    return unit == 'raw' ? tempRaw! : (tempC! * 100).round();
+  }
+
   void _noteFamily(Object? v) {
     if (v is String && v.isNotEmpty) _families.add(v);
   }
@@ -559,9 +594,11 @@ class _PrepareAccumulator {
       // carry whichever the row has, in centi-°C to stay integral and positive
       // through the `v > 0` gate every ADC consumer uses. A user who swaps
       // gen4 → gen5 mid-history steps the baseline once; the z re-settles.
+      // See [_skinTempFor]/[_skinTempUnit] for the ONE-UNIT-PER-DAY guard
+      // that stops a second device's other unit from mixing into this array.
       final tempRaw = _num(row?['skin_temp_raw'])?.toInt();
       final tempC = _num(row?['skin_temp_c'])?.toDouble();
-      skinTemp.add(tempRaw ?? (tempC == null ? 0 : (tempC * 100).round()));
+      skinTemp.add(_skinTempFor(tempRaw, tempC));
       // NO skin contact on the decoded path, and no column to read: the byte the
       // name refers to is the sign+exponent half of a float32, never a contact
       // measurement. The array stays 1:1 with tsSec, all-zero ⇒ absent.
@@ -607,20 +644,34 @@ class _PrepareAccumulator {
     }
   }
 
-  Substrate buildSubstrate() => Substrate(
-    tsSec: tsSec,
-    hr: hr,
-    rrTsMs: rrTsMs,
-    rrMs: rrMs,
-    ax: ax,
-    ay: ay,
-    az: az,
-    spo2Red: spo2Red,
-    spo2Ir: spo2Ir,
-    skinTemp: skinTemp,
-    skinContact: skinContact,
-    stepCount: stepCount,
-    hrValid: hrValid,
-    deviceFamily: deviceFamily,
-  );
+  Substrate buildSubstrate() {
+    // `_skinTempUnitDrops` (see [_skinTempFor]) is structurally 0 today —
+    // `derivableSourceSql()` renders `source IS NULL` (db.dart:116), so a
+    // day's admitted rows are all one family and never trip the guard.
+    // Deliberately NOT a crashing `assert` here: this file's own test fixture
+    // (test/two_device_fixture_test.dart case 3) exercises the guard by
+    // bypassing that admission filter on purpose — which a debug-mode assert
+    // would turn into a test crash instead of the intended "minority unit
+    // reads as absent" assertion. `Substrate` has no field to carry the
+    // count, and adding one is an analytics-shaped change with a pin bump,
+    // which M0 must not take; M5 — which is what makes two-device admission
+    // reachable for real — turns this into a refusal note on
+    // `wellness.skin_temp` instead.
+    return Substrate(
+      tsSec: tsSec,
+      hr: hr,
+      rrTsMs: rrTsMs,
+      rrMs: rrMs,
+      ax: ax,
+      ay: ay,
+      az: az,
+      spo2Red: spo2Red,
+      spo2Ir: spo2Ir,
+      skinTemp: skinTemp,
+      skinContact: skinContact,
+      stepCount: stepCount,
+      hrValid: hrValid,
+      deviceFamily: deviceFamily,
+    );
+  }
 }
