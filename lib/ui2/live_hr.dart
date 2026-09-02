@@ -26,12 +26,31 @@
 
 import 'dart:math' as math;
 
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../data/db.dart' show LocalDb;
 import '../state/app_state.dart';
+import 'profile/devices.dart' show HealthSource, liveSources, rankSources;
 import 'ui2.dart';
+
+/// The tap's cycling rule: the next streaming device after [current] in
+/// [ranked]'s order, wrapping — a two-device tap is a toggle, a three-device
+/// tap is a rotation. Streaming is approximated by "has a trace", which is
+/// the same thing [AppState.liveHrTrace] itself reads.
+String? _nextDevice(AppState app, List<HealthSource> ranked, String? current) {
+  final ids = [
+    for (final s in ranked)
+      if (app.liveHrTrace((s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId))
+          .isNotEmpty)
+        (s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId)!,
+  ];
+  if (ids.isEmpty) return null;
+  final i = current == null ? -1 : ids.indexOf(current);
+  return ids[(i + 1) % ids.length];
+}
 
 /// The live reading as a card: the number, and the recent readings behind it.
 class LiveHrCard extends StatelessWidget {
@@ -77,7 +96,7 @@ class LiveHrCard extends StatelessWidget {
       trace = _trace ?? const [];
     } else {
       c.select<AppState, int>((a) => a.liveHrTraceRev);
-      trace = c.read<AppState>().liveHrTrace;
+      trace = c.read<AppState>().liveHrTrace();
     }
 
     return Surface(
@@ -105,7 +124,30 @@ class LiveHrCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: S.x2),
-          const Pill('LIVE', C.red, icon: LucideIcons.radio),
+          // WHOSE PULSE THIS IS, only when two devices are streaming. Below
+          // that the row is byte-identical to today's: same Pill, same
+          // position, no Pressable in the tree at all.
+          if (!_preview && c.select<AppState, bool>((a) => a.liveHrMultiDevice))
+            Builder(builder: (c) {
+              final app = c.read<AppState>();
+              final ranked = rankSources(liveSources(app));
+              final id = app.liveHrDeviceId;
+              final label = id == null
+                  ? 'LIVE'
+                  : ranked
+                          .firstWhereOrNull((s) =>
+                              (s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId) ==
+                              id)
+                          ?.name ??
+                      'LIVE';
+              return Pressable(
+                onTap: () => app.showLiveHrFrom(_nextDevice(app, ranked, id)),
+                semanticLabel: 'Showing $label. Tap to switch device.',
+                child: Pill(label, C.red, icon: LucideIcons.radio),
+              );
+            })
+          else
+            const Pill('LIVE', C.red, icon: LucideIcons.radio),
         ]),
         if (trace.length > 2) ...[
           const SizedBox(height: S.x3),

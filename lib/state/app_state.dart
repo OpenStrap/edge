@@ -59,6 +59,8 @@ import '../stress/breath_phases.dart';
 import '../data/auto_backup.dart' as backup show runBackupIfDue;
 import 'alarm_schedule.dart';
 import 'prefs.dart';
+import '../ble/adapters/signals.dart' show InputSignal;
+import '../ui2/profile/devices.dart' show liveSources, rankSources;
 import '../data/db.dart';
 import '../data/live_coverage_policy.dart';
 import '../data/local_repository.dart';
@@ -309,6 +311,10 @@ class AppState extends ChangeNotifier {
       for (final r in rows)
         if (r['id'] != LocalDb.kPrimaryDeviceId) r,
     ];
+    // Same reason `_sensors` does not poll: a `signal_priority` row changes
+    // only when the user changes it.
+    _hrPriority =
+        (await LocalDb.signalPriorities())[InputSignal.hr1Hz.name] ?? const [];
     notifyListeners();
   }
 
@@ -1204,7 +1210,7 @@ class AppState extends ChangeNotifier {
     );
     engine = BleEngine(
       onRecord: _onRecord,
-      onState: _onEngineState,
+      onState: (s) => _onEngineState(LocalDb.kPrimaryDeviceId, s),
       log: _log,
       // M2: forward the session's real device id once DeviceSession exists;
       // BleEngine's EventSink typedef has no device field, so the id names
@@ -1303,7 +1309,7 @@ class AppState extends ChangeNotifier {
     this.engine = engine ??
         BleEngine(
           onRecord: _onRecord,
-          onState: _onEngineState,
+          onState: (s) => _onEngineState(LocalDb.kPrimaryDeviceId, s),
           log: _log,
           // M2: same marker as the constructor above.
           onEvent: (id, ts, hex) =>
@@ -1428,6 +1434,13 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   void debugHandleAlarmEvent(int id) =>
       _handleAlarmEvent(id, DateTime.now().millisecondsSinceEpoch ~/ 1000);
+
+  /// Feed one `DeviceState` through [_onEngineState] for [deviceId], exactly
+  /// as `BleEngine`'s `onState` callback does. Tests only — lets a test drive
+  /// the per-device live-HR dedupe (M6 §11) without a real BLE stream.
+  @visibleForTesting
+  void debugFeedEngineState(String deviceId, DeviceState s) =>
+      _onEngineState(deviceId, s);
 
   /// (Re)arm the strap-buzz timer for the water reminder from the current
   /// notification prefs. Call at launch and whenever the toggle changes (the
@@ -3418,9 +3431,30 @@ class AppState extends ChangeNotifier {
   /// time the screen is opened. The engine already pushes state at about 1 Hz
   /// while streaming, so appending here is the natural sampling point.
   static const int liveHrTraceMax = 90;
-  final List<int> _liveHrTrace = [];
-  List<int> get liveHrTrace => List.unmodifiable(_liveHrTrace);
-  int? _liveHrTraceAt;
+
+  /// A RECORD PER SAMPLE, not a bare bpm. Two devices streaming at once is two
+  /// signals, and a flat `List<int>` drew them as one line with one headline
+  /// (final-plan §5.2). The `deviceId` is what lets the card show exactly ONE
+  /// device's trace — never a merge, never an average, never two traces on one
+  /// card.
+  ///
+  /// STILL NEVER PERSISTED (invariant 1). RAM, capped at [liveHrTraceMax] PER
+  /// DEVICE.
+  final List<({int at, int hr, String deviceId})> _liveHrTrace = [];
+
+  /// Last delivered stamp PER DEVICE — what the old scalar was always trying
+  /// to be. Two devices reporting in the same second are two samples; one
+  /// device reporting the same stamp twice is one.
+  final Map<String, int> _liveHrTraceAt = {};
+
+  /// One device's recent readings, newest last, bpm only — the shape
+  /// `LiveHrCard` already draws. Null [deviceId] means [liveHrDeviceId], the
+  /// device the priority order says wins.
+  List<int> liveHrTrace([String? deviceId]) {
+    final id = deviceId ?? liveHrDeviceId;
+    if (id == null) return const [];
+    return [for (final e in _liveHrTrace) if (e.deviceId == id) e.hr];
+  }
 
   /// Bumped on every appended sample. A `select` on the trace's LENGTH stops
   /// firing the moment the buffer is full — length is pinned at
@@ -3429,15 +3463,86 @@ class AppState extends ChangeNotifier {
   /// the thing that actually changes.
   int liveHrTraceRev = 0;
 
-  void _onEngineState(DeviceState s) {
-    // One sample per DELIVERED reading. Keyed on the stamp, not the value, or a
-    // steady 60 bpm would record a single point and the trace would flatline
-    // for reasons that have nothing to do with the heart.
+  /// The devices' priority order for `hr1Hz`, highest first. Loaded once and
+  /// refreshed with the device rows — a `signal_priority` row changes only when
+  /// the user changes it, which is the same reason `_sensors` does not poll.
+  List<String> _hrPriority = const [];
+
+  bool _isStreaming(String id) {
+    final at = _liveHrTraceAt[id];
+    return at != null &&
+        DateTime.now().millisecondsSinceEpoch - at <= liveHrMaxAge.inMilliseconds;
+  }
+
+  /// THE DEVICE WHOSE LIVE TRACE IS SHOWN, or null when nothing is streaming.
+  ///
+  /// The resolver's rule — exclusive ownership — applied to the live axis. Not
+  /// merged, not averaged, not interleaved. Resolved from [_hrPriority] against
+  /// the in-memory dedupe map, so it costs no query and works while the app is
+  /// mid-stream with no derived day in sight.
+  String? get liveHrDeviceId {
+    final override = _liveHrDeviceOverride;
+    if (override != null && _isStreaming(override)) return override;
+    for (final id in _hrPriority) {
+      if (_isStreaming(id)) return id;
+    }
+    // No priority row for any streaming device: fall through to the physics
+    // ladder, which is precedence rule 3 (final-plan §4.5). `rankSources`
+    // already answers it and needs no table.
+    for (final s in rankSources(liveSources(this))) {
+      final id = s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId;
+      if (id != null && _isStreaming(id)) return id;
+    }
+    return null;
+  }
+
+  /// TWO OR MORE DEVICES HAVE DELIVERED A LIVE READING INSIDE [liveHrMaxAge]
+  /// — i.e. are streaming, not merely paired.
+  ///
+  /// Read off the in-memory dedupe map, which is the only place that knows.
+  /// No query, and nothing persisted (invariant 1).
+  bool get liveHrMultiDevice {
+    if (_liveHrTraceAt.length < 2) return false;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    var live = 0;
+    for (final at in _liveHrTraceAt.values) {
+      if (now - at <= liveHrMaxAge.inMilliseconds && ++live >= 2) return true;
+    }
+    return false;
+  }
+
+  /// The user's tap on the card's pill. Session-only and deliberately NOT
+  /// persisted: it is "show me the other one for a moment", not a preference.
+  /// A preference is `signal_priority`, and the way to set one is the metric
+  /// screen's "Prefer this device" or the priority editor.
+  String? _liveHrDeviceOverride;
+  void showLiveHrFrom(String? deviceId) {
+    _liveHrDeviceOverride = deviceId;
+    liveHrTraceRev++; // the card watches this, not the map
+    notifyListeners();
+  }
+
+  void _onEngineState(String deviceId, DeviceState s) {
+    // ONE SAMPLE PER DELIVERED READING PER DEVICE. Keyed on (device, stamp):
+    // keyed on the stamp alone, a second band reporting in the same second was
+    // dropped and which one survived depended on notification arrival order.
     final hr = s.liveHr, at = s.liveHrAt;
-    if (hr != null && hr > 0 && at != null && at != _liveHrTraceAt) {
-      _liveHrTraceAt = at;
-      _liveHrTrace.add(hr);
-      if (_liveHrTrace.length > liveHrTraceMax) _liveHrTrace.removeAt(0);
+    if (hr != null && hr > 0 && at != null && at != _liveHrTraceAt[deviceId]) {
+      _liveHrTraceAt[deviceId] = at;
+      _liveHrTrace.add((at: at, hr: hr, deviceId: deviceId));
+      // The cap is PER DEVICE, so a second band cannot evict the first band's
+      // trace by streaming faster.
+      // ponytail: reverse scan is O(n) at n <= 90 * devices, once per
+      // delivered reading (~1 Hz). A per-device ring buffer is the upgrade if
+      // a device count ever makes that matter, which two bands does not.
+      var n = 0;
+      for (var i = _liveHrTrace.length - 1; i >= 0; i--) {
+        if (_liveHrTrace[i].deviceId != deviceId) continue;
+        if (++n > liveHrTraceMax) {
+          _liveHrTrace.removeAt(i);
+          break;
+        }
+      }
       liveHrTraceRev++;
     }
     // Bank the name the moment the band says it, so it survives the
@@ -3538,9 +3643,10 @@ class AppState extends ChangeNotifier {
       // A new connection is a new live-HR session: without this the trace
       // buffer spliced readings from before the drop (or from a previously
       // paired band) onto the next session's chart as one continuous line.
-      if (_liveHrTrace.isNotEmpty) {
-        _liveHrTrace.clear();
-        _liveHrTraceAt = null;
+      // THIS device only — a second device's trace is a separate session.
+      if (_liveHrTraceAt.containsKey(deviceId)) {
+        _liveHrTrace.removeWhere((e) => e.deviceId == deviceId);
+        _liveHrTraceAt.remove(deviceId);
         liveHrTraceRev++;
       }
       if (_keepAlive && isPaired && !_reconnecting && !device.autoReconnectPaused) {
@@ -3984,6 +4090,19 @@ class AppState extends ChangeNotifier {
   /// disconnect hook can see. Every live consumer must read THIS.
   int? get liveHr {
     if (!isConnected) return null;
+    final id = liveHrDeviceId;
+    if (id != null) {
+      // The newest sample from the device that won, which is by construction
+      // inside `liveHrMaxAge` (that is what `_isStreaming` tested).
+      for (var i = _liveHrTrace.length - 1; i >= 0; i--) {
+        if (_liveHrTrace[i].deviceId == id) return _liveHrTrace[i].hr;
+      }
+    }
+    // FALLBACK: nothing in the trace yet — a caller that sets `DeviceState`
+    // directly without going through `_onEngineState` (every existing test,
+    // and any future path that bypasses the engine callback). The original
+    // single-device freshness check on `device.liveHr` itself, so behaviour
+    // stays byte-identical for anything that never reaches the trace.
     final at = device.liveHrAt;
     if (at == null) return null;
     final age = DateTime.now().millisecondsSinceEpoch - at;
