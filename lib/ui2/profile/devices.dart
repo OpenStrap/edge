@@ -7,8 +7,20 @@
 // platform health stores: Apple Health and Health Connect rank by whatever
 // wrote last (with a manual priority list bolted on top), so a phone's step
 // estimate can quietly outrank a chest strap. Here the better sensor wins and
-// recency only breaks a tie within a tier. There is no user preference and the
-// screen no longer claims one — no control ever set an order.
+// recency only breaks a tie within a tier.
+//
+// RULING (supersedes the "no user preference" clause this paragraph used to
+// carry). The default order for every signal is derived from physics, computed
+// from `BandAdapter.signals`; `rankSources`' tier ladder stays as the source of
+// that default. A user may reorder WITHIN ONE SIGNAL, and when they do the row
+// is marked `user_set = 1` with a one-tap reset. Recency never enters a
+// cross-device comparison. The screen no longer claims a preference it cannot
+// set, because now it can.
+//
+// PER SIGNAL, never per metric, and never an N×M grid in Settings. "Priority
+// for readiness" has no meaning — readiness has four inputs. Only a handful of
+// declared signals ever contend, so `contendedSignals` is usually empty and
+// `SignalPriorityScreen`'s entry row is then absent entirely.
 //
 // TWO BUCKETS AND ONLY TWO: what is measuring, and what is NOT YET — the
 // second with a reason and a PERMANENCE beside it. "Not yet" without a
@@ -484,9 +496,17 @@ List<HealthSource> liveSources(AppState app, {bool sensorLive = false}) => [
 
 /// Quality first, then recency, then the name. The inverse of last-writer-wins.
 ///
-/// There was a `preferred` list here that no caller ever passed and no screen
-/// could set — the card above it told the user their own preference was "the
-/// last word", which was a mechanism that did not exist.
+/// THE DEFAULT ORDER, and only that. There was a `preferred` list here that no
+/// caller ever passed and no screen could set — the card above it told the user
+/// their own preference was "the last word", which was a mechanism that did not
+/// exist. That is what died, and the reason it died was last-writer-wins plus a
+/// preference nothing could write. Neither has come back.
+///
+/// What HAS come back is a user order, and it does not live here: it lives in
+/// `signal_priority`, per SIGNAL, written from `SignalPriorityScreen` and from
+/// the metric screen's own "Prefer this device" row. This function is
+/// precedence rule 3 of three — consulted only where that table is silent, and
+/// it is silent for every install with one device.
 List<HealthSource> rankSources(List<HealthSource> sources) {
   final out = [...sources];
   out.sort((a, b) {
