@@ -997,6 +997,25 @@ class LocalDb {
           // needs NO rung code: _createMetricSeriesVersion adds them with its
           // own guarded ALTERs and is already reached from _createDerived,
           // which _repairOpenSchema calls on every open.
+
+          // Step 4: band_backlog. Keyed by one epoch second, so two devices
+          // connecting in the same second overwrite each other. Logging-only
+          // and regenerated on the next connect (see _createBandBacklog), so
+          // there is nothing here worth a rebuild. Cost: the wrap-count-moved
+          // check is blind for exactly one connect after the upgrade.
+          await db.execute('DROP TABLE IF EXISTS band_backlog');
+          await _createBandBacklog(db);
+
+          // Step 5: the four re-keys. LAST of the DDL, self-skipping,
+          // idempotent. raw_archive first because it is the expensive one
+          // and a crash after it means the rest re-runs cheaply; the temp
+          // table is dropped up front so a re-run is clean either way.
+          await _rekeyByDeviceIdV51(db, 'raw_archive', keyTail: const ['hex']);
+          await _rekeyByDeviceIdV51(db, 'band_events', keyTail: const ['hex']);
+          await _rekeyByDeviceIdV51(db, 'events', keyTail: const ['hex']);
+          await _rekeyByDeviceIdV51(
+            db, 'band_battery', keyTail: const ['ts', 'source'],
+          );
         }
       },
       onOpen: (db) async {
@@ -4522,6 +4541,50 @@ class LocalDb {
     await db.execute('ALTER TABLE $tmp RENAME TO $table');
   }
 
+  /// v51: put `device_id` in front of a content-keyed or time-keyed table's PK.
+  ///
+  /// Self-skipping and idempotent, the same three ways [_rekeyTableByDevice]
+  /// is: a table that already carries `device_id` is left alone (so a fresh
+  /// install at v51+ does no work), an absent table returns early (its
+  /// current DDL already carries the new key), and the temp table is dropped
+  /// up front so a crash mid-migration re-runs cleanly.
+  ///
+  /// Every existing row is copied under `device_id = ''` (kPrimaryDeviceId) —
+  /// the primary band, which is exactly what those rows have always meant. No
+  /// value is rewritten and no derived number can move, which is why this
+  /// ships without a kAlgoVersion bump.
+  ///
+  /// INSERT OR IGNORE, not REPLACE: the old key was already unique, so the
+  /// copy cannot collide, and IGNORE is the conflict policy every one of
+  /// these tables is written with in production (`insertEvent`,
+  /// `archiveRawRecord`, `insertBandBatterySample`). Matching it means a
+  /// re-run cannot evict a row.
+  static Future<void> _rekeyByDeviceIdV51(
+    Database db,
+    String table, {
+    required List<String> keyTail,
+  }) async {
+    final info = await db.rawQuery('PRAGMA table_info($table)');
+    if (info.isEmpty) return;
+    final names = [for (final c in info) c['name'] as String];
+    if (names.contains('device_id')) return;
+    final tmp = '_${table}_v51';
+    await db.execute('DROP TABLE IF EXISTS $tmp');
+    await db.execute(
+      'CREATE TABLE $tmp (${_rebuildDdlBody(
+        info,
+        prepend: ["device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId'"],
+        primaryKey: ['device_id', ...keyTail],
+      )})',
+    );
+    final cols = names.join(', ');
+    await db.execute(
+      "INSERT OR IGNORE INTO $tmp (device_id, $cols) SELECT '', $cols FROM $table",
+    );
+    await db.execute('DROP TABLE IF EXISTS $table');
+    await db.execute('ALTER TABLE $tmp RENAME TO $table');
+  }
+
   /// v43 (SLP-05): drop `NOT NULL` from `decoded_onehz.hr`.
   ///
   /// See [_createDecodedStore] for WHY. This is the same rebuild shape as
@@ -5236,10 +5299,12 @@ class LocalDb {
   static Future<void> _createEvents(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS events (
-        hex TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
+        hex TEXT NOT NULL,
         event_id INTEGER,
         ts INTEGER,
-        captured_at INTEGER NOT NULL
+        captured_at INTEGER NOT NULL,
+        PRIMARY KEY (device_id, hex)
       )
     ''');
     // The PK is the frame hex, so a `ts` window (the timeline's day query, and
@@ -5254,12 +5319,14 @@ class LocalDb {
   static Future<void> _createBandSignals(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS band_events (
-        hex TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
+        hex TEXT NOT NULL,
         event_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         ts INTEGER NOT NULL,
         payload_json TEXT NOT NULL DEFAULT '{}',
-        captured_at INTEGER NOT NULL
+        captured_at INTEGER NOT NULL,
+        PRIMARY KEY (device_id, hex)
       )
     ''');
     await db.execute(
@@ -5267,6 +5334,7 @@ class LocalDb {
     );
     await db.execute('''
       CREATE TABLE IF NOT EXISTS band_battery (
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
         ts INTEGER NOT NULL,
         battery_pct REAL,
         charging INTEGER,
@@ -5274,7 +5342,7 @@ class LocalDb {
         millivolts INTEGER,
         charge_units INTEGER,
         source TEXT NOT NULL,
-        PRIMARY KEY (ts, source)
+        PRIMARY KEY (device_id, ts, source)
       )
     ''');
     await db.execute(
@@ -5307,14 +5375,16 @@ class LocalDb {
   static Future<void> _createBandBacklog(DatabaseExecutor db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS band_backlog (
-        ts INTEGER PRIMARY KEY,
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
+        ts INTEGER NOT NULL,
         written INTEGER,
         used INTEGER,
         capacity INTEGER,
         trim_page INTEGER,
         wrap_count INTEGER,
         free_records INTEGER,
-        device_family TEXT
+        device_family TEXT,
+        PRIMARY KEY (device_id, ts)
       )
     ''');
   }
@@ -5329,6 +5399,7 @@ class LocalDb {
   /// establishes it.
   static Future<void> putBandBacklog({
     required int ts,
+    String deviceId = kPrimaryDeviceId,
     int? written,
     int? used,
     int? capacity,
@@ -5339,6 +5410,7 @@ class LocalDb {
   }) async {
     final db = await instance;
     await db.insert('band_backlog', {
+      'device_id': deviceId,
       'ts': ts,
       'written': written,
       'used': used,
@@ -5351,12 +5423,22 @@ class LocalDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  /// The most recent [limit] backlog readings, newest first.
+  /// The most recent [limit] backlog readings, newest first. [deviceId] scopes
+  /// to one device when given; the one caller (ble_engine.dart) passes none in
+  /// M3, so this still returns the newest row from any device — what a
+  /// single-device install has always got.
   static Future<List<Map<String, dynamic>>> bandBacklog({
     int limit = 60,
+    String? deviceId,
   }) async {
     final db = await instance;
-    return db.query('band_backlog', orderBy: 'ts DESC', limit: limit);
+    return db.query(
+      'band_backlog',
+      where: deviceId == null ? null : 'device_id = ?',
+      whereArgs: deviceId == null ? null : [deviceId],
+      orderBy: 'ts DESC',
+      limit: limit,
+    );
   }
 
   /// Additive: add the `millivolts` column to an existing band_battery table.
@@ -5449,12 +5531,14 @@ class LocalDb {
   static Future<void> _createRawArchive(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS raw_archive (
-        hex TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
+        hex TEXT NOT NULL,
         counter INTEGER,
         packet_type INTEGER NOT NULL,
         rec_ts INTEGER,
         captured_at INTEGER NOT NULL,
-        reason TEXT NOT NULL
+        reason TEXT NOT NULL,
+        PRIMARY KEY (device_id, hex)
       )
     ''');
     await db.execute(
@@ -5791,26 +5875,49 @@ class LocalDb {
     final preDeviceKey =
         !(await _columnsOf(db, 'decoded_onehz')).contains('device_id');
 
+    // Same self-detection as `preDeviceKey` above, for `raw_archive`'s own
+    // rekey (v51): this function runs from the oldV<44 rung too, i.e. BEFORE
+    // the v51 rekey, so at that point `raw_archive` is still hex-keyed and the
+    // row-value comparison below must fall back to comparing `hex` alone.
+    final preArchiveDeviceKey =
+        !(await _columnsOf(db, 'raw_archive')).contains('device_id');
+
     final marks = List.filled(redrivableArchiveReasons.length, '?').join(',');
-    // Paged on `hex`, which is the table's PRIMARY KEY — a stable, total order
-    // that needs no extra index and no offset scan.
+    // Paged on (hex, device_id) — a stable, total order that needs no extra
+    // index and no offset scan. Post-v51, `hex` alone is no longer unique
+    // (two devices can share a byte-identical undecodable frame), so a plain
+    // `hex > ?` cursor would silently skip the second device's row.
     var afterHex = '';
+    var afterDevice = '';
     var recovered = 0;
     while (true) {
-      final rows = await db.rawQuery(
-        'SELECT hex, counter, packet_type, rec_ts, captured_at '
-        'FROM raw_archive WHERE reason IN ($marks) AND hex > ? '
-        'ORDER BY hex ASC LIMIT 500',
-        [...redrivableArchiveReasons, afterHex],
-      );
+      final rows = preArchiveDeviceKey
+          ? await db.rawQuery(
+              'SELECT hex, counter, packet_type, rec_ts, captured_at '
+              'FROM raw_archive WHERE reason IN ($marks) AND hex > ? '
+              'ORDER BY hex ASC LIMIT 500',
+              [...redrivableArchiveReasons, afterHex],
+            )
+          : await db.rawQuery(
+              'SELECT device_id, hex, counter, packet_type, rec_ts, captured_at '
+              'FROM raw_archive WHERE reason IN ($marks) AND (hex, device_id) > (?, ?) '
+              'ORDER BY hex ASC, device_id ASC LIMIT 500',
+              [...redrivableArchiveReasons, afterHex, afterDevice],
+            );
       if (rows.isEmpty) return recovered;
       afterHex = rows.last['hex'] as String;
+      afterDevice = preArchiveDeviceKey ? '' : rows.last['device_id'] as String;
 
-      // Decode first, keyed by the second each record claims. Two archived
-      // frames for the same second collapse here rather than fighting over the
-      // primary key inside the batch.
-      final byRecTs = <int, (RawRecord, Sample)>{};
+      // Decode first, keyed by (device, second) each record claims. Two
+      // archived frames for the SAME device and second collapse here rather
+      // than fighting over the primary key inside the batch — but two
+      // DIFFERENT devices sharing a second (or a byte-identical frame, the
+      // exact case the v51 rekey exists to preserve) must not collapse into
+      // one another.
+      final byDeviceRecTs = <(String, int), (RawRecord, Sample)>{};
       for (final r in rows) {
+        final deviceId =
+            preArchiveDeviceKey ? kPrimaryDeviceId : r['device_id'] as String;
         final raw = RawRecord(
           counter: (r['counter'] as num?)?.toInt() ?? 0,
           packetType: (r['packet_type'] as num?)?.toInt() ?? 0,
@@ -5828,27 +5935,51 @@ class LocalDb {
         // is the decoded timestamp — and a record with no plausible time has
         // nowhere to land in a table keyed by one.
         if (recTs <= 0) continue;
-        byRecTs[recTs] = (raw, s);
+        byDeviceRecTs[(deviceId, recTs)] = (raw, s);
       }
-      if (byRecTs.isEmpty) continue;
+      if (byDeviceRecTs.isEmpty) continue;
 
-      final keys = byRecTs.keys.toList();
-      final taken = <int>{};
-      for (var i = 0; i < keys.length; i += 400) {
-        final end = i + 400 < keys.length ? i + 400 : keys.length;
-        final slice = keys.sublist(i, end);
-        for (final e in await db.rawQuery(
-          'SELECT rec_ts FROM decoded_onehz WHERE rec_ts IN '
-          '(${List.filled(slice.length, '?').join(',')})',
-          slice,
-        )) {
-          taken.add((e['rec_ts'] as num).toInt());
+      // "Already decoded" must be checked PER DEVICE once decoded_onehz
+      // carries device_id — otherwise device B's second looks "taken" because
+      // device A already has a row at that same rec_ts.
+      final taken = <(String, int)>{};
+      if (preDeviceKey) {
+        final keys = [for (final k in byDeviceRecTs.keys) k.$2];
+        for (var i = 0; i < keys.length; i += 400) {
+          final end = i + 400 < keys.length ? i + 400 : keys.length;
+          final slice = keys.sublist(i, end);
+          for (final e in await db.rawQuery(
+            'SELECT rec_ts FROM decoded_onehz WHERE rec_ts IN '
+            '(${List.filled(slice.length, '?').join(',')})',
+            slice,
+          )) {
+            taken.add((kPrimaryDeviceId, (e['rec_ts'] as num).toInt()));
+          }
+        }
+      } else {
+        final byDevice = <String, List<int>>{};
+        for (final k in byDeviceRecTs.keys) {
+          (byDevice[k.$1] ??= []).add(k.$2);
+        }
+        for (final entry in byDevice.entries) {
+          final keys = entry.value;
+          for (var i = 0; i < keys.length; i += 400) {
+            final end = i + 400 < keys.length ? i + 400 : keys.length;
+            final slice = keys.sublist(i, end);
+            for (final e in await db.rawQuery(
+              'SELECT rec_ts FROM decoded_onehz WHERE device_id = ? AND '
+              'rec_ts IN (${List.filled(slice.length, '?').join(',')})',
+              [entry.key, ...slice],
+            )) {
+              taken.add((entry.key, (e['rec_ts'] as num).toInt()));
+            }
+          }
         }
       }
 
       final batch = db.batch();
       var queued = 0;
-      for (final e in byRecTs.entries) {
+      for (final e in byDeviceRecTs.entries) {
         if (taken.contains(e.key)) continue;
         final (raw, sample) = e.value;
         // `sample` is handed back as `preferred` so the hex is decoded once,
@@ -5858,6 +5989,7 @@ class LocalDb {
               batch,
               raw,
               sample,
+              deviceId: e.key.$1,
               preDeviceKey: preDeviceKey,
             ) >
             0) {
