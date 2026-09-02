@@ -29,6 +29,7 @@ import AccessorySetupKit
 ///
 /// Dart MethodChannel `openstrap/accessory_setup`:
 ///   - `isSupported`        -> Bool   (true only on iOS 18+)
+///   - `provisionedIds`     -> [String] (every ASK-provisioned accessory's uppercased UUID)
 ///   - `provisionedId`      -> String?(uppercased UUID of an already-provisioned band, or nil)
 ///   - `showPicker`         -> String (the band provisioned by THIS call; throws on cancel/error)
 ///                             optional Bool argument: true = add another accessory
@@ -66,11 +67,19 @@ enum AccessorySetup {
       case "isSupported":
         if #available(iOS 18.0, *) { result(true) } else { result(false) }
 
+      case "provisionedIds":
+        if #available(iOS 18.0, *) {
+          Impl.shared.provisionedIds { result($0) }      // [String], possibly empty
+        } else {
+          result([String]())
+        }
+
+      // KEPT, not replaced: the old scalar case still answers, because a build of the
+      // app can be newer than the Dart it runs (Flutter attach/hot-restart during
+      // development) and because deleting a channel method to save four lines is how
+      // you get a MissingPluginException on a path nobody tests.
       case "provisionedId":
         if #available(iOS 18.0, *) {
-          // ponytail: the channel still hands Dart ONE id because the Dart side is
-          // still two SharedPreferences scalars (change-list E3). Swift holds the
-          // whole array; widen this to a list when the device table lands.
           Impl.shared.provisionedIds { result($0.first) }
         } else {
           result(nil)
