@@ -1016,6 +1016,15 @@ class LocalDb {
           await _rekeyByDeviceIdV51(
             db, 'band_battery', keyTail: const ['ts', 'source'],
           );
+
+          // Step 6: coverage for the days the substrate still holds. Bounded,
+          // minute-bucketed, and it claims nothing about pruned days.
+          await _backfillDeviceCoverage(db);
+
+          // Step 7: signal_priority is DELIBERATELY NOT SEEDED. An empty
+          // table IS the physics ladder (rankSources()), and a seeded copy
+          // of it is a second source of truth that goes stale against the
+          // adapter.
         }
       },
       onOpen: (db) async {
@@ -2237,6 +2246,114 @@ class LocalDb {
         PRIMARY KEY (signal, device_id)
       )
     ''');
+  }
+
+  /// v51 step 6: coverage intervals for the substrate rows that survive.
+  ///
+  /// WHAT IT CLAIMS, AND WHAT IT REFUSES TO CLAIM. Only the days
+  /// `decoded_onehz` / `decoded_rr` still hold, which is `rawRetentionDays = 3`
+  /// plus whatever `_maxRawHoldDays` has held back. A day already pruned gets
+  /// NO coverage row. That is correct and it is the honest answer: we do not
+  /// know what was recording, so we do not claim.
+  ///
+  /// NO WINDOW FUNCTIONS. minSdk 26 ships SQLite 3.18; ROW_NUMBER() landed in
+  /// 3.25, so the textbook gaps-and-islands query throws `no such function`
+  /// inside onUpgrade's ONE exclusive transaction and quarantines the
+  /// database. Instead: GROUP BY a 60-second bucket server-side (the
+  /// resolver's own grid, so nothing is lost), then coalesce adjacent buckets
+  /// in Dart.
+  ///
+  /// BOUNDED, which is what makes it safe on the launch path: 3 days x 1,440
+  /// minutes x 5 signals = 21,600 rows worst case, and in practice far fewer.
+  ///
+  /// SIGNALS ARE READ OFF COLUMNS, one predicate each, and each predicate says
+  /// only what the column says. There is deliberately no `ppgGreen` and no
+  /// `accelHighRate`: neither has a `decoded_onehz` column, so there is
+  /// nothing to read and a claim would be invented. `vendorScalars` is not a
+  /// raw signal and lives in `observation`.
+  static Future<void> _backfillDeviceCoverage(Database db) async {
+    // A DB whose ladder has not created these must no-op rather than throw.
+    for (final t in const ['decoded_onehz', 'device_coverage']) {
+      final present = await db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", [t],
+      );
+      if (present.isEmpty) return;
+    }
+    // Pre-v47 shape has no device_id; every row is the primary by definition.
+    final cols = await _columnsOf(db, 'decoded_onehz');
+    final dev = cols.contains('device_id') ? 'device_id' : "'$kPrimaryDeviceId'";
+
+    const kBucket = 60; // seconds — the resolver's grid
+    // One interval may absorb a gap of up to this many buckets and stay open.
+    // Two buckets, not one: a 1 Hz stream that drops a single second must not
+    // split an interval, and anything longer is a real gap the resolver
+    // should see. ponytail: fixed at 2; make it cadence-derived only if a
+    // real capture shows 2 is wrong.
+    const kMaxGapBuckets = 2;
+
+    final specs = <String, String>{
+      'hr1Hz': 'hr IS NOT NULL',
+      'accel1Hz': 'ax IS NOT NULL AND ay IS NOT NULL AND az IS NOT NULL',
+      'ppgRedIr': 'spo2_red_raw IS NOT NULL OR spo2_ir_raw IS NOT NULL',
+      'skinTempRaw': 'skin_temp_raw IS NOT NULL',
+    };
+
+    final batch = db.batch();
+    var queued = 0;
+
+    Future<void> emit(String signal, List<Map<String, Object?>> buckets) async {
+      String? openDev;
+      int? openStart, openEnd;
+      void flush() {
+        if (openDev == null) return;
+        batch.insert('device_coverage', {
+          'device_id': openDev,
+          'signal': signal,
+          'start_ts': openStart,
+          'end_ts': openEnd,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        queued++;
+        openDev = null;
+      }
+
+      for (final r in buckets) {
+        final d = (r['d'] as String?) ?? kPrimaryDeviceId;
+        final b = (r['b'] as num).toInt() * kBucket;
+        final oe = openEnd;
+        if (openDev == d && oe != null && b - oe <= kMaxGapBuckets * kBucket) {
+          openEnd = b + kBucket;
+          continue;
+        }
+        flush();
+        openDev = d;
+        openStart = b;
+        openEnd = b + kBucket;
+      }
+      flush();
+    }
+
+    for (final e in specs.entries) {
+      // ORDER BY device THEN bucket: the coalescer is a single pass and must
+      // see one device's buckets contiguously.
+      final rows = await db.rawQuery(
+        'SELECT $dev AS d, rec_ts / $kBucket AS b FROM decoded_onehz '
+        'WHERE rec_ts > 0 AND (${e.value}) '
+        'GROUP BY d, b ORDER BY d ASC, b ASC',
+      );
+      await emit(e.key, rows);
+    }
+    // RR beats live in their own table, one row per beat.
+    final rrCols = await _columnsOf(db, 'decoded_rr');
+    if (rrCols.isNotEmpty) {
+      final rrDev =
+          rrCols.contains('device_id') ? 'device_id' : "'$kPrimaryDeviceId'";
+      final rows = await db.rawQuery(
+        'SELECT $rrDev AS d, rec_ts / $kBucket AS b FROM decoded_rr '
+        'WHERE rec_ts > 0 GROUP BY d, b ORDER BY d ASC, b ASC',
+      );
+      await emit('rrIntervals', rows);
+    }
+    if (queued > 0) await batch.commit(noResult: true);
   }
 
   /// Ensure `live_coverage.source` exists (v27).
