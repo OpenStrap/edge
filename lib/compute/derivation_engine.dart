@@ -3843,8 +3843,16 @@ class DerivationEngine {
       final spanLo = day.sleepOnsetSec > 0
           ? math.min(napLo, day.sleepOnsetSec)
           : napLo;
-      final wristOffSpans = await LocalDb.wristOffSpans(spanLo, napHi);
-      final chargingSpans = await LocalDb.chargingSpans(spanLo, napHi);
+      // M5: the owning device should come from the resolved coverage spans
+      // (coverage_resolver.dart), not the primary constant. On a
+      // single-device install this is not a placeholder — it is the correct
+      // and only answer, and behaviour is identical to today.
+      final wristOffSpans = await LocalDb.wristOffSpans(
+        spanLo, napHi, deviceId: LocalDb.kPrimaryDeviceId,
+      );
+      final chargingSpans = await LocalDb.chargingSpans(
+        spanLo, napHi, deviceId: LocalDb.kPrimaryDeviceId,
+      );
 
       // PERSONAL movement floor — ESTIMATED ONCE, THEN FROZEN.
       //

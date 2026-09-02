@@ -78,7 +78,10 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     final engine = BleEngine(
       onRecord: (sample, raw) => LocalDb.insertRecord(raw, sample),
       onState: (_) {},
-      onEvent: (id, ts, hex) => LocalDb.insertEvent(id, ts, hex),
+      // This path drains exactly the one paired band (PairedDevice.load()),
+      // so kPrimaryDeviceId is the correct value here, not a placeholder.
+      onEvent: (id, ts, hex) =>
+          LocalDb.insertEvent(id, ts, hex, deviceId: LocalDb.kPrimaryDeviceId),
       log: (l) => debugPrint('[bgsync] $l'),
       onRecordsBatch: LocalDb.insertRecordsBatch,
       // Routed through BandHost (M1a) rather than calling

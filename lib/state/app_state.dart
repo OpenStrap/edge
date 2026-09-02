@@ -1206,7 +1206,12 @@ class AppState extends ChangeNotifier {
       onRecord: _onRecord,
       onState: _onEngineState,
       log: _log,
-      onEvent: _onLiveEvent,
+      // M2: forward the session's real device id once DeviceSession exists;
+      // BleEngine's EventSink typedef has no device field, so the id names
+      // itself at this construction closure rather than widening the
+      // engine's callback shape for a value it does not have.
+      onEvent: (id, ts, hex) =>
+          _onLiveEvent(id, ts, hex, LocalDb.kPrimaryDeviceId),
       onRecordsBatch: LocalDb.insertRecordsBatch,
       // RESUMABLE SYNC: atomic commit of decoded rows + continuation cursor
       // before the HISTORY_END ACK, and a reader to seed the offload frontier
@@ -1300,7 +1305,9 @@ class AppState extends ChangeNotifier {
           onRecord: _onRecord,
           onState: _onEngineState,
           log: _log,
-          onEvent: _onLiveEvent,
+          // M2: same marker as the constructor above.
+          onEvent: (id, ts, hex) =>
+              _onLiveEvent(id, ts, hex, LocalDb.kPrimaryDeviceId),
         );
   }
 
@@ -2094,8 +2101,11 @@ class AppState extends ChangeNotifier {
   // Live (foreground / kept-alive) event path: persist every event, then let the
   // gesture dispatcher act on it. Headless drain (background_sync) persists only —
   // it must never replay an old tap as a live action.
-  void _onLiveEvent(int id, int ts, String hex) {
-    LocalDb.insertEvent(id, ts, hex);
+  void _onLiveEvent(int id, int ts, String hex, String deviceId) {
+    LocalDb.insertEvent(id, ts, hex, deviceId: deviceId);
+    // M3: gesture dispatch and the alarm handler stay unscoped — neither is
+    // device-scoped in M3's scope, and a double-tap on either band should
+    // still log water.
     _handleAlarmEvent(id, ts);
     _gestureDispatcher.onEvent(id, ts, hex);
   }

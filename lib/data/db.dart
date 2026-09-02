@@ -2477,31 +2477,47 @@ class LocalDb {
   /// State is carried in from BEFORE [loSec] so a window that opens mid-removal
   /// is still covered, and an unterminated removal extends to [hiSec] rather
   /// than being dropped (absent evidence of return is not evidence of return).
-  static Future<List<List<int>>> wristOffSpans(int loSec, int hiSec) =>
+  static Future<List<List<int>>> wristOffSpans(
+    int loSec,
+    int hiSec, {
+    required String deviceId,
+  }) =>
       _toggleSpans(
         loSec,
         hiSec,
         onId: proto.EventId.wristOn,
         offId: proto.EventId.wristOff,
+        deviceId: deviceId,
       );
 
   /// Spans ([startSec, endSec]) in [loSec, hiSec) during which the band was on
   /// the charger — off-wrist by definition, and motionless.
-  static Future<List<List<int>>> chargingSpans(int loSec, int hiSec) =>
+  static Future<List<List<int>>> chargingSpans(
+    int loSec,
+    int hiSec, {
+    required String deviceId,
+  }) =>
       _toggleSpans(
         loSec,
         hiSec,
         onId: proto.EventId.chargingOff,
         offId: proto.EventId.chargingOn,
+        deviceId: deviceId,
       );
 
   /// Build "state active" spans from a pair of toggle events, clipped to
   /// [loSec, hiSec). [offId] opens a span; [onId] closes it.
+  ///
+  /// [deviceId] is required, not optional-with-default: without it, one
+  /// device's charging spans mask a DIFFERENT device's worn night — put band
+  /// B on the charger and band A's real sleep gets excluded as "charging",
+  /// silently, and it survives the 3-day prune into the baselines.
   static Future<List<List<int>>> _toggleSpans(
     int loSec,
     int hiSec, {
     required int onId,
     required int offId,
+    required String deviceId,
   }) async {
     if (hiSec <= loSec) return const [];
     final db = await instance;
@@ -2509,16 +2525,16 @@ class LocalDb {
     final prior = await db.query(
       'band_events',
       columns: ['ts', 'event_id'],
-      where: 'ts < ? AND event_id IN (?, ?)',
-      whereArgs: [loSec, onId, offId],
+      where: 'device_id = ? AND ts < ? AND event_id IN (?, ?)',
+      whereArgs: [deviceId, loSec, onId, offId],
       orderBy: 'ts DESC',
       limit: 1,
     );
     final rows = await db.query(
       'band_events',
       columns: ['ts', 'event_id'],
-      where: 'ts >= ? AND ts < ? AND event_id IN (?, ?)',
-      whereArgs: [loSec, hiSec, onId, offId],
+      where: 'device_id = ? AND ts >= ? AND ts < ? AND event_id IN (?, ?)',
+      whereArgs: [deviceId, loSec, hiSec, onId, offId],
       orderBy: 'ts ASC',
     );
 
@@ -5547,7 +5563,17 @@ class LocalDb {
     );
   }
 
-  static Future<void> insertEvent(int eventId, int ts, String hex) async {
+  /// [deviceId] is required, not defaulted — a default here is exactly how a
+  /// second device's events would silently keep landing on the primary's key.
+  /// Every caller names the device explicitly; see the M3 spec's call-site
+  /// table for why each one is correct in M3 (a marked `kPrimaryDeviceId`
+  /// today, a real per-session id from M2 onward).
+  static Future<void> insertEvent(
+    int eventId,
+    int ts,
+    String hex, {
+    required String deviceId,
+  }) async {
     final capturedAt = DateTime.now().millisecondsSinceEpoch;
     // Parse BEFORE acquiring the handle so both inserts run back-to-back on one
     // validated `db` with no intervening await — minimizing the closed-DB race
@@ -5563,12 +5589,14 @@ class LocalDb {
     final battery = parsed == null ? null : batteryRowFromEvent(parsed);
     await _guardedWrite((db) async {
       await db.insert('events', {
+        'device_id': deviceId,
         'hex': hex,
         'event_id': eventId,
         'ts': ts,
         'captured_at': capturedAt,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
       await db.insert('band_events', {
+        'device_id': deviceId,
         'hex': hex,
         'event_id': eventId,
         'name': parsed?.name ?? proto.EventId.name(eventId),
@@ -5581,7 +5609,7 @@ class LocalDb {
       if (battery != null) {
         await db.insert(
           'band_battery',
-          battery,
+          {'device_id': deviceId, ...battery},
           conflictAlgorithm: ConflictAlgorithm.ignore,
         );
       }

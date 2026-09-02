@@ -362,7 +362,8 @@ void main() {
     'structured band signals persist event history and battery samples',
     () async {
       const eventHex = '3000070000105e5f';
-      await LocalDb.insertEvent(7, 1600000000, eventHex);
+      await LocalDb.insertEvent(7, 1600000000, eventHex,
+          deviceId: LocalDb.kPrimaryDeviceId);
       await LocalDb.insertBandBatterySample(
         ts: 1600000100,
         batteryPct: 77.0,
