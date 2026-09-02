@@ -35,7 +35,7 @@ import '../../ble/adapters/_registry.dart'
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
-import '../../ble/ble_state.dart' show BandStatus;
+import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
 import '../../notify/battery_forecast.dart';
@@ -457,6 +457,21 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
 
 /// Choose which kind of sensor to pair, then hand off to the pairing screen.
 Future<void> addSensor(BuildContext c) async {
+  // Count paired secondary devices (the `device` table minus the primary row).
+  // Refuse the pairing here, with the reason, rather than letting it succeed
+  // and then silently queue forever at connect time.
+  final secondaryCount = (await LocalDb.deviceRows())
+      .where((r) => r['id'] != LocalDb.kPrimaryDeviceId)
+      .length;
+  if (secondaryCount >= kMaxConcurrentSecondaryLinks) {
+    if (!c.mounted) return;
+    await showReasonSheet(
+        c,
+        'Two sensors is the most this phone will keep connected at once. '
+        'Remove one to add another.');
+    return;
+  }
+  if (!c.mounted) return;
   final p = P.of(c);
   final choice = await showModalBottomSheet<int>(
     context: c,

@@ -58,7 +58,13 @@ import 'adapters/ble_hrs.dart';
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost, HrsReading;
 import 'ble_state.dart'
-    show BleBlocker, BleUnavailableException, classifyBleBlocker, withScanLock;
+    show
+        BleBlocker,
+        BleUnavailableException,
+        classifyBleBlocker,
+        withScanLock,
+        acquireSecondaryLinkSlot,
+        releaseSecondaryLinkSlot;
 import 'oura_link.dart' show OuraLink;
 
 export 'adapters/host.dart' show HrsReading;
@@ -92,6 +98,11 @@ class HrsLink {
   BandHost? _host;
 
   bool _armed = false;
+
+  /// True while this instance holds a secondary-link slot (acquired before
+  /// connect in [_arm], released exactly once from [disarm]). Guards against
+  /// a double-release, which would hand a slot to two connects at once.
+  bool _holdsSecondaryLinkSlot = false;
 
   /// What the sensor is saying right now, or null when none is armed.
   ///
@@ -492,6 +503,19 @@ class HrsLink {
     try {
       final device = BluetoothDevice.fromId(remoteId);
       _device = device;
+      // A cap on concurrent SECONDARY links (never the band's own connect —
+      // see ble_state.dart's kMaxConcurrentSecondaryLinks doc). Acquired
+      // before connect, released only when the link tears down in [disarm]
+      // — a live GATT connection is the resource being capped, not the act
+      // of opening one.
+      await acquireSecondaryLinkSlot();
+      if (_disarms != disarmsAtStart) {
+        // Disarmed while queued for a slot — release it and bail without
+        // ever connecting.
+        releaseSecondaryLinkSlot();
+        return false;
+      }
+      _holdsSecondaryLinkSlot = true;
       await device.connect(timeout: const Duration(seconds: 12));
       // Connect, bond, MTU and discovery are HOST work and stay on this side
       // of the seam. The adapter is handed the result and nothing else.
@@ -563,6 +587,12 @@ class HrsLink {
     final d = _device;
     _device = null;
     _armed = false;
+    // The link tears down here, not at the connect call site — see
+    // acquireSecondaryLinkSlot's doc comment for why the two are split.
+    if (_holdsSecondaryLinkSlot) {
+      _holdsSecondaryLinkSlot = false;
+      releaseSecondaryLinkSlot();
+    }
     // Null, not the last reading: a number left on screen after the link died
     // is the one lie this surface can tell.
     _reading.value = null;

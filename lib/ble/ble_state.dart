@@ -1843,3 +1843,70 @@ class WriteChain {
     return completer.future;
   }
 }
+
+/// How many SECONDARY links (everything that is not the primary band) may be
+/// connected at once.
+///
+/// A GUESS. Android's real concurrent-GATT ceiling is per-OEM and undocumented;
+/// published behaviour ranges from 4 to 7 client connections and some budget phones
+/// are lower. iOS has no published ceiling and has never been observed to refuse.
+/// So this is a self-imposed floor chosen to be smaller than every number anyone
+/// reports, not a measurement — if a real device refuses a third link, lower it to 1
+/// and the primary still connects.
+///
+/// THE PRIMARY BAND IS NOT COUNTED and never queues. It holds the offload link the
+/// safe-trim invariant depends on (commit-then-ACK, flash trim), and making it wait
+/// behind a chest strap would turn a sensor's 12 s connect timeout into a delayed
+/// band sync — which is exactly the regression this milestone must not ship. With
+/// today's two pairable sensor kinds (kBleHrs, kOura) the cap is never reached, so
+/// this is a guard for the N-device future, not a change in behaviour.
+const int kMaxConcurrentSecondaryLinks = 2;
+
+int _secondaryLinksInUse = 0;
+final List<Completer<void>> _secondaryLinkWaiters = [];
+
+/// Wait for a free secondary-link slot and take it. Pairs with
+/// [releaseSecondaryLinkSlot] — the resource being capped is a LIVE GATT
+/// connection, not the act of opening one, so acquire/release do not have to
+/// nest inside one call the way [withSecondaryLinkSlot] does: a caller whose
+/// link outlives the method that opened it (HrsLink._arm, OuraLink's offload
+/// connect) acquires here before `connect()` and releases from wherever the
+/// link actually tears down (disarm/finally), not from the connect call site.
+Future<void> acquireSecondaryLinkSlot() async {
+  if (_secondaryLinksInUse >= kMaxConcurrentSecondaryLinks) {
+    final waiter = Completer<void>();
+    _secondaryLinkWaiters.add(waiter);
+    await waiter.future;
+  }
+  _secondaryLinksInUse++;
+}
+
+/// Release a slot taken by [acquireSecondaryLinkSlot]. Must be called exactly
+/// once per successful acquire — callers that can fail before acquiring
+/// (queued and cancelled, body threw before connect) must not call this.
+void releaseSecondaryLinkSlot() {
+  if (_secondaryLinksInUse > 0) _secondaryLinksInUse--;
+  if (_secondaryLinkWaiters.isNotEmpty) {
+    _secondaryLinkWaiters.removeAt(0).complete();
+  }
+}
+
+/// Run [body] holding one secondary-link slot for exactly [body]'s duration.
+/// Waits — never fails — when the cap is reached: a third device's connect is
+/// late, not refused, which is what the plan means by "a queue, not a failure".
+///
+/// For a link that OUTLIVES this call (a live GATT session, not a one-shot
+/// probe), use [acquireSecondaryLinkSlot]/[releaseSecondaryLinkSlot] directly
+/// instead — see their doc comments.
+///
+/// ponytail: one global semaphore with FIFO ordering, so a queued connect waits out
+/// the running one's whole connect+discovery (~12-20 s). Per-family fairness only if
+/// a real device is ever starved.
+Future<T> withSecondaryLinkSlot<T>(Future<T> Function() body) async {
+  await acquireSecondaryLinkSlot();
+  try {
+    return await body();
+  } finally {
+    releaseSecondaryLinkSlot();
+  }
+}

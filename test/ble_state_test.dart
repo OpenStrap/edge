@@ -749,4 +749,68 @@ void main() {
       expect(await withScanLock(() async => 7), 7);
     });
   });
+
+  group('withSecondaryLinkSlot', () {
+    test('grants up to kMaxConcurrentSecondaryLinks concurrently', () async {
+      final order = <String>[];
+      final holds = List.generate(
+          kMaxConcurrentSecondaryLinks, (_) => Completer<void>());
+      final futures = <Future<void>>[];
+      for (var i = 0; i < kMaxConcurrentSecondaryLinks; i++) {
+        futures.add(withSecondaryLinkSlot(() async {
+          order.add('start$i');
+          await holds[i].future;
+          order.add('end$i');
+        }));
+      }
+      await Future<void>.delayed(Duration.zero);
+      // Every slot up to the cap started immediately — none queued.
+      expect(order.length, kMaxConcurrentSecondaryLinks);
+      for (final h in holds) {
+        h.complete();
+      }
+      await Future.wait(futures);
+    });
+
+    test('a caller past the cap queues until a slot frees', () async {
+      final order = <String>[];
+      final holds = List.generate(
+          kMaxConcurrentSecondaryLinks, (_) => Completer<void>());
+      final futures = <Future<void>>[];
+      for (var i = 0; i < kMaxConcurrentSecondaryLinks; i++) {
+        futures.add(withSecondaryLinkSlot(() async {
+          order.add('start$i');
+          await holds[i].future;
+        }));
+      }
+      await Future<void>.delayed(Duration.zero);
+      final extra = withSecondaryLinkSlot(() async {
+        order.add('extra-start');
+      });
+      await Future<void>.delayed(Duration.zero);
+      // The cap is full — the extra caller has not started yet.
+      expect(order.contains('extra-start'), isFalse);
+      holds[0].complete();
+      await extra;
+      expect(order.contains('extra-start'), isTrue);
+      for (final h in holds) {
+        if (!h.isCompleted) h.complete();
+      }
+      await Future.wait(futures);
+    });
+
+    test('a held body that throws releases its slot', () async {
+      await expectLater(
+        withSecondaryLinkSlot<void>(() async => throw StateError('link dropped')),
+        throwsStateError,
+      );
+      // Cap's worth of slots must all be free again — grantable without
+      // queuing behind the failed one.
+      final futures = List.generate(
+        kMaxConcurrentSecondaryLinks,
+        (_) => withSecondaryLinkSlot(() async => null),
+      );
+      await Future.wait(futures);
+    });
+  });
 }

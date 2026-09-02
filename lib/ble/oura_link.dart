@@ -72,6 +72,7 @@ import 'adapters/adapter.dart';
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost;
 import 'adapters/oura.dart';
+import 'ble_state.dart' show withSecondaryLinkSlot;
 
 /// Keychain item name for one ring's pairing key. Suffixed with the MINTED
 /// device id, never the BLE remote id — that rotates.
@@ -280,35 +281,43 @@ class OuraLink {
     final cursor = await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;
 
     try {
-      final device = BluetoothDevice.fromId(remoteId);
-      _device = device;
-      await device.connect(timeout: const Duration(seconds: 20));
-      final services = await device.discoverServices();
-      final link = GattBandLink(
-        entry: kOura,
-        services: services,
-        onLog: (m) => debugPrint('[oura] $m'),
-      );
-      _link = link;
-      final missing = link.missingCharacteristics(kOura.requiredCharacteristics);
-      if (missing.isNotEmpty) {
-        debugPrint('[oura] ${kOura.label}: missing required characteristic(s) '
-            '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
-        await stop();
-        return false;
-      }
-      final host = _makeHost(
-        deviceId,
-        OuraAdapter(
-          key: key,
-          startCursorDs: cursor,
-          anchor: _parseAnchor(_anchor),
-          nowSeconds: _now,
-        ),
-      );
-      _host = host;
-      await host.run(link);
-      return true;
+      // A cap on concurrent SECONDARY links (never the band's own connect —
+      // see ble_state.dart's kMaxConcurrentSecondaryLinks doc). This offload
+      // sync's connect, drain and disconnect all complete inside this one
+      // call (the `finally` below always tears it down), so the simple
+      // scoped form is correct here — unlike HrsLink's live session, nothing
+      // outlives this method.
+      return await withSecondaryLinkSlot(() async {
+        final device = BluetoothDevice.fromId(remoteId);
+        _device = device;
+        await device.connect(timeout: const Duration(seconds: 20));
+        final services = await device.discoverServices();
+        final link = GattBandLink(
+          entry: kOura,
+          services: services,
+          onLog: (m) => debugPrint('[oura] $m'),
+        );
+        _link = link;
+        final missing = link.missingCharacteristics(kOura.requiredCharacteristics);
+        if (missing.isNotEmpty) {
+          debugPrint('[oura] ${kOura.label}: missing required characteristic(s) '
+              '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
+          await stop();
+          return false;
+        }
+        final host = _makeHost(
+          deviceId,
+          OuraAdapter(
+            key: key,
+            startCursorDs: cursor,
+            anchor: _parseAnchor(_anchor),
+            nowSeconds: _now,
+          ),
+        );
+        _host = host;
+        await host.run(link);
+        return true;
+      });
     } catch (e) {
       debugPrint('[oura] sync failed: $e');
       return false;
@@ -572,14 +581,21 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
   // orphaned secret with no row pointing at it.
   var paired = false;
   try {
+    // A cap on concurrent SECONDARY links (never the band's own connect —
+    // see ble_state.dart's kMaxConcurrentSecondaryLinks doc). This pairing
+    // flow's connect and disconnect both complete inside this one call (the
+    // outer `finally` always tears it down), so the simple scoped form is
+    // correct here.
+    return await withSecondaryLinkSlot<String?>(() async {
     await device.connect(timeout: const Duration(seconds: 20));
     final services = await device.discoverServices();
-    link = GattBandLink(
+    final localLink = GattBandLink(
       entry: kOura,
       services: services,
       onLog: (m) => debugPrint('[oura pair] $m'),
     );
-    final missing = link.missingCharacteristics(kOura.requiredCharacteristics);
+    link = localLink; // captured var, so the outer `finally` can still close it
+    final missing = localLink.missingCharacteristics(kOura.requiredCharacteristics);
     if (missing.isNotEmpty) {
       return 'That device does not expose the ring service this app speaks.';
     }
@@ -594,7 +610,7 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
     // The alternative is a second copy of `oura.dart`'s private `_Inbox`, for
     // three replies, once, during pairing.
     final inbox = <OuraFrame>[];
-    final sub = link.notify(kOuraNotifyChar).listen((rec) {
+    final sub = localLink.notify(kOuraNotifyChar).listen((rec) {
       final f = parseOuraFrame(rec.$2);
       if (f != null) inbox.add(f);
     });
@@ -624,7 +640,7 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
         iOptions: _kApple,
         mOptions: _kMacos,
       );
-      if (!await link.write(kOuraCommandChar, ouraCmdSetAuthKey(key))) {
+      if (!await localLink.write(kOuraCommandChar, ouraCmdSetAuthKey(key))) {
         return 'The ring would not accept a command. Try again with it on '
             'the charger and next to the phone.';
       }
@@ -636,7 +652,7 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
       if (installed == null || ouraSetAuthKeyResult(installed) != 0) {
         return _kResetFirst;
       }
-      if (!await link.write(kOuraCommandChar, ouraCmdAuthNonce())) {
+      if (!await localLink.write(kOuraCommandChar, ouraCmdAuthNonce())) {
         return 'The ring would not accept a command. Try again with it on '
             'the charger and next to the phone.';
       }
@@ -646,7 +662,7 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
             'the charger, keep it next to the phone, and try again.';
       }
       final answer = ouraAuthResponse(key, ouraAuthNonce(challenge)!);
-      if (!await link.write(kOuraCommandChar, ouraCmdAuthenticate(answer))) {
+      if (!await localLink.write(kOuraCommandChar, ouraCmdAuthenticate(answer))) {
         return 'The ring would not accept the pairing answer.';
       }
       final replyFrame = await waitFor((f) => ouraAuthResult(f) != null);
@@ -690,6 +706,7 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
     );
     paired = true;
     return null;
+    });
   } catch (e) {
     debugPrint('[oura pair] failed: $e');
     return 'Could not connect to that ring.';
