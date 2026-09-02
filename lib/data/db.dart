@@ -337,7 +337,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 49;
+  static const int schemaVersion = 50;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -427,6 +427,7 @@ class LocalDb {
         await _createSleepNap(db);
         await _createWorkoutRoute(db);
         await _createNotifFired(db);
+        await _createAlarmSchedule(db);
         await _ensureCoachViews(db);
       },
       onUpgrade: (db, oldV, newV) async {
@@ -921,6 +922,25 @@ class LocalDb {
           await _createDevice(db);
           await _ensureLiveCoverageDeviceId(db);
         }
+        if (oldV < 50) {
+          // The weekly alarm schedule — one row per weekday (0=Mon..6=Sun,
+          // matching the 0-indexed convention `workout_screen.dart` already
+          // uses for weekday array positions; DateTime.weekday itself stays
+          // 1=Mon..7=Sun everywhere else). CREATE TABLE IF NOT EXISTS and
+          // NOTHING else: a new empty table has no existing row for the PK to
+          // reject, so a throw here has nothing to roll back onto — which
+          // matters, because a throw in here rolls the WHOLE ladder back and
+          // quarantines the user's database (invariant 11). The legacy
+          // single-alarm value (`alarm_epoch` in SharedPreferences) is seeded
+          // into this table from AppState at startup, not here — this layer
+          // never touches SharedPreferences (see the doc on _createDevice's
+          // neighbours), and a plugin-channel read has no place inside a
+          // migration ladder step running under iOS's CPU watchdog.
+          //
+          // Ships without a kAlgoVersion bump: the alarm is not a health
+          // metric and nothing here changes a derived number.
+          await _createAlarmSchedule(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -998,6 +1018,7 @@ class LocalDb {
     await _ensureDayResultSkippedColumn(db);
     await _ensureDayResultPartialColumn(db);
     await _createNotifFired(db);
+    await _createAlarmSchedule(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
@@ -1414,6 +1435,61 @@ class LocalDb {
       ),
       bestEffort: true,
     );
+  }
+
+  // ── alarm_schedule — the weekly wake-alarm schedule ─────────────────────
+
+  static Future<void> _createAlarmSchedule(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS alarm_schedule (
+        weekday INTEGER NOT NULL,
+        hour    INTEGER NOT NULL,
+        minute  INTEGER NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (weekday)
+      )
+    ''');
+  }
+
+  /// Every configured weekday row, in no particular order — callers that care
+  /// about weekday order (the UI, [nextAlarmOccurrence]) sort/fill it
+  /// themselves. A weekday absent from this list has never been configured;
+  /// it is NOT the same as a row with `enabled = 0`, and callers must not
+  /// collapse the two (see `AlarmScheduleEntry` / `fillDefaultAlarmSchedule`
+  /// in state/alarm_schedule.dart, which is where that distinction is made).
+  static Future<List<Map<String, Object?>>> alarmScheduleRows() async {
+    final db = await instance;
+    return db.query('alarm_schedule');
+  }
+
+  /// Upsert one weekday's slot. [weekday] is 0=Mon..6=Sun (see
+  /// `_createAlarmSchedule`'s doc); out-of-range values are the caller's bug,
+  /// not something this layer silently clamps.
+  static Future<void> setAlarmScheduleDay({
+    required int weekday,
+    required int hour,
+    required int minute,
+    required bool enabled,
+  }) async {
+    final db = await instance;
+    await db.insert(
+      'alarm_schedule',
+      {
+        'weekday': weekday,
+        'hour': hour,
+        'minute': minute,
+        'enabled': enabled ? 1 : 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Wipe the whole weekly schedule — the "Cancel-all" half of disabling the
+  /// alarm (see AppState.disableAlarm), so a cancelled alarm cannot silently
+  /// re-arm itself from a schedule the user thought they'd cleared.
+  static Future<void> clearAlarmSchedule() async {
+    final db = await instance;
+    await db.delete('alarm_schedule');
   }
 
   /// sleep_nap — the user's edits to a day's naps.

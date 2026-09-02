@@ -54,6 +54,7 @@ import '../stress/breath_phases.dart';
 // `runBackupIfDue` is also the name of the AppState method below, so the pure
 // scheduler is imported under an alias rather than shadowed by it.
 import '../data/auto_backup.dart' as backup show runBackupIfDue;
+import 'alarm_schedule.dart';
 import 'prefs.dart';
 import '../data/db.dart';
 import '../data/live_coverage_policy.dart';
@@ -2162,6 +2163,8 @@ class AppState extends ChangeNotifier {
         await LocalDb.getCursorInt('rec_ts_hw') ?? lastSynced?.tsEpoch;
     await LocalDb.refreshComputeFreshness();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
+    await _loadAlarmSchedule();
+    await _seedAlarmScheduleFromLegacyIfNeeded();
     // Band-gesture mapping: load the saved action + query native capabilities so the
     // settings UI knows what this platform supports. Best-effort, non-blocking.
     unawaited(gestureSettings.bootstrap());
@@ -2320,6 +2323,7 @@ class AppState extends ChangeNotifier {
         checkInDoneToday: await _checkInDoneToday(),
         medDefs: meds.defs,
         medDosesToday: meds.doses,
+        armedTonight: _alarmArmedTonight,
       );
       // The strap-buzz half of the medication reminder, off the SAME schedule
       // read the OS dose slots above were armed from — one read feeds both
@@ -3923,6 +3927,113 @@ class AppState extends ChangeNotifier {
   }
   int? _savedAlarm;
 
+  // ── weekly alarm schedule (replaces a single next-occurrence value) ────────
+  // The 7-day schedule lives in `alarm_schedule` (lib/data/db.dart); this cache
+  // is always exactly 7 entries (see fillDefaultAlarmSchedule) so the UI can
+  // render every weekday row unconditionally, and [_armNextAlarmOccurrence]
+  // never has to special-case a weekday nobody has touched.
+  List<AlarmScheduleEntry> _schedule = fillDefaultAlarmSchedule(const []);
+  List<AlarmScheduleEntry> get alarmSchedule => _schedule;
+
+  Future<void> _loadAlarmSchedule() async {
+    try {
+      final rows = await LocalDb.alarmScheduleRows();
+      _schedule = fillDefaultAlarmSchedule(
+          [for (final r in rows) AlarmScheduleEntry.fromRow(r)]);
+    } catch (e) {
+      _log('[alarm] schedule load failed: $e');
+    }
+  }
+
+  /// One-time 49→50 seed: a legacy single-alarm value with nothing yet in
+  /// `alarm_schedule` becomes that weekday's slot. Safe to call on every
+  /// launch — it is a no-op the moment ANY row exists, including a schedule
+  /// the user has since cleared via Cancel-all, which must stay cleared
+  /// rather than resurrect the old value.
+  Future<void> _seedAlarmScheduleFromLegacyIfNeeded() async {
+    try {
+      if (_savedAlarm == null) return;
+      final rows = await LocalDb.alarmScheduleRows();
+      if (rows.isNotEmpty) return;
+      final seed = seedEntryFromLegacyEpoch(_savedAlarm!);
+      await LocalDb.setAlarmScheduleDay(
+        weekday: seed.weekday,
+        hour: seed.hour,
+        minute: seed.minute,
+        enabled: seed.enabled,
+      );
+      await _loadAlarmSchedule();
+    } catch (e) {
+      _log('[alarm] legacy schedule seed failed: $e');
+    }
+  }
+
+  /// Change one weekday's slot and re-arm immediately when connected —
+  /// waiting for the next connect/sync would leave the band holding the OLD
+  /// schedule while the screen already claims the new one.
+  Future<void> setScheduleDay({
+    required int weekday,
+    int? hour,
+    int? minute,
+    bool? enabled,
+  }) async {
+    final current = _schedule.firstWhere(
+      (e) => e.weekday == weekday,
+      orElse: () => AlarmScheduleEntry(
+          weekday: weekday,
+          hour: defaultAlarmHour,
+          minute: defaultAlarmMinute,
+          enabled: false),
+    );
+    final next =
+        current.copyWith(hour: hour, minute: minute, enabled: enabled);
+    await LocalDb.setAlarmScheduleDay(
+      weekday: next.weekday,
+      hour: next.hour,
+      minute: next.minute,
+      enabled: next.enabled,
+    );
+    await _loadAlarmSchedule();
+    notifyListeners();
+    if (isConnected) await _armNextAlarmOccurrence();
+  }
+
+  /// Compute + arm the next scheduled occurrence, skipping the write when it
+  /// already matches what's armed (don't hammer the strap on every sync).
+  /// Called after every successful connect and after each sync completes —
+  /// see the `_armNextAlarmOccurrence()` call sites in openSession,
+  /// _reconnect, and their `_kickSyncBurst` completion callbacks — so an
+  /// edited schedule or a just-fired alarm re-arms with no manual step, and a
+  /// fired one-shot (which clears `_savedAlarm`) picks up its next occurrence
+  /// on the very next connect.
+  Future<void> _armNextAlarmOccurrence() async {
+    if (!isConnected) return;
+    try {
+      final epoch = await armNextScheduledOccurrence(
+        engine: engine,
+        schedule: _schedule,
+        currentArmedEpoch: _savedAlarm ?? device.alarmEpoch,
+      );
+      if (epoch == null) return;
+      await _onArmed(DateTime.fromMillisecondsSinceEpoch(epoch * 1000), epoch);
+    } catch (e) {
+      _log('[alarm] weekly-schedule arm failed: $e');
+    }
+  }
+
+  /// Whether the currently-armed alarm — from either source, the schedule
+  /// engine or a still-live manual arm — falls on TODAY's calendar date. Feeds
+  /// the 7pm "no alarm set for tonight" check (Feature 2.2): the honest, real
+  /// armed state, not merely that today's schedule row happens to be enabled
+  /// — a slot that never latched is not something this may claim is armed.
+  bool get _alarmArmedTonight {
+    final epoch = alarmEpoch;
+    if (epoch == null) return false;
+    final at = DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
+    final now = DateTime.now();
+    return at.year == now.year && at.month == now.month && at.day == now.day;
+  }
+
   // ── alarm confirmation state machine ────────────────────────────────────────
   // The strap CONFIRMS an alarm actually latched via event 56 (ALARM_SET) and
   // reports firing via 57/58 (+60). This replaces the parked GET_ALARM readback
@@ -3966,11 +4077,19 @@ class AppState extends ChangeNotifier {
       // phone and an explicit refusal — the engine log says which.
       throw Exception('Alarm not set');
     }
-    final epoch = armed.millisecondsSinceEpoch ~/ 1000;
+    await _onArmed(armed, armed.millisecondsSinceEpoch ~/ 1000);
+  }
+
+  /// Shared bookkeeping for anything that just armed the band: optimistic
+  /// display, the confirmation machine, the persisted epoch, and the grace
+  /// timer. [setAlarm] (an explicit write) and [_armNextAlarmOccurrence] (the
+  /// schedule engine) both funnel through here so the two can never drift
+  /// apart on what "armed" means.
+  Future<void> _onArmed(DateTime when, int epoch) async {
     _savedAlarm = epoch;
     device.alarmEpoch = epoch; // optimistic display
     _alarm.set(epoch, DateTime.now().millisecondsSinceEpoch); // await event 56
-    _alarmAutoRetried = false; // fresh user-initiated set gets its one retry
+    _alarmAutoRetried = false; // a fresh arm gets its one retry
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('alarm_epoch', epoch);
     // Nudge the UI once the grace window elapses so an unconfirmed alarm flips to
@@ -4001,6 +4120,7 @@ class AppState extends ChangeNotifier {
     if (_savedAlarm != epoch) return;
     if (_alarmAutoRetried || !isConnected) {
       notifyListeners();
+      unawaited(_notifyAlarmLatchFailed(epoch));
       return;
     }
     _alarmAutoRetried = true;
@@ -4027,6 +4147,36 @@ class AppState extends ChangeNotifier {
       return;
     }
     notifyListeners();
+    unawaited(_notifyAlarmLatchFailed(epoch));
+  }
+
+  /// The "alarm not confirmed" safety notification (Feature 2.1): fires once
+  /// per armed epoch, only once every retry this grace window can offer is
+  /// exhausted and the strap still never confirmed. Respects its own toggle
+  /// (default ON). Category device + critical priority rides the same
+  /// quiet-hours exemption as the band's other own-failure alerts (flat
+  /// battery, gone quiet) — a wake alarm that silently didn't latch is
+  /// exactly the kind of thing quiet hours must not swallow.
+  Future<void> _notifyAlarmLatchFailed(int epoch) async {
+    try {
+      final prefs = await NotificationPrefs.load();
+      if (!alarmLatchFailed(_alarm, epoch,
+          enabled: prefs.alarmLatchFailedEnabled)) {
+        return;
+      }
+      await NotificationCenter.instance.emit(NotificationEvent(
+        dedupeKey: 'alarm_latch_failed:$epoch',
+        category: NotifCategory.device,
+        priority: NotifPriority.critical,
+        title: 'Alarm not confirmed',
+        body: 'The band did not confirm this alarm — check the strap.',
+        date: todayLabel(),
+        route: kRouteAlarm,
+        osId: NotificationService.idAlarmLatchFailed,
+      ));
+    } catch (e) {
+      _log('[alarm] latch-failure notification skipped: $e');
+    }
   }
 
   /// Fire the strap's alarm haptics immediately — a "test buzz" so the user can
@@ -4053,6 +4203,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// The UI's "Cancel-all": DISABLE_ALARM on the band, and clear the whole
+  /// weekly schedule — not just the currently-armed instant — so nothing left
+  /// in `alarm_schedule` can silently re-arm this on the next connect/sync.
   Future<void> disableAlarm() async {
     if (!isConnected) throw Exception('Connect to your strap first');
     await engine.disableAlarm();
@@ -4062,6 +4215,8 @@ class AppState extends ChangeNotifier {
     _alarmGraceTimer?.cancel();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('alarm_epoch');
+    await LocalDb.clearAlarmSchedule();
+    _schedule = fillDefaultAlarmSchedule(const []);
     notifyListeners();
   }
 
@@ -4264,6 +4419,9 @@ class AppState extends ChangeNotifier {
       // Arm the strap's high-frequency sync window when a wake alarm is near
       // (denser flushes → fresher overnight data ahead of the alarm).
       await _refreshHighFreqWakeWindow();
+      // Compute + arm the next weekly-schedule occurrence on every successful
+      // connect (Feature 1's arming engine) — see _armNextAlarmOccurrence.
+      await _armNextAlarmOccurrence();
       _log('Listening — live streams on, historical burst runs concurrently.');
       // Enable live streams PROMPTLY, then let the historical burst run
       // CONCURRENTLY (unawaited, single-flight via _kickSyncBurst). History and
@@ -4289,6 +4447,9 @@ class AppState extends ChangeNotifier {
           );
           // Re-evaluate the high-frequency wake window now the backlog landed.
           await _refreshHighFreqWakeWindow();
+          // Re-arm the weekly schedule now the sync completed (Feature 1: "on
+          // every successful connect AND after each sync").
+          await _armNextAlarmOccurrence();
           // The whole backlog landed → heavy foreground finalize (full sleep
           // staging + 24-h spectra over every stale day).
           _deriveScheduler.requestHeavy();
@@ -4398,6 +4559,9 @@ class AppState extends ChangeNotifier {
           // Arm the strap's high-frequency sync window when a wake alarm is
           // near (denser flushes ahead of the alarm).
           await _refreshHighFreqWakeWindow();
+          // Compute + arm the next weekly-schedule occurrence on every
+          // successful (re)connect — see _armNextAlarmOccurrence.
+          await _armNextAlarmOccurrence();
           // Live streams come up promptly; the FULL drain (no short timeout —
           // the ENTIRE offline backlog the band flashed while out of range)
           // runs concurrently, single-flight, exactly as in openSession.
@@ -4425,6 +4589,9 @@ class AppState extends ChangeNotifier {
               // Re-evaluate the high-frequency wake window now the backlog
               // landed.
               await _refreshHighFreqWakeWindow();
+              // Re-arm the weekly schedule now the sync completed (Feature 1:
+              // "on every successful connect AND after each sync").
+              await _armNextAlarmOccurrence();
               // Backlog (often an overnight gap) just landed → derive it.
               // Backgrounded, a flappy link (routine arm-swing dropouts)
               // reconnects many times an hour; each heavy pass spawns an
