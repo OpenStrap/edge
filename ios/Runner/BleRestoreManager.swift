@@ -39,6 +39,26 @@ import Flutter
 /// runHeadlessSync) is designed to make partial progress safely on every wake — commit
 /// whatever it drained before the window closes, resume from the durable cursor next time —
 /// rather than assuming it gets to run to completion in one continuous background session.
+
+/// Per-peripheral restore state. Replaces the three process-wide flags
+/// (`handedOff` / `idleAfterSync` / `appOwnsBand`), which were only ever correct
+/// while exactly one band could be provisioned: with two, band A's foreground
+/// connect set `appOwnsBand = true` and suppressed band B's background re-arm,
+/// presenting days later as "the app stopped syncing overnight" with no error.
+private struct ArmState {
+  /// The peripheral we hold a pending connect for. Retained here so ARC cannot
+  /// drop it mid-connect — a peripheral we no longer hold is one `cancelPending`
+  /// can no longer cancel, and the two centrals then fight over the band.
+  var peripheral: CBPeripheral?
+  /// True between a wake's `didConnect` and Dart's `syncDone` for THIS band.
+  var handedOff = false
+  /// Set after this band's wake-sync completes; suppresses re-arming until Dart
+  /// explicitly re-arms it on the next disconnect. Not a timer, not a cooldown.
+  var idleAfterSync = false
+  /// True while the app holds the live flutter_blue_plus connection to THIS band.
+  var appOwnsBand = false
+}
+
 class BleRestoreManager: NSObject {
   static let shared = BleRestoreManager()
 
@@ -47,25 +67,19 @@ class BleRestoreManager: NSObject {
 
   private var central: CBCentralManager?
   private var bandUUID: UUID?
-  // Peripherals we hold a pending connect for, retained so ARC doesn't drop them
-  // mid-connect. An array because willRestoreState hands back an array: dropping all but
-  // the first loses the retain on the rest, and a peripheral we no longer hold is one
-  // cancelPending can no longer cancel — so the two centrals would fight over it when the
-  // app reclaims the band. With one provisioned band there is exactly one entry.
-  private var pending: [CBPeripheral] = []
+  /// Provisioned bands and their arm state, keyed by CoreBluetooth peripheral UUID.
+  /// With one provisioned band there is exactly one entry and every loop below runs
+  /// once — byte-identical behaviour to the scalar version it replaces.
+  private var arms: [UUID: ArmState] = [:]
   private var channel: FlutterMethodChannel?
   private var flutterReady = false
   private var wakeQueuedBeforeReady = false
-  private var handedOff = false             // true between wake → Dart's syncDone
-  /// Set after a wake's sync completes; suppresses re-arming until Dart explicitly
-  /// re-arms on the next disconnect. Replaces the old time-based cooldown — no loop,
-  /// no timer.
-  private var idleAfterSync = false
   private var bgTask: UIBackgroundTaskIdentifier = .invalid
-  /// True while the app holds the live flutter_blue_plus connection (foreground OR
-  /// backgrounded-but-connected). The restore central must not arm a competing connect
-  /// to the same peripheral while this is true.
-  private var appOwnsBand = false
+
+  /// Insert-or-get, so a caller never has to branch on "first time for this UUID".
+  private func state(_ uuid: UUID) -> ArmState {
+    arms[uuid] ?? ArmState()
+  }
 
   // MARK: - Lifecycle
 
@@ -120,6 +134,7 @@ class BleRestoreManager: NSObject {
   func bandProvisioned(_ uuid: UUID) {
     saveBandUUID(uuid)
     bandUUID = uuid
+    if arms[uuid] == nil { arms[uuid] = ArmState() }
     ensureCentral()
     NSLog("[ble-restore] band provisioned — restore central created")
   }
@@ -139,29 +154,63 @@ class BleRestoreManager: NSObject {
         }
         result(nil)
       case "arm":
+        // Scalar String (today's shape) or a List<String> — either way, arm each uuid.
+        var uuids: [UUID] = []
         if let s = call.arguments as? String, let uuid = UUID(uuidString: s) {
+          uuids = [uuid]
+        } else if let list = call.arguments as? [String] {
+          uuids = list.compactMap(UUID.init(uuidString:))
+        }
+        for uuid in uuids {
           self.saveBandUUID(uuid)
           self.bandUUID = uuid
+          var s = self.state(uuid)
+          s.handedOff = false
+          s.idleAfterSync = false   // explicit (re-)arm request from Dart
+          self.arms[uuid] = s
+        }
+        if !uuids.isEmpty {
           // The band is provisioned by the time Dart arms; ensure the restore central
           // exists (it may have been deferred at launch on a fresh install).
           self.ensureCentral()
-          self.handedOff = false
-          self.idleAfterSync = false   // explicit (re-)arm request from Dart
           self.armIfAppropriate()
         }
         result(nil)
       case "setOwnsBand":
-        let owns = (call.arguments as? Bool) ?? false
-        self.appOwnsBand = owns
-        if owns {
-          // App reclaimed the band — drop our pending connect so the two centrals don't fight.
-          self.cancelPending()
-          NSLog("[ble-restore] app owns band — pending connect cancelled")
+        if let dict = call.arguments as? [String: Any],
+           let s = dict["uuid"] as? String, let uuid = UUID(uuidString: s) {
+          let owns = (dict["owns"] as? Bool) ?? false
+          var st = self.state(uuid)
+          st.appOwnsBand = owns
+          self.arms[uuid] = st
+          if owns {
+            self.cancelPending(uuid)
+            NSLog("[ble-restore] app owns band \(uuid.uuidString) — pending connect cancelled")
+          } else {
+            st.idleAfterSync = false
+            self.arms[uuid] = st
+            NSLog("[ble-restore] app released band \(uuid.uuidString) — arming recovery")
+            self.armIfAppropriate()
+          }
         } else {
-          // App released the band (connection dropped in background) — arm recovery.
-          self.idleAfterSync = false   // explicit re-arm request from Dart
-          NSLog("[ble-restore] app released band — arming recovery")
-          self.armIfAppropriate()
+          let owns = (call.arguments as? Bool) ?? false
+          for uuid in Array(self.arms.keys) {
+            var st = self.state(uuid)
+            st.appOwnsBand = owns
+            if owns {
+              self.arms[uuid] = st
+              self.cancelPending(uuid)
+            } else {
+              st.idleAfterSync = false
+              self.arms[uuid] = st
+            }
+          }
+          if owns {
+            NSLog("[ble-restore] app owns band — pending connect cancelled")
+          } else {
+            NSLog("[ble-restore] app released band — arming recovery")
+            self.armIfAppropriate()
+          }
         }
         result(nil)
       case "armRecoveryNow":
@@ -176,10 +225,12 @@ class BleRestoreManager: NSObject {
           self.beginBackground()
           self.saveBandUUID(uuid)
           self.bandUUID = uuid
-          self.appOwnsBand = false
+          var st = self.state(uuid)
+          st.appOwnsBand = false
+          st.handedOff = false
+          st.idleAfterSync = false
+          self.arms[uuid] = st
           self.ensureCentral()
-          self.handedOff = false
-          self.idleAfterSync = false
           self.armIfAppropriate()
           NSLog("[ble-restore] armRecoveryNow — recovery armed atomically")
           // The actual recovery (the no-timeout pending connect) is now held by
@@ -192,7 +243,11 @@ class BleRestoreManager: NSObject {
         }
         result(nil)
       case "disarm":
-        self.disarm()
+        if let s = call.arguments as? String, let uuid = UUID(uuidString: s) {
+          self.disarm(uuid)
+        } else {
+          self.disarm()
+        }
         result(nil)
       case "ready":
         self.flutterReady = true
@@ -204,9 +259,21 @@ class BleRestoreManager: NSObject {
       case "syncDone":
         // Dart finished the headless drain. Go idle (no re-arm) until the next explicit
         // arm from Dart — prevents a reconnect-drain loop with no timer/cooldown.
-        self.handedOff = false
-        self.idleAfterSync = true
-        self.cancelPending()
+        if let s = call.arguments as? String, let uuid = UUID(uuidString: s) {
+          var st = self.state(uuid)
+          st.handedOff = false
+          st.idleAfterSync = true
+          self.arms[uuid] = st
+          self.cancelPending(uuid)
+        } else {
+          for uuid in Array(self.arms.keys) where self.arms[uuid]?.handedOff == true {
+            var st = self.state(uuid)
+            st.handedOff = false
+            st.idleAfterSync = true
+            self.arms[uuid] = st
+            self.cancelPending(uuid)
+          }
+        }
         self.endBackground()
         result(nil)
       default:
@@ -225,59 +292,87 @@ class BleRestoreManager: NSObject {
   // MARK: - Pending connect
 
   private func armIfAppropriate() {
-    // The app holds the live connection — don't arm a competing connect.
-    if appOwnsBand { NSLog("[ble-restore] skip arm — app owns band"); return }
-    // Log every guard-fail reason: an unexplained no-arm is why background relaunch
-    // silently never happened (the band reappeared but nothing was pending to wake us).
-    guard !handedOff else { NSLog("[ble-restore] skip arm — handedOff"); return }
-    guard !idleAfterSync else { NSLog("[ble-restore] skip arm — idle after sync (awaiting re-arm)"); return }
+    // Process-level guards, evaluated once (unchanged from today, same log text).
     guard let central = central else { NSLog("[ble-restore] skip arm — no central"); return }
     guard central.state == .poweredOn else {
       NSLog("[ble-restore] skip arm — central not poweredOn (state=\(central.state.rawValue))"); return
     }
-    guard let uuid = bandUUID else { NSLog("[ble-restore] skip arm — no bandUUID"); return }
-    // In the foreground, flutter_blue_plus owns the band — don't compete.
     if UIApplication.shared.applicationState == .active {
       NSLog("[ble-restore] skip arm — app active"); return
     }
-    guard let p = central.retrievePeripherals(withIdentifiers: [uuid]).first else {
-      NSLog("[ble-restore] band not retrievable yet")
+    guard !arms.isEmpty else { NSLog("[ble-restore] skip arm — no bandUUID"); return }
+
+    // Write `Array(arms.keys)`, not `arms.keys` directly — the loop body mutates `arms`,
+    // and iterating the live Keys view while doing so is a mutation-during-iteration hazard.
+    for uuid in Array(arms.keys) {
+      var s = state(uuid)
+      let tag = uuid.uuidString
+      if s.appOwnsBand { NSLog("[ble-restore] skip arm \(tag) — app owns band"); continue }
+      if s.handedOff { NSLog("[ble-restore] skip arm \(tag) — handedOff"); continue }
+      if s.idleAfterSync {
+        NSLog("[ble-restore] skip arm \(tag) — idle after sync (awaiting re-arm)"); continue
+      }
+      // Already holding a pending connect for this one — arming again is a no-op that
+      // would drop and re-take the retain.
+      if s.peripheral != nil { continue }
+      guard let p = central.retrievePeripherals(withIdentifiers: [uuid]).first else {
+        NSLog("[ble-restore] band \(tag) not retrievable yet"); continue
+      }
+      s.peripheral = p
+      arms[uuid] = s
+      central.connect(p, options: nil)  // no timeout → persists, relaunches us when reachable
+      NSLog("[ble-restore] armed pending connect \(tag)")
+    }
+  }
+
+  private func cancelPending(_ uuid: UUID? = nil) {
+    guard let uuid = uuid else {
+      for (_, s) in arms {
+        if let p = s.peripheral { central?.cancelPeripheralConnection(p) }
+      }
+      for key in arms.keys { arms[key]?.peripheral = nil }
       return
     }
-    pending = [p]
-    central.connect(p, options: nil)  // no timeout → persists, relaunches us when reachable
-    NSLog("[ble-restore] armed pending connect")
+    if let p = arms[uuid]?.peripheral { central?.cancelPeripheralConnection(p) }
+    arms[uuid]?.peripheral = nil
   }
 
-  private func cancelPending() {
-    for p in pending { central?.cancelPeripheralConnection(p) }
-    pending = []
-  }
-
-  private func disarm() {
-    idleAfterSync = false
-    handedOff = false
-    cancelPending()
-    clearBandUUID()
-    bandUUID = nil
-    // Release the restore central so the process has NO CBCentralManager again. This
-    // matters when the user unpairs and then re-pairs in the same app session: ASK's
-    // showPicker fails with "CBManager is active with global permissions" if a central is
-    // still alive. Dropping our strong reference lets CoreBluetooth tear it down; a fresh
-    // one is re-created on the next provision/arm. (flutter_blue_plus's central is also
-    // disconnected by AppState.unpair → engine.disconnect before re-pairing.)
-    if central != nil {
+  private func disarm(_ uuid: UUID? = nil) {
+    guard let uuid = uuid else {
+      cancelPending()
+      arms = [:]
+      clearBandUUID()
+      bandUUID = nil
+      // Release the restore central so the process has NO CBCentralManager again. This
+      // matters when the user unpairs and then re-pairs in the same app session: ASK's
+      // showPicker fails with "CBManager is active with global permissions" if a central is
+      // still alive. Dropping our strong reference lets CoreBluetooth tear it down; a fresh
+      // one is re-created on the next provision/arm. (flutter_blue_plus's central is also
+      // disconnected by AppState.unpair → engine.disconnect before re-pairing.)
+      if central != nil {
+        central?.delegate = nil
+        central = nil
+        NSLog("[ble-restore] disarmed — restore central released")
+      } else {
+        NSLog("[ble-restore] disarmed")
+      }
+      return
+    }
+    cancelPending(uuid)
+    arms.removeValue(forKey: uuid)
+    if bandUUID == uuid { bandUUID = nil }
+    if arms.isEmpty, central != nil {
       central?.delegate = nil
       central = nil
-      NSLog("[ble-restore] disarmed — restore central released")
+      NSLog("[ble-restore] disarmed \(uuid.uuidString) — restore central released (no bands left)")
     } else {
-      NSLog("[ble-restore] disarmed")
+      NSLog("[ble-restore] disarmed \(uuid.uuidString)")
     }
   }
 
   // MARK: - Wake → Flutter
 
-  private func signalWake() {
+  private func signalWake(_ uuid: UUID) {
     beginBackground()
     if flutterReady {
       channel?.invokeMethod("wake", arguments: nil)
@@ -290,12 +385,17 @@ class BleRestoreManager: NSObject {
     // stuck, and go idle (await an explicit re-arm) so we don't loop. Not a sync cadence —
     // just a failsafe to release the in-flight state.
     DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
-      guard let self = self, self.handedOff else { return }
+      guard let self = self, self.state(uuid).handedOff else { return }
       NSLog("[ble-restore] syncDone watchdog fired — releasing handoff, going idle")
-      self.handedOff = false
-      self.idleAfterSync = true
-      self.cancelPending()
-      self.endBackground()
+      var s = self.state(uuid)
+      s.handedOff = false
+      s.idleAfterSync = true
+      self.arms[uuid] = s
+      self.cancelPending(uuid)
+      // endBackground() only when no entry is still handedOff.
+      if !self.arms.values.contains(where: { $0.handedOff }) {
+        self.endBackground()
+      }
     }
   }
 
@@ -337,25 +437,42 @@ extension BleRestoreManager: CBCentralManagerDelegate {
     // Take ALL of them, not just the first — the count was already being logged, so the
     // code always knew there could be more. Each carries a pending/active connect
     // bluetoothd preserved for us; didConnect fires per peripheral if one lands.
-    pending = restored
+    // Keep retaining a restored peripheral whose UUID is not in `arms` (band we have
+    // since forgotten): bluetoothd preserved a connect for it and dropping the retain
+    // loses the ability to cancel it. Insert a default entry so the retain has a home;
+    // didConnect below still refuses to wake Dart for it.
+    for p in restored {
+      arms[p.identifier, default: ArmState()].peripheral = p
+    }
     NSLog("[ble-restore] willRestoreState restored \(restored.count) peripheral(s)")
   }
 
   func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-    NSLog("[ble-restore] didConnect — handing off to flutter_blue_plus")
-    handedOff = true
-    signalWake()
+    let uuid = peripheral.identifier
+    guard arms[uuid] != nil else {
+      NSLog("[ble-restore] didConnect for unknown band \(uuid.uuidString) — cancelling")
+      central.cancelPeripheralConnection(peripheral)
+      return
+    }
+    NSLog("[ble-restore] didConnect \(uuid.uuidString) — handing off to flutter_blue_plus")
+    arms[uuid]?.handedOff = true
+    signalWake(uuid)
   }
 
   func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-    NSLog("[ble-restore] didDisconnect (handedOff=\(handedOff))")
+    let uuid = peripheral.identifier
+    arms[uuid]?.peripheral = nil
+    let handedOff = state(uuid).handedOff
+    NSLog("[ble-restore] didDisconnect \(uuid.uuidString) (handedOff=\(handedOff))")
     // Re-arm only if our own pending connect dropped while still in recovery mode (band
     // went away again). armIfAppropriate's idleAfterSync/appOwnsBand guards prevent loops.
     if !handedOff { armIfAppropriate() }
   }
 
   func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-    NSLog("[ble-restore] didFailToConnect: \(error?.localizedDescription ?? "—")")
-    if !handedOff { armIfAppropriate() }
+    let uuid = peripheral.identifier
+    arms[uuid]?.peripheral = nil
+    NSLog("[ble-restore] didFailToConnect \(uuid.uuidString): \(error?.localizedDescription ?? "—")")
+    if !state(uuid).handedOff { armIfAppropriate() }
   }
 }
