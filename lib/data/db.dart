@@ -6847,6 +6847,59 @@ class LocalDb {
     return [for (final r in rows) r['device_id'] as String];
   }
 
+  /// THE USER'S OWN ORDER for one signal. Rewrites the whole signal's rows in
+  /// one transaction: a partial order is not an order, and two writers each
+  /// setting one rank is how two devices end up rank 0.
+  ///
+  /// `user_set = 1` on every row this writes. That flag is the ONLY thing the
+  /// one-tap reset reads (it deletes the signal's `user_set = 1` rows and lets
+  /// the physics ladder answer again) and the only thing that distinguishes a
+  /// preference from a seeded default (final-plan §4.5).
+  ///
+  /// [order] is highest priority FIRST. Ranks are written 0..n-1 densely, so
+  /// the stored order is readable without a second sort.
+  static Future<void> setSignalPriority(
+    String signal,
+    List<String> order,
+  ) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      await txn.delete('signal_priority', where: 'signal = ?', whereArgs: [signal]);
+      for (var i = 0; i < order.length; i++) {
+        await txn.insert('signal_priority', {
+          'signal': signal,
+          'device_id': order[i],
+          'rank': i,
+          'user_set': 1,
+        });
+      }
+    });
+  }
+
+  /// Back to physics for one signal. NOT a write of the computed order — that
+  /// would freeze today's ladder into the table and stop tracking the adapter
+  /// declarations it is derived from.
+  static Future<void> clearSignalPriority(String signal) async {
+    final db = await instance;
+    await db.delete(
+      'signal_priority',
+      where: 'signal = ? AND user_set = 1',
+      whereArgs: [signal],
+    );
+  }
+
+  /// `{signal: [deviceId, …]}`, highest first, for every signal that has rows.
+  /// Sparse: an absent signal falls through to `rankSources()` (§4.5's ladder).
+  static Future<Map<String, List<String>>> signalPriorities() async {
+    final db = await instance;
+    final rows = await db.query('signal_priority', orderBy: 'signal ASC, rank ASC, device_id ASC');
+    final out = <String, List<String>>{};
+    for (final r in rows) {
+      (out[r['signal'] as String] ??= []).add(r['device_id'] as String);
+    }
+    return out;
+  }
+
   /// [signal]'s coverage intervals overlapping [from, to), every device.
   static Future<List<CoverageInterval>> coverageIntervals(
     InputSignal signal,
