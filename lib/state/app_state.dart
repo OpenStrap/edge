@@ -2360,7 +2360,7 @@ class AppState extends ChangeNotifier {
       if (p != null) await IosBleRestore.arm(p.remoteId);
       await LocalDb.upsertDevice(
         id: 'whoop:$remoteId',
-        adapterId: 'whoop_gen4',
+        adapterId: 'gen4',
         remoteId: remoteId,
       );
     } catch (e) {
