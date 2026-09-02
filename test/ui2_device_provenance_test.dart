@@ -1,0 +1,119 @@
+// M6 — device-provenance pure-function tests (spec-m6.md §13.2, tests 1-3, 7).
+//
+// These exercise `candidatesFromSources`/`contendedSignalsOf` (the pure halves
+// of `signalCandidates`/`contendedSignals`) directly against hand-built
+// `HealthSource` lists, the same idiom `device_sources_test.dart` already
+// uses, rather than constructing a live `AppState`.
+
+import 'package:flutter/material.dart' show Icons;
+import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ble/adapters/signals.dart';
+import 'package:openstrap_edge/data/db.dart' show LocalDb;
+import 'package:openstrap_edge/ui2/profile/devices.dart';
+import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
+
+const _keys = [
+  'resting_hr', 'hrv', 'readiness', 'resp_rate', 'sleep', 'efficiency', 'deep',
+  'rem', 'steps', 'calories', 'strain', 'trimp', 'stress', 'dip', 'hrr',
+  'lf_hf', 'hrv_cv', 'brv', 'nap_min', 'active_min', 'wear', 'skin_temp',
+];
+
+HealthSource _band({String family = 'gen4'}) => HealthSource(
+      name: 'Your band',
+      kind: 'wrist optical',
+      tier: SourceTier.wristOptical,
+      icon: Icons.watch, // unused by the pure functions under test
+      isBand: true,
+      family: family,
+    );
+
+HealthSource _oura() => const HealthSource(
+      name: 'Oura ring',
+      kind: 'Oura',
+      tier: null,
+      icon: Icons.circle,
+      isBand: false,
+      deviceId: 'oura-A1B2',
+      family: 'oura',
+    );
+
+HealthSource _hrs() => const HealthSource(
+      name: 'Chest strap',
+      kind: 'Bluetooth heart rate sensor',
+      tier: SourceTier.beatToBeat,
+      icon: Icons.favorite,
+      isBand: false,
+      deviceId: 'ble_hrs-0a1b2c3d',
+      family: 'ble_hrs',
+    );
+
+void main() {
+  // Test 1: single band — every metric's requires (empty or not) yields
+  // fewer than two candidates. This IS the protected case, machine-checked.
+  test('signalCandidates: fewer than two candidates on a single band, '
+      'for every metric key', () {
+    final sources = [_band()];
+    for (final key in _keys) {
+      final spec = specOf(key);
+      final out = candidatesFromSources(sources, requires: spec.requires);
+      expect(out.length, lessThan(2), reason: key);
+    }
+  });
+
+  // Test 2: WHOOP + Oura. OuraAdapter declares nothing, so every metric sees
+  // exactly one candidate (the band) — the declaration mechanism gates it,
+  // not a hand-written exclusion.
+  test('signalCandidates: WHOOP + Oura yields one candidate for every '
+      'metric', () {
+    final sources = [_band(), _oura()];
+    for (final key in _keys) {
+      final spec = specOf(key);
+      final out = candidatesFromSources(sources, requires: spec.requires);
+      if (spec.requires.isEmpty) {
+        expect(out, isEmpty, reason: key);
+      } else {
+        expect(out.length, 1, reason: key);
+        expect(out.single.deviceId, LocalDb.kPrimaryDeviceId, reason: key);
+      }
+    }
+  });
+
+  // Test 3: WHOOP + HRS. Both declare rrIntervals, so hrv sees two candidates
+  // (the §0 deviation, pinned so a future reader sees it was deliberate);
+  // readiness needs hr1Hz/accel1Hz/skinTempRaw too, which the strap lacks, so
+  // it stays at one.
+  test('signalCandidates: WHOOP + HRS yields two for hrv, one for readiness',
+      () {
+    final sources = [_band(), _hrs()];
+    final hrv = candidatesFromSources(sources, requires: specOf('hrv').requires);
+    expect(hrv.length, 2);
+    expect(hrv.every((o) => o.selectable), isTrue);
+
+    final readiness =
+        candidatesFromSources(sources, requires: specOf('readiness').requires);
+    expect(readiness.length, 2);
+    final strapOption =
+        readiness.firstWhere((o) => o.deviceId == 'ble_hrs-0a1b2c3d');
+    expect(strapOption.selectable, isFalse);
+    expect(strapOption.reason, isNotNull);
+  });
+
+  // Test 7: missingSignalReason names every InputSignal member, so adding an
+  // enum member fails here rather than silently rendering the generic phrase.
+  test('missingSignalReason: a phrase for every InputSignal member', () {
+    for (final s in InputSignal.values) {
+      expect(missingSignalReason({s}), isNot('cannot supply this'),
+          reason: s.name);
+    }
+  });
+
+  test('contendedSignalsOf: empty on a single band', () {
+    expect(contendedSignalsOf([_band()]), isEmpty);
+  });
+
+  test('contendedSignalsOf: rrIntervals contends for WHOOP + HRS', () {
+    final contended = contendedSignalsOf([_band(), _hrs()]);
+    expect(contended, contains(InputSignal.rrIntervals));
+    expect(contended, isNot(contains(InputSignal.accel1Hz)));
+  });
+}

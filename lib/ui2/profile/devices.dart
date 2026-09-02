@@ -31,7 +31,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura;
+    show BandEntry, kBandRegistry, kBleHrs, kOura, declaredSignals;
+import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
@@ -125,6 +126,116 @@ String? bandLabelFor(String? adapterId) {
     if (e.id == adapterId) return e.label;
   }
   return null;
+}
+
+/// One row in a metric screen's device filter (final-plan §6.3).
+///
+/// THREE STATES, and the third is why this is a type rather than a
+/// `List<String>`: a device that cannot supply the metric is SHOWN, disabled,
+/// with the reason. An unexplained absent option is the thing users file bugs
+/// about, and an unexplained empty chart is worse.
+typedef DeviceOption = ({
+  /// `device.id`. `''` is the primary band, permanently (ASSUMPTIONS A1).
+  String deviceId,
+
+  /// What the pill says — the user's own label for the device.
+  String label,
+
+  /// False when the device does not declare every signal the metric needs.
+  /// The pill is drawn and untappable.
+  bool selectable,
+
+  /// Non-null ONLY when the option is worth explaining: the missing-signal
+  /// reason for a non-selectable one, or the empty-window reason for a
+  /// selectable one with no coverage. Null on the ordinary case.
+  String? reason,
+});
+
+/// Why this device cannot serve a metric, from the signals it does NOT declare.
+///
+/// Generated, never written per device per metric: it stays true when an
+/// adapter's declarations change and it costs nothing at the fortieth device.
+/// One phrase per [InputSignal] — the physical absence, not the metric.
+String missingSignalReason(Set<InputSignal> missing) {
+  const words = {
+    InputSignal.rrIntervals: 'no beat-to-beat intervals',
+    InputSignal.hr1Hz: 'no continuous heart rate',
+    InputSignal.hrSparse: 'no heart rate',
+    InputSignal.accel1Hz: 'no accelerometer',
+    InputSignal.accelHighRate: 'no high-rate accelerometer',
+    InputSignal.ppgGreen: 'no green PPG',
+    InputSignal.ppgRedIr: 'no red/infrared PPG',
+    InputSignal.skinTempRaw: 'no temperature sensor',
+    InputSignal.vendorScalars: 'reports nothing of its own',
+  };
+  // Ordered by the enum so two devices missing the same pair read identically.
+  final parts = [for (final s in InputSignal.values) if (missing.contains(s)) words[s]!];
+  return parts.isEmpty ? 'cannot supply this' : parts.first;
+}
+
+/// The devices that could serve [requires], newest-facts-only: a registry
+/// declaration compared against a `device` row. NO QUERY, which is what makes
+/// the visibility gate in §6.5 free.
+///
+/// SUPERSET test. A device qualifies only when its adapter declares every one
+/// of [requires] — see `MetricSpec.requires`.
+List<DeviceOption> signalCandidates(
+  AppState app, {
+  required Set<InputSignal> requires,
+}) =>
+    candidatesFromSources(rankSources(liveSources(app)), requires: requires);
+
+/// The pure half of [signalCandidates] — split out so a test can hand-build
+/// [HealthSource]s (as `device_sources_test.dart` already does) instead of a
+/// live `AppState`.
+List<DeviceOption> candidatesFromSources(
+  List<HealthSource> sources, {
+  required Set<InputSignal> requires,
+}) {
+  if (requires.isEmpty) return const [];
+  final out = <DeviceOption>[];
+  for (final s in sources) {
+    // The phone has no `device` row and no adapter. It is a step counter, and
+    // steps are the one metric with no `requires` at all (§4.6), so it can
+    // never be a candidate here.
+    final id = s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId;
+    if (id == null) continue;
+    final declared = declaredSignals(s.family);
+    // A device declaring NOTHING is not a candidate for anything — never
+    // shown, not even disabled. `OuraAdapter.signals == const {}` is exactly
+    // this case (§0): the ring is not "missing everything", it is out of
+    // scope for every metric, and a permanent disabled pill on every screen
+    // would be the noise §0 promises a WHOOP + ring user never sees.
+    if (declared.isEmpty) continue;
+    final missing = requires.difference(declared);
+    out.add((
+      deviceId: id,
+      label: s.name,
+      selectable: missing.isEmpty,
+      reason: missing.isEmpty ? null : missingSignalReason(missing),
+    ));
+  }
+  return out;
+}
+
+/// Signals TWO OR MORE paired devices declare. The whole content of the
+/// priority editor, and the reason it is usually empty: only a handful of the
+/// declared signals ever contend, so the table is tens of rows forever
+/// (final-plan §4.5).
+List<InputSignal> contendedSignals(AppState app) =>
+    contendedSignalsOf(liveSources(app));
+
+/// The pure half of [contendedSignals] — see [candidatesFromSources].
+List<InputSignal> contendedSignalsOf(List<HealthSource> sources) {
+  final n = <InputSignal, int>{};
+  for (final s in sources) {
+    final id = s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId;
+    if (id == null) continue;
+    for (final sig in declaredSignals(s.family)) {
+      n[sig] = (n[sig] ?? 0) + 1;
+    }
+  }
+  return [for (final s in InputSignal.values) if ((n[s] ?? 0) >= 2) s];
 }
 
 /// Bands the owner has personally held and cross-confirmed. Everything else is
