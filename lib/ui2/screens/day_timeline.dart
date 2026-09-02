@@ -27,6 +27,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../data/day_label.dart' show localDayEndSec;
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
@@ -34,8 +35,11 @@ import '../../data/local_repository.dart';
 import '../../data/med_store.dart';
 import '../../data/nutrition_store.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_state.dart';
 import '../../state/locale_controller.dart';
 import '../activity/catalogue.dart' show activityByName;
+import '../profile/devices.dart'
+    show DeviceFilter, DeviceOption, signalCandidates;
 import '../ui2.dart';
 import 'home_screen.dart' show clockOfTs, repoOf;
 import 'metric_detail.dart' show dayNavRow, detailScaffold, pickDay;
@@ -443,7 +447,7 @@ class DayGraph {
 ///
 /// [timeline] is `getDayTimeline`. Anything it did not carry contributes
 /// nothing; there is no placeholder lane for a day with no workouts in it.
-DayGraph dayGraph(Map<String, dynamic> timeline) {
+DayGraph dayGraph(Map<String, dynamic> timeline, {List<Object?>? hrOverride}) {
   final dayStart = (timeline['day_start'] as num?)?.toInt();
   if (dayStart == null || dayStart <= 0) return const DayGraph();
   // The day's REAL length. A spring-forward day is 23 h and a fall-back day is
@@ -462,7 +466,7 @@ DayGraph dayGraph(Map<String, dynamic> timeline) {
   }
 
   final hr = List<double?>.filled(n, null);
-  for (final e in (timeline['hr'] as List?) ?? const []) {
+  for (final e in hrOverride ?? (timeline['hr'] as List?) ?? const []) {
     if (e is! Map) continue;
     final i = slot(e['t']);
     final v = (e['v'] as num?)?.toDouble();
@@ -526,6 +530,7 @@ class TimelineData {
     this.graph = const DayGraph(),
     this.moments = const [],
     this.notes = const [],
+    this.raw,
   });
 
   final String? day;
@@ -537,6 +542,11 @@ class TimelineData {
   final DayGraph graph;
   final List<Moment> moments;
   final List<DayNote> notes;
+
+  /// The raw `getDayTimeline` payload [graph] was built from — retained so a
+  /// per-device selection can rebuild [graph] with `dayGraph(raw!,
+  /// hrOverride: …)` without a second `getDayTimeline` call (M6 §7.3).
+  final Map<String, dynamic>? raw;
 
   static Future<TimelineData> load(
     LocalRepository repo, {
@@ -574,6 +584,7 @@ class TimelineData {
       day: day,
       days: days,
       graph: dayGraph(timeline),
+      raw: timeline,
       moments: dayMoments(
         timeline: timeline,
         wear: wear,
@@ -609,6 +620,18 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   TimelineData? _d;
   bool _loading = true;
   String? _day;
+
+  /// The devices that could serve `hr` on this screen — registry-only, no
+  /// query. Empty on every single-device install, which keeps the filter row
+  /// absent (M6 §7.3).
+  List<DeviceOption> _candidates = const [];
+
+  /// The device whose own curve [_d]'s graph is drawn from, or null for the
+  /// merged one. Cleared on every day change — a device selection is about
+  /// the day on screen.
+  String? _device;
+  bool _deviceBounded = false;
+  String? _deviceOldest;
 
   // `TimelineData` bakes `AppLocalizations` strings into `moments`/`notes` at
   // load time (see `TimelineData.load`), so a language switch while this
@@ -666,12 +689,63 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     final l = AppLocalizations.of(context);
     try {
       final d = await TimelineData.load(repo, want: _day, l: l);
+      final candidates = mounted
+          ? signalCandidates(context.read<AppState>(),
+              requires: {InputSignal.hr1Hz})
+          : const <DeviceOption>[];
       if (mounted && token == _loadToken) {
-        setState(() => (_d = d, _loading = false));
+        setState(() => (
+          _d = d,
+          _candidates = candidates,
+          _device = null,
+          _loading = false,
+        ));
       }
     } catch (_) {
       if (mounted && token == _loadToken) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _selectDevice(String? id) async {
+    final d = _d;
+    final day = _day ?? d?.day;
+    if (d?.raw == null || day == null) return;
+    if (id == null) {
+      setState(() {
+        _device = null;
+        _deviceBounded = false;
+        _deviceOldest = null;
+        _d = TimelineData(
+          day: d!.day,
+          days: d.days,
+          graph: dayGraph(d.raw!),
+          moments: d.moments,
+          notes: d.notes,
+          raw: d.raw,
+        );
+      });
+      return;
+    }
+    final repo = repoOf(context);
+    if (repo == null) return;
+    final c = await repo.getDeviceChart('hr', deviceId: id, date: day);
+    if (!mounted) return;
+    final bounded = c['bounded'] == true;
+    setState(() {
+      _device = id;
+      _deviceBounded = bounded;
+      _deviceOldest = c['oldest'] as String?;
+      _d = TimelineData(
+        day: d!.day,
+        days: d.days,
+        graph: bounded
+            ? const DayGraph()
+            : dayGraph(d.raw!, hrOverride: c['points'] as List?),
+        moments: d.moments,
+        notes: d.notes,
+        raw: d.raw,
+      );
+    });
   }
 
   void _goDay(String day) {
@@ -692,8 +766,29 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
       if (_loading) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
-      ] else
+      ] else ...[
+        if (_candidates.length >= 2) ...[
+          const SizedBox(height: S.x2),
+          DeviceFilter(
+            options: _candidates,
+            selected: _device,
+            onSelect: _selectDevice,
+          ),
+          if (_deviceBounded)
+            Padding(
+              padding: const EdgeInsets.only(top: S.x2),
+              child: Text(
+                l?.dayTimelineDeviceBounded(_deviceOldest ?? '') ??
+                    'Per-device detail is kept for recent days only. Before '
+                        '${_deviceOldest ?? ''} we know which device recorded, '
+                        'not what it said.',
+                style: F.over.copyWith(color: P.of(c).ink3),
+              ),
+            ),
+          const SizedBox(height: S.x2),
+        ],
         ...timelineBody(c, d),
+      ],
     ]);
   }
 }

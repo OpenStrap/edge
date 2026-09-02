@@ -3447,6 +3447,13 @@
   "@dayTimelineTaggedTitle": {
     "description": "Fallback day-note title when a journal entry has tags but no written note."
   },
+  "dayTimelineDeviceBounded": "Per-device detail is kept for recent days only. Before {oldest} we know which device recorded, not what it said.",
+  "@dayTimelineDeviceBounded": {
+    "description": "Copy shown instead of a per-device curve when the day is outside decoded_onehz retention.",
+    "placeholders": {
+      "oldest": {"type": "String"}
+    }
+  },
   "dayTimelineTitle": "Breakdown of your day",
   "@dayTimelineTitle": {
     "description": "Day timeline screen title."
