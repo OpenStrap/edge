@@ -251,6 +251,18 @@ class BleRestoreManager: NSObject {
           self.disarm()
         }
         result(nil)
+      case "releaseCentralForPicker":
+        // Tears down the CBCentralManager but keeps `arms` and BOTH UserDefaults keys.
+        // `disarm()` also clears the keys, which is right for unpair and catastrophic
+        // here: a process death between this call and the picker's completion would
+        // leave the primary with no restore key and no error anywhere.
+        self.cancelPending()
+        if self.central != nil {
+          self.central?.delegate = nil
+          self.central = nil
+          NSLog("[ble-restore] restore central released for ASK picker (bands kept)")
+        }
+        result(nil)
       case "ready":
         self.flutterReady = true
         if self.wakeQueuedBeforeReady {

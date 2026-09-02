@@ -53,8 +53,13 @@ class AccessorySetup {
 
   /// Show the ASK picker and return the provisioned band's CoreBluetooth UUID (use as
   /// PairedDevice.remoteId). Throws on cancel / error so the caller can surface it.
-  static Future<String> showPicker() async {
-    final id = await _ch.invokeMethod<String>('showPicker');
+  ///
+  /// [addAnother] requests a SECOND accessory rather than skipping the picker for an
+  /// already-known one. Passing `null` (not `false`) on the default path keeps the wire
+  /// bytes byte-identical to today's call for the single-band path.
+  static Future<String> showPicker({bool addAnother = false}) async {
+    final id = await _ch.invokeMethod<String>(
+        'showPicker', addAnother ? true : null);
     if (id == null || id.isEmpty) {
       throw Exception('Pairing cancelled.');
     }
