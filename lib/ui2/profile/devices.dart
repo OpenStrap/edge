@@ -39,6 +39,7 @@ import '../../ble/ble_state.dart' show BandStatus;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
 import '../../notify/battery_forecast.dart';
+import '../../state/prefs.dart' show Prefs;
 import '../../sync/paired_device.dart' show cleanDeviceLabel;
 import '../../state/app_state.dart';
 import '../onboarding/pairing.dart';
@@ -499,6 +500,58 @@ Future<void> addSensor(BuildContext c) async {
   );
   // The screen writes a `device` row; nothing tells AppState that happened.
   if (c.mounted) await c.read<AppState>().refreshSensors();
+}
+
+/// Ask for a SECOND framed band. iOS cannot show the system pairing sheet while a
+/// CBCentralManager exists in the process, and on an already-paired install
+/// flutter_blue_plus creates one during start-up and never releases it — so the
+/// sheet can only be shown on the next launch, before start-up touches the radio.
+/// This writes the request; `AppState._initSteps` performs it.
+///
+/// NOT surfaced from any visible button in M4 — no second framed band exists yet
+/// to provision against (see MULTIDEVICE_PROGRESS.md's M4 notes). This wires the
+/// plumbing and its test only.
+Future<void> addFramedBand(BuildContext c) async {
+  Prefs.setBool(Prefs.kAskAddPendingKey, true);
+  if (!c.mounted) return;
+  await showRestartRequiredSheet(c);
+}
+
+/// One-sentence sheet: the ASK ordering constraint, stated where the user is.
+Future<void> showRestartRequiredSheet(BuildContext c) async {
+  final p = P.of(c);
+  await showModalBottomSheet<void>(
+    context: c,
+    backgroundColor: p.card,
+    showDragHandle: true,
+    builder: (sheet) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x4),
+        child: Text(
+          'iOS can only show the system pairing sheet before the app has used '
+          'Bluetooth. Close OpenStrap completely, then reopen it — the sheet '
+          'appears on its own.',
+          style: F.body.copyWith(color: p.ink),
+        ),
+      ),
+    ),
+  );
+}
+
+/// One-sentence sheet giving a reason a requested action was refused.
+Future<void> showReasonSheet(BuildContext c, String reason) async {
+  final p = P.of(c);
+  await showModalBottomSheet<void>(
+    context: c,
+    backgroundColor: p.card,
+    showDragHandle: true,
+    builder: (sheet) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x4),
+        child: Text(reason, style: F.body.copyWith(color: p.ink)),
+      ),
+    ),
+  );
 }
 
 /// Pairing, pushed rather than gated.

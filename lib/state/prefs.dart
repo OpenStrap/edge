@@ -91,4 +91,10 @@ class Prefs {
   /// Per-metric range toggle on the shared MetricScreen (Today/Week/Month/3M).
   /// Keyed by the metric id so Sleep / Heart / Body each remember independently.
   static String metricTab(String metric) => 'ui.metric_tab.$metric';
+
+  /// One-shot: a second framed band's ASK provisioning is requested and should
+  /// run at the next start-up, before anything touches flutter_blue_plus (the
+  /// only moment the ASK picker can show — see AppState._provisionAdditionalAccessory).
+  /// Cleared in a `finally` regardless of outcome.
+  static const String kAskAddPendingKey = 'ble.ask_add_pending';
 }

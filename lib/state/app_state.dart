@@ -2225,6 +2225,15 @@ class AppState extends ChangeNotifier {
     // Register the recurring wall-clock nudges as real OS-scheduled notifications
     // (wind-down, weekly recap) so they fire even when the app is closed.
     if (isPaired) unawaited(_ensureRemindersScheduled());
+    // SECOND FRAMED BAND (iOS 18+): the ASK picker must run with NO
+    // CBCentralManager alive in the process. This is the only such moment —
+    // `main()`'s two flutter_blue_plus calls (setOptions/setLogLevel) return
+    // before the plugin's lazy central init, and the block below is the first
+    // start-up code that creates one. DO NOT move this later, and do not add a
+    // radio call above it.
+    if (Prefs.getBool(Prefs.kAskAddPendingKey, false)) {
+      await _provisionAdditionalAccessory();
+    }
     if (isPaired) {
       if (_background) {
         _keepAlive = true;
@@ -2324,6 +2333,44 @@ class AppState extends ChangeNotifier {
       await TaskerBridge.clearPendingBuzz();
     } finally {
       _taskerBuzzCheckInFlight = false;
+    }
+  }
+
+  /// One-shot: release the restore central, show the ASK picker for an additional
+  /// accessory, re-create the restore central around the new band, and re-arm the
+  /// primary. The flag is cleared in `finally` — a cancelled or failed picker must
+  /// not re-open the sheet on every launch forever.
+  ///
+  /// NOT surfaced from any UI in M4 (see devices.dart's addFramedBand) — this is
+  /// plumbing + its test only, since no second framed band exists to provision
+  /// against yet.
+  Future<void> _provisionAdditionalAccessory() async {
+    try {
+      if (!await AccessorySetup.isSupported()) return;
+      // NOT disarm(): that clears the persisted band list too, and a process death
+      // between here and `provisioned` below would leave the primary with no
+      // restore key and no error anywhere. See ios_ble_restore.releaseCentralForPicker.
+      await IosBleRestore.releaseCentralForPicker();
+      final remoteId = await AccessorySetup.showPicker(addAnother: true);
+      // Recreates the restore central and appends to the band list.
+      await IosBleRestore.provisioned(remoteId);
+      // Arm policy is unchanged: the PRIMARY is what gets background restore.
+      // The new band is provisioned and connectable in the foreground.
+      final p = paired;
+      if (p != null) await IosBleRestore.arm(p.remoteId);
+      await LocalDb.upsertDevice(
+        id: 'whoop:$remoteId',
+        adapterId: 'whoop_gen4',
+        remoteId: remoteId,
+      );
+    } catch (e) {
+      debugPrint('[ask] additional accessory not provisioned: $e');
+      // The restore central is gone at this point if the picker threw after the
+      // release. Put it back for the primary, or overnight sync silently stops.
+      final p = paired;
+      if (p != null) await IosBleRestore.provisioned(p.remoteId);
+    } finally {
+      Prefs.setBool(Prefs.kAskAddPendingKey, false);
     }
   }
 
