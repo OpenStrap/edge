@@ -2356,6 +2356,81 @@ class LocalDb {
     if (queued > 0) await batch.commit(noResult: true);
   }
 
+  /// The ingest-time writer §6.5 describes: extend or open a coverage
+  /// interval for every signal THIS BATCH actually carried a non-null value
+  /// for — never off an adapter's declared capability, because a declared
+  /// signal that arrived absent must not produce a coverage claim (the
+  /// "declared-but-absent is worse than missing" rule).
+  ///
+  /// Runs inside the SAME transaction [commitSyncBatch] durably commits the
+  /// rows in, so an interval can never claim a second whose row did not
+  /// commit — the safe-trim invariant covers both.
+  static Future<void> _extendCoverageVia(
+    DatabaseExecutor txn, {
+    required String deviceId,
+    required List<Sample?> samples,
+    List<NeutralSample>? neutrals,
+    required int firstSec,
+    required int lastSec,
+    Map<String, int>? toleranceSec,
+  }) async {
+    final present = <String>{};
+    for (final s in samples) {
+      if (s == null) continue;
+      if (s.hr > 0) present.add('hr1Hz');
+      if (s.ax != null && s.ay != null && s.az != null) {
+        present.add('accel1Hz');
+      }
+      if (s.spo2RedRaw != null || s.spo2IrRaw != null) present.add('ppgRedIr');
+      if (s.skinTempRaw != null) present.add('skinTempRaw');
+      if (s.rrIntervalsMs.isNotEmpty) present.add('rrIntervals');
+    }
+    if (neutrals != null) {
+      for (final n in neutrals) {
+        if (n.hr != null) present.add('hr1Hz');
+        if (n.rrMs.isNotEmpty) present.add('rrIntervals');
+      }
+    }
+    if (present.isEmpty) return;
+
+    const kBucket = 60; // seconds — the resolver's grid, same as the backfill
+    for (final signal in present) {
+      final tolerance = toleranceSec?[signal] ?? (2 * kBucket);
+      final open = await txn.query(
+        'device_coverage',
+        columns: ['start_ts', 'end_ts'],
+        where: 'device_id = ? AND signal = ?',
+        whereArgs: [deviceId, signal],
+        orderBy: 'start_ts DESC',
+        limit: 1,
+      );
+      if (open.isNotEmpty &&
+          firstSec - (open.single['end_ts'] as num).toInt() <= tolerance) {
+        final startTs = (open.single['start_ts'] as num).toInt();
+        final endTs = (open.single['end_ts'] as num).toInt();
+        if (lastSec > endTs) {
+          await txn.update(
+            'device_coverage',
+            {'end_ts': lastSec},
+            where: 'device_id = ? AND signal = ? AND start_ts = ?',
+            whereArgs: [deviceId, signal, startTs],
+          );
+        }
+      } else {
+        await txn.insert(
+          'device_coverage',
+          {
+            'device_id': deviceId,
+            'signal': signal,
+            'start_ts': firstSec,
+            'end_ts': lastSec,
+          },
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+      }
+    }
+  }
+
   /// Ensure `live_coverage.source` exists (v27).
   ///
   /// Uses the shared guarded helper — an unguarded ALTER TABLE on an
@@ -2822,6 +2897,12 @@ class LocalDb {
     void Function(String)? onCheckpoint,
     String? deviceFamily,
     String deviceId = kPrimaryDeviceId,
+    // Per-signal (InputSignal.name) tolerance for the coverage writer's
+    // "still the same interval" gap check. db.dart cannot read a
+    // BandAdapter's declared cadence (it imports nothing from lib/ble/), so
+    // the host supplies it; a signal absent from the map defaults to
+    // 2*kBucket (120s) inside [_extendCoverageVia].
+    Map<String, int>? coverageToleranceSec,
   }) =>
       _withCommitGate(() => _commitSyncBatchLocked(
             raws,
@@ -2833,6 +2914,7 @@ class LocalDb {
             onCheckpoint: onCheckpoint,
             deviceFamily: deviceFamily,
             deviceId: deviceId,
+            coverageToleranceSec: coverageToleranceSec,
           ));
 
   static Future<void> _commitSyncBatchLocked(
@@ -2849,6 +2931,7 @@ class LocalDb {
     String? deviceFamily,
     // WHICH PHYSICAL DEVICE these rows belong to (see [kPrimaryDeviceId]).
     String deviceId = kPrimaryDeviceId,
+    Map<String, int>? coverageToleranceSec,
   }) async {
     // NEUTRAL ROWS BELONG TO A NON-PRIMARY DEVICE. "" is the primary band
     // permanently (see kPrimaryDeviceId); a neutral-sample writer is by
@@ -2930,6 +3013,18 @@ class LocalDb {
         final kRecTs = cursorKeyFor('rec_ts_hw', deviceId);
         var maxCounter = await _cursorIntVia(txn, kCounter) ?? 0;
         var maxRecTs = await _cursorIntVia(txn, kRecTs) ?? 0;
+        // For the coverage writer (§6.5): the span THIS BATCH covers, never
+        // the cursor high-water (which predates the batch and would claim
+        // coverage for seconds this commit never touched).
+        int? minBatchRecTs, maxBatchRecTs;
+        void trackSpan(int recTs) {
+          if (minBatchRecTs == null || recTs < minBatchRecTs!) {
+            minBatchRecTs = recTs;
+          }
+          if (maxBatchRecTs == null || recTs > maxBatchRecTs!) {
+            maxBatchRecTs = recTs;
+          }
+        }
         // CHUNKED BATCH: sqflite serialises an ENTIRE batch's operations+args into
         // ONE platform-channel message, and the native side builds a single
         // ArrayList of every argument. A large backlog offload (raws in the
@@ -2956,6 +3051,7 @@ class LocalDb {
         if (archives != null) {
           for (final a in archives) {
             batch.insert('raw_archive', {
+              'device_id': deviceId,
               'counter': a.counter,
               'hex': a.hex,
               'packet_type': a.packetType,
@@ -2991,6 +3087,7 @@ class LocalDb {
           );
           if (raw.counter > maxCounter) maxCounter = raw.counter;
           if (recTs > maxRecTs) maxRecTs = recTs;
+          trackSpan(recTs);
           if (ops >= chunkOps) await flushChunk();
         }
         // NEUTRAL ROWS. No flash counter to advance maxCounter from — both
@@ -3005,6 +3102,7 @@ class LocalDb {
               deviceId: deviceId,
             );
             if (n.tsEpoch > maxRecTs) maxRecTs = n.tsEpoch;
+            trackSpan(n.tsEpoch);
             if (ops >= chunkOps) await flushChunk();
           }
         }
@@ -3014,6 +3112,20 @@ class LocalDb {
         );
         await flushChunk();
         checkpoint('decoded_archive_committed');
+        // COVERAGE, in the same transaction as the rows it describes — so an
+        // interval can never claim a second whose row did not commit, and the
+        // safe-trim invariant covers both. See _extendCoverageVia.
+        if (minBatchRecTs != null && maxBatchRecTs != null) {
+          await _extendCoverageVia(
+            txn,
+            deviceId: deviceId,
+            samples: samples,
+            neutrals: neutrals,
+            firstSec: minBatchRecTs!,
+            lastSec: maxBatchRecTs! + 1,
+            toleranceSec: coverageToleranceSec,
+          );
+        }
         await setCursor(kCounter, '$maxCounter', txn: txn);
         await setCursor(kRecTs, '$maxRecTs', txn: txn);
         if (trimToken != null) {

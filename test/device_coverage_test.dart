@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
 
 const _decodedOneHzDdl = '''
@@ -298,4 +299,90 @@ void main() {
       expect(rows.single['end_ts'], base + 60);
     },
   );
+
+  group('the ingest writer (_extendCoverageVia inside commitSyncBatch)', () {
+    Sample sampleAt(int ts) => Sample(
+          tsEpoch: ts,
+          counter: ts,
+          hr: 60,
+          ax: 0.1,
+          ay: 0.2,
+          az: 0.9,
+        );
+    RawRecord rawAt(int ts) => RawRecord(
+          counter: ts,
+          packetType: 0x2F,
+          hex: 'feed${ts.toRadixString(16)}',
+          capturedAt: ts * 1000,
+          recTs: ts,
+        );
+
+    setUp(() async {
+      await LocalDb.close();
+      LocalDb.dbName = 'device_coverage_ingest_test.db';
+      await databaseFactory.deleteDatabase(await _dbPath(LocalDb.dbName));
+      await LocalDb.instance;
+    });
+
+    test('two commits 30s apart for one device extend to one interval',
+        () async {
+      await LocalDb.commitSyncBatch(
+        [rawAt(1786400000)], [sampleAt(1786400000)],
+        deviceId: LocalDb.kPrimaryDeviceId,
+      );
+      await LocalDb.commitSyncBatch(
+        [rawAt(1786400030)], [sampleAt(1786400030)],
+        deviceId: LocalDb.kPrimaryDeviceId,
+      );
+      final db = await LocalDb.instance;
+      final rows = await db.query(
+        'device_coverage',
+        where: 'device_id = ? AND signal = ?',
+        whereArgs: [LocalDb.kPrimaryDeviceId, 'hr1Hz'],
+      );
+      expect(rows.length, 1, reason: '$rows');
+    });
+
+    test('two commits 30 minutes apart for one device open two intervals',
+        () async {
+      await LocalDb.commitSyncBatch(
+        [rawAt(1786400000)], [sampleAt(1786400000)],
+        deviceId: LocalDb.kPrimaryDeviceId,
+      );
+      await LocalDb.commitSyncBatch(
+        [rawAt(1786400000 + 1800)], [sampleAt(1786400000 + 1800)],
+        deviceId: LocalDb.kPrimaryDeviceId,
+      );
+      final db = await LocalDb.instance;
+      final rows = await db.query(
+        'device_coverage',
+        where: 'device_id = ? AND signal = ?',
+        whereArgs: [LocalDb.kPrimaryDeviceId, 'hr1Hz'],
+      );
+      expect(rows.length, 2, reason: '$rows');
+    });
+
+    test('two devices at the same second get two intervals, one per device',
+        () async {
+      await LocalDb.commitSyncBatch(
+        [rawAt(1786400000)], [sampleAt(1786400000)],
+        deviceId: LocalDb.kPrimaryDeviceId,
+      );
+      await LocalDb.commitSyncBatch(
+        [rawAt(1786400000)], [sampleAt(1786400000)],
+        deviceId: 'device-b',
+      );
+      final db = await LocalDb.instance;
+      final rows = await db.query(
+        'device_coverage',
+        where: 'signal = ?',
+        whereArgs: ['hr1Hz'],
+      );
+      expect(rows.length, 2, reason: '$rows');
+      expect(
+        {for (final r in rows) r['device_id']},
+        {LocalDb.kPrimaryDeviceId, 'device-b'},
+      );
+    });
+  });
 }
