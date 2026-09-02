@@ -3946,16 +3946,28 @@ class DerivationEngine {
       final spanLo = day.sleepOnsetSec > 0
           ? math.min(napLo, day.sleepOnsetSec)
           : napLo;
-      // M5: the owning device should come from the resolved coverage spans
-      // (coverage_resolver.dart), not the primary constant. On a
-      // single-device install this is not a placeholder — it is the correct
-      // and only answer, and behaviour is identical to today.
-      final wristOffSpans = await LocalDb.wristOffSpans(
-        spanLo, napHi, deviceId: LocalDb.kPrimaryDeviceId,
-      );
-      final chargingSpans = await LocalDb.chargingSpans(
-        spanLo, napHi, deviceId: LocalDb.kPrimaryDeviceId,
-      );
+      // M5: per-owner masking. A window owned by device A is masked by
+      // device A's off-body and charging events, NEVER by device B's —
+      // put B on the charger while A is worn and A's real night must not
+      // be excluded. `day.ownership[hr1Hz]` is empty only on the import
+      // path (which never resolves ownership); there, one full-window span
+      // owned by the primary reproduces exactly today's single query.
+      // Spans from different owners cannot overlap (ownership is
+      // exclusive) and `_toggleSpans` returns each owner's spans in time
+      // order, so concatenating owners in span order needs no merge pass.
+      final oneHzOwnership = day.ownership[InputSignal.hr1Hz] ??
+          [(start: spanLo, end: napHi, deviceId: LocalDb.kPrimaryDeviceId)];
+      final wristOffSpans = <List<int>>[];
+      final chargingSpans = <List<int>>[];
+      for (final s in oneHzOwnership) {
+        final d = s.deviceId;
+        if (d == null) continue; // nothing recording: nothing to mask
+        final lo = math.max(spanLo, s.start);
+        final hi = math.min(napHi, s.end);
+        if (hi <= lo) continue;
+        wristOffSpans.addAll(await LocalDb.wristOffSpans(lo, hi, deviceId: d));
+        chargingSpans.addAll(await LocalDb.chargingSpans(lo, hi, deviceId: d));
+      }
 
       // PERSONAL movement floor — ESTIMATED ONCE, THEN FROZEN.
       //

@@ -220,14 +220,29 @@ void main() {
         reason: 'three buckets after the ring first covers a bucket, it '
             'must own the span (hysteresis has resolved by then)');
 
-    // ── assertion 4 substitute (masking, full version lands in commit 5):
-    // the charging event sits inside the RING-owned window — confirm that
-    // window really is ring-owned, which is the precondition the real
-    // masking assertion (commit 5) depends on. ──────────────────────────
+    // ── assertion 4: the charging event belonging to the NON-OWNING device
+    // (the primary) changed nothing. Re-derive with the primary's
+    // chargingOn/chargingOff rows deleted; assert an identical payload.
+    // This is the §5.1(b) regression — it is invisible in the span set
+    // alone, which is why it needs a second real derive to catch. ────────
     final atCharge = spanAt(inBundleHr1Hz, _chargeOn);
     expect(atCharge?.deviceId, _ring,
         reason: 'the charging event this fixture seeds sits in a window the '
             'ring owns — the primary\'s charging must not be able to mask it');
+
+    await db.delete('band_events',
+        where: 'device_id = ? AND event_id IN (?, ?)',
+        whereArgs: [_primary, proto.EventId.chargingOn, proto.EventId.chargingOff]);
+    final done2 =
+        await DerivationEngine().runDays(const Profile(), {_dayId}, force: true);
+    expect(done2, 1);
+    final row2 = await LocalDb.dayResult(_dayId);
+    expect(row2!['payload_json'], row['payload_json'],
+        reason: 'the primary\'s charging event sat inside a window the ring '
+            'owned, so removing it must not change the derived payload at '
+            'all — a day whose only charging event belongs to the '
+            'non-owning device must stage identically to a day with no '
+            'charging event at all');
 
     // ── decoded_onehz still holds BOTH devices' original rows — filtering
     // happens at substrate-load time only, never by deleting data. ────────
