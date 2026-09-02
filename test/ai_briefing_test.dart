@@ -51,6 +51,7 @@ class _FakeRepo extends LocalRepository {
     String metric, {
     int? from,
     int? to,
+    Set<String> signals = const {},
   }) async => charts[metric] ?? const {'points': <Map<String, dynamic>>[]};
   @override
   Future<Map<String, dynamic>> getInsights() async => insights;

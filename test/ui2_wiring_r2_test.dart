@@ -77,7 +77,8 @@ class _FakeRepo extends LocalRepository {
   @override
   Future<List<String>> availableDays() async => days;
   @override
-  Future<Map<String, dynamic>> getChart(String metric, {int? from, int? to}) async =>
+  Future<Map<String, dynamic>> getChart(String metric,
+          {int? from, int? to, Set<String> signals = const {}}) async =>
       const {'points': []};
   // Health reads the wear block for the night's off-wrist stretches and the
   // day's naps. Absent here on purpose: an empty map is "we never looked",

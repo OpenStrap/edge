@@ -158,8 +158,44 @@ abstract class LocalRepository {
   // ── trends + records + charts ────────────────────────────────────────────────
   Future<Map<String, dynamic>> getRecords() =>
       throw UnimplementedError('re-layer: getRecords');
-  Future<Map<String, dynamic>> getChart(String metric, {int? from, int? to}) =>
+  Future<Map<String, dynamic>> getChart(
+    String metric, {
+    int? from,
+    int? to,
+    // A string set, not `Set<InputSignal>` — this keeps `lib/data/` free of
+    // any dependency on `lib/ble/` (final-plan §5.1). `MetricData.load`
+    // passes `{for (final s in spec.requires) s.name}`; an empty set (every
+    // existing caller) skips the extra `coverage_recording` query outright.
+    Set<String> signals = const {},
+  }) =>
       throw UnimplementedError('re-layer: getChart');
+
+  /// ONE DEVICE'S OWN intraday curve for one day, per-minute means, or an empty
+  /// point list with the reason it is empty.
+  ///
+  /// RETENTION-BOUNDED AND SAYS SO. This reads `decoded_onehz`, which prunes at
+  /// `rawRetentionDays = 3` (held to `_maxRawHoldDays = 14` for a day that has
+  /// not produced a complete result). Outside that window there is nothing to
+  /// read and the honest answer is `bounded: true` with `oldest` naming the
+  /// edge — never an empty chart with no explanation, and never a per-device
+  /// daily trend reconstructed from `metric_series`, which holds ONE MERGED
+  /// value per day and has nothing to re-attribute (final-plan §6.4, §7.3).
+  ///
+  /// Returns `{'points': [{t, v}], 'bounded': bool, 'oldest': 'YYYY-MM-DD'?}`.
+  /// `points` is the same `[{t: epochSec, v: num}]` shape `getChart('hr')` and
+  /// `getDayTimeline`'s `hr` lane already carry, so `pointsOf` and `dayGraph`
+  /// consume it with no new codec.
+  Future<Map<String, dynamic>> getDeviceChart(
+    String metric, {
+    required String deviceId,
+    required String date,
+  }) =>
+      throw UnimplementedError('re-layer: getDeviceChart');
+
+  /// What OTHER sources say about this day, each attributed to whoever said it.
+  /// DISPLAY ONLY — see `LocalDb.observationsForDay`.
+  Future<List<Map<String, Object?>>> getDayObservations(String date) =>
+      throw UnimplementedError('re-layer: getDayObservations');
 
   // ── workouts (manual / live / auto) ──────────────────────────────────────────
   Future<Map<String, dynamic>> getWorkouts({String range = 'month'}) =>

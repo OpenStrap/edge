@@ -1821,6 +1821,7 @@ class LocalRepositoryImpl extends LocalRepository {
     String metric, {
     int? from,
     int? to,
+    Set<String> signals = const {},
   }) async {
     if (metric == 'hr') {
       // "Today's heart rate" card: the curve must be TODAY's. _latestBundle
@@ -1853,6 +1854,26 @@ class LocalRepositoryImpl extends LocalRepository {
     // 74 in the ring and 69 as today's point in the chart underneath it. One
     // day, one readiness number.
     final pin = key == 'readiness' ? await LocalDb.frozenHeadline() : null;
+
+    // ONE read of metric_series_version, two consumers. `_algoBreaks` used to
+    // fetch it privately; `coverage_devices` rides on the same rows because it
+    // is the same table, the same day key and the same write.
+    final versions = await LocalDb.metricSeriesVersions();
+
+    // WHO CONTRIBUTED TO EACH DAY'S SCALARS (final-plan §4.4). Days with no
+    // stamp, and days stamped before schema 50, are simply ABSENT — never
+    // attributed to the primary by assumption, which is the same rule
+    // `source` and `device_family` on this table already follow.
+    final coverageDevices = {
+      for (final r in versions)
+        if (r['coverage_devices'] case final String s when s.isNotEmpty)
+          r['date'] as String: s.split(','),
+    };
+    final distinctDevices = {for (final ids in coverageDevices.values) ...ids};
+
+    final oldestDaySec =
+        rows.isEmpty ? _nowSec() : _dateToEpoch(rows.first['date'] as String);
+
     return {
       'points': [
         for (final r in rows)
@@ -1882,15 +1903,27 @@ class LocalRepositoryImpl extends LocalRepository {
       // makes the seam visible, so a change-point search refuses to run across
       // one instead of reporting the day of a version bump as a finding about
       // the user.
-      'algo_breaks': await _algoBreaks(),
+      'algo_breaks': _algoBreaks(versions),
+      'coverage_devices': coverageDevices,
+      // WHAT WAS RECORDING, for the middle row of §6.2's readout. Queried ONLY
+      // when the day sets above already name two or more devices — a
+      // single-device install runs no additional statement, ever.
+      'coverage_recording': signals.isEmpty || distinctDevices.length < 2
+          ? const <String, List<String>>{}
+          : await LocalDb.coverageDevicesByDay(
+              signals: signals.toList(),
+              fromSec: oldestDaySec,
+              toSec: _nowSec(),
+            ),
     };
   }
+
+  int _nowSec() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
   /// Dates where `metric_series`'s algo version changes, with the versions on
   /// either side: `[{t, from, to}]`. The FIRST stamped day is not a break —
   /// there is nothing before it to be incomparable with.
-  Future<List<Map<String, dynamic>>> _algoBreaks() async {
-    final rows = await LocalDb.metricSeriesVersions();
+  List<Map<String, dynamic>> _algoBreaks(List<Map<String, dynamic>> rows) {
     final out = <Map<String, dynamic>>[];
     int? prev;
     for (final r in rows) {
@@ -1911,6 +1944,65 @@ class LocalRepositoryImpl extends LocalRepository {
   int _dateToEpoch(String date) =>
       (DateTime.tryParse('$date 12:00:00')?.millisecondsSinceEpoch ?? 0) ~/
       1000;
+
+  @override
+  Future<Map<String, dynamic>> getDeviceChart(
+    String metric, {
+    required String deviceId,
+    required String date,
+  }) async {
+    // Only `hr`/`resting_hr` resolve to a curve today — an honest "this
+    // metric has no per-device intraday form" rather than a plausible-looking
+    // empty axis. Do not switch on more metrics until one has a display site.
+    if (metric != 'hr' && metric != 'resting_hr') {
+      return {'points': const [], 'bounded': false};
+    }
+    final dayStart = _localMidnightSec(date);
+    final dayEnd = _localDayEndSec(date);
+    final db = await LocalDb.instance;
+    final rows = await db.rawQuery(
+      'SELECT rec_ts, hr FROM decoded_onehz '
+      'WHERE device_id = ? AND rec_ts >= ? AND rec_ts < ? AND hr > 0 '
+      'ORDER BY rec_ts',
+      [deviceId, dayStart, dayEnd],
+    );
+    // Bucketing copied verbatim from onehz_pipeline.dart's `_downsampleHr`
+    // (the source of truth for this arithmetic) rather than importing the
+    // derive path into the read seam.
+    final buckets = <int, List<double>>{};
+    for (final r in rows) {
+      final ts = (r['rec_ts'] as num).toInt();
+      final hr = (r['hr'] as num).toInt();
+      final min = ts ~/ 60;
+      (buckets[min] ??= []).add(hr.toDouble());
+    }
+    final keys = buckets.keys.toList()..sort();
+    final points = [
+      for (final k in keys)
+        {
+          't': k * 60,
+          'v': (buckets[k]!.reduce((a, b) => a + b) / buckets[k]!.length)
+              .round(),
+        },
+    ];
+
+    final oldestRow = await db.rawQuery(
+      'SELECT MIN(rec_ts) AS m FROM decoded_onehz WHERE device_id = ?',
+      [deviceId],
+    );
+    final oldestTs = (oldestRow.firstOrNull?['m'] as num?)?.toInt();
+    final bounded = oldestTs != null && dayStart < oldestTs;
+    return {
+      'points': points,
+      'bounded': bounded,
+      if (bounded)
+        'oldest': dayLabelOf(DateTime.fromMillisecondsSinceEpoch(oldestTs * 1000)),
+    };
+  }
+
+  @override
+  Future<List<Map<String, Object?>>> getDayObservations(String date) =>
+      LocalDb.observationsForDay(date);
 
   @override
   Future<Map<String, dynamic>> getRecords() async {

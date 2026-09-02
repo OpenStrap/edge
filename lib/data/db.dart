@@ -1985,6 +1985,30 @@ class LocalDb {
     String deviceId = kPrimaryDeviceId,
   }) => putObservations([o], deviceId: deviceId);
 
+  /// VENDOR SCALARS FOR ONE DAY, for DISPLAY ONLY.
+  ///
+  /// The first reader this table has ever had. Read
+  /// `test/observation_isolation_test.dart` before adding a second: nothing may
+  /// read `observation` into a baseline, into a trend that also holds derived
+  /// values, or into any input to a derivation (OBSERVATION_SPEC §3). This
+  /// returns rows carrying their own `attribution` precisely so a caller
+  /// CANNOT render one as ours — the vendor's name travels with the number
+  /// and the UI has no shape for it without one.
+  ///
+  /// Ordered by `attribution, name` so the same day renders in the same order
+  /// on every build.
+  static Future<List<Map<String, Object?>>> observationsForDay(
+    String date,
+  ) async {
+    final db = await instance;
+    return db.query(
+      'observation',
+      where: 'date = ?',
+      whereArgs: [date],
+      orderBy: 'attribution ASC, COALESCE(vendor_key, key) ASC',
+    );
+  }
+
   // ── IMPORTED WORKOUTS (Apple Health / Health Connect) ──────────────────────
   /// A workout some OTHER app recorded, held in its own table for the same
   /// reason `imported_measurement` is: so that it CANNOT become one of ours.
@@ -6843,6 +6867,54 @@ class LocalDb {
           end: (r['end_ts'] as num).toInt(),
         ),
     ];
+  }
+
+  /// WHICH DEVICES WERE PHYSICALLY RECORDING each LOCAL day in a window, per
+  /// signal — from `device_coverage`, which is written at ingest and never
+  /// pruned, so this answers for days whose 1 Hz substrate went at
+  /// `rawRetentionDays = 3`.
+  ///
+  /// NOT the same question as `metric_series_version.coverage_devices`. That
+  /// says which devices FED THE NUMBER; this says which were recording. They
+  /// differ whenever a device was covered but lost arbitration, and the
+  /// difference is exactly what separates "your ring reported nothing for
+  /// eleven minutes" from "nothing was on your body" (final-plan §6.2).
+  ///
+  /// [signals] are `InputSignal.name` strings. An empty list returns an empty
+  /// map rather than every signal — a caller that did not say what it needs is
+  /// not asking for everything.
+  static Future<Map<String, List<String>>> coverageDevicesByDay({
+    required List<String> signals,
+    required int fromSec,
+    required int toSec,
+  }) async {
+    if (signals.isEmpty || toSec <= fromSec) return const {};
+    final db = await instance;
+    final marks = List.filled(signals.length, '?').join(',');
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT device_id, start_ts, end_ts FROM device_coverage '
+      'WHERE signal IN ($marks) AND end_ts > ? AND start_ts < ?',
+      [...signals, fromSec, toSec],
+    );
+    // Interval -> LOCAL day labels. A night's span crosses midnight, so one
+    // row lands on two days; `dayLabelOf` is the only helper that gets the 23 h
+    // and 25 h days right, and walking with `DateTime(y, m, d + 1)` walks the
+    // calendar rather than adding 86400 s.
+    final out = <String, Set<String>>{};
+    for (final r in rows) {
+      final id = r['device_id'] as String? ?? kPrimaryDeviceId;
+      final a = ((r['start_ts'] as num).toInt()).clamp(fromSec, toSec);
+      final b = ((r['end_ts'] as num).toInt()).clamp(fromSec, toSec);
+      var d = DateTime.fromMillisecondsSinceEpoch(a * 1000);
+      final last = DateTime.fromMillisecondsSinceEpoch(b * 1000);
+      // Bounded by the clamp above: at most one iteration per day in the
+      // window, whatever the row claims.
+      while (!d.isAfter(last)) {
+        (out[dayLabelOf(d)] ??= <String>{}).add(id);
+        d = DateTime(d.year, d.month, d.day + 1);
+      }
+    }
+    return {for (final e in out.entries) e.key: e.value.toList()..sort()};
   }
 
   // ── VERSIONED DERIVED STORE I/O (day_result; main isolate only) ─────────────

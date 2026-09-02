@@ -159,7 +159,7 @@ class _Repo extends LocalRepository {
   /// card silently stops being covered.
   @override
   Future<Map<String, dynamic>> getChart(String metric,
-      {int? from, int? to}) async {
+      {int? from, int? to, Set<String> signals = const {}}) async {
     final midnight = DateTime.now().copyWith(
         hour: 12, minute: 0, second: 0, millisecond: 0, microsecond: 0);
     return {
