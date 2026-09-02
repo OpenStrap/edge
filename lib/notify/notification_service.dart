@@ -125,6 +125,8 @@ class NotificationService {
   static const int idJournalLog = 2004; // scheduled daily ("log your day")
   static const int idMorningBrief = 2005; // scheduled daily (AI morning briefing)
   static const int idEveningBrief = 2006; // scheduled daily (AI evening recap)
+  static const int idAlarmLatchFailed = 2007; // immediate ("alarm not confirmed")
+  static const int idAlarmNightCheck = 2008; // scheduled daily, one-shot 19:00
   static const int idStillness = 2200; // provisional one-shot ("time to move", issue #123)
   static const int idCheckIn = 2201; // daily ("how was today?" → the journal)
 
@@ -196,6 +198,7 @@ class NotificationService {
     idWindDown,
     idStillness,
     idCheckIn,
+    idAlarmNightCheck,
   };
 
   /// Whether [id] is one of the hydration slots. A band rather than a set

@@ -149,6 +149,46 @@ void main() {
     });
   });
 
+  group('alarmNightCheckSlot', () {
+    test('off switch wins even with nothing armed for tonight', () {
+      expect(
+          NotificationCenter.alarmNightCheckSlot(
+              const NotificationPrefs(alarmNightCheckEnabled: false),
+              armedTonight: false,
+              nowMin: 12 * 60),
+          isNull);
+    });
+
+    test('an alarm armed for tonight silences it — the whole point is the gap',
+        () {
+      expect(
+          NotificationCenter.alarmNightCheckSlot(
+              const NotificationPrefs(alarmNightCheckEnabled: true),
+              armedTonight: true,
+              nowMin: 12 * 60),
+          isNull);
+    });
+
+    test('nothing armed for tonight, before 19:00 → the 19:00 slot', () {
+      expect(
+          NotificationCenter.alarmNightCheckSlot(
+              const NotificationPrefs(alarmNightCheckEnabled: true),
+              armedTonight: false,
+              nowMin: 12 * 60),
+          NotificationCenter.alarmNightCheckHour * 60);
+    });
+
+    test('after 19:00 today, nothing is armed — a one-shot would land a day '
+        'late', () {
+      expect(
+          NotificationCenter.alarmNightCheckSlot(
+              const NotificationPrefs(alarmNightCheckEnabled: true),
+              armedTonight: false,
+              nowMin: 20 * 60),
+          isNull);
+    });
+  });
+
   group('weeklyLookbackFinding', () {
     test('an empty week says nothing', () {
       expect(NotificationCenter.weeklyLookbackFinding(const []), isNull);

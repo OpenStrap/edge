@@ -15,6 +15,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
+import 'package:openstrap_edge/state/alarm_schedule.dart' show alarmLatchFailed;
 import 'package:openstrap_edge/sync/sync_policy.dart' show ClockRef;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
@@ -324,6 +325,46 @@ void main() {
       expect(a.onEvent(proto.EventId.wristOn, 5), isNull);
       expect(a.confirmed, isFalse);
       expect(a.targetEpoch, 1750000000);
+    });
+  });
+
+  // The pure decision behind AppState._notifyAlarmLatchFailed (Feature 2.1):
+  // whether the "alarm not confirmed" safety notification should fire for a
+  // given epoch, given the toggle and the CURRENT confirmation state. No
+  // notification plumbing here — the OS-facing side is exercised separately.
+  group('alarmLatchFailed (safety notification gate)', () {
+    test('fires when the toggle is on, the epoch is still the target, and it '
+        'never confirmed', () {
+      final a = AlarmConfirmation()..set(1750000000, 0);
+      expect(alarmLatchFailed(a, 1750000000, enabled: true), isTrue);
+    });
+
+    test('the toggle off overrides everything else', () {
+      final a = AlarmConfirmation()..set(1750000000, 0);
+      expect(alarmLatchFailed(a, 1750000000, enabled: false), isFalse);
+    });
+
+    test('a confirmed alarm never fires it, even with the toggle on', () {
+      final a = AlarmConfirmation()..set(1750000000, 0);
+      a.onEvent(AlarmConfirmation.kEvtSet, 10);
+      expect(alarmLatchFailed(a, 1750000000, enabled: true), isFalse);
+    });
+
+    test('a superseded epoch (a newer arm, or a cancel) does not fire the '
+        'STALE one\'s notification', () {
+      final a = AlarmConfirmation()..set(1750000000, 0);
+      a.set(1750003600, 100); // a fresh arm replaced the pending one
+      expect(alarmLatchFailed(a, 1750000000, enabled: true), isFalse,
+          reason: 'that epoch is no longer what this machine is tracking');
+      // The NEW target, still unconfirmed, is what should fire instead.
+      expect(alarmLatchFailed(a, 1750003600, enabled: true), isTrue);
+    });
+
+    test('a disabled/cleared alarm (targetEpoch null) never fires it', () {
+      final a = AlarmConfirmation()
+        ..set(1750000000, 0)
+        ..disable();
+      expect(alarmLatchFailed(a, 1750000000, enabled: true), isFalse);
     });
   });
 

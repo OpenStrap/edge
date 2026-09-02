@@ -212,6 +212,13 @@ class NotificationCenter {
   /// in here for the same reason [weeklyFinding] does: this method is the
   /// policy, and a policy that opens the database cannot be tested without
   /// one.
+  ///
+  /// [armedTonight]: whether the REAL armed alarm (AppState.alarmEpoch, not
+  /// merely an enabled schedule row) falls on today's calendar date — see
+  /// [alarmNightCheckSlot]. Always a real answer (never null): unlike
+  /// `checkInDoneToday`/`medDefs`, it costs no extra read (AppState already
+  /// holds the armed epoch), so there is no "caller doesn't know" case to
+  /// preserve through.
   Future<void> scheduleStandingReminders(
     NotificationPrefs prefs, {
     double? bedtimeMinOfDay,
@@ -219,9 +226,14 @@ class NotificationCenter {
     bool? checkInDoneToday,
     List<MedDef>? medDefs,
     Map<String, Map<int, Map<String, Object?>>> medDosesToday = const {},
+    bool armedTonight = false,
   }) async {
     final svc = NotificationService.instance;
     await svc.cancel(NotificationService.idWeeklyRecap);
+    // The night-check is decided fresh on every call (armedTonight is always a
+    // real answer, unlike checkInDoneToday) — cancel unconditionally, then
+    // re-arm below exactly like the weekly recap just above.
+    await svc.cancel(NotificationService.idAlarmNightCheck);
     // Wind-down follows the standing rule — cancel what this call cannot put
     // back, and only that. A null slot (switch off, or no LEARNED bedtime yet)
     // cancels; a real slot is armed below.
@@ -290,11 +302,14 @@ class NotificationCenter {
             doneToday: checkInDoneToday, nowMin: now.hour * 60 + now.minute);
     final meds =
         medPromptSlots(prefs, medDefs ?? const [], medDosesToday, now: now);
+    final nightCheck = alarmNightCheckSlot(prefs,
+        armedTonight: armedTonight, nowMin: now.hour * 60 + now.minute);
     if (water.isEmpty &&
         !wantWeekly &&
         windDownMin == null &&
         checkIn == null &&
-        meds.isEmpty) {
+        meds.isEmpty &&
+        nightCheck == null) {
       return;
     }
     // Re-resolve the zone first: this runs on every foreground resume, and the
@@ -306,6 +321,43 @@ class NotificationCenter {
     if (windDownMin != null) await _armWindDown(svc, windDownMin);
     if (checkIn != null) await _armCheckIn(svc, checkIn);
     await _armMedSlots(svc, meds);
+    if (nightCheck != null) await _armAlarmNightCheck(svc, nightCheck);
+  }
+
+  /// The hour the 7pm no-alarm-tonight check-in fires at, when armed.
+  static const int alarmNightCheckHour = 19;
+
+  /// The check-in's wall-clock minute, or null when it must not be armed: the
+  /// toggle is off, an alarm IS armed for tonight (the honest gate — the whole
+  /// point is to catch the GAP, not to nag someone who already has one set),
+  /// or 19:00 has already passed today (a one-shot rolled to tomorrow would
+  /// warn about TONIGHT a day late). No quiet-hours cap like windDown/checkIn:
+  /// 19:00 is fixed and outside the default quiet window, and moving it to
+  /// dodge a user-configured quiet window would just make the warning late.
+  static int? alarmNightCheckSlot(
+    NotificationPrefs prefs, {
+    required bool armedTonight,
+    required int nowMin,
+  }) {
+    if (!prefs.alarmNightCheckEnabled || armedTonight) return null;
+    final t = alarmNightCheckHour * 60;
+    if (nowMin >= t) return null;
+    return t;
+  }
+
+  /// The 7pm one-shot itself. ONE-SHOT, not a daily repeat, for the same
+  /// reason the check-in and med slots are: "armed for tonight" is a fact
+  /// about today specifically, and a repeat would go on warning about a night
+  /// that, by the next evening, may well have a real alarm set.
+  Future<void> _armAlarmNightCheck(NotificationService svc, int minuteOfDay) async {
+    await svc.scheduleOnce(
+      id: NotificationService.idAlarmNightCheck,
+      category: NotifCategory.reminders,
+      title: 'No alarm set for tonight',
+      body: 'You have no wake alarm armed for tonight.',
+      at: svc.nextDailyInstant(minuteOfDay ~/ 60, minuteOfDay % 60),
+      route: kRouteAlarm,
+    );
   }
 
   /// One notification per dose still due — never one per day, never a summary.

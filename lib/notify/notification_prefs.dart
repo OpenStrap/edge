@@ -111,6 +111,19 @@ class NotificationPrefs {
   /// bedtime has actually been learned — see NotificationCenter.windDownSlot.
   final bool windDownEnabled;
 
+  /// The alarm safety notifications (weekly-schedule feature). Both default
+  /// ON, unlike every other reminder above: they exist to catch a wake alarm
+  /// that silently isn't going to fire, which is the one failure mode where
+  /// starting silent defeats the point.
+  ///
+  /// Latch-failure: the strap never confirmed (event 56) an arm this app
+  /// wrote, after the retry AlarmConfirmation's grace window already allows.
+  final bool alarmLatchFailedEnabled;
+
+  /// The 7pm "no alarm set for tonight" check-in: silent whenever an alarm IS
+  /// armed for tonight, so it only ever speaks up about an actual gap.
+  final bool alarmNightCheckEnabled;
+
   /// Allowed bounds for [batteryAlertPct]. Below 5% a band is dying, not low;
   /// above 40% the alert would fire constantly and be muted forever.
   static const int batteryPctMin = 5;
@@ -138,6 +151,8 @@ class NotificationPrefs {
     this.batteryAlertPct = batteryPctDefault,
     this.stepGoalEnabled = true,
     this.windDownEnabled = false,
+    this.alarmLatchFailedEnabled = true,
+    this.alarmNightCheckEnabled = true,
   });
 
   static const _kHealth = 'notif_health';
@@ -163,6 +178,8 @@ class NotificationPrefs {
   static const _kBatteryPct = batteryPctPrefKey;
   static const _kStepGoal = 'notif_stepgoal';
   static const _kWindDown = 'notif_winddown';
+  static const _kAlarmLatchFailed = 'notif_alarm_latch_failed';
+  static const _kAlarmNightCheck = 'notif_alarm_night_check';
 
   static Future<NotificationPrefs> load() async {
     final p = await SharedPreferences.getInstance();
@@ -186,6 +203,8 @@ class NotificationPrefs {
           .toInt(),
       stepGoalEnabled: p.getBool(_kStepGoal) ?? true,
       windDownEnabled: p.getBool(_kWindDown) ?? false,
+      alarmLatchFailedEnabled: p.getBool(_kAlarmLatchFailed) ?? true,
+      alarmNightCheckEnabled: p.getBool(_kAlarmNightCheck) ?? true,
     );
   }
 
@@ -209,6 +228,8 @@ class NotificationPrefs {
         _kBatteryPct, batteryAlertPct.clamp(batteryPctMin, batteryPctMax).toInt());
     await p.setBool(_kStepGoal, stepGoalEnabled);
     await p.setBool(_kWindDown, windDownEnabled);
+    await p.setBool(_kAlarmLatchFailed, alarmLatchFailedEnabled);
+    await p.setBool(_kAlarmNightCheck, alarmNightCheckEnabled);
   }
 
   NotificationPrefs copyWith({
@@ -229,6 +250,8 @@ class NotificationPrefs {
     int? batteryAlertPct,
     bool? stepGoalEnabled,
     bool? windDownEnabled,
+    bool? alarmLatchFailedEnabled,
+    bool? alarmNightCheckEnabled,
   }) =>
       NotificationPrefs(
         healthEnabled: healthEnabled ?? this.healthEnabled,
@@ -249,6 +272,10 @@ class NotificationPrefs {
         batteryAlertPct: batteryAlertPct ?? this.batteryAlertPct,
         stepGoalEnabled: stepGoalEnabled ?? this.stepGoalEnabled,
         windDownEnabled: windDownEnabled ?? this.windDownEnabled,
+        alarmLatchFailedEnabled:
+            alarmLatchFailedEnabled ?? this.alarmLatchFailedEnabled,
+        alarmNightCheckEnabled:
+            alarmNightCheckEnabled ?? this.alarmNightCheckEnabled,
       );
 
   bool categoryEnabled(NotifCategory c) => switch (c) {

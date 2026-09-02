@@ -103,6 +103,11 @@ const String kRouteProfile = '/profile';
 /// `domainForRoute` claimed otherwise.
 const String kRouteRecap = '/recap';
 
+/// Emitted by the two alarm safety notifications (latch-failure, the 7pm
+/// no-alarm-tonight check-in). Lands on the Alarm screen itself, the one place
+/// either can actually be fixed — see `screenForRoute` in app.dart.
+const String kRouteAlarm = '/alarm';
+
 class TapTarget {
   /// Shell tab index to land on (always valid; unknown → 0 = Today).
   final int tab;
@@ -150,6 +155,7 @@ const Map<String, int> _screenRoutes = {
   kRouteWorkoutSuggestion: 4,
   kRouteProfile: 0,
   kRouteRecap: 1, // 1|2|3 all fold into Health — see domainForTab
+  kRouteAlarm: 0,
 };
 
 TapTarget resolveTapRoute(String route) {
