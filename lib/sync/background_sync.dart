@@ -81,7 +81,8 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
               deviceFamily: deviceFamily,
               onCheckpoint: (msg) => debugPrint('[bgsync][COMMIT] $msg')),
       onArchiveRecord: LocalDb.archiveRawRecord,
-      cursorReader: LocalDb.getCursorInt,
+      cursorReader: (base) =>
+          LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
       // Mark this as the background drainer: if the foreground app engine already
       // owns the band (same process — iOS restore-wake OR Android headless boot /
       // foreground service), this engine YIELDS instead of opening a second drain

@@ -895,10 +895,30 @@ class BleEngine {
   // fresh/stale staleness tiers still apply, unaffected.
   static bool _defaultIsForegroundActive() => false;
 
-  /// Optional reader for a persisted cursor value (e.g. counter_hw) so the engine
-  /// can seed its frontier from the durable store on connect — making the stuck/
-  /// continuation detectors correct on the very first offload after a restart.
+  /// Optional reader for a persisted cursor, keyed by BASE name (e.g.
+  /// `'counter_hw'`) so the engine can seed its frontier from the durable
+  /// store on connect — making the stuck/continuation detectors correct on
+  /// the very first offload after a restart.
+  ///
+  /// BASE name, not the full `sync_cursor` key: this file is deliberately
+  /// DB-free (it takes `cursorReader` as a function instead of importing
+  /// `db.dart`), so the per-device key composition (`LocalDb.cursorKeyFor`)
+  /// happens on the CALLER's side — see `app_state.dart` / `background_sync.dart`
+  /// — and every call site here just passes `'rec_ts_hw'` / `'counter_hw'`.
   final Future<int?> Function(String name)? cursorReader;
+
+  /// Which device's cursor namespace this engine reads and writes. Always
+  /// [LocalDb.kPrimaryDeviceId] until M2 gives every session its own id, and
+  /// it is a field rather than a literal so that change is a constructor
+  /// argument and not a hunt through the file. (`LocalDb.kPrimaryDeviceId` is
+  /// `''`, spelled out here rather than imported — see [cursorReader].)
+  ///
+  /// Unused in M0 on purpose: this engine drives one device and
+  /// `cursorReader`'s two call sites still pass the bare base name (the
+  /// caller composes the key — see [cursorReader]'s doc). M2's `DeviceSession`
+  /// seam is what reads this.
+  // ignore: unused_field
+  final String _cursorDeviceId = '';
 
   final DeviceState state = DeviceState();
 

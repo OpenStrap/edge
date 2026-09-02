@@ -359,6 +359,23 @@ class LocalDb {
   /// the band emits across the handshake — never from the link.
   static const String kPrimaryDeviceId = '';
 
+  /// The `sync_cursor` name for a per-offloading-device bookmark.
+  ///
+  /// THE PRIMARY KEEPS THE BARE KEY, FOREVER. This is not cosmetic and it is
+  /// not a transitional shim. Every install on disk today stores `counter_hw`,
+  /// `rec_ts_hw` and `strap_trim` under those exact names; a naive
+  /// `'$base:$deviceId'` renders `'rec_ts_hw:'` for the primary ('' is its id —
+  /// see [kPrimaryDeviceId]), which is a NEW, EMPTY key. `RecordGate` would
+  /// then seed its frontier from 0, the band would re-offer its whole flash,
+  /// and `strap_trim` would echo nothing — the "Groundhog Day" re-flood,
+  /// delivered by a migration.
+  ///
+  /// There is deliberately no migration step for this: the primary's keys are
+  /// already correct, and only a device that has never had a cursor gets a
+  /// suffixed one.
+  static String cursorKeyFor(String base, String deviceId) =>
+      deviceId == kPrimaryDeviceId ? base : '$base:$deviceId';
+
   /// Split [items] into `_maxSqlVars`-sized chunks for `IN (…)` binding.
   static Iterable<List<T>> _sqlVarChunks<T>(List<T> items) sync* {
     for (var i = 0; i < items.length; i += _maxSqlVars) {
@@ -2585,8 +2602,10 @@ class LocalDb {
       await db.transaction((txn) async {
         // Read the existing high-water THROUGH the txn — never via the global db
         // handle, which would deadlock against this same open transaction.
-        var maxCounter = await _cursorIntVia(txn, 'counter_hw') ?? 0;
-        var maxRecTs = await _cursorIntVia(txn, 'rec_ts_hw') ?? 0;
+        final kCounter = cursorKeyFor('counter_hw', deviceId);
+        final kRecTs = cursorKeyFor('rec_ts_hw', deviceId);
+        var maxCounter = await _cursorIntVia(txn, kCounter) ?? 0;
+        var maxRecTs = await _cursorIntVia(txn, kRecTs) ?? 0;
         // CHUNKED BATCH: sqflite serialises an ENTIRE batch's operations+args into
         // ONE platform-channel message, and the native side builds a single
         // ArrayList of every argument. A large backlog offload (raws in the
@@ -2656,9 +2675,12 @@ class LocalDb {
         );
         await flushChunk();
         checkpoint('decoded_archive_committed');
-        await setCursor('counter_hw', '$maxCounter', txn: txn);
-        await setCursor('rec_ts_hw', '$maxRecTs', txn: txn);
-        if (trimToken != null) await setCursor('strap_trim', trimToken, txn: txn);
+        await setCursor(kCounter, '$maxCounter', txn: txn);
+        await setCursor(kRecTs, '$maxRecTs', txn: txn);
+        if (trimToken != null) {
+          await setCursor(cursorKeyFor('strap_trim', deviceId), trimToken,
+              txn: txn);
+        }
         if (extraCursors != null) {
           for (final e in extraCursors.entries) {
             await setCursor(e.key, e.value, txn: txn);
