@@ -22,6 +22,7 @@ import 'package:provider/provider.dart';
 
 import 'package:openstrap_edge/notify/notification_prefs.dart';
 import 'package:openstrap_edge/platform/app_icon.dart';
+import 'package:openstrap_edge/state/alarm_schedule.dart';
 import 'package:openstrap_edge/state/locale_controller.dart';
 import 'package:openstrap_edge/ui2/onboarding/pairing.dart';
 import 'package:openstrap_edge/ui2/onboarding/profile_setup.dart';
@@ -39,7 +40,15 @@ final _synced = DateTime(2026, 8, 22, 7, 12);
 /// The alarm screen renders a relative day ("Tomorrow"), so both ends of that
 /// comparison are pinned or the golden is a function of when the suite runs.
 final _alarmNow = DateTime(2026, 8, 21, 22, 40);
-final _alarmAt = DateTime(2026, 8, 22, 6, 30);
+final _alarmAt = DateTime(2026, 8, 22, 6, 30); // Saturday → weekday index 5.
+
+/// A representative weekly schedule: Saturday matches [_alarmAt] above (so
+/// the armed-instant card and the schedule row agree, like a real one would),
+/// Wednesday is a second enabled day, everything else is off.
+final _alarmSchedule = fillDefaultAlarmSchedule(const [
+  AlarmScheduleEntry(weekday: 5, hour: 6, minute: 30, enabled: true),
+  AlarmScheduleEntry(weekday: 2, hour: 7, minute: 0, enabled: true),
+]);
 
 final _band = HealthSource(
   name: 'WHOOP 4.0',
@@ -105,13 +114,14 @@ Map<String, Widget> _cases() => {
       // The alarm's three confirmation states are the point of the screen: it
       // must not draw a confident tick over an alarm the band never
       // acknowledged.
-      'alarm_none': const AlarmScreenView(connected: true),
+      'alarm_none':
+          AlarmScreenView(connected: true, schedule: _alarmSchedule),
       'alarm_confirmed': AlarmScreenView(
           armedAt: _alarmAt,
           now: _alarmNow,
           state: AlarmArmState.confirmed,
           connected: true,
-          onSet: (_) async {},
+          schedule: _alarmSchedule,
           onTest: () async {},
           onCancel: () async {}),
       'alarm_unconfirmed': AlarmScreenView(
@@ -119,11 +129,14 @@ Map<String, Widget> _cases() => {
           now: _alarmNow,
           state: AlarmArmState.unknown,
           connected: true,
-          onSet: (_) async {},
+          schedule: _alarmSchedule,
           onTest: () async {},
           onCancel: () async {}),
       'alarm_disconnected': AlarmScreenView(
-          armedAt: _alarmAt, now: _alarmNow, state: AlarmArmState.unknown),
+          armedAt: _alarmAt,
+          now: _alarmNow,
+          state: AlarmArmState.unknown,
+          schedule: _alarmSchedule),
       'notification_settings': const NotificationSettingsView(),
       'notification_settings_blocked': const NotificationSettingsView(
           granted: false,
