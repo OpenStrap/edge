@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/adapters/signals.dart';
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
@@ -46,6 +47,20 @@ class MetricSpec {
   final String method;
   final String citation;
 
+  /// The INPUT SIGNALS this metric physically needs. A device that does not
+  /// declare every one of them cannot produce it, which is what makes the
+  /// per-device filter and its three visibility gates computable from the
+  /// registry with no query at all (final-plan §6.1, §6.5).
+  ///
+  /// SUPERSET, not intersection: a device qualifies only when its
+  /// `BandAdapter.signals` covers all of these. Readiness has four inputs, so a
+  /// chest strap that supplies two of them cannot serve a readiness chart, and
+  /// offering it one would be a control that can only ever draw an empty axis.
+  ///
+  /// Empty is the honest default: a metric nobody has classified declares no
+  /// requirement, every gate below evaluates false, and the screen is today's.
+  final Set<InputSignal> requires;
+
   const MetricSpec({
     required this.chartKey,
     required this.title,
@@ -57,6 +72,7 @@ class MetricSpec {
     this.suppressFix,
     this.method = '',
     this.citation = '',
+    this.requires = const {},
   });
 }
 
@@ -72,6 +88,7 @@ const _specs = <String, MetricSpec>{
         'a rolling window of the overnight series. Not a spot reading, and not '
         'a daytime minimum.',
     citation: 'Nocturnal heart-rate minimum; personal baseline, not population',
+    requires: {InputSignal.hr1Hz},
   ),
   'hrv': MetricSpec(
     chartKey: 'hrv',
@@ -84,6 +101,7 @@ const _specs = <String, MetricSpec>{
         'the Lipponen–Tarvainen method before any statistic is taken. '
         'Pulse-derived, so this is PRV: real and trendable, but not ECG HRV.',
     citation: 'Task Force 1996 · Lipponen & Tarvainen 2019',
+    requires: {InputSignal.rrIntervals},
   ),
   'readiness': MetricSpec(
     chartKey: 'recovery',
@@ -98,6 +116,12 @@ const _specs = <String, MetricSpec>{
         'enough history to use it, is listed on the Readiness screen. Missing '
         'inputs are re-weighted, never zero-filled.',
     citation: 'Plews 2013 (lnRMSSD) · Hopkins smallest-worthwhile-change gate',
+    requires: {
+      InputSignal.rrIntervals,
+      InputSignal.hr1Hz,
+      InputSignal.accel1Hz,
+      InputSignal.skinTempRaw,
+    },
   ),
   'resp_rate': MetricSpec(
     chartKey: 'resp_rate',
@@ -110,6 +134,7 @@ const _specs = <String, MetricSpec>{
         'periodic modulation breathing imposes on beat timing — over a grid of '
         'candidate rates.',
     citation: 'Pimentel 2017',
+    requires: {InputSignal.rrIntervals},
   ),
   'sleep': MetricSpec(
     chartKey: 'sleep',
@@ -120,6 +145,7 @@ const _specs = <String, MetricSpec>{
     method: 'Total sleep time from the wrist z-angle sleep window, staged by a '
         'combined actigraphy and heart-rate model.',
     citation: 'van Hees 2015 · Webster / Cole–Kripke rescoring',
+    requires: {InputSignal.accel1Hz, InputSignal.hr1Hz},
   ),
   'efficiency': MetricSpec(
     chartKey: 'efficiency',
@@ -129,6 +155,7 @@ const _specs = <String, MetricSpec>{
     icon: LucideIcons.bedDouble,
     method: 'Time asleep as a fraction of time in bed.',
     citation: 'AASM sleep-accounting definitions',
+    requires: {InputSignal.accel1Hz, InputSignal.hr1Hz},
   ),
   'deep': MetricSpec(
     chartKey: 'deep',
@@ -139,6 +166,7 @@ const _specs = <String, MetricSpec>{
     method: 'A low-confidence overlay: a wrist sensor cannot see slow-wave '
         'activity, so deep sleep here is heart-rate flatness inside NREM.',
     citation: 'Cole–Kripke wake spine + HRV overlay',
+    requires: {InputSignal.accel1Hz, InputSignal.hr1Hz},
   ),
   'rem': MetricSpec(
     chartKey: 'rem',
@@ -149,6 +177,7 @@ const _specs = <String, MetricSpec>{
     method: 'Staged from beat-timing variability and movement. A wrist sensor '
         'separates REM from light sleep only approximately.',
     citation: 'Webster / Cole–Kripke rescoring + HRV staging',
+    requires: {InputSignal.accel1Hz, InputSignal.hr1Hz},
   ),
   'steps': MetricSpec(
     chartKey: 'steps',
@@ -165,6 +194,12 @@ const _specs = <String, MetricSpec>{
         'one sample a second can resolve, so a day with no counter behind it '
         'reports no steps rather than a guess.',
     citation: 'AN-2554 pedometer · phone pedometer (HealthKit / Health Connect)',
+    // Deliberately EMPTY — see final-plan §4.6. Steps are resolved by
+    // `live_coverage_policy.dart`, which ranks by SPAN not device and credits
+    // by overlap subtraction; a device-ownership filter on this screen would
+    // be a per-device view of a quantity that is explicitly not per-device
+    // (and would reintroduce the 622-vs-18,856 double count, db.dart:2166-2172).
+    requires: {},
   ),
   'calories': MetricSpec(
     chartKey: 'calories',
@@ -175,6 +210,7 @@ const _specs = <String, MetricSpec>{
     method: 'Heart-rate-to-energy regression over the waking span, anchored on '
         'your weight, age and sex. An estimate, and sensitive to all three.',
     citation: 'Keytel 2005 · Harris–Benedict / Mifflin BMR floor',
+    requires: {InputSignal.hr1Hz},
   ),
   'strain': MetricSpec(
     chartKey: 'strain',
@@ -183,6 +219,7 @@ const _specs = <String, MetricSpec>{
     icon: LucideIcons.zap,
     method: 'Cardiovascular load over the day, compressed onto a 0–21 scale.',
     citation: 'Banister TRIMP family · log-compressed',
+    requires: {InputSignal.hr1Hz},
   ),
   'trimp': MetricSpec(
     chartKey: 'trimp',
@@ -192,6 +229,7 @@ const _specs = <String, MetricSpec>{
     method: 'Training impulse: time in each heart-rate zone, weighted by the '
         'physiological cost of that zone.',
     citation: 'Banister 1975 · Edwards 1993',
+    requires: {InputSignal.hr1Hz},
   ),
   'stress': MetricSpec(
     chartKey: 'stress',
@@ -203,6 +241,7 @@ const _specs = <String, MetricSpec>{
         'how tightly beat intervals cluster. There is deliberately no fallback '
         'when the resting window is missing.',
     citation: 'Baevsky 2008',
+    requires: {InputSignal.rrIntervals},
   ),
   'dip': MetricSpec(
     chartKey: 'dip',
@@ -212,6 +251,7 @@ const _specs = <String, MetricSpec>{
     icon: LucideIcons.trendingDown,
     method: 'How far sleeping heart rate falls below the waking average.',
     citation: 'Nocturnal dipping literature; personal baseline',
+    requires: {InputSignal.hr1Hz},
   ),
   'hrr': MetricSpec(
     chartKey: 'hrr',
@@ -222,6 +262,7 @@ const _specs = <String, MetricSpec>{
     method: 'The drop in heart rate over the 60 seconds after a bout ends, '
         'averaged across the day\'s bouts.',
     citation: 'Cole 1999 (HRR-60)',
+    requires: {InputSignal.hr1Hz},
   ),
   'lf_hf': MetricSpec(
     chartKey: 'lf_hf',
@@ -232,6 +273,7 @@ const _specs = <String, MetricSpec>{
         'variability, from a Lomb–Scargle periodogram (the series is unevenly '
         'sampled, so an FFT would be wrong).',
     citation: 'Laguna 1998 · Bigger 1992',
+    requires: {InputSignal.rrIntervals},
   ),
   'hrv_cv': MetricSpec(
     chartKey: 'hrv_cv',
@@ -242,6 +284,7 @@ const _specs = <String, MetricSpec>{
     higherBetter: false,
     method: 'Night-to-night coefficient of variation of RMSSD.',
     citation: 'Within-user dispersion',
+    requires: {InputSignal.rrIntervals},
   ),
   'brv': MetricSpec(
     chartKey: 'brv',
@@ -252,6 +295,7 @@ const _specs = <String, MetricSpec>{
     method: 'Coefficient of variation of per-window respiratory rate across '
         'the night.',
     citation: 'Within-user dispersion',
+    requires: {InputSignal.rrIntervals},
   ),
   // Both of these were written to `metric_series` on every derive since v55 and
   // had no spec, so nothing could open them — `specOf` fell through to a
@@ -266,6 +310,7 @@ const _specs = <String, MetricSpec>{
         'z-angle window detector the night uses, confirmed by a heart-rate dip. '
         'Naps are counted separately and never folded into time asleep.',
     citation: 'van Hees 2015 window detection + nocturnal HR dip',
+    requires: {InputSignal.accel1Hz, InputSignal.hr1Hz},
   ),
   'active_min': MetricSpec(
     chartKey: 'active_min',
@@ -278,6 +323,7 @@ const _specs = <String, MetricSpec>{
         'a population one before that. This is activity VOLUME, not locomotion: '
         'steps are counted by a pedometer and are never derived from it.',
     citation: 'ENMO over a personal dynamic-range floor',
+    requires: {InputSignal.accel1Hz},
   ),
   'wear': MetricSpec(
     chartKey: 'wear',
@@ -288,6 +334,7 @@ const _specs = <String, MetricSpec>{
     method: 'Minutes with a band record present. The band logs to flash only '
         'while it is on a wrist, so record presence IS wear.',
     citation: 'Record-presence, not heart-rate validity',
+    requires: {InputSignal.accel1Hz},
   ),
 
   // ── charted nowhere, on purpose ──
@@ -304,6 +351,7 @@ const _specs = <String, MetricSpec>{
         'your own recent nights. There is no conversion to degrees anywhere in '
         'the path.',
     citation: 'Relative only — uncalibrated ADC',
+    requires: {InputSignal.skinTempRaw},
   ),
   // `spo2`, `odi_per_hour` and `strain_effort` used to live here as cards that
   // existed only to explain that they were empty. A metric this app does not
