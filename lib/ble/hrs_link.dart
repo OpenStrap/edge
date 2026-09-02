@@ -175,6 +175,32 @@ class HrsLink {
 
   static const Duration _connectTimeout = Duration(seconds: 12);
 
+  /// True between `startScan` resolving and the scan window closing, for THIS
+  /// file's scan and nothing else.
+  ///
+  /// The pairing screen has to be able to end its own scan early — the lock
+  /// is held for the whole 15 s window and a dismissed screen should not make
+  /// the next caller wait it out. What it must NOT do is call a bare
+  /// `FlutterBluePlus.stopScan()`: the radio has one scanner, every holder
+  /// awaits `isScanning == false`, and a stop issued by anyone satisfies
+  /// everyone's await. A screen whose scan is still QUEUED behind the lock
+  /// would end the RUNNING holder's scan instead of its own, which reports
+  /// "found nothing" with no error anywhere.
+  static bool _scanRunning = false;
+
+  /// End this file's scan early if one is actually running. No-op otherwise —
+  /// including when the caller's own scan is still queued behind the lock.
+  ///
+  /// ponytail: a queued scan is not cancellable, so a dismissed screen can
+  /// still hold the lock for its full window doing nothing. That costs a
+  /// wait, never a wrong answer, which is the direction to fail in. Give
+  /// `withScanLock` a cancellation token only if a real flow needs the lock
+  /// back sooner.
+  static void stopScanIfRunning() {
+    if (!_scanRunning) return;
+    unawaited(FlutterBluePlus.stopScan());
+  }
+
   /// Scan for peripherals advertising [entry]'s service and report them as
   /// they are heard.
   ///
@@ -256,6 +282,7 @@ class HrsLink {
         withServices: [Guid(entry.service)],
         timeout: timeout,
       );
+      _scanRunning = true;
       // The scan's own timeout is what stops it; this waits that out.
       await FlutterBluePlus.isScanning.where((on) => on == false).first;
     } catch (e) {
@@ -265,6 +292,7 @@ class HrsLink {
       if (blocker != null) throw BleUnavailableException(blocker);
       debugPrint('[hrs] scan error: $e');
     } finally {
+      _scanRunning = false;
       await sub.cancel();
     }
     onResults(_ranked(seen));

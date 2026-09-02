@@ -34,8 +34,7 @@
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart'
-    show BluetoothDevice, FlutterBluePlus;
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' show BluetoothDevice;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -99,15 +98,13 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
 
   @override
   void dispose() {
-    // `HrsLink._scanFor` awaits the scan's OWN timeout with nothing this
-    // screen can cancel through the API it exposes — the scan keeps the
-    // process-wide radio lock for the rest of that window even after this
-    // screen is gone. `stopScan()` flips `isScanningNow` false, which is
-    // exactly the condition `_scanFor` is already awaiting, so this ends it
-    // early instead of leaving a dismissed screen's scan blocking whoever
-    // asks for the radio next (a re-opened pairing screen, the band's own
-    // scan). Harmless if nothing is scanning.
-    if (_scanning) unawaited(FlutterBluePlus.stopScan());
+    // Ends THIS file's scan early if it is the one running. Never a bare
+    // `FlutterBluePlus.stopScan()`: the radio has one scanner and every
+    // holder awaits `isScanning == false`, so a stop issued while our own
+    // scan is still queued behind `withScanLock` would end the RUNNING
+    // holder's scan — which then reports "found nothing" with no error to
+    // say why.
+    HrsLink.stopScanIfRunning();
     super.dispose();
   }
 
