@@ -109,6 +109,42 @@ void main() {
     });
   });
 
+  group('alarmArmsTonight', () {
+    // Wednesday 2026-08-19, 19:00 — the 7pm check-in instant.
+    final now = DateTime(2026, 8, 19, 19, 0);
+    int epochOf(DateTime at) => at.millisecondsSinceEpoch ~/ 1000;
+
+    test('arm for tomorrow 07:00 is TRUE — the overnight wake alarm (bug case)',
+        () {
+      expect(alarmArmsTonight(epochOf(DateTime(2026, 8, 20, 7, 0)), now),
+          isTrue);
+    });
+
+    test('arm for later today (23:00) is TRUE', () {
+      expect(alarmArmsTonight(epochOf(DateTime(2026, 8, 19, 23, 0)), now),
+          isTrue);
+    });
+
+    test('arm for day-after-tomorrow 07:00 is FALSE — not tonight', () {
+      expect(alarmArmsTonight(epochOf(DateTime(2026, 8, 21, 7, 0)), now),
+          isFalse);
+    });
+
+    test('an arm epoch already in the past is FALSE', () {
+      expect(alarmArmsTonight(epochOf(DateTime(2026, 8, 19, 6, 0)), now),
+          isFalse);
+    });
+
+    test('a null epoch is FALSE', () {
+      expect(alarmArmsTonight(null, now), isFalse);
+    });
+
+    test('boundary: an arm exactly at noon tomorrow is FALSE (exclusive)', () {
+      expect(alarmArmsTonight(epochOf(DateTime(2026, 8, 20, 12, 0)), now),
+          isFalse);
+    });
+  });
+
   group('seedEntryFromLegacyEpoch', () {
     test('maps a legacy epoch onto its local weekday/hour/minute, enabled', () {
       // 2026-08-19 06:30 LOCAL is a Wednesday → DateTime.weekday 3 → column 2.

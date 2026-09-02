@@ -4022,17 +4022,15 @@ class AppState extends ChangeNotifier {
   }
 
   /// Whether the currently-armed alarm — from either source, the schedule
-  /// engine or a still-live manual arm — falls on TODAY's calendar date. Feeds
-  /// the 7pm "no alarm set for tonight" check (Feature 2.2): the honest, real
-  /// armed state, not merely that today's schedule row happens to be enabled
-  /// — a slot that never latched is not something this may claim is armed.
-  bool get _alarmArmedTonight {
-    final epoch = alarmEpoch;
-    if (epoch == null) return false;
-    final at = DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
-    final now = DateTime.now();
-    return at.year == now.year && at.month == now.month && at.day == now.day;
-  }
+  /// engine or a still-live manual arm — fires during tonight's upcoming
+  /// overnight sleep. Feeds the 7pm "no alarm set for tonight" check
+  /// (Feature 2.2): the honest, real armed state, not merely that today's
+  /// schedule row happens to be enabled — a slot that never latched is not
+  /// something this may claim is armed. Delegates to the pure
+  /// [alarmArmsTonight], whose window is "after now, before noon tomorrow" —
+  /// a wake alarm armed tonight for tomorrow morning still counts, unlike a
+  /// same-calendar-date check would (see PR #329).
+  bool get _alarmArmedTonight => alarmArmsTonight(alarmEpoch, DateTime.now());
 
   // ── alarm confirmation state machine ────────────────────────────────────────
   // The strap CONFIRMS an alarm actually latched via event 56 (ALARM_SET) and

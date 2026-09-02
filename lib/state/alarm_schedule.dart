@@ -153,6 +153,30 @@ AlarmScheduleEntry seedEntryFromLegacyEpoch(int epoch) {
   );
 }
 
+/// Whether the alarm armed for [armedEpochSec] fires during tonight's
+/// upcoming overnight sleep, as measured from [now]. TRUE iff the epoch is
+/// non-null, strictly after [now], AND strictly before noon of the day after
+/// [now]'s calendar date — the window covering the whole overnight sleep
+/// ahead, whether the arm lands later tonight or in the small hours of
+/// tomorrow morning. An epoch already past, or one two-or-more nights out, is
+/// not "tonight". Calendar-date comparison of the two DateTimes is
+/// deliberately not used: a wake alarm armed for tomorrow morning is tonight's
+/// alarm even though its date differs from today's.
+///
+/// Pure — no AppState/DB/engine deps — so the 7pm "no alarm tonight" check can
+/// be unit-tested without a clock or a strap.
+///
+/// CALENDAR arithmetic for the window boundary (`DateTime(y, m, d + 1, 12, 0)`),
+/// not a `Duration` of hours — the same DST reasoning as [nextAlarmOccurrence]
+/// above: noon tomorrow is a wall-clock instant, not 36 elapsed hours.
+bool alarmArmsTonight(int? armedEpochSec, DateTime now) {
+  if (armedEpochSec == null) return false;
+  final at = DateTime.fromMillisecondsSinceEpoch(armedEpochSec * 1000);
+  if (!at.isAfter(now)) return false;
+  final endOfTonight = DateTime(now.year, now.month, now.day + 1, 12, 0);
+  return at.isBefore(endOfTonight);
+}
+
 /// Whether the latch-failure safety notification should fire for [epoch]: the
 /// toggle is on, [epoch] is STILL the confirmation machine's current target (a
 /// newer arm, or a cancel, superseded it), and the strap never confirmed it.
