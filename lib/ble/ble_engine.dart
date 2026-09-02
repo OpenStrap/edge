@@ -7825,7 +7825,10 @@ class DrainController {
         final inner = hexToBytes(a.hex);
         burstStats.onHistoricalData(
           a.packetType,
-          a.counter,
+          // gen4 always carries a real flash counter; only a neutral-sample
+          // source (which never reaches this WHOOP-only burst path) writes
+          // ArchiveRecord.counter as null.
+          a.counter ?? 0,
           inner.length < 2 ? -1 : inner[1],
         );
       }

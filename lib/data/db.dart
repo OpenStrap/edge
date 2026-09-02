@@ -27,6 +27,7 @@ import '../compute/substrate.dart' show beatTimesMs;
 // `show` keeps the rest of the engine out of this namespace.
 import '../coach/coach_db.dart' show CoachDb;
 import '../compute/derivation_engine.dart' show kAlgoVersion;
+import '../ble/adapters/adapter.dart' show NeutralSample;
 import '../import/import_container.dart';
 import 'day_label.dart';
 import 'journal_fields.dart';
@@ -2543,6 +2544,12 @@ class LocalDb {
     String? trimToken,
     Map<String, String>? extraCursors,
     List<ArchiveRecord>? archives,
+    /// Rows from a band with no framed record to decode — a notify sensor's
+    /// beats, a ring's stamped temperature. Queued into the SAME transaction
+    /// as [raws], so a source with no flash still gets the one durable write
+    /// path and the one conflict policy. Null on every WHOOP commit, where it
+    /// costs exactly one null check.
+    List<NeutralSample>? neutrals,
     void Function(String)? onCheckpoint,
     String? deviceFamily,
     String deviceId = kPrimaryDeviceId,
@@ -2553,6 +2560,7 @@ class LocalDb {
             trimToken: trimToken,
             extraCursors: extraCursors,
             archives: archives,
+            neutrals: neutrals,
             onCheckpoint: onCheckpoint,
             deviceFamily: deviceFamily,
             deviceId: deviceId,
@@ -2564,6 +2572,7 @@ class LocalDb {
     String? trimToken,
     Map<String, String>? extraCursors,
     List<ArchiveRecord>? archives,
+    List<NeutralSample>? neutrals,
     void Function(String)? onCheckpoint,
     // Which strap this batch came off, from the LIVE LINK (the engine pins it at
     // service discovery). Null = the caller could not name it, which lands as
@@ -2572,6 +2581,14 @@ class LocalDb {
     // WHICH PHYSICAL DEVICE these rows belong to (see [kPrimaryDeviceId]).
     String deviceId = kPrimaryDeviceId,
   }) async {
+    // NEUTRAL ROWS BELONG TO A NON-PRIMARY DEVICE. "" is the primary band
+    // permanently (see kPrimaryDeviceId); a neutral-sample writer is by
+    // definition a band with no framed record, which the primary is not.
+    assert(
+      neutrals == null || neutrals.isEmpty || deviceId != kPrimaryDeviceId,
+      'neutral rows belong to a non-primary device; "" is the primary band '
+      'permanently (see kPrimaryDeviceId).',
+    );
     void checkpoint(String msg) {
       try {
         onCheckpoint?.call(msg);
@@ -2706,6 +2723,21 @@ class LocalDb {
           if (raw.counter > maxCounter) maxCounter = raw.counter;
           if (recTs > maxRecTs) maxRecTs = recTs;
           if (ops >= chunkOps) await flushChunk();
+        }
+        // NEUTRAL ROWS. No flash counter to advance maxCounter from — both
+        // current writers (ble_hrs, oura) hard-code counter: 0 and leave a
+        // ponytail note saying so; maxCounter stays a WHOOP-only concept.
+        if (neutrals != null) {
+          for (final n in neutrals) {
+            ops += _queueNeutralOneHz(
+              batch,
+              n,
+              deviceFamily: deviceFamily,
+              deviceId: deviceId,
+            );
+            if (n.tsEpoch > maxRecTs) maxRecTs = n.tsEpoch;
+            if (ops >= chunkOps) await flushChunk();
+          }
         }
         checkpoint(
           'decoded_archive_queued raws=${raws.length} '
@@ -4929,6 +4961,78 @@ class LocalDb {
         'beat_ts_ms': ?beatTs[i],
         'device_family': ?deviceFamily,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
+      ops++;
+    }
+    return ops;
+  }
+
+  /// Queue one [NeutralSample] — a row from a band with no framed record to
+  /// decode — plus its beats. Returns the op count, same contract as
+  /// [_queueDecodedOneHz]. The union of `hrs_link._flush` and
+  /// `oura_link._commit`'s bodies, not new logic — see M1 spec §9.3.
+  ///
+  /// REPLACE, not IGNORE, for the same reason [_queueDecodedOneHz] uses it: a
+  /// re-read of the same range is idempotent by design on a fetch-by-cursor
+  /// band.
+  ///
+  /// `beat_ts_ms` stays NULL here: [NeutralSample] carries no sub-second, so
+  /// there is nothing to write regardless of [NeutralSample.anchor] — this
+  /// widens the day a neutral source measures its own sub-second.
+  ///
+  /// `counter` is 0. It is a WHOOP flash-record number this class of band does
+  /// not have; nothing reads the column except `ORDER BY rec_ts, counter`.
+  /// ponytail: make it nullable when db.dart is next open for a schema
+  /// change — the note was already carried in both files this merges.
+  static int _queueNeutralOneHz(
+    Batch batch,
+    NeutralSample n, {
+    String? deviceFamily,
+    required String deviceId,
+  }) {
+    final recTs = n.tsEpoch;
+    batch.insert(
+      'decoded_onehz',
+      {
+        'device_id': deviceId,
+        'ts_ms': recTs * 1000,
+        'rec_ts': recTs,
+        'counter': 0,
+        // Absent is NULL, never zeroed — same rule _queueDecodedOneHz
+        // follows for hr/accel/optical.
+        'hr': n.hr,
+        'skin_temp_c': n.skinTempC,
+        'device_family': ?deviceFamily,
+        'source': ?deviceFamily,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    var ops = 1;
+    // SCOPED TO THE WRITING DEVICE. Clear the second before reinserting so a
+    // shrinking beat count can't strand stale high-index beats — same
+    // reasoning as _queueRrBeats, and it must run even when this sample
+    // carries no beats, so a later re-read with fewer beats can't leave a
+    // stale tail from an earlier one.
+    batch.rawDelete(
+      'DELETE FROM decoded_rr WHERE device_id = ? AND ts_ms = ?',
+      [deviceId, recTs * 1000],
+    );
+    for (var i = 0; i < n.rrMs.length; i++) {
+      final rr = n.rrMs[i];
+      if (rr <= 0) continue;
+      batch.insert(
+        'decoded_rr',
+        {
+          'device_id': deviceId,
+          'ts_ms': recTs * 1000,
+          'rec_ts': recTs,
+          'beat_index': i,
+          'rr_ts_ms': recTs * 1000,
+          'rr_ms': rr,
+          'device_family': ?deviceFamily,
+          'source': ?deviceFamily,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
       ops++;
     }
     return ops;
