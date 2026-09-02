@@ -646,6 +646,18 @@
   "@devicesAddASensorSub": {
     "description": "Row sub."
   },
+  "devicesWhichSourceWins": "Which source wins",
+  "@devicesWhichSourceWins": {
+    "description": "Row title: opens the per-signal priority editor."
+  },
+  "devicesWhichSourceWinsSub": "When two of your devices measure the same thing",
+  "@devicesWhichSourceWinsSub": {
+    "description": "Row sub for the priority-editor entry."
+  },
+  "devicesResetToDefault": "Back to the default order",
+  "@devicesResetToDefault": {
+    "description": "Per-signal reset-to-physics-ladder action in the priority editor."
+  },
   "devicesMySources": "My sources",
   "@devicesMySources": {
     "description": "Screen title."

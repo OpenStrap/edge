@@ -233,6 +233,146 @@ class DeviceFilter extends StatelessWidget {
   }
 }
 
+/// The global per-signal priority editor: one drag-reorder list per contended
+/// signal, reached from `MyDevicesView`'s "Which source wins" row. Only
+/// contended signals get a list — a signal only one paired device declares
+/// has nothing to order (final-plan §4.5).
+class SignalPriorityScreen extends StatefulWidget {
+  const SignalPriorityScreen({super.key});
+
+  @override
+  State<SignalPriorityScreen> createState() => _SignalPriorityScreenState();
+}
+
+class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
+  bool _loading = true;
+  List<InputSignal> _signals = const [];
+  Map<InputSignal, List<String>> _order = const {};
+  Map<String, String> _labels = const {};
+  Set<String> _userSet = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    final app = context.read<AppState>();
+    final sources = liveSources(app);
+    final signals = contendedSignalsOf(sources);
+    final labels = {
+      for (final s in sources)
+        (s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId) ?? '': s.name,
+    };
+    final priorities = await LocalDb.signalPriorities();
+    final order = <InputSignal, List<String>>{};
+    for (final sig in signals) {
+      final declaring = [
+        for (final s in rankSources(sources))
+          if (declaredSignals(s.family).contains(sig))
+            (s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId)!,
+      ];
+      final stored = priorities[sig.name];
+      order[sig] = stored != null && stored.isNotEmpty
+          ? [
+              for (final id in stored) if (declaring.contains(id)) id,
+              for (final id in declaring) if (!stored.contains(id)) id,
+            ]
+          : declaring;
+    }
+    final db = await LocalDb.instance;
+    final userSetRows = await db.query('signal_priority',
+        columns: ['signal'], where: 'user_set = 1', distinct: true);
+    if (!mounted) return;
+    setState(() {
+      _signals = signals;
+      _labels = labels;
+      _order = order;
+      _userSet = {for (final r in userSetRows) r['signal'] as String};
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar(l?.devicesWhichSourceWins ?? 'Which source wins'),
+          ),
+          if (_loading)
+            const Expanded(child: Center(child: CircularProgressIndicator()))
+          else
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  for (final sig in _signals) ...[
+                    Section(
+                      sig.name,
+                      Column(children: [
+                        ReorderableListView(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          onReorderItem: (from, to) async {
+                            final ids = [...?_order[sig]];
+                            ids.insert(to, ids.removeAt(from));
+                            await LocalDb.setSignalPriority(sig.name, ids);
+                            setState(() => (
+                              _order = {..._order, sig: ids},
+                              _userSet = {..._userSet, sig.name},
+                            ));
+                          },
+                          children: [
+                            for (final id in _order[sig] ?? const <String>[])
+                              ListTile(
+                                key: ValueKey(id),
+                                title: Text(_labels[id] ?? id),
+                              ),
+                          ],
+                        ),
+                        if (_userSet.contains(sig.name))
+                          Pressable(
+                            onTap: () async {
+                              await LocalDb.clearSignalPriority(sig.name);
+                              await _load();
+                            },
+                            semanticLabel:
+                                'Reset ${sig.name} to the default order',
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: S.x2),
+                              child: Text(
+                                l?.devicesResetToDefault ??
+                                    'Back to the default order',
+                                style: F.cap.copyWith(color: p.on(C.blue)),
+                              ),
+                            ),
+                          ),
+                      ]),
+                    ),
+                    const SizedBox(height: S.x4),
+                  ],
+                  Text(
+                    l?.metricDetailHistoryKeepsSource ??
+                        'Days already finished keep the source they were '
+                            'calculated with.',
+                    style: F.over.copyWith(color: p.ink3),
+                  ),
+                ],
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+}
+
 /// Why this device cannot serve a metric, from the signals it does NOT declare.
 ///
 /// Generated, never written per device per metric: it stays true when an
@@ -626,6 +766,8 @@ class MyDevices extends StatelessWidget {
       // way back to pairing. So push it.
       onPair: () => goto(c, const RePair()),
       onAddSensor: () => addSensor(c),
+      contendedSignals: contendedSignals(app),
+      onSignalPriority: () => goto(c, const SignalPriorityScreen()),
     );
   }
 }
@@ -797,12 +939,20 @@ class MyDevicesView extends StatelessWidget {
   /// The band's own state, from `bandStatusFor`. Null when nothing is paired.
   final BandStatus? status;
 
+  /// Signals two or more paired devices declare — from `contendedSignals`.
+  /// Empty on every single-device install, which keeps the priority-editor
+  /// entry row absent by default (final-plan §4.5).
+  final List<InputSignal> contendedSignals;
+  final VoidCallback? onSignalPriority;
+
   const MyDevicesView({
     super.key,
     this.sources = const [],
     this.onPair,
     this.onAddSensor,
     this.status,
+    this.contendedSignals = const [],
+    this.onSignalPriority,
   });
 
   @override
@@ -891,6 +1041,20 @@ class MyDevicesView extends StatelessWidget {
                             'A heart-rate strap or a ring, alongside the band',
                         onTap: onAddSensor),
                   ),
+                // ONLY when something can actually contend. A reorder screen
+                // over one device is a control with nothing to order, which is
+                // the empty-rung problem this screen already refuses (§6.5).
+                if (contendedSignals.isNotEmpty && onSignalPriority != null) ...[
+                  const SizedBox(height: S.x3),
+                  Surface(
+                    pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                    child: SetRow(LucideIcons.arrowUpDown, C.blue,
+                        l?.devicesWhichSourceWins ?? 'Which source wins',
+                        sub: l?.devicesWhichSourceWinsSub ??
+                            'When two of your devices measure the same thing',
+                        onTap: onSignalPriority),
+                  ),
+                ],
                 // NOT YET — removed from this screen per product decision
                 // (owner's call, live review). `kNotYet`/`NotYet` still hold
                 // the reasons and permanences below; only the render is gone.

@@ -219,6 +219,13 @@ const _notComponents = {
   // the pure half and is what `pair_sensor_test.dart` pumps, at a real phone
   // width, in each of its states.
   'PairSensorScreen', 'PairSensorView',
+  // The per-signal priority editor. A Scaffold route that reads AppState and
+  // `signal_priority` on load (M6) — the gallery has no Provider<AppState>
+  // above it, so a case would crash the sweep at its own postFrameCallback
+  // rather than render a fixture. No pure half exists yet to pump instead
+  // (there is nothing today to hand it — every install has one device); add
+  // one and a gallery case together if that changes.
+  'SignalPriorityScreen',
   // The double-tap picker. A Scaffold route whose whole content is decided by
   // what the OS answered to a method channel, so a gallery case would be a
   // photograph of a fixture rather than of the screen. Rendered instead by
