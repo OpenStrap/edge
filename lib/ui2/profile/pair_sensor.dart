@@ -288,7 +288,7 @@ class PairSensorView extends StatelessWidget {
                   const SizedBox(height: S.x4),
                   StatusCard(
                     l?.pairSensorSearchWouldHideSheet ??
-                        'Searching would hide the WHOOP pairing sheet',
+                        'Searching would hide the system pairing sheet',
                     heldBack!,
                     fix: l?.pairSensorSearchAnyway ?? 'Search anyway',
                     icon: LucideIcons.triangleAlert,

@@ -923,7 +923,7 @@
   "@pairSensorExplainer": {
     "description": "Explanatory body."
   },
-  "pairSensorSearchWouldHideSheet": "Searching would hide the WHOOP pairing sheet",
+  "pairSensorSearchWouldHideSheet": "Searching would hide the system pairing sheet",
   "@pairSensorSearchWouldHideSheet": {
     "description": "iOS-gate status card title."
   },
