@@ -724,6 +724,12 @@ class _MetricDetailState extends State<MetricDetail> {
   }
 
   Future<void> _load() async {
+    // FIRST LINE, because the line under it reads `context` unconditionally.
+    // Both callers can land after disposal: the post-frame callback fires
+    // whether or not the element survived the frame, and `_prefer` awaits a
+    // modal sheet the user can dismiss by leaving the screen. Guarded here and
+    // not at each call site — one guard where every caller already routes.
+    if (!mounted) return;
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
