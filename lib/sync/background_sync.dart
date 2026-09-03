@@ -86,7 +86,9 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       onRecordsBatch: LocalDb.insertRecordsBatch,
       // Routed through BandHost (M1a) rather than calling
       // LocalDb.commitSyncBatch directly — same durable commit, same
-      // arguments, one extra await frame.
+      // arguments, one extra await frame, and the SAME failure contract:
+      // `commitNativeBatch` rethrows so `DrainController.commit` still reads
+      // durability from a throw and `TrimAckPolicy` still blocks the ACK.
       onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
           bandHost.commitNativeBatch(raws, samples, trimTokenHex,
               archives: archives, deviceFamily: deviceFamily),

@@ -153,7 +153,16 @@ class BandHost {
       cancelOnError: true,
     );
     _flushTimer = Timer.periodic(flushEvery, (_) => unawaited(_commit()));
-    await done.future;
+    try {
+      await done.future;
+    } finally {
+      // EVERY exit, not just [stop]. `run` completes on its own when the
+      // adapter's stream ends, and a caller that awaited it to completion
+      // never calls stop — leaving a periodic timer firing `_commit` on a
+      // dead session for the life of the process.
+      _flushTimer?.cancel();
+      _flushTimer = null;
+    }
   }
 
   /// Flush the tail, drop the subscription. Safe when not running. AWAIT it
@@ -255,10 +264,31 @@ class BandHost {
     await cp.confirm();
   }
 
+  Future<bool> _commitChain = Future.value(true);
+
+  /// SERIALIZED entry point. Two commits must never hold overlapping snapshots
+  /// of the same buffer: `_commitLocked` empties `_pending`/`_pendingArchive`
+  /// BEFORE its await and only restores them in the `catch` AFTER it. Without
+  /// this chain, `stop`'s own `_commit(all: true)` could see a buffer a
+  /// timer-triggered commit had already drained, report true, and return —
+  /// and the in-flight commit could then FAIL and re-buffer that tail after
+  /// stop had completed, with nothing left to flush it. Same hazard for
+  /// `_commitThenConfirm`, where the false "durable" would confirm the
+  /// adapter's cursor over rows that were rolled back.
+  Future<bool> _commit({bool all = false}) {
+    final next = _commitChain.then((_) => _commitLocked(all: all));
+    // `_commitLocked` catches its own failures, so this is belt-and-braces:
+    // a chain link must never stay broken for the callers behind it.
+    _commitChain = next.catchError((Object _) => false);
+    return next;
+  }
+
   /// Write out every second that can no longer receive more notifications.
   /// Returns whether the flush committed (true when there was nothing to
   /// commit). The CURRENT second is held back unless [all].
-  Future<bool> _commit({bool all = false}) async {
+  ///
+  /// NEVER call directly — go through [_commit], which serializes.
+  Future<bool> _commitLocked({bool all = false}) async {
     final archive = List<ArchiveRecord>.from(_pendingArchive);
     if (_pending.isEmpty && archive.isEmpty) return true;
     final now = _nowSeconds();
@@ -307,7 +337,15 @@ class BandHost {
   /// the trim cursor in one transaction. Called by the gen4/gen5 facade,
   /// never by a [BandAdapter] — which is why it takes protocol types the
   /// adapter seam deliberately does not expose (see M1 spec §9.1).
-  Future<bool> commitNativeBatch(
+  ///
+  /// THROWS on a failed commit, and that is the contract, not an oversight.
+  /// `DrainController.commit` reads durability from a THROW: it catches,
+  /// re-buffers the chunk, rolls back the trim bookkeeping and returns false,
+  /// which is what makes `TrimAckPolicy` refuse the HISTORY_END ACK. Swallowing
+  /// the exception here and returning a bool nobody reads reported a
+  /// rolled-back transaction as durable and let the band trim flash for
+  /// records that were never stored.
+  Future<void> commitNativeBatch(
     List<RawRecord> raws,
     List<Sample?> samples,
     String? trimTokenHex, {
@@ -324,10 +362,9 @@ class BandHost {
         deviceId: deviceId,
         onCheckpoint: onLog,
       );
-      return true;
     } catch (e) {
       onLog('[${adapter.id}] native commit failed: $e');
-      return false;
+      rethrow;
     }
   }
 }

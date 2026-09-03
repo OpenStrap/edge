@@ -1223,7 +1223,9 @@ class AppState extends ChangeNotifier {
       // before the HISTORY_END ACK, and a reader to seed the offload frontier
       // from the durable high-water on (re)connect. Routed through BandHost
       // (M1a) rather than calling LocalDb.commitSyncBatch directly — same
-      // durable commit, same arguments, one extra await frame.
+      // durable commit, same arguments, one extra await frame, and the SAME
+      // failure contract: `commitNativeBatch` rethrows so
+      // `DrainController.commit` still reads durability from a throw.
       onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
           _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
               archives: archives, deviceFamily: deviceFamily),
