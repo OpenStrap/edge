@@ -181,9 +181,27 @@ void main() {
       );
     });
 
-    test('ASK has a name-substring item as the last net', () {
-      expect(swift, contains('bluetoothNameSubstring'));
-      expect(swift, contains('"WHOOP"'));
+    test(
+        'no bare name-substring descriptor exists — it crashed every '
+        '"search for devices" tap once (TestFlight v0.9.29, '
+        'A3457926-FD0D-48A7-9C6B-DCC6958276BF)', () {
+      // ASDiscoveryDescriptor requires bluetoothServiceUUID whenever
+      // bluetoothNameSubstring is set; a name-only descriptor fails ASK's
+      // validation with a FATAL, uncatchable trap in
+      // -[ASAccessorySession _validateDiscoveryDescriptor:], not a
+      // completion-handler error — the gen4-retry-on-rejection logic never
+      // even runs. The fallback fix is the member-UUID item covered by the
+      // adjacent 'ASK folds gen5's 16-bit member UUID...' test above; this
+      // test only guards against the name-only descriptor's crash mode
+      // being silently reintroduced. Re-add bluetoothNameSubstring only
+      // paired with a bluetoothServiceUUID on the SAME descriptor.
+      expect(swift, contains('dropped the name-substring-only fallback'),
+          reason:
+              'the ponytail comment recording why must survive alongside '
+              'the code it explains');
+      expect(swift, isNot(contains('bluetoothNameSubstring:')),
+          reason: 'a live bluetoothNameSubstring assignment is the exact '
+              'crash this test exists to catch');
     });
 
     test(
