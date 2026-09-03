@@ -865,8 +865,14 @@ class HrsLink {
       _link?.close();
       failTeardownForTest?.call();
       await _host?.stop();
-      await _connSub?.cancel();
     } finally {
+      // Cancelled here, unconditionally, and BEFORE the disconnect below —
+      // not chained after `_host?.stop()` inside the `try`. A throw there
+      // used to skip this line entirely: the reference was nulled but the
+      // subscription stayed live, so `d.disconnect()` a few lines down could
+      // still fire this listener's own `disarm()` call — un-generation-gated,
+      // able to tear down whatever session started in the meantime.
+      await _connSub?.cancel();
       _link = null;
       _host = null;
       _connSub = null;
