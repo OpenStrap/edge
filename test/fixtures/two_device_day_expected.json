@@ -5015,8 +5015,8 @@
       "awakenings": 0.0,
       "longest_sleep_min": 240.0,
       "sol_min": null,
-      "midsleep_sec": 19800.0,
-      "sleep_onset_sec": 5400.0
+      "midsleep_sec": 0.0,
+      "sleep_onset_sec": -14400.0
     }
   }
 }
