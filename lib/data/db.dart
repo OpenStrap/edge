@@ -6114,9 +6114,22 @@ class LocalDb {
   /// Persist an undecodable historical record to the durable archive (never
   /// pruned). Used by the immediate fallback path; the drain path archives inside
   /// the same commit transaction as the batch (see [commitSyncBatch]).
-  static Future<void> archiveRawRecord(ArchiveRecord a) async {
+  ///
+  /// [deviceId] is written EXPLICITLY rather than left to the column default,
+  /// which is the same rule [insertEvent] states: `raw_archive` is keyed
+  /// `(device_id, hex)`, so a row that lands on the primary's key when it came
+  /// off another device is a frame the primary can evict. It defaults because
+  /// the only wiring today is `BleEngine`'s `ArchiveSink`, and that engine
+  /// drives the primary band and nothing else (`_cursorDeviceId`); a secondary
+  /// device's frames go through `BandHost` → [commitSyncBatch], which already
+  /// names its device.
+  static Future<void> archiveRawRecord(
+    ArchiveRecord a, {
+    String deviceId = kPrimaryDeviceId,
+  }) async {
     final db = await instance;
     await db.insert('raw_archive', {
+      'device_id': deviceId,
       'counter': a.counter,
       'hex': a.hex,
       'packet_type': a.packetType,
