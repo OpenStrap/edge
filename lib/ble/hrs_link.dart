@@ -565,23 +565,41 @@ class HrsLink {
   /// Never scans: it connects straight to the stored remote id, so arming a
   /// workout cannot contend with the band's scan.
   ///
-  /// SERIALISED, because every caller fires it `unawaited` and the body awaits
-  /// a database read, a 12 s connect and service discovery before it publishes
-  /// anything. A second call used to sail past the `_armed` check while the
-  /// first was still connecting and overwrite `_device`, `_link` and `_host` —
-  /// the first one's session then ran forever with nothing holding it.
+  /// WHAT IS ACTUALLY GUARANTEED — and every caller fires this `unawaited`,
+  /// while the body awaits a database read, a 12 s connect and service
+  /// discovery before it publishes anything:
   ///
-  /// AND IT WAITS OUT A TEARDOWN. `_armed` stays TRUE through every await in
-  /// [disarm] — `_host.stop()`'s final flush, the subscription cancel, the
-  /// disconnect — so a call that landed in that window used to hit the
-  /// `_armed` fast path, answer "already armed" and start nothing. The
-  /// teardown then finished underneath it: no session, no error, and a caller
-  /// holding `true` with no reason to retry. Ordinary sequence — stop a
-  /// workout, start another inside the same second.
+  ///  * TWO CONCURRENT CALLS ARE ONE ATTEMPT, and get the same future. A
+  ///    second call used to sail past the `_armed` check while the first was
+  ///    still connecting and overwrite `_device`, `_link` and `_host` — the
+  ///    first one's session then ran forever with nothing holding it.
+  ///  * A CALL DURING A TEARDOWN WAITS IT OUT AND THEN ARMS. `_armed` stays
+  ///    TRUE through every await in [disarm] — `_host.stop()`'s final flush,
+  ///    the subscription cancel, the disconnect — so a call landing in that
+  ///    window used to hit the `_armed` fast path, answer "already armed" and
+  ///    start nothing; the teardown then finished underneath it, leaving no
+  ///    session, no error, and a caller holding `true` with no reason to
+  ///    retry. Ordinary sequence — stop a workout, start another inside the
+  ///    same second. It waits out a teardown that FAILS too: only "it is
+  ///    over" matters here, and [_disarm]'s `finally` leaves "not armed" true
+  ///    whichever way it ended.
+  ///  * AN ATTEMPT A [disarm] CANCELLED IS NEVER HANDED OUT AGAIN, because
+  ///    `disarm` clears `_arming`. So `arm() → disarm() → arm()` inside one
+  ///    connect window gives the LAST call a fresh attempt that can still
+  ///    succeed. It used to be handed the first call's future, which the
+  ///    disarm had already doomed: both callers got `false`, nothing was
+  ///    armed, and the second call had never even tried. The same reason
+  ///    [_arm]'s failure paths are generation-aware — a cancelled attempt
+  ///    that called the full [disarm] on its way out would cancel the fresh
+  ///    one instead.
   ///
-  /// Setting `_armed = false` at the top of [disarm] would NOT fix it. That
-  /// only moves the race: the arm would then start a fresh session and the
-  /// disarm still running behind it would tear that one down instead.
+  /// WHAT IS NOT GUARANTEED is that the answer is `true`. A cancelled or
+  /// failed attempt answers `false` — never a half-armed state, and never a
+  /// throw — and the caller retries or does not.
+  ///
+  /// Setting `_armed = false` at the top of [disarm] would NOT fix any of it.
+  /// That only moves the race: the arm would then start a fresh session and
+  /// the disarm still running behind it would tear that one down instead.
   Future<bool> arm() {
     final teardown = _disarming;
     // Recursive rather than a single await: a second [disarm] can land while
@@ -590,12 +608,35 @@ class HrsLink {
     // not preserved across a teardown — there is nothing yet to be identical
     // to — but the no-teardown path below still hands back the same `_arming`
     // to every caller, which is what dedupes the ordinary double-arm.
-    if (teardown != null) return teardown.then((_) => arm());
+    if (teardown != null) return _armAfter(teardown);
     if (_armed) return Future.value(true);
-    return _arming ??= _arm().whenComplete(() => _arming = null);
+    final existing = _arming;
+    if (existing != null) return existing;
+    late final Future<bool> mine;
+    // Identity-guarded on the way out for the same reason `_disarming` and
+    // `_scanOwner` are: a [disarm] may have cleared this slot and a LATER arm
+    // filled it, and a cancelled attempt completing must not null out the
+    // live one's memo.
+    mine = _arm().whenComplete(() {
+      if (identical(_arming, mine)) _arming = null;
+    });
+    return _arming = mine;
   }
 
-  /// The in-flight [arm], or null. See [arm].
+  /// Arm once [teardown] is over, whether it succeeded or THREW. Its error
+  /// belongs to whoever called that [disarm] — the rule `_disarmAfter`
+  /// already follows — and letting it through here would break this chain:
+  /// `arm()` would never run and a caller that only asked to be armed would
+  /// get a thrown future instead of `false`.
+  Future<bool> _armAfter(Future<void> teardown) async {
+    try {
+      await teardown;
+    } catch (_) {/* the disarm caller's error, not ours */}
+    return arm();
+  }
+
+  /// The in-flight [arm], or null — cleared by [disarm], which is what makes a
+  /// cancelled attempt un-reusable. See [arm].
   Future<bool>? _arming;
 
   /// The in-flight [disarm] chain, or null when nothing is being torn down.
@@ -620,8 +661,12 @@ class HrsLink {
           'device id — re-pair it with a minted id.');
       return false;
     }
+    // Declared OUT here so the catch can reach it: `_device` is not a
+    // substitute, because the whole point of the cleanup below is the case
+    // where a [disarm] has already nulled it (or a fresher arm has replaced
+    // it) and only this frame still knows which peripheral it opened.
+    final device = BluetoothDevice.fromId(remoteId);
     try {
-      final device = BluetoothDevice.fromId(remoteId);
       _device = device;
       // A cap on concurrent SECONDARY links (never the band's own connect —
       // see ble_state.dart's kMaxConcurrentSecondaryLinks doc). Acquired
@@ -648,9 +693,7 @@ class HrsLink {
       // workout and stop it inside twelve seconds.
       if (_disarms != disarmsAtStart) {
         debugPrint('[hrs] arm abandoned: it was disarmed while connecting.');
-        try {
-          await device.disconnect();
-        } catch (_) {/* already gone */}
+        await _disconnectAbandoned(device);
         return false;
       }
       final link = GattBandLink(
@@ -664,7 +707,7 @@ class HrsLink {
       if (missing.isNotEmpty) {
         debugPrint('[hrs] ${kBleHrsAdapter.label}: missing required '
             'characteristic(s) ${missing.map((u) => u.substring(0, 8)).join(", ")}.');
-        await disarm();
+        await _teardownQuietly();
         return false;
       }
       final host = BandHost(
@@ -703,10 +746,64 @@ class HrsLink {
       // a surface shows for the seconds a strap spends finding a signal.
       _reading.value = const HrsReading();
       return true;
-    } catch (_) {
-      await disarm();
+    } catch (e) {
+      // GENERATION-AWARE, and it has to be. A [disarm] that landed while this
+      // attempt was connecting has ALREADY torn the shared state down, and a
+      // fresher [arm] may own it by now: calling the full [disarm] here would
+      // increment `_disarms` and cancel THAT one, which is how
+      // `arm() → disarm() → arm()` inside one connect window ended with
+      // nothing armed even once the memo was fixed. Ours to clean up is only
+      // the connection nobody else has a reference to.
+      if (_disarms != disarmsAtStart) {
+        debugPrint('[hrs] arm failed after it was already disarmed: $e');
+        await _disconnectAbandoned(device);
+      } else {
+        await _teardownQuietly();
+      }
       return false;
     }
+  }
+
+  /// Tear down after a failed [_arm], swallowing the teardown's own failure.
+  ///
+  /// [_arm] is already answering `false`; a flush that threw on the way out
+  /// must not turn that into a THROWN `arm()`, which — with every caller
+  /// firing it `unawaited` — would land as an unhandled async error while the
+  /// caller still never learns it is not armed. [_disarm]'s `finally` leaves
+  /// "not armed" true either way, which is what makes swallowing it safe.
+  Future<void> _teardownQuietly() async {
+    try {
+      await disarm();
+    } catch (e) {
+      debugPrint('[hrs] teardown after a failed arm threw: $e');
+    }
+  }
+
+  /// Disconnect [device] on behalf of an arm generation that has been
+  /// cancelled — but only when no NEWER one has claimed the radio.
+  ///
+  /// A cancelled arm usually has nothing left to close: the [disarm] that
+  /// cancelled it disconnects whatever `_device` held, which is this same
+  /// peripheral. It has something to close when its own `connect()` landed
+  /// AFTER that disconnect — nobody else holds a reference to it, so skipping
+  /// this would leak a live GATT connection for the life of the process.
+  ///
+  /// What it must NOT do is disconnect a peripheral a LATER [arm] has since
+  /// connected. `BluetoothDevice.fromId` mints a fresh object per call and
+  /// `flutter_blue_plus` connections are per PERIPHERAL, not per object, so a
+  /// blind disconnect here kills that session — and the strap it kills is the
+  /// one the user just asked for. `_device` identity is the discriminator:
+  /// null means nobody owns the radio, a different object means someone
+  /// newer does.
+  ///
+  /// [identical], NOT `==`: `BluetoothDevice.==` compares remote ids, and both
+  /// generations connect to the SAME sensor, so `==` reads every generation as
+  /// the current one and this guard would never fire.
+  Future<void> _disconnectAbandoned(BluetoothDevice device) async {
+    if (_device != null && !identical(_device, device)) return;
+    try {
+      await device.disconnect();
+    } catch (_) {/* already gone */}
   }
 
   /// Stop logging, flush the tail and drop the link. Safe to call when not
@@ -722,6 +819,12 @@ class HrsLink {
     // and an increment deferred behind a queued future would let an in-flight
     // arm publish a session on top of this teardown.
     _disarms++;
+    // AND THE MEMO GOES WITH IT. The attempt that future belongs to has just
+    // been cancelled by the counter above — it can only answer `false` now —
+    // so leaving it in place would hand it to the next [arm] as if it were a
+    // live attempt. `arm()` identity-guards its own clear, so this cannot
+    // strand a LATER attempt's memo.
+    _arming = null;
     final prev = _disarming;
     late final Future<void> mine;
     mine = _disarmAfter(prev).whenComplete(() {
@@ -744,33 +847,58 @@ class HrsLink {
     await _disarm();
   }
 
+  /// A FAILED TEARDOWN STILL LEAVES "NOT ARMED" TRUE — that is what the
+  /// `finally` is for, and it is not theoretical: `_host.stop()` awaits
+  /// `_commit(all: true)`, a database write, and a throw there used to skip
+  /// every line below it. `_armed` stayed TRUE over a dead session, so the
+  /// next [arm] answered "already armed" and started nothing; the
+  /// secondary-link slot stayed held for the life of the process; and the
+  /// last reading stayed on screen. The error still propagates — a caller
+  /// that awaited a flush before reading the session back must learn it
+  /// failed — it just no longer takes the state with it.
   Future<void> _disarm() async {
-    // Before the host's run subscription is cancelled: an adapter's `finally`
-    // can still write on the way out, and that write must not reach the radio.
-    _link?.close();
-    _link = null;
-    await _host?.stop();
-    _host = null;
-    await _connSub?.cancel();
-    _connSub = null;
     final d = _device;
-    _device = null;
-    _armed = false;
-    // The link tears down here, not at the connect call site — see
-    // acquireSecondaryLinkSlot's doc comment for why the two are split.
-    if (_holdsSecondaryLinkSlot) {
-      _holdsSecondaryLinkSlot = false;
-      releaseSecondaryLinkSlot();
-    }
-    // Null, not the last reading: a number left on screen after the link died
-    // is the one lie this surface can tell.
-    _reading.value = null;
-    if (d != null) {
-      try {
-        await d.disconnect();
-      } catch (_) {/* already gone */}
+    try {
+      // Before the host's run subscription is cancelled: an adapter's
+      // `finally` can still write on the way out, and that write must not
+      // reach the radio.
+      _link?.close();
+      failTeardownForTest?.call();
+      await _host?.stop();
+      await _connSub?.cancel();
+    } finally {
+      _link = null;
+      _host = null;
+      _connSub = null;
+      _device = null;
+      _armed = false;
+      // The link tears down here, not at the connect call site — see
+      // acquireSecondaryLinkSlot's doc comment for why the two are split.
+      if (_holdsSecondaryLinkSlot) {
+        _holdsSecondaryLinkSlot = false;
+        releaseSecondaryLinkSlot();
+      }
+      // Null, not the last reading: a number left on screen after the link
+      // died is the one lie this surface can tell.
+      _reading.value = null;
+      // In the `finally` too, and captured before it: a peripheral left
+      // connected because the flush threw is a leaked GATT link, and the
+      // throw is exactly when nobody is coming back for it.
+      if (d != null) {
+        try {
+          await d.disconnect();
+        } catch (_) {/* already gone */}
+      }
     }
   }
+
+  /// Forced failure inside [_disarm]'s body, for the test that proves a
+  /// teardown which throws still leaves the sensor cleanly NOT armed. The real
+  /// thrower is `BandHost.stop()` → `_commit(all: true)` → a `sqflite` write,
+  /// which no test can make fail on demand without a fake host — and a fake
+  /// host would prove the fake, not this `finally`.
+  @visibleForTesting
+  static void Function()? failTeardownForTest;
 
   /// Feed raw notification bytes as if a sensor with [deviceId] were armed,
   /// and write them. The only way in: the real entry point is a BLE
