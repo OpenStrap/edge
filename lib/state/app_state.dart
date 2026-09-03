@@ -2373,9 +2373,16 @@ class AppState extends ChangeNotifier {
       // The new band is provisioned and connectable in the foreground.
       final p = paired;
       if (p != null) await IosBleRestore.arm(p.remoteId);
+      // NO FAMILY CLAIM. `AccessorySetup.showPicker` offers both the WHOOP 4.0
+      // and the WHOOP 5.0/MG display items and hands back only an
+      // `ASAccessory.bluetoothIdentifier` — nothing here knows which one the
+      // user chose. Stamping `gen4` filed a WHOOP 5 under gen4's decode
+      // constants; a null `adapter_id` is the honest answer until discovery
+      // reads the service and says. That also means no `HrsLink.mintDeviceId`
+      // call is possible yet (its prefix IS the family), so the row keeps a
+      // provisional id.
       await LocalDb.upsertDevice(
         id: 'whoop:$remoteId',
-        adapterId: 'gen4',
         remoteId: remoteId,
       );
     } catch (e) {
@@ -4094,15 +4101,24 @@ class AppState extends ChangeNotifier {
   /// because it also covers the connected-but-stalled stream, which no
   /// disconnect hook can see. Every live consumer must read THIS.
   int? get liveHr {
-    if (!isConnected) return null;
     final id = liveHrDeviceId;
     if (id != null) {
       // The newest sample from the device that won, which is by construction
       // inside `liveHrMaxAge` (that is what `_isStreaming` tested).
+      //
+      // THE BAND'S CONNECTION IS NOT THE GATE HERE. `liveHrDeviceId` can name
+      // a chest strap or a ring driven by `HrsLink` over its own GATT link,
+      // and `isConnected` reads the PRIMARY band's engine state. Gating on it
+      // meant that starting a workout with the strap on and the band on its
+      // charger returned null from a device that was streaming: `_tickWorkout`
+      // then banked no zone seconds, no strain and no calories from a real
+      // measurement. `_isStreaming` is already the stricter freshness test.
       for (var i = _liveHrTrace.length - 1; i >= 0; i--) {
         if (_liveHrTrace[i].deviceId == id) return _liveHrTrace[i].hr;
       }
     }
+    // The fallback below IS the band's, so it keeps the band's gate.
+    if (!isConnected) return null;
     // FALLBACK: nothing in the trace yet — a caller that sets `DeviceState`
     // directly without going through `_onEngineState` (every existing test,
     // and any future path that bypasses the engine callback). The original
