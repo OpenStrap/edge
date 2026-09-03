@@ -69,6 +69,23 @@ void main() {
     expect(out['2026-09-02'], ['ring-A']);
   });
 
+  test('an interval ending exactly at midnight does not claim the next day',
+      () async {
+    // `end_ts` is exclusive (coverage_resolver.dart's CoverageInterval), so a
+    // row that stops at 00:00:00 covers no second of the day it stops on.
+    final start = DateTime(2026, 9, 6, 21).millisecondsSinceEpoch ~/ 1000;
+    final end = DateTime(2026, 9, 7).millisecondsSinceEpoch ~/ 1000;
+    await _insertCoverage('ring-A', 'hr1Hz', start, end);
+
+    final out = await LocalDb.coverageDevicesByDay(
+      signals: const ['hr1Hz'],
+      fromSec: start - 3600,
+      toSec: end + 3600,
+    );
+    expect(out['2026-09-06'], ['ring-A']);
+    expect(out['2026-09-07'], isNull);
+  });
+
   test('device ids on one day come back sorted, stable regardless of insert '
       'order', () async {
     final start = DateTime(2026, 9, 3, 10).millisecondsSinceEpoch ~/ 1000;

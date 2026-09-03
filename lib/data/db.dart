@@ -1001,12 +1001,15 @@ class LocalDb {
           // which _repairOpenSchema calls on every open.
 
           // Step 4: band_backlog. Keyed by one epoch second, so two devices
-          // connecting in the same second overwrite each other. Logging-only
-          // and regenerated on the next connect (see _createBandBacklog), so
-          // there is nothing here worth a rebuild. Cost: the wrap-count-moved
-          // check is blind for exactly one connect after the upgrade.
-          await db.execute('DROP TABLE IF EXISTS band_backlog');
+          // connecting in the same second overwrite each other. Re-keyed, NOT
+          // dropped: the series is what establishes the records-per-day
+          // divisor (see _createBandBacklog, which is why it is exempt from
+          // retention), and `_recordPagesBehind` reads the newest row back to
+          // see whether `wrap_count` moved — a drop loses the history and
+          // blinds that check for a connect. Same helper as step 5, one rung
+          // earlier so the table exists for a database that never had it.
           await _createBandBacklog(db);
+          await _rekeyByDeviceIdV51(db, 'band_backlog', keyTail: const ['ts']);
 
           // Step 5: the four re-keys. LAST of the DDL, self-skipping,
           // idempotent. raw_archive first because it is the expensive one
@@ -2982,6 +2985,16 @@ class LocalDb {
       'neutral rows belong to a non-primary device; "" is the primary band '
       'permanently (see kPrimaryDeviceId).',
     );
+    // AND THEY MUST NAME THEIR SOURCE. `source` is what separates a secondary
+    // band's rows from the primary's: NULL there IS the primary band
+    // (kPrimaryBandSourceSql) and is admitted by derivableSourceSql(), so an
+    // unnamed neutral row would not merely lose provenance — it would be read
+    // as the strap's own. Refused rather than asserted: a release build must
+    // not be the one place this can happen, and the caller (BandHost) already
+    // re-buffers a failed batch. Every writer today passes `adapter.id`.
+    if (neutrals != null && neutrals.isNotEmpty && deviceFamily == null) {
+      throw ArgumentError.notNull('deviceFamily');
+    }
     void checkpoint(String msg) {
       try {
         onCheckpoint?.call(msg);
@@ -3139,7 +3152,8 @@ class LocalDb {
             ops += _queueNeutralOneHz(
               batch,
               n,
-              deviceFamily: deviceFamily,
+              // Non-null by the refusal at the top of this method.
+              deviceFamily: deviceFamily!,
               deviceId: deviceId,
             );
             if (n.tsEpoch > maxRecTs) maxRecTs = n.tsEpoch;
@@ -5477,7 +5491,9 @@ class LocalDb {
   static int _queueNeutralOneHz(
     Batch batch,
     NeutralSample n, {
-    String? deviceFamily,
+    // NOT nullable, unlike the framed path's: see the refusal in
+    // [_commitSyncBatchLocked] — an unnamed `source` reads as the primary band.
+    required String deviceFamily,
     required String deviceId,
   }) {
     final recTs = n.tsEpoch;
@@ -5492,8 +5508,8 @@ class LocalDb {
         // follows for hr/accel/optical.
         'hr': n.hr,
         'skin_temp_c': n.skinTempC,
-        'device_family': ?deviceFamily,
-        'source': ?deviceFamily,
+        'device_family': deviceFamily,
+        'source': deviceFamily,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -5519,8 +5535,8 @@ class LocalDb {
           'beat_index': i,
           'rr_ts_ms': recTs * 1000,
           'rr_ms': rr,
-          'device_family': ?deviceFamily,
-          'source': ?deviceFamily,
+          'device_family': deviceFamily,
+          'source': deviceFamily,
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
@@ -7002,7 +7018,11 @@ class LocalDb {
     for (final r in rows) {
       final id = r['device_id'] as String? ?? kPrimaryDeviceId;
       final a = ((r['start_ts'] as num).toInt()).clamp(fromSec, toSec);
-      final b = ((r['end_ts'] as num).toInt()).clamp(fromSec, toSec);
+      // `end_ts` is EXCLUSIVE (see the table's doc), so the last second this
+      // row actually covers is one before it. Converted BEFORE the clamp: an
+      // interval ending exactly at local midnight otherwise walks into the
+      // next day and hands it a contributor it had no coverage in.
+      final b = ((r['end_ts'] as num).toInt() - 1).clamp(fromSec, toSec);
       var d = DateTime.fromMillisecondsSinceEpoch(a * 1000);
       final last = DateTime.fromMillisecondsSinceEpoch(b * 1000);
       // Bounded by the clamp above: at most one iteration per day in the
