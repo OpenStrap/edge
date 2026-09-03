@@ -33,7 +33,10 @@ import '../profile/devices.dart'
         declaringDeviceIds,
         liveSources,
         showReasonSheet,
-        signalCandidates;
+        signalCandidates,
+        signalDisplayName,
+        signalWinners,
+        unanimousWinner;
 import 'sleep_detail.dart';
 
 // ═══════════════════ the vocabulary ═══════════════════
@@ -671,11 +674,27 @@ class _MetricDetailState extends State<MetricDetail> {
   /// selection is about a window, and slot semantics change with the window.
   String? _device;
 
-  /// The device currently winning this metric's first required signal — read
-  /// once per load from `signal_priority`, falling through to the physics
-  /// ladder (§4.5 rule 3, already encoded in `d.sources`' rankSources order)
-  /// when no row exists. Drives "Prefer this device"'s visibility.
-  String? _preferredId;
+  /// The device winning EACH of this metric's required signals — read once
+  /// per load from `signal_priority`, falling through to the physics ladder
+  /// (§4.5 rule 3, already encoded in `d.sources`' rankSources order) where
+  /// no row exists. Empty until a load resolves, and on a single-device
+  /// install (the gate in `_load`), which is what keeps that case unchanged.
+  ///
+  /// A MAP, not one id. It used to be `signalPriority(spec.requires.first)`'s
+  /// winner, which readiness — four required signals — can only answer for
+  /// one of them: with a strap first for beat timing and the band first for
+  /// continuous heart rate, the caption named the strap and said it was
+  /// feeding readiness, and the Prefer button vanished for the band because
+  /// it "already won" a signal it won one of four times.
+  Map<InputSignal, String?> _winners = const {};
+
+  /// The device winning all of them, or null when they disagree.
+  String? get _preferredId => unanimousWinner(_winners);
+
+  /// Whether the winners disagree — the case the caption must not flatten.
+  /// `_preferredId` is null here AND when nothing has resolved, so the two
+  /// are only separable with this.
+  bool get _split => _winners.isNotEmpty && _preferredId == null;
 
   /// How many range buttons this install has data behind.
   ///
@@ -750,15 +769,23 @@ class _MetricDetailState extends State<MetricDetail> {
           : const <DeviceOption>[];
       final d = await MetricData.load(repo, widget.metricKey,
           candidates: candidates);
-      String? preferredId;
-      if (d.sources.length >= 2 && spec.requires.isNotEmpty) {
-        final order = await LocalDb.signalPriority(spec.requires.first);
-        preferredId = order.isNotEmpty
-            ? order.first
-            : d.sources.firstWhereOrNull((o) => o.selectable)?.deviceId;
+      var winners = const <InputSignal, String?>{};
+      if (d.sources.length >= 2 && spec.requires.isNotEmpty && mounted) {
+        // Read before the query, so the `mounted` in the condition above is
+        // the last word on `context` — nothing awaits between them.
+        final sources = liveSources(context.read<AppState>());
+        // One query for every signal, not one per signal — `_prefer` writes
+        // all of `spec.requires`, so this reads all of them back.
+        final stored = await LocalDb.signalPriorities();
+        winners = signalWinners(
+          sources,
+          requires: spec.requires,
+          stored: stored,
+          fallback: d.sources.firstWhereOrNull((o) => o.selectable)?.deviceId,
+        );
       }
       if (mounted) {
-        setState(() => (_d = d, _preferredId = preferredId, _loading = false));
+        setState(() => (_d = d, _winners = winners, _loading = false));
       }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
@@ -935,15 +962,42 @@ class _MetricDetailState extends State<MetricDetail> {
   // that looks broken: with one day of history, seven days and thirty days
   // really do average to the same number, and "1 of 30 days" says so where
   // a bare figure looked like a bug.
-  /// The label of the device currently winning, or the placeholder while
-  /// nothing has resolved yet.
-  String _preferredLabel(MetricData d) =>
-      d.sources.firstWhereOrNull((o) => o.deviceId == _preferredId)?.label ??
+  /// The label of one winning device, or the placeholder while nothing has
+  /// resolved yet.
+  String _labelOf(MetricData d, String? id) =>
+      d.sources.firstWhereOrNull((o) => o.deviceId == id)?.label ??
       'the default source';
 
+  /// What is feeding this metric, in as many lines as the truth needs: ONE
+  /// naming the metric when every required signal resolves to the same
+  /// device, one PER SIGNAL when they do not.
+  ///
+  /// The split case gets the signals' own names rather than a joined device
+  /// list, because "Using Polar H10 and WHOOP for readiness" says the two are
+  /// interchangeable here, and which device serves which input is the whole
+  /// content of the setting. Rearranging them stays where it belongs, in the
+  /// priority editor — this only has to stop asserting an agreement.
+  List<String> _usingLines(
+      BuildContext c, AppLocalizations? l, MetricSpec spec, MetricData d) {
+    String line(String device, String subject) =>
+        l?.metricDetailUsingForX(device, subject) ??
+        'Using $device for $subject.';
+    if (!_split) {
+      return [line(_labelOf(d, _preferredId), spec.title.toLowerCase())];
+    }
+    return [
+      for (final e in _winners.entries)
+        line(_labelOf(d, e.value), signalDisplayName(c, e.key).toLowerCase()),
+    ];
+  }
+
   /// Non-null exactly when the pill row has a SELECTED, SELECTABLE device
-  /// that is not already the one winning — the condition under which the
-  /// "Prefer this device" button does something.
+  /// that is not already winning EVERY required signal — the condition under
+  /// which the "Prefer this device" button does something.
+  ///
+  /// Split winners make `_preferredId` null, so the button is offered for any
+  /// selectable device there, including one that already wins some of the
+  /// signals: the tap that makes it win the rest is exactly the work left.
   DeviceOption? _preferCandidate(MetricData d) => d.sources.firstWhereOrNull(
       (o) => o.deviceId == _device && o.selectable && o.deviceId != _preferredId);
 
@@ -1016,8 +1070,10 @@ class _MetricDetailState extends State<MetricDetail> {
       } catch (_) {
         // Readiness writes four signals, so a throw on the second leaves two
         // written and two not. Say so and RE-READ rather than stamp
-        // `_preferredId` optimistically — the caption then names whatever
-        // actually persisted, which is the only thing anyone can act on.
+        // `_winners` optimistically — the caption then names whatever
+        // actually persisted, which is the only thing anyone can act on, and
+        // a half-written set of signals IS the split state the caption now
+        // has words for.
         // `SignalPriorityScreen` handles its own write the same way.
         if (!mounted) return;
         await showReasonSheet(
@@ -1034,7 +1090,13 @@ class _MetricDetailState extends State<MetricDetail> {
     // grep), so the write above stands on its own and the numbers move on the
     // next natural derive rather than immediately — stated here rather than
     // left for the reader to wonder.
-    if (mounted) setState(() => _preferredId = o.deviceId);
+    // Every signal in `spec.requires` was just written to this device, so the
+    // whole set agrees — the loop above returned early if any write did not
+    // land.
+    if (mounted) {
+      setState(() =>
+          _winners = {for (final sig in spec.requires) sig: o.deviceId});
+    }
   }
 
   Widget _hero(BuildContext c, MetricSpec spec, List<ChartPoint> all,
@@ -1100,11 +1162,12 @@ class _MetricDetailState extends State<MetricDetail> {
           const SizedBox(height: S.x2),
           Row(children: [
             Expanded(
-              child: Text(
-                l?.metricDetailUsingForX(
-                        _preferredLabel(d), spec.title.toLowerCase()) ??
-                    'Using ${_preferredLabel(d)} for ${spec.title.toLowerCase()}.',
-                style: F.over.copyWith(color: p.ink3),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final s in _usingLines(c, l, spec, d))
+                    Text(s, style: F.over.copyWith(color: p.ink3)),
+                ],
               ),
             ),
             // Only offered for a SELECTED, SELECTABLE device that is not

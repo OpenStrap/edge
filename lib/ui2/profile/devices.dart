@@ -521,6 +521,56 @@ List<String> declaringDeviceIds(List<HealthSource> sources, InputSignal sig) => 
           if (declaredSignals(s.family).contains(sig)) id,
     ];
 
+/// Who currently wins each of [requires] — `{signal: deviceId}`, in
+/// [requires]' own order, from the stored `signal_priority` orders in
+/// [stored] (`LocalDb.signalPriorities()`'s shape, keyed by `signal.name`).
+///
+/// PER SIGNAL, because per signal is the only shape the table has. A metric's
+/// "preferred device" is a question about SEVERAL signals: readiness needs
+/// four, and nothing stops a user putting a chest strap first for beat timing
+/// and the band first for continuous heart rate. Reading `requires.first`
+/// alone and calling its winner the metric's preferred device asserts an
+/// agreement that may not exist — see [unanimousWinner], which is the test
+/// for whether it does.
+///
+/// A stored id is skipped unless the device still DECLARES that signal, the
+/// same filter [SignalPriorityScreen] applies when it renders an order: a row
+/// left behind by a forgotten device has no adapter to serve the window, and
+/// the resolver passes over it too (it has no coverage to own). [fallback]
+/// answers a signal with no usable row — the ladder's choice, which the
+/// caller already has in hand.
+Map<InputSignal, String?> signalWinners(
+  List<HealthSource> sources, {
+  required Set<InputSignal> requires,
+  required Map<String, List<String>> stored,
+  String? fallback,
+}) {
+  final out = <InputSignal, String?>{};
+  for (final sig in requires) {
+    final declaring = declaringDeviceIds(sources, sig);
+    String? winner;
+    for (final id in stored[sig.name] ?? const <String>[]) {
+      if (declaring.contains(id)) {
+        winner = id;
+        break;
+      }
+    }
+    out[sig] = winner ?? fallback;
+  }
+  return out;
+}
+
+/// The device winning EVERY signal in [winners], or null when they disagree —
+/// and null for an empty map, which is "nothing resolved", not agreement.
+///
+/// Null is therefore not "no preference": a caller showing one device's name
+/// must ALSO know whether the winners were split, or it labels a split
+/// configuration with whatever its no-preference placeholder happens to say.
+String? unanimousWinner(Map<InputSignal, String?> winners) {
+  final distinct = winners.values.toSet();
+  return distinct.length == 1 ? distinct.first : null;
+}
+
 /// Signals TWO OR MORE paired devices declare. The whole content of the
 /// priority editor, and the reason it is usually empty: only a handful of the
 /// declared signals ever contend, so the table is tens of rows forever
