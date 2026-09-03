@@ -2603,6 +2603,11 @@ class DerivationEngine {
     ].reduce(math.max);
 
     final ownership = <InputSignal, List<OwnedSpan>>{};
+    // The order each signal ACTUALLY resolved under, carried on the prepared
+    // day so `priority_hash` names it by construction instead of re-reading
+    // `signal_priority` after the day computed (which could stamp an order
+    // the user changed mid-derive, and cost a query per signal per day).
+    final priority = <InputSignal, List<String>>{};
     for (final sig in const [InputSignal.hr1Hz, InputSignal.rrIntervals]) {
       // BINDING: `signal_priority` ships EMPTY by design (M3 deliberately did
       // not seed a physics ladder). "No priority row" means "the primary
@@ -2615,11 +2620,13 @@ class DerivationEngine {
       // gives it a rank — the conservative default, and the one that keeps
       // today's single-device installs byte-identical.
       final rawPriority = await LocalDb.signalPriority(sig);
+      final resolved = rawPriority.isEmpty
+          ? const [LocalDb.kPrimaryDeviceId]
+          : rawPriority;
+      priority[sig] = resolved;
       ownership[sig] = resolveOwnership(
         coverage: await LocalDb.coverageIntervals(sig, unionFrom, unionTo),
-        priority: rawPriority.isEmpty
-            ? const [LocalDb.kPrimaryDeviceId]
-            : rawPriority,
+        priority: resolved,
         from: unionFrom,
         to: unionTo,
         signal: sig,
@@ -2665,6 +2672,7 @@ class DerivationEngine {
       napSub: napSub,
       sleepSub: sleepSub,
       ownership: ownership,
+      priority: priority,
     );
   }
 
@@ -3093,6 +3101,26 @@ class DerivationEngine {
     // this range loads.
     final oneHzSpans = ownership[InputSignal.hr1Hz] ?? const <OwnedSpan>[];
     final rrOwnedSpans = ownership[InputSignal.rrIntervals] ?? const <OwnedSpan>[];
+    // OWNER IDENTITY, NOT SPAN COUNT.
+    //
+    // The filter used to run only when a list held more than one span, on the
+    // reasoning that one span means one owner means nothing to arbitrate.
+    // `resolveOwnership` treats `priority` as the CANDIDATE list, and
+    // `signal_priority` ships empty, so a second device with real coverage is
+    // not a candidate: the resolver reports ONE span owned by the primary and
+    // that gate then waved the second device's rows straight into the
+    // substrate — the exact opposite of the binding `_prepareTargetDay`
+    // documents.
+    //
+    // A null owner is "no coverage claim for this second", never "excluded",
+    // so it is admitted. With no spans at all (the import path) every row is
+    // admitted, which keeps a day that resolved nothing byte-identical.
+    bool owned(List<OwnedSpan> spans, Map<String, dynamic> r) {
+      if (spans.isEmpty) return true;
+      final owner = spanAt(spans, (r['rec_ts'] as num).toInt())?.deviceId;
+      if (owner == null) return true;
+      return owner == (r['device_id'] as String? ?? LocalDb.kPrimaryDeviceId);
+    }
     try {
       final worker = await ready.future;
       worker.send(const {'type': 'config', 'mode': 'substrate'});
@@ -3154,28 +3182,14 @@ class DerivationEngine {
                   toRecTs: lastRecTs,
                 );
           if (lastRecTs != null) rrFrom = lastRecTs + 1;
-          // GUARDED ON span COUNT — the single-device identity: one span
-          // means one owner means nothing to arbitrate, so the predicate is
-          // not evaluated and the lists reach the worker as the same objects
-          // they are today.
-          final frames = oneHzSpans.length > 1
-              ? [
-                  for (final r in decodedRows)
-                    if (spanAt(oneHzSpans, (r['rec_ts'] as num).toInt())
-                            ?.deviceId ==
-                        (r['device_id'] as String? ?? LocalDb.kPrimaryDeviceId))
-                      r,
-                ]
-              : decodedRows;
-          final rrRows = rrOwnedSpans.length > 1
-              ? [
-                  for (final r in rawRrRows)
-                    if (spanAt(rrOwnedSpans, (r['rec_ts'] as num).toInt())
-                            ?.deviceId ==
-                        (r['device_id'] as String? ?? LocalDb.kPrimaryDeviceId))
-                      r,
-                ]
-              : rawRrRows;
+          final frames = [
+            for (final r in decodedRows)
+              if (owned(oneHzSpans, r)) r,
+          ];
+          final rrRows = [
+            for (final r in rawRrRows)
+              if (owned(rrOwnedSpans, r)) r,
+          ];
           worker.send({'type': 'page', 'frames': frames, 'rr': rrRows});
           final last = decodedRows.last;
           afterRecTs = (last['rec_ts'] as num?)?.toInt() ?? afterRecTs;
@@ -3194,15 +3208,10 @@ class DerivationEngine {
           fromRecTs: rrFrom,
           toRecTs: toRecTs,
         );
-        final tailRr = rrOwnedSpans.length > 1
-            ? [
-                for (final r in rawTailRr)
-                  if (spanAt(rrOwnedSpans, (r['rec_ts'] as num).toInt())
-                          ?.deviceId ==
-                      (r['device_id'] as String? ?? LocalDb.kPrimaryDeviceId))
-                    r,
-              ]
-            : rawTailRr;
+        final tailRr = [
+          for (final r in rawTailRr)
+            if (owned(rrOwnedSpans, r)) r,
+        ];
         if (tailRr.isNotEmpty) {
           worker.send({
             'type': 'page',
@@ -3977,14 +3986,22 @@ class DerivationEngine {
       // M5: per-owner masking. A window owned by device A is masked by
       // device A's off-body and charging events, NEVER by device B's —
       // put B on the charger while A is worn and A's real night must not
-      // be excluded. `day.ownership[hr1Hz]` is empty only on the import
-      // path (which never resolves ownership); there, one full-window span
-      // owned by the primary reproduces exactly today's single query.
-      // Spans from different owners cannot overlap (ownership is
-      // exclusive) and `_toggleSpans` returns each owner's spans in time
+      // be excluded. Spans from different owners cannot overlap (ownership
+      // is exclusive) and `_toggleSpans` returns each owner's spans in time
       // order, so concatenating owners in span order needs no merge pass.
-      final oneHzOwnership = day.ownership[InputSignal.hr1Hz] ??
-          [(start: spanLo, end: napHi, deviceId: LocalDb.kPrimaryDeviceId)];
+      //
+      // NO RESOLVED OWNER ⇒ MASK AS A SINGLE-DEVICE INSTALL DOES. The `??`
+      // alone covered only a MISSING key (the import path). A present key can
+      // still hold nothing but `deviceId: null` — `resolveOwnership` returns
+      // one null-owner span whenever no candidate device covers the window, so
+      // a day with no `device_coverage` rows, or one whose only covering
+      // device has no `signal_priority` rank, took the null branch below,
+      // asked for no spans at all, and lost wrist-off and charger masking
+      // outright. That is a derived-output change on a single-device install.
+      final resolvedOneHz = day.ownership[InputSignal.hr1Hz] ?? const [];
+      final oneHzOwnership = resolvedOneHz.any((s) => s.deviceId != null)
+          ? resolvedOneHz
+          : [(start: spanLo, end: napHi, deviceId: LocalDb.kPrimaryDeviceId)];
       final wristOffSpans = <List<int>>[];
       final chargingSpans = <List<int>>[];
       for (final s in oneHzOwnership) {
@@ -4287,23 +4304,15 @@ class DerivationEngine {
       coverageDevices: daySub.deviceIds.isEmpty
           ? null
           : (daySub.deviceIds.toList()..sort()).join(','),
-      // M5: the priority order actually used to resolve this day — read
-      // fresh from `signal_priority` rather than reconstructed from the
-      // resolved spans (a span list only names OWNERS, not the full ranked
-      // candidate list), with the SAME empty-table fallback
-      // `_prepareTargetDay` applied when resolving (signal_priority ships
-      // empty by design; "no priority row" reads as "the primary owns this
-      // window", never as an empty candidate list). Null only when no
-      // resolve ran at all (the import path — `day.ownership` empty).
-      priorityHash: day.ownership.isEmpty
-          ? null
-          : priorityKey({
-              for (final sig in day.ownership.keys)
-                sig: await () async {
-                  final p = await LocalDb.signalPriority(sig);
-                  return p.isEmpty ? const [LocalDb.kPrimaryDeviceId] : p;
-                }(),
-            }),
+      // M5: the priority order actually used to resolve this day — CARRIED
+      // from `_prepareTargetDay` (`day.priority`, empty-table fallback
+      // already applied there), not reconstructed from the resolved spans (a
+      // span list only names OWNERS, not the full ranked candidate list) and
+      // not re-read here. Re-reading could stamp an order the user changed
+      // while the day was computing, i.e. one no output of this day used.
+      // Null only when no resolve ran at all (the import path).
+      priorityHash:
+          day.priority.isEmpty ? null : priorityKey(day.priority),
       series: {
         'rhr': sc('rhr'),
         'rmssd': sc('rmssd'),

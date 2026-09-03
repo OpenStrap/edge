@@ -38,6 +38,16 @@ class PreparedDerivationDay {
   /// NOT threaded through `toJson`/`fromJson` — see the ponytail note below.
   final Map<InputSignal, List<OwnedSpan>> ownership;
 
+  /// M5: the priority order ACTUALLY USED to resolve [ownership], with
+  /// `_prepareTargetDay`'s empty-table fallback already applied. Carried
+  /// rather than re-read at stamp time: the day's `priority_hash` must name
+  /// the order the day derived under, and a user reordering the editor mid-
+  /// derive would otherwise have the stamp record an order no output used.
+  /// Empty on the import path, exactly like [ownership].
+  ///
+  /// NOT threaded through `toJson`/`fromJson`, same reason as [ownership].
+  final Map<InputSignal, List<String>> priority;
+
   const PreparedDerivationDay({
     required this.date,
     required this.endSec,
@@ -52,6 +62,7 @@ class PreparedDerivationDay {
     Substrate? napSub,
     this.sleepSource = 'auto',
     this.ownership = const {},
+    this.priority = const {},
   }) : napSub = napSub ?? daySub;
 
   Map<String, dynamic> toJson() => {
@@ -217,6 +228,7 @@ class SleepSessionCandidate {
     required Substrate sleepSub,
     Substrate? napSub,
     Map<InputSignal, List<OwnedSpan>> ownership = const {},
+    Map<InputSignal, List<String>> priority = const {},
   }) => PreparedDerivationDay(
     date: dayId,
     // `endSec` is what the engine anchors FINALIZATION on
@@ -240,6 +252,7 @@ class SleepSessionCandidate {
     napSub: napSub,
     sleepSub: sleepSub,
     ownership: ownership,
+    priority: priority,
   );
 }
 
