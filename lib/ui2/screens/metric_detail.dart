@@ -27,7 +27,13 @@ import 'home_screen.dart';
 import 'investigate.dart';
 import 'journal_compose.dart' show OsTextField;
 import '../profile/devices.dart'
-    show DeviceFilter, DeviceOption, showReasonSheet, signalCandidates;
+    show
+        DeviceFilter,
+        DeviceOption,
+        declaringDeviceIds,
+        liveSources,
+        showReasonSheet,
+        signalCandidates;
 import 'sleep_detail.dart';
 
 // ═══════════════════ the vocabulary ═══════════════════
@@ -970,20 +976,36 @@ class _MetricDetailState extends State<MetricDetail> {
   }
 
   Future<void> _prefer(DeviceOption o) async {
-    final d = _d;
-    if (d == null) return;
+    if (_d == null || !mounted) return;
     final spec = specOf(widget.metricKey);
     // PER SIGNAL, never per metric. "Priority for readiness" has no meaning —
     // readiness has four inputs (final-plan §4.5). A per-metric control is
     // therefore a mapping DOWN to that metric's signals, written for each of
     // them, and it is the only per-metric form allowed.
-    final order = [
-      o.deviceId,
-      for (final s in d.sources) if (s.deviceId != o.deviceId && s.selectable) s.deviceId,
-    ];
+    //
+    // And the ORDER is per signal too, built from the devices that declare
+    // THAT signal — not from this metric's pills. `d.sources` is candidacy for
+    // the whole of `spec.requires`, so a chest strap that emits RR and no
+    // accelerometer is `selectable: false` on readiness; writing readiness'
+    // three signals from one selectable-filtered list deleted that strap's
+    // `rrIntervals` row, and `signal_priority`'s rows ARE the resolver's
+    // candidate list, so it also vanished from HRV — a metric this screen was
+    // never showing. `declaringDeviceIds` is the same list the priority editor
+    // ranks, so the two writers can never disagree.
+    final sources = liveSources(context.read<AppState>());
     for (final sig in spec.requires) {
+      final declaring = declaringDeviceIds(sources, sig);
       try {
-        await LocalDb.setSignalPriority(sig, order);
+        // A selectable option declares every required signal, so it is in
+        // `declaring` — unless the device was unpaired between load and tap.
+        // Then this is a failed write, not a licence to insert an id no
+        // adapter backs: a phantom row is a candidate the resolver would hand
+        // a window to.
+        if (!declaring.contains(o.deviceId)) throw StateError('gone');
+        await LocalDb.setSignalPriority(sig, [
+          o.deviceId,
+          for (final id in declaring) if (id != o.deviceId) id,
+        ]);
       } catch (_) {
         // Readiness writes four signals, so a throw on the second leaves two
         // written and two not. Say so and RE-READ rather than stamp

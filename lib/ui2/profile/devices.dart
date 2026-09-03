@@ -277,14 +277,7 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
     final priorities = await LocalDb.signalPriorities();
     final order = <InputSignal, List<String>>{};
     for (final sig in signals) {
-      final declaring = [
-        for (final s in rankSources(sources))
-          // Skipped, never force-unwrapped: an id-less source (the phone) has
-          // nothing to rank, and `!` here would throw the day one declares a
-          // contended signal.
-          if (deviceIdOf(s) case final id?)
-            if (declaredSignals(s.family).contains(sig)) id,
-      ];
+      final declaring = declaringDeviceIds(sources, sig);
       final stored = priorities[sig.name];
       order[sig] = stored != null && stored.isNotEmpty
           ? [
@@ -510,6 +503,23 @@ List<DeviceOption> candidatesFromSources(
   }
   return out;
 }
+
+/// The devices that DECLARE [sig], in the physics ladder's order.
+///
+/// The one correct basis for a `signal_priority` write. `setSignalPriority`
+/// replaces every row of a signal, and `signalPriority`'s rows are ALSO the
+/// resolver's candidate list — so an order built from anything narrower than
+/// "declares this signal" (a metric's selectable pills, say) silently deletes
+/// a device from a signal it really does declare, and takes it out of every
+/// OTHER metric that shares that signal. Per signal, never per metric.
+List<String> declaringDeviceIds(List<HealthSource> sources, InputSignal sig) => [
+      for (final s in rankSources(sources))
+        // Skipped, never force-unwrapped: an id-less source (the phone) has
+        // nothing to rank, and `!` here would throw the day one declares a
+        // contended signal.
+        if (deviceIdOf(s) case final id?)
+          if (declaredSignals(s.family).contains(sig)) id,
+    ];
 
 /// Signals TWO OR MORE paired devices declare. The whole content of the
 /// priority editor, and the reason it is usually empty: only a handful of the

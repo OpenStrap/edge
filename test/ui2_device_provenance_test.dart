@@ -99,6 +99,35 @@ void main() {
     expect(strapOption.reason, isNotNull);
   });
 
+  // The basis of every `signal_priority` write. The chest strap is
+  // `selectable: false` on readiness (test 3 above) and still emits RR — and
+  // `setSignalPriority` replaces a signal's WHOLE row set, whose rows are also
+  // the resolver's candidate list. So an order built from readiness'
+  // selectable pills deleted the strap's `rrIntervals` row and took it out of
+  // HRV, a metric the readiness screen was never showing.
+  test('declaringDeviceIds: a metric-unselectable device keeps the signals it '
+      'does declare', () {
+    final sources = [_band(), _hrs()];
+    expect(
+      declaringDeviceIds(sources, InputSignal.rrIntervals),
+      containsAll([LocalDb.kPrimaryDeviceId, 'ble_hrs-0a1b2c3d']),
+    );
+    // Candidacy is still per signal, not a free-for-all: the strap has no
+    // thermistor, so it must not appear under skinTempRaw.
+    expect(
+      declaringDeviceIds(sources, InputSignal.skinTempRaw),
+      isNot(contains('ble_hrs-0a1b2c3d')),
+    );
+    // And a device declaring nothing is a candidate for no signal at all.
+    expect(
+      [
+        for (final s in InputSignal.values)
+          ...declaringDeviceIds([_band(), _oura()], s),
+      ],
+      isNot(contains('oura-A1B2')),
+    );
+  });
+
   // Test 7: missingSignalReason names every InputSignal member, so adding an
   // enum member fails here rather than silently rendering the generic phrase.
   test('missingSignalReason: a phrase for every InputSignal member', () {
