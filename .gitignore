@@ -126,3 +126,4 @@ payload*.json
 # committed set is a diff nobody can review and a merge conflict nobody can
 # resolve. The test code stays; the pictures do not.
 test/goldens/
+MULTIDEVICE_PROGRESS.md
