@@ -1,6 +1,9 @@
 // M6 -- per-device live-HR dedupe (spec-m6.md §11.3-§11.4, §13.2 test 10).
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/ble/hrs_link.dart';
 import 'package:openstrap_edge/data/db.dart' show LocalDb;
 import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_edge/state/app_state.dart';
@@ -63,5 +66,48 @@ void main() {
     app.device.connection = 'connected';
     app.debugFeedEngineState('', _state(58, DateTime.now().millisecondsSinceEpoch));
     expect(app.liveHrMultiDevice, isFalse);
+  });
+
+  group('a paired sensor reaches the same trace', () {
+    const sensorId = 'hrs-0a1b2c3d';
+    // flags 0x00 (no RR), 61 bpm — the plainest frame a strap sends.
+    const bpmOnly = <int>[0x00, 61];
+
+    setUpAll(() {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    });
+
+    setUp(() async {
+      await LocalDb.close();
+      LocalDb.dbName = 'live_hr_dedupe_test.db';
+      final dir = await databaseFactory.getDatabasesPath();
+      await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+    });
+
+    tearDown(() async => LocalDb.close());
+
+    test('an HRS reading is a second live device, and disarm clears it',
+        () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      app.device.connection = 'connected';
+      app.debugFeedEngineState(
+          '', _state(58, DateTime.now().millisecondsSinceEpoch));
+      expect(app.liveHrMultiDevice, isFalse);
+
+      // The sensor's own path — no engine state, no second persistence path.
+      await HrsLink.instance.ingestForTest(sensorId, [
+        (DateTime.now().millisecondsSinceEpoch ~/ 1000, bpmOnly),
+      ]);
+
+      expect(app.liveHrTrace(sensorId), [61],
+          reason: 'production only ever fed the primary band before this');
+      expect(app.liveHrMultiDevice, isTrue);
+
+      await HrsLink.instance.disarm();
+      expect(app.liveHrTrace(sensorId), isEmpty);
+      expect(app.liveHrMultiDevice, isFalse);
+    });
   });
 }

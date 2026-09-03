@@ -1283,6 +1283,10 @@ class AppState extends ChangeNotifier {
     // them to a catch-up pull over the existing live connection instead.
     IosBgTask.foregroundPull = foregroundCatchUp;
     taskerBridge; // force init: register the method channel handler
+    // A paired sensor's live beats, into the same trace as the band's. Touches
+    // no radio — `HrsLink.reading` is a plain notifier whose identity survives
+    // arm/disarm, which is why one listener for the life of this object works.
+    HrsLink.instance.reading.addListener(_onHrsReading);
     _init();
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
@@ -1317,6 +1321,9 @@ class AppState extends ChangeNotifier {
           onEvent: (id, ts, hex) =>
               _onLiveEvent(id, ts, hex, LocalDb.kPrimaryDeviceId),
         );
+    // Same wiring as the real constructor, and for the same reason it is safe
+    // here: a ValueNotifier, no plugin.
+    HrsLink.instance.reading.addListener(_onHrsReading);
   }
 
   /// A Siri/Shortcuts App Intent (e.g. "start breathing") may have set a
@@ -1364,6 +1371,13 @@ class AppState extends ChangeNotifier {
     _breathingRecomputeTimer = null;
     _workoutTimer?.cancel();
     _workoutTimer = null;
+    // The sensor's notifier OUTLIVES this object (HrsLink is a singleton), so
+    // a listener left on it is a leak that calls into a disposed
+    // ChangeNotifier on the next beat.
+    HrsLink.instance.reading.removeListener(_onHrsReading);
+    final hrsId = _hrsTraceId;
+    _hrsTraceId = null;
+    if (hrsId != null) _clearLiveHrTrace(hrsId);
     BandOwnership.markForegroundIntent(false);
     _releaseForegroundLease();
     _deriveScheduler.dispose();
@@ -3531,29 +3545,86 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _onEngineState(String deviceId, DeviceState s) {
-    // ONE SAMPLE PER DELIVERED READING PER DEVICE. Keyed on (device, stamp):
-    // keyed on the stamp alone, a second band reporting in the same second was
-    // dropped and which one survived depended on notification arrival order.
-    final hr = s.liveHr, at = s.liveHrAt;
-    if (hr != null && hr > 0 && at != null && at != _liveHrTraceAt[deviceId]) {
-      _liveHrTraceAt[deviceId] = at;
-      _liveHrTrace.add((at: at, hr: hr, deviceId: deviceId));
-      // The cap is PER DEVICE, so a second band cannot evict the first band's
-      // trace by streaming faster.
-      // ponytail: reverse scan is O(n) at n <= 90 * devices, once per
-      // delivered reading (~1 Hz). A per-device ring buffer is the upgrade if
-      // a device count ever makes that matter, which two bands does not.
-      var n = 0;
-      for (var i = _liveHrTrace.length - 1; i >= 0; i--) {
-        if (_liveHrTrace[i].deviceId != deviceId) continue;
-        if (++n > liveHrTraceMax) {
-          _liveHrTrace.removeAt(i);
-          break;
-        }
-      }
-      liveHrTraceRev++;
+  /// ONE SAMPLE PER DELIVERED READING PER DEVICE. Keyed on (device, stamp):
+  /// keyed on the stamp alone, a second band reporting in the same second was
+  /// dropped and which one survived depended on notification arrival order.
+  ///
+  /// The ONE way a reading enters the trace, whichever radio delivered it —
+  /// the band's engine state or a `HrsLink` sensor's notifier. A second
+  /// append path is a second dedupe rule, and the pair of them is what makes
+  /// `liveHrMultiDevice` disagree with the chart. Returns true when it took
+  /// the sample, i.e. when a listener has something new to draw.
+  bool _appendLiveHr(String deviceId, int? hr, int? at) {
+    if (hr == null || hr <= 0 || at == null || at == _liveHrTraceAt[deviceId]) {
+      return false;
     }
+    _liveHrTraceAt[deviceId] = at;
+    _liveHrTrace.add((at: at, hr: hr, deviceId: deviceId));
+    // The cap is PER DEVICE, so a second band cannot evict the first band's
+    // trace by streaming faster.
+    // ponytail: reverse scan is O(n) at n <= 90 * devices, once per
+    // delivered reading (~1 Hz). A per-device ring buffer is the upgrade if
+    // a device count ever makes that matter, which two bands does not.
+    var n = 0;
+    for (var i = _liveHrTrace.length - 1; i >= 0; i--) {
+      if (_liveHrTrace[i].deviceId != deviceId) continue;
+      if (++n > liveHrTraceMax) {
+        _liveHrTrace.removeAt(i);
+        break;
+      }
+    }
+    liveHrTraceRev++;
+    return true;
+  }
+
+  /// Forget one device's live trace. A dropped link ends a session; the next
+  /// one is not a continuation of it, and splicing the two draws a line across
+  /// a gap that never happened.
+  bool _clearLiveHrTrace(String deviceId) {
+    if (!_liveHrTraceAt.containsKey(deviceId)) return false;
+    _liveHrTrace.removeWhere((e) => e.deviceId == deviceId);
+    _liveHrTraceAt.remove(deviceId);
+    liveHrTraceRev++;
+    return true;
+  }
+
+  /// The HRS sensor whose samples are in the trace right now. Remembered
+  /// because [HrsLink.disarm] drops its host BEFORE it clears the reading, so
+  /// the disarm tick cannot name the device it is ending.
+  String? _hrsTraceId;
+
+  /// A paired heart-rate sensor's reading, into the SAME trace the band's
+  /// engine state feeds.
+  ///
+  /// Without this the multi-device live axis is structurally dead in
+  /// production: `_onEngineState` only ever runs for the primary band, so
+  /// `_liveHrTraceAt` never held a second key, `liveHrMultiDevice` was always
+  /// false and `liveHrDeviceId` could never name the strap that was actually
+  /// measuring. NOT a second persistence path — nothing here writes; the
+  /// sensor's own rows are banked by `BandHost` (invariant 1 unchanged).
+  ///
+  /// Oura is deliberately absent: `OuraAdapter.signals` is empty and the ring
+  /// delivers no live reading at all, so it has nothing to select between.
+  void _onHrsReading() {
+    if (_disposed) return;
+    final r = HrsLink.instance.reading.value;
+    final id = HrsLink.instance.deviceId ?? _hrsTraceId;
+    if (id == null) return;
+    if (r == null) {
+      // Disarmed. Same rule as the band's disconnect below.
+      _hrsTraceId = null;
+      if (_clearLiveHrTrace(id)) notifyListeners();
+      return;
+    }
+    // `HrsReading()` with no bpm is the armed-but-searching state, not a
+    // measurement — it is never billed as one.
+    _hrsTraceId = id;
+    final atSec = r.atSec ?? DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    if (_appendLiveHr(id, r.bpm, atSec * 1000)) notifyListeners();
+  }
+
+  void _onEngineState(String deviceId, DeviceState s) {
+    _appendLiveHr(deviceId, s.liveHr, s.liveHrAt);
     // Bank the name the moment the band says it, so it survives the
     // disconnect. Written through `cleanDeviceLabel` for the same reason the
     // BLE side reads through it: a garbled response must never become the
@@ -3656,11 +3727,7 @@ class AppState extends ChangeNotifier {
       // buffer spliced readings from before the drop (or from a previously
       // paired band) onto the next session's chart as one continuous line.
       // THIS device only — a second device's trace is a separate session.
-      if (_liveHrTraceAt.containsKey(deviceId)) {
-        _liveHrTrace.removeWhere((e) => e.deviceId == deviceId);
-        _liveHrTraceAt.remove(deviceId);
-        liveHrTraceRev++;
-      }
+      _clearLiveHrTrace(deviceId);
       if (_keepAlive && isPaired && !_reconnecting && !device.autoReconnectPaused) {
         _log('Connection dropped — reconnecting…');
         _stopBackfillTimer();

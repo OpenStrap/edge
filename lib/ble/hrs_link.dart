@@ -115,6 +115,15 @@ class HrsLink {
   ValueListenable<HrsReading?> get reading => _reading;
   final ValueNotifier<HrsReading?> _reading = ValueNotifier(null);
 
+  /// The armed sensor's `device_id`, or null when nothing is armed.
+  ///
+  /// What a consumer of [reading] needs to attribute a beat: a reading with no
+  /// device behind it cannot enter a per-device trace (`AppState`'s), and the
+  /// minted id is the only name this sensor has. NULL BEFORE [reading] CLEARS
+  /// — [disarm] drops the host first — so a consumer that must name the device
+  /// it is ending has to remember it.
+  String? get deviceId => _host?.deviceId;
+
   /// The `device` row for the paired heart-rate sensor, or null.
   ///
   /// The `device` table (schema 49) IS the pairing store now — this is what
@@ -621,6 +630,10 @@ class HrsLink {
       deviceId: deviceId,
       onLog: (m) => debugPrint('[hrs] $m'),
     );
+    // As `_arm` does, and for a reason a test can see: [deviceId] is how a
+    // consumer of [reading] attributes a beat, so a seam that left it null
+    // would prove the parser and nothing about attribution.
+    _host = host;
     final link = ReplayBandLink();
     final done = host.run(link);
     for (final (sec, value) in arrivals) {
@@ -636,5 +649,6 @@ class HrsLink {
     // ingestForTest has to leave the same thing true for a test to observe.
     _reading.value = host.reading.value;
     await host.stop();
+    _host = null;
   }
 }
