@@ -284,45 +284,53 @@ class OuraLink {
       // A cap on concurrent SECONDARY links (never the band's own connect —
       // see ble_state.dart's kMaxConcurrentSecondaryLinks doc). This offload
       // sync's connect, drain and disconnect all complete inside this one
-      // call (the `finally` below always tears it down), so the simple
-      // scoped form is correct here — unlike HrsLink's live session, nothing
-      // outlives this method.
+      // call, so the simple scoped form is correct here — unlike HrsLink's
+      // live session, nothing outlives this method.
+      //
+      // THE TEARDOWN IS INSIDE THE CLOSURE, deliberately. Held in an outer
+      // `finally` it ran AFTER `withSecondaryLinkSlot` had already released
+      // the slot, so the next queued link could connect while this one was
+      // still disconnecting — one more live GATT link than the cap allows.
       return await withSecondaryLinkSlot(() async {
-        final device = BluetoothDevice.fromId(remoteId);
-        _device = device;
-        await device.connect(timeout: const Duration(seconds: 20));
-        final services = await device.discoverServices();
-        final link = GattBandLink(
-          entry: kOura,
-          services: services,
-          onLog: (m) => debugPrint('[oura] $m'),
-        );
-        _link = link;
-        final missing = link.missingCharacteristics(kOura.requiredCharacteristics);
-        if (missing.isNotEmpty) {
-          debugPrint('[oura] ${kOura.label}: missing required characteristic(s) '
-              '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
+        try {
+          final device = BluetoothDevice.fromId(remoteId);
+          _device = device;
+          await device.connect(timeout: const Duration(seconds: 20));
+          final services = await device.discoverServices();
+          final link = GattBandLink(
+            entry: kOura,
+            services: services,
+            onLog: (m) => debugPrint('[oura] $m'),
+          );
+          _link = link;
+          final missing =
+              link.missingCharacteristics(kOura.requiredCharacteristics);
+          if (missing.isNotEmpty) {
+            debugPrint('[oura] ${kOura.label}: missing required '
+                'characteristic(s) '
+                '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
+            return false;
+          }
+          final host = _makeHost(
+            deviceId,
+            OuraAdapter(
+              key: key,
+              startCursorDs: cursor,
+              anchor: _parseAnchor(_anchor),
+              nowSeconds: _now,
+            ),
+          );
+          _host = host;
+          await host.run(link);
+          return true;
+        } finally {
+          // Drop the link and DISCONNECT before the slot is released.
           await stop();
-          return false;
         }
-        final host = _makeHost(
-          deviceId,
-          OuraAdapter(
-            key: key,
-            startCursorDs: cursor,
-            anchor: _parseAnchor(_anchor),
-            nowSeconds: _now,
-          ),
-        );
-        _host = host;
-        await host.run(link);
-        return true;
       });
     } catch (e) {
       debugPrint('[oura] sync failed: $e');
       return false;
-    } finally {
-      await stop();
     }
   }
 
@@ -583,10 +591,15 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
   try {
     // A cap on concurrent SECONDARY links (never the band's own connect —
     // see ble_state.dart's kMaxConcurrentSecondaryLinks doc). This pairing
-    // flow's connect and disconnect both complete inside this one call (the
-    // outer `finally` always tears it down), so the simple scoped form is
-    // correct here.
+    // flow's connect and disconnect both complete inside this one call, so
+    // the simple scoped form is correct here.
+    //
+    // THE TEARDOWN IS INSIDE THE CLOSURE, deliberately. Held in the outer
+    // `finally` it ran AFTER the slot had already been released, so the next
+    // queued link could connect while this one was still disconnecting — one
+    // more live GATT link than the cap allows.
     return await withSecondaryLinkSlot<String?>(() async {
+    try {
     await device.connect(timeout: const Duration(seconds: 20));
     final services = await device.discoverServices();
     final localLink = GattBandLink(
@@ -706,15 +719,18 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
     );
     paired = true;
     return null;
+    } finally {
+      link?.close();
+      try {
+        await device.disconnect();
+      } catch (_) {/* already gone */}
+    }
     });
   } catch (e) {
     debugPrint('[oura pair] failed: $e');
     return 'Could not connect to that ring.';
   } finally {
+    // Touches no radio, so it stays outside the slot.
     if (!paired) await OuraLink._dropKey(deviceId);
-    link?.close();
-    try {
-      await device.disconnect();
-    } catch (_) {/* already gone */}
   }
 }

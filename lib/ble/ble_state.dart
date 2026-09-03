@@ -1876,7 +1876,14 @@ Future<void> acquireSecondaryLinkSlot() async {
   if (_secondaryLinksInUse >= kMaxConcurrentSecondaryLinks) {
     final waiter = Completer<void>();
     _secondaryLinkWaiters.add(waiter);
-    await waiter.future;
+    // THE RELEASER TRANSFERS ITS SLOT and leaves the count alone, so the count
+    // already includes us by the time this resumes — and a caller arriving in
+    // the window between the release and that resume still sees the cap as
+    // reached and queues BEHIND us. Decrementing there and re-incrementing
+    // here left a window a whole microtask wide in which a late arrival read
+    // the freed count, skipped the queue, and took a slot already promised:
+    // three live GATT links against a cap of two, FIFO order lost.
+    return waiter.future;
   }
   _secondaryLinksInUse++;
 }
@@ -1885,10 +1892,16 @@ Future<void> acquireSecondaryLinkSlot() async {
 /// once per successful acquire — callers that can fail before acquiring
 /// (queued and cancelled, body threw before connect) must not call this.
 void releaseSecondaryLinkSlot() {
-  if (_secondaryLinksInUse > 0) _secondaryLinksInUse--;
+  // A stray release frees nothing, so it must not wake a waiter either — that
+  // waiter would resume owning a slot nobody held and push the count past the
+  // cap.
+  if (_secondaryLinksInUse <= 0) return;
   if (_secondaryLinkWaiters.isNotEmpty) {
+    // Hand the slot straight over: no decrement, no re-increment, no window.
     _secondaryLinkWaiters.removeAt(0).complete();
+    return;
   }
+  _secondaryLinksInUse--;
 }
 
 /// Run [body] holding one secondary-link slot for exactly [body]'s duration.
