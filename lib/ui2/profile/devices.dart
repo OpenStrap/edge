@@ -872,8 +872,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
 /// Choose which kind of sensor to pair, then hand off to the pairing screen.
 Future<void> addSensor(BuildContext c) async {
   // Count paired secondary devices (the `device` table minus the primary row).
-  // Refuse the pairing here, with the reason, rather than letting it succeed
-  // and then silently queue forever at connect time.
+  //
+  // PAIRED ROWS, NOT LIVE SLOTS, and deliberately: admission here is a
+  // question about the sensors this phone manages, not about who holds a GATT
+  // link in this instant. Live slot state is transient — `OuraLink` holds one
+  // only from connect through `stop()`, `HrsLink` only for a workout — so
+  // reading it would admit or refuse the same pairing depending on the second
+  // it was tapped, and a slot freed a moment later cannot un-refuse anything.
+  // The same constant bounds both because the number is the same number; the
+  // sentence below states the PAIRING rule, which is the one enforced here.
   final secondaryCount = (await LocalDb.deviceRows())
       .where((r) => r['id'] != LocalDb.kPrimaryDeviceId)
       .length;
@@ -885,8 +892,8 @@ Future<void> addSensor(BuildContext c) async {
         c,
         AppLocalizations.of(c)
                 ?.devicesSensorLimit(kMaxConcurrentSecondaryLinks) ??
-            '$kMaxConcurrentSecondaryLinks sensors is the most this phone '
-                'will keep connected at once. Remove one to add another.');
+            'This phone will pair at most $kMaxConcurrentSecondaryLinks '
+                'sensors alongside your band. Remove one to add another.');
     return;
   }
   if (!c.mounted) return;

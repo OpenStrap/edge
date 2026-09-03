@@ -598,7 +598,18 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
     // `finally` it ran AFTER the slot had already been released, so the next
     // queued link could connect while this one was still disconnecting — one
     // more live GATT link than the cap allows.
-    return await withSecondaryLinkSlot<String?>(() async {
+    //
+    // AND THE WAIT IS BOUNDED, unlike every other caller's. A person is
+    // holding the ring against the phone with a spinner in front of them; the
+    // queue is FIFO behind whatever is already connected (an Oura offload can
+    // run for minutes), so an unbounded wait here is a pairing screen that
+    // never answers. 30 s is longer than a connect+discovery and shorter than
+    // anyone's patience.
+    return await withSecondaryLinkSlot<String?>(
+      timeout: const Duration(seconds: 30),
+      onTimeout: () => 'Another sensor is using this phone’s Bluetooth right '
+          'now. Try pairing again in a moment.',
+      () async {
     try {
     await device.connect(timeout: const Duration(seconds: 20));
     final services = await device.discoverServices();
@@ -725,7 +736,8 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
         await device.disconnect();
       } catch (_) {/* already gone */}
     }
-    });
+    },
+    );
   } catch (e) {
     debugPrint('[oura pair] failed: $e');
     return 'Could not connect to that ring.';

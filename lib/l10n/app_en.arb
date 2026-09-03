@@ -11841,7 +11841,7 @@
   "@signalVendorScalars": {
     "description": "Human name for the vendorScalars input signal."
   },
-  "devicesSensorLimit": "{count, plural, =1{One sensor is the most this phone will keep connected at once. Remove it to add another.} other{{count} sensors is the most this phone will keep connected at once. Remove one to add another.}}",
+  "devicesSensorLimit": "{count, plural, =1{One sensor is the most this phone will pair alongside your band. Remove it to add another.} other{This phone will pair at most {count} sensors alongside your band. Remove one to add another.}}",
   "@devicesSensorLimit": {
     "description": "Refusal shown when the paired-sensor cap is already reached.",
     "placeholders": {

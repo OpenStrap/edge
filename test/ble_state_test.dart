@@ -799,6 +799,37 @@ void main() {
       await Future.wait(futures);
     });
 
+    test('a bounded wait gives up without eating a slot', () async {
+      final holds = List.generate(
+          kMaxConcurrentSecondaryLinks, (_) => Completer<void>());
+      final futures = <Future<void>>[
+        for (var i = 0; i < kMaxConcurrentSecondaryLinks; i++)
+          withSecondaryLinkSlot(() async => holds[i].future),
+      ];
+      await Future<void>.delayed(Duration.zero);
+      var ran = false;
+      final refused = await withSecondaryLinkSlot<String?>(
+        timeout: const Duration(milliseconds: 20),
+        onTimeout: () => 'busy',
+        () async {
+          ran = true;
+          return null;
+        },
+      );
+      expect(refused, 'busy');
+      expect(ran, isFalse, reason: 'the body never ran, so it took no slot');
+      for (final h in holds) {
+        h.complete();
+      }
+      await Future.wait(futures);
+      // The timed-out waiter must have left the queue: the cap's worth of
+      // slots are all grantable again, with nothing queued in front of them.
+      await Future.wait([
+        for (var i = 0; i < kMaxConcurrentSecondaryLinks; i++)
+          withSecondaryLinkSlot(() async => null),
+      ]).timeout(const Duration(seconds: 2));
+    });
+
     test('a held body that throws releases its slot', () async {
       await expectLater(
         withSecondaryLinkSlot<void>(() async => throw StateError('link dropped')),
