@@ -27,14 +27,25 @@ something like the second number, not be squeezed into the first.
 `BleRestoreManager.swift`'s restore `CBCentralManager` and the
 AccessorySetupKit provisioning flow exist for the ONE primary band — the
 device the offload engine drives and the device iOS is told about at pairing.
-A second, notify-only sensor (a chest strap, a ring paired alongside the band)
-connects live from its stored remote id while the app is foregrounded, and
-does **not** get iOS's background relaunch-on-drop treatment. Concretely: a
-paired second sensor syncs while the app is open, and goes quiet the moment
-the app is backgrounded or killed, until it is reopened. This is a real,
-current limitation — state it to a user (or a future contributor) directly
-rather than let it be discovered through a bug report about missing overnight
-strap data.
+No second device gets iOS's background relaunch-on-drop treatment. What a
+second device does in the background then depends on WHY it is connected, and
+the two cases are not the same:
+
+- **A live notify sensor** (a chest strap over `HrsLink`) has nothing to
+  offload: it measures only while it is streaming. It streams while the app is
+  foregrounded and goes quiet the moment the app is backgrounded or killed,
+  until it is reopened. This is a real, current limitation — state it to a user
+  (or a future contributor) directly rather than let it be discovered through a
+  bug report about missing overnight strap data.
+- **An offloading second device** (the Oura ring) DOES sync headless, because
+  it does not need its own wake: `runHeadlessSync` calls
+  `OuraLink.instance.sync()` at the end of every headless cycle, after the
+  band's work is finished and its lease released, so the ring rides the OS wake
+  window the band already earned. That call connects, drains history from the
+  ring's own cursor, and disconnects inside the one call. It is deliberately
+  best-effort and wrapped: a ring failure must never mark the band's cycle as
+  errored. The ring still has no wake source OF ITS OWN — no band wake, no ring
+  sync.
 
 ## Declare INPUTS, never capability booleans
 

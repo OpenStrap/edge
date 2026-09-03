@@ -327,8 +327,8 @@ class HrsLink {
     if (!await AccessorySetup.isSupported()) return null;
     if (await AccessorySetup.provisionedId() != null) return null;
     return 'Your main band is not paired yet. Searching for a sensor now starts '
-        'Bluetooth in a way that hides the system WHOOP pairing sheet until '
-        'you restart the app — so pair the WHOOP first, or expect to restart '
+        'Bluetooth in a way that hides the system pairing sheet until you '
+        'restart the app — so pair your main band first, or expect to restart '
         'the app before you can.';
   }
 
