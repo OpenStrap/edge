@@ -62,6 +62,26 @@ void main() {
     expect(rr[1]['rr_ms'], 500);
   });
 
+  test('stop() completes an in-flight run() rather than leaving it pending',
+      () async {
+    final host = BandHost(adapter: kBleHrsAdapter, deviceId: deviceId);
+    final link = ReplayBandLink();
+    var ran = false;
+    final future = host.run(link).then((_) => ran = true);
+    link.feed('00002a37-0000-1000-8000-00805f9b34fb', kBpmOnly,
+        atSec: 1_800_000_020);
+    await Future<void>.delayed(Duration.zero);
+    expect(ran, isFalse, reason: 'the session is still open');
+    // The stream never ends here — `stop()` cancels the subscription, and
+    // cancelling does not fire onDone. Without the host-level completer this
+    // await never returns (OuraLink._sync would hold its link slot forever).
+    final stopped = host.stop();
+    await future.timeout(const Duration(seconds: 2));
+    expect(ran, isTrue);
+    await link.close();
+    await stopped;
+  });
+
   test('the live reading publishes as samples arrive', () async {
     final host = BandHost(adapter: kBleHrsAdapter, deviceId: deviceId);
     final link = ReplayBandLink();

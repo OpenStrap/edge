@@ -135,10 +135,18 @@ class BandHost {
   Timer? _flushTimer;
   StreamSubscription<BandEvent>? _runSub;
 
+  /// The completer [run] is parked on, held HERE rather than inside `run` so
+  /// [stop] can finish it. `StreamSubscription.cancel()` does not fire
+  /// `onDone`, so a `stop()` that cancelled `_runSub` left an awaited `run()`
+  /// pending forever — and `OuraLink._sync` awaits `run` while holding a
+  /// secondary-link slot, so that hang leaked the slot for the life of the
+  /// process.
+  Completer<void>? _runDone;
+
   /// Start driving [adapter] over [link]. Completes when the adapter's stream
   /// ends or [stop] is called.
   Future<void> run(BandLink link) async {
-    final done = Completer<void>();
+    final done = _runDone = Completer<void>();
     void finish() {
       if (!done.isCompleted) done.complete();
     }
@@ -156,6 +164,7 @@ class BandHost {
     try {
       await done.future;
     } finally {
+      if (identical(_runDone, done)) _runDone = null;
       // EVERY exit, not just [stop]. `run` completes on its own when the
       // adapter's stream ends, and a caller that awaited it to completion
       // never calls stop — leaving a periodic timer firing `_commit` on a
@@ -171,6 +180,14 @@ class BandHost {
   Future<void> stop() async {
     _flushTimer?.cancel();
     _flushTimer = null;
+    // Release `run` FIRST. Cancelling does not call `onDone`, and
+    // `cancel()` itself waits for an `async*` adapter to unwind — which, for a
+    // generator parked on a link that has not been closed yet, can be a long
+    // wait or none at all. A caller awaiting `run()` must not be held behind
+    // either that or the final flush below.
+    final done = _runDone;
+    _runDone = null;
+    if (done != null && !done.isCompleted) done.complete();
     await _runSub?.cancel();
     _runSub = null;
     await _commit(all: true);
