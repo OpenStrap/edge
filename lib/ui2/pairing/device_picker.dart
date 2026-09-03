@@ -96,8 +96,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     _query.dispose();
     // Ends THIS screen's scan early if it is the one running — see
     // `PairSensorScreen.dispose` for why this is never a bare
-    // `FlutterBluePlus.stopScan()`.
-    HrsLink.stopScanIfRunning();
+    // `FlutterBluePlus.stopScan()`, and `HrsLink._scanOwner` for why the
+    // token has to be this `State` rather than a flag.
+    HrsLink.stopScanIfRunning(this);
     super.dispose();
   }
 
@@ -121,6 +122,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     try {
       await HrsLink.scanForAny(
         _notifyEntries,
+        owner: this,
         onResults: (c) {
           if (mounted) setState(() => _found = c);
         },

@@ -168,29 +168,36 @@ class HrsLink {
 
   static const Duration _connectTimeout = Duration(seconds: 12);
 
-  /// True between `startScan` resolving and the scan window closing, for THIS
-  /// file's scan and nothing else.
+  /// WHOSE scan is running right now — the `owner` token its caller passed —
+  /// or null between them, for THIS file's scans and nothing else.
   ///
-  /// The pairing screen has to be able to end its own scan early — the lock
-  /// is held for the whole 15 s window and a dismissed screen should not make
-  /// the next caller wait it out. What it must NOT do is call a bare
+  /// The pairing screen has to be able to end its own scan early: the lock is
+  /// held for the whole 15 s window and a dismissed screen should not make the
+  /// next caller wait it out. What it must NOT do is call a bare
   /// `FlutterBluePlus.stopScan()`: the radio has one scanner, every holder
   /// awaits `isScanning == false`, and a stop issued by anyone satisfies
-  /// everyone's await. A screen whose scan is still QUEUED behind the lock
-  /// would end the RUNNING holder's scan instead of its own, which reports
-  /// "found nothing" with no error anywhere.
-  static bool _scanRunning = false;
-
-  /// End this file's scan early if one is actually running. No-op otherwise —
-  /// including when the caller's own scan is still queued behind the lock.
+  /// everyone's await.
   ///
-  /// ponytail: a queued scan is not cancellable, so a dismissed screen can
-  /// still hold the lock for its full window doing nothing. That costs a
-  /// wait, never a wrong answer, which is the direction to fail in. Give
+  /// A BOOL WAS NOT ENOUGH, and it is what this replaced. "A scan of ours is
+  /// running" is not "MY scan is running" — with two pairing surfaces alive at
+  /// once (the picker pushes `PairSensorScreen` while its own 15 s scan is
+  /// still going, which is one tap) the queued screen's `dispose` read the
+  /// RUNNING screen's flag and ended its scan, which then reports "found
+  /// nothing" with no error anywhere. Exactly the bug the paragraph above was
+  /// written to prevent, arrived at from the other side.
+  static Object? _scanOwner;
+
+  /// End [owner]'s scan early if it is the one actually running. No-op
+  /// otherwise — when someone else holds the radio, and when [owner]'s own
+  /// scan is still queued behind the lock.
+  ///
+  /// ponytail: a queued scan is still not cancellable, so a dismissed screen
+  /// can hold the lock for its full window doing nothing. That costs a wait,
+  /// never a wrong answer, which is the direction to fail in. Give
   /// `withScanLock` a cancellation token only if a real flow needs the lock
   /// back sooner.
-  static void stopScanIfRunning() {
-    if (!_scanRunning) return;
+  static void stopScanIfRunning(Object owner) {
+    if (!identical(_scanOwner, owner)) return;
     unawaited(FlutterBluePlus.stopScan());
   }
 
@@ -217,8 +224,13 @@ class HrsLink {
   /// strongest signal first, which is very nearly "the one on your chest".
   /// Throws [BleUnavailableException] when the phone's own stack is the
   /// problem; see [scanHeldBackReason] for the iOS case that is not an error.
+  ///
+  /// [owner] is whatever the caller passes to [stopScanIfRunning] to end this
+  /// scan early — a screen's `State`, in practice. It is compared by identity
+  /// and never stored beyond the scan.
   static Future<void> scanFor(
     BandEntry entry, {
+    required Object owner,
     required void Function(List<BandCandidate>) onResults,
     Duration timeout = _scanWindow,
   }) {
@@ -227,7 +239,7 @@ class HrsLink {
     // Process-wide, because the radio has ONE scanner and the band's own scan
     // shares it. Without this, whichever scan called `stopScan` first ended
     // the other one having seen nothing, with no error to say why.
-    return withScanLock(() => _scanForEntries([entry], onResults, timeout));
+    return withScanLock(() => _scanForEntries([entry], owner, onResults, timeout));
   }
 
   /// Like [scanFor], swept across every entry in [entries] at once — the
@@ -242,17 +254,19 @@ class HrsLink {
   /// callers pairing a specific already-chosen entry should keep saying so.
   static Future<void> scanForAny(
     List<BandEntry> entries, {
+    required Object owner,
     required void Function(List<BandCandidate>) onResults,
     Duration timeout = _scanWindow,
   }) {
     assert(entries.isNotEmpty, 'scanForAny needs at least one entry.');
     assert(entries.every((e) => !e.isFramed),
         'a framed band has no notify-class scan to join.');
-    return withScanLock(() => _scanForEntries(entries, onResults, timeout));
+    return withScanLock(() => _scanForEntries(entries, owner, onResults, timeout));
   }
 
   static Future<void> _scanForEntries(
     List<BandEntry> entries,
+    Object owner,
     void Function(List<BandCandidate>) onResults,
     Duration timeout,
   ) async {
@@ -266,17 +280,32 @@ class HrsLink {
       await FlutterBluePlus.stopScan();
     }
     final serviceGuids = [for (final e in entries) Guid(e.service)];
-    // Which entry a matched service belongs to. Services are each entry's own
+    // Which entry a matched service belongs to, or NULL when this particular
+    // advertisement did not carry one of them. Services are each entry's own
     // GATT identity, so a collision here would mean two registry rows sharing
     // one service — a registry bug, not a runtime ambiguity to resolve softly.
-    String entryIdFor(List<Guid> advertised) {
+    //
+    // NULLABLE ON PURPOSE, and the whole point of the split with the caller
+    // below. `withServices` filters on the SCAN, not on the payload: an
+    // Android advertisement can match the filter and still arrive with an
+    // empty or truncated `serviceUuids` (the 31-byte advertising packet is
+    // full, and the rest is in a scan response that has not landed yet). A
+    // fallback returned from in here was indistinguishable from a real match,
+    // so the caller cached a guess and never looked again.
+    String? entryIdFor(List<Guid> advertised) {
       for (final g in advertised) {
         for (final e in entries) {
           if (g == Guid(e.service)) return e.id;
         }
       }
-      return entries.first.id;
+      return null;
     }
+
+    // Remote ids whose entry is CONFIRMED by an advertisement that actually
+    // carried the service. Everything else is shown under `entries.first`
+    // until a real match lands — correct by construction for a single-entry
+    // scan ([scanFor]), a placeholder that corrects itself for [scanForAny].
+    final confirmed = <String, String>{};
 
     // Keyed by remote id: a scan re-reports the same peripheral several times
     // a second, and a list that grows a row per advertisement is not a picker.
@@ -296,13 +325,21 @@ class HrsLink {
         final label = cleanDeviceLabel(r.advertisementData.advName) ??
             cleanDeviceLabel(r.device.platformName) ??
             was?.label;
+        // Re-attempted on EVERY advertisement until one confirms, then fixed:
+        // a confirmed match cannot change (a peripheral does not swap GATT
+        // identity mid-scan) and re-reading it would only add work.
+        final match = confirmed[id] ?? entryIdFor(r.advertisementData.serviceUuids);
+        if (match != null) confirmed[id] = match;
         final now = (
           device: r.device,
           label: label,
           rssi: r.rssi,
-          entryId: was?.entryId ?? entryIdFor(r.advertisementData.serviceUuids),
+          entryId: match ?? entries.first.id,
         );
-        if (was == null || was.rssi != now.rssi || was.label != now.label) {
+        if (was == null ||
+            was.rssi != now.rssi ||
+            was.label != now.label ||
+            was.entryId != now.entryId) {
           changed = true;
         }
         seen[id] = now;
@@ -314,7 +351,7 @@ class HrsLink {
         withServices: serviceGuids,
         timeout: timeout,
       );
-      _scanRunning = true;
+      _scanOwner = owner;
       // The scan's own timeout is what stops it; this waits that out.
       await FlutterBluePlus.isScanning.where((on) => on == false).first;
     } catch (e) {
@@ -324,7 +361,9 @@ class HrsLink {
       if (blocker != null) throw BleUnavailableException(blocker);
       debugPrint('[hrs] scan error: $e');
     } finally {
-      _scanRunning = false;
+      // Identity-guarded for the same reason `_disarming` is: only the scan
+      // that claimed the radio may release the claim.
+      if (identical(_scanOwner, owner)) _scanOwner = null;
       await sub.cancel();
     }
     onResults(_ranked(seen));
@@ -531,13 +570,36 @@ class HrsLink {
   /// anything. A second call used to sail past the `_armed` check while the
   /// first was still connecting and overwrite `_device`, `_link` and `_host` —
   /// the first one's session then ran forever with nothing holding it.
+  /// AND IT WAITS OUT A TEARDOWN. `_armed` stays TRUE through every await in
+  /// [disarm] — `_host.stop()`'s final flush, the subscription cancel, the
+  /// disconnect — so a call that landed in that window used to hit the
+  /// `_armed` fast path, answer "already armed" and start nothing. The
+  /// teardown then finished underneath it: no session, no error, and a caller
+  /// holding `true` with no reason to retry. Ordinary sequence — stop a
+  /// workout, start another inside the same second.
+  ///
+  /// Setting `_armed = false` at the top of [disarm] would NOT fix it. That
+  /// only moves the race: the arm would then start a fresh session and the
+  /// disarm still running behind it would tear that one down instead.
   Future<bool> arm() {
+    final teardown = _disarming;
+    // Recursive rather than a single await: a second [disarm] can land while
+    // we wait, and the answer to "is anything armed" is only true after the
+    // LAST one has finished. Identity of the returned future is deliberately
+    // not preserved across a teardown — there is nothing yet to be identical
+    // to — but the no-teardown path below still hands back the same `_arming`
+    // to every caller, which is what dedupes the ordinary double-arm.
+    if (teardown != null) return teardown.then((_) => arm());
     if (_armed) return Future.value(true);
     return _arming ??= _arm().whenComplete(() => _arming = null);
   }
 
   /// The in-flight [arm], or null. See [arm].
   Future<bool>? _arming;
+
+  /// The in-flight [disarm] chain, or null when nothing is being torn down.
+  /// [arm] waits on it; see its doc for what goes wrong otherwise.
+  Future<void>? _disarming;
 
   /// How many times [disarm] has run. An [arm] whose count moved under it has
   /// been cancelled and must not publish — see the check in [_arm].
@@ -611,7 +673,25 @@ class HrsLink {
       );
       _host = host;
       host.reading.addListener(() => _reading.value = host.reading.value);
-      unawaited(host.run(link));
+      // A SESSION THAT ENDS ON ITS OWN MUST STILL RELEASE. `BandHost.run`
+      // completes when the adapter's stream ends OR errors — it turns an
+      // adapter error into normal completion and cancels only its own flush
+      // timer. Nothing else noticed: `_armed` stayed true and the
+      // secondary-link slot stayed held for the life of the process, so the
+      // strap could never be armed again and one of two slots was gone.
+      //
+      // Gated on the disarm counter, not on `_host == host`: when it is
+      // `disarm()` ITSELF that ended the run (via `_host.stop()`), `_host` is
+      // still this host — disarm nulls it only after that await returns — so
+      // an identity check would re-enter disarm from inside its own teardown.
+      // The counter has already moved by then, because `disarm` increments it
+      // synchronously. A host left over from an earlier arm generation is
+      // excluded by the same test.
+      unawaited(host.run(link).whenComplete(() {
+        if (_disarms != disarmsAtStart) return;
+        debugPrint('[hrs] session ended on its own — releasing the link.');
+        unawaited(disarm());
+      }));
       // A sensor that walks out of range mid-session ends the log there rather
       // than leaving the link claiming to be armed when it is gone.
       _connSub = device.connectionState.listen((s) {
@@ -631,8 +711,39 @@ class HrsLink {
   /// Stop logging, flush the tail and drop the link. Safe to call when not
   /// armed. AWAIT it before a finish screen reads the session back — an
   /// unawaited stop is how the last buffered batch goes missing.
-  Future<void> disarm() async {
+  ///
+  /// SERIALISED against itself and against [arm]. Two teardowns in flight at
+  /// once each called `_host.stop()` on the same host and could land a
+  /// `disconnect()` on the peripheral a later [arm] had just reconnected.
+  Future<void> disarm() {
+    // Synchronous, before anything is awaited and before the chain below:
+    // `_arm` reads this counter to notice it has been cancelled mid-connect,
+    // and an increment deferred behind a queued future would let an in-flight
+    // arm publish a session on top of this teardown.
     _disarms++;
+    final prev = _disarming;
+    late final Future<void> mine;
+    mine = _disarmAfter(prev).whenComplete(() {
+      // Only the LAST teardown clears the gate; an earlier link in the chain
+      // completing must not tell `arm()` the queue is empty.
+      if (identical(_disarming, mine)) _disarming = null;
+    });
+    return _disarming = mine;
+  }
+
+  /// [prev] is awaited but its failure is SWALLOWED — it belongs to whoever
+  /// called that disarm, and one teardown that threw must not wedge the chain
+  /// (the same reason `withScanLock` swallows its body's error).
+  Future<void> _disarmAfter(Future<void>? prev) async {
+    if (prev != null) {
+      try {
+        await prev;
+      } catch (_) {/* the previous caller's error, not ours */}
+    }
+    await _disarm();
+  }
+
+  Future<void> _disarm() async {
     // Before the host's run subscription is cancelled: an adapter's `finally`
     // can still write on the way out, and that write must not reach the radio.
     _link?.close();

@@ -98,13 +98,14 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
 
   @override
   void dispose() {
-    // Ends THIS file's scan early if it is the one running. Never a bare
+    // Ends THIS SCREEN's scan early if it is the one running. Never a bare
     // `FlutterBluePlus.stopScan()`: the radio has one scanner and every
     // holder awaits `isScanning == false`, so a stop issued while our own
     // scan is still queued behind `withScanLock` would end the RUNNING
     // holder's scan — which then reports "found nothing" with no error to
-    // say why.
-    HrsLink.stopScanIfRunning();
+    // say why. Hence the `owner` token: it is this `State`, so the check is
+    // "mine", not "one of ours".
+    HrsLink.stopScanIfRunning(this);
     super.dispose();
   }
 
@@ -130,6 +131,7 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     try {
       await HrsLink.scanFor(
         widget.entry,
+        owner: this,
         onResults: (c) {
           if (mounted) setState(() => _found = c);
         },
