@@ -613,10 +613,15 @@ class TimelineData {
         // dot — Observation deliberately carries none. A vendorKey renders
         // verbatim ('BioCharge' stays 'BioCharge'; mapping it onto one of
         // our keys is the worst available mistake here).
+        // `observation.value` is nullable and an import preserves that, so the
+        // value clause is dropped rather than interpolated — a null renders as
+        // the literal "null", which reads as a measurement.
         for (final r in observations)
           DayNote(
             (r['vendor_key'] as String?) ?? (r['key'] as String?) ?? '',
-            '${r['value']}${(r['unit'] as String?)?.isNotEmpty == true ? ' ${r['unit']}' : ''} · ${r['attribution']}',
+            r['value'] == null
+                ? '${r['attribution']}'
+                : '${r['value']}${(r['unit'] as String?)?.isNotEmpty == true ? ' ${r['unit']}' : ''} · ${r['attribution']}',
             LucideIcons.tag,
           ),
       ],
@@ -760,7 +765,15 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     }
     final repo = repoOf(context);
     if (repo == null) return;
-    final c = await repo.getDeviceChart('hr', deviceId: id, date: day);
+    final Map<String, Object?> c;
+    try {
+      c = await repo.getDeviceChart('hr', deviceId: id, date: day);
+    } catch (_) {
+      // A failed read leaves the graph and the selection exactly as they were:
+      // the alternative is an empty chart under a device pill, which claims
+      // that device recorded nothing.
+      return;
+    }
     // A newer selection (another device, or a day change through `_load`)
     // started while this read was in flight, so this answer is about a
     // timeline that is no longer on screen.

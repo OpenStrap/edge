@@ -27,7 +27,7 @@ import 'home_screen.dart';
 import 'investigate.dart';
 import 'journal_compose.dart' show OsTextField;
 import '../profile/devices.dart'
-    show DeviceFilter, DeviceOption, signalCandidates;
+    show DeviceFilter, DeviceOption, showReasonSheet, signalCandidates;
 import 'sleep_detail.dart';
 
 // ═══════════════════ the vocabulary ═══════════════════
@@ -585,7 +585,13 @@ List<String> _labelsFor(
   if (ids == null || ids.isEmpty) return const [];
   // `sources` order is `rankSources`' order, so `Ring + Band` is the same way
   // round on every day and in every readout.
-  return [for (final o in sources) if (ids.contains(o.deviceId)) o.label];
+  final names = [for (final o in sources) if (ids.contains(o.deviceId)) o.label];
+  // ALL OF THEM OR NONE. `LocalDb.deleteDevice` drops the `device` row while
+  // `metric_series_version.coverage_devices` keeps the id, so after forgetting
+  // one of two sensors a day it fed has an id with no name. Naming the
+  // survivor alone would credit one of two contributors, which is the thing
+  // §4.4 refuses; the day goes unattributed instead.
+  return names.length == ids.length ? names : const [];
 }
 
 /// "Ring", "Ring + Band", "" — the trailing clause of a readout with a value.
@@ -929,6 +935,34 @@ class _MetricDetailState extends State<MetricDetail> {
   DeviceOption? _preferCandidate(MetricData d) => d.sources.firstWhereOrNull(
       (o) => o.deviceId == _device && o.selectable && o.deviceId != _preferredId);
 
+  /// Which slots to dim for the selected device, or null when there is
+  /// nothing to dim.
+  ///
+  /// Selecting a device keeps the MERGED line and dims the days that device
+  /// was not part of. The honest statement is "these are the days your ring
+  /// was involved", not "this is your ring's 90-day RHR" (final-plan §6.4) —
+  /// and the caption says which.
+  ///
+  /// A DAY WITH NO COVERAGE ENTRY IS UNKNOWN, NOT ABSENT, and is left bright.
+  /// `coverage_devices` is NULL on every day derived before schema 50 and is
+  /// never retro-filled, so dimming on a missing entry turned "we do not know"
+  /// into "this device was not there" — over a whole window, on an install
+  /// whose history predates the column. Null when nothing is dimmed: a
+  /// fully-bright chart under "these are the days X was involved" is the same
+  /// claim by other means, so the caption is gated on this too.
+  List<bool>? _dimMask(MetricData d, int slots) {
+    if (_device == null || slots <= 0) return null;
+    final mask = <bool>[];
+    var any = false;
+    for (var i = 0; i < slots; i++) {
+      final ids = d.coverage[_dayOfSlot(i, slots)] ?? const [];
+      final out = ids.isNotEmpty && !ids.contains(_device);
+      if (out) any = true;
+      mask.add(out);
+    }
+    return any ? mask : null;
+  }
+
   Future<void> _prefer(DeviceOption o) async {
     final d = _d;
     if (d == null) return;
@@ -942,7 +976,23 @@ class _MetricDetailState extends State<MetricDetail> {
       for (final s in d.sources) if (s.deviceId != o.deviceId && s.selectable) s.deviceId,
     ];
     for (final sig in spec.requires) {
-      await LocalDb.setSignalPriority(sig, order);
+      try {
+        await LocalDb.setSignalPriority(sig, order);
+      } catch (_) {
+        // Readiness writes four signals, so a throw on the second leaves two
+        // written and two not. Say so and RE-READ rather than stamp
+        // `_preferredId` optimistically — the caption then names whatever
+        // actually persisted, which is the only thing anyone can act on.
+        // `SignalPriorityScreen` handles its own write the same way.
+        if (!mounted) return;
+        await showReasonSheet(
+          context,
+          AppLocalizations.of(context)?.devicesRequestNotSaved ??
+              'That request could not be saved. Please try again.',
+        );
+        await _load();
+        return;
+      }
     }
     // Bounded re-derive: `invalidateForPriorityChange` is M5's; M6 only calls
     // it if present. It has not landed on this branch yet (verified via
@@ -1076,17 +1126,7 @@ class _MetricDetailState extends State<MetricDetail> {
                     when b >= 0 && b < series.length && series.length - 1 - b > 0)
                   (series.length - 1 - b - .5) / (series.length - 1),
           ];
-          // Selecting a device keeps the MERGED line and dims the days that
-          // device was not part of. The honest statement is "these are the
-          // days your ring was involved", not "this is your ring's 90-day
-          // RHR" (final-plan §6.4) — and the caption below says which.
-          final dim = _device == null
-              ? null
-              : <bool>[
-                  for (var i = 0; i < series.length; i++)
-                    !(d.coverage[_dayOfSlot(i, series.length)] ?? const [])
-                        .contains(_device),
-                ];
+          final dim = _dimMask(d, series.length);
           return ChartFrame(
             title: spec.title,
             unit: spec.unit.isEmpty ? 'score' : spec.unit,
@@ -1185,8 +1225,9 @@ class _MetricDetailState extends State<MetricDetail> {
             ),
           );
         }),
-        // Which device is selected, one line, only when it dims the chart.
-        if (win > 1 && _device != null)
+        // Which device is selected, one line, only when it dims the chart —
+        // see `_dimMask` for why a bright chart may not carry this sentence.
+        if (win > 1 && _device != null && _dimMask(d, series.length) != null)
           Padding(
             padding: const EdgeInsets.only(top: S.x2),
             child: Text(
@@ -1307,8 +1348,13 @@ class _MetricDetailState extends State<MetricDetail> {
                 pretty, _wereRecording(rec)) ??
             '$pretty, no value · ${_wereRecording(rec)}';
       }
-      return l?.metricDetailSlotNothingRecording(pretty) ??
-          '$pretty, nothing was recording';
+      // Empty is two different things (see `_labelsFor`): nothing recorded, or
+      // something did and this install can no longer name it. Only the first
+      // may be stated.
+      if ((d.recording[day] ?? const []).isEmpty) {
+        return l?.metricDetailSlotNothingRecording(pretty) ??
+            '$pretty, nothing was recording';
+      }
     }
     return l?.metricDetailSlotNoRecord(pretty) ?? '$pretty, no record';
   }
