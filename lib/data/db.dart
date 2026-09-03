@@ -2394,37 +2394,83 @@ class LocalDb {
   /// Runs inside the SAME transaction [commitSyncBatch] durably commits the
   /// rows in, so an interval can never claim a second whose row did not
   /// commit — the safe-trim invariant covers both.
+  ///
+  /// PER-SIGNAL SPANS, NOT THE BATCH SPAN. Each signal's interval is built
+  /// from the SECONDS THAT SIGNAL WAS ACTUALLY IN, the way
+  /// [_backfillDeviceCoverage] builds its intervals off each predicate's own
+  /// rows. Giving every "present somewhere in this batch" signal the whole
+  /// `[first, last)` span is the bug that shape avoids: one RR-bearing record
+  /// followed by ten HR-only minutes claimed ten minutes of `rrIntervals`
+  /// coverage, and `resolveOwnership` would then hand this device seconds it
+  /// never measured that signal in.
+  ///
+  /// [sampleSecs] is parallel to [samples] and carries each record's `rec_ts`
+  /// — the same value [_queueDecodedOneHz] keys its row on, so an interval and
+  /// the rows it describes are on one clock. Neutrals carry their own.
   static Future<void> _extendCoverageVia(
     DatabaseExecutor txn, {
     required String deviceId,
     required List<Sample?> samples,
+    required List<int> sampleSecs,
     List<NeutralSample>? neutrals,
-    required int firstSec,
-    required int lastSec,
     Map<String, int>? toleranceSec,
   }) async {
-    final present = <String>{};
-    for (final s in samples) {
+    assert(samples.length == sampleSecs.length,
+        'sampleSecs must be parallel to samples');
+    final seen = <String, List<int>>{};
+    void observe(String signal, int sec) =>
+        (seen[signal] ??= <int>[]).add(sec);
+    for (var i = 0; i < samples.length; i++) {
+      final s = samples[i];
       if (s == null) continue;
-      if (s.hr > 0) present.add('hr1Hz');
+      final sec = sampleSecs[i];
+      // A record with no usable timestamp describes no second, so it can
+      // found no interval. `_queueDecodedOneHz` refuses the same rows.
+      if (sec <= 0) continue;
+      if (s.hr > 0) observe('hr1Hz', sec);
       if (s.ax != null && s.ay != null && s.az != null) {
-        present.add('accel1Hz');
+        observe('accel1Hz', sec);
       }
-      if (s.spo2RedRaw != null || s.spo2IrRaw != null) present.add('ppgRedIr');
-      if (s.skinTempRaw != null) present.add('skinTempRaw');
-      if (s.rrIntervalsMs.isNotEmpty) present.add('rrIntervals');
+      if (s.spo2RedRaw != null || s.spo2IrRaw != null) {
+        observe('ppgRedIr', sec);
+      }
+      if (s.skinTempRaw != null) observe('skinTempRaw', sec);
+      if (s.rrIntervalsMs.isNotEmpty) observe('rrIntervals', sec);
     }
     if (neutrals != null) {
       for (final n in neutrals) {
-        if (n.hr != null) present.add('hr1Hz');
-        if (n.rrMs.isNotEmpty) present.add('rrIntervals');
+        if (n.tsEpoch <= 0) continue;
+        if (n.hr != null) observe('hr1Hz', n.tsEpoch);
+        if (n.rrMs.isNotEmpty) observe('rrIntervals', n.tsEpoch);
       }
     }
-    if (present.isEmpty) return;
+    if (seen.isEmpty) return;
 
     const kBucket = 60; // seconds — the resolver's grid, same as the backfill
-    for (final signal in present) {
+    for (final e in seen.entries) {
+      final signal = e.key;
       final tolerance = toleranceSec?[signal] ?? (2 * kBucket);
+      // ONE TOLERANCE, TWO JOBS: it splits this batch's seconds into spans AND
+      // decides whether the first span extends the stored open interval. The
+      // same number for both is what makes the result independent of where the
+      // batch boundaries happened to fall — the run of seconds a device was
+      // emitting is the same fact whether it arrived in one commit or five.
+      final secs = e.value..sort();
+      final spans = <(int, int)>[]; // [start, end) — end exclusive
+      var spanStart = secs.first;
+      var prev = secs.first;
+      for (final sec in secs.skip(1)) {
+        if (sec - prev > tolerance) {
+          spans.add((spanStart, prev + 1));
+          spanStart = sec;
+        }
+        prev = sec;
+      }
+      spans.add((spanStart, prev + 1));
+
+      // Only the FIRST span can extend the stored open interval: the rest are
+      // later than it by more than `tolerance` (that is what split them), so
+      // the extend test below would reject them anyway.
       final open = await txn.query(
         'device_coverage',
         columns: ['start_ts', 'end_ts'],
@@ -2437,40 +2483,44 @@ class LocalDb {
           open.isEmpty ? null : (open.single['start_ts'] as num).toInt();
       final endTs =
           open.isEmpty ? null : (open.single['end_ts'] as num).toInt();
-      // EXTEND ONLY A BATCH THAT STARTS AT OR AFTER THE OPEN INTERVAL and is
-      // within tolerance of its end. `firstSec - endTs <= tolerance` on its
-      // own is also true when the whole batch PREDATES the interval (the
-      // difference is negative), and the `lastSec > endTs` body then wrote
-      // nothing at all. That is the normal WHOOP path: a live commit opens an
-      // interval at "now", the historical drain then commits records from
-      // hours earlier, and those hours got no coverage row — after which
-      // `resolveOwnership` reports no owner for them and the substrate load
-      // can drop the matching rows. Same-device intervals may overlap (see
-      // `_createDeviceCoverage`) and every reader unions them, so the safe
-      // repair is a separate interval.
-      if (startTs != null &&
-          endTs != null &&
-          firstSec >= startTs &&
-          firstSec - endTs <= tolerance) {
-        if (lastSec > endTs) {
-          await txn.update(
+      for (var i = 0; i < spans.length; i++) {
+        final (firstSec, lastSec) = spans[i];
+        // EXTEND ONLY A SPAN THAT STARTS AT OR AFTER THE OPEN INTERVAL and is
+        // within tolerance of its end. `firstSec - endTs <= tolerance` on its
+        // own is also true when the whole span PREDATES the interval (the
+        // difference is negative), and the `lastSec > endTs` body then wrote
+        // nothing at all. That is the normal WHOOP path: a live commit opens an
+        // interval at "now", the historical drain then commits records from
+        // hours earlier, and those hours got no coverage row — after which
+        // `resolveOwnership` reports no owner for them and the substrate load
+        // can drop the matching rows. Same-device intervals may overlap (see
+        // `_createDeviceCoverage`) and every reader unions them, so the safe
+        // repair is a separate interval.
+        if (i == 0 &&
+            startTs != null &&
+            endTs != null &&
+            firstSec >= startTs &&
+            firstSec - endTs <= tolerance) {
+          if (lastSec > endTs) {
+            await txn.update(
+              'device_coverage',
+              {'end_ts': lastSec},
+              where: 'device_id = ? AND signal = ? AND start_ts = ?',
+              whereArgs: [deviceId, signal, startTs],
+            );
+          }
+        } else {
+          await txn.insert(
             'device_coverage',
-            {'end_ts': lastSec},
-            where: 'device_id = ? AND signal = ? AND start_ts = ?',
-            whereArgs: [deviceId, signal, startTs],
+            {
+              'device_id': deviceId,
+              'signal': signal,
+              'start_ts': firstSec,
+              'end_ts': lastSec,
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore,
           );
         }
-      } else {
-        await txn.insert(
-          'device_coverage',
-          {
-            'device_id': deviceId,
-            'signal': signal,
-            'start_ts': firstSec,
-            'end_ts': lastSec,
-          },
-          conflictAlgorithm: ConflictAlgorithm.ignore,
-        );
       }
     }
   }
@@ -3067,18 +3117,16 @@ class LocalDb {
         final kRecTs = cursorKeyFor('rec_ts_hw', deviceId);
         var maxCounter = await _cursorIntVia(txn, kCounter) ?? 0;
         var maxRecTs = await _cursorIntVia(txn, kRecTs) ?? 0;
-        // For the coverage writer (§6.5): the span THIS BATCH covers, never
-        // the cursor high-water (which predates the batch and would claim
-        // coverage for seconds this commit never touched).
-        int? minBatchRecTs, maxBatchRecTs;
-        void trackSpan(int recTs) {
-          if (minBatchRecTs == null || recTs < minBatchRecTs!) {
-            minBatchRecTs = recTs;
-          }
-          if (maxBatchRecTs == null || recTs > maxBatchRecTs!) {
-            maxBatchRecTs = recTs;
-          }
-        }
+        // For the coverage writer (§6.5): each record's OWN second, parallel to
+        // `samples`, never the cursor high-water (which predates the batch and
+        // would claim coverage for seconds this commit never touched) and never
+        // a single batch-wide span (which would claim every signal for every
+        // second any signal appeared in — see [_extendCoverageVia]).
+        // Sized off `samples`, not `raws`: the raws loop only walks
+        // `raws.length`, and a caller that passed a longer sample list must not
+        // trip the parallel-length assert. An unvisited slot stays 0, which
+        // [_extendCoverageVia] reads as "no second", so it claims nothing.
+        final sampleSecs = List<int>.filled(samples.length, 0);
         // CHUNKED BATCH: sqflite serialises an ENTIRE batch's operations+args into
         // ONE platform-channel message, and the native side builds a single
         // ArrayList of every argument. A large backlog offload (raws in the
@@ -3141,7 +3189,7 @@ class LocalDb {
           );
           if (raw.counter > maxCounter) maxCounter = raw.counter;
           if (recTs > maxRecTs) maxRecTs = recTs;
-          trackSpan(recTs);
+          sampleSecs[i] = recTs;
           if (ops >= chunkOps) await flushChunk();
         }
         // NEUTRAL ROWS. No flash counter to advance maxCounter from — both
@@ -3157,7 +3205,6 @@ class LocalDb {
               deviceId: deviceId,
             );
             if (n.tsEpoch > maxRecTs) maxRecTs = n.tsEpoch;
-            trackSpan(n.tsEpoch);
             if (ops >= chunkOps) await flushChunk();
           }
         }
@@ -3170,17 +3217,14 @@ class LocalDb {
         // COVERAGE, in the same transaction as the rows it describes — so an
         // interval can never claim a second whose row did not commit, and the
         // safe-trim invariant covers both. See _extendCoverageVia.
-        if (minBatchRecTs != null && maxBatchRecTs != null) {
-          await _extendCoverageVia(
-            txn,
-            deviceId: deviceId,
-            samples: samples,
-            neutrals: neutrals,
-            firstSec: minBatchRecTs!,
-            lastSec: maxBatchRecTs! + 1,
-            toleranceSec: coverageToleranceSec,
-          );
-        }
+        await _extendCoverageVia(
+          txn,
+          deviceId: deviceId,
+          samples: samples,
+          sampleSecs: sampleSecs,
+          neutrals: neutrals,
+          toleranceSec: coverageToleranceSec,
+        );
         await setCursor(kCounter, '$maxCounter', txn: txn);
         await setCursor(kRecTs, '$maxRecTs', txn: txn);
         if (trimToken != null) {

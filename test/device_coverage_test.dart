@@ -384,5 +384,77 @@ void main() {
         {LocalDb.kPrimaryDeviceId, 'device-b'},
       );
     });
+
+    test(
+      'a signal present for one second of a long batch covers ONE second, '
+      'not the whole batch span',
+      () async {
+        // One RR-bearing record, then ten minutes of HR-only records. The
+        // batch span is 600 s; `rrIntervals` was in for exactly one of them.
+        const t0 = 1786400000;
+        final raws = <RawRecord>[];
+        final samples = <Sample?>[];
+        for (var i = 0; i <= 600; i += 60) {
+          raws.add(rawAt(t0 + i));
+          samples.add(Sample(
+            tsEpoch: t0 + i,
+            counter: t0 + i,
+            hr: 60,
+            ax: 0.1,
+            ay: 0.2,
+            az: 0.9,
+            rrIntervalsMs: i == 0 ? const [1000] : const [],
+          ));
+        }
+        await LocalDb.commitSyncBatch(
+          raws,
+          samples,
+          deviceId: LocalDb.kPrimaryDeviceId,
+        );
+        final db = await LocalDb.instance;
+        final rr = await db.query(
+          'device_coverage',
+          where: 'device_id = ? AND signal = ?',
+          whereArgs: [LocalDb.kPrimaryDeviceId, 'rrIntervals'],
+        );
+        expect(rr.length, 1, reason: '$rr');
+        expect(rr.single['start_ts'], t0);
+        expect(rr.single['end_ts'], t0 + 1,
+            reason: 'the batch span is 600 s; RR was in for one second');
+        // HR was in every second of the batch, so it keeps the full span.
+        final hr = await db.query(
+          'device_coverage',
+          where: 'device_id = ? AND signal = ?',
+          whereArgs: [LocalDb.kPrimaryDeviceId, 'hr1Hz'],
+        );
+        expect(hr.length, 1, reason: '$hr');
+        expect(hr.single['start_ts'], t0);
+        expect(hr.single['end_ts'], t0 + 601);
+      },
+    );
+
+    test('a mid-batch gap longer than the tolerance splits one signal in two',
+        () async {
+      const t0 = 1786400000;
+      // 0 s, 60 s, then a 30-minute hole, then 1800 s — one signal, two runs.
+      final secs = [t0, t0 + 60, t0 + 1800];
+      await LocalDb.commitSyncBatch(
+        [for (final s in secs) rawAt(s)],
+        [for (final s in secs) sampleAt(s)],
+        deviceId: LocalDb.kPrimaryDeviceId,
+      );
+      final db = await LocalDb.instance;
+      final rows = await db.query(
+        'device_coverage',
+        where: 'device_id = ? AND signal = ?',
+        whereArgs: [LocalDb.kPrimaryDeviceId, 'hr1Hz'],
+        orderBy: 'start_ts ASC',
+      );
+      expect(rows.length, 2, reason: '$rows');
+      expect(rows.first['start_ts'], t0);
+      expect(rows.first['end_ts'], t0 + 61);
+      expect(rows.last['start_ts'], t0 + 1800);
+      expect(rows.last['end_ts'], t0 + 1801);
+    });
   });
 }
