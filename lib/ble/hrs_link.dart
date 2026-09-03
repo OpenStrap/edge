@@ -75,7 +75,16 @@ export 'adapters/host.dart' show HrsReading;
 /// nullable: plenty of sensors advertise no name at all, and a made-up
 /// "Unknown device" would be a value where there is none. The screen shows the
 /// band's own label instead.
-typedef BandCandidate = ({BluetoothDevice device, String? label, int rssi});
+typedef BandCandidate = ({
+  BluetoothDevice device,
+  String? label,
+  int rssi,
+  // Which registry entry's service this result matched. Only meaningful when
+  // a scan covers more than one entry at once (`scanForAny`); a single-entry
+  // scan (`scanFor`) always stamps its own id, so existing callers reading
+  // `.label`/`.device`/`.rssi` are unaffected by this field's addition.
+  String entryId,
+});
 
 /// The live link to a paired heart-rate sensor. One instance; a second
 /// concurrent sensor is not a thing anyone asked for.
@@ -218,11 +227,32 @@ class HrsLink {
     // Process-wide, because the radio has ONE scanner and the band's own scan
     // shares it. Without this, whichever scan called `stopScan` first ended
     // the other one having seen nothing, with no error to say why.
-    return withScanLock(() => _scanFor(entry, onResults, timeout));
+    return withScanLock(() => _scanForEntries([entry], onResults, timeout));
   }
 
-  static Future<void> _scanFor(
-    BandEntry entry,
+  /// Like [scanFor], swept across every entry in [entries] at once — the
+  /// unified device picker's "nearby" section, which does not make the user
+  /// pick a category before it can even look. Each result is tagged with
+  /// which entry's service it matched (`BandCandidate.entryId`), so the
+  /// picker can still route a tap to the right pairing step.
+  ///
+  /// A THIRD copy of the scan loop, not a second: [scanFor] is kept as its
+  /// own entry point (rather than a 1-element call to this one hidden behind
+  /// the name) because its assert message and doc are about ONE band, and
+  /// callers pairing a specific already-chosen entry should keep saying so.
+  static Future<void> scanForAny(
+    List<BandEntry> entries, {
+    required void Function(List<BandCandidate>) onResults,
+    Duration timeout = _scanWindow,
+  }) {
+    assert(entries.isNotEmpty, 'scanForAny needs at least one entry.');
+    assert(entries.every((e) => !e.isFramed),
+        'a framed band has no notify-class scan to join.');
+    return withScanLock(() => _scanForEntries(entries, onResults, timeout));
+  }
+
+  static Future<void> _scanForEntries(
+    List<BandEntry> entries,
     void Function(List<BandCandidate>) onResults,
     Duration timeout,
   ) async {
@@ -235,6 +265,19 @@ class HrsLink {
     if (FlutterBluePlus.isScanningNow) {
       await FlutterBluePlus.stopScan();
     }
+    final serviceGuids = [for (final e in entries) Guid(e.service)];
+    // Which entry a matched service belongs to. Services are each entry's own
+    // GATT identity, so a collision here would mean two registry rows sharing
+    // one service — a registry bug, not a runtime ambiguity to resolve softly.
+    String entryIdFor(List<Guid> advertised) {
+      for (final g in advertised) {
+        for (final e in entries) {
+          if (g == Guid(e.service)) return e.id;
+        }
+      }
+      return entries.first.id;
+    }
+
     // Keyed by remote id: a scan re-reports the same peripheral several times
     // a second, and a list that grows a row per advertisement is not a picker.
     final seen = <String, BandCandidate>{};
@@ -253,7 +296,12 @@ class HrsLink {
         final label = cleanDeviceLabel(r.advertisementData.advName) ??
             cleanDeviceLabel(r.device.platformName) ??
             was?.label;
-        final now = (device: r.device, label: label, rssi: r.rssi);
+        final now = (
+          device: r.device,
+          label: label,
+          rssi: r.rssi,
+          entryId: was?.entryId ?? entryIdFor(r.advertisementData.serviceUuids),
+        );
         if (was == null || was.rssi != now.rssi || was.label != now.label) {
           changed = true;
         }
@@ -263,7 +311,7 @@ class HrsLink {
     });
     try {
       await FlutterBluePlus.startScan(
-        withServices: [Guid(entry.service)],
+        withServices: serviceGuids,
         timeout: timeout,
       );
       _scanRunning = true;

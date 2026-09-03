@@ -18,8 +18,9 @@ import 'theme/theme_switcher.dart';
 import 'widget/widget_service.dart';
 import 'ui2/activity/catalogue.dart';
 import 'ui2/activity/live.dart';
-import 'ui2/onboarding/pairing.dart';
+import 'ui2/onboarding/pairing.dart' show OnboardingBypass;
 import 'ui2/onboarding/profile_setup.dart';
+import 'ui2/pairing/device_picker.dart';
 import 'ui2/onboarding/splash.dart';
 import 'ui2/onboarding/welcome.dart';
 import 'ui2/profile/alarm.dart';
@@ -233,7 +234,7 @@ class _Gate extends StatelessWidget {
           AppRoute.loading => const _Loading(),
           AppRoute.failed => const _InitFailed(),
           AppRoute.welcome => const WelcomeScreen(),
-          AppRoute.pairing => PairingScreen(
+          AppRoute.pairing => DevicePickerScreen(
               onSkip: () => OnboardingBypass.mark(OnboardingBypass.kPairing)),
           AppRoute.profile => ProfileSetupScreen(
               onDone: () => OnboardingBypass.mark(OnboardingBypass.kProfile)),

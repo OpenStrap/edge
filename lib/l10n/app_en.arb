@@ -947,6 +947,46 @@
   "@pairSensorSearchAnyway": {
     "description": "iOS-gate status card fix."
   },
+  "devicePickerTitle": "Connect your devices",
+  "@devicePickerTitle": {
+    "description": "Unified pairing screen title."
+  },
+  "devicePickerSubtitle": "Bring whatever you use. You can add more anytime.",
+  "@devicePickerSubtitle": {
+    "description": "Unified pairing screen subtitle."
+  },
+  "devicePickerBrowseByCategory": "Browse by category",
+  "@devicePickerBrowseByCategory": {
+    "description": "Section header over the device category list."
+  },
+  "devicePickerPrivacyNote": "Everything stays on this phone. Nothing is sent anywhere unless you choose to export it.",
+  "@devicePickerPrivacyNote": {
+    "description": "Footer privacy note on the device picker."
+  },
+  "devicePickerSearchLabel": "Search devices or types",
+  "@devicePickerSearchLabel": {
+    "description": "Accessibility label for the device picker's search field."
+  },
+  "devicePickerSearchHint": "Search devices or types",
+  "@devicePickerSearchHint": {
+    "description": "Placeholder text in the device picker's search field."
+  },
+  "devicePickerNothingNearbyTitle": "Nothing found yet",
+  "@devicePickerNothingNearbyTitle": {
+    "description": "Status card title when the live scan has found nothing."
+  },
+  "devicePickerNothingNearbyBody": "A device answers only while it is awake, worn, and not already connected to another phone or app.",
+  "@devicePickerNothingNearbyBody": {
+    "description": "Status card body when the live scan has found nothing."
+  },
+  "devicePickerNearby": "Nearby",
+  "@devicePickerNearby": {
+    "description": "Section header over live scan results."
+  },
+  "devicePickerScanning": "Scanning for devices nearby…",
+  "@devicePickerScanning": {
+    "description": "Row shown while the live scan is running."
+  },
   "pairSensorSearching": "Searching…",
   "@pairSensorSearching": {
     "description": "Button label: scanning."

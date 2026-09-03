@@ -55,10 +55,9 @@ import '../../notify/battery_forecast.dart';
 import '../../state/prefs.dart' show Prefs;
 import '../../sync/paired_device.dart' show cleanDeviceLabel;
 import '../../state/app_state.dart';
-import '../onboarding/pairing.dart';
+import '../pairing/device_picker.dart' show DevicePickerScreen;
 import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
-import 'pair_sensor.dart' show PairSensorScreen;
 import 'profile.dart';
 import 'settings.dart' show backToRoot;
 
@@ -957,48 +956,11 @@ Future<void> addSensor(BuildContext c) async {
     return;
   }
   if (!c.mounted) return;
-  final p = P.of(c);
-  final choice = await showModalBottomSheet<int>(
-    context: c,
-    backgroundColor: p.bg,
-    builder: (d) => SafeArea(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const SizedBox(height: S.x4),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: S.x4),
-          child: Row(children: [
-            Text(AppLocalizations.of(c)?.devicesAddASensor ?? 'Add a sensor',
-                style: F.t2.copyWith(color: p.ink)),
-          ]),
-        ),
-        const SizedBox(height: S.x3),
-        // Same horizontal inset as the header text above and every other
-        // SetRow list in this file (each lives inside a `Surface(pad:
-        // EdgeInsets.symmetric(horizontal: S.x4))`) — without it these rows
-        // ran edge-to-edge against the sheet, the one place in the screen
-        // that broke the convention.
-        for (var i = 0; i < kPairableSensors.length; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: SetRow(
-              sensorIcon(kPairableSensors[i].entry.id),
-              C.green,
-              kPairableSensors[i].entry.label,
-              sub: kPairableSensors[i].blurb,
-              onTap: () => Navigator.of(d).pop(i),
-            ),
-          ),
-        const SizedBox(height: S.x4),
-      ]),
-    ),
-  );
-  if (choice == null || !c.mounted) return;
-  final sensor = kPairableSensors[choice];
-  await goto(
-    c,
-    PairSensorScreen(entry: sensor.entry, onPicked: sensor.pick),
-  );
-  // The screen writes a `device` row; nothing tells AppState that happened.
+  // `includeBand: false` — this phone already has its one primary band;
+  // re-pairing it is `RePair`'s job, not a row beside a chest strap here.
+  await goto(c, const DevicePickerScreen(includeBand: false));
+  // The picker's own sub-screens write a `device` row; nothing tells
+  // AppState that happened.
   if (c.mounted) await c.read<AppState>().refreshSensors();
 }
 
@@ -1082,7 +1044,7 @@ class RePair extends StatelessWidget {
         if (c.mounted) Navigator.of(c).maybePop();
       });
     }
-    return PairingScreen(onSkip: () => Navigator.of(c).maybePop());
+    return DevicePickerScreen(onSkip: () => Navigator.of(c).maybePop());
   }
 }
 
