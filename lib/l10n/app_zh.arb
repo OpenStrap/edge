@@ -203,7 +203,7 @@
   "pairSensorWhatThisAdds": "这将添加什么",
   "pairSensorPairAnother": "配对另一个",
   "pairSensorExplainer": "传感器仅在锻炼进行时使用，且仅用于心率和心跳计时。它不会取代您的腕带，从不在夜间使用，其记录的内容目前也不参与任何评分——只是存储并显示其读数，仅此而已。",
-  "pairSensorSearchWouldHideSheet": "搜索会隐藏 WHOOP 配对面板",
+  "pairSensorSearchWouldHideSheet": "搜索会隐藏系统配对面板",
   "pairSensorSearchAnyway": "仍然搜索",
   "pairSensorSearching": "搜索中…",
   "pairSensorSearchForSensors": "搜索传感器",

@@ -203,7 +203,7 @@
   "pairSensorWhatThisAdds": "Ce que cela ajoute",
   "pairSensorPairAnother": "Jumeler un autre",
   "pairSensorExplainer": "Un capteur n’est utilisé que pendant un entraînement, et uniquement pour la fréquence cardiaque et le rythme des battements. Il ne remplace pas votre bracelet, n’est jamais utilisé la nuit, et rien de ce qu’il enregistre n’alimente encore un score — ses relevés sont stockés et affichés, et c’est tout.",
-  "pairSensorSearchWouldHideSheet": "La recherche masquerait la feuille de jumelage WHOOP",
+  "pairSensorSearchWouldHideSheet": "La recherche masquerait la feuille de jumelage du système",
   "pairSensorSearchAnyway": "Rechercher quand même",
   "pairSensorSearching": "Recherche…",
   "pairSensorSearchForSensors": "Rechercher des capteurs",

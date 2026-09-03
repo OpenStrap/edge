@@ -203,7 +203,7 @@
   "pairSensorWhatThisAdds": "Was das hinzufügt",
   "pairSensorPairAnother": "Ein weiteres koppeln",
   "pairSensorExplainer": "Ein Sensor wird nur während eines laufenden Workouts verwendet, und nur für Herzfrequenz und Schlagtaktung. Er ersetzt euer Band nicht, wird nie über Nacht verwendet, und nichts, was er aufzeichnet, fließt bisher in einen Score ein — seine Werte werden gespeichert und angezeigt, das ist alles.",
-  "pairSensorSearchWouldHideSheet": "Die Suche würde das WHOOP-Kopplungsblatt verbergen",
+  "pairSensorSearchWouldHideSheet": "Die Suche würde das System-Kopplungsblatt verbergen",
   "pairSensorSearchAnyway": "Trotzdem suchen",
   "pairSensorSearching": "Suche läuft…",
   "pairSensorSearchForSensors": "Nach Sensoren suchen",
