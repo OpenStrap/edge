@@ -1044,7 +1044,11 @@ class RePair extends StatelessWidget {
         if (c.mounted) Navigator.of(c).maybePop();
       });
     }
-    return DevicePickerScreen(onSkip: () => Navigator.of(c).maybePop());
+    // NO `onSkip`. That argument is first-run onboarding's "Skip for now",
+    // and its note says the app opens without a band and nothing is measured
+    // — a sentence about a decision this user made long ago. A re-pair backs
+    // out through `NavBar`'s own back button, exactly as `addSensor` does.
+    return const DevicePickerScreen();
   }
 }
 

@@ -153,6 +153,13 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       _busy = cand.device.remoteId.str;
       _problem = null;
     });
+    // OUR OWN SCAN, ENDED FIRST. It runs for a 15 s window and the user has
+    // tapped a row several seconds into it, so without this the radio keeps
+    // scanning through the connect — and every `onResults` batch reorders the
+    // list under the finger that is already committed to one row. `PairSensor`
+    // does not do this because it has one entry and a shorter list; here the
+    // reorder is visible.
+    HrsLink.stopScanIfRunning(this);
     final l = AppLocalizations.of(context);
     String? failure;
     try {
@@ -181,7 +188,19 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       if (mounted) await _afterPair();
       return;
     }
-    final sensor = kPairableSensors.firstWhere((s) => s.entry.id == entry.id);
+    // `.where(...).firstOrNull`, never `firstWhere`: the category list comes
+    // from `kBandRegistry` and the pairing steps from `kPairableSensors`, two
+    // lists that a new notify-class entry can leave out of step for one
+    // commit. A throw here is an unhandled exception mid-tap; a sentence is a
+    // screen the user can back out of.
+    final sensor =
+        kPairableSensors.where((s) => s.entry.id == entry.id).firstOrNull;
+    if (sensor == null) {
+      setState(() => _problem = AppLocalizations.of(context)
+              ?.devicePickerCannotPairFromHere ??
+          'That device cannot be paired from this screen.');
+      return;
+    }
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => PairSensorScreen(entry: sensor.entry, onPicked: sensor.pick),
     ));
@@ -221,10 +240,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       busyRemoteId: _busy,
       categories: [
         for (final e in entries)
-          if (_matches(e.label, _categoryBlurb(e)))
+          if (_matches(e.label, _categoryBlurb(c, e)))
             (
               entry: e,
-              blurb: _categoryBlurb(e),
+              blurb: _categoryBlurb(c, e),
               icon: _categoryIcon(e),
             ),
       ],
@@ -235,11 +254,20 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     );
   }
 
-  static String _categoryBlurb(BandEntry e) => switch (e.id) {
-        'gen4' || 'gen5' => 'The strap this app is built around. WHOOP 4 or 5.',
-        'oura' => 'Reads the ring directly — no Oura account or subscription.',
-        _ => 'A chest strap or armband, for beat timing during a workout.',
-      };
+  /// Takes a [BuildContext] for the same reason [signalDisplayName] does:
+  /// this is user-facing prose on a first-run screen, and the rest of the
+  /// file already reads it from [AppLocalizations].
+  static String _categoryBlurb(BuildContext c, BandEntry e) {
+    final l = AppLocalizations.of(c);
+    return switch (e.id) {
+      'gen4' || 'gen5' => l?.devicePickerBlurbBand ??
+          'The strap this app is built around. WHOOP 4 or 5.',
+      'oura' => l?.devicePickerBlurbRing ??
+          'Reads the ring directly — no Oura account or subscription.',
+      _ => l?.devicePickerBlurbSensor ??
+          'A chest strap or armband, for beat timing during a workout.',
+    };
+  }
 
   static IconData _categoryIcon(BandEntry e) =>
       e.isFramed ? LucideIcons.watch : sensorIcon(e.id);

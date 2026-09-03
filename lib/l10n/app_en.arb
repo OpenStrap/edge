@@ -987,6 +987,22 @@
   "@devicePickerScanning": {
     "description": "Row shown while the live scan is running."
   },
+  "devicePickerBlurbBand": "The strap this app is built around. WHOOP 4 or 5.",
+  "@devicePickerBlurbBand": {
+    "description": "Category row subtitle for the WHOOP band."
+  },
+  "devicePickerBlurbRing": "Reads the ring directly — no Oura account or subscription.",
+  "@devicePickerBlurbRing": {
+    "description": "Category row subtitle for the Oura ring."
+  },
+  "devicePickerBlurbSensor": "A chest strap or armband, for beat timing during a workout.",
+  "@devicePickerBlurbSensor": {
+    "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
+  },
+  "devicePickerCannotPairFromHere": "That device cannot be paired from this screen.",
+  "@devicePickerCannotPairFromHere": {
+    "description": "Shown when a tapped category has no pairing step behind it."
+  },
   "pairSensorSearching": "Searching…",
   "@pairSensorSearching": {
     "description": "Button label: scanning."

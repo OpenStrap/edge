@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/hrs_link.dart';
 import 'package:openstrap_edge/ui2/pairing/device_picker.dart';
+import 'package:openstrap_edge/ui2/profile/devices.dart' show kPairableSensors;
 import 'package:openstrap_edge/ui2/ui2.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -156,5 +157,18 @@ void main() {
     expect(find.text('Skip for now'), findsNothing);
     await _pump(t, _view(onSkip: () {}));
     expect(find.text('Skip for now'), findsOneWidget);
+  });
+
+  test('every category the picker lists has a pairing step behind it', () {
+    // The category list is `kBandRegistry`; the pairing steps are
+    // `kPairableSensors`. Two lists, one tap — a notify-class entry added to
+    // the first and forgotten in the second is a row that navigates nowhere.
+    // `_openEntry` has a guard for that (it says so rather than throwing), and
+    // this is the check that makes the guard unreachable in a shipped build.
+    final steps = kPairableSensors.map((s) => s.entry.id).toSet();
+    for (final e in kBandRegistry.where((e) => !e.isFramed)) {
+      expect(steps, contains(e.id),
+          reason: '${e.id} is offered by the picker with no way to pair it');
+    }
   });
 }
