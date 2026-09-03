@@ -11804,5 +11804,56 @@
   "nudgeDontShowAgain": "Don't show this again",
   "@nudgeDontShowAgain": {
     "description": "Label and semantic label for the button that permanently dismisses a Home community nudge."
+  },
+  "signalRrIntervals": "Beat-to-beat intervals",
+  "@signalRrIntervals": {
+    "description": "Human name for the rrIntervals input signal."
+  },
+  "signalHr1Hz": "Continuous heart rate",
+  "@signalHr1Hz": {
+    "description": "Human name for the hr1Hz input signal."
+  },
+  "signalHrSparse": "Heart rate",
+  "@signalHrSparse": {
+    "description": "Human name for the hrSparse input signal."
+  },
+  "signalAccel1Hz": "Movement",
+  "@signalAccel1Hz": {
+    "description": "Human name for the accel1Hz input signal."
+  },
+  "signalAccelHighRate": "High-rate movement",
+  "@signalAccelHighRate": {
+    "description": "Human name for the accelHighRate input signal."
+  },
+  "signalPpgGreen": "Green PPG",
+  "@signalPpgGreen": {
+    "description": "Human name for the ppgGreen input signal."
+  },
+  "signalPpgRedIr": "Red/infrared PPG",
+  "@signalPpgRedIr": {
+    "description": "Human name for the ppgRedIr input signal."
+  },
+  "signalSkinTempRaw": "Skin temperature",
+  "@signalSkinTempRaw": {
+    "description": "Human name for the skinTempRaw input signal."
+  },
+  "signalVendorScalars": "The device\u2019s own numbers",
+  "@signalVendorScalars": {
+    "description": "Human name for the vendorScalars input signal."
+  },
+  "devicesSensorLimit": "{count, plural, =1{One sensor is the most this phone will keep connected at once. Remove it to add another.} other{{count} sensors is the most this phone will keep connected at once. Remove one to add another.}}",
+  "@devicesSensorLimit": {
+    "description": "Refusal shown when the paired-sensor cap is already reached.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "devicesOrderNotSaved": "That order could not be saved. Nothing changed.",
+  "@devicesOrderNotSaved": {
+    "description": "Shown when a signal-priority write fails."
+  },
+  "devicesRequestNotSaved": "That request could not be saved. Please try again.",
+  "@devicesRequestNotSaved": {
+    "description": "Shown when the add-a-band restart request could not be persisted."
   }
 }

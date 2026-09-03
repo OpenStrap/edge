@@ -223,8 +223,12 @@ class DeviceFilter extends StatelessWidget {
         const SizedBox(height: S.x2),
         Text(
           [
+            // `reason` is documented as non-null for a non-selectable option
+            // but the type does not enforce it, and an unguarded
+            // interpolation renders the literal text "null" beside the label.
             for (final o in options)
-              if (!o.selectable) '${o.label} · ${o.reason}',
+              if (!o.selectable)
+                o.reason == null ? o.label : '${o.label} · ${o.reason}',
           ].join('   '),
           style: F.over.copyWith(color: p.ink3),
         ),
@@ -261,17 +265,25 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
     final app = context.read<AppState>();
     final sources = liveSources(app);
     final signals = contendedSignalsOf(sources);
-    final labels = {
-      for (final s in sources)
-        (s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId) ?? '': s.name,
+    final labels = <String, String>{
+      // The phone has no `device` row, so no id. Coalesced to `''` its null
+      // collapsed onto the PRIMARY BAND's key, and a map literal keeps
+      // insertion order with last-write-wins — so a phone iterated after the
+      // band renamed the band's row in the reorder list. The user then drags
+      // a row labelled "Your phone" that actually moves the band, in the one
+      // editor that decides which device wins a signal.
+      for (final s in sources) ?deviceIdOf(s): s.name,
     };
     final priorities = await LocalDb.signalPriorities();
     final order = <InputSignal, List<String>>{};
     for (final sig in signals) {
       final declaring = [
         for (final s in rankSources(sources))
-          if (declaredSignals(s.family).contains(sig))
-            (s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId)!,
+          // Skipped, never force-unwrapped: an id-less source (the phone) has
+          // nothing to rank, and `!` here would throw the day one declares a
+          // contended signal.
+          if (deviceIdOf(s) case final id?)
+            if (declaredSignals(s.family).contains(sig)) id,
       ];
       final stored = priorities[sig.name];
       order[sig] = stored != null && stored.isNotEmpty
@@ -291,6 +303,15 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
       _loading = false;
     });
   }
+
+  /// A write that did not land must never look like one that did — the list
+  /// snapping back with no sentence anywhere is how a user believes they set
+  /// a preference they did not.
+  Future<void> _sayNotSaved() => showReasonSheet(
+        context,
+        AppLocalizations.of(context)?.devicesOrderNotSaved ??
+            'That order could not be saved. Nothing changed.',
+      );
 
   @override
   Widget build(BuildContext c) {
@@ -313,7 +334,7 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
                 children: [
                   for (final sig in _signals) ...[
                     Section(
-                      sig.name,
+                      signalDisplayName(c, sig),
                       Column(children: [
                         ReorderableListView(
                           shrinkWrap: true,
@@ -323,11 +344,20 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
                             // ReorderableListView's `to` is the index BEFORE removal.
                             ids.insert(
                                 to > from ? to - 1 : to, ids.removeAt(from));
-                            await LocalDb.setSignalPriority(sig, ids);
-                            setState(() => (
-                              _order = {..._order, sig: ids},
-                              _userSet = {..._userSet, sig.name},
-                            ));
+                            try {
+                              await LocalDb.setSignalPriority(sig, ids);
+                            } catch (_) {
+                              // The stored order is unchanged, so leave the
+                              // list where it was rather than showing an order
+                              // nothing persisted. Same shape as `_saveRpe`.
+                              if (mounted) await _sayNotSaved();
+                              return;
+                            }
+                            if (!mounted) return;
+                            setState(() {
+                              _order = {..._order, sig: ids};
+                              _userSet = {..._userSet, sig.name};
+                            });
                           },
                           children: [
                             for (final id in _order[sig] ?? const <String>[])
@@ -340,11 +370,16 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
                         if (_userSet.contains(sig.name))
                           Pressable(
                             onTap: () async {
-                              await LocalDb.clearSignalPriority(sig);
+                              try {
+                                await LocalDb.clearSignalPriority(sig);
+                              } catch (_) {
+                                if (mounted) await _sayNotSaved();
+                                return;
+                              }
                               await _load();
                             },
-                            semanticLabel:
-                                'Reset ${sig.name} to the default order',
+                            semanticLabel: 'Reset ${signalDisplayName(c, sig)} '
+                                'to the default order',
                             child: Padding(
                               padding: const EdgeInsets.symmetric(vertical: S.x2),
                               child: Text(
@@ -371,6 +406,31 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
       ),
     );
   }
+}
+
+/// The HUMAN name for a signal, for a heading or a screen reader.
+///
+/// `InputSignal.name` is a Dart identifier — `hr1Hz`, `rrIntervals`,
+/// `skinTempRaw` — and it was reaching a settings screen as a section title
+/// and as a semantic label. An exhaustive `switch` with no `default` makes a
+/// future [InputSignal] member a COMPILE ERROR here rather than a leaked
+/// identifier, the same protection `sourceTierLabel` gives.
+String signalDisplayName(BuildContext c, InputSignal s) {
+  final l = AppLocalizations.of(c);
+  return switch (s) {
+    InputSignal.rrIntervals =>
+      l?.signalRrIntervals ?? 'Beat-to-beat intervals',
+    InputSignal.hr1Hz => l?.signalHr1Hz ?? 'Continuous heart rate',
+    InputSignal.hrSparse => l?.signalHrSparse ?? 'Heart rate',
+    InputSignal.accel1Hz => l?.signalAccel1Hz ?? 'Movement',
+    InputSignal.accelHighRate =>
+      l?.signalAccelHighRate ?? 'High-rate movement',
+    InputSignal.ppgGreen => l?.signalPpgGreen ?? 'Green PPG',
+    InputSignal.ppgRedIr => l?.signalPpgRedIr ?? 'Red/infrared PPG',
+    InputSignal.skinTempRaw => l?.signalSkinTempRaw ?? 'Skin temperature',
+    InputSignal.vendorScalars =>
+      l?.signalVendorScalars ?? 'The device’s own numbers',
+  };
 }
 
 /// Why this device cannot serve a metric, from the signals it does NOT declare.
@@ -407,6 +467,17 @@ List<DeviceOption> signalCandidates(
 }) =>
     candidatesFromSources(rankSources(liveSources(app)), requires: requires);
 
+/// The STORAGE device id for [s], or null when it has none.
+///
+/// `HealthSource.deviceId` is null for BOTH the primary band (whose stored id
+/// is `LocalDb.kPrimaryDeviceId`, `''`) and the phone (which has no `device`
+/// row at all), so the two need different answers from the same field. One
+/// helper rather than the ternary repeated at every consumer: coalescing the
+/// phone's null to `''` silently maps it ONTO the band, and force-unwrapping
+/// it throws the first time a phone source reaches a new path.
+String? deviceIdOf(HealthSource s) =>
+    s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId;
+
 /// The pure half of [signalCandidates] — split out so a test can hand-build
 /// [HealthSource]s (as `device_sources_test.dart` already does) instead of a
 /// live `AppState`.
@@ -420,7 +491,7 @@ List<DeviceOption> candidatesFromSources(
     // The phone has no `device` row and no adapter. It is a step counter, and
     // steps are the one metric with no `requires` at all (§4.6), so it can
     // never be a candidate here.
-    final id = s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId;
+    final id = deviceIdOf(s);
     if (id == null) continue;
     final declared = declaredSignals(s.family);
     // A device declaring NOTHING is not a candidate for anything — never
@@ -451,7 +522,7 @@ List<InputSignal> contendedSignals(AppState app) =>
 List<InputSignal> contendedSignalsOf(List<HealthSource> sources) {
   final n = <InputSignal, int>{};
   for (final s in sources) {
-    final id = s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId;
+    final id = deviceIdOf(s);
     if (id == null) continue;
     for (final sig in declaredSignals(s.family)) {
       n[sig] = (n[sig] ?? 0) + 1;
@@ -808,10 +879,14 @@ Future<void> addSensor(BuildContext c) async {
       .length;
   if (secondaryCount >= kMaxConcurrentSecondaryLinks) {
     if (!c.mounted) return;
+    // DERIVED FROM THE CONSTANT the check above uses. Hardcoded, the sentence
+    // states a different rule from the one enforced the moment the cap moves.
     await showReasonSheet(
         c,
-        'Two sensors is the most this phone will keep connected at once. '
-        'Remove one to add another.');
+        AppLocalizations.of(c)
+                ?.devicesSensorLimit(kMaxConcurrentSecondaryLinks) ??
+            '$kMaxConcurrentSecondaryLinks sensors is the most this phone '
+                'will keep connected at once. Remove one to add another.');
     return;
   }
   if (!c.mounted) return;
@@ -870,8 +945,20 @@ Future<void> addSensor(BuildContext c) async {
 /// to provision against (see MULTIDEVICE_PROGRESS.md's M4 notes). This wires the
 /// plumbing and its test only.
 Future<void> addFramedBand(BuildContext c) async {
-  Prefs.setBool(Prefs.kAskAddPendingKey, true);
+  // ACKED, not fire-and-forget. `Prefs.setBool` updates the cache
+  // OPTIMISTICALLY and never rolls it back (see prefs.dart), and this flag's
+  // whole purpose is to survive the restart the sheet below asks for — a
+  // write that did not land would leave the user following correct
+  // instructions to no effect.
+  final saved = await Prefs.setBoolAcked(Prefs.kAskAddPendingKey, true);
   if (!c.mounted) return;
+  if (!saved) {
+    await showReasonSheet(
+        c,
+        AppLocalizations.of(c)?.devicesRequestNotSaved ??
+            'That request could not be saved. Please try again.');
+    return;
+  }
   await showRestartRequiredSheet(c);
 }
 

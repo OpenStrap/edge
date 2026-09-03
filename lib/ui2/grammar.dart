@@ -1742,13 +1742,29 @@ class SubTabs extends StatelessWidget {
             final on = i == index && !off;
             return Pressable(
               onTap: off ? null : () => onTap(i),
+              // `Pressable` drops `Semantics(button: true)` when `onTap` is
+              // null, so without this a screen reader announced a disabled
+              // pill exactly like a working one.
+              semanticLabel: off ? '${items[i]}, unavailable' : null,
               child: AnimatedContainer(
                 duration: motion(c, Motion.base),
                 constraints: const BoxConstraints(minWidth: S.tap),
                 padding: const EdgeInsets.symmetric(horizontal: S.x4),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: on ? p.wash(color) : const Color(0x00000000),
+                  // THREE STATES, THREE LOOKS. A disabled pill used to compute
+                  // `on == false` and render exactly like a selectable-but-
+                  // unselected one — transparent, same ink — so the user
+                  // tapped it and nothing happened. An inert `card2` slot
+                  // reads as filled-but-dead against both the accent wash of
+                  // the active pill and the empty ground of a live one, and
+                  // `ink3` is solved for 4.5:1 ON `card2` (see theme.dart), so
+                  // this cue costs no contrast the way dimming would.
+                  color: off
+                      ? p.card2
+                      : on
+                          ? p.wash(color)
+                          : const Color(0x00000000),
                   borderRadius: R.rPill,
                 ),
                 child: Text(

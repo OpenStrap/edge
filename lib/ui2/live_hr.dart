@@ -31,9 +31,9 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../data/db.dart' show LocalDb;
 import '../state/app_state.dart';
-import 'profile/devices.dart' show HealthSource, liveSources, rankSources;
+import 'profile/devices.dart'
+    show HealthSource, deviceIdOf, liveSources, rankSources;
 import 'ui2.dart';
 
 /// The tap's cycling rule: the next streaming device after [current] in
@@ -43,9 +43,10 @@ import 'ui2.dart';
 String? _nextDevice(AppState app, List<HealthSource> ranked, String? current) {
   final ids = [
     for (final s in ranked)
-      if (app.liveHrTrace((s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId))
-          .isNotEmpty)
-        (s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId)!,
+      // Resolved once and skipped when null (the phone has no `device` row),
+      // rather than force-unwrapped after a trace lookup on that same null.
+      if (deviceIdOf(s) case final id?)
+        if (app.liveHrTrace(id).isNotEmpty) id,
   ];
   if (ids.isEmpty) return null;
   final i = current == null ? -1 : ids.indexOf(current);
@@ -134,11 +135,7 @@ class LiveHrCard extends StatelessWidget {
               final id = app.liveHrDeviceId;
               final label = id == null
                   ? 'LIVE'
-                  : ranked
-                          .firstWhereOrNull((s) =>
-                              (s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId) ==
-                              id)
-                          ?.name ??
+                  : ranked.firstWhereOrNull((s) => deviceIdOf(s) == id)?.name ??
                       'LIVE';
               return Pressable(
                 onTap: () => app.showLiveHrFrom(_nextDevice(app, ranked, id)),

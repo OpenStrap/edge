@@ -666,6 +666,12 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   /// flight) can tell it lost the race and must not overwrite fresher data.
   int _loadToken = 0;
 
+  /// The same guard for the per-device chart read, which awaits on its own.
+  /// Bumped by `_load()` too, so a day change also invalidates a device
+  /// request still in flight — otherwise the older response landed last and
+  /// rebuilt `_d` from the PREVIOUS day's raw.
+  int _deviceToken = 0;
+
   @override
   void initState() {
     super.initState();
@@ -700,6 +706,7 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
 
   Future<void> _load() async {
     final token = ++_loadToken;
+    _deviceToken++;
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted && token == _loadToken) setState(() => _loading = false);
@@ -717,6 +724,11 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
           _d = d,
           _candidates = candidates,
           _device = null,
+          // Cleared WITH `_device`. Left behind, the bounded-history message
+          // and its oldest-day marker outlived the selection that produced
+          // them and rendered against no selected device at all.
+          _deviceBounded = false,
+          _deviceOldest = null,
           _loading = false,
         ));
       }
@@ -726,6 +738,7 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   }
 
   Future<void> _selectDevice(String? id) async {
+    final token = ++_deviceToken;
     final d = _d;
     final day = _day ?? d?.day;
     if (d?.raw == null || day == null) return;
@@ -748,7 +761,10 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     final repo = repoOf(context);
     if (repo == null) return;
     final c = await repo.getDeviceChart('hr', deviceId: id, date: day);
-    if (!mounted) return;
+    // A newer selection (another device, or a day change through `_load`)
+    // started while this read was in flight, so this answer is about a
+    // timeline that is no longer on screen.
+    if (!mounted || token != _deviceToken) return;
     final bounded = c['bounded'] == true;
     setState(() {
       _device = id;
