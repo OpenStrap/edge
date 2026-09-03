@@ -1832,6 +1832,14 @@ class LocalDb {
       'tier': tier,
       'first_seen': now,
       'last_seen': now,
+      // NAMED, not left to the column DEFAULT. `id == ''` IS the primary band
+      // permanently, and the v51 rung stamps that row `'primary'` on every
+      // UPGRADED database — so taking the `'paired'` default here would give a
+      // FRESH install a different role for the same row than an upgraded one,
+      // and the first reader of this column would be wrong on exactly the
+      // installs that never migrated. Insert-only (the conflict algorithm is
+      // IGNORE), so it can never demote a row that already exists.
+      'role': id == kPrimaryDeviceId ? 'primary' : 'paired',
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
     // ONE flag decides both the placeholder and its argument. It is a local
     // and not the expression twice because the two must never disagree: a
