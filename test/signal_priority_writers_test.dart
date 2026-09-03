@@ -27,7 +27,7 @@ void main() {
 
   test('setSignalPriority writes dense ranks with user_set = 1', () async {
     await LocalDb.setSignalPriority(
-      InputSignal.rrIntervals.name,
+      InputSignal.rrIntervals,
       ['ring-A', ''],
     );
     final order = await LocalDb.signalPriority(InputSignal.rrIntervals);
@@ -45,8 +45,8 @@ void main() {
   });
 
   test('setSignalPriority replaces (not appends to) a prior order', () async {
-    await LocalDb.setSignalPriority(InputSignal.hr1Hz.name, ['a', 'b']);
-    await LocalDb.setSignalPriority(InputSignal.hr1Hz.name, ['b']);
+    await LocalDb.setSignalPriority(InputSignal.hr1Hz, ['a', 'b']);
+    await LocalDb.setSignalPriority(InputSignal.hr1Hz, ['b']);
     expect(await LocalDb.signalPriority(InputSignal.hr1Hz), ['b']);
   });
 
@@ -61,7 +61,7 @@ void main() {
     await db.insert('signal_priority',
         {'signal': 'hr1Hz', 'device_id': 'ring-A', 'rank': 1, 'user_set': 1});
 
-    await LocalDb.clearSignalPriority(InputSignal.hr1Hz.name);
+    await LocalDb.clearSignalPriority(InputSignal.hr1Hz);
 
     final rows = await db.query('signal_priority',
         where: 'signal = ?', whereArgs: ['hr1Hz']);
@@ -73,7 +73,7 @@ void main() {
 
   test('signalPriorities returns every signal with rows, sparse otherwise',
       () async {
-    await LocalDb.setSignalPriority(InputSignal.rrIntervals.name, ['ring-A']);
+    await LocalDb.setSignalPriority(InputSignal.rrIntervals, ['ring-A']);
     final all = await LocalDb.signalPriorities();
     expect(all[InputSignal.rrIntervals.name], ['ring-A']);
     expect(all[InputSignal.hr1Hz.name], isNull);

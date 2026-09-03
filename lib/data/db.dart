@@ -2430,10 +2430,25 @@ class LocalDb {
         orderBy: 'start_ts DESC',
         limit: 1,
       );
-      if (open.isNotEmpty &&
-          firstSec - (open.single['end_ts'] as num).toInt() <= tolerance) {
-        final startTs = (open.single['start_ts'] as num).toInt();
-        final endTs = (open.single['end_ts'] as num).toInt();
+      final startTs =
+          open.isEmpty ? null : (open.single['start_ts'] as num).toInt();
+      final endTs =
+          open.isEmpty ? null : (open.single['end_ts'] as num).toInt();
+      // EXTEND ONLY A BATCH THAT STARTS AT OR AFTER THE OPEN INTERVAL and is
+      // within tolerance of its end. `firstSec - endTs <= tolerance` on its
+      // own is also true when the whole batch PREDATES the interval (the
+      // difference is negative), and the `lastSec > endTs` body then wrote
+      // nothing at all. That is the normal WHOOP path: a live commit opens an
+      // interval at "now", the historical drain then commits records from
+      // hours earlier, and those hours got no coverage row — after which
+      // `resolveOwnership` reports no owner for them and the substrate load
+      // can drop the matching rows. Same-device intervals may overlap (see
+      // `_createDeviceCoverage`) and every reader unions them, so the safe
+      // repair is a separate interval.
+      if (startTs != null &&
+          endTs != null &&
+          firstSec >= startTs &&
+          firstSec - endTs <= tolerance) {
         if (lastSec > endTs) {
           await txn.update(
             'device_coverage',
@@ -5985,8 +6000,14 @@ class LocalDb {
     return units > 0 ? units : null;
   }
 
+  /// [deviceId] is REQUIRED and not defaulted. `band_battery` is keyed
+  /// `(device_id, ts, source)` with `ConflictAlgorithm.ignore`, so a writer
+  /// that omitted it let SQLite apply the primary-device default: a secondary
+  /// device's sample would be stored under the band and silently dropped on
+  /// the collision. Naming the originating device is the caller's job.
   static Future<void> insertBandBatterySample({
     required int ts,
+    required String deviceId,
     double? batteryPct,
     bool? charging,
     bool? wristOn,
@@ -5997,6 +6018,7 @@ class LocalDb {
     // insertEvent; never crash over a battery row (it re-arrives on the poll).
     await _guardedWrite((db) async {
       await db.insert('band_battery', {
+        'device_id': deviceId,
         'ts': ts,
         'battery_pct': batteryPct,
         'charging': charging == null ? null : (charging ? 1 : 0),
@@ -6858,16 +6880,23 @@ class LocalDb {
   ///
   /// [order] is highest priority FIRST. Ranks are written 0..n-1 densely, so
   /// the stored order is readable without a second sort.
+  ///
+  /// Takes an [InputSignal], not a `String`, for the same reason
+  /// [signalPriority] does: the stored key is `signal.name`, and a caller
+  /// reaching for `signal.toString()` would write `InputSignal.hr1Hz`, which
+  /// never matches what the reader binds. The table is sparse by design, so
+  /// that failure is invisible — the preference simply does nothing.
   static Future<void> setSignalPriority(
-    String signal,
+    InputSignal signal,
     List<String> order,
   ) async {
     final db = await instance;
+    final name = signal.name;
     await db.transaction((txn) async {
-      await txn.delete('signal_priority', where: 'signal = ?', whereArgs: [signal]);
+      await txn.delete('signal_priority', where: 'signal = ?', whereArgs: [name]);
       for (var i = 0; i < order.length; i++) {
         await txn.insert('signal_priority', {
-          'signal': signal,
+          'signal': name,
           'device_id': order[i],
           'rank': i,
           'user_set': 1,
@@ -6879,13 +6908,29 @@ class LocalDb {
   /// Back to physics for one signal. NOT a write of the computed order — that
   /// would freeze today's ladder into the table and stop tracking the adapter
   /// declarations it is derived from.
-  static Future<void> clearSignalPriority(String signal) async {
+  static Future<void> clearSignalPriority(InputSignal signal) async {
     final db = await instance;
     await db.delete(
       'signal_priority',
       where: 'signal = ? AND user_set = 1',
-      whereArgs: [signal],
+      whereArgs: [signal.name],
     );
+  }
+
+  /// The signals whose order the USER set by hand, so the editor can offer a
+  /// reset for exactly those. Beside the other `signal_priority` accessors so
+  /// no screen has to open the raw handle and name the `user_set` column
+  /// itself — a rename would otherwise break a UI file the migration author
+  /// has no reason to open.
+  static Future<Set<String>> userSetSignals() async {
+    final db = await instance;
+    final rows = await db.query(
+      'signal_priority',
+      columns: ['signal'],
+      where: 'user_set = 1',
+      distinct: true,
+    );
+    return {for (final r in rows) r['signal'] as String};
   }
 
   /// `{signal: [deviceId, …]}`, highest first, for every signal that has rows.

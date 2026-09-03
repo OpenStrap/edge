@@ -3588,6 +3588,9 @@ class AppState extends ChangeNotifier {
       unawaited(
         LocalDb.insertBandBatterySample(
           ts: nowSec,
+          // `_onEngineState` drives the PRIMARY band's engine, so this is the
+          // real originating device, not a placeholder.
+          deviceId: LocalDb.kPrimaryDeviceId,
           batteryPct: roundedPct?.toDouble(),
           charging: s.charging,
           wristOn: s.wristOn,

@@ -366,6 +366,7 @@ void main() {
           deviceId: LocalDb.kPrimaryDeviceId);
       await LocalDb.insertBandBatterySample(
         ts: 1600000100,
+        deviceId: LocalDb.kPrimaryDeviceId,
         batteryPct: 77.0,
         charging: true,
         wristOn: true,

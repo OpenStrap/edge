@@ -281,15 +281,13 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
             ]
           : declaring;
     }
-    final db = await LocalDb.instance;
-    final userSetRows = await db.query('signal_priority',
-        columns: ['signal'], where: 'user_set = 1', distinct: true);
+    final userSet = await LocalDb.userSetSignals();
     if (!mounted) return;
     setState(() {
       _signals = signals;
       _labels = labels;
       _order = order;
-      _userSet = {for (final r in userSetRows) r['signal'] as String};
+      _userSet = userSet;
       _loading = false;
     });
   }
@@ -325,7 +323,7 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
                             // ReorderableListView's `to` is the index BEFORE removal.
                             ids.insert(
                                 to > from ? to - 1 : to, ids.removeAt(from));
-                            await LocalDb.setSignalPriority(sig.name, ids);
+                            await LocalDb.setSignalPriority(sig, ids);
                             setState(() => (
                               _order = {..._order, sig: ids},
                               _userSet = {..._userSet, sig.name},
@@ -342,7 +340,7 @@ class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
                         if (_userSet.contains(sig.name))
                           Pressable(
                             onTap: () async {
-                              await LocalDb.clearSignalPriority(sig.name);
+                              await LocalDb.clearSignalPriority(sig);
                               await _load();
                             },
                             semanticLabel:

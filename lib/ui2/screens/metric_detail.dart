@@ -942,7 +942,7 @@ class _MetricDetailState extends State<MetricDetail> {
       for (final s in d.sources) if (s.deviceId != o.deviceId && s.selectable) s.deviceId,
     ];
     for (final sig in spec.requires) {
-      await LocalDb.setSignalPriority(sig.name, order);
+      await LocalDb.setSignalPriority(sig, order);
     }
     // Bounded re-derive: `invalidateForPriorityChange` is M5's; M6 only calls
     // it if present. It has not landed on this branch yet (verified via
