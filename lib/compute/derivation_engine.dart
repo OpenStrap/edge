@@ -2602,36 +2602,7 @@ class DerivationEngine {
       if (candidate.present) candidate.sleepOffsetSec,
     ].reduce(math.max);
 
-    final ownership = <InputSignal, List<OwnedSpan>>{};
-    // The order each signal ACTUALLY resolved under, carried on the prepared
-    // day so `priority_hash` names it by construction instead of re-reading
-    // `signal_priority` after the day computed (which could stamp an order
-    // the user changed mid-derive, and cost a query per signal per day).
-    final priority = <InputSignal, List<String>>{};
-    for (final sig in const [InputSignal.hr1Hz, InputSignal.rrIntervals]) {
-      // BINDING: `signal_priority` ships EMPTY by design (M3 deliberately did
-      // not seed a physics ladder). "No priority row" means "the primary
-      // device owns this window", never "skip masking" and never "let every
-      // candidate in unranked" — so an empty read here becomes a
-      // single-candidate priority list of just the primary, not the raw
-      // empty list `resolveOwnership` would otherwise read as "nothing is a
-      // candidate; abstain". A second device's rows stay excluded from the
-      // substrate until the user (or a future milestone's physics ladder)
-      // gives it a rank — the conservative default, and the one that keeps
-      // today's single-device installs byte-identical.
-      final rawPriority = await LocalDb.signalPriority(sig);
-      final resolved = rawPriority.isEmpty
-          ? const [LocalDb.kPrimaryDeviceId]
-          : rawPriority;
-      priority[sig] = resolved;
-      ownership[sig] = resolveOwnership(
-        coverage: await LocalDb.coverageIntervals(sig, unionFrom, unionTo),
-        priority: resolved,
-        from: unionFrom,
-        to: unionTo,
-        signal: sig,
-      );
-    }
+    final (ownership, priority) = await _resolveOwnership(unionFrom, unionTo);
 
     // Load the day PLUS the nap boundary buffer in ONE pass (each
     // _loadSubstrateRange spawns its own isolate, so a second load would
@@ -2676,6 +2647,49 @@ class DerivationEngine {
     );
   }
 
+  /// Who owns each anchor signal over `[from, to]`, plus the order that
+  /// answer resolved under.
+  ///
+  /// ONE resolver for every substrate load, because a window staged from one
+  /// device's rows and scored from another's is two different nights. The two
+  /// call sites pass different windows — staging's is candidate-INDEPENDENT
+  /// (`_targetDayWindow`), the prepared day's is the union that includes the
+  /// candidate — so the spans differ, but the rule producing them does not.
+  Future<(Map<InputSignal, List<OwnedSpan>>, Map<InputSignal, List<String>>)>
+      _resolveOwnership(int from, int to) async {
+    final ownership = <InputSignal, List<OwnedSpan>>{};
+    // The order each signal ACTUALLY resolved under, carried on the prepared
+    // day so `priority_hash` names it by construction instead of re-reading
+    // `signal_priority` after the day computed (which could stamp an order
+    // the user changed mid-derive, and cost a query per signal per day).
+    final priority = <InputSignal, List<String>>{};
+    for (final sig in const [InputSignal.hr1Hz, InputSignal.rrIntervals]) {
+      // BINDING: `signal_priority` ships EMPTY by design (M3 deliberately did
+      // not seed a physics ladder). "No priority row" means "the primary
+      // device owns this window", never "skip masking" and never "let every
+      // candidate in unranked" — so an empty read here becomes a
+      // single-candidate priority list of just the primary, not the raw
+      // empty list `resolveOwnership` would otherwise read as "nothing is a
+      // candidate; abstain". A second device's rows stay excluded from the
+      // substrate until the user (or a future milestone's physics ladder)
+      // gives it a rank — the conservative default, and the one that keeps
+      // today's single-device installs byte-identical.
+      final rawPriority = await LocalDb.signalPriority(sig);
+      final resolved = rawPriority.isEmpty
+          ? const [LocalDb.kPrimaryDeviceId]
+          : rawPriority;
+      priority[sig] = resolved;
+      ownership[sig] = resolveOwnership(
+        coverage: await LocalDb.coverageIntervals(sig, from, to),
+        priority: resolved,
+        from: from,
+        to: to,
+        signal: sig,
+      );
+    }
+    return (ownership, priority);
+  }
+
   Future<SleepSessionCandidate> _sleepCandidateForDay(
     String dayId, {
     _PrepareStats? stats,
@@ -2713,11 +2727,18 @@ class DerivationEngine {
       }
     }
     final range = _targetDayWindow(dayId);
+    // OWNED ROWS ONLY, the same as every other substrate load. This window is
+    // candidate-independent, so ownership CAN be resolved before the candidate
+    // exists — and it has to be: staging the night off both devices' rows
+    // while `napSub`/`sleepSub` score it off one device's is a window found in
+    // a night that was never scored.
+    final (searchOwnership, _) = await _resolveOwnership(range.$1, range.$2);
     final searchSub = await _loadSubstrateRange(
       range.$1,
       range.$2,
       dayId: dayId,
       stats: stats,
+      ownership: searchOwnership,
     );
     // PERSONALIZED STAGER (v42): stage on a WORKER isolate, NOT the main/UI
     // thread. cardioStager reads analytics "ambient" globals — the rolling sleep
@@ -3032,11 +3053,10 @@ class DerivationEngine {
     required String dayId,
     _PrepareStats? stats,
     // M5: the resolved ownership spans for this call's window, keyed by
-    // anchor signal. Defaults to empty so the ONE caller that cannot supply
-    // it yet (`_sleepCandidateForDay`'s own searchSub load, which runs
-    // BEFORE ownership can be computed) stays unfiltered — identical to
-    // pre-M5 behaviour, and identical to a single-device install regardless
-    // of caller.
+    // anchor signal. Every production caller supplies them (see
+    // [_resolveOwnership]); the empty default is unfiltered, which is what a
+    // single-device install resolves to anyway and what the direct-load tests
+    // pass.
     Map<InputSignal, List<OwnedSpan>> ownership = const {},
   }) async {
     if (toRecTs < fromRecTs) return Substrate.empty;
