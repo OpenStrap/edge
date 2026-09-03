@@ -975,6 +975,13 @@ class _MetricDetailState extends State<MetricDetail> {
     return any ? mask : null;
   }
 
+  /// ONE string for the button's face and its announcement. The semantic label
+  /// used to be a hardcoded English sentence over a face that went through
+  /// `AppLocalizations` — so VoiceOver on a German install read the button out
+  /// in English. Nothing is gained by the two differing.
+  String _preferLabel(AppLocalizations? l, DeviceOption o) =>
+      l?.metricDetailPreferX(o.label) ?? 'Prefer ${o.label}';
+
   Future<void> _prefer(DeviceOption o) async {
     if (_d == null || !mounted) return;
     final spec = specOf(widget.metricKey);
@@ -1106,9 +1113,9 @@ class _MetricDetailState extends State<MetricDetail> {
             if (_preferCandidate(d) case final o?)
               Pressable(
                 onTap: () => _prefer(o),
-                semanticLabel: 'Prefer ${o.label} for ${spec.title.toLowerCase()}',
+                semanticLabel: _preferLabel(l, o),
                 child: Text(
-                  l?.metricDetailPreferX(o.label) ?? 'Prefer ${o.label}',
+                  _preferLabel(l, o),
                   style: F.cap.copyWith(
                       color: p.on(spec.color), fontWeight: FontWeight.w600),
                 ),
