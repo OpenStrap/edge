@@ -570,6 +570,7 @@ class HrsLink {
   /// anything. A second call used to sail past the `_armed` check while the
   /// first was still connecting and overwrite `_device`, `_link` and `_host` —
   /// the first one's session then ran forever with nothing holding it.
+  ///
   /// AND IT WAITS OUT A TEARDOWN. `_armed` stays TRUE through every await in
   /// [disarm] — `_host.stop()`'s final flush, the subscription cancel, the
   /// disconnect — so a call that landed in that window used to hit the
