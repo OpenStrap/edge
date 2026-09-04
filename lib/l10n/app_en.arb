@@ -999,6 +999,10 @@
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
   },
+  "devicePickerBlurbColmi": "A Colmi ring. Pairs and banks its history; nothing is decoded into a number yet.",
+  "@devicePickerBlurbColmi": {
+    "description": "Category row subtitle for a Colmi smart ring."
+  },
   "devicePickerCannotPairFromHere": "That device cannot be paired from this screen.",
   "@devicePickerCannotPairFromHere": {
     "description": "Shown when a tapped category has no pairing step behind it."

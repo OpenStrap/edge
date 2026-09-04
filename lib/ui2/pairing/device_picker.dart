@@ -10,8 +10,8 @@
 // into three different accounts of one action again.
 //
 // WHAT IT DOES NOT DO. It does not invent support. The category list below
-// is exactly [kBandRegistry] — three real entries, not six aspirational
-// ones — because a category tile for a scale or a blood-pressure cuff this
+// is exactly [kBandRegistry] — real entries, not aspirational ones —
+// because a category tile for a scale or a blood-pressure cuff this
 // app cannot read from would be a promise with nothing behind it. See
 // ASSUMPTIONS R6 and `sensorIcon`'s own doc for the same rule applied
 // elsewhere.
@@ -270,6 +270,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      'colmi' => l?.devicePickerBlurbColmi ??
+          'A Colmi ring. Pairs and banks its history; nothing is decoded '
+              'into a number yet.',
       _ => l?.devicePickerBlurbSensor ??
           'A chest strap or armband, for beat timing during a workout.',
     };

@@ -313,11 +313,21 @@ class HrsLink {
     // full, and the rest is in a scan response that has not landed yet). A
     // fallback returned from in here was indistinguishable from a real match,
     // so the caller cached a guess and never looked again.
-    String? entryIdFor(List<Guid> advertised) {
+    // [lowercaseName] is the belt-and-suspenders fallback: `BandEntry
+    // .nameMatcher` is the same per-entry escape hatch `transport.dart` uses
+    // for a framed band whose advertisement carries its name but not a
+    // matchable service UUID. It cannot rescue a device the OS-level
+    // `withServices` filter below already excluded from the scan entirely —
+    // only a real scan against real hardware settles whether that filter
+    // ever does.
+    String? entryIdFor(List<Guid> advertised, String lowercaseName) {
       for (final g in advertised) {
         for (final e in entries) {
           if (g == Guid(e.service)) return e.id;
         }
+      }
+      for (final e in entries) {
+        if (e.nameMatcher?.call(lowercaseName) ?? false) return e.id;
       }
       return null;
     }
@@ -349,7 +359,14 @@ class HrsLink {
         // Re-attempted on EVERY advertisement until one confirms, then fixed:
         // a confirmed match cannot change (a peripheral does not swap GATT
         // identity mid-scan) and re-reading it would only add work.
-        final match = confirmed[id] ?? entryIdFor(r.advertisementData.serviceUuids);
+        final match = confirmed[id] ??
+            entryIdFor(
+              r.advertisementData.serviceUuids,
+              (r.advertisementData.advName.isNotEmpty
+                      ? r.advertisementData.advName
+                      : r.device.platformName)
+                  .toLowerCase(),
+            );
         if (match != null) confirmed[id] = match;
         final now = (
           device: r.device,
