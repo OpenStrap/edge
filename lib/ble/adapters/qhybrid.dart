@@ -1,0 +1,97 @@
+// The Fossil/Skagen Q Hybrid — the original "hybrid" smartwatch line
+// (`HW.0.0`, `HL.0.0`, `DN.1.0`) — as a [BandAdapter].
+//
+// Plain unencrypted GATT: one control/command characteristic that answers
+// flat `[type, cmdId, ...payload]` requests with `[3, cmdId, ...payload]`
+// responses (no CRC, no length envelope, no sequence counter), plus five
+// notify-only characteristics — two for file-download chunking, one more in
+// that same group, one for button presses, one for a file-upload ack — whose
+// sub-protocols are not decoded here. There is no encryption anywhere in this
+// variant and no pairing key; standard platform BLE bonding is the whole of
+// what "pairing" means, same as [kBleHrs].
+//
+// THE ONE REAL RISK: an encrypted sibling protocol (the Hybrid HR / Gen 6
+// line) advertises this exact same service UUID, so a live scan match on it
+// cannot tell the two apart before connecting. Rather than guess, this
+// adapter treats a harmless battery-level query as a self-confirming probe —
+// write `[1, 8]` to the control characteristic and wait for `[3, 8, level]`
+// back. A reply means this is the plain protocol; no reply within the window
+// means abstain cleanly, exactly the "no reply = abstain" idiom `oura.dart`
+// already uses for its own handshake. Nothing is banked until the probe
+// confirms.
+//
+// NOTHING HERE HAS MET HARDWARE, so every notification is banked as raw
+// bytes and nothing is decoded into a sample. EXPERIMENTAL (ASSUMPTIONS R6)
+// until someone owns one: `signals` is empty and `kDerivableSources` does
+// not contain `qhybrid`, so nothing this adapter banks can become a metric.
+
+import 'dart:async';
+import 'dart:typed_data';
+
+import '_registry.dart';
+import 'adapter.dart';
+import 'signals.dart';
+
+/// The adapter. Const, and it holds no session state — everything a session
+/// needs lives inside [run].
+class QHybridAdapter extends BandAdapter {
+  const QHybridAdapter();
+
+  @override
+  BandEntry get entry => kQHybrid;
+
+  /// NOTHING. See the header: every frame is banked raw, undecoded.
+  @override
+  Map<InputSignal, Duration> get signals => const {};
+
+  /// How long to wait for the battery-probe reply before abstaining.
+  static const Duration _kProbeTimeout = Duration(seconds: 5);
+
+  @override
+  Stream<BandEvent> run(BandLink link) async* {
+    // The probe reply is recognised and swallowed here, never banked as data
+    // — it is a confirmation this adapter generated, not something the watch
+    // would have sent unprompted.
+    final probeReply = Completer<bool>();
+    final raw = StreamController<BandEvent>();
+    final subs = <StreamSubscription<Object?>>[];
+
+    for (final uuid in entry.requiredCharacteristics) {
+      subs.add(link.notify(uuid).listen((rec) {
+        final (_, value) = rec;
+        if (uuid == kQHybridControlChar &&
+            !probeReply.isCompleted &&
+            value.length >= 3 &&
+            value[0] == 3 &&
+            value[1] == 8) {
+          probeReply.complete(true);
+          return;
+        }
+        raw.add(SampleBatch(const [], raw: [Uint8List.fromList(value)]));
+      }));
+    }
+
+    try {
+      if (!await link.write(kQHybridControlChar, const [1, 8])) {
+        link.log('qhybrid: battery probe write refused; ending the stream.');
+        return;
+      }
+      final confirmed = await probeReply.future
+          .timeout(_kProbeTimeout, onTimeout: () => false);
+      if (!confirmed) {
+        link.log('qhybrid: no probe reply within ${_kProbeTimeout.inSeconds}s; '
+            'abstaining (likely the encrypted sibling protocol).');
+        return;
+      }
+      yield* raw.stream;
+    } finally {
+      for (final s in subs) {
+        await s.cancel();
+      }
+      await raw.close();
+    }
+  }
+}
+
+/// The single instance. Const, so it costs nothing to reference.
+const QHybridAdapter kQHybridAdapter = QHybridAdapter();
