@@ -1525,6 +1525,13 @@ Future<void> _syncRing(BuildContext c) async {
 Future<void> _syncDt78(BuildContext c) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
+  // Checked BEFORE calling sync(), which answers `false` for "already
+  // syncing" and "could not reach the watch" alike — a real distinction the
+  // snack bar should not blur into one failure sentence.
+  if (Dt78Link.instance.busy) {
+    messenger?.showSnackBar(const SnackBar(content: Text('Already syncing.')));
+    return;
+  }
   // `devicesSyncing`/`devicesSynced` are genuinely generic ("Syncing"/
   // "Synced."), unlike `devicesSyncingTheRing`/`devicesCouldNotReachRing`,
   // which name the ring by copy — reusing those here would show the wrong

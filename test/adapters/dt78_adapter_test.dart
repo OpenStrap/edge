@@ -132,6 +132,22 @@ void main() {
         hasLength(1));
   });
 
+  test('a false preamble claiming a huge length is rejected on the marker '
+      'byte alone, without waiting for that whole span to arrive', () async {
+    // `len=0xFF` claims a 258-byte frame this notification never delivers.
+    // Waiting for that span before checking `buf[3]` would leave the real
+    // battery frame arriving right behind it stuck for however long 258
+    // bytes takes to fill — on a 20 s window, potentially forever. The
+    // marker is wrong (0x77, not 0xFF) and must be caught on the FOUR bytes
+    // already in hand.
+    final buf = <int>[0xAB, 0x00, 0xFF, 0x77, ...kBatteryReply];
+    final events = await replay(
+      (link) => link.feed(kDt78NotifyChar, buf, atSec: 1),
+    );
+    expect(events.whereType<BandNote>().where((n) => n.key == 'battery'),
+        hasLength(1));
+  });
+
   test('never emits an OffloadCheckpoint — this protocol has no trim-on-ack',
       () async {
     final events = await replay(

@@ -92,25 +92,29 @@ class _Dt78Reader {
         _buf.removeAt(0);
         continue;
       }
+      if (_buf.length < 4) break; // the marker byte has not arrived yet
+      if (_buf[3] != 0xFF) {
+        // The length happened to land on something that is not really a
+        // frame boundary. Checked as soon as the marker byte itself is
+        // available — NOT after waiting for the full `total` span, which
+        // `len` alone can claim is up to 258 bytes long. Waiting that long
+        // to find out this was noise would sit on a real frame arriving
+        // right behind it for however long the rest of that false span
+        // takes to fill, which on a 20-second sync window can be forever.
+        // Drop only the false preamble's start byte and resync from there.
+        _buf.removeAt(0);
+        continue;
+      }
       final total = 3 + len;
       if (_buf.length < total) break; // waiting on the rest of this frame
-      if (_buf[3] == 0xFF) {
-        final frame = Uint8List.fromList(_buf.sublist(0, total));
-        _buf.removeRange(0, total);
-        out.add(Dt78Frame(
-          frame[4],
-          frame[5],
-          frame.sublist(6),
-          frame,
-        ));
-      } else {
-        // The length happened to land on something that is not really a
-        // frame boundary. Drop only the false preamble's start byte, NOT the
-        // whole `total`-byte window — a real frame can be hiding anywhere
-        // inside it, and discarding the lot would eat it along with the
-        // noise. The loop resumes scanning from the next candidate.
-        _buf.removeAt(0);
-      }
+      final frame = Uint8List.fromList(_buf.sublist(0, total));
+      _buf.removeRange(0, total);
+      out.add(Dt78Frame(
+        frame[4],
+        frame[5],
+        frame.sublist(6),
+        frame,
+      ));
     }
     return out;
   }

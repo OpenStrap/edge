@@ -42,6 +42,13 @@ class Dt78Link {
   BandHost? _host;
   bool _busy = false;
 
+  /// Whether a sync is already in flight. Read this BEFORE calling [sync] to
+  /// tell "already syncing" apart from "could not reach the watch" — both
+  /// collapse to the same `false` return from [sync] itself, which is the
+  /// right answer for the "did this session write anything" question but the
+  /// wrong one for the snack bar, where "already running" is not a failure.
+  bool get busy => _busy;
+
   /// How long one sync session listens before tearing down. There is no
   /// drain to finish and no cursor to exhaust — the watch just answers the
   /// startup polls and whatever else it sends unprompted — so this is a
@@ -78,9 +85,22 @@ class Dt78Link {
       // A cap on concurrent SECONDARY links (never the primary band's own
       // connect — see ble_state.dart's kMaxConcurrentSecondaryLinks doc).
       return await withSecondaryLinkSlot(() async {
+        final device = BluetoothDevice.fromId(remoteId);
         try {
-          final device = BluetoothDevice.fromId(remoteId);
           await device.connect(timeout: const Duration(seconds: 20));
+        } catch (e) {
+          debugPrint('[dt78] connect failed: $e');
+          return false;
+        }
+        // From here on the watch IS connected, so every exit — a thrown
+        // service discovery, a missing characteristic, a run() that throws,
+        // or the plain success path — must disconnect it. One `finally`
+        // covering the whole of that, rather than the two separate
+        // `disconnect()` call sites the two failure arms used to each need
+        // to remember on their own, which is exactly the shape that leaves
+        // the watch connected the day a THIRD failure arm is added and
+        // forgets to.
+        try {
           final services = await device.discoverServices();
           final link = GattBandLink(
             entry: kDt78,
@@ -94,7 +114,6 @@ class Dt78Link {
             debugPrint('[dt78] ${kDt78.label}: missing required '
                 'characteristic(s) '
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
-            await device.disconnect().catchError((_) {});
             return false;
           }
           final host = BandHost(
@@ -103,19 +122,16 @@ class Dt78Link {
             onLog: (m) => debugPrint('[dt78] $m'),
           );
           _host = host;
-          final done = host.run(link);
-          try {
-            await done.timeout(_listenWindow, onTimeout: () {});
-          } finally {
-            await stop();
-            try {
-              await device.disconnect();
-            } catch (_) {/* already gone */}
-          }
+          await host.run(link).timeout(_listenWindow, onTimeout: () {});
           return true;
         } catch (e) {
-          debugPrint('[dt78] connect failed: $e');
+          debugPrint('[dt78] sync failed: $e');
           return false;
+        } finally {
+          await stop();
+          try {
+            await device.disconnect();
+          } catch (_) {/* already gone */}
         }
       });
     } catch (e) {
