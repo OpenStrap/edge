@@ -43,7 +43,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura, declaredSignals;
+    show BandEntry, kBandRegistry, kBleHrs, kOura, kPolarPmd, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
@@ -773,6 +773,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' => LucideIcons.circleDot,
+      'polar_pmd' => LucideIcons.activity,
       _ => LucideIcons.heartPulse,
     };
 
@@ -950,6 +951,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kPolarPmd,
+    blurb: 'A Polar Verity Sense or OH1. Beat timing measured optically, '
+        'streamed during a workout, same as a chest strap.',
+    // Null: no handshake and no key — the START/STOP toggle this sensor
+    // needs belongs to the workout session, not to pairing. Same as
+    // [kBleHrs].
+    pick: null,
   ),
 ];
 

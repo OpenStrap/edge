@@ -53,6 +53,19 @@ import 'signals.dart';
 const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
 const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
 
+/// A Polar optical sensor's PMD (measurement data) service. Plain GATT — no
+/// encryption, no key exchange, no bonding requirement at this layer.
+const String kPolarPmdService = 'fb005c80-02e7-f387-1cad-8acd2d8df0c8';
+
+/// Write-with-response, indicate. Every PMD command goes here; its indicate
+/// reply carries the command's outcome.
+const String kPolarPmdControlChar = 'fb005c81-02e7-f387-1cad-8acd2d8df0c8';
+
+/// Notify. Every measurement stream this service can carry shares this one
+/// data characteristic — see `polar_pmd.dart` (adapter) for why only the PPI
+/// stream is decoded.
+const String kPolarPmdDataChar = 'fb005c82-02e7-f387-1cad-8acd2d8df0c8';
+
 /// The Oura ring's GATT service, identical across the generations seen so far.
 const String kOuraService = '98ed0001-a541-11e4-b6a0-0002a5d5c51b';
 
@@ -412,6 +425,29 @@ const BandEntry kBleHrs = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// A Polar optical sensor (Verity Sense, OH1) speaking the PMD service, PPI
+/// stream only.
+///
+/// Plain unencrypted GATT — a control-point write plus a data notify, no
+/// bonding requirement at this layer, same shape as [kBleHrs] with one
+/// addition: streaming has to be switched on with a control-point write
+/// before the data characteristic says anything, and the adapter is what does
+/// that (see `polar_pmd.dart`).
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so not
+/// a byte of this path has met hardware (ASSUMPTIONS R6). It pairs, connects,
+/// and streams decoded beats; `kDerivableSources` stays empty until someone
+/// has actually held one.
+const BandEntry kPolarPmd = BandEntry.notify(
+  id: 'polar_pmd',
+  label: 'Polar sensor',
+  service: kPolarPmdService,
+  characteristics: <String>[kPolarPmdControlChar, kPolarPmdDataChar],
+  // PPI carries beat-to-beat durations and no clock of its own. See
+  // [TimeAnchor].
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// The Oura ring, a fetch-by-cursor band with a challenge-response handshake.
 ///
 /// NOT framed, and the three fields a framed entry carries would each be wrong
@@ -444,6 +480,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kPolarPmd,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +537,10 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'polar_pmd': {
+    InputSignal.hrSparse: Duration(seconds: 1),
+    InputSignal.rrIntervals: Duration(seconds: 1),
+  },
 };
 
 /// The signals one adapter declares, or empty for an id this build has no

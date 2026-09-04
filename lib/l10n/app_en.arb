@@ -995,6 +995,10 @@
   "@devicePickerBlurbRing": {
     "description": "Category row subtitle for the Oura ring."
   },
+  "devicePickerBlurbPolarPmd": "A Polar Verity Sense or OH1. Beat timing measured optically, streamed during a workout, same as a chest strap.",
+  "@devicePickerBlurbPolarPmd": {
+    "description": "Category row subtitle for a Polar PMD optical sensor."
+  },
   "devicePickerBlurbSensor": "A chest strap or armband, for beat timing during a workout.",
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
