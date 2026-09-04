@@ -45,6 +45,7 @@ import 'package:provider/provider.dart';
 import '../../ble/adapters/_registry.dart'
     show BandEntry, kBandRegistry, kBleHrs, kDafit, kOura, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
+import '../../ble/dafit_link.dart' show DafitLink;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
@@ -1485,7 +1486,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: switch (s.family) {
+        'oura' => () => _syncRing(c),
+        'dafit' => () => _syncDafitWatch(c),
+        _ => null,
+      },
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1511,6 +1516,26 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Hold a session with the paired watch, now, because the user asked. There
+/// is no history to drain here — see `dafit_link.dart`'s own header — so
+/// this just runs the handshake again and banks whatever arrives during it.
+Future<void> _syncDafitWatch(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  // No localized string yet — same call as device_picker.dart's 'dafit'
+  // blurb, and for the same reason.
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await DafitLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachRing ??
+            'Could not reach it. It has to be nearby, and not connected to '
+                'another app.')),
   ));
 }
 

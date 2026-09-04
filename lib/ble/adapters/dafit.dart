@@ -21,12 +21,16 @@
 // band to forget anything. [OffloadCheckpoint] is never emitted; the host
 // flushes archived frames on its own cadence, same as a live-only sensor.
 //
-// ACKING IS SELECTIVE, NOT BLANKET. Two group/command replies — hardware
-// info and band info — are the ones the documented init sequence asks for
-// and the ones the reference behaviour acks before moving on; every other
-// notification (a button press, an ambient reading, a bare ack echoed back)
-// is archived and left alone. Acking a frame this file has no reason to
-// expect would be guessing at a control-flow effect nobody has observed.
+// ACKING IS SELECTIVE, NOT BLANKET, AND CONCURRENT WITH SENDING, NOT GATING
+// IT. Two group/command replies — hardware info and band info — are the
+// ones the init sequence asks for and the two a connection on this family is
+// documented to need acked before it settles down; every other notification
+// (a button press, an ambient reading, a bare ack echoed back) is archived
+// and left alone. The single notify listener below acks a matching reply
+// whenever it arrives, independently of which handshake step is currently
+// being written — so a reply that lands early or late is still acked, and a
+// reply that never arrives never stalls the handshake, which only paces
+// itself against the clock, not against the band's replies.
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -37,21 +41,27 @@ import '_registry.dart';
 import 'adapter.dart';
 import 'signals.dart';
 
+/// True for the two replies the documented init sequence expects an ack on.
+bool _isAckable(DafitFrame f) =>
+    (f.group == kDafitGroupRequestData && f.command == kDafitCmdGetHwInfo) ||
+    (f.group == kDafitGroupBandInfo && f.command == kDafitCmdGetBandInfo);
+
 /// The adapter. Const, and it holds no session state — everything a session
-/// needs lives inside [run].
+/// needs lives inside [run], never on the instance (an adapter is const and
+/// a session is not).
 class DafitAdapter extends BandAdapter {
-  /// Wall-clock now, in Unix seconds. Injected so a fixture replay is
-  /// deterministic — `DateTime.now()` does not appear in this file.
+  /// Wall-clock now, injected so a fixture replay is deterministic —
+  /// `DateTime.now()` does not appear anywhere else in this file.
   final DateTime Function() now;
 
-  /// How long to wait for a hardware-info / band-info reply before giving up
-  /// on acking it and moving on. The handshake still completes either way —
-  /// see the header note on why acking is best-effort, not load-bearing.
-  final Duration replyTimeout;
+  /// Pacing gap between handshake writes — the documented spacing this
+  /// family's connection sequence uses, and overridable so a fixture replay
+  /// does not have to sit through eight real 200 ms waits.
+  final Duration handshakePause;
 
   const DafitAdapter({
     this.now = DateTime.now,
-    this.replyTimeout = const Duration(seconds: 5),
+    this.handshakePause = const Duration(milliseconds: 200),
   });
 
   @override
@@ -64,19 +74,31 @@ class DafitAdapter extends BandAdapter {
 
   @override
   Stream<BandEvent> run(BandLink link) async* {
-    final inbox = StreamController<DafitFrame>();
+    final archived = <Uint8List>[];
+    // Fires once per notification the band sends, so the generator below has
+    // something to `await for` on — a plain `StreamController<void>` rather
+    // than re-deriving one from `archived`'s own length, which would race
+    // against the clear() below.
+    final flush = StreamController<void>();
     final sub = link.notify(kDafitNotifyChar).listen(
-      (rec) {
-        final raw = rec.$2;
+      (rec) async {
+        final raw = Uint8List.fromList(rec.$2);
         // Frame or not, archive the bytes verbatim: this file's decode
         // coverage is deliberately zero, so nothing distinguishes "worth
         // keeping" from "not yet understood" — see the header note.
-        _archived.add(Uint8List.fromList(raw));
+        archived.add(raw);
         final f = parseDafitFrame(raw);
-        if (f != null) inbox.add(f);
+        if (f != null && _isAckable(f)) {
+          await link.write(kDafitWriteChar, buildDafitAck(f));
+        }
+        if (!flush.isClosed) flush.add(null);
       },
-      onDone: inbox.close,
-      onError: (Object _) => inbox.close(),
+      onDone: () {
+        if (!flush.isClosed) flush.close();
+      },
+      onError: (Object _) {
+        if (!flush.isClosed) flush.close();
+      },
     );
     try {
       for (final frame in dafitInitSequence(now())) {
@@ -84,71 +106,36 @@ class DafitAdapter extends BandAdapter {
           link.log('dafit: handshake write refused; ending the session.');
           return;
         }
-        // The band is documented to need time to act on each step; a
-        // fixed pacing gap is the session-layer half of that, matching the
-        // spacing the reference handshake itself uses.
-        await Future<void>.delayed(const Duration(milliseconds: 200));
-        final reply = await _nextMatching(
-          inbox.stream,
-          (f) =>
-              (f.group == kDafitGroupRequestData &&
-                  f.command == kDafitCmdGetHwInfo) ||
-              (f.group == kDafitGroupBandInfo &&
-                  f.command == kDafitCmdGetBandInfo),
-          replyTimeout,
-        );
-        if (reply != null && await link.write(kDafitWriteChar, buildDafitAck(reply))) {
-          // Acked. Nothing else to do with the reply's payload — see the
-          // header note on why this file does not decode it.
+        // The band is documented to need time to act on each step; this is
+        // the session-layer half of that.
+        if (handshakePause > Duration.zero) {
+          await Future<void>.delayed(handshakePause);
         }
       }
-      // Bank whatever accumulated during the handshake, then keep archiving
-      // anything the band sends afterwards for as long as the link holds.
-      if (_archived.isNotEmpty) {
-        yield SampleBatch(const [], raw: List.of(_archived), ephemeral: false);
-        _archived.clear();
-      }
-      await for (final _ in inbox.stream) {
-        if (_archived.isNotEmpty) {
-          yield SampleBatch(const [], raw: List.of(_archived), ephemeral: false);
-          _archived.clear();
+      // Bank whatever accumulated (handshake replies included) as it flushes,
+      // for as long as the link holds. Frames that arrived before this loop
+      // attached are not lost — a single-subscription `StreamController`
+      // buffers events added before its first listener, so every `flush`
+      // fired during the handshake above is still queued and delivered here.
+      await for (final _ in flush.stream) {
+        if (archived.isNotEmpty) {
+          yield SampleBatch(const [], raw: List.of(archived));
+          archived.clear();
         }
       }
     } finally {
       await sub.cancel();
-      await inbox.close();
+      // NOT awaited: a single-subscription `StreamController`'s `close()`
+      // future only completes once a listener has drained it, and on the
+      // early-return path above (a refused handshake write) nothing has
+      // listened to `flush` yet — awaiting it here would hang the whole
+      // teardown forever instead of just letting the controller finish
+      // closing on its own.
+      if (!flush.isClosed) flush.close();
     }
     // No OffloadCheckpoint, ever — see the header note. This family's
     // activity history is never requested, so there is nothing to tell it
     // to forget.
-  }
-
-  final List<Uint8List> _archived = [];
-
-  /// The next frame satisfying [test], or null on timeout. Frames not
-  /// matching are left in the archive (already banked in [_archived] by the
-  /// listener above) rather than discarded.
-  Future<DafitFrame?> _nextMatching(
-    Stream<DafitFrame> stream,
-    bool Function(DafitFrame) test,
-    Duration timeout,
-  ) async {
-    final completer = Completer<DafitFrame?>();
-    late final StreamSubscription<DafitFrame> sub;
-    final timer = Timer(timeout, () {
-      if (!completer.isCompleted) completer.complete(null);
-    });
-    sub = stream.listen((f) {
-      if (test(f) && !completer.isCompleted) {
-        completer.complete(f);
-      }
-    }, onDone: () {
-      if (!completer.isCompleted) completer.complete(null);
-    });
-    final result = await completer.future;
-    timer.cancel();
-    await sub.cancel();
-    return result;
   }
 }
 
