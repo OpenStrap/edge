@@ -10,7 +10,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 void main() {
   test('ids are unique and stable — they are stamped as device_family', () {
     expect(kBandRegistry.map((e) => e.id).toList(),
-        <String>['gen4', 'gen5', 'ble_hrs', 'oura']);
+        <String>['gen4', 'gen5', 'ble_hrs', 'oura', 'pebble']);
   });
 
   test('D1 — the scan service list is exactly the two WHOOP services', () {
@@ -76,6 +76,24 @@ void main() {
     expect(kWhoopGen4.timeAnchor, TimeAnchor.measured);
     expect(kWhoopGen5.timeAnchor, TimeAnchor.measured);
     expect(kBleHrs.timeAnchor, TimeAnchor.arrival);
+    expect(kPebble.timeAnchor, TimeAnchor.arrival);
+  });
+
+  test('Pebble 2 / Pebble 2 SE — one scan-filter service, five required '
+      'characteristics, no envelope', () {
+    expect(kPebble.isFramed, isFalse);
+    expect(kPebble.service, kPebbleServiceUuid);
+    expect(kPebble.servicePrefix, '0000fed9');
+    expect(kPebble.requiredCharacteristics, <String>[
+      kPebblePairingTriggerUuid,
+      kPebbleConnectivityUuid,
+      kPebbleMtuUuid,
+      kPebblePpogattReadUuid,
+      kPebblePpogattWriteUuid,
+    ]);
+    expect(kPebble.gatt, isNull);
+    expect(kPebble.wire, isNull);
+    expect(() => kPebble.commands, throwsA(isA<TypeError>()));
   });
 
   test('bandEntryFor maps a wire profile back to its entry', () {

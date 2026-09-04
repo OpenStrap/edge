@@ -63,6 +63,30 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// Pebble 2 / Pebble 2 SE's scan-filter service. Older Pebbles are out of
+/// reach of a client-only host (Classic SPP, or a BLE path that needs the
+/// phone to run its own local GATT server) — see `pebble.dart`'s header.
+const String kPebbleServiceUuid = '0000fed9-0000-1000-8000-00805f9b34fb';
+
+/// Notify. Connectivity state.
+const String kPebbleConnectivityUuid = '00000001-328e-0fbb-c642-1aa6699bdada';
+
+/// Write. Triggers standard OS-level BLE bonding — no app-layer key exchange.
+const String kPebblePairingTriggerUuid = '00000002-328e-0fbb-c642-1aa6699bdada';
+
+/// Notify. MTU.
+const String kPebbleMtuUuid = '00000003-328e-0fbb-c642-1aa6699bdada';
+
+/// A separate service, discovered post-connect rather than scan-filtered:
+/// PPoGATT ("Pebble Protocol over GATT"), the reliable byte-transport.
+const String kPebblePpogattServiceUuid = '30000003-328e-0fbb-c642-1aa6699bdada';
+
+/// Read/notify. Every PPoGATT packet the watch sends arrives here.
+const String kPebblePpogattReadUuid = '30000004-328e-0fbb-c642-1aa6699bdada';
+
+/// Write. Every ACK and control reply this host sends goes here.
+const String kPebblePpogattWriteUuid = '30000006-328e-0fbb-c642-1aa6699bdada';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -438,12 +462,37 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// Pebble 2 / Pebble 2 SE. Pure client, no envelope, no command channel —
+/// PPoGATT is banked verbatim and nothing is decoded past it, WHEN something
+/// drives [PebbleAdapter.run] — nothing does yet, so today pairing is all
+/// this entry actually does. See `pebble.dart`'s header for both that gap and
+/// why every older Pebble model is out of reach.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6).
+const BandEntry kPebble = BandEntry.notify(
+  id: 'pebble',
+  label: 'Pebble',
+  service: kPebbleServiceUuid,
+  characteristics: <String>[
+    kPebblePairingTriggerUuid,
+    kPebbleConnectivityUuid,
+    kPebbleMtuUuid,
+    kPebblePpogattReadUuid,
+    kPebblePpogattWriteUuid,
+  ],
+  // No clock of its own reaches this layer — every banked chunk is stamped by
+  // arrival, same as every other notify-class entry with no measured origin.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kPebble,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +549,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'pebble': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no
