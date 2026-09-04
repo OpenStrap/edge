@@ -995,6 +995,10 @@
   "@devicePickerBlurbRing": {
     "description": "Category row subtitle for the Oura ring."
   },
+  "devicePickerBlurbO2Ring": "Pairs and banks what it sends. Nothing is decoded from it yet.",
+  "@devicePickerBlurbO2Ring": {
+    "description": "Category row subtitle for the Wellue O2Ring."
+  },
   "devicePickerBlurbSensor": "A chest strap or armband, for beat timing during a workout.",
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."

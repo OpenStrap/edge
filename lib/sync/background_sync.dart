@@ -22,6 +22,7 @@ import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
 import '../ble/oura_link.dart';
+import '../ble/o2ring_link.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
@@ -223,6 +224,13 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same reasoning as the Oura piggyback just above: no-ops when nothing is
+    // paired, never allowed to mark the WHOOP cycle as errored.
+    try {
+      await O2RingLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] o2ring sync skipped: $e');
     }
   }
 }
