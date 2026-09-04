@@ -47,25 +47,32 @@ class PineTimeAdapter extends BandAdapter {
       if (openSubs == 0) merged.close();
     }
 
-    // `cancelOnError: true` on BOTH: without it, a channel that errors but
-    // does not itself close keeps delivering — `onOneDone` would already have
-    // closed `merged` on the error, and the next `merged.add` from either
-    // channel throws a StateError into a stream nothing here catches.
-    final subSteps = link.notify(kPineTimeStepCountChar).listen(
-          merged.add,
-          onDone: onOneDone,
-          onError: (Object _) => onOneDone(),
-          cancelOnError: true,
-        );
-    final subHr = link.notify(kHeartRateMeasurementUuid).listen(
-          merged.add,
-          onDone: onOneDone,
-          onError: (Object _) => onOneDone(),
-          cancelOnError: true,
-        );
     // No write of any kind: both channels stream on their own the moment
     // they are subscribed.
+    //
+    // BOTH `.listen()` calls are INSIDE this try, not before it — a throw out
+    // of the second one would otherwise leave the first subscription active
+    // with nothing here left to cancel it.
+    StreamSubscription<(int, List<int>)>? subSteps;
+    StreamSubscription<(int, List<int>)>? subHr;
     try {
+      // `cancelOnError: true` on BOTH: without it, a channel that errors but
+      // does not itself close keeps delivering — `onOneDone` would already
+      // have closed `merged` on the error, and the next `merged.add` from
+      // either channel throws a StateError into a stream nothing here
+      // catches.
+      subSteps = link.notify(kPineTimeStepCountChar).listen(
+        merged.add,
+        onDone: onOneDone,
+        onError: (Object _) => onOneDone(),
+        cancelOnError: true,
+      );
+      subHr = link.notify(kHeartRateMeasurementUuid).listen(
+        merged.add,
+        onDone: onOneDone,
+        onError: (Object _) => onOneDone(),
+        cancelOnError: true,
+      );
       await for (final (_, value) in merged.stream) {
         final bytes = Uint8List.fromList(value);
         if (bytes.isEmpty) continue;
@@ -76,8 +83,8 @@ class PineTimeAdapter extends BandAdapter {
         yield SampleBatch(const [], raw: [bytes], ephemeral: false);
       }
     } finally {
-      await subSteps.cancel();
-      await subHr.cancel();
+      await subSteps?.cancel();
+      await subHr?.cancel();
     }
     // No OffloadCheckpoint: nothing here trims a flash on our ACK, and there
     // is no flash to trim from our side of the wire — the watch just streams
