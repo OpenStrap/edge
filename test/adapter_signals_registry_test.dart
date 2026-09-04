@@ -14,6 +14,7 @@ import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
 import 'package:openstrap_edge/ble/adapters/oura.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
+import 'package:openstrap_edge/ble/adapters/ultrahuman.dart';
 import 'package:openstrap_edge/ble/adapters/whoop_gen4.dart';
 
 void main() {
@@ -25,6 +26,7 @@ void main() {
       'gen5': kWhoopGen4Signals,
       'ble_hrs': const BleHrsAdapter().signals,
       'oura': OuraAdapter(key: const [0]).signals,
+      'ultrahuman': UltrahumanAdapter().signals,
     };
 
     // Every registry id is covered above: a NEW adapter must extend this test,
