@@ -955,8 +955,8 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
   ),
   (
     entry: kO2Ring,
-    blurb: 'Pairs and banks what it sends. Nothing is decoded from it yet, '
-        'so no reading from this ring appears anywhere in the app.',
+    blurb: 'Reads its battery, model and serial. No SpO2 or pulse reading '
+        'from the ring itself appears anywhere in the app yet.',
     pick: pairO2Ring,
   ),
 ];

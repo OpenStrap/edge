@@ -995,7 +995,7 @@
   "@devicePickerBlurbRing": {
     "description": "Category row subtitle for the Oura ring."
   },
-  "devicePickerBlurbO2Ring": "Pairs and banks what it sends. Nothing is decoded from it yet.",
+  "devicePickerBlurbO2Ring": "Reads its battery, model and serial. No reading from the ring itself is decoded yet.",
   "@devicePickerBlurbO2Ring": {
     "description": "Category row subtitle for the Wellue O2Ring."
   },

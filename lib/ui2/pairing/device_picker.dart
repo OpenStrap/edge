@@ -271,7 +271,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
       'o2ring' => l?.devicePickerBlurbO2Ring ??
-          'Pairs and banks what it sends. Nothing is decoded from it yet.',
+          'Reads its battery, model and serial. No reading from the ring '
+              'itself is decoded yet.',
       _ => l?.devicePickerBlurbSensor ??
           'A chest strap or armband, for beat timing during a workout.',
     };

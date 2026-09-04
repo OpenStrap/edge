@@ -32,8 +32,12 @@ import 'signals.dart';
 /// One O2Ring session: write INFO, collect whatever answers within
 /// [replyTimeout], archive it all, surface metadata as [BandNote]s, done.
 class O2RingAdapter extends BandAdapter {
-  /// How long to wait for a reply before ending the session. The ring is not
-  /// a store to drain — one request, one window, then disconnect.
+  /// How long to wait for the NEXT fragment before giving up — reset on every
+  /// notification that arrives, not a single fixed budget for the whole
+  /// reassembly. A reply split across several BLE notifications otherwise
+  /// races a fixed window against however long the radio takes to deliver all
+  /// of them, which a real multi-fragment transfer (or a busy test runner)
+  /// can lose without anything having actually gone wrong.
   final Duration replyTimeout;
 
   const O2RingAdapter({this.replyTimeout = const Duration(seconds: 5)});
@@ -58,11 +62,26 @@ class O2RingAdapter extends BandAdapter {
     final buf = <int>[];
     O2RingFrame? frame;
     final done = Completer<void>();
+    Timer? watchdog;
+    void arm() {
+      watchdog?.cancel();
+      watchdog = Timer(replyTimeout, () {
+        if (!done.isCompleted) done.complete();
+      });
+    }
+
     final sub = link.notify(kO2RingNotifyChar).listen(
           (rec) {
             buf.addAll(rec.$2);
             frame ??= parseO2RingFrame(buf);
-            if (frame != null && !done.isCompleted) done.complete();
+            if (frame != null) {
+              if (!done.isCompleted) done.complete();
+            } else {
+              // Incomplete so far — more fragments may still be coming, so the
+              // window starts over rather than counting against a budget the
+              // reassembly itself has no way to know in advance.
+              arm();
+            }
           },
           onDone: () {
             if (!done.isCompleted) done.complete();
@@ -76,7 +95,9 @@ class O2RingAdapter extends BandAdapter {
         link.log('o2ring: the ring would not accept the INFO command.');
         return;
       }
-      await done.future.timeout(replyTimeout, onTimeout: () {});
+      arm();
+      await done.future;
+      watchdog?.cancel();
       if (buf.isEmpty) {
         link.log('o2ring: no reply to INFO within ${replyTimeout.inSeconds}s.');
         return;
@@ -92,9 +113,13 @@ class O2RingAdapter extends BandAdapter {
           if (info.serial != null) yield BandNote('serial', info.serial);
           if (info.files.isNotEmpty) yield BandNote('o2ring_files', info.files.join(','));
         }
+      } else {
+        link.log('o2ring: the reply never assembled into a complete frame; '
+            'archiving what arrived (${buf.length} byte(s)).');
       }
       yield SampleBatch(const [], raw: [Uint8List.fromList(buf)]);
     } finally {
+      watchdog?.cancel();
       await sub.cancel();
     }
     // No OffloadCheckpoint: this build asks for nothing the ring would need

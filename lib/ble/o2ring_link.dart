@@ -68,9 +68,13 @@ class O2RingLink {
   int? get batteryPct => _batteryPct;
   String? get model => _model;
   String? get serial => _serial;
+
+  /// Stored recording file names the ring reported, most recent INFO call.
+  List<String> get files => _files;
   int? _batteryPct;
   String? _model;
   String? _serial;
+  List<String> _files = const <String>[];
 
   BluetoothDevice? _device;
   GattBandLink? _link;
@@ -175,6 +179,10 @@ class O2RingLink {
         if (value is String) _model = value;
       case 'serial':
         if (value is String) _serial = value;
+      case 'o2ring_files':
+        if (value is String) {
+          _files = value.isEmpty ? const <String>[] : value.split(',');
+        }
       default:
         debugPrint('[o2ring] $key = $value');
     }
