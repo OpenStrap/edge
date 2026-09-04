@@ -63,6 +63,21 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The ID115's service.
+const String kId115Service = '00000af0-0000-1000-8000-00805f9b34fb';
+
+/// Host to band, general channel (settings, notifications, bind/unbind).
+const String kId115WriteNormalChar = '00000af6-0000-1000-8000-00805f9b34fb';
+
+/// Band to host, general channel — command replies and unprompted pushes.
+const String kId115NotifyNormalChar = '00000af7-0000-1000-8000-00805f9b34fb';
+
+/// Host to band, the SEPARATE health-data channel (today's activity fetch).
+const String kId115WriteHealthChar = '00000af1-0000-1000-8000-00805f9b34fb';
+
+/// Band to host, the health-data channel's own replies.
+const String kId115NotifyHealthChar = '00000af2-0000-1000-8000-00805f9b34fb';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -438,12 +453,40 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// The ID115, an unbranded OEM board sold under that one storefront name.
+///
+/// NOT framed: no CRC and no inner-record layout the framed machinery's
+/// [BandEntry.innerOpcodeOffset] etc. could describe — see `id115.dart`.
+/// TWO INDEPENDENT CHANNELS, not one: the general channel and the
+/// health-data channel are a separate write/notify pair each, so both notify
+/// characteristics are required — see `id115.dart`'s own header.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and this id is absent from `kDerivableSources` — a paired
+/// board holds a session and archives every frame it sends, and surfaces no
+/// health signal at all.
+const BandEntry kId115 = BandEntry.notify(
+  id: 'id115',
+  label: 'ID115',
+  service: kId115Service,
+  characteristics: <String>[
+    kId115WriteNormalChar,
+    kId115NotifyNormalChar,
+    kId115WriteHealthChar,
+    kId115NotifyHealthChar,
+  ],
+  // No clock this build reads back — every frame is stamped on arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kId115,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +543,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'id115': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no

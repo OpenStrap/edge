@@ -270,6 +270,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      // No localized key: English-only until this one earns one, same as
+      // every other category blurb below the first two.
+      'id115' => 'An unbranded ID115 board. Pairs and banks its raw data; '
+          'nothing is derived from it yet.',
       _ => l?.devicePickerBlurbSensor ??
           'A chest strap or armband, for beat timing during a workout.',
     };
