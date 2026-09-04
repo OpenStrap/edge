@@ -43,9 +43,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura, declaredSignals;
+    show BandEntry, kBandRegistry, kBleHrs, kJyou, kOura, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
+import '../../ble/jyou_link.dart' show JyouLink;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
@@ -951,6 +952,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
   ),
+  (
+    entry: kJyou,
+    blurb: 'Pairs and banks its raw data, but does not derive anything from '
+        'it yet — nobody on this project owns one to verify its numbers '
+        'against.',
+    // Null means the plain notify-class pairing, same as the heart-rate
+    // sensor above.
+    pick: null,
+  ),
 ];
 
 /// Choose which kind of sensor to pair, then hand off to the pairing screen.
@@ -1475,7 +1485,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: s.family == 'oura'
+          ? () => _syncRing(c)
+          : s.family == 'jyou'
+              ? () => _syncJyou(c)
+              : null,
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1501,6 +1515,21 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Pull whatever a Jyou band has streamed since the last connect, now,
+/// because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncJyou(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await JyouLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the band. It has to be nearby, and not connected '
+            'to another app.'),
   ));
 }
 

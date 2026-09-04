@@ -63,6 +63,17 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// A Jyou/Y5-class band's GATT service. No auth, no envelope, no ambiguity
+/// with either rebrand's own service UUID (BFH16, Teclast H30 — a separate,
+/// unbuilt PR), so no scan-time name fallback is needed here.
+const String kJyouService = '000056ff-0000-1000-8000-00805f9b34fb';
+
+/// Host to band, write-with-response. Fixed 10-byte command frames.
+const String kJyouControlChar = '000033f3-0000-1000-8000-00805f9b34fb';
+
+/// Band to host. Variable-length frames tagged by their first byte.
+const String kJyouMeasureChar = '000033f4-0000-1000-8000-00805f9b34fb';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -438,12 +449,33 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// A Jyou/Y5-class band: fixed 10-byte write commands, tag-byte notify
+/// frames, no auth and no envelope. One product family of three that share
+/// this opcode/checksum scheme over different GATT service sets — this entry
+/// is the base Y5 device ONLY; the BFH16 and Teclast H30 rebrands each layer
+/// their own service UUIDs on top and are a separate, unbuilt PR.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). Every decoded
+/// field — HR, steps, blood pressure, SpO2 — is a proprietary on-device
+/// estimate with no accuracy spec behind it, so `kDerivableSources` stays
+/// empty. See `jyou.dart`.
+const BandEntry kJyou = BandEntry.notify(
+  id: 'jyou',
+  label: 'Jyou Band',
+  service: kJyouService,
+  characteristics: <String>[kJyouControlChar, kJyouMeasureChar],
+  // No frame carries the band's own clock; every chunk is stamped on arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kJyou,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +532,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'jyou': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no
