@@ -43,7 +43,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura, declaredSignals;
+    show BandEntry, kBandRegistry, kBleHrs, kOura, kBangleJs, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
@@ -773,6 +773,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' => LucideIcons.circleDot,
+      'banglejs' => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -950,6 +951,14 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kBangleJs,
+    blurb: 'Pairs any Espruino/Nordic-UART device generically, not just '
+        'Bangle.js-branded watches. Banks raw bytes only; nothing is decoded '
+        'into a number.',
+    // Plain notify-class pairing — no handshake to run at pick time.
+    pick: null,
   ),
 ];
 

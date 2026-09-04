@@ -63,6 +63,24 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// Nordic's UART Service — a public vendor spec used as a generic
+/// serial-over-BLE pipe, not a protocol any one product owns. NOT unique to
+/// Bangle.js: Puck.js, Pixl.js, MDBT42Q and any other Espruino/Nordic dev
+/// board answers the same UUID, and nothing in the notify-class pairing scan
+/// narrows on a name — [kBangleJs] pairs whatever advertises this service.
+/// [kBangleJs]'s own doc, and the pairing blurb a user actually sees, say so
+/// plainly rather than imply a precision this entry does not have.
+const String kNordicUartService = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Host writes here ("RX" on the peripheral side). Plain text, no envelope,
+/// no length field, no CRC.
+const String kNordicUartRxChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Peripheral notifies here ("TX" on the peripheral side). Plain text — a
+/// line is only `\n`-terminated when something on the watch decides to print
+/// one, which this adapter never assumes.
+const String kNordicUartTxChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -438,12 +456,46 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// Bangle.js: no byte-level record protocol at all. It exposes Nordic's UART
+/// Service, a generic serial-over-BLE pipe, behind which runs a full Espruino
+/// JavaScript REPL — the phone writes JS source text, the watch executes it
+/// and prints text back. There is no auth, no crypto, no envelope, no CRC, no
+/// length field and no opcode byte: a "record" here is whatever the currently
+/// running JS app decides to print, terminated (or not) by `\n`.
+///
+/// Activity/HR/notification data only exists as JSON lines a user has to
+/// separately install a third-party JS app to emit — that app's message
+/// schema is not a firmware-level fact, it is a moving target owned by a
+/// different, independently-versioned project a given watch may or may not be
+/// running. So this entry pairs, connects and banks raw bytes only; see
+/// `banglejs.dart` for the adapter.
+///
+/// [kNordicUartService] is not unique to Bangle.js — see its own doc. This
+/// entry pairs anything advertising it, with no name-based narrowing; the
+/// pairing screen's blurb says so to the user rather than implying a
+/// precision this entry does not have.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so not
+/// a byte of this path has met hardware (ASSUMPTIONS R6). `kDerivableSources`
+/// stays empty — decodable later only against firmware-level facts someone
+/// with real hardware has verified, never against the companion app's JSON.
+const BandEntry kBangleJs = BandEntry.notify(
+  id: 'banglejs',
+  label: 'Bangle.js',
+  service: kNordicUartService,
+  characteristics: <String>[kNordicUartRxChar, kNordicUartTxChar],
+  // No clock readback path exists over this pipe; every chunk is stamped on
+  // arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kBangleJs,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +552,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'banglejs': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no
