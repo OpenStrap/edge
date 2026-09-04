@@ -1815,8 +1815,17 @@ class DeviceDetailView extends StatelessWidget {
                         Divider(color: p.line, height: 1),
                         SetRow(LucideIcons.downloadCloud, C.blue,
                             l?.devicesSyncNow ?? 'Sync now',
+                            // Only Oura genuinely fetches held history off a
+                            // cursor; every other `onSync` wired today is a
+                            // bounded listen window with no request and no
+                            // stored-history drain — see e.g.
+                            // `XWatchLink.sync()`. Claiming a "fetch" for
+                            // those would be a promise the connect does not
+                            // keep.
                             sub: l?.devicesSyncNowSub ??
-                                'Fetch whatever it has been holding',
+                                (s.family == 'oura'
+                                    ? 'Fetch whatever it has been holding'
+                                    : 'Listen for whatever it sends right now'),
                             onTap: onSync),
                       ],
                     ]),
