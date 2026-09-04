@@ -117,6 +117,21 @@ void main() {
         hasLength(1));
   });
 
+  test('a false preamble drops only its own start byte, never a real frame '
+      'hiding inside its claimed length', () async {
+    // `AB 00 03 AB 00 ...` — a false preamble (buf[3]=0xAB, not 0xFF) whose
+    // claimed 6-byte span swallows a REAL preamble sitting at its own index
+    // 3-4. Removing the whole 6-byte span (the bug) deletes that real
+    // preamble along with the noise; removing only the first byte (the fix)
+    // leaves it for the next scan to find.
+    final buf = <int>[0xAB, 0x00, 0x03, ...kBatteryReply];
+    final events = await replay(
+      (link) => link.feed(kDt78NotifyChar, buf, atSec: 1),
+    );
+    expect(events.whereType<BandNote>().where((n) => n.key == 'battery'),
+        hasLength(1));
+  });
+
   test('never emits an OffloadCheckpoint — this protocol has no trim-on-ack',
       () async {
     final events = await replay(

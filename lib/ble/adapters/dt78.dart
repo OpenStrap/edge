@@ -94,19 +94,23 @@ class _Dt78Reader {
       }
       final total = 3 + len;
       if (_buf.length < total) break; // waiting on the rest of this frame
-      final frame = Uint8List.fromList(_buf.sublist(0, total));
-      _buf.removeRange(0, total);
-      if (frame[3] == 0xFF) {
+      if (_buf[3] == 0xFF) {
+        final frame = Uint8List.fromList(_buf.sublist(0, total));
+        _buf.removeRange(0, total);
         out.add(Dt78Frame(
           frame[4],
           frame[5],
           frame.sublist(6),
           frame,
         ));
+      } else {
+        // The length happened to land on something that is not really a
+        // frame boundary. Drop only the false preamble's start byte, NOT the
+        // whole `total`-byte window — a real frame can be hiding anywhere
+        // inside it, and discarding the lot would eat it along with the
+        // noise. The loop resumes scanning from the next candidate.
+        _buf.removeAt(0);
       }
-      // else: the length happened to land on something that is not really a
-      // frame boundary — dropped, and the loop resumes scanning from
-      // whatever preamble candidate is left in the buffer.
     }
     return out;
   }
@@ -154,11 +158,21 @@ class Dt78Adapter extends BandAdapter {
       // One poll each, fire-and-forget — a refused write just means that
       // one reply never arrives, not a reason to end the session. Device
       // info and battery first (matching both reference clients' own
-      // connect-time behaviour), then the health bundle and steps.
-      await link.write(kDt78WriteChar, buildDt78Poll(0x92, 0x80));
-      await link.write(kDt78WriteChar, buildDt78Poll(0x91, 0x80));
-      await link.write(kDt78WriteChar, buildDt78Poll(0x32, 0x01));
-      await link.write(kDt78WriteChar, buildDt78Poll(0x51, 0x80));
+      // connect-time behaviour), then the health bundle and steps. Each
+      // write is its own try/catch so a thrown refusal cannot abort the
+      // remaining polls or the notify loop below.
+      for (final poll in <List<int>>[
+        buildDt78Poll(0x92, 0x80),
+        buildDt78Poll(0x91, 0x80),
+        buildDt78Poll(0x32, 0x01),
+        buildDt78Poll(0x51, 0x80),
+      ]) {
+        try {
+          await link.write(kDt78WriteChar, poll);
+        } catch (_) {
+          // A refused/thrown poll costs one reply, never the session.
+        }
+      }
 
       await for (final f in frames.stream) {
         switch (f.cmd) {
