@@ -66,6 +66,7 @@ import 'ble_state.dart'
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
 import 'oura_link.dart' show OuraLink;
+import 'withings_steel_hr_link.dart' show WithingsSteelHrLink;
 
 export 'adapters/host.dart' show HrsReading;
 
@@ -569,7 +570,10 @@ class HrsLink {
   /// DISPATCHES ON `adapter_id` BEFORE TOUCHING ANYTHING. An Oura row carries
   /// a secret this class knows nothing about — [OuraLink.forgetRing] drops the
   /// stored key and the row together, and calling `disarm()` on it here would
-  /// leave that key behind while looking like a complete forget.
+  /// leave that key behind while looking like a complete forget. A Withings
+  /// row has no secret to lose, but [WithingsSteelHrLink.forgetDevice] still
+  /// owns stopping ITS OWN live session before the row goes — `disarm()` here
+  /// only knows about this class's own connection, not that one.
   static Future<void> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[hrs] refusing to forget the primary band from here.');
@@ -580,6 +584,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kWithingsSteelHr.id) {
+      await WithingsSteelHrLink.forgetDevice(id);
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows

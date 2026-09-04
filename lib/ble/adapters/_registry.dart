@@ -53,6 +53,12 @@ import 'signals.dart';
 const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
 const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
 
+/// Withings Steel HR / Activité's GATT service. One characteristic, both
+/// directions: commands are written to it, every reply arrives as a
+/// notification on the same UUID.
+const String kWithingsSteelHrService = '00000020-5749-5448-0037-000000000000';
+const String kWithingsWriteChar = '00000024-5749-5448-0037-000000000000';
+
 /// The Oura ring's GATT service, identical across the generations seen so far.
 const String kOuraService = '98ed0001-a541-11e4-b6a0-0002a5d5c51b';
 
@@ -438,12 +444,35 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// Withings Steel HR / Activité. A challenge-response session gate, never
+/// payload encryption — see `withings_steel_hr.dart` for the handshake and
+/// [WithingsSteelHrAdapter.firstConnect] for why a fresh pairing skips it.
+/// Matched by advertised name (`startsWith('steel')` or `startsWith(
+/// 'activite')`, case-insensitive) is a pairing-UI concern, not a scan
+/// filter — the custom service UUID above is already unambiguous.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one yet,
+/// so not a byte of this path has met hardware (ASSUMPTIONS R6). It pairs,
+/// connects and banks every reply raw; `kDerivableSources` stays empty until
+/// someone has actually held one.
+const BandEntry kWithingsSteelHr = BandEntry.notify(
+  id: 'withings_steel_hr',
+  label: 'Withings Steel HR',
+  service: kWithingsSteelHrService,
+  characteristics: <String>[kWithingsWriteChar],
+  // Nothing here decodes a signal, let alone one with a clock of its own;
+  // every archived frame is stamped on arrival like every other unproven
+  // notify-class band.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kWithingsSteelHr,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +529,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'withings_steel_hr': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no

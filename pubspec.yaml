@@ -342,6 +342,11 @@ dependencies:
   # HMAC but no AEAD, which is the one primitive that must not be improvised.
   pointycastle: ^3.9.1
 
+  # The Withings Steel HR / Activité challenge proof is a plain SHA1, not a
+  # cipher — declared directly now that `lib/ble/adapters/withings_steel_hr.dart`
+  # imports it, rather than riding along as transitive.
+  crypto: ^3.0.3
+
   # Background scheduled derivation (the heavy nightly pass: sleep staging +
   # 24-h spectra). Android: a real OS-scheduled WorkManager job. iOS: see the
   # honest caveat in lib/compute/background_derivation.dart — app-killed heavy
