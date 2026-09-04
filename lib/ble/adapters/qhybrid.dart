@@ -58,6 +58,18 @@ class QHybridAdapter extends BandAdapter {
     final raw = StreamController<BandEvent>();
     final subs = <StreamSubscription<Object?>>[];
 
+    // Set the INSTANT a valid reply arrives, never inferred from
+    // `probeReply.isCompleted` — that completer settles once `run` has moved
+    // on to await it, which is a later moment than the reply landing. Every
+    // notification received before this is true is DROPPED, not merely
+    // withheld: a `raw` fed before anyone is confirmed to listen only drains
+    // once something subscribes, and on the abstain path nothing ever does
+    // (see the header on `raw.close()` below) — so banking pre-confirmation
+    // frames either leaks bytes that predate knowing this is even the right
+    // protocol, or, on a successful probe, contradicts "nothing is banked
+    // until the probe confirms" by surfacing them anyway once it does.
+    var confirmed = false;
+
     for (final uuid in entry.requiredCharacteristics) {
       subs.add(link.notify(uuid).listen((rec) {
         final (_, value) = rec;
@@ -66,9 +78,11 @@ class QHybridAdapter extends BandAdapter {
             value.length >= 3 &&
             value[0] == 3 &&
             value[1] == 8) {
+          confirmed = true;
           probeReply.complete(true);
           return;
         }
+        if (!confirmed) return;
         raw.add(SampleBatch(const [], raw: [Uint8List.fromList(value)]));
       }));
     }

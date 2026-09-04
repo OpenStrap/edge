@@ -25,6 +25,13 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(link.writes, [(kQHybridControlChar, const [1, 8])]);
 
+    // A frame arriving before the probe is answered — the encrypted sibling
+    // protocol replying to something unrelated, say. It must not survive
+    // confirmation: it arrived while nobody yet knew this was even the right
+    // protocol.
+    link.feed(kQHybridButtonChar, const [7, 7, 7], atSec: 1_799_999_999);
+    await Future<void>.delayed(Duration.zero);
+
     link.feed(kQHybridControlChar, const [3, 8, 61], atSec: 1_800_000_000);
     await Future<void>.delayed(Duration.zero);
     // A button press, then a chunk on the file-download characteristic —

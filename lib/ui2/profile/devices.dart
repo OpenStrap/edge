@@ -47,6 +47,7 @@ import '../../ble/adapters/_registry.dart'
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/qhybrid_link.dart' show pairQHybrid;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -956,10 +957,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     entry: kQHybrid,
     blurb: 'The original Fossil/Skagen hybrid smartwatch line, not the newer '
         'Hybrid HR. Pairs and connects; nothing derives from it yet.',
-    // Plain notify-class pairing, same as the heart-rate strap above — the
+    // NOT plain notify-class pairing (`pick: null`): unlike a heart-rate
+    // strap, which a workout arms, or Oura, which has its own re-runnable
+    // sync, this band has no ongoing use — nothing derives from it, so
+    // nothing ever arms or syncs it again after the `device` row exists.
+    // `pairQHybrid` is what makes pairing the one real session it gets: the
     // adapter's own battery-probe confirms it is this protocol, not the
-    // encrypted Hybrid HR sibling, once connected.
-    pick: null,
+    // encrypted Hybrid HR sibling, and whatever it answers in the bounded
+    // window right after is what gets archived — see `qhybrid_link.dart`.
+    pick: pairQHybrid,
   ),
 ];
 
