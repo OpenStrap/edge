@@ -63,6 +63,18 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The HPlus reference GATT service — one service shared across a whole
+/// family of low-cost wrist bands, not one product.
+const String kHPlusService = '14701820-620a-3973-7c78-9cfff0876abd';
+
+/// Host to band. Every HPlus command is written here, plaintext, no
+/// response required by the device.
+const String kHPlusControlChar = '14702856-620a-3973-7c78-9cfff0876abd';
+
+/// Band to host. Every notification — realtime stats, firmware version,
+/// sleep and day-summary records — shares this one characteristic.
+const String kHPlusMeasureChar = '14702853-620a-3973-7c78-9cfff0876abd';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -438,12 +450,36 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// The HPlus reference profile — HPlus itself and every OEM re-skin sharing
+/// its firmware (same service, same two characteristics, same command byte).
+///
+/// Plaintext vendor command channel: no bonding, no encryption, no key
+/// material anywhere in the protocol. Unlike every other notify-only entry
+/// above, this band does not answer at all until a short init sequence has
+/// been written to it; see `hplus.dart` for what that sequence is and the one
+/// thing about it nobody has confirmed.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so not
+/// a byte of this path has met hardware (ASSUMPTIONS R6). It pairs, connects,
+/// and banks every reply raw; `kDerivableSources` stays empty until someone
+/// has actually held one.
+const BandEntry kHPlus = BandEntry.notify(
+  id: 'hplus',
+  label: 'HPlus HR band',
+  service: kHPlusService,
+  characteristics: <String>[kHPlusControlChar, kHPlusMeasureChar],
+  // No clock in any channel this adapter reads; every frame is stamped on
+  // arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kHPlus,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +536,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'hplus': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no

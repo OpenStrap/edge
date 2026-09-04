@@ -497,9 +497,15 @@ class HrsLink {
   /// that DOES need a key exchange supplies its own step to the screen and
   /// never calls this.
   ///
-  /// [tier] defaults to the strap's, and a band whose measurement quality
-  /// differs must say so rather than inherit it — the tier is what decides
-  /// precedence between two sources, so a wrong one is a silent wrong number.
+  /// [tier] defaults to null and is only worth passing explicitly when a
+  /// caller knows better than the entry's own declared signals. Left null, it
+  /// is derived from [declaredSignals]: `'beatToBeat'` for a strap that
+  /// actually declares one (today, only [kBleHrs]), null for anything that
+  /// declares none — same "NULL is a refusal, not a default" rule
+  /// `oura_link.dart` states for its own row. A band whose measurement
+  /// quality differs from that must say so rather than inherit it — the tier
+  /// is what decides precedence between two sources, so a wrong one is a
+  /// silent wrong number.
   ///
   /// Nothing is written unless the peripheral passed the characteristic check:
   /// a row pointing at a device that cannot answer is a sensor that appears
@@ -508,7 +514,7 @@ class HrsLink {
     BandEntry entry,
     BluetoothDevice device, {
     String? label,
-    String tier = 'beatToBeat',
+    String? tier,
   }) async {
     try {
       await device.connect(timeout: _connectTimeout);
@@ -538,7 +544,7 @@ class HrsLink {
         adapterId: entry.id,
         remoteId: device.remoteId.str,
         label: label,
-        tier: tier,
+        tier: tier ?? (declaredSignals(entry.id).isEmpty ? null : 'beatToBeat'),
       );
       return null;
     } catch (e) {

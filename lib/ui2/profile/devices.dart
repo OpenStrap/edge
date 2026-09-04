@@ -43,10 +43,11 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura, declaredSignals;
+    show BandEntry, kBandRegistry, kBleHrs, kHPlus, kOura, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/hplus_link.dart' show HPlusLink;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -773,6 +774,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' => LucideIcons.circleDot,
+      'hplus' => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -950,6 +952,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kHPlus,
+    blurb: 'A generic HPlus-family HR band (HPlus, Makibes F68, Zeblaze and '
+        'similar). No account, no handshake — it pairs and banks what it '
+        'sends, but nothing is decoded into a number yet.',
+    // Null: no auth step, so the plain notify-class pairing is the whole of
+    // what this band needs — same as [kBleHrs].
+    pick: null,
   ),
 ];
 
@@ -1475,7 +1486,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: s.family == 'oura'
+          ? () => _syncRing(c)
+          : s.family == 'hplus'
+              ? () => _syncHPlus(c)
+              : null,
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1501,6 +1516,24 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Connect to the band, now, because the user asked. Same "one sentence
+/// either way" shape as [_syncRing] — a sync that reached the band and one
+/// that could not are different remedies for the user.
+Future<void> _syncHPlus(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await HPlusLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the band. It has to be nearby, and not connected '
+            'to another app.'),
   ));
 }
 
