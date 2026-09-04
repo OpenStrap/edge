@@ -63,6 +63,18 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The DT78/DT92/DT66 family's service — a Nordic UART Service instance, and
+/// NOT a fingerprint: this exact triple is reused by unrelated gadgets (see
+/// `kDt78`'s own doc comment below).
+const String kDt78Service = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Host to watch, write-without-response in both reference clients.
+const String kDt78WriteChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Watch to host, notify. Every reply and every unprompted push share this
+/// one characteristic.
+const String kDt78NotifyChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -438,12 +450,39 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// DT78 / DT92 / DT66 and the wider tail of WearFit-2.0-compatible OEM clones
+/// that share this exact service — one Nordic UART instance, no envelope, no
+/// checksum, no auth (`dt78.dart`'s own header has the worked byte examples).
+///
+/// The service/characteristic UUIDs are the generic Nordic UART reference
+/// triple, reused by large numbers of unrelated gadgets across many
+/// unaffiliated device families — so unlike gen4's `nameMatcher` there is no
+/// reliable advertised name to key on across resellers. The scan matches on
+/// service only; the picker surfaces a hit by its advertised name and lets
+/// the user confirm.
+///
+/// [TimeAnchor.arrival]: nothing in either reference client reads this
+/// watch's clock back, so there is no measured origin to anchor a reading to.
+///
+/// EXPERIMENTAL: nobody on this project owns one (ASSUMPTIONS R6). `signals`
+/// is `const {}` and `kDerivableSources` never gets this id — heart rate,
+/// SpO2, blood pressure, steps and sleep are all readable at fixed opcodes
+/// and none of it is decoded.
+const BandEntry kDt78 = BandEntry.notify(
+  id: 'dt78',
+  label: 'DT78 / DT92 / DT66',
+  service: kDt78Service,
+  characteristics: <String>[kDt78WriteChar, kDt78NotifyChar],
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kDt78,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -471,10 +510,11 @@ BandEntry bandEntryFor(BandProfile wire) =>
 /// `signals` getter is a plain literal with no computed dependency, so this
 /// maps straight to the declared signals instead of a constructed instance —
 /// KEPT IN SYNC BY HAND with `whoop_gen4.dart`'s `kWhoopGen4Signals`,
-/// `ble_hrs.dart`'s `BleHrsAdapter.signals` and `oura.dart`'s
-/// `OuraAdapter.signals`, since importing those three back into this file
-/// (each of which already imports THIS file for its `BandEntry`) would be a
-/// needless import cycle for three lines of data.
+/// `ble_hrs.dart`'s `BleHrsAdapter.signals`, `oura.dart`'s
+/// `OuraAdapter.signals` and `dt78.dart`'s `Dt78Adapter.signals`, since
+/// importing those back into this file (each of which already imports THIS
+/// file for its `BandEntry`) would be a needless import cycle for a few
+/// lines of data.
 ///
 /// gen5 reuses gen4's map: `kWhoopGen5`'s own doc comment states "same inner
 /// payload layout as gen4 — only the envelope differs", so gen4's declared
@@ -500,6 +540,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'dt78': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no
