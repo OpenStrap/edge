@@ -763,6 +763,18 @@
   "@devicesCouldNotReachRing": {
     "description": "Snackbar: sync failed."
   },
+  "devicesConnectingZeTime": "Connecting…",
+  "@devicesConnectingZeTime": {
+    "description": "Snackbar: connecting to the ZeTime."
+  },
+  "devicesConnectedZeTime": "Connected.",
+  "@devicesConnectedZeTime": {
+    "description": "Snackbar: ZeTime connect succeeded."
+  },
+  "devicesCouldNotReachZeTime": "Could not reach the watch. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachZeTime": {
+    "description": "Snackbar: ZeTime connect failed."
+  },
   "deviceFilterAllDevices": "All devices",
   "@deviceFilterAllDevices": {
     "description": "First pill in a metric screen's per-device filter — the merged view."
@@ -998,6 +1010,10 @@
   "devicePickerBlurbSensor": "A chest strap or armband, for beat timing during a workout.",
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
+  },
+  "devicePickerBlurbZeTime": "Pairs and connects. Nothing is decoded from it yet beyond its own battery level.",
+  "@devicePickerBlurbZeTime": {
+    "description": "Category row subtitle for the MyKronoz ZeTime."
   },
   "devicePickerCannotPairFromHere": "That device cannot be paired from this screen.",
   "@devicePickerCannotPairFromHere": {

@@ -1522,15 +1522,18 @@ Future<void> _syncRing(BuildContext c) async {
 /// [_syncRing]: a silent no-op looks identical to a watch with nothing to
 /// give, and those need different remedies.
 Future<void> _syncZeTime(BuildContext c) async {
+  final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Connecting…')));
+  messenger?.showSnackBar(SnackBar(
+      content: Text(l?.devicesConnectingZeTime ?? 'Connecting…')));
   final ok = await ZeTimeLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
-        ? 'Connected.'
-        : 'Could not reach the watch. It has to be nearby, and not connected '
-            'to another app.'),
+        ? (l?.devicesConnectedZeTime ?? 'Connected.')
+        : (l?.devicesCouldNotReachZeTime ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
   ));
 }
 

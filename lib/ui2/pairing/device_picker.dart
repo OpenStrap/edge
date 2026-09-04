@@ -270,11 +270,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
-      // No l10n key: this is the newest notify-class entry and every other
-      // string on this switch predates the l10n pass that gave the rest of
-      // this screen keys, not a rule that it needs one from day one.
-      'zetime' => 'Pairs and connects. Nothing is decoded from it yet beyond '
-          'its own battery level.',
+      'zetime' => l?.devicePickerBlurbZeTime ??
+          'Pairs and connects. Nothing is decoded from it yet beyond its own '
+              'battery level.',
       _ => l?.devicePickerBlurbSensor ??
           'A chest strap or armband, for beat timing during a workout.',
     };
