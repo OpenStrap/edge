@@ -45,6 +45,7 @@ import 'package:provider/provider.dart';
 import '../../ble/adapters/_registry.dart'
     show BandEntry, kBandRegistry, kBleHrs, kDt78, kOura, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
+import '../../ble/dt78_link.dart' show Dt78Link;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
@@ -773,6 +774,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' => LucideIcons.circleDot,
+      'dt78' => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -1484,7 +1486,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: s.family == 'oura'
+          ? () => _syncRing(c)
+          : s.family == 'dt78'
+              ? () => _syncDt78(c)
+              : null,
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1510,6 +1516,29 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Connect and bank the watch's raw bytes, now, because the user asked. Same
+/// shape as [_syncRing] — a separate family behind a separate link, same
+/// reason a sync that did nothing needs to say so.
+Future<void> _syncDt78(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  // `devicesSyncing`/`devicesSynced` are genuinely generic ("Syncing"/
+  // "Synced."), unlike `devicesSyncingTheRing`/`devicesCouldNotReachRing`,
+  // which name the ring by copy — reusing those here would show the wrong
+  // device in the snack bar, so the failure sentence stays untranslated
+  // rather than borrowing one that says the wrong thing.
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await Dt78Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the watch. It has to be nearby, and not connected '
+            'to another app.'),
   ));
 }
 
