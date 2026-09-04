@@ -11897,6 +11897,46 @@
   "@signalVendorScalars": {
     "description": "Human name for the vendorScalars input signal."
   },
+  "missingSignalRrIntervals": "no beat-to-beat intervals",
+  "@missingSignalRrIntervals": {
+    "description": "Sub-label on a device that cannot serve a metric because its hardware does not report beat-to-beat intervals. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalHr1Hz": "no continuous heart rate",
+  "@missingSignalHr1Hz": {
+    "description": "Sub-label on a device that cannot serve a metric because its hardware does not report continuous heart rate. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalHrSparse": "no heart rate",
+  "@missingSignalHrSparse": {
+    "description": "Sub-label on a device that cannot serve a metric because its hardware does not report heart rate at all. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalAccel1Hz": "no accelerometer",
+  "@missingSignalAccel1Hz": {
+    "description": "Sub-label on a device that cannot serve a metric because it has no accelerometer. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalAccelHighRate": "no high-rate accelerometer",
+  "@missingSignalAccelHighRate": {
+    "description": "Sub-label on a device that cannot serve a metric because its accelerometer does not report at a high sample rate. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalPpgGreen": "no green PPG",
+  "@missingSignalPpgGreen": {
+    "description": "Sub-label on a device that cannot serve a metric because it has no green photoplethysmography (optical) sensor. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalPpgRedIr": "no red/infrared PPG",
+  "@missingSignalPpgRedIr": {
+    "description": "Sub-label on a device that cannot serve a metric because it has no red or infrared photoplethysmography (optical) sensor. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalSkinTempRaw": "no temperature sensor",
+  "@missingSignalSkinTempRaw": {
+    "description": "Sub-label on a device that cannot serve a metric because it has no skin temperature sensor. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalVendorScalars": "reports nothing of its own",
+  "@missingSignalVendorScalars": {
+    "description": "Sub-label on a device that cannot serve a metric because it publishes no pre-computed numbers of its own (only raw sensor signals). Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalUnknown": "cannot supply this",
+  "@missingSignalUnknown": {
+    "description": "Fallback sub-label on a device that cannot serve a metric when no specific missing sensor can be named. Lower case: it is appended after the device name and a middle dot."
+  },
   "devicesSensorLimit": "{count, plural, =1{One sensor is the most this phone will pair alongside your band. Remove it to add another.} other{This phone will pair at most {count} sensors alongside your band. Remove one to add another.}}",
   "@devicesSensorLimit": {
     "description": "Refusal shown when the paired-sensor cap is already reached.",

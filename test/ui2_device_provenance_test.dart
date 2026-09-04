@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
+import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/data/db.dart' show LocalDb;
 import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
@@ -48,15 +49,36 @@ HealthSource _hrs() => const HealthSource(
       family: 'ble_hrs',
     );
 
+/// A [test] that hands its body a real, LOCALIZED [BuildContext].
+///
+/// `candidatesFromSources` takes one now, purely to translate a rejected
+/// device's `reason` — nothing about which devices qualify depends on it, so
+/// this stays the pure-function suite it was. Wired to the real delegates
+/// rather than a bare context so the strings asserted below are the ones a
+/// user actually reads, not the English fallbacks behind them.
+void contextTest(String name, void Function(BuildContext c) body) =>
+    testWidgets(name, (t) async {
+      late BuildContext ctx;
+      await t.pumpWidget(MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Builder(builder: (c) {
+          ctx = c;
+          return const SizedBox();
+        }),
+      ));
+      body(ctx);
+    });
+
 void main() {
   // Test 1: single band — every metric's requires (empty or not) yields
   // fewer than two candidates. This IS the protected case, machine-checked.
-  test('signalCandidates: fewer than two candidates on a single band, '
-      'for every metric key', () {
+  contextTest('signalCandidates: fewer than two candidates on a single band, '
+      'for every metric key', (c) {
     final sources = [_band()];
     for (final key in _keys) {
       final spec = specOf(key);
-      final out = candidatesFromSources(sources, requires: spec.requires);
+      final out = candidatesFromSources(c, sources, requires: spec.requires);
       expect(out.length, lessThan(2), reason: key);
     }
   });
@@ -64,12 +86,12 @@ void main() {
   // Test 2: WHOOP + Oura. OuraAdapter declares nothing, so every metric sees
   // exactly one candidate (the band) — the declaration mechanism gates it,
   // not a hand-written exclusion.
-  test('signalCandidates: WHOOP + Oura yields one candidate for every '
-      'metric', () {
+  contextTest('signalCandidates: WHOOP + Oura yields one candidate for every '
+      'metric', (c) {
     final sources = [_band(), _oura()];
     for (final key in _keys) {
       final spec = specOf(key);
-      final out = candidatesFromSources(sources, requires: spec.requires);
+      final out = candidatesFromSources(c, sources, requires: spec.requires);
       if (spec.requires.isEmpty) {
         expect(out, isEmpty, reason: key);
       } else {
@@ -83,15 +105,15 @@ void main() {
   // (the §0 deviation, pinned so a future reader sees it was deliberate);
   // readiness needs hr1Hz/accel1Hz/skinTempRaw too, which the strap lacks, so
   // it stays at one.
-  test('signalCandidates: WHOOP + HRS yields two for hrv, one for readiness',
-      () {
+  contextTest('signalCandidates: WHOOP + HRS yields two for hrv, one for '
+      'readiness', (c) {
     final sources = [_band(), _hrs()];
-    final hrv = candidatesFromSources(sources, requires: specOf('hrv').requires);
+    final hrv = candidatesFromSources(c, sources, requires: specOf('hrv').requires);
     expect(hrv.length, 2);
     expect(hrv.every((o) => o.selectable), isTrue);
 
     final readiness =
-        candidatesFromSources(sources, requires: specOf('readiness').requires);
+        candidatesFromSources(c, sources, requires: specOf('readiness').requires);
     expect(readiness.length, 2);
     final strapOption =
         readiness.firstWhere((o) => o.deviceId == 'ble_hrs-0a1b2c3d');
@@ -130,11 +152,14 @@ void main() {
 
   // Test 7: missingSignalReason names every InputSignal member, so adding an
   // enum member fails here rather than silently rendering the generic phrase.
-  test('missingSignalReason: a phrase for every InputSignal member', () {
+  contextTest('missingSignalReason: a phrase for every InputSignal member',
+      (c) {
     for (final s in InputSignal.values) {
-      expect(missingSignalReason({s}), isNot('cannot supply this'),
+      expect(missingSignalReason(c, {s}), isNot('cannot supply this'),
           reason: s.name);
     }
+    // And the empty set is the only thing that reaches the generic phrase.
+    expect(missingSignalReason(c, const {}), 'cannot supply this');
   });
 
   test('contendedSignalsOf: empty on a single band', () {

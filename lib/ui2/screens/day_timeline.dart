@@ -721,7 +721,7 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     try {
       final d = await TimelineData.load(repo, want: _day, l: l);
       final candidates = mounted
-          ? signalCandidates(context.read<AppState>(),
+          ? signalCandidates(context, context.read<AppState>(),
               requires: {InputSignal.hr1Hz})
           : const <DeviceOption>[];
       if (mounted && token == _loadToken) {

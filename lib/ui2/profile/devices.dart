@@ -430,21 +430,40 @@ String signalDisplayName(BuildContext c, InputSignal s) {
 /// Generated, never written per device per metric: it stays true when an
 /// adapter's declarations change and it costs nothing at the fortieth device.
 /// One phrase per [InputSignal] — the physical absence, not the metric.
-String missingSignalReason(Set<InputSignal> missing) {
-  const words = {
-    InputSignal.rrIntervals: 'no beat-to-beat intervals',
-    InputSignal.hr1Hz: 'no continuous heart rate',
-    InputSignal.hrSparse: 'no heart rate',
-    InputSignal.accel1Hz: 'no accelerometer',
-    InputSignal.accelHighRate: 'no high-rate accelerometer',
-    InputSignal.ppgGreen: 'no green PPG',
-    InputSignal.ppgRedIr: 'no red/infrared PPG',
-    InputSignal.skinTempRaw: 'no temperature sensor',
-    InputSignal.vendorScalars: 'reports nothing of its own',
-  };
+///
+/// Takes a [BuildContext] for the same reason [signalDisplayName] does: this
+/// is rendered to the user, as a disabled pill's sub-label, so it is translated
+/// like every other sentence on the screen. And NOT by reusing
+/// [signalDisplayName]: "no accelerometer" and "no temperature sensor" name the
+/// hardware, where the display names ("Movement", "Skin temperature") name what
+/// the user reads off it — the distinction this doc comment's last line is
+/// about. A `switch` with no `default` for the same reason as well: a new
+/// [InputSignal] member is a compile error here rather than a device silently
+/// explaining itself as "cannot supply this".
+String missingSignalReason(BuildContext c, Set<InputSignal> missing) {
+  final l = AppLocalizations.of(c);
+  String words(InputSignal s) => switch (s) {
+        InputSignal.rrIntervals =>
+          l?.missingSignalRrIntervals ?? 'no beat-to-beat intervals',
+        InputSignal.hr1Hz =>
+          l?.missingSignalHr1Hz ?? 'no continuous heart rate',
+        InputSignal.hrSparse => l?.missingSignalHrSparse ?? 'no heart rate',
+        InputSignal.accel1Hz => l?.missingSignalAccel1Hz ?? 'no accelerometer',
+        InputSignal.accelHighRate =>
+          l?.missingSignalAccelHighRate ?? 'no high-rate accelerometer',
+        InputSignal.ppgGreen => l?.missingSignalPpgGreen ?? 'no green PPG',
+        InputSignal.ppgRedIr =>
+          l?.missingSignalPpgRedIr ?? 'no red/infrared PPG',
+        InputSignal.skinTempRaw =>
+          l?.missingSignalSkinTempRaw ?? 'no temperature sensor',
+        InputSignal.vendorScalars =>
+          l?.missingSignalVendorScalars ?? 'reports nothing of its own',
+      };
   // Ordered by the enum so two devices missing the same pair read identically.
-  final parts = [for (final s in InputSignal.values) if (missing.contains(s)) words[s]!];
-  return parts.isEmpty ? 'cannot supply this' : parts.first;
+  final parts = [for (final s in InputSignal.values) if (missing.contains(s)) s];
+  return parts.isEmpty
+      ? (l?.missingSignalUnknown ?? 'cannot supply this')
+      : words(parts.first);
 }
 
 /// The devices that could serve [requires], newest-facts-only: a registry
@@ -453,11 +472,15 @@ String missingSignalReason(Set<InputSignal> missing) {
 ///
 /// SUPERSET test. A device qualifies only when its adapter declares every one
 /// of [requires] — see `MetricSpec.requires`.
+///
+/// [c] is only ever used to translate a rejected device's `reason` — see
+/// [missingSignalReason]. Nothing about WHICH devices qualify depends on it.
 List<DeviceOption> signalCandidates(
+  BuildContext c,
   AppState app, {
   required Set<InputSignal> requires,
 }) =>
-    candidatesFromSources(rankSources(liveSources(app)), requires: requires);
+    candidatesFromSources(c, rankSources(liveSources(app)), requires: requires);
 
 /// The STORAGE device id for [s], or null when it has none.
 ///
@@ -472,8 +495,10 @@ String? deviceIdOf(HealthSource s) =>
 
 /// The pure half of [signalCandidates] — split out so a test can hand-build
 /// [HealthSource]s (as `device_sources_test.dart` already does) instead of a
-/// live `AppState`.
+/// live `AppState`. [c] is passed straight through to [missingSignalReason]
+/// and has no say in which sources qualify.
 List<DeviceOption> candidatesFromSources(
+  BuildContext c,
   List<HealthSource> sources, {
   required Set<InputSignal> requires,
 }) {
@@ -497,7 +522,7 @@ List<DeviceOption> candidatesFromSources(
       deviceId: id,
       label: s.name,
       selectable: missing.isEmpty,
-      reason: missing.isEmpty ? null : missingSignalReason(missing),
+      reason: missing.isEmpty ? null : missingSignalReason(c, missing),
     ));
   }
   return out;

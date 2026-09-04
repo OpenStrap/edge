@@ -765,7 +765,8 @@ class _MetricDetailState extends State<MetricDetail> {
       // Registry-only, no query — signalCandidates on a single-device install
       // returns const [], so this costs nothing for the protected case.
       final candidates = mounted
-          ? signalCandidates(context.read<AppState>(), requires: spec.requires)
+          ? signalCandidates(context, context.read<AppState>(),
+              requires: spec.requires)
           : const <DeviceOption>[];
       final d = await MetricData.load(repo, widget.metricKey,
           candidates: candidates);
