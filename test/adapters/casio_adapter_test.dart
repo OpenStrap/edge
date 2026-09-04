@@ -103,6 +103,51 @@ void main() {
     expect(note.value, 3);
   });
 
+  test(
+      'a stray frame for a different tag is banked but never claimed as the '
+      'answer to the tag actually asked for', () async {
+    final link = ReplayBandLink();
+    final events = <BandEvent>[];
+    final done = Completer<void>();
+    const adapter = CasioAdapter(replyTimeout: _kFast);
+    final sub =
+        adapter.run(link).listen(events.add, onDone: () => done.complete());
+    var served = 0;
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (!done.isCompleted && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      while (served < link.writes.length) {
+        final tag = link.writes[served].$2.first;
+        if (tag == 0x22) {
+          // An unsolicited notification for an UNRELATED tag (0x28, watch
+          // condition — never requested here) lands first, then the real
+          // reply. The stray frame must not be read as 0x22's answer, or the
+          // module-id byte count below could have been built from it instead.
+          link.feed(kCasioAllFeaturesChar, <int>[0x28, 0x99], atSec: 1786000000);
+        }
+        link.feed(kCasioAllFeaturesChar, <int>[tag, 0xAA], atSec: 1786000000);
+        served++;
+      }
+    }
+    await done.future.timeout(const Duration(seconds: 1), onTimeout: () {});
+    await sub.cancel();
+
+    final batch = events.whereType<SampleBatch>().single;
+    // Every tag got its OWN correctly-tagged reply, plus the one stray frame
+    // — nothing lost, nothing misattributed.
+    expect(batch.raw, hasLength(CasioAdapter.kProbeTags.length + 1));
+    expect(batch.raw!.any((f) => f.first == 0x28 && f.length == 2), isTrue,
+        reason: 'the stray frame is still banked, just not as a reply');
+    for (final tag in CasioAdapter.kProbeTags) {
+      expect(
+        batch.raw!.where((f) => f.first == tag).single,
+        Uint8List.fromList(<int>[tag, 0xAA]),
+        reason: 'tag 0x${tag.toRadixString(16)} must be answered by its OWN '
+            'reply, never by the unrelated stray frame',
+      );
+    }
+  });
+
   test('declares no signal and stays out of the framed offload engine', () {
     expect(kCasioAdapter.signals, isEmpty);
     expect(kCasio.isFramed, isFalse);

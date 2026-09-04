@@ -82,7 +82,25 @@ class CasioAdapter extends BandAdapter {
               'casio: request 0x${tag.toRadixString(16)} refused; skipping.');
           continue;
         }
-        final resp = await inbox.next(replyTimeout);
+        // A frame whose first byte does not echo this tag is not this
+        // request's answer — an unsolicited setting notification, or a stale
+        // reply that missed a PREVIOUS tag's timeout window and landed here
+        // instead. Banked anyway (every frame this wire sends is still
+        // undecoded data worth keeping) but never claimed as tag's reply, so
+        // it can never taint the module-id length note below.
+        final deadline = DateTime.now().add(replyTimeout);
+        Uint8List? resp;
+        while (true) {
+          final left = deadline.difference(DateTime.now());
+          if (left <= Duration.zero) break;
+          final frame = await inbox.next(left);
+          if (frame == null) break;
+          if (frame.isNotEmpty && frame[0] == tag) {
+            resp = frame;
+            break;
+          }
+          if (frame.isNotEmpty) raw.add(frame);
+        }
         if (resp == null) {
           link.log(
               'casio: no reply to request 0x${tag.toRadixString(16)}.');
