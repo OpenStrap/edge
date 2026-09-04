@@ -84,9 +84,21 @@ class Id115Link {
       // A cap on concurrent SECONDARY links (never the primary band's own
       // connect — see ble_state.dart's kMaxConcurrentSecondaryLinks doc).
       return await withSecondaryLinkSlot(() async {
+        final device = BluetoothDevice.fromId(remoteId);
         try {
-          final device = BluetoothDevice.fromId(remoteId);
           await device.connect(timeout: const Duration(seconds: 20));
+        } catch (e) {
+          // Never connected: nothing to disconnect.
+          debugPrint('[id115] connect failed: $e');
+          return false;
+        }
+        // EVERYTHING past this point runs with the radio connected, so a
+        // `finally` — not a return inside a bare try/catch — is what
+        // guarantees `stop()`/`disconnect()` on every exit, including a
+        // `discoverServices`/`GattBandLink`/`BandHost`/`host.run` throw. A
+        // caught-and-returned exception here used to skip that cleanup and
+        // leave the GATT connection open.
+        try {
           final services = await device.discoverServices();
           final link = GattBandLink(
             entry: kId115,
@@ -100,7 +112,6 @@ class Id115Link {
             debugPrint('[id115] ${kId115.label}: missing required '
                 'characteristic(s) '
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
-            await device.disconnect().catchError((_) {});
             return false;
           }
           final host = BandHost(
@@ -110,19 +121,16 @@ class Id115Link {
             buildArchive: _buildArchiveRow,
           );
           _host = host;
-          final done = host.run(link);
-          try {
-            await done.timeout(_listenWindow, onTimeout: () {});
-          } finally {
-            await stop();
-            try {
-              await device.disconnect();
-            } catch (_) {/* already gone */}
-          }
+          await host.run(link).timeout(_listenWindow, onTimeout: () {});
           return true;
         } catch (e) {
           debugPrint('[id115] connect failed: $e');
           return false;
+        } finally {
+          await stop();
+          try {
+            await device.disconnect();
+          } catch (_) {/* already gone */}
         }
       });
     } catch (e) {
