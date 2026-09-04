@@ -1843,3 +1843,201 @@ class WriteChain {
     return completer.future;
   }
 }
+
+// ── live HR / IMU stream ownership (discussion #287) ─────────────────────────
+//
+// A foreground connection used to be an implicit request for BOTH the
+// realtime-HR stream (opcode 3) and the 100 Hz IMU stream (gen5 opcode 106),
+// and the enable / HR-only / disable methods each flipped the engine's live
+// flags BEFORE their writes went out, with no serialisation between them. Two
+// races followed from that: a breathing close started an OFF sequence
+// unawaited, a workout starting inside that window saw "already enabled" and
+// skipped its ON, and the older OFF then finished and left the workout without
+// a stream; and a feature that started while another already had streams on
+// recorded no ownership, so when both left nothing recomputed the remaining
+// owner set and the keep-alive kept re-arming a flood nobody read.
+//
+// The fix is a desired-vs-applied reconciler: every consumer is an explicit
+// owner ([LiveStreamOwners]), the policy below turns the owner set into two
+// independent desired bits ([desiredLiveStreams]), and the engine walks the
+// applied state towards the desired one a single transition at a time
+// ([nextLiveStreamStep]). The engine is the only writer of these opcodes; the
+// app never calls enable/disable, it only changes owners and nudges.
+
+/// Which live streams are wanted or applied. OFF, HR-only, IMU-only and
+/// HR+IMU are all representable — a three-state off / HR-only / full model
+/// cannot express movement sampling without HR, and would arm the IMU flood
+/// for breathing and non-gait workouts that only read beats.
+class LiveStreamIntent {
+  final bool hr;
+  final bool imu;
+  const LiveStreamIntent({required this.hr, required this.imu});
+
+  static const off = LiveStreamIntent(hr: false, imu: false);
+
+  bool get any => hr || imu;
+
+  @override
+  bool operator ==(Object other) =>
+      other is LiveStreamIntent && other.hr == hr && other.imu == imu;
+
+  @override
+  int get hashCode => Object.hash(hr, imu);
+
+  @override
+  String toString() => 'LiveStreamIntent(hr: $hr, imu: $imu)';
+}
+
+/// Who wants what, as explicit consumers. None of these is "the app is
+/// connected" — except [foreground], which only the gen4 legacy row of
+/// [desiredLiveStreams] reads.
+class LiveStreamOwners {
+  /// A screen showing the live BPM is mounted (HR).
+  final bool visibleLiveHrView;
+
+  /// A workout is running, any type, foreground or background (HR: zones,
+  /// peak HR, strain and calories all ride the beat stream).
+  final bool activeWorkout;
+
+  /// A gait workout (see `kGaitStepTypeKeys`) is running in the FOREGROUND
+  /// (IMU: live steps and cadence). Background IMU is not promised until the
+  /// background link is measured to sustain the pedometer's sample-rate floor.
+  final bool foregroundGaitWorkout;
+
+  /// A guided-breathing session or its pre/post quiet window is open (HR:
+  /// R-R for coherence and RMSSD).
+  final bool breathing;
+
+  /// iOS, backgrounded: the inbound 1 Hz notification is what keeps the
+  /// suspended process schedulable, so HR stays on there with no other owner.
+  /// An Edge platform policy, not a measured guarantee.
+  final bool iosBackgroundKeepalive;
+
+  /// A bounded movement-reminder sampling window is open (IMU-only). There is
+  /// no scheduler yet: enabling the reminder preference must NOT hold IMU, and
+  /// sampling only inside windows cannot prove stillness between them.
+  final bool movementSampling;
+
+  /// Passive strap-step collection opt-in (IMU). Off by default on gen5: the
+  /// on-chip daily counter is the fallback, and the phone can supply windowed
+  /// steps. A future opt-in requests IMU through this same owner.
+  final bool passiveStrapSteps;
+
+  /// The app is in the foreground. Read ONLY for gen4, where a foreground
+  /// connection keeps today's behaviour: HR plus the R10/R11 + IMU + optical
+  /// bundle, so gen4 users keep passive strap steps and live HR exactly as
+  /// before. gen4 has no on-chip daily step fallback, and the "default off"
+  /// decision in #287 was taken in gen5 terms.
+  final bool foreground;
+
+  const LiveStreamOwners({
+    this.visibleLiveHrView = false,
+    this.activeWorkout = false,
+    this.foregroundGaitWorkout = false,
+    this.breathing = false,
+    this.iosBackgroundKeepalive = false,
+    this.movementSampling = false,
+    this.passiveStrapSteps = false,
+    this.foreground = false,
+  });
+
+  static const none = LiveStreamOwners();
+
+  @override
+  String toString() => 'LiveStreamOwners('
+      'hrView: $visibleLiveHrView, workout: $activeWorkout, '
+      'fgGait: $foregroundGaitWorkout, breathing: $breathing, '
+      'iosBg: $iosBackgroundKeepalive, movement: $movementSampling, '
+      'passiveSteps: $passiveStrapSteps, foreground: $foreground)';
+}
+
+/// The streams the current owners call for.
+///
+///   wantHr  = visibleLiveHrView || activeWorkout || breathing
+///           || iosBackgroundKeepalive
+///   wantImu = foregroundGaitWorkout || movementSampling || passiveStrapSteps
+///
+/// plus, on gen4 only, `foreground` as an owner of both (see
+/// [LiveStreamOwners.foreground]). History sync is never an owner — it reads
+/// flash, not live frames — which is why it has no field here.
+///
+/// [standardHrFallback] is the sticky marginal-radio latch: a radio that
+/// cannot sustain the high-rate flood keeps HR and drops IMU, exactly as the
+/// old enable path returned right after HR ON.
+LiveStreamIntent desiredLiveStreams(
+  LiveStreamOwners o, {
+  required bool gen5,
+  required bool standardHrFallback,
+}) {
+  final legacy = !gen5 && o.foreground;
+  final hr = o.visibleLiveHrView ||
+      o.activeWorkout ||
+      o.breathing ||
+      o.iosBackgroundKeepalive ||
+      legacy;
+  final imu = (o.foregroundGaitWorkout ||
+          o.movementSampling ||
+          o.passiveStrapSteps ||
+          legacy) &&
+      !standardHrFallback;
+  return LiveStreamIntent(hr: hr, imu: imu);
+}
+
+/// One transition of one stream. `imuOn`/`imuOff` are the high-rate bundle:
+/// opcode 106 alone on gen5, R10/R11 + IMU + optical on gen4.
+enum LiveStreamStep {
+  hrOn,
+  imuOn,
+  imuOff,
+  hrOff;
+
+  bool get isImu => this == imuOn || this == imuOff;
+}
+
+/// The next single transition that moves [applied] towards [desired], or null
+/// when they already agree. Order is today's wire order: ONs first (HR before
+/// the bundle), then OFFs (bundle before HR), so a full arm and a full disarm
+/// emit exactly the sequences the old enable/disable methods did.
+///
+/// Per-bit uncertainty the engine tracks per link:
+///
+/// [imuFresh] — the strap's bundle state is not known on a fresh link. gen4's
+/// R10/R11 OFF state PERSISTS across reconnects on the strap (protocol
+/// `cmdSendR10R11`: "the off state persists across reconnects"), so a fresh
+/// gen4 link cannot be modelled as known-off. While fresh, the first time the
+/// link is used at all (anything desired) the bundle is replayed in the
+/// desired direction; a link nothing wants stays silent, which is what an
+/// Android-background gen4 reconnect did before. gen5 passes false: its IMU
+/// bit is a single write and #287 forbids speculative writes there.
+///
+/// [imuDirty] / [hrDirty] — a write for that bit FAILED or went stale, so the
+/// strap may be in either state (a timed-out write can still have landed; a
+/// gen4 bundle can be half-applied). Dirty ALWAYS replays the newest desired
+/// direction before convergence, even when nothing is desired: a dirty OFF
+/// must be cleaned up, unlike a fresh one.
+LiveStreamStep? nextLiveStreamStep({
+  required LiveStreamIntent applied,
+  required LiveStreamIntent desired,
+  bool imuFresh = false,
+  bool imuDirty = false,
+  bool hrDirty = false,
+}) {
+  final replayImu = imuDirty || (imuFresh && desired.any);
+  if (desired.hr && (!applied.hr || hrDirty)) return LiveStreamStep.hrOn;
+  if (desired.imu && (!applied.imu || replayImu)) return LiveStreamStep.imuOn;
+  if (!desired.imu && (applied.imu || replayImu)) return LiveStreamStep.imuOff;
+  if (!desired.hr && (applied.hr || hrDirty)) return LiveStreamStep.hrOff;
+  return null;
+}
+
+/// [applied] after [step] succeeded.
+LiveStreamIntent applyLiveStreamStep(
+  LiveStreamIntent applied,
+  LiveStreamStep step,
+) =>
+    switch (step) {
+      LiveStreamStep.hrOn => LiveStreamIntent(hr: true, imu: applied.imu),
+      LiveStreamStep.hrOff => LiveStreamIntent(hr: false, imu: applied.imu),
+      LiveStreamStep.imuOn => LiveStreamIntent(hr: applied.hr, imu: true),
+      LiveStreamStep.imuOff => LiveStreamIntent(hr: applied.hr, imu: false),
+    };

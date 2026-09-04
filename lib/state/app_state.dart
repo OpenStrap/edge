@@ -36,7 +36,7 @@ import '../ble/hrs_link.dart';
 import '../ble/live_cadence.dart';
 import '../ble/live_step_runs.dart';
 import '../ble/ble_state.dart'
-    show AlarmConfirmation, AlarmEffect, SyncActivityWindow;
+    show AlarmConfirmation, AlarmEffect, LiveStreamOwners, SyncActivityWindow;
 import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
@@ -1221,6 +1221,9 @@ class AppState extends ChangeNotifier {
       // LIVE high-rate frames (0x28/0x2B/0x33) are ephemeral — routed here for the
       // live UI / breathing session, never persisted.
       onLiveFrame: _onLiveFrame,
+      // Live HR/IMU ownership (#287): the engine reads the owner set inside
+      // its reconcile loop; this side only mutates owners and nudges.
+      liveOwners: _liveOwners,
       deriveDataStaleness: () {
         final ts = _lastRecTs;
         if (ts == null || ts <= 0) return const Duration(days: 3650);
@@ -1287,6 +1290,7 @@ class AppState extends ChangeNotifier {
           onState: _onEngineState,
           log: _log,
           onEvent: _onLiveEvent,
+          liveOwners: _liveOwners,
         );
   }
 
@@ -1363,10 +1367,9 @@ class AppState extends ChangeNotifier {
     _workoutTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {});
   }
 
-  /// True while some foreground feature is holding the live streams open —
-  /// the gate [_maybeDowngradeLiveForBackground] consults. Tests only.
+  /// The live-stream owner set the engine reads right now. Tests only.
   @visibleForTesting
-  bool get debugHasLiveConsumer => _hasLiveConsumer;
+  LiveStreamOwners get debugLiveOwners => _liveOwners();
 
   /// Run start-up (guarded, exactly as the constructor fires it) so a test can
   /// drive the failure path. Tests only.
@@ -1547,7 +1550,7 @@ class AppState extends ChangeNotifier {
   /// — steady state has nothing left to reclaim on a second pass.
   Future<void> _maybeReclaimDiskSpace() async {
     if (_vacuumedThisLaunch || _disposed) return;
-    if (_background || busy || _hasLiveConsumer) return;
+    if (_background || busy || _liveSessionActive) return;
     _vacuumedThisLaunch = true;
     try {
       final freed = await LocalDb.vacuumIfBloated();
@@ -2222,21 +2225,11 @@ class AppState extends ChangeNotifier {
             // cold launch, so there is nothing to double-count.
             await _recoverOrphanedLiveSession();
             _resetLivePedometer();
-            // Settle any in-flight background downgrade FIRST — arming over
-            // a pending disable let its trailing OFF writes kill what we just
-            // armed.
-            await _settleBgLiveDowngrade();
-            if (Platform.isIOS && !engine.liveEnabled) {
-              // A background cold-launch connects with NO stream armed, and
-              // _maybeDowngradeLiveForBackground no-ops when live is already
-              // off — but on iOS zero inbound traffic can stall the suspended
-              // process's Dart timers (the 1 Hz notification is what keeps it
-              // schedulable; see the downgrade doc). Arm HR-only directly.
-              // Android correctly stays stream-less here.
-              unawaited(engine.enableHrOnlyLive());
-            } else {
-              _maybeDowngradeLiveForBackground();
-            }
+            // Apply the owners' intent to the fresh link: iOS backgrounded
+            // owns HR (the 1 Hz notification keeps the suspended process
+            // schedulable); Android backgrounded owns nothing and stays
+            // stream-less. See [_liveOwners].
+            await engine.reconcileLiveStreams();
             _startBackfillTimer();
           } else {
             // Connect attempt didn't succeed on this background cold-launch —
@@ -2562,11 +2555,10 @@ class AppState extends ChangeNotifier {
     // short background BLE wake gets the app killed (iOS CPU watchdog / jetsam).
     // Capture keeps running; queued derive jobs drain on foreground return.
     _deriveScheduler.setBackground(true);
-    // LIVE-FLOOD SUPPRESSION GUARD: with no foreground consumer of the live
-    // streams (no workout / breathing session), downgrade live to
-    // HR-only so the high-rate raw flood can't starve the periodic R24 offloads
-    // while backgrounded. Full live is restored on foreground reclaim.
-    _maybeDowngradeLiveForBackground();
+    // `_background` is an owner input (foreground gait IMU, the gen4 bundle,
+    // the iOS keepalive): let the engine step the streams to what the
+    // remaining owners call for. See [_liveOwners].
+    _nudgeLive();
     if (Platform.isAndroid) {
       // Android: ensure the Edge Tracking foreground service is up (idempotent) so the
       // process + live connection survive backgrounding. The service IS the keep-alive.
@@ -2589,69 +2581,95 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// True while some foreground feature is actively consuming the live streams
-  /// (workout coach, breathing session).
-  bool get _hasLiveConsumer =>
+  // ── live HR / IMU ownership (#287) ──────────────────────────────────────────
+  //
+  // A foreground connection used to be an implicit request for both the
+  // realtime-HR stream and the 100 Hz IMU stream, and every feature that
+  // needed one re-armed the whole bundle and tried to remember whether it was
+  // the one that had turned it on. The engine now owns the streams through a
+  // serialized desired-vs-applied reconciler; this side only says WHO wants
+  // WHAT ([_liveOwners]) and nudges it whenever an owner changes.
+  //
+  // Policy (gen5; `desiredLiveStreams` in ble_state.dart):
+  //   HR  ← a mounted live-HR view, any workout, a breathing session or
+  //         window, or iOS backgrounded (the inbound 1 Hz notification is what
+  //         keeps the suspended process schedulable — with zero inbound
+  //         traffic the Dart timers may never run and continuous capture
+  //         stalls; the stream is load-bearing there, not waste).
+  //   IMU ← a gait workout in the FOREGROUND, a bounded movement-sampling
+  //         window, or the passive strap-step opt-in (off).
+  //   An ordinary foreground connection owns nothing on gen5: the on-chip daily
+  //   counter is the step fallback and the phone can supply windowed steps.
+  //   Android backgrounded with no owner is fully OFF — the EdgeTracking
+  //   foreground service keeps the process alive without any inbound stream,
+  //   and the 1 Hz stream with no consumer was ~86,400 wakes a day; liveness
+  //   is covered by the keep-alive's forced battery poll
+  //   (kNoStreamPollSilenceSeconds) and the resume paths judge freshness by
+  //   the no-stream bar. `state.wristOn`/`liveHr` simply stop updating while
+  //   nothing owns HR.
+  // gen4 keeps its previous behaviour: a foreground connection owns HR plus
+  // the R10/R11 + IMU + optical bundle (see `LiveStreamOwners.foreground`).
+
+  /// A feature session (workout, breathing) is running — the "nothing else in
+  /// flight" bar the one-off VACUUM waits for.
+  bool get _liveSessionActive =>
       activeWorkout != null || breathingActive || breathingWindowOpen;
 
-  /// Step live down when backgrounded with no live consumer. Platform-split:
-  ///
-  ///   • Android: live goes fully OFF. The EdgeTracking foreground service
-  ///     keeps the process alive without any inbound stream, so the 1 Hz
-  ///     HR-only stream bought nothing here — it was ~86,400 CPU/radio wakes
-  ///     per day (each one decode → state mutation → notifyListeners) with no
-  ///     consumer, the single largest steady drain on the phone. Liveness is
-  ///     covered by the keep-alive's forced battery poll (see
-  ///     kNoStreamPollSilenceSeconds) — a swap, not a removal: ~86,400
-  ///     notifications/day become ~1,440 get-battery round-trips/day, still
-  ///     the largest net win here. The resume paths judge freshness by the
-  ///     no-stream bar (isLinkStale liveStreamArmed: false), whose 90 s bar
-  ///     already tolerates one dropped poll reply. Records keep landing via
-  ///     the 15-min flash backfill. NOTE: `state.wristOn` is written from
-  ///     LIVE/hello paths only — it freezes for the backgrounded stretch
-  ///     (derived wear still comes from historical HR; nothing branches on
-  ///     the frozen flag). wristOn/liveHr simply stop updating in realtime.
-  ///
-  ///   • iOS: HR-only downgrade, as before. The inbound 1 Hz notification is
-  ///     what keeps the suspended process schedulable (bluetooth-central
-  ///     resumes us per notification) — with zero inbound traffic the Dart
-  ///     timers (keep-alive, backfill) may never run, stalling continuous
-  ///     background capture. The stream is load-bearing there, not waste.
-  ///
-  /// [openSession]'s fast reclaim (or a foreground reconnect) restores the
-  /// full set either way.
-  /// The in-flight background live downgrade, if any. `disableLiveStreams`
-  /// (Android) clears `liveEnabled`/`liveHrOnly` only AFTER its ~300 ms write
-  /// sequence, so a foreground reclaim landing inside that window must AWAIT
-  /// this before deciding whether to re-arm — otherwise it reads stale
-  /// full-live flags, skips `enableLiveStreams`, and the pending disable's OFF
-  /// writes then leave foreground live off. See [openSession].
-  Future<void>? _bgLiveDowngrade;
+  /// Screens showing the live BPM that are mounted right now.
+  int _liveHrViewers = 0;
 
-  void _maybeDowngradeLiveForBackground() {
-    if (!engine.isConnected || !engine.liveEnabled) return;
-    if (_hasLiveConsumer) return;
-    _bgLiveDowngrade = Platform.isAndroid
-        ? engine.disableLiveStreams()
-        : engine.enableHrOnlyLive();
-    unawaited(_bgLiveDowngrade!);
+  /// A screen that displays the live heart rate is on screen: own the HR
+  /// stream while it is. Pair with [releaseLiveHrView] in `dispose`.
+  void retainLiveHrView() {
+    _liveHrViewers++;
+    _nudgeLive();
   }
 
-  /// Await every in-flight background live downgrade before (re-)arming live
-  /// streams, so ON writes cannot interleave with a disable's trailing OFF
-  /// writes. Drains CHAINED downgrades too: a newer one started while an
-  /// older was awaited is awaited as well, never dropped.
-  Future<void> _settleBgLiveDowngrade() async {
-    while (_bgLiveDowngrade != null) {
-      final pending = _bgLiveDowngrade!;
-      try {
-        await pending;
-      } catch (_) {/* a failed downgrade still cleared its flags or didn't;
-                       either way the reclaim re-reads live state fresh */}
-      // Only clear when no NEWER downgrade replaced it while we awaited.
-      if (identical(_bgLiveDowngrade, pending)) _bgLiveDowngrade = null;
-    }
+  void releaseLiveHrView() {
+    if (_liveHrViewers > 0) _liveHrViewers--;
+    _nudgeLive();
   }
+
+  /// A bounded movement-reminder sampling window is open (IMU-only owner).
+  ///
+  /// There is NO scheduler yet, and enabling the movement-reminder preference
+  /// must not hold the IMU stream: sampling only inside bounded windows cannot
+  /// prove that movement did not happen between them, so a standing owner
+  /// would let the reminder claim an uninterrupted stillness it never
+  /// observed. A separately validated scheduler that can account for the gaps
+  /// is the only thing that should call this.
+  void setMovementSamplingWindow(bool active) {
+    if (_movementSampling == active) return;
+    _movementSampling = active;
+    _nudgeLive();
+  }
+
+  bool _movementSampling = false;
+
+  /// Passive strap-step collection: OFF by default on gen5 (#287 decision 1).
+  /// A future explicit opt-in requests IMU through this same owner.
+  static const bool _passiveStrapSteps = false;
+
+  LiveStreamOwners _liveOwners() {
+    final w = activeWorkout;
+    return LiveStreamOwners(
+      // A route is not disposed when the app backgrounds, so a mounted
+      // live-HR page must not keep the stream on behind a locked screen.
+      visibleLiveHrView: !_background && _liveHrViewers > 0,
+      activeWorkout: w != null,
+      foregroundGaitWorkout: w != null && !_background && isGaitStepType(w.type),
+      breathing: breathingActive || breathingWindowOpen,
+      iosBackgroundKeepalive: _background && Platform.isIOS,
+      movementSampling: _movementSampling,
+      passiveStrapSteps: _passiveStrapSteps,
+      foreground: !_background,
+    );
+  }
+
+  /// An owner input changed: let the engine converge. Fire-and-forget; the
+  /// engine reads [_liveOwners] inside its own loop, and its keep-alive tick
+  /// heals a nudge that was missed.
+  void _nudgeLive() => unawaited(engine.reconcileLiveStreams());
 
   /// iOS recovery: release the band to the native restore central's no-timeout pending
   /// connect so the OS relaunches us when the band is reachable again.
@@ -3906,8 +3924,8 @@ class AppState extends ChangeNotifier {
   /// The band's heart rate RIGHT NOW, or null when there isn't one.
   ///
   /// `DeviceState.liveHr` on its own is only "the last value the engine saw":
-  /// nothing clears it on an unintentional drop (the teardown path never calls
-  /// `disableLiveStreams`), so it keeps reading like a measurement long after
+  /// nothing clears it on an unintentional drop (only an applied HR OFF does),
+  /// so it keeps reading like a measurement long after
   /// the band is gone. Freshness rather than connection alone is the test,
   /// because it also covers the connected-but-stalled stream, which no
   /// disconnect hook can see. Every live consumer must read THIS.
@@ -4378,11 +4396,6 @@ class AppState extends ChangeNotifier {
     // Back in the foreground with an OS CPU/memory budget again — let the
     // scheduler drain any derive jobs that queued (durably) while backgrounded.
     _deriveScheduler.setBackground(false);
-    // A background live downgrade may still be writing (its flags clear only on
-    // completion). Let it finish before any reclaim path below re-arms live, so
-    // the re-arm sees settled flags and its ON writes can't interleave with the
-    // disable's trailing OFF writes.
-    await _settleBgLiveDowngrade();
     if (wasBackground && engine.isConnected) {
       IosBleRestore.foregroundActive = true;
       await IosBleRestore.setOwnsBand(true);
@@ -4408,12 +4421,9 @@ class AppState extends ChangeNotifier {
             await engine.getStrapName();
           } catch (_) {}
         }());
-        // Backgrounding downgraded live to HR-only (iOS) or fully OFF
-        // (Android) — restore the full live set now that the foreground UI is
-        // consuming it again.
-        if (!engine.liveEnabled || engine.liveHrOnly) {
-          unawaited(engine.enableLiveStreams());
-        }
+        // `_background` flipped: the foreground owners (gen4 bundle, a gait
+        // workout's IMU) apply again.
+        _nudgeLive();
         // FOREGROUND CATCH-UP: R24 drains on a ~15-min timer while backgrounded,
         // so "last data" can lag up to 15 min behind a healthy link. The user
         // just opened the app — pull the flash backlog now. Floored at 90 s
@@ -4481,7 +4491,7 @@ class AppState extends ChangeNotifier {
       // Compute + arm the next weekly-schedule occurrence on every successful
       // connect (Feature 1's arming engine) — see _armNextAlarmOccurrence.
       await _armNextAlarmOccurrence();
-      _log('Listening — live streams on, historical burst runs concurrently.');
+      _log('Listening — live streams per owners, historical burst runs concurrently.');
       // Enable live streams PROMPTLY, then let the historical burst run
       // CONCURRENTLY (unawaited, single-flight via _kickSyncBurst). History and
       // live records already share the one data subscription, so there is no
@@ -4492,12 +4502,12 @@ class AppState extends ChangeNotifier {
       // untouched: commit-before-ACK and the HISTORY_COMPLETE bookkeeping all
       // live inside the engine regardless of who awaits the report.
       // Recover any steps orphaned by a killed process, and zero the counters
-      // for this session, BEFORE live delivery starts. Doing it after
-      // enableLiveStreams() left a window where frames ingested during the
+      // for this session, BEFORE live delivery starts. Arming live first
+      // left a window where frames ingested during the
       // (awaited, I/O-bound) recovery were then wiped by _resetLivePedometer.
       await _recoverOrphanedLiveSession();
       _resetLivePedometer(); // fresh live step count for this connected session
-      await engine.enableLiveStreams();
+      await engine.reconcileLiveStreams(); // the owners' intent, not full live
       unawaited(
         _kickSyncBurst(kickFirst: false).then((report) async {
           _log(
@@ -4621,22 +4631,15 @@ class AppState extends ChangeNotifier {
           // Compute + arm the next weekly-schedule occurrence on every
           // successful (re)connect — see _armNextAlarmOccurrence.
           await _armNextAlarmOccurrence();
-          // Live streams come up promptly; the FULL drain (no short timeout —
-          // the ENTIRE offline backlog the band flashed while out of range)
-          // runs concurrently, single-flight, exactly as in openSession.
-          // Background reconnect with no live consumer: Android leaves live
-          // fully OFF (the FGS keeps the process alive; the 1 Hz stream has no
-          // consumer — see _maybeDowngradeLiveForBackground); iOS arms HR-only
-          // (the inbound notification keeps the suspended process schedulable).
-          await _settleBgLiveDowngrade();
-          if (_background && !_hasLiveConsumer) {
-            if (!Platform.isAndroid) {
-              await engine.enableHrOnlyLive();
-            }
-          } else {
-            await engine.enableLiveStreams();
-          }
+          // Live streams come up per the current owners (see _liveOwners:
+          // backgrounded with no owner is OFF on Android and HR-only on iOS);
+          // the FULL drain (no short timeout — the ENTIRE offline backlog the
+          // band flashed while out of range) runs concurrently, single-flight,
+          // exactly as in openSession.
+          // Reset BEFORE arming: an IMU ON step waits after the toggle, so
+          // frames can land inside the await and would then be wiped.
           _resetLivePedometer();
+          await engine.reconcileLiveStreams();
           await engine.getBattery();
           await engine.getStrapName();
           // Alarm display comes from the locally-set/persisted value; the
@@ -4920,7 +4923,7 @@ class AppState extends ChangeNotifier {
   // The live HRV spot-check that used to live here is GONE. It was fully
   // implemented — 60 s of RR-bearing frames handed to the repository seam —
   // and no screen ever started one, so `spotActive` was a permanently-false
-  // term in [_hasLiveConsumer] and a dead branch on every live frame. The
+  // term in the old live-consumer gate and a dead branch on every live frame. The
   // LocalRepository seam (`spotCheck`) is still there for whoever builds the
   // screen; the half-wired state machine is not.
 
@@ -4963,7 +4966,6 @@ class AppState extends ChangeNotifier {
   String? breathingError;
   final List<String> _breathingFrames = [];
   Timer? _breathingRecomputeTimer;
-  bool _breathingEnabledStreams = false;
 
   // ── MIND-06 · the quiet windows either side of the paced block ─────────────
   //
@@ -4989,11 +4991,9 @@ class AppState extends ChangeNotifier {
   /// to and are dropped).
   int? _windowRowStartedAt;
 
-  /// Open the quiet window: live streams on, frames buffering, no pacing yet.
-  ///
-  /// Takes stream ownership itself so [startBreathingSession] finds live
-  /// already enabled and claims nothing — otherwise the paced block's stop
-  /// would turn off streams the post window is still reading.
+  /// Open the quiet window: HR stream on, frames buffering, no pacing yet.
+  /// The window is an HR owner in its own right (see [_liveOwners]), so the
+  /// paced block's stop cannot turn off a stream the post window still reads.
   Future<void> openBreathingWindow() async {
     if (breathingWindowOpen || breathingActive) return;
     if (!isConnected) {
@@ -5006,14 +5006,8 @@ class AppState extends ChangeNotifier {
     _windowRowStartedAt = null;
     _breathingFrames.clear();
     notifyListeners();
-    await _settleBgLiveDowngrade();
     try {
-      if (!engine.liveEnabled) {
-        await engine.enableLiveStreams();
-        _breathingEnabledStreams = true;
-      } else if (engine.liveHrOnly) {
-        await engine.enableLiveStreams();
-      }
+      await engine.reconcileLiveStreams();
     } catch (_) {
       /* best-effort; we still collect whatever arrives */
     }
@@ -5035,7 +5029,7 @@ class AppState extends ChangeNotifier {
     _preWindowFrames = null;
     _windowRowStartedAt = null;
     _breathingFrames.clear();
-    _stopBreathingStreams();
+    _nudgeLive(); // the window's HR ownership ends here
     notifyListeners();
     if (row == null || pre == null) return;
     final before = await _windowRmssd(pre);
@@ -5092,19 +5086,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     unawaited(BreathingLiveActivity.start(startedAt: DateTime.now()));
     try {
-      // A background downgrade may be mid-write (band double-tap start right
-      // after backgrounding is exactly this case): settle it first so its
-      // trailing OFF writes cannot kill the streams we arm here.
-      await _settleBgLiveDowngrade();
-      // OWNERSHIP: only claim "we enabled it" when
-      // live was actually OFF, so ending the session can never turn off
-      // streams the open session still expects on.
-      if (!engine.liveEnabled) {
-        await engine.enableLiveStreams();
-        _breathingEnabledStreams = true;
-      } else if (engine.liveHrOnly) {
-        await engine.enableLiveStreams();
-      }
+      // The session is an HR owner (see [_liveOwners]); the engine's
+      // reconciler serialises this against any in-flight transition, e.g. a
+      // background downgrade still writing when a band double-tap starts the
+      // session — the exact race that used to leave the session without its
+      // stream.
+      await engine.reconcileLiveStreams();
     } catch (_) {
       /* best-effort; we still collect whatever arrives */
     }
@@ -5124,7 +5111,7 @@ class AppState extends ChangeNotifier {
     _breathingRecomputeTimer?.cancel();
     _breathingRecomputeTimer = null;
     breathingActive = false;
-    _stopBreathingStreams();
+    _nudgeLive(); // the session's HR ownership ends; an open window keeps it
     unawaited(BreathingLiveActivity.end());
 
     final started = _breathingStartedAt;
@@ -5227,17 +5214,6 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       /* best-effort; keep the last good result on screen rather than erroring */
     }
-  }
-
-  void _stopBreathingStreams() {
-    // The post window is still reading them. [closeBreathingWindow] is the one
-    // caller that clears the flag first, so it is the only one that gets past
-    // here while a window exists.
-    if (breathingWindowOpen) return;
-    if (_breathingEnabledStreams && activeWorkout == null) {
-      unawaited(engine.disableLiveStreams());
-    }
-    _breathingEnabledStreams = false;
   }
 
   // GUIDED STEP CALIBRATION REMOVED (v56).
@@ -5362,26 +5338,6 @@ class AppState extends ChangeNotifier {
     if (activeWorkout != null) return;
     final start = DateTime.now();
     final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
-    // The workout screen's live step count rides the 100 Hz IMU stream, which
-    // the sticky standard-HR fallback silently suppresses (same starvation as
-    // the calibration walk) — and which may simply be off (a breathing
-    // session restores streams to OFF when they were off before) or still in the
-    // background HR-only downgrade. A deliberate workout start is an explicit
-    // user action — retry the full live set; detectors re-trip if it can't
-    // hold. No ownership flag: the background downgrade / session close
-    // manage the stream lifecycle exactly as for openSession's arming.
-    unawaited(() async {
-      // The band double-tap lands while backgrounded by definition — settle
-      // the background HR-only downgrade BEFORE retrying full live, or its
-      // trailing OFF writes (~300 ms of them) kill exactly what we arm.
-      await _settleBgLiveDowngrade();
-      if (isConnected &&
-          (!engine.liveEnabled ||
-              engine.liveHrOnly ||
-              device.standardHrFallback)) {
-        await engine.retryFullLiveStreams();
-      }
-    }());
     _workoutRawBase = _liveRaw;
     _workoutSawSamples = false;
     _workoutMinuteSteps.clear();
@@ -5428,6 +5384,16 @@ class AppState extends ChangeNotifier {
       ),
       restingHr: _liveRestingHr,
     );
+    // The workout is now an owner (HR; plus IMU for a foreground gait type —
+    // the live step count rides the 100 Hz stream). AFTER the assignment: the
+    // engine reads the owner set synchronously on entry. A deliberate workout
+    // start is an explicit user action, so it also clears the sticky
+    // marginal-radio fallback that silently suppressed the IMU flood for the
+    // rest of the process lifetime; the detectors re-trip if it can't hold.
+    // Unconditionally: a workout may be started offline, and a fallback left
+    // set would mask its IMU owner for the whole session once the band
+    // reconnects. The reconcile is a no-op with no link.
+    unawaited(engine.clearRadioFallbackAndReconcile());
     // Persist the live session (INSERT OR REPLACE — idempotent if repo already
     // inserted this id). Final stats are written on stop.
     unawaited(
@@ -5664,6 +5630,7 @@ class AppState extends ChangeNotifier {
           unawaited(HrsLink.instance.arm());
           _deriveScheduler.setWorkoutActive(true);
           ScreenWake.enable();
+          _nudgeLive(); // a resumed workout owns its streams too
         } else {
           // A stale live row has no end_ts (it was never stopped). We don't
           // know when the workout actually ended, so the honest stamp is
@@ -5797,12 +5764,10 @@ class AppState extends ChangeNotifier {
           : 'Live session ended. Burned $finalKcal kcal.',
     );
     LiveActivity.end();
-    // A workout stopped while backgrounded (band double-tap gesture) was the
-    // one path that left FULL live armed with no consumer — the keep-alive
-    // then faithfully re-armed the 100 Hz flood every 30 s until the next
-    // lifecycle transition. Re-run the background downgrade now the consumer
-    // is gone (no-op when foregrounded or already downgraded).
-    if (_background) _maybeDowngradeLiveForBackground();
+    // The workout's ownership ends: a workout stopped while backgrounded used
+    // to leave FULL live armed with no consumer, and the keep-alive then
+    // re-armed the 100 Hz flood every 30 s until the next lifecycle transition.
+    _nudgeLive();
     // A workout often rides the live feed; if the connection blipped during it, the
     // band may hold that window in flash. Pull it now over the live connection so the
     // just-finished session isn't left with a gap.
@@ -5834,6 +5799,7 @@ class AppState extends ChangeNotifier {
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     activeWorkout = null;
+    _nudgeLive(); // the workout's stream ownership ends with it
     _workoutRawBase = null;
     _workoutSawSamples = false;
     _workoutMinuteSteps.clear();

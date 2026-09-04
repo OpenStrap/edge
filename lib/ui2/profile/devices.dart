@@ -843,14 +843,25 @@ class _DeviceDetailState extends State<DeviceDetail> {
   /// notification they may have dismissed.
   BatteryForecast? _forecast;
 
+  /// This page shows the band's live BPM, so it owns the HR stream while
+  /// mounted. Captured for `dispose`, which must not read `context`.
+  AppState? _liveHrOwner;
+
   @override
   void initState() {
     super.initState();
     if (!widget.s.isBand) return;
+    _liveHrOwner = context.read<AppState>()..retainLiveHrView();
     LocalDb.batteryHealth().then((h) {
       if (mounted) setState(() => _health = h);
     }).catchError((_) {});
     _loadForecast();
+  }
+
+  @override
+  void dispose() {
+    _liveHrOwner?.releaseLiveHrView();
+    super.dispose();
   }
 
   Future<void> _loadForecast() async {

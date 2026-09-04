@@ -513,9 +513,20 @@ class _SessionGapSummary {
 /// All per-connection resources. A fresh one is built on every connect and torn
 /// down (every subscription + timer cancelled, characteristics nulled) on every
 /// disconnect — so nothing bleeds across reconnects.
+/// How one live-stream transition ended on the wire.
+enum _LiveWrite { ok, failed, stale }
+
 class _Session {
   final BluetoothDevice device;
   BluetoothCharacteristic? cmdTo;
+
+  /// Set synchronously at the top of `_teardownSession`, before any await.
+  /// The generation bump happens there too, but `_session` is nulled only
+  /// after the subscription cancels have been awaited — so for that window
+  /// the dying session is still the current one and still `connected`, and a
+  /// live-stream pass that just discarded a stale completion would otherwise
+  /// capture the NEW generation and write to the link being closed.
+  bool closing = false;
 
   /// Which registered band this link speaks. Defaults to gen4 (WHOOP 4) and is
   /// pinned once during service discovery via [applyBand] — everything that
@@ -835,6 +846,12 @@ class BleEngine {
   final LiveFrameSink? onLiveFrame;
   final OffloadStateSink? onOffloadState;
 
+  /// The current live-stream owner set (#287). Read INSIDE the reconcile loop,
+  /// never cached, so a nudge that was missed is healed by the next keep-alive
+  /// tick rather than persisting until the next owner change. Null means no
+  /// owners (a headless drainer).
+  final LiveStreamOwners Function()? liveOwners;
+
   /// If provided, sync chunks are persisted via this ATOMIC commit (raw + samples
   /// + continuation cursor in one transaction) before the HISTORY_END ACK. This is
   /// what makes the offload resumable across restarts (durable cursor).
@@ -872,6 +889,7 @@ class BleEngine {
     this.onDataStored,
     this.onLiveFrame,
     this.onOffloadState,
+    this.liveOwners,
     this.onCommitBatch,
     this.onArchiveRecord,
     this.cursorReader,
@@ -1207,18 +1225,64 @@ class BleEngine {
   // (we keep ACKing HISTORY_END markers as they arrive, even after the first
   // HISTORY_COMPLETE — a later strap-triggered offload reuses it).
   DrainController? _drain;
-  bool _liveEnabled = false;
-  // Background live downgrade: only the compact realtime-HR stream is armed
-  // (no high-rate R10/R11 + IMU + optical flood). Set by [enableHrOnlyLive].
-  bool _liveHrOnly = false;
 
-  /// Whether any live stream is currently armed (full or HR-only). Lets a live
-  /// consumer (spot check / step calibration) know if it must arm streams itself
-  /// — and therefore whether IT owns turning them back off.
-  bool get liveEnabled => _liveEnabled;
+  // ── live HR / IMU ownership (#287) ──────────────────────────────────────────
+  // Desired state comes from the app's owner set through [liveOwners] and is
+  // recomputed inside the reconcile loop; applied state is what this LINK has
+  // been told and acknowledged. They are deliberately separate: the old flags
+  // flipped before the writes went out and doubled as both, which is how a
+  // stale OFF could defeat a new owner. See `desiredLiveStreams` /
+  // `nextLiveStreamStep` in ble_state.dart for the policy.
+  LiveStreamIntent _liveApplied = LiveStreamIntent.off;
 
-  /// True while live is in the background HR-only downgrade.
-  bool get liveHrOnly => _liveEnabled && _liveHrOnly;
+  /// The strap's high-rate bundle state is unknown on a fresh link. Consulted
+  /// on gen4 only (R10/R11 OFF persists across reconnects there); reset by
+  /// teardown.
+  bool _imuFresh = true;
+
+  /// A write for that bit failed or went stale, so the strap may be in either
+  /// state; the policy replays the newest desired direction before it declares
+  /// convergence. Reset by teardown.
+  bool _imuDirty = false;
+  bool _hrDirty = false;
+
+  /// The in-flight reconcile pass. Shared so that `await reconcileLiveStreams()`
+  /// is a real barrier for a caller that coalesced behind a running pass —
+  /// `disconnect()` relies on that to know its OFF intent has been processed.
+  Completer<void>? _liveRun;
+
+  /// Owners changed (or a disconnect arrived) while a pass was in flight:
+  /// recompute once more before the pass ends.
+  bool _liveRestale = false;
+
+  /// The keep-alive asked for the applied streams to be re-asserted on the
+  /// next converged pass (the band's live toggles can silently die).
+  bool _liveReassert = false;
+
+  /// The link has finished its INIT sequence and may carry live toggles.
+  /// `listening` is set BEFORE `_startInitDrain` sends the INIT packets (with
+  /// delays, possibly behind a history-lifecycle wait), so the phase alone
+  /// would let an owner nudge slip a live toggle in between them. Set at the
+  /// end of `_finishConnect`; cleared on a new session and at teardown.
+  bool _liveReady = false;
+
+  /// `disconnect()` in progress: desired is forced to OFF for the whole of the
+  /// shutdown reconcile AND the teardown, so nothing can re-arm the closing
+  /// link. Cleared in a `finally`.
+  bool _liveShutdown = false;
+
+  /// Whether any live stream is currently applied on this link. Read by the
+  /// resume-time staleness bar, the keep-alive's liveness poll and the
+  /// marginal-radio detector.
+  bool get liveEnabled => _liveApplied.any;
+
+  /// What this link has been told and acknowledged. Tests only.
+  @visibleForTesting
+  LiveStreamIntent get debugLiveApplied => _liveApplied;
+
+  /// What the current owners call for on this link. Tests only.
+  @visibleForTesting
+  LiveStreamIntent get debugLiveDesired => _desiredLive();
 
   // ── link power (issue #200) ─────────────────────────────────────────────────
   // Android's connection priority was requested ONCE at connect setup and never
@@ -1254,7 +1318,7 @@ class BleEngine {
   LinkPriority linkPriorityForCurrentState() => desiredLinkPriority(
         offloadActive: _offloadActive || _connectSetup,
         background: _backgrounded,
-        hasLiveConsumer: _liveEnabled && !_liveHrOnly,
+        hasLiveConsumer: _liveApplied.imu || _desiredLive().imu,
       );
 
   /// The last hop: the policy's [LinkPriority] as the radio's own enum.
@@ -1306,11 +1370,18 @@ class BleEngine {
   /// non-trimmable, so the commit-before-ACK ordering and the result-write
   /// failure paths are unreachable.
   @visibleForTesting
+  ///
+  /// [listening] marks the link READY (the post-bootstrap `listening` phase);
+  /// [liveReady] (defaults to [listening]) marks its INIT sequence finished,
+  /// which is what the live-stream reconciler requires before it writes. The
+  /// defaults leave both alone so bootstrap tests can drive them themselves.
   void debugInstallFakeLink({
     required Future<bool> Function(Uint8List frame) onWrite,
     BandProfile band = BandProfile.gen4,
     ArchiveSink? onArchive,
     CommitSyncBatchSink? onCommit,
+    bool listening = false,
+    bool? liveReady,
   }) {
     final session = _Session(
       BluetoothDevice(remoteId: const DeviceIdentifier('AA:BB:CC:DD:EE:FF')),
@@ -1319,6 +1390,8 @@ class BleEngine {
     session.sawConnected = true;
     session.applyBand(bandEntryFor(band));
     _session = session;
+    if (listening) _phase = BleConnState.listening;
+    _liveReady = liveReady ?? listening;
     debugWriteHook = onWrite;
     _drain = DrainController(
       onRecord: _storeRecord,
@@ -1509,7 +1582,9 @@ class BleEngine {
         final want = desiredLinkPriority(
           offloadActive: _offloadActive || _connectSetup,
           background: _backgrounded,
-          hasLiveConsumer: _liveEnabled && !_liveHrOnly,
+          // Desired OR applied: the fast interval is requested before the
+          // flood starts and held until the OFF has landed.
+          hasLiveConsumer: _liveApplied.imu || _desiredLive().imu,
         );
         if (want == _appliedPriority) continue;
         final generation = _linkGeneration;
@@ -2335,6 +2410,7 @@ class BleEngine {
     _setPhase(BleConnState.connecting);
     final session = _Session(device);
     _session = session;
+    _liveReady = false;
     _seq.reset();
 
     // SOURCE OF TRUTH: listen to the OS connection-state stream FIRST so we never
@@ -2637,7 +2713,11 @@ class BleEngine {
       // The INIT drain claim rides the same task-lifecycle rules as every
       // other history task ([_startInitDrain]) — quiescence barrier, task
       // generation, staleness re-checks, arm/rollback.
-      return await _startInitDrain(session);
+      final ok = await _startInitDrain(session);
+      // Live toggles only AFTER the INIT sequence: the caller reconciles the
+      // owners' intent once this returns (see `_liveReady`).
+      if (ok && identical(_session, session)) _liveReady = true;
+      return ok;
     } catch (e) {
       _log('connect setup failed: $e');
       await _failConnect();
@@ -3479,35 +3559,18 @@ class BleEngine {
       _log('[SYNC] Periodic RTC re-verify (long-lived connection).');
       unawaited(getClock());
     }
-    if (_liveEnabled) {
-      // Re-arm ONLY what the current live mode wants: re-sending the high-rate
-      // R10/R11 toggle while in HR-only mode (background downgrade) or under the
-      // marginal-radio fallback would silently undo the downgrade every 30 s.
-      // A band with no SEND_R10_R11 opcode (WHOOP 5: Unknown/Unhandled) carries
-      // its high-rate live stream on the IMU toggle, so that is what re-arms.
-      final r10 = (_session?.entry ?? kWhoopGen4).commands.r10R11Realtime;
-      if (!_liveHrOnly && !state.standardHrFallback) {
-        if (r10 == null) {
-          _sendToggleImu(true);
-        } else {
-          _send(r10, const [0x01]);
-        }
-      }
-      // Evidence-gated: the HR re-arm exists to recover a stream that silently
-      // died, so send it only when the stream is demonstrably NOT delivering
-      // (no valid reading for >60 s — off-wrist stamps nothing, which
-      // correctly degrades to the old blind re-arm there). Blindly re-sending
-      // every 30 s was ~2,880 write-with-response round trips/day whose
-      // payload was a no-op. The IMU re-arm above stays unconditional: it runs
-      // only in foreground full-live (bounded by screen-on time), and a
-      // flowing HR stream is no proof the IMU stream is alive.
-      final hrAtMs = state.liveHrAt;
-      final hrDelivering = hrAtMs != null &&
-          DateTime.now().millisecondsSinceEpoch - hrAtMs < 60 * 1000;
-      if (!hrDelivering) {
-        _send(Cmd.toggleRealtimeHr, const [0x01]);
-      }
-    }
+    // Re-arm what is APPLIED (the band's live toggles can silently die) and,
+    // as a side effect, retry any transition that failed earlier — a no-op
+    // when applied already equals desired. Serialised through the same pass as
+    // every other live write; see [_reassertLive] for what is re-sent.
+    // Only START a pass; never restale one in flight. A coalesced call marks
+    // the running pass restale, and a failed transition retries while that
+    // flag is set — a gen4 OFF bundle whose four writes each time out (8 s)
+    // outlasts this 30 s tick, so a tick that restaled it would retry it
+    // forever. The reassert flag alone is picked up by the next converged
+    // pass, whoever starts it.
+    _liveReassert = true;
+    if (_liveRun == null) unawaited(_reconcileLive());
     // Battery is a DISPLAY value that moves over hours. Polling it on every
     // 30 s keep-alive tick was 2,880 radio round-trips a day for a handful of
     // real changes (issue #200).
@@ -3528,7 +3591,7 @@ class BleEngine {
         // bar (~every other 30 s tick ⇒ sinceLastRx stays ≤ ~65 s). With a
         // stream armed, the original fuse/2 threshold stands.
         force: sinceLastRx.inSeconds >
-            (_liveEnabled
+            (liveEnabled
                 ? kLivenessFuseSeconds ~/ 2
                 : kNoStreamPollSilenceSeconds),
       ),
@@ -3886,6 +3949,10 @@ class BleEngine {
               '($_crcFailuresThisSession CRC failures this session) — '
               'standard-HR fallback enabled.',
             );
+            // The fallback is an input to the desired live state: drop an
+            // applied IMU bundle now rather than on a keep-alive tick that
+            // returns early for the whole of an offload.
+            unawaited(_reconcileLive());
           }
         }
       }),
@@ -4001,7 +4068,7 @@ class BleEngine {
         ? null
         : now.difference(_bondTime!).inMilliseconds / 1000.0;
     if (_marginalRadio.connectionEnded(
-      wasArmed: _liveEnabled,
+      wasArmed: liveEnabled,
       secondsSinceArm: sinceArm,
       timedOut: timedOut,
     )) {
@@ -4122,7 +4189,7 @@ class BleEngine {
         // so a hooked write rejects a stale-session ACK exactly like the real
         // one. A seam that skips the guards it is meant to be standing in for
         // makes every test that relies on it prove the wrong thing.
-        if (session == null || !session.connected) {
+        if (session == null || !session.connected || session.closing) {
           _log('write skipped: link not ready.');
           return false;
         }
@@ -4288,9 +4355,14 @@ class BleEngine {
   /// byte where gen4 sends a bare on/off byte; protocol's `cmdToggleImu` owns
   /// that split. Sent the gen4 body, a gen5 strap reads the state from past the
   /// end of the body, the stream never arms, and step calibration stays at 0.
-  Future<bool> _sendToggleImu(bool on) => _write(
+  ///
+  /// [owner] pins the write to one session exactly as [_send] does: the live
+  /// reconciler issues this from a multi-write bundle that can straddle a
+  /// teardown, and the gen4 tail must not land on a replacement gen5 link.
+  Future<bool> _sendToggleImu(bool on, {_Session? owner}) => _write(
         cmdToggleImu(_seq.nextLive(), on,
-            profile: _session?.band ?? BandProfile.gen4),
+            profile: (owner ?? _session)?.band ?? BandProfile.gen4),
+        owner: owner,
       );
 
   Future<bool> _sendGetDataRange({_Session? owner}) =>
@@ -7281,60 +7353,23 @@ class BleEngine {
     return _send(Cmd.runHapticsPattern, [pattern, 0, 0, 0, 0]);
   }
 
-  /// Enable live foreground streams (makes the band emit live R10/R11 + optical).
-  /// Optical stays WRIST-GATED (0x6B only). This sends the toggle commands but
-  /// DOES NOT change the displayed state — we stay in the single `listening` phase;
-  /// live records simply start arriving on the same subscription history uses.
-  Future<void> enableLiveStreams() async {
-    _liveEnabled = true;
-    _liveHrOnly = false;
-    unawaited(_applyLinkPriority()); // a live consumer earns the fast interval
-    _armTime =
-        DateTime.now(); // marginal-radio detector measures arm→drop latency
-    final c = (_session?.entry ?? kWhoopGen4).commands;
-    await _send(Cmd.toggleRealtimeHr, const [0x01]);
-    // MARGINAL-RADIO FALLBACK: a weak radio can't sustain the high-rate R10/R11 +
-    // IMU + optical flood, so once the detector trips we arm HR only.
-    if (state.standardHrFallback) {
-      _log('Live streams: standard-HR only (marginal-radio fallback).');
-      return;
-    }
-    await Future.delayed(const Duration(milliseconds: 100));
-    // A band with no SEND_R10_R11 opcode (gen5 console: 0x3F is
-    // Unknown/Unhandled) skips it. Live steps ride toggleImuMode there
-    // (gen5: 0x2B rec 0x15; gen4: 0x33).
-    final r10 = c.r10R11Realtime;
-    if (r10 != null) {
-      await _send(r10, const [0x01]);
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
-    await _sendToggleImu(true);
-    await Future.delayed(const Duration(milliseconds: 100));
-    // Only where ENABLE_OPTICAL_DATA is the LIVE toggle. On gen5 it is the
-    // SAVE-to-history toggle — the realtime one is the next opcode up — so
-    // arming it here would write a save enable on every live-stream start, next
-    // door to the persistent-optical footgun that leaves the LEDs on and drains
-    // the battery. gen5's own 1 Hz stream already carries per-second HR, so
-    // there is nothing to gain until the roles are confirmed on hardware. The
-    // OFF writes in disableLiveStreams stay unconditional.
-    if (c.opticalDataIsLiveToggle) {
-      await _send(Cmd.enableOpticalData, const [revision1, 0x01]);
-    }
-    _log(
-      'Live streams enabled ('
-      '${c.opticalDataIsLiveToggle ? "optical: wrist-gated" : "gen5 IMU rev1; optical skipped"}).',
-    );
-  }
+  // ── live HR / IMU ownership reconciler (#287) ───────────────────────────────
 
-  /// Clear the sticky standard-HR fallback and give the full live set another
-  /// chance. The fallback protects a struggling radio from the high-rate
-  /// flood, but it never resets and [enableLiveStreams] honours it silently —
-  /// so once tripped, every later step calibration / workout counted 0 steps
-  /// for the rest of the process lifetime (the IMU toggles were never sent).
-  /// Call this from EXPLICIT foreground user actions whose feature needs the
-  /// 100 Hz stream: there the flood is the point, and if the radio genuinely
-  /// can't sustain it the detectors re-trip (and re-downgrade) within seconds.
-  Future<void> retryFullLiveStreams() async {
+  /// Recompute the owners' intent and walk this link's applied streams towards
+  /// it. Safe to call at any time from any state transition; a no-op when not
+  /// connected. The returned future completes when the pass that will observe
+  /// the caller's change has finished (a caller that coalesces behind a
+  /// running pass awaits that pass — it re-reads the owners before it ends).
+  Future<void> reconcileLiveStreams() => _reconcileLive();
+
+  /// An explicit foreground user action whose feature needs the 100 Hz stream
+  /// (a workout start): clear the sticky marginal-radio fallback and reconcile.
+  /// The fallback protects a struggling radio from the high-rate flood but
+  /// never resets on its own, so once tripped every later workout counted 0
+  /// steps for the rest of the process lifetime. Here the flood is the point,
+  /// and if the radio genuinely cannot sustain it the detectors re-trip (and
+  /// re-downgrade) within seconds.
+  Future<void> clearRadioFallbackAndReconcile() {
     if (state.standardHrFallback) {
       _log('Radio fallback: cleared by explicit user action — retrying the '
           'full live set.');
@@ -7343,71 +7378,298 @@ class BleEngine {
       _frameCorruption.reset();
       onState(state);
     }
-    await enableLiveStreams();
+    return _reconcileLive();
   }
 
-  /// Background live downgrade: keep ONLY the compact realtime-HR stream (0x28)
-  /// armed and turn the high-rate R10/R11 + IMU + optical flood OFF. Used while
-  /// backgrounded with no live consumer, so the radio isn't saturated by a raw
-  /// flood nobody is reading — which can starve the periodic R24 offloads.
-  /// [enableLiveStreams] restores the full set on foreground return. Idempotent.
-  Future<void> enableHrOnlyLive() async {
-    if (_session?.connected != true) return;
-    _liveEnabled = true;
-    _liveHrOnly = true;
-    final r10 = (_session?.entry ?? kWhoopGen4).commands.r10R11Realtime;
-    unawaited(_applyLinkPriority()); // downgraded to HR-only ⇒ step the link down
-    await _send(Cmd.toggleRealtimeHr, const [0x01]);
-    final offOps = <Future<bool> Function()>[
-      () => _send(Cmd.toggleOpticalMode, const [revision1, 0x00]),
-      () => _send(Cmd.enableOpticalData, const [revision1, 0x00]),
-      if (r10 != null) () => _send(r10, const [0x00]),
-      () => _sendToggleImu(false),
-    ];
-    for (final op in offOps) {
-      await op();
-      await Future.delayed(const Duration(milliseconds: 60));
+  /// Tests only: the keep-alive's re-arm request, without the rest of the
+  /// tick (its liveness fuse would bounce a fake link with no inbound traffic).
+  @visibleForTesting
+  Future<void> debugReassertLiveStreams() {
+    _liveReassert = true;
+    return _liveRun?.future ?? _reconcileLive();
+  }
+
+  /// Tests only: an OS-style link drop — the non-intentional teardown plus
+  /// the `idle` phase [_onLinkDown] surfaces afterwards.
+  @visibleForTesting
+  Future<void> debugDropLink() async {
+    await _teardownSession(intentional: false);
+    _setPhase(BleConnState.idle);
+  }
+
+  LiveStreamIntent _desiredLive() {
+    if (_liveShutdown) return LiveStreamIntent.off;
+    return desiredLiveStreams(
+      liveOwners?.call() ?? LiveStreamOwners.none,
+      gen5: _session?.band.isGen5 ?? false,
+      standardHrFallback: state.standardHrFallback,
+    );
+  }
+
+  /// True once [session] is no longer the link we started a write on.
+  bool _liveStale(_Session session, int generation) =>
+      generation != _linkGeneration ||
+      !identical(_session, session) ||
+      !session.connected ||
+      session.closing;
+
+  /// The ONLY writer of the realtime-HR toggle (opcode 3) and the high-rate
+  /// bundle (gen5: IMU opcode 106; gen4: R10/R11 + IMU + optical).
+  ///
+  /// SERIALIZED and COALESCING, same shape as [_applyLinkPriority]: desired is
+  /// recomputed inside the loop after every await, one transition is written
+  /// per iteration, applied moves only after that write succeeded and only if
+  /// the link it was written to is still the live one, and the loop runs until
+  /// applied equals the NEWEST desired. A failed write marks its bit dirty
+  /// (the strap may be in either state) and ends the pass — the keep-alive
+  /// tick retries; spinning here against a refusing radio would hammer it.
+  Future<void> _reconcileLive() {
+    final running = _liveRun;
+    if (running != null) {
+      _liveRestale = true;
+      return running.future;
     }
-    _log('Live streams: HR-only (background downgrade — raw flood off).');
+    final run = _liveRun = Completer<void>();
+    () async {
+      // gen4's OFF-tail head (`03(1)`) belongs to the old HR-only downgrade,
+      // i.e. to a bundle OFF on a link whose HR was ALREADY on; a pass that
+      // armed HR itself moments ago must not send it twice.
+      var hrArmedThisPass = false;
+      try {
+        do {
+          _liveRestale = false;
+          final session = _session;
+          // Physically connected is not enough: `connected` is true from the
+          // moment the link is up, before discovery, bonding, the subscribes
+          // and INIT. A stale pass that loops onto a replacement session — or
+          // an owner nudge landing mid-bootstrap — must not put live toggles
+          // into that sequence. Only a LISTENING (post-READY) link is written
+          // to; the app's post-connect reconcile applies the intent after.
+          if (session == null ||
+              !session.connected ||
+              session.closing ||
+              _phase != BleConnState.listening ||
+              !_liveReady) {
+            return;
+          }
+          final want = _desiredLive();
+          final gen5 = session.band.isGen5;
+          final step = nextLiveStreamStep(
+            applied: _liveApplied,
+            desired: want,
+            imuFresh: _imuFresh && !gen5,
+            imuDirty: _imuDirty,
+            hrDirty: _hrDirty,
+          );
+          final generation = _linkGeneration;
+          if (step == null) {
+            if (_liveReassert) {
+              _liveReassert = false;
+              await _reassertLive(session, generation);
+            }
+            continue;
+          }
+          // The fast interval is earned by the flood: ask BEFORE it starts.
+          if (step == LiveStreamStep.imuOn) unawaited(_applyLinkPriority());
+          final r = await _writeLiveStep(
+            step,
+            session,
+            generation,
+            hrHead: want.hr && !hrArmedThisPass,
+          );
+          if (r == _LiveWrite.stale || _liveStale(session, generation)) {
+            // Do not record it against the dead link (teardown already reset
+            // its state); loop once more so a replacement session, if there is
+            // one, gets its own pass.
+            _log('Live stream step ${step.name} completed after teardown — '
+                'discarded.');
+            _liveRestale = true;
+            continue;
+          }
+          if (r == _LiveWrite.failed) {
+            if (step.isImu) {
+              _imuDirty = true;
+            } else {
+              _hrDirty = true;
+            }
+            _log('Live stream step ${step.name} failed — will retry on the '
+                'next keep-alive tick.');
+            // A nudge that arrived during the failed write (a new owner, or
+            // disconnect()'s shutdown intent) is still honoured: recompute
+            // once more. Only a quiet failure exits. Bounded, because restale
+            // is only ever set by an external nudge, never by this loop.
+            if (!_liveRestale) break;
+            continue;
+          }
+          _liveApplied = applyLiveStreamStep(_liveApplied, step);
+          if (step == LiveStreamStep.hrOn) hrArmedThisPass = true;
+          if (step.isImu) {
+            _imuFresh = false;
+            _imuDirty = false;
+          } else {
+            _hrDirty = false;
+          }
+          if (step == LiveStreamStep.imuOff) _armTime = null;
+          if (step == LiveStreamStep.hrOff) {
+            state.liveHr = null;
+            onState(state);
+          }
+          _log('Live streams: ${step.name} applied → '
+              'hr=${_liveApplied.hr} imu=${_liveApplied.imu}.');
+          unawaited(_applyLinkPriority()); // the live consumer set changed
+          _liveRestale = true; // recompute until applied == newest desired
+        } while (_liveRestale);
+      } catch (e) {
+        // Never poison the shared future: nudges are fired unawaited from
+        // state transitions, so an error here would surface as an uncaught
+        // zone error in whoever happened to be awaiting. Log; the next nudge
+        // or keep-alive tick converges.
+        _log('Live stream reconcile failed: $e');
+      } finally {
+        _liveRun = null;
+        run.complete();
+      }
+    }();
+    return run.future;
   }
 
-  /// Turn everything off. Safe + idempotent. Clears flags back to wrist-gated.
-  Future<void> disableLiveStreams() async {
-    final r10 = (_session?.entry ?? kWhoopGen4).commands.r10R11Realtime;
-    final ops = <Future<bool> Function()>[
-      () => _send(Cmd.toggleOpticalMode, const [revision1, 0x00]),
-      () => _send(Cmd.enableOpticalData, const [revision1, 0x00]),
-      if (r10 != null) () => _send(r10, const [0x00]),
-      () => _sendToggleImu(false),
-      () => _send(Cmd.toggleRealtimeHr, const [0x00]),
-    ];
+  /// One transition on the wire. Every write is pinned to [session] and the
+  /// link is re-checked after every await (writes AND delays), so a gen4
+  /// bundle interrupted by a teardown can never continue onto a replacement
+  /// link. `ok` only when every sub-write succeeded.
+  ///
+  /// gen5 sequences: HR `03(1)` / `03(0)`; IMU `6A(rev1,1)` / `6A(rev1,0)`.
+  /// Optical opcodes 107/108 are never written on gen5 — 0x6B is the
+  /// SAVE-to-history toggle there and 0x6C's role is unconfirmed on hardware.
+  ///
+  /// gen4 sequences are byte-for-byte what the old enable / HR-only / disable
+  /// methods wrote, including the spacing, so nothing changes for gen4 users:
+  ///   ON   `03(1)` · 100 ms · `3F(1)` · 100 ms · `6A(1)` · 100 ms · `6B(rev1,1)`
+  ///   OFF  [`03(1)` when HR stays on and was not just armed by this pass —
+  ///        the old HR-only downgrade's head, see [hrHead]] ·
+  ///        `6C(rev1,0)` · 60 · `6B(rev1,0)` · 60 · `3F(0)` · 60 · `6A(0)` · 60
+  ///   then `03(0)` · 60 when HR goes off too.
+  /// R10/R11 OFF persists across reconnects on gen4, which is why a fresh
+  /// gen4 link replays the OFF tail defensively (see `nextLiveStreamStep`).
+  Future<_LiveWrite> _writeLiveStep(
+    LiveStreamStep step,
+    _Session session,
+    int generation, {
+    required bool hrHead,
+  }) async {
+    final c = session.entry.commands;
+    // A band with the R10/R11 opcode carries the legacy high-rate bundle
+    // (gen4); a band without it (gen5) rides the IMU toggle alone.
+    final r10 = c.r10R11Realtime;
+    Future<bool> gap(int ms) async {
+      await Future<void>.delayed(Duration(milliseconds: ms));
+      return true;
+    }
+
+    Future<bool> Function() send(int opcode, List<int> body) =>
+        () => _send(opcode, body, owner: session);
+    final ops = <Future<bool> Function()>[];
+    switch (step) {
+      case LiveStreamStep.hrOn:
+        ops.add(send(Cmd.toggleRealtimeHr, const [0x01]));
+      case LiveStreamStep.hrOff:
+        ops
+          ..add(send(Cmd.toggleRealtimeHr, const [0x00]))
+          ..add(() => gap(60));
+      case LiveStreamStep.imuOn:
+        // marginal-radio detector measures arm→drop latency of the flood
+        _armTime = DateTime.now();
+        ops.add(() => gap(100));
+        if (r10 != null) {
+          ops
+            ..add(send(r10, const [0x01]))
+            ..add(() => gap(100));
+        }
+        ops
+          ..add(() => _sendToggleImu(true, owner: session))
+          ..add(() => gap(100));
+        // Only where ENABLE_OPTICAL_DATA is the LIVE toggle (gen4). On gen5 it
+        // is the SAVE-to-history toggle, next door to the persistent-optical
+        // footgun that leaves the LEDs on and drains the battery.
+        if (c.opticalDataIsLiveToggle) {
+          ops.add(send(Cmd.enableOpticalData, const [revision1, 0x01]));
+        }
+      case LiveStreamStep.imuOff:
+        if (r10 != null) {
+          if (hrHead) ops.add(send(Cmd.toggleRealtimeHr, const [0x01]));
+          ops
+            ..add(send(Cmd.toggleOpticalMode, const [revision1, 0x00]))
+            ..add(() => gap(60))
+            ..add(send(Cmd.enableOpticalData, const [revision1, 0x00]))
+            ..add(() => gap(60))
+            ..add(send(r10, const [0x00]))
+            ..add(() => gap(60));
+        }
+        ops
+          ..add(() => _sendToggleImu(false, owner: session))
+          ..add(() => gap(60));
+    }
+    // ponytail: "ok" means the GATT write-with-response was delivered, as the
+    // old methods judged it; a toggle's own correlated reply is not awaited.
+    // Correlating 0x03/0x6A replies (`_sendAwaited`) is the upgrade once the
+    // strap's reply behaviour for these toggles is confirmed on hardware.
+    var ok = true;
     for (final op in ops) {
-      await op();
-      await Future.delayed(const Duration(milliseconds: 60));
+      if (!await op()) ok = false;
+      if (_liveStale(session, generation)) return _LiveWrite.stale;
     }
-    _liveEnabled = false;
-    _liveHrOnly = false;
-    unawaited(_applyLinkPriority()); // no live consumer left
-    _armTime = null;
-    state.liveHr = null;
-    // No phase change — we stay `listening`; only the live R10/R11/optical streams
-    // stop. Historical records + the heartbeat keep flowing on the same link.
-    onState(state);
+    return ok ? _LiveWrite.ok : _LiveWrite.failed;
+  }
+
+  /// The keep-alive's re-arm, run only from a CONVERGED pass: the band's live
+  /// toggles can silently die, so what is applied is re-sent. The high-rate
+  /// re-arm is unconditional (a flowing HR stream is no proof the IMU stream
+  /// is alive; it runs only while something owns the flood); the HR re-arm is
+  /// evidence-gated — sent only when no valid reading has arrived for 60 s,
+  /// because blindly re-sending it every 30 s was ~2,880 write-with-response
+  /// round trips a day whose payload was a no-op. Results are ignored: this is
+  /// a re-assert, not a transition, so applied and dirty are untouched.
+  Future<void> _reassertLive(_Session session, int generation) async {
+    if (_liveApplied.imu) {
+      final r10 = session.entry.commands.r10R11Realtime;
+      if (r10 == null) {
+        await _sendToggleImu(true, owner: session);
+      } else {
+        await _send(r10, const [0x01], owner: session);
+      }
+      if (_liveStale(session, generation)) return;
+    }
+    if (_liveApplied.hr) {
+      final hrAtMs = state.liveHrAt;
+      final hrDelivering = hrAtMs != null &&
+          DateTime.now().millisecondsSinceEpoch - hrAtMs < 60 * 1000;
+      if (!hrDelivering) {
+        await _send(Cmd.toggleRealtimeHr, const [0x01], owner: session);
+      }
+    }
   }
 
   /// Idempotent, intentional teardown. Safe to call repeatedly.
   Future<void> disconnect() => _locked(() async {
-    if (_liveEnabled && _session?.connected == true) {
-      try {
-        await disableLiveStreams();
-      } catch (_) {}
+    // Desired is forced to OFF for the shutdown reconcile AND the teardown, so
+    // an owner change cannot re-arm the closing link in either await window.
+    // Not gated on `liveEnabled`: an ON may be in flight with applied still
+    // off. Cleared in `finally` — a throwing subscription cancel must not
+    // leave the latch stuck and every later connection silent.
+    _liveShutdown = true;
+    try {
+      if (_session?.connected == true) {
+        await _reconcileLive(); // a real barrier: awaits the in-flight pass
+      }
+      if (_session?.connected == true && _highFreqModeRequested) {
+        try {
+          await _disableHighFreqSync(reason: 'intentional_disconnect');
+        } catch (_) {}
+      }
+      await _teardownSession(intentional: true);
+    } finally {
+      _liveShutdown = false;
     }
-    if (_session?.connected == true && _highFreqModeRequested) {
-      try {
-        await _disableHighFreqSync(reason: 'intentional_disconnect');
-      } catch (_) {}
-    }
-    await _teardownSession(intentional: true);
     // Release the single-owner claim ONLY on an intentional disconnect (not on a
     // link-down we intend to reconnect from) so the band is free for a background
     // drain once we've genuinely let go. If we were already preempted by another
@@ -7424,6 +7686,17 @@ class BleEngine {
     final session = _session;
     if (session == null) return;
     session.intentionalClose = intentional;
+    // SYNCHRONOUSLY, before any await: see `_Session.closing`.
+    session.closing = true;
+    // Live arming is per-connection: applied clears now, the owners' intent
+    // survives and is re-applied on the next link's first reconcile. A fresh
+    // link's high-rate bundle is unknown again (gen4's R10/R11 OFF persists on
+    // the strap), and nothing is dirty on a link that no longer exists.
+    _liveApplied = LiveStreamIntent.off;
+    _liveReady = false;
+    _imuFresh = true;
+    _imuDirty = false;
+    _hrDirty = false;
     // Per-link state: Android resets the connection interval on every new GATT
     // connection, so a remembered priority would make the next link skip its
     // request. The battery stamp resets too — a fresh session should read the
@@ -7461,13 +7734,10 @@ class BleEngine {
     _offloadFrames.clear();
     _drainingOffloadFrames = false;
     _setOffloadActive(false);
-    // Live arming is per-connection. `_armTime` used to survive teardown, and
-    // enableHrOnlyLive sets `_liveEnabled` without touching it — so the
-    // marginal-radio detector measured the NEXT session's drop against the
-    // PREVIOUS session's arm and permanently downgraded live streams on the
-    // evidence of a session that never armed the raw flood.
-    _liveEnabled = false;
-    _liveHrOnly = false;
+    // `_armTime` used to survive teardown, so the marginal-radio detector
+    // measured the NEXT session's drop against the PREVIOUS session's arm and
+    // permanently downgraded live streams on the evidence of a session that
+    // never armed the raw flood.
     _armTime = null;
     // ALWAYS drop the radio link, not just on an intentional disconnect. Every
     // self-initiated bounce (liveness fuse, ACK-exhausted, commit-failed) tears
