@@ -47,15 +47,21 @@ class PineTimeAdapter extends BandAdapter {
       if (openSubs == 0) merged.close();
     }
 
+    // `cancelOnError: true` on BOTH: without it, a channel that errors but
+    // does not itself close keeps delivering — `onOneDone` would already have
+    // closed `merged` on the error, and the next `merged.add` from either
+    // channel throws a StateError into a stream nothing here catches.
     final subSteps = link.notify(kPineTimeStepCountChar).listen(
           merged.add,
           onDone: onOneDone,
           onError: (Object _) => onOneDone(),
+          cancelOnError: true,
         );
     final subHr = link.notify(kHeartRateMeasurementUuid).listen(
           merged.add,
           onDone: onOneDone,
           onError: (Object _) => onOneDone(),
+          cancelOnError: true,
         );
     // No write of any kind: both channels stream on their own the moment
     // they are subscribed.

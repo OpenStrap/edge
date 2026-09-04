@@ -92,6 +92,10 @@ class PineTimeLink {
             debugPrint('[pinetime] ${kPineTime.label}: missing required '
                 'characteristic(s) '
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
+            // Clears `_link` too — leaving it set here is the one failure
+            // exit that skipped the same cleanup every other exit runs
+            // through `finally { await stop(); }`.
+            await stop();
             await device.disconnect().catchError((_) {});
             return false;
           }
