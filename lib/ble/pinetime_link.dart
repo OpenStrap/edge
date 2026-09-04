@@ -91,31 +91,30 @@ class PineTimeLink {
               onLog: (m) => debugPrint('[pinetime] $m'),
             );
             _link = link;
-            final missing =
-                link.missingCharacteristics(kPineTime.requiredCharacteristics);
-            if (missing.isNotEmpty) {
-              debugPrint('[pinetime] ${kPineTime.label}: missing required '
-                  'characteristic(s) '
-                  '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
-              // Clears `_link` too — leaving it set here is the one failure
-              // exit that skipped the same cleanup every other exit runs
-              // through `finally { await stop(); }`.
-              await stop();
-              return false;
-            }
-            final host = BandHost(
-              adapter: const PineTimeAdapter(),
-              deviceId: deviceId,
-              onLog: (m) => debugPrint('[pinetime] $m'),
-            );
-            _host = host;
-            final done = host.run(link);
+            // ONE `finally { await stop(); }` for everything past this point
+            // — a throw out of `missingCharacteristics`, `BandHost(...)` or
+            // `host.run` itself would otherwise leave `_link`/`_host` set
+            // with nothing left to clear them.
             try {
-              await done.timeout(_listenWindow, onTimeout: () {});
+              final missing = link
+                  .missingCharacteristics(kPineTime.requiredCharacteristics);
+              if (missing.isNotEmpty) {
+                debugPrint('[pinetime] ${kPineTime.label}: missing required '
+                    'characteristic(s) '
+                    '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
+                return false;
+              }
+              final host = BandHost(
+                adapter: const PineTimeAdapter(),
+                deviceId: deviceId,
+                onLog: (m) => debugPrint('[pinetime] $m'),
+              );
+              _host = host;
+              await host.run(link).timeout(_listenWindow, onTimeout: () {});
+              return true;
             } finally {
               await stop();
             }
-            return true;
           } finally {
             try {
               await device.disconnect();
