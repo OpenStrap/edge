@@ -62,18 +62,25 @@ class Watch9Link {
   }
 
   Future<bool> _sync() async {
-    final row = await pairedRow();
-    if (row == null) return false;
-    final deviceId = row['id'] as String?;
-    final remoteId = row['remote_id'] as String?;
-    if (deviceId == null || remoteId == null || remoteId.isEmpty) return false;
-    if (deviceId == LocalDb.kPrimaryDeviceId) {
-      debugPrint('[watch9] refusing to sync: the row claims the primary '
-          'device id — re-pair it with a minted id.');
-      return false;
-    }
-
+    // The WHOLE body is guarded, not just the connect below: `sync()` is
+    // documented to never throw, and a database read failure or a
+    // malformed stored row (a cast that does not hold) is exactly the kind
+    // of failure a caller with no try/catch of its own (`_syncWatch9`)
+    // would otherwise have to survive unassisted.
     try {
+      final row = await pairedRow();
+      if (row == null) return false;
+      final deviceId = row['id'] as String?;
+      final remoteId = row['remote_id'] as String?;
+      if (deviceId == null || remoteId == null || remoteId.isEmpty) {
+        return false;
+      }
+      if (deviceId == LocalDb.kPrimaryDeviceId) {
+        debugPrint('[watch9] refusing to sync: the row claims the primary '
+            'device id — re-pair it with a minted id.');
+        return false;
+      }
+
       // A cap on concurrent SECONDARY links (never the primary band's own
       // connect — see ble_state.dart's kMaxConcurrentSecondaryLinks doc).
       return await withSecondaryLinkSlot(() async {
