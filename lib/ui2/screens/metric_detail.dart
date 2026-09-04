@@ -762,8 +762,10 @@ class _MetricDetailState extends State<MetricDetail> {
     }
     try {
       final spec = specOf(widget.metricKey);
-      // Registry-only, no query — signalCandidates on a single-device install
-      // returns const [], so this costs nothing for the protected case.
+      // Registry-only, no query — cheap regardless of device count. The
+      // protected single-device case is guarded downstream, not here:
+      // `candidates.length < 2` (below) drops this to `const []` before
+      // anything renders, since a lone candidate is never a choice.
       final candidates = mounted
           ? signalCandidates(context, context.read<AppState>(),
               requires: spec.requires)
