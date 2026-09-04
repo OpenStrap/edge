@@ -65,6 +65,7 @@ import 'ble_state.dart'
         withScanLock,
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
+import 'lefun_link.dart' show LefunLink;
 import 'oura_link.dart' show OuraLink;
 
 export 'adapters/host.dart' show HrsReading;
@@ -500,6 +501,9 @@ class HrsLink {
   /// [tier] defaults to the strap's, and a band whose measurement quality
   /// differs must say so rather than inherit it — the tier is what decides
   /// precedence between two sources, so a wrong one is a silent wrong number.
+  /// Pass null explicitly for a device that supplies no signal at all (the
+  /// same refusal `pairOuraRing` makes by never setting the column) — there is
+  /// no quality to rank on a device `BandAdapter.signals` declares nothing for.
   ///
   /// Nothing is written unless the peripheral passed the characteristic check:
   /// a row pointing at a device that cannot answer is a sensor that appears
@@ -508,7 +512,7 @@ class HrsLink {
     BandEntry entry,
     BluetoothDevice device, {
     String? label,
-    String tier = 'beatToBeat',
+    String? tier = 'beatToBeat',
   }) async {
     try {
       await device.connect(timeout: _connectTimeout);
@@ -582,9 +586,23 @@ class HrsLink {
       await OuraLink.forgetRing(id);
       return;
     }
+    if (row?['adapter_id'] == kLefun.id) {
+      // No secret to drop — the envelope this device speaks has no key
+      // exchange — so this is a plain stop-and-delete, same shape as Oura's
+      // forget minus the keychain half.
+      await LefunLink.instance.stop();
+      await LocalDb.deleteDevice(id);
+      return;
+    }
     // Before the row goes, not after: a live session would keep writing rows
-    // under an id nothing can explain any more.
-    await instance.disarm();
+    // under an id nothing can explain any more. GATED ON THE ROW BEING THE
+    // ARMED HRS SENSOR, not called unconditionally — this fallback used to run
+    // for ANY adapter without its own branch above, which would tear down a
+    // live chest-strap session while forgetting an unrelated device (e.g. a
+    // Lefun ring paired alongside one).
+    if (row?['adapter_id'] == kBleHrsAdapter.id) {
+      await instance.disarm();
+    }
     await LocalDb.deleteDevice(id);
   }
 
