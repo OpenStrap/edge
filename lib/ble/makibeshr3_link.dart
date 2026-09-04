@@ -127,7 +127,12 @@ class MakibesHr3Link {
           debugPrint('[makibeshr3] connect failed: $e');
           return false;
         } finally {
-          await stop();
+          // `BandHost.stop()` awaits `_runSub?.cancel()` and a final
+          // `_commit`, neither guarded internally — a failure in either
+          // must not skip the disconnect below.
+          try {
+            await stop();
+          } catch (_) {/* best-effort teardown */}
           try {
             await device.disconnect();
           } catch (_) {/* already gone */}
