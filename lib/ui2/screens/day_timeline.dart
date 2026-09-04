@@ -27,6 +27,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../data/day_label.dart' show localDayEndSec;
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
@@ -34,8 +35,11 @@ import '../../data/local_repository.dart';
 import '../../data/med_store.dart';
 import '../../data/nutrition_store.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_state.dart';
 import '../../state/locale_controller.dart';
 import '../activity/catalogue.dart' show activityByName;
+import '../profile/devices.dart'
+    show DeviceFilter, DeviceOption, signalCandidates;
 import '../ui2.dart';
 import 'home_screen.dart' show clockOfTs, repoOf;
 import 'metric_detail.dart' show dayNavRow, detailScaffold, pickDay;
@@ -443,7 +447,7 @@ class DayGraph {
 ///
 /// [timeline] is `getDayTimeline`. Anything it did not carry contributes
 /// nothing; there is no placeholder lane for a day with no workouts in it.
-DayGraph dayGraph(Map<String, dynamic> timeline) {
+DayGraph dayGraph(Map<String, dynamic> timeline, {List<Object?>? hrOverride}) {
   final dayStart = (timeline['day_start'] as num?)?.toInt();
   if (dayStart == null || dayStart <= 0) return const DayGraph();
   // The day's REAL length. A spring-forward day is 23 h and a fall-back day is
@@ -462,7 +466,7 @@ DayGraph dayGraph(Map<String, dynamic> timeline) {
   }
 
   final hr = List<double?>.filled(n, null);
-  for (final e in (timeline['hr'] as List?) ?? const []) {
+  for (final e in hrOverride ?? (timeline['hr'] as List?) ?? const []) {
     if (e is! Map) continue;
     final i = slot(e['t']);
     final v = (e['v'] as num?)?.toDouble();
@@ -526,6 +530,7 @@ class TimelineData {
     this.graph = const DayGraph(),
     this.moments = const [],
     this.notes = const [],
+    this.raw,
   });
 
   final String? day;
@@ -537,6 +542,11 @@ class TimelineData {
   final DayGraph graph;
   final List<Moment> moments;
   final List<DayNote> notes;
+
+  /// The raw `getDayTimeline` payload [graph] was built from — retained so a
+  /// per-device selection can rebuild [graph] with `dayGraph(raw!,
+  /// hrOverride: …)` without a second `getDayTimeline` call (M6 §7.3).
+  final Map<String, dynamic>? raw;
 
   static Future<TimelineData> load(
     LocalRepository repo, {
@@ -570,10 +580,16 @@ class TimelineData {
       }
     });
 
+    // WHAT OTHER SOURCES SAY about this day (M6). Gated on isNotEmpty being
+    // the ONLY behaviour change: zero rows today, on every install, so the
+    // list below is empty and this section renders nothing.
+    final observations = await repo.getDayObservations(day);
+
     return TimelineData(
       day: day,
       days: days,
       graph: dayGraph(timeline),
+      raw: timeline,
       moments: dayMoments(
         timeline: timeline,
         wear: wear,
@@ -583,13 +599,32 @@ class TimelineData {
         fields: fields,
         l: l,
       ),
-      notes: dayNotes(
-        meals: [for (final m in meals) m.sanitised],
-        journal: journal,
-        fields: fields,
-        journalRows: [for (final r in notes) if (r['date'] == day) r],
-        l: l,
-      ),
+      notes: [
+        ...dayNotes(
+          meals: [for (final m in meals) m.sanitised],
+          journal: journal,
+          fields: fields,
+          journalRows: [for (final r in notes) if (r['date'] == day) r],
+          l: l,
+        ),
+        // ONE ROW PER OBSERVATION. Attribution always shown and never
+        // abbreviated — a vendor number rendered without its source is a
+        // number the user will read as ours. No tier, no confidence, no
+        // dot — Observation deliberately carries none. A vendorKey renders
+        // verbatim ('BioCharge' stays 'BioCharge'; mapping it onto one of
+        // our keys is the worst available mistake here).
+        // `observation.value` is nullable and an import preserves that, so the
+        // value clause is dropped rather than interpolated — a null renders as
+        // the literal "null", which reads as a measurement.
+        for (final r in observations)
+          DayNote(
+            (r['vendor_key'] as String?) ?? (r['key'] as String?) ?? '',
+            r['value'] == null
+                ? '${r['attribution']}'
+                : '${r['value']}${(r['unit'] as String?)?.isNotEmpty == true ? ' ${r['unit']}' : ''} · ${r['attribution']}',
+            LucideIcons.tag,
+          ),
+      ],
     );
   }
 }
@@ -610,6 +645,18 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   bool _loading = true;
   String? _day;
 
+  /// The devices that could serve `hr` on this screen — registry-only, no
+  /// query. Empty on every single-device install, which keeps the filter row
+  /// absent (M6 §7.3).
+  List<DeviceOption> _candidates = const [];
+
+  /// The device whose own curve [_d]'s graph is drawn from, or null for the
+  /// merged one. Cleared on every day change — a device selection is about
+  /// the day on screen.
+  String? _device;
+  bool _deviceBounded = false;
+  String? _deviceOldest;
+
   // `TimelineData` bakes `AppLocalizations` strings into `moments`/`notes` at
   // load time (see `TimelineData.load`), so a language switch while this
   // screen is alive would otherwise leave it showing the old locale until
@@ -623,6 +670,12 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
   /// NEWER one (a locale change firing while a day-nav load is still in
   /// flight) can tell it lost the race and must not overwrite fresher data.
   int _loadToken = 0;
+
+  /// The same guard for the per-device chart read, which awaits on its own.
+  /// Bumped by `_load()` too, so a day change also invalidates a device
+  /// request still in flight — otherwise the older response landed last and
+  /// rebuilt `_d` from the PREVIOUS day's raw.
+  int _deviceToken = 0;
 
   @override
   void initState() {
@@ -658,6 +711,7 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
 
   Future<void> _load() async {
     final token = ++_loadToken;
+    _deviceToken++;
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted && token == _loadToken) setState(() => _loading = false);
@@ -666,12 +720,80 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     final l = AppLocalizations.of(context);
     try {
       final d = await TimelineData.load(repo, want: _day, l: l);
+      final candidates = mounted
+          ? signalCandidates(context, context.read<AppState>(),
+              requires: {InputSignal.hr1Hz})
+          : const <DeviceOption>[];
       if (mounted && token == _loadToken) {
-        setState(() => (_d = d, _loading = false));
+        setState(() => (
+          _d = d,
+          _candidates = candidates,
+          _device = null,
+          // Cleared WITH `_device`. Left behind, the bounded-history message
+          // and its oldest-day marker outlived the selection that produced
+          // them and rendered against no selected device at all.
+          _deviceBounded = false,
+          _deviceOldest = null,
+          _loading = false,
+        ));
       }
     } catch (_) {
       if (mounted && token == _loadToken) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _selectDevice(String? id) async {
+    final token = ++_deviceToken;
+    final d = _d;
+    final day = _day ?? d?.day;
+    if (d?.raw == null || day == null) return;
+    if (id == null) {
+      setState(() {
+        _device = null;
+        _deviceBounded = false;
+        _deviceOldest = null;
+        _d = TimelineData(
+          day: d!.day,
+          days: d.days,
+          graph: dayGraph(d.raw!),
+          moments: d.moments,
+          notes: d.notes,
+          raw: d.raw,
+        );
+      });
+      return;
+    }
+    final repo = repoOf(context);
+    if (repo == null) return;
+    final Map<String, Object?> c;
+    try {
+      c = await repo.getDeviceChart('hr', deviceId: id, date: day);
+    } catch (_) {
+      // A failed read leaves the graph and the selection exactly as they were:
+      // the alternative is an empty chart under a device pill, which claims
+      // that device recorded nothing.
+      return;
+    }
+    // A newer selection (another device, or a day change through `_load`)
+    // started while this read was in flight, so this answer is about a
+    // timeline that is no longer on screen.
+    if (!mounted || token != _deviceToken) return;
+    final bounded = c['bounded'] == true;
+    setState(() {
+      _device = id;
+      _deviceBounded = bounded;
+      _deviceOldest = c['oldest'] as String?;
+      _d = TimelineData(
+        day: d!.day,
+        days: d.days,
+        graph: bounded
+            ? const DayGraph()
+            : dayGraph(d.raw!, hrOverride: c['points'] as List?),
+        moments: d.moments,
+        notes: d.notes,
+        raw: d.raw,
+      );
+    });
   }
 
   void _goDay(String day) {
@@ -692,8 +814,29 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
       if (_loading) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
-      ] else
+      ] else ...[
+        if (_candidates.length >= 2) ...[
+          const SizedBox(height: S.x2),
+          DeviceFilter(
+            options: _candidates,
+            selected: _device,
+            onSelect: _selectDevice,
+          ),
+          if (_deviceBounded)
+            Padding(
+              padding: const EdgeInsets.only(top: S.x2),
+              child: Text(
+                l?.dayTimelineDeviceBounded(_deviceOldest ?? '') ??
+                    'Per-device detail is kept for recent days only. Before '
+                        '${_deviceOldest ?? ''} we know which device recorded, '
+                        'not what it said.',
+                style: F.over.copyWith(color: P.of(c).ink3),
+              ),
+            ),
+          const SizedBox(height: S.x2),
+        ],
         ...timelineBody(c, d),
+      ],
     ]);
   }
 }

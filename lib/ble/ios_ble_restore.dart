@@ -107,6 +107,40 @@ class IosBleRestore {
     } catch (_) {}
   }
 
+  /// Arm restoration for a SET of bands in one round trip. Native accepts either a
+  /// String (one band, today's [arm]) or a list.
+  ///
+  /// NOT called in M4: Dart's arm policy stays primary-only (see §7.3's ceiling —
+  /// only the primary gets background restore on iOS). This exists so the native
+  /// side has a Dart-side counterpart to test against, and so the day a second
+  /// framed band is background-restorable the change is one call site, not a
+  /// channel redesign.
+  static Future<void> armAll(List<String> remoteIds) async {
+    if (!Platform.isIOS || remoteIds.isEmpty) return;
+    try {
+      await _ch.invokeMethod('arm', remoteIds);
+    } catch (_) {}
+  }
+
+  /// Forget ONE band's restoration without touching the others. [disarm] with no
+  /// argument still means "forget everything", which is what unpair wants.
+  static Future<void> disarmOne(String remoteId) async {
+    if (!Platform.isIOS) return;
+    try {
+      await _ch.invokeMethod('disarm', remoteId);
+    } catch (_) {}
+  }
+
+  /// Release the restore central WITHOUT forgetting any band — the ASK-picker
+  /// prerequisite. See devices.dart's addFramedBand flow; this is NOT [disarm], and
+  /// confusing the two loses the primary's restore key.
+  static Future<void> releaseCentralForPicker() async {
+    if (!Platform.isIOS) return;
+    try {
+      await _ch.invokeMethod('releaseCentralForPicker');
+    } catch (_) {}
+  }
+
   static Future<void> _done() async {
     try {
       await _ch.invokeMethod('syncDone');

@@ -48,7 +48,6 @@ import 'package:collection/collection.dart' show IterableExtension;
 import 'package:flutter/foundation.dart'
     show ValueListenable, ValueNotifier, debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 
 import '../data/db.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
@@ -57,15 +56,18 @@ import 'adapters/_registry.dart';
 import 'adapters/adapter.dart';
 import 'adapters/ble_hrs.dart';
 import 'adapters/gatt_link.dart';
+import 'adapters/host.dart' show BandHost, HrsReading;
 import 'ble_state.dart'
-    show BleBlocker, BleUnavailableException, classifyBleBlocker, withScanLock;
+    show
+        BleBlocker,
+        BleUnavailableException,
+        classifyBleBlocker,
+        withScanLock,
+        acquireSecondaryLinkSlot,
+        releaseSecondaryLinkSlot;
 import 'oura_link.dart' show OuraLink;
 
-/// One arrival second's worth of notifications.
-class _Second {
-  int? hr;
-  final List<int> rr = [];
-}
+export 'adapters/host.dart' show HrsReading;
 
 /// One peripheral a pairing scan heard, in the shape a picker needs.
 ///
@@ -73,23 +75,16 @@ class _Second {
 /// nullable: plenty of sensors advertise no name at all, and a made-up
 /// "Unknown device" would be a value where there is none. The screen shows the
 /// band's own label instead.
-typedef BandCandidate = ({BluetoothDevice device, String? label, int rssi});
-
-/// What a paired sensor is saying RIGHT NOW. Display only — see
-/// [HrsLink.reading].
-class HrsReading {
-  /// The last bpm the sensor reported, or null while the link is up and
-  /// nothing has arrived yet. A strap takes seconds to find a signal, and that
-  /// is a real state; it is never rendered as a zero. The parser already
-  /// refuses 0 bpm, so a non-null value here was measured.
-  final int? bpm;
-
-  /// Arrival second of [bpm] — `TimeAnchor.arrival`, same caveat as every
-  /// other timestamp on this path. Null with [bpm].
-  final int? atSec;
-
-  const HrsReading({this.bpm, this.atSec});
-}
+typedef BandCandidate = ({
+  BluetoothDevice device,
+  String? label,
+  int rssi,
+  // Which registry entry's service this result matched. Only meaningful when
+  // a scan covers more than one entry at once (`scanForAny`); a single-entry
+  // scan (`scanFor`) always stamps its own id, so existing callers reading
+  // `.label`/`.device`/`.rssi` are unaffected by this field's addition.
+  String entryId,
+});
 
 /// The live link to a paired heart-rate sensor. One instance; a second
 /// concurrent sensor is not a thing anyone asked for.
@@ -97,48 +92,46 @@ class HrsLink {
   HrsLink._();
   static final HrsLink instance = HrsLink._();
 
-  /// Flush cadence for the write buffer. A sensor notifies ~1 Hz, and one
-  /// transaction per beat on the UI isolate is the mistake `commitSyncBatch`
-  /// already chunks around.
-  static const Duration _flushEvery = Duration(seconds: 15);
-
   BluetoothDevice? _device;
 
   /// Kept only so [disarm] can [GattBandLink.close] it. Closing is what stops a
   /// write the adapter queued before the teardown from landing on a LATER
   /// connection to the same strap — see the field's own doc.
   GattBandLink? _link;
-  StreamSubscription<BandEvent>? _runSub;
   StreamSubscription<BluetoothConnectionState>? _connSub;
-  Completer<void>? _runDone;
-  Timer? _flushTimer;
 
-  /// Arrival second -> that second's readings. Keyed by second because that is
-  /// the key `decoded_onehz` / `decoded_rr` are written under: accumulating
-  /// per second is what stops two notifications landing in the same second
-  /// from REPLACE-ing each other's beat 0.
-  final Map<int, _Second> _pending = {};
-
-  /// `device.id` of the paired sensor — the `device_id` every row it writes
-  /// carries. Never [LocalDb.kPrimaryDeviceId]: `''` is the primary band,
-  /// permanently (ASSUMPTIONS A1).
-  String? _deviceId;
+  /// The session driving [kBleHrsAdapter] over [_link] — see `adapters/host.dart`.
+  /// Null when nothing is armed. Carries the paired sensor's `device_id`
+  /// (never [LocalDb.kPrimaryDeviceId] — `''` is the primary band,
+  /// permanently, ASSUMPTIONS A1).
+  BandHost? _host;
 
   bool _armed = false;
 
+  /// True while this instance holds a secondary-link slot (acquired before
+  /// connect in [_arm], released exactly once from [disarm]). Guards against
+  /// a double-release, which would hand a slot to two connects at once.
+  bool _holdsSecondaryLinkSlot = false;
+
   /// What the sensor is saying right now, or null when none is armed.
-  ///
-  /// THE DISPLAY PATH, AND ONLY THAT. [_flush] stays the single writer into
-  /// `decoded_*`; this notifier persists nothing and is read by nothing that
-  /// derives. A second write path built on the live number is exactly how a
-  /// displayed value and a stored value start disagreeing with no way to tell
-  /// which one a metric used.
   ///
   /// A [ValueListenable] rather than a stream because there is one current
   /// reading and every consumer wants the latest one — a late listener on a
-  /// broadcast stream would render nothing until the next beat.
+  /// broadcast stream would render nothing until the next beat. Mirrors
+  /// [BandHost.reading] rather than exposing it directly, so this listenable's
+  /// IDENTITY stays stable across an arm/disarm cycle — a widget holding a
+  /// reference to it does not need to notice a new host underneath.
   ValueListenable<HrsReading?> get reading => _reading;
   final ValueNotifier<HrsReading?> _reading = ValueNotifier(null);
+
+  /// The armed sensor's `device_id`, or null when nothing is armed.
+  ///
+  /// What a consumer of [reading] needs to attribute a beat: a reading with no
+  /// device behind it cannot enter a per-device trace (`AppState`'s), and the
+  /// minted id is the only name this sensor has. NULL BEFORE [reading] CLEARS
+  /// — [disarm] drops the host first — so a consumer that must name the device
+  /// it is ending has to remember it.
+  String? get deviceId => _host?.deviceId;
 
   /// The `device` row for the paired heart-rate sensor, or null.
   ///
@@ -175,6 +168,60 @@ class HrsLink {
 
   static const Duration _connectTimeout = Duration(seconds: 12);
 
+  /// WHOSE scan is running right now — the `owner` token its caller passed —
+  /// or null between them, for THIS file's scans and nothing else.
+  ///
+  /// The pairing screen has to be able to end its own scan early: the lock is
+  /// held for the whole 15 s window and a dismissed screen should not make the
+  /// next caller wait it out. What it must NOT do is call a bare
+  /// `FlutterBluePlus.stopScan()`: the radio has one scanner, every holder
+  /// awaits `isScanning == false`, and a stop issued by anyone satisfies
+  /// everyone's await.
+  ///
+  /// A BOOL WAS NOT ENOUGH, and it is what this replaced. "A scan of ours is
+  /// running" is not "MY scan is running" — with two pairing surfaces alive at
+  /// once (the picker pushes `PairSensorScreen` while its own 15 s scan is
+  /// still going, which is one tap) the queued screen's `dispose` read the
+  /// RUNNING screen's flag and ended its scan, which then reports "found
+  /// nothing" with no error anywhere. Exactly the bug the paragraph above was
+  /// written to prevent, arrived at from the other side.
+  static Object? _scanOwner;
+
+  /// How long to wait for a stop to actually land before giving up on it. A
+  /// stop that will not finish must not be able to hang a pairing tap.
+  static const Duration _stopScanTimeout = Duration(seconds: 3);
+
+  /// End [owner]'s scan early if it is the one actually running. No-op
+  /// otherwise — when someone else holds the radio, and when [owner]'s own
+  /// scan is still queued behind the lock.
+  ///
+  /// AWAIT THIS BEFORE CONNECTING. The returned future completes only once the
+  /// radio has really stopped scanning: `flutter_blue_plus`'s own `stopScan`
+  /// flips `isScanning` false and awaits the platform call, and it takes the
+  /// same "scan" mutex `startScan` does, so awaiting it also covers a stop
+  /// issued in the sliver before a start has engaged. Fire-and-forget — which
+  /// this used to be — begins the connect with the scan still tearing down,
+  /// and a connect racing a live scan is the classic Android GATT-133.
+  /// `dispose` has nothing to await with and does not need to: nothing follows
+  /// it onto the radio.
+  ///
+  /// ponytail: a queued scan is still not cancellable, so a dismissed screen
+  /// can hold the lock for its full window doing nothing. That costs a wait,
+  /// never a wrong answer, which is the direction to fail in. Give
+  /// `withScanLock` a cancellation token only if a real flow needs the lock
+  /// back sooner.
+  static Future<void> stopScanIfRunning(Object owner) async {
+    if (!identical(_scanOwner, owner)) return;
+    try {
+      await FlutterBluePlus.stopScan().timeout(_stopScanTimeout);
+    } catch (e) {
+      // A stop that throws or will not land is not worth failing a pair over —
+      // the connect that follows is the thing the user asked for, and the scan
+      // window closes on its own timeout regardless.
+      debugPrint('[hrs] stopScan did not land: $e');
+    }
+  }
+
   /// Scan for peripherals advertising [entry]'s service and report them as
   /// they are heard.
   ///
@@ -198,8 +245,13 @@ class HrsLink {
   /// strongest signal first, which is very nearly "the one on your chest".
   /// Throws [BleUnavailableException] when the phone's own stack is the
   /// problem; see [scanHeldBackReason] for the iOS case that is not an error.
+  ///
+  /// [owner] is whatever the caller passes to [stopScanIfRunning] to end this
+  /// scan early — a screen's `State`, in practice. It is compared by identity
+  /// and never stored beyond the scan.
   static Future<void> scanFor(
     BandEntry entry, {
+    required Object owner,
     required void Function(List<BandCandidate>) onResults,
     Duration timeout = _scanWindow,
   }) {
@@ -208,11 +260,34 @@ class HrsLink {
     // Process-wide, because the radio has ONE scanner and the band's own scan
     // shares it. Without this, whichever scan called `stopScan` first ended
     // the other one having seen nothing, with no error to say why.
-    return withScanLock(() => _scanFor(entry, onResults, timeout));
+    return withScanLock(() => _scanForEntries([entry], owner, onResults, timeout));
   }
 
-  static Future<void> _scanFor(
-    BandEntry entry,
+  /// Like [scanFor], swept across every entry in [entries] at once — the
+  /// unified device picker's "nearby" section, which does not make the user
+  /// pick a category before it can even look. Each result is tagged with
+  /// which entry's service it matched (`BandCandidate.entryId`), so the
+  /// picker can still route a tap to the right pairing step.
+  ///
+  /// A THIRD copy of the scan loop, not a second: [scanFor] is kept as its
+  /// own entry point (rather than a 1-element call to this one hidden behind
+  /// the name) because its assert message and doc are about ONE band, and
+  /// callers pairing a specific already-chosen entry should keep saying so.
+  static Future<void> scanForAny(
+    List<BandEntry> entries, {
+    required Object owner,
+    required void Function(List<BandCandidate>) onResults,
+    Duration timeout = _scanWindow,
+  }) {
+    assert(entries.isNotEmpty, 'scanForAny needs at least one entry.');
+    assert(entries.every((e) => !e.isFramed),
+        'a framed band has no notify-class scan to join.');
+    return withScanLock(() => _scanForEntries(entries, owner, onResults, timeout));
+  }
+
+  static Future<void> _scanForEntries(
+    List<BandEntry> entries,
+    Object owner,
     void Function(List<BandCandidate>) onResults,
     Duration timeout,
   ) async {
@@ -225,6 +300,34 @@ class HrsLink {
     if (FlutterBluePlus.isScanningNow) {
       await FlutterBluePlus.stopScan();
     }
+    final serviceGuids = [for (final e in entries) Guid(e.service)];
+    // Which entry a matched service belongs to, or NULL when this particular
+    // advertisement did not carry one of them. Services are each entry's own
+    // GATT identity, so a collision here would mean two registry rows sharing
+    // one service — a registry bug, not a runtime ambiguity to resolve softly.
+    //
+    // NULLABLE ON PURPOSE, and the whole point of the split with the caller
+    // below. `withServices` filters on the SCAN, not on the payload: an
+    // Android advertisement can match the filter and still arrive with an
+    // empty or truncated `serviceUuids` (the 31-byte advertising packet is
+    // full, and the rest is in a scan response that has not landed yet). A
+    // fallback returned from in here was indistinguishable from a real match,
+    // so the caller cached a guess and never looked again.
+    String? entryIdFor(List<Guid> advertised) {
+      for (final g in advertised) {
+        for (final e in entries) {
+          if (g == Guid(e.service)) return e.id;
+        }
+      }
+      return null;
+    }
+
+    // Remote ids whose entry is CONFIRMED by an advertisement that actually
+    // carried the service. Everything else is shown under `entries.first`
+    // until a real match lands — correct by construction for a single-entry
+    // scan ([scanFor]), a placeholder that corrects itself for [scanForAny].
+    final confirmed = <String, String>{};
+
     // Keyed by remote id: a scan re-reports the same peripheral several times
     // a second, and a list that grows a row per advertisement is not a picker.
     final seen = <String, BandCandidate>{};
@@ -243,8 +346,21 @@ class HrsLink {
         final label = cleanDeviceLabel(r.advertisementData.advName) ??
             cleanDeviceLabel(r.device.platformName) ??
             was?.label;
-        final now = (device: r.device, label: label, rssi: r.rssi);
-        if (was == null || was.rssi != now.rssi || was.label != now.label) {
+        // Re-attempted on EVERY advertisement until one confirms, then fixed:
+        // a confirmed match cannot change (a peripheral does not swap GATT
+        // identity mid-scan) and re-reading it would only add work.
+        final match = confirmed[id] ?? entryIdFor(r.advertisementData.serviceUuids);
+        if (match != null) confirmed[id] = match;
+        final now = (
+          device: r.device,
+          label: label,
+          rssi: r.rssi,
+          entryId: match ?? entries.first.id,
+        );
+        if (was == null ||
+            was.rssi != now.rssi ||
+            was.label != now.label ||
+            was.entryId != now.entryId) {
           changed = true;
         }
         seen[id] = now;
@@ -252,8 +368,17 @@ class HrsLink {
       if (changed) onResults(_ranked(seen));
     });
     try {
+      // CLAIMED BEFORE THE START, not after it. `startScan` flips the radio on
+      // partway through its own body and only THEN returns, so an owner set on
+      // the line after it leaves a window where the scan is live and
+      // [stopScanIfRunning] cannot see whose it is — a screen dismissed in that
+      // window held the radio for the full 15 s doing nothing. Claiming it
+      // first cannot fail the other way either: `flutter_blue_plus` serialises
+      // `startScan`/`stopScan` through one mutex, so a stop issued in the
+      // window queues behind this start and takes effect on the way out.
+      _scanOwner = owner;
       await FlutterBluePlus.startScan(
-        withServices: [Guid(entry.service)],
+        withServices: serviceGuids,
         timeout: timeout,
       );
       // The scan's own timeout is what stops it; this waits that out.
@@ -265,6 +390,9 @@ class HrsLink {
       if (blocker != null) throw BleUnavailableException(blocker);
       debugPrint('[hrs] scan error: $e');
     } finally {
+      // Identity-guarded for the same reason `_disarming` is: only the scan
+      // that claimed the radio may release the claim.
+      if (identical(_scanOwner, owner)) _scanOwner = null;
       await sub.cancel();
     }
     onResults(_ranked(seen));
@@ -323,9 +451,9 @@ class HrsLink {
     if (!Platform.isIOS) return null;
     if (!await AccessorySetup.isSupported()) return null;
     if (await AccessorySetup.provisionedId() != null) return null;
-    return 'Your WHOOP is not paired yet. Searching for a sensor now starts '
-        'Bluetooth in a way that hides the system WHOOP pairing sheet until '
-        'you restart the app — so pair the WHOOP first, or expect to restart '
+    return 'Your main band is not paired yet. Searching for a sensor now starts '
+        'Bluetooth in a way that hides the system pairing sheet until you '
+        'restart the app — so pair your main band first, or expect to restart '
         'the app before you can.';
   }
 
@@ -466,19 +594,83 @@ class HrsLink {
   /// Never scans: it connects straight to the stored remote id, so arming a
   /// workout cannot contend with the band's scan.
   ///
-  /// SERIALISED, because every caller fires it `unawaited` and the body awaits
-  /// a database read, a 12 s connect and service discovery before it publishes
-  /// anything. A second call used to sail past the `_armed` check while the
-  /// first was still connecting and overwrite `_device`, `_link`, `_runSub` and
-  /// `_flushTimer` — the first one's timer and subscription then ran forever
-  /// with nothing holding them.
+  /// WHAT IS ACTUALLY GUARANTEED — and every caller fires this `unawaited`,
+  /// while the body awaits a database read, a 12 s connect and service
+  /// discovery before it publishes anything:
+  ///
+  ///  * TWO CONCURRENT CALLS ARE ONE ATTEMPT, and get the same future. A
+  ///    second call used to sail past the `_armed` check while the first was
+  ///    still connecting and overwrite `_device`, `_link` and `_host` — the
+  ///    first one's session then ran forever with nothing holding it.
+  ///  * A CALL DURING A TEARDOWN WAITS IT OUT AND THEN ARMS. `_armed` stays
+  ///    TRUE through every await in [disarm] — `_host.stop()`'s final flush,
+  ///    the subscription cancel, the disconnect — so a call landing in that
+  ///    window used to hit the `_armed` fast path, answer "already armed" and
+  ///    start nothing; the teardown then finished underneath it, leaving no
+  ///    session, no error, and a caller holding `true` with no reason to
+  ///    retry. Ordinary sequence — stop a workout, start another inside the
+  ///    same second. It waits out a teardown that FAILS too: only "it is
+  ///    over" matters here, and [_disarm]'s `finally` leaves "not armed" true
+  ///    whichever way it ended.
+  ///  * AN ATTEMPT A [disarm] CANCELLED IS NEVER HANDED OUT AGAIN, because
+  ///    `disarm` clears `_arming`. So `arm() → disarm() → arm()` inside one
+  ///    connect window gives the LAST call a fresh attempt that can still
+  ///    succeed. It used to be handed the first call's future, which the
+  ///    disarm had already doomed: both callers got `false`, nothing was
+  ///    armed, and the second call had never even tried. The same reason
+  ///    [_arm]'s failure paths are generation-aware — a cancelled attempt
+  ///    that called the full [disarm] on its way out would cancel the fresh
+  ///    one instead.
+  ///
+  /// WHAT IS NOT GUARANTEED is that the answer is `true`. A cancelled or
+  /// failed attempt answers `false` — never a half-armed state, and never a
+  /// throw — and the caller retries or does not.
+  ///
+  /// Setting `_armed = false` at the top of [disarm] would NOT fix any of it.
+  /// That only moves the race: the arm would then start a fresh session and
+  /// the disarm still running behind it would tear that one down instead.
   Future<bool> arm() {
+    final teardown = _disarming;
+    // Recursive rather than a single await: a second [disarm] can land while
+    // we wait, and the answer to "is anything armed" is only true after the
+    // LAST one has finished. Identity of the returned future is deliberately
+    // not preserved across a teardown — there is nothing yet to be identical
+    // to — but the no-teardown path below still hands back the same `_arming`
+    // to every caller, which is what dedupes the ordinary double-arm.
+    if (teardown != null) return _armAfter(teardown);
     if (_armed) return Future.value(true);
-    return _arming ??= _arm().whenComplete(() => _arming = null);
+    final existing = _arming;
+    if (existing != null) return existing;
+    late final Future<bool> mine;
+    // Identity-guarded on the way out for the same reason `_disarming` and
+    // `_scanOwner` are: a [disarm] may have cleared this slot and a LATER arm
+    // filled it, and a cancelled attempt completing must not null out the
+    // live one's memo.
+    mine = _arm().whenComplete(() {
+      if (identical(_arming, mine)) _arming = null;
+    });
+    return _arming = mine;
   }
 
-  /// The in-flight [arm], or null. See [arm].
+  /// Arm once [teardown] is over, whether it succeeded or THREW. Its error
+  /// belongs to whoever called that [disarm] — the rule `_disarmAfter`
+  /// already follows — and letting it through here would break this chain:
+  /// `arm()` would never run and a caller that only asked to be armed would
+  /// get a thrown future instead of `false`.
+  Future<bool> _armAfter(Future<void> teardown) async {
+    try {
+      await teardown;
+    } catch (_) {/* the disarm caller's error, not ours */}
+    return arm();
+  }
+
+  /// The in-flight [arm], or null — cleared by [disarm], which is what makes a
+  /// cancelled attempt un-reusable. See [arm].
   Future<bool>? _arming;
+
+  /// The in-flight [disarm] chain, or null when nothing is being torn down.
+  /// [arm] waits on it; see its doc for what goes wrong otherwise.
+  Future<void>? _disarming;
 
   /// How many times [disarm] has run. An [arm] whose count moved under it has
   /// been cancelled and must not publish — see the check in [_arm].
@@ -498,26 +690,39 @@ class HrsLink {
           'device id — re-pair it with a minted id.');
       return false;
     }
-    _deviceId = deviceId;
+    // Declared OUT here so the catch can reach it: `_device` is not a
+    // substitute, because the whole point of the cleanup below is the case
+    // where a [disarm] has already nulled it (or a fresher arm has replaced
+    // it) and only this frame still knows which peripheral it opened.
+    final device = BluetoothDevice.fromId(remoteId);
     try {
-      final device = BluetoothDevice.fromId(remoteId);
       _device = device;
+      // A cap on concurrent SECONDARY links (never the band's own connect —
+      // see ble_state.dart's kMaxConcurrentSecondaryLinks doc). Acquired
+      // before connect, released only when the link tears down in [disarm]
+      // — a live GATT connection is the resource being capped, not the act
+      // of opening one.
+      await acquireSecondaryLinkSlot();
+      if (_disarms != disarmsAtStart) {
+        // Disarmed while queued for a slot — release it and bail without
+        // ever connecting.
+        releaseSecondaryLinkSlot();
+        return false;
+      }
+      _holdsSecondaryLinkSlot = true;
       await device.connect(timeout: const Duration(seconds: 12));
       // Connect, bond, MTU and discovery are HOST work and stay on this side
       // of the seam. The adapter is handed the result and nothing else.
       final services = await device.discoverServices();
-      // A `disarm()` that landed WHILE this was connecting has already torn the
-      // session down — it nulls `_device` and `_deviceId`. Publishing on top of
-      // it would set `_armed = true` over no device and no `_deviceId`, so
-      // `_flush` would discard every second and every later `arm()` would
+      // A `disarm()` that landed WHILE this was connecting has already torn
+      // the session down — it nulls `_device`. Publishing on top of it would
+      // set `_armed = true` over no device, so every later `arm()` would
       // short-circuit on `_armed`: the sensor stays dead for the rest of the
       // process. Reachable by the most ordinary thing a user does — start a
       // workout and stop it inside twelve seconds.
       if (_disarms != disarmsAtStart) {
         debugPrint('[hrs] arm abandoned: it was disarmed while connecting.');
-        try {
-          await device.disconnect();
-        } catch (_) {/* already gone */}
+        await _disconnectAbandoned(device);
         return false;
       }
       final link = GattBandLink(
@@ -531,145 +736,229 @@ class HrsLink {
       if (missing.isNotEmpty) {
         debugPrint('[hrs] ${kBleHrsAdapter.label}: missing required '
             'characteristic(s) ${missing.map((u) => u.substring(0, 8)).join(", ")}.');
-        await disarm();
+        await _teardownQuietly();
         return false;
       }
-      _startRun(link);
+      final host = BandHost(
+        adapter: kBleHrsAdapter,
+        deviceId: deviceId,
+        onLog: (m) => debugPrint('[hrs] $m'),
+      );
+      _host = host;
+      host.reading.addListener(() => _reading.value = host.reading.value);
+      // A SESSION THAT ENDS ON ITS OWN MUST STILL RELEASE. `BandHost.run`
+      // completes when the adapter's stream ends OR errors — it turns an
+      // adapter error into normal completion and cancels only its own flush
+      // timer. Nothing else noticed: `_armed` stayed true and the
+      // secondary-link slot stayed held for the life of the process, so the
+      // strap could never be armed again and one of two slots was gone.
+      //
+      // Gated on the disarm counter, not on `_host == host`: when it is
+      // `disarm()` ITSELF that ended the run (via `_host.stop()`), `_host` is
+      // still this host — disarm nulls it only after that await returns — so
+      // an identity check would re-enter disarm from inside its own teardown.
+      // The counter has already moved by then, because `disarm` increments it
+      // synchronously. A host left over from an earlier arm generation is
+      // excluded by the same test.
+      unawaited(host.run(link).whenComplete(() {
+        if (_disarms != disarmsAtStart) return;
+        debugPrint('[hrs] session ended on its own — releasing the link.');
+        unawaited(disarm());
+      }));
       // A sensor that walks out of range mid-session ends the log there rather
       // than leaving the link claiming to be armed when it is gone.
       _connSub = device.connectionState.listen((s) {
         if (s == BluetoothConnectionState.disconnected) unawaited(disarm());
       });
-      _flushTimer = Timer.periodic(_flushEvery, (_) => unawaited(_flush()));
       _armed = true;
       // "Live, nothing yet" — a distinct state from "no sensor", and the one
       // a surface shows for the seconds a strap spends finding a signal.
       _reading.value = const HrsReading();
       return true;
-    } catch (_) {
-      await disarm();
+    } catch (e) {
+      // GENERATION-AWARE, and it has to be. A [disarm] that landed while this
+      // attempt was connecting has ALREADY torn the shared state down, and a
+      // fresher [arm] may own it by now: calling the full [disarm] here would
+      // increment `_disarms` and cancel THAT one, which is how
+      // `arm() → disarm() → arm()` inside one connect window ended with
+      // nothing armed even once the memo was fixed. Ours to clean up is only
+      // the connection nobody else has a reference to.
+      if (_disarms != disarmsAtStart) {
+        debugPrint('[hrs] arm failed after it was already disarmed: $e');
+        await _disconnectAbandoned(device);
+      } else {
+        await _teardownQuietly();
+      }
       return false;
     }
+  }
+
+  /// Tear down after a failed [_arm], swallowing the teardown's own failure.
+  ///
+  /// [_arm] is already answering `false`; a flush that threw on the way out
+  /// must not turn that into a THROWN `arm()`, which — with every caller
+  /// firing it `unawaited` — would land as an unhandled async error while the
+  /// caller still never learns it is not armed. [_disarm]'s `finally` leaves
+  /// "not armed" true either way, which is what makes swallowing it safe.
+  Future<void> _teardownQuietly() async {
+    try {
+      await disarm();
+    } catch (e) {
+      debugPrint('[hrs] teardown after a failed arm threw: $e');
+    }
+  }
+
+  /// Disconnect [device] on behalf of an arm generation that has been
+  /// cancelled — but only when no NEWER one has claimed the radio.
+  ///
+  /// A cancelled arm usually has nothing left to close: the [disarm] that
+  /// cancelled it disconnects whatever `_device` held, which is this same
+  /// peripheral. It has something to close when its own `connect()` landed
+  /// AFTER that disconnect — nobody else holds a reference to it, so skipping
+  /// this would leak a live GATT connection for the life of the process.
+  ///
+  /// What it must NOT do is disconnect a peripheral a LATER [arm] has since
+  /// connected. `BluetoothDevice.fromId` mints a fresh object per call and
+  /// `flutter_blue_plus` connections are per PERIPHERAL, not per object, so a
+  /// blind disconnect here kills that session — and the strap it kills is the
+  /// one the user just asked for. `_device` identity is the discriminator:
+  /// null means nobody owns the radio, a different object means someone
+  /// newer does.
+  ///
+  /// [identical], NOT `==`: `BluetoothDevice.==` compares remote ids, and both
+  /// generations connect to the SAME sensor, so `==` reads every generation as
+  /// the current one and this guard would never fire.
+  Future<void> _disconnectAbandoned(BluetoothDevice device) async {
+    if (_device != null && !identical(_device, device)) return;
+    try {
+      await device.disconnect();
+    } catch (_) {/* already gone */}
   }
 
   /// Stop logging, flush the tail and drop the link. Safe to call when not
   /// armed. AWAIT it before a finish screen reads the session back — an
   /// unawaited stop is how the last buffered batch goes missing.
-  Future<void> disarm() async {
+  ///
+  /// SERIALISED against itself and against [arm]. Two teardowns in flight at
+  /// once each called `_host.stop()` on the same host and could land a
+  /// `disconnect()` on the peripheral a later [arm] had just reconnected.
+  Future<void> disarm() {
+    // Synchronous, before anything is awaited and before the chain below:
+    // `_arm` reads this counter to notice it has been cancelled mid-connect,
+    // and an increment deferred behind a queued future would let an in-flight
+    // arm publish a session on top of this teardown.
     _disarms++;
-    _flushTimer?.cancel();
-    _flushTimer = null;
-    // Before the run subscription is cancelled: an adapter's `finally` can
-    // still write on the way out, and that write must not reach the radio.
-    _link?.close();
-    _link = null;
-    await _stopRun();
-    await _connSub?.cancel();
-    _connSub = null;
-    await _flush(all: true);
-    final d = _device;
-    _device = null;
-    _deviceId = null;
-    _armed = false;
-    // Null, not the last reading: a number left on screen after the link died
-    // is the one lie this surface can tell.
-    _reading.value = null;
-    if (d != null) {
+    // AND THE MEMO GOES WITH IT. The attempt that future belongs to has just
+    // been cancelled by the counter above — it can only answer `false` now —
+    // so leaving it in place would hand it to the next [arm] as if it were a
+    // live attempt. `arm()` identity-guards its own clear, so this cannot
+    // strand a LATER attempt's memo.
+    _arming = null;
+    final prev = _disarming;
+    late final Future<void> mine;
+    mine = _disarmAfter(prev).whenComplete(() {
+      // Only the LAST teardown clears the gate; an earlier link in the chain
+      // completing must not tell `arm()` the queue is empty.
+      if (identical(_disarming, mine)) _disarming = null;
+    });
+    return _disarming = mine;
+  }
+
+  /// [prev] is awaited but its failure is SWALLOWED — it belongs to whoever
+  /// called that disarm, and one teardown that threw must not wedge the chain
+  /// (the same reason `withScanLock` swallows its body's error).
+  Future<void> _disarmAfter(Future<void>? prev) async {
+    if (prev != null) {
       try {
-        await d.disconnect();
-      } catch (_) {/* already gone */}
+        await prev;
+      } catch (_) {/* the previous caller's error, not ours */}
+    }
+    await _disarm();
+  }
+
+  /// A FAILED TEARDOWN STILL LEAVES "NOT ARMED" TRUE — that is what the
+  /// `finally` is for, and it is not theoretical: `_host.stop()` awaits
+  /// `_commit(all: true)`, a database write, and a throw there used to skip
+  /// every line below it. `_armed` stayed TRUE over a dead session, so the
+  /// next [arm] answered "already armed" and started nothing; the
+  /// secondary-link slot stayed held for the life of the process; and the
+  /// last reading stayed on screen. The error still propagates — a caller
+  /// that awaited a flush before reading the session back must learn it
+  /// failed — it just no longer takes the state with it.
+  Future<void> _disarm() async {
+    final d = _device;
+    try {
+      // Before the host's run subscription is cancelled: an adapter's
+      // `finally` can still write on the way out, and that write must not
+      // reach the radio.
+      _link?.close();
+      failTeardownForTest?.call();
+      await _host?.stop();
+    } finally {
+      // Cancelled here, unconditionally, and BEFORE the disconnect below —
+      // not chained after `_host?.stop()` inside the `try`. A throw there
+      // used to skip this line entirely: the reference was nulled but the
+      // subscription stayed live, so `d.disconnect()` a few lines down could
+      // still fire this listener's own `disarm()` call — un-generation-gated,
+      // able to tear down whatever session started in the meantime.
+      await _connSub?.cancel();
+      _link = null;
+      _host = null;
+      _connSub = null;
+      _device = null;
+      _armed = false;
+      // The link tears down here, not at the connect call site — see
+      // acquireSecondaryLinkSlot's doc comment for why the two are split.
+      if (_holdsSecondaryLinkSlot) {
+        _holdsSecondaryLinkSlot = false;
+        releaseSecondaryLinkSlot();
+      }
+      // Null, not the last reading: a number left on screen after the link
+      // died is the one lie this surface can tell.
+      _reading.value = null;
+      // In the `finally` too, and captured before it: a peripheral left
+      // connected because the flush threw is a leaked GATT link, and the
+      // throw is exactly when nobody is coming back for it.
+      if (d != null) {
+        try {
+          await d.disconnect();
+        } catch (_) {/* already gone */}
+      }
     }
   }
 
-  /// Drive the adapter over [link]. Cancelling [_runSub] is the ONLY way the
-  /// session ends from this side — an adapter does not get to hang up, so
-  /// every timer and buffer it owns dies with its `async*` body.
-  void _startRun(BandLink link) {
-    final done = Completer<void>();
-    _runDone = done;
-    void finish() {
-      if (!done.isCompleted) done.complete();
-    }
-
-    _runSub = kBleHrsAdapter.run(link).listen(
-      _onEvent,
-      onDone: finish,
-      onError: (Object e) {
-        debugPrint('[hrs] session ended on error: $e');
-        finish();
-        // ponytail: `setNotifyValue` is now awaited inside the link's stream
-        // rather than inside [arm], so a rejected subscribe surfaces HERE
-        // instead of propagating out of `arm()` as a `false`. The ceiling is
-        // that `arm()` can briefly answer true for a session that is already
-        // dying; the callers all ignore its result. Tearing down here is what
-        // stops the link sitting "armed" over a dead stream. Give `arm()` back
-        // its answer only if a caller ever starts reading it.
-        if (_armed) unawaited(disarm());
-      },
-      cancelOnError: true,
-    );
-  }
-
-  Future<void> _stopRun() async {
-    await _runSub?.cancel();
-    _runSub = null;
-    _runDone = null;
-  }
-
-  void _onEvent(BandEvent e) {
-    switch (e) {
-      case SampleBatch(:final samples, :final ephemeral):
-        // EPHEMERAL IS NEVER PERSISTED, and the check is the HOST's, not the
-        // adapter's promise. This band always sends false; the line exists so
-        // the one place that decides what reaches the database is the one
-        // place that reads the flag.
-        if (ephemeral) return;
-        for (final s in samples) {
-          final slot = _pending.putIfAbsent(s.tsEpoch, _Second.new);
-          // Last notification in the second wins.
-          if (s.hr != null) slot.hr = s.hr;
-          slot.rr.addAll(s.rrMs);
-          // The live surface, updated from the SAME sample that was just
-          // buffered so the two can never disagree. It is below the
-          // `ephemeral` guard on purpose: no adapter emits an ephemeral batch
-          // today, and if one ever does, this publish moves ABOVE the guard —
-          // display-only is precisely what ephemeral means — while the guard
-          // itself stays where it is, deciding what reaches the database.
-          if (s.hr != null) {
-            _reading.value = HrsReading(bpm: s.hr, atSec: s.tsEpoch);
-          }
-        }
-      case OffloadCheckpoint():
-        // A sensor with no flash cannot have anything to forget. If this ever
-        // fires, the adapter grew a store and this host has no
-        // commit-then-confirm path to honour the safe-trim invariant with —
-        // so it must NOT be confirmed. Dropping it stalls; confirming it would
-        // authorise a delete of data we never banked.
-        assert(false, 'ble_hrs emitted an OffloadCheckpoint; it stores nothing');
-      case BandNote(:final key, :final value):
-        debugPrint('[hrs] $key = $value');
-    }
-  }
+  /// Forced failure inside [_disarm]'s body, for the test that proves a
+  /// teardown which throws still leaves the sensor cleanly NOT armed. The real
+  /// thrower is `BandHost.stop()` → `_commit(all: true)` → a `sqflite` write,
+  /// which no test can make fail on demand without a fake host — and a fake
+  /// host would prove the fake, not this `finally`.
+  @visibleForTesting
+  static void Function()? failTeardownForTest;
 
   /// Feed raw notification bytes as if a sensor with [deviceId] were armed,
   /// and write them. The only way in: the real entry point is a BLE
   /// notification and `flutter_blue_plus` has no simulator path, so without
   /// this seam nothing below the parser could be exercised at all.
   ///
-  /// It replays through the SAME [BleHrsAdapter.run] the radio drives, over a
-  /// [ReplayBandLink]. A test seam that skipped the adapter would prove the
+  /// It replays through the SAME [BandHost] the radio drives, over a
+  /// [ReplayBandLink]. A test seam that skipped the host would prove the
   /// wrong thing.
-  ///
-  /// [reading] is LEFT SET when this returns, exactly as a real session leaves
-  /// its last beat on screen — call [disarm] if a test needs it back at null.
   @visibleForTesting
   Future<void> ingestForTest(
     String deviceId,
     List<(int, List<int>)> arrivals,
   ) async {
-    _deviceId = deviceId;
+    final host = BandHost(
+      adapter: kBleHrsAdapter,
+      deviceId: deviceId,
+      onLog: (m) => debugPrint('[hrs] $m'),
+    );
+    // As `_arm` does, and for a reason a test can see: [deviceId] is how a
+    // consumer of [reading] attributes a beat, so a seam that left it null
+    // would prove the parser and nothing about attribution.
+    _host = host;
     final link = ReplayBandLink();
-    _startRun(link);
+    final done = host.run(link);
     for (final (sec, value) in arrivals) {
       link.feed(kHeartRateMeasurementUuid, value, atSec: sec);
     }
@@ -677,100 +966,12 @@ class HrsLink {
     // a delay: the adapter's `await for` is asynchronous and a flush racing it
     // would silently drop the tail.
     await link.close();
-    await _runDone?.future;
-    await _flush(all: true);
-    await _stopRun();
-    _deviceId = null;
-  }
-
-  /// Write out every second that can no longer receive more notifications.
-  ///
-  /// The CURRENT second is held back unless [all]: a second written twice
-  /// would restart `beat_index` at 0 and REPLACE the beats already stored for
-  /// it. `disarm` passes `all: true` because nothing more is coming.
-  Future<void> _flush({bool all = false}) async {
-    final deviceId = _deviceId;
-    if (_pending.isEmpty) return;
-    if (deviceId == null) {
-      _pending.clear();
-      return;
-    }
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final ready = _pending.keys.where((s) => all || s < now).toList()..sort();
-    if (ready.isEmpty) return;
-    // Taken out of the buffer BEFORE the await: losing a batch to a failed
-    // write is better than replaying it under a later second's beat indices.
-    final batchRows = [for (final s in ready) (s, _pending.remove(s)!)];
-    // `beat_ts_ms` is deliberately absent from every row below. It means "where
-    // the beat actually was", and for an arrival-anchored source we do not know
-    // — anchor-minus-durations would be a measured claim we cannot make. NULL
-    // is the column's own word for "not kept".
-    assert(kBleHrsAdapter.entry.timeAnchor == TimeAnchor.arrival);
-    // Its own transaction, NOT `commitSyncBatch`: that path is the ACK-gating
-    // commit, it raises `synchronous` for the duration and it refuses a
-    // non-primary `device_id` outright (the `sync_cursor` namespace is global).
-    // Nothing here trims a band's flash, so none of the safe-trim invariant is
-    // in play — this only has to queue politely behind a drain on the shared
-    // connection, which sqflite does.
-    try {
-      final db = await LocalDb.instance;
-      await db.transaction((txn) async {
-        final b = txn.batch();
-        for (final (sec, slot) in batchRows) {
-          b.insert(
-            'decoded_onehz',
-            {
-              'device_id': deviceId,
-              'ts_ms': sec * 1000,
-              'rec_ts': sec,
-              // ponytail: `counter` is NOT NULL and is a WHOOP flash-record
-              // number this sensor does not have. 0 for every row is a
-              // constant, not a measurement, and nothing reads the column
-              // except `ORDER BY rec_ts, counter`. Make it nullable when
-              // db.dart is next open.
-              'counter': 0,
-              'hr': slot.hr,
-              'device_family': kBleHrsAdapter.id,
-              'source': kBleHrsAdapter.id,
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-          // CLEAR THE SECOND BEFORE REINSERTING, exactly as `_queueRrBeats`
-          // does on the band path and for the same reason: REPLACE only
-          // overwrites `beat_index` 0..n-1, so a second that once carried more
-          // beats keeps the stale tail and reports beats the sensor never sent.
-          // Within one armed session a second is written once (`_pending`
-          // removes it), but re-arming inside the same second is not — and the
-          // 15 s flush cadence means the second on either side of a stop is
-          // exactly the one at risk. Scoped to THIS device, so it can never
-          // reach the band's beats for the same second.
-          b.rawDelete(
-            'DELETE FROM decoded_rr WHERE device_id = ? AND ts_ms = ?',
-            [deviceId, sec * 1000],
-          );
-          for (var i = 0; i < slot.rr.length; i++) {
-            b.insert(
-              'decoded_rr',
-              {
-                'device_id': deviceId,
-                'ts_ms': sec * 1000,
-                'rec_ts': sec,
-                'beat_index': i,
-                'rr_ts_ms': sec * 1000,
-                'rr_ms': slot.rr[i],
-                'device_family': kBleHrsAdapter.id,
-                'source': kBleHrsAdapter.id,
-              },
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
-          }
-        }
-        await b.commit(noResult: true);
-      });
-    } catch (e) {
-      // Losing a buffered batch is better than throwing out of a timer on the
-      // UI isolate; the next flush carries on.
-      debugPrint('[hrs] flush failed, ${batchRows.length} second(s) lost: $e');
-    }
+    await done;
+    // Captured BEFORE stop(), which clears the host's own reading: a real
+    // session leaves its last beat on screen until disarm() is called, and
+    // ingestForTest has to leave the same thing true for a test to observe.
+    _reading.value = host.reading.value;
+    await host.stop();
+    _host = null;
   }
 }

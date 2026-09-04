@@ -29,8 +29,12 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-BandCandidate _cand(String id, {String? label, int rssi = -60}) =>
-    (device: BluetoothDevice.fromId(id), label: label, rssi: rssi);
+BandCandidate _cand(String id, {String? label, int rssi = -60}) => (
+      device: BluetoothDevice.fromId(id),
+      label: label,
+      rssi: rssi,
+      entryId: 'ble_hrs',
+    );
 
 Future<void> _pump(
   WidgetTester t,

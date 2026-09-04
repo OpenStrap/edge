@@ -203,7 +203,7 @@
   "pairSensorWhatThisAdds": "यह क्या जोड़ता है",
   "pairSensorPairAnother": "एक और पेयर करें",
   "pairSensorExplainer": "एक सेंसर केवल वर्कआउट चलने के दौरान उपयोग होता है, और केवल हृदय गति और बीट टाइमिंग के लिए। यह आपके बैंड की जगह नहीं लेता, इसे कभी रात भर उपयोग नहीं किया जाता, और यह जो रिकॉर्ड करता है वह अभी किसी स्कोर में योगदान नहीं देता — इसकी रीडिंग संग्रहीत और दिखाई जाती हैं, बस इतना ही।",
-  "pairSensorSearchWouldHideSheet": "खोजने से WHOOP पेयरिंग शीट छिप जाएगी",
+  "pairSensorSearchWouldHideSheet": "खोजने से सिस्टम पेयरिंग शीट छिप जाएगी",
   "pairSensorSearchAnyway": "फिर भी खोजें",
   "pairSensorSearching": "खोज रहा है…",
   "pairSensorSearchForSensors": "सेंसर खोजें",

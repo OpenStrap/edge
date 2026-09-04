@@ -30,6 +30,9 @@ import '../ai/nightly_sweep.dart';
 import '../coach/coach_config.dart';
 import '../models/app_status.dart';
 import '../ble/accessory_setup.dart';
+import '../ble/adapters/_registry.dart' show kWhoopGen4;
+import '../ble/adapters/host.dart' show BandHost;
+import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
 import '../ble/hrs_link.dart';
@@ -56,6 +59,8 @@ import '../stress/breath_phases.dart';
 import '../data/auto_backup.dart' as backup show runBackupIfDue;
 import 'alarm_schedule.dart';
 import 'prefs.dart';
+import '../ble/adapters/signals.dart' show InputSignal;
+import '../ui2/profile/devices.dart' show liveSources, rankSources;
 import '../data/db.dart';
 import '../data/live_coverage_policy.dart';
 import '../data/local_repository.dart';
@@ -138,6 +143,12 @@ PairedDevice? healedPairing(PairedDevice? current, String? reportedSerial) {
 
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
+
+  /// The primary band's route through [BandHost.commitNativeBatch] — see
+  /// `WhoopFramedAdapter`'s own header for why `run()` stays unwired this
+  /// wave. Constructed right after [engine] since [WhoopFramedAdapter]
+  /// delegates to it.
+  late final BandHost _bandHost;
   PairedDevice? paired;
   BandLease? _foregroundLease;
 
@@ -300,6 +311,10 @@ class AppState extends ChangeNotifier {
       for (final r in rows)
         if (r['id'] != LocalDb.kPrimaryDeviceId) r,
     ];
+    // Same reason `_sensors` does not poll: a `signal_priority` row changes
+    // only when the user changes it.
+    _hrPriority =
+        (await LocalDb.signalPriorities())[InputSignal.hr1Hz.name] ?? const [];
     notifyListeners();
   }
 
@@ -1195,22 +1210,29 @@ class AppState extends ChangeNotifier {
     );
     engine = BleEngine(
       onRecord: _onRecord,
-      onState: _onEngineState,
+      onState: (s) => _onEngineState(LocalDb.kPrimaryDeviceId, s),
       log: _log,
-      onEvent: _onLiveEvent,
+      // M2: forward the session's real device id once DeviceSession exists;
+      // BleEngine's EventSink typedef has no device field, so the id names
+      // itself at this construction closure rather than widening the
+      // engine's callback shape for a value it does not have.
+      onEvent: (id, ts, hex) =>
+          _onLiveEvent(id, ts, hex, LocalDb.kPrimaryDeviceId),
       onRecordsBatch: LocalDb.insertRecordsBatch,
       // RESUMABLE SYNC: atomic commit of decoded rows + continuation cursor
       // before the HISTORY_END ACK, and a reader to seed the offload frontier
-      // from the durable high-water on (re)connect.
+      // from the durable high-water on (re)connect. Routed through BandHost
+      // (M1a) rather than calling LocalDb.commitSyncBatch directly — same
+      // durable commit, same arguments, one extra await frame, and the SAME
+      // failure contract: `commitNativeBatch` rethrows so
+      // `DrainController.commit` still reads durability from a throw.
       onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
-          LocalDb.commitSyncBatch(raws, samples,
-              trimToken: trimTokenHex,
-              archives: archives,
-              deviceFamily: deviceFamily,
-              onCheckpoint: (msg) => _log('[COMMIT] $msg')),
+          _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
+              archives: archives, deviceFamily: deviceFamily),
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: LocalDb.archiveRawRecord,
-      cursorReader: LocalDb.getCursorInt,
+      cursorReader: (base) =>
+          LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
       // Debounced compute trigger: with continuous listening there's no discrete
       // "sync done", so the engine coalesces stored-record bursts and fires this
       // once a burst goes quiet. Light pass = freshness-first (TODAY when data has
@@ -1237,6 +1259,11 @@ class AppState extends ChangeNotifier {
       // nothing new and keeps both signals consistent with each other.
       isForegroundActive: () => !_background,
     );
+    _bandHost = BandHost(
+      adapter: WhoopFramedAdapter(engine, kWhoopGen4),
+      deviceId: LocalDb.kPrimaryDeviceId,
+      onLog: (msg) => _log('[COMMIT] $msg'),
+    );
     // Seed the engine's link-power state (issue #200). `setBackground` is
     // otherwise only called on TRANSITIONS, and a headless start begins
     // backgrounded — without this the very case that most needs the cheap
@@ -1256,6 +1283,10 @@ class AppState extends ChangeNotifier {
     // them to a catch-up pull over the existing live connection instead.
     IosBgTask.foregroundPull = foregroundCatchUp;
     taskerBridge; // force init: register the method channel handler
+    // A paired sensor's live beats, into the same trace as the band's. Touches
+    // no radio — `HrsLink.reading` is a plain notifier whose identity survives
+    // arm/disarm, which is why one listener for the life of this object works.
+    HrsLink.instance.reading.addListener(_onHrsReading);
     _init();
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
@@ -1284,10 +1315,15 @@ class AppState extends ChangeNotifier {
     this.engine = engine ??
         BleEngine(
           onRecord: _onRecord,
-          onState: _onEngineState,
+          onState: (s) => _onEngineState(LocalDb.kPrimaryDeviceId, s),
           log: _log,
-          onEvent: _onLiveEvent,
+          // M2: same marker as the constructor above.
+          onEvent: (id, ts, hex) =>
+              _onLiveEvent(id, ts, hex, LocalDb.kPrimaryDeviceId),
         );
+    // Same wiring as the real constructor, and for the same reason it is safe
+    // here: a ValueNotifier, no plugin.
+    HrsLink.instance.reading.addListener(_onHrsReading);
   }
 
   /// A Siri/Shortcuts App Intent (e.g. "start breathing") may have set a
@@ -1335,6 +1371,13 @@ class AppState extends ChangeNotifier {
     _breathingRecomputeTimer = null;
     _workoutTimer?.cancel();
     _workoutTimer = null;
+    // The sensor's notifier OUTLIVES this object (HrsLink is a singleton), so
+    // a listener left on it is a leak that calls into a disposed
+    // ChangeNotifier on the next beat.
+    HrsLink.instance.reading.removeListener(_onHrsReading);
+    final hrsId = _hrsTraceId;
+    _hrsTraceId = null;
+    if (hrsId != null) _clearLiveHrTrace(hrsId);
     BandOwnership.markForegroundIntent(false);
     _releaseForegroundLease();
     _deriveScheduler.dispose();
@@ -1407,6 +1450,13 @@ class AppState extends ChangeNotifier {
   @visibleForTesting
   void debugHandleAlarmEvent(int id) =>
       _handleAlarmEvent(id, DateTime.now().millisecondsSinceEpoch ~/ 1000);
+
+  /// Feed one `DeviceState` through [_onEngineState] for [deviceId], exactly
+  /// as `BleEngine`'s `onState` callback does. Tests only — lets a test drive
+  /// the per-device live-HR dedupe (M6 §11) without a real BLE stream.
+  @visibleForTesting
+  void debugFeedEngineState(String deviceId, DeviceState s) =>
+      _onEngineState(deviceId, s);
 
   /// (Re)arm the strap-buzz timer for the water reminder from the current
   /// notification prefs. Call at launch and whenever the toggle changes (the
@@ -2080,8 +2130,11 @@ class AppState extends ChangeNotifier {
   // Live (foreground / kept-alive) event path: persist every event, then let the
   // gesture dispatcher act on it. Headless drain (background_sync) persists only —
   // it must never replay an old tap as a live action.
-  void _onLiveEvent(int id, int ts, String hex) {
-    LocalDb.insertEvent(id, ts, hex);
+  void _onLiveEvent(int id, int ts, String hex, String deviceId) {
+    LocalDb.insertEvent(id, ts, hex, deviceId: deviceId);
+    // M3: gesture dispatch and the alarm handler stay unscoped — neither is
+    // device-scoped in M3's scope, and a double-tap on either band should
+    // still log water.
     _handleAlarmEvent(id, ts);
     _gestureDispatcher.onEvent(id, ts, hex);
   }
@@ -2201,6 +2254,15 @@ class AppState extends ChangeNotifier {
     // Register the recurring wall-clock nudges as real OS-scheduled notifications
     // (wind-down, weekly recap) so they fire even when the app is closed.
     if (isPaired) unawaited(_ensureRemindersScheduled());
+    // SECOND FRAMED BAND (iOS 18+): the ASK picker must run with NO
+    // CBCentralManager alive in the process. This is the only such moment —
+    // `main()`'s two flutter_blue_plus calls (setOptions/setLogLevel) return
+    // before the plugin's lazy central init, and the block below is the first
+    // start-up code that creates one. DO NOT move this later, and do not add a
+    // radio call above it.
+    if (Prefs.getBool(Prefs.kAskAddPendingKey, false)) {
+      await _provisionAdditionalAccessory();
+    }
     if (isPaired) {
       if (_background) {
         _keepAlive = true;
@@ -2300,6 +2362,51 @@ class AppState extends ChangeNotifier {
       await TaskerBridge.clearPendingBuzz();
     } finally {
       _taskerBuzzCheckInFlight = false;
+    }
+  }
+
+  /// One-shot: release the restore central, show the ASK picker for an additional
+  /// accessory, re-create the restore central around the new band, and re-arm the
+  /// primary. The flag is cleared in `finally` — a cancelled or failed picker must
+  /// not re-open the sheet on every launch forever.
+  ///
+  /// NOT surfaced from any UI in M4 (see devices.dart's addFramedBand) — this is
+  /// plumbing + its test only, since no second framed band exists to provision
+  /// against yet.
+  Future<void> _provisionAdditionalAccessory() async {
+    try {
+      if (!await AccessorySetup.isSupported()) return;
+      // NOT disarm(): that clears the persisted band list too, and a process death
+      // between here and `provisioned` below would leave the primary with no
+      // restore key and no error anywhere. See ios_ble_restore.releaseCentralForPicker.
+      await IosBleRestore.releaseCentralForPicker();
+      final remoteId = await AccessorySetup.showPicker(addAnother: true);
+      // Recreates the restore central and appends to the band list.
+      await IosBleRestore.provisioned(remoteId);
+      // Arm policy is unchanged: the PRIMARY is what gets background restore.
+      // The new band is provisioned and connectable in the foreground.
+      final p = paired;
+      if (p != null) await IosBleRestore.arm(p.remoteId);
+      // NO FAMILY CLAIM. `AccessorySetup.showPicker` offers both the WHOOP 4.0
+      // and the WHOOP 5.0/MG display items and hands back only an
+      // `ASAccessory.bluetoothIdentifier` — nothing here knows which one the
+      // user chose. Stamping `gen4` filed a WHOOP 5 under gen4's decode
+      // constants; a null `adapter_id` is the honest answer until discovery
+      // reads the service and says. That also means no `HrsLink.mintDeviceId`
+      // call is possible yet (its prefix IS the family), so the row keeps a
+      // provisional id.
+      await LocalDb.upsertDevice(
+        id: 'whoop:$remoteId',
+        remoteId: remoteId,
+      );
+    } catch (e) {
+      debugPrint('[ask] additional accessory not provisioned: $e');
+      // The restore central is gone at this point if the picker threw after the
+      // release. Put it back for the primary, or overnight sync silently stops.
+      final p = paired;
+      if (p != null) await IosBleRestore.provisioned(p.remoteId);
+    } finally {
+      Prefs.setBool(Prefs.kAskAddPendingKey, false);
     }
   }
 
@@ -3347,9 +3454,30 @@ class AppState extends ChangeNotifier {
   /// time the screen is opened. The engine already pushes state at about 1 Hz
   /// while streaming, so appending here is the natural sampling point.
   static const int liveHrTraceMax = 90;
-  final List<int> _liveHrTrace = [];
-  List<int> get liveHrTrace => List.unmodifiable(_liveHrTrace);
-  int? _liveHrTraceAt;
+
+  /// A RECORD PER SAMPLE, not a bare bpm. Two devices streaming at once is two
+  /// signals, and a flat `List<int>` drew them as one line with one headline
+  /// (final-plan §5.2). The `deviceId` is what lets the card show exactly ONE
+  /// device's trace — never a merge, never an average, never two traces on one
+  /// card.
+  ///
+  /// STILL NEVER PERSISTED (invariant 1). RAM, capped at [liveHrTraceMax] PER
+  /// DEVICE.
+  final List<({int at, int hr, String deviceId})> _liveHrTrace = [];
+
+  /// Last delivered stamp PER DEVICE — what the old scalar was always trying
+  /// to be. Two devices reporting in the same second are two samples; one
+  /// device reporting the same stamp twice is one.
+  final Map<String, int> _liveHrTraceAt = {};
+
+  /// One device's recent readings, newest last, bpm only — the shape
+  /// `LiveHrCard` already draws. Null [deviceId] means [liveHrDeviceId], the
+  /// device the priority order says wins.
+  List<int> liveHrTrace([String? deviceId]) {
+    final id = deviceId ?? liveHrDeviceId;
+    if (id == null) return const [];
+    return [for (final e in _liveHrTrace) if (e.deviceId == id) e.hr];
+  }
 
   /// Bumped on every appended sample. A `select` on the trace's LENGTH stops
   /// firing the moment the buffer is full — length is pinned at
@@ -3358,17 +3486,145 @@ class AppState extends ChangeNotifier {
   /// the thing that actually changes.
   int liveHrTraceRev = 0;
 
-  void _onEngineState(DeviceState s) {
-    // One sample per DELIVERED reading. Keyed on the stamp, not the value, or a
-    // steady 60 bpm would record a single point and the trace would flatline
-    // for reasons that have nothing to do with the heart.
-    final hr = s.liveHr, at = s.liveHrAt;
-    if (hr != null && hr > 0 && at != null && at != _liveHrTraceAt) {
-      _liveHrTraceAt = at;
-      _liveHrTrace.add(hr);
-      if (_liveHrTrace.length > liveHrTraceMax) _liveHrTrace.removeAt(0);
-      liveHrTraceRev++;
+  /// The devices' priority order for `hr1Hz`, highest first. Loaded once and
+  /// refreshed with the device rows — a `signal_priority` row changes only when
+  /// the user changes it, which is the same reason `_sensors` does not poll.
+  List<String> _hrPriority = const [];
+
+  bool _isStreaming(String id) {
+    final at = _liveHrTraceAt[id];
+    return at != null &&
+        DateTime.now().millisecondsSinceEpoch - at <= liveHrMaxAge.inMilliseconds;
+  }
+
+  /// THE DEVICE WHOSE LIVE TRACE IS SHOWN, or null when nothing is streaming.
+  ///
+  /// The resolver's rule — exclusive ownership — applied to the live axis. Not
+  /// merged, not averaged, not interleaved. Resolved from [_hrPriority] against
+  /// the in-memory dedupe map, so it costs no query and works while the app is
+  /// mid-stream with no derived day in sight.
+  String? get liveHrDeviceId {
+    final override = _liveHrDeviceOverride;
+    if (override != null && _isStreaming(override)) return override;
+    for (final id in _hrPriority) {
+      if (_isStreaming(id)) return id;
     }
+    // No priority row for any streaming device: fall through to the physics
+    // ladder, which is precedence rule 3 (final-plan §4.5). `rankSources`
+    // already answers it and needs no table.
+    for (final s in rankSources(liveSources(this))) {
+      final id = s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId;
+      if (id != null && _isStreaming(id)) return id;
+    }
+    return null;
+  }
+
+  /// TWO OR MORE DEVICES HAVE DELIVERED A LIVE READING INSIDE [liveHrMaxAge]
+  /// — i.e. are streaming, not merely paired.
+  ///
+  /// Read off the in-memory dedupe map, which is the only place that knows.
+  /// No query, and nothing persisted (invariant 1).
+  bool get liveHrMultiDevice {
+    if (_liveHrTraceAt.length < 2) return false;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    var live = 0;
+    for (final at in _liveHrTraceAt.values) {
+      if (now - at <= liveHrMaxAge.inMilliseconds && ++live >= 2) return true;
+    }
+    return false;
+  }
+
+  /// The user's tap on the card's pill. Session-only and deliberately NOT
+  /// persisted: it is "show me the other one for a moment", not a preference.
+  /// A preference is `signal_priority`, and the way to set one is the metric
+  /// screen's "Prefer this device" or the priority editor.
+  String? _liveHrDeviceOverride;
+  void showLiveHrFrom(String? deviceId) {
+    _liveHrDeviceOverride = deviceId;
+    liveHrTraceRev++; // the card watches this, not the map
+    notifyListeners();
+  }
+
+  /// ONE SAMPLE PER DELIVERED READING PER DEVICE. Keyed on (device, stamp):
+  /// keyed on the stamp alone, a second band reporting in the same second was
+  /// dropped and which one survived depended on notification arrival order.
+  ///
+  /// The ONE way a reading enters the trace, whichever radio delivered it —
+  /// the band's engine state or a `HrsLink` sensor's notifier. A second
+  /// append path is a second dedupe rule, and the pair of them is what makes
+  /// `liveHrMultiDevice` disagree with the chart. Returns true when it took
+  /// the sample, i.e. when a listener has something new to draw.
+  bool _appendLiveHr(String deviceId, int? hr, int? at) {
+    if (hr == null || hr <= 0 || at == null || at == _liveHrTraceAt[deviceId]) {
+      return false;
+    }
+    _liveHrTraceAt[deviceId] = at;
+    _liveHrTrace.add((at: at, hr: hr, deviceId: deviceId));
+    // The cap is PER DEVICE, so a second band cannot evict the first band's
+    // trace by streaming faster.
+    // ponytail: reverse scan is O(n) at n <= 90 * devices, once per
+    // delivered reading (~1 Hz). A per-device ring buffer is the upgrade if
+    // a device count ever makes that matter, which two bands does not.
+    var n = 0;
+    for (var i = _liveHrTrace.length - 1; i >= 0; i--) {
+      if (_liveHrTrace[i].deviceId != deviceId) continue;
+      if (++n > liveHrTraceMax) {
+        _liveHrTrace.removeAt(i);
+        break;
+      }
+    }
+    liveHrTraceRev++;
+    return true;
+  }
+
+  /// Forget one device's live trace. A dropped link ends a session; the next
+  /// one is not a continuation of it, and splicing the two draws a line across
+  /// a gap that never happened.
+  bool _clearLiveHrTrace(String deviceId) {
+    if (!_liveHrTraceAt.containsKey(deviceId)) return false;
+    _liveHrTrace.removeWhere((e) => e.deviceId == deviceId);
+    _liveHrTraceAt.remove(deviceId);
+    liveHrTraceRev++;
+    return true;
+  }
+
+  /// The HRS sensor whose samples are in the trace right now. Remembered
+  /// because [HrsLink.disarm] drops its host BEFORE it clears the reading, so
+  /// the disarm tick cannot name the device it is ending.
+  String? _hrsTraceId;
+
+  /// A paired heart-rate sensor's reading, into the SAME trace the band's
+  /// engine state feeds.
+  ///
+  /// Without this the multi-device live axis is structurally dead in
+  /// production: `_onEngineState` only ever runs for the primary band, so
+  /// `_liveHrTraceAt` never held a second key, `liveHrMultiDevice` was always
+  /// false and `liveHrDeviceId` could never name the strap that was actually
+  /// measuring. NOT a second persistence path — nothing here writes; the
+  /// sensor's own rows are banked by `BandHost` (invariant 1 unchanged).
+  ///
+  /// Oura is deliberately absent: `OuraAdapter.signals` is empty and the ring
+  /// delivers no live reading at all, so it has nothing to select between.
+  void _onHrsReading() {
+    if (_disposed) return;
+    final r = HrsLink.instance.reading.value;
+    final id = HrsLink.instance.deviceId ?? _hrsTraceId;
+    if (id == null) return;
+    if (r == null) {
+      // Disarmed. Same rule as the band's disconnect below.
+      _hrsTraceId = null;
+      if (_clearLiveHrTrace(id)) notifyListeners();
+      return;
+    }
+    // `HrsReading()` with no bpm is the armed-but-searching state, not a
+    // measurement — it is never billed as one.
+    _hrsTraceId = id;
+    final atSec = r.atSec ?? DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    if (_appendLiveHr(id, r.bpm, atSec * 1000)) notifyListeners();
+  }
+
+  void _onEngineState(String deviceId, DeviceState s) {
+    _appendLiveHr(deviceId, s.liveHr, s.liveHrAt);
     // Bank the name the moment the band says it, so it survives the
     // disconnect. Written through `cleanDeviceLabel` for the same reason the
     // BLE side reads through it: a garbled response must never become the
@@ -3410,6 +3666,9 @@ class AppState extends ChangeNotifier {
       unawaited(
         LocalDb.insertBandBatterySample(
           ts: nowSec,
+          // `_onEngineState` drives the PRIMARY band's engine, so this is the
+          // real originating device, not a placeholder.
+          deviceId: LocalDb.kPrimaryDeviceId,
           batteryPct: roundedPct?.toDouble(),
           charging: s.charging,
           wristOn: s.wristOn,
@@ -3467,11 +3726,8 @@ class AppState extends ChangeNotifier {
       // A new connection is a new live-HR session: without this the trace
       // buffer spliced readings from before the drop (or from a previously
       // paired band) onto the next session's chart as one continuous line.
-      if (_liveHrTrace.isNotEmpty) {
-        _liveHrTrace.clear();
-        _liveHrTraceAt = null;
-        liveHrTraceRev++;
-      }
+      // THIS device only — a second device's trace is a separate session.
+      _clearLiveHrTrace(deviceId);
       if (_keepAlive && isPaired && !_reconnecting && !device.autoReconnectPaused) {
         _log('Connection dropped — reconnecting…');
         _stopBackfillTimer();
@@ -3912,7 +4168,29 @@ class AppState extends ChangeNotifier {
   /// because it also covers the connected-but-stalled stream, which no
   /// disconnect hook can see. Every live consumer must read THIS.
   int? get liveHr {
+    final id = liveHrDeviceId;
+    if (id != null) {
+      // The newest sample from the device that won, which is by construction
+      // inside `liveHrMaxAge` (that is what `_isStreaming` tested).
+      //
+      // THE BAND'S CONNECTION IS NOT THE GATE HERE. `liveHrDeviceId` can name
+      // a chest strap or a ring driven by `HrsLink` over its own GATT link,
+      // and `isConnected` reads the PRIMARY band's engine state. Gating on it
+      // meant that starting a workout with the strap on and the band on its
+      // charger returned null from a device that was streaming: `_tickWorkout`
+      // then banked no zone seconds, no strain and no calories from a real
+      // measurement. `_isStreaming` is already the stricter freshness test.
+      for (var i = _liveHrTrace.length - 1; i >= 0; i--) {
+        if (_liveHrTrace[i].deviceId == id) return _liveHrTrace[i].hr;
+      }
+    }
+    // The fallback below IS the band's, so it keeps the band's gate.
     if (!isConnected) return null;
+    // FALLBACK: nothing in the trace yet — a caller that sets `DeviceState`
+    // directly without going through `_onEngineState` (every existing test,
+    // and any future path that bypasses the engine callback). The original
+    // single-device freshness check on `device.liveHr` itself, so behaviour
+    // stays byte-identical for anything that never reaches the trace.
     final at = device.liveHrAt;
     if (at == null) return null;
     final age = DateTime.now().millisecondsSinceEpoch - at;

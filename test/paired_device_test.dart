@@ -137,6 +137,16 @@ void main() {
     expect((await LocalDb.deviceRow())?['adapter_id'], isNull);
   });
 
+  // A FRESH database never runs the v51 rung that stamps the primary row
+  // `'primary'`, so the insert has to name the role itself or the same row
+  // means two different things depending on install history.
+  test('a fresh install gives the primary row the primary role', () async {
+    await LocalDb.upsertDevice(remoteId: 'AA:BB:CC:DD:EE:FF');
+    await LocalDb.upsertDevice(id: 'oura-A1B2', remoteId: 'oura-A1B2');
+    expect((await LocalDb.deviceRow())?['role'], 'primary');
+    expect((await LocalDb.deviceRow('oura-A1B2'))?['role'], 'paired');
+  });
+
   test('a notify-only adapter id is not a band generation', () async {
     await LocalDb.upsertDevice(
       adapterId: 'ble_hrs',

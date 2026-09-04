@@ -299,7 +299,11 @@ class RawRecord {
 const String kGateDroppedReason = 'gate_dropped';
 
 class ArchiveRecord {
-  final int counter;
+  // Nullable since M1: a band with no flash-record counter (Oura) needs a
+  // real NULL here, not a 0 — `thinRawArchiveBefore` samples on this column
+  // and a constant 0 would make every one of that band's frames `0 % 60 ==
+  // 0`, i.e. permanently exempt from thinning, which is accidental policy.
+  final int? counter;
   final String hex; // full inner bytes, hex
   final int packetType; // inner[0]: 0x2F historical (the only archived kind)
   final int? recTs; // decoded record time if any survived; usually null
@@ -307,7 +311,7 @@ class ArchiveRecord {
   final String reason; // e.g. 'undecodable_v<version>'
 
   ArchiveRecord({
-    required this.counter,
+    this.counter,
     required this.hex,
     required this.packetType,
     required this.capturedAt,

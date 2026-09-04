@@ -31,21 +31,35 @@ class AccessorySetup {
     }
   }
 
-  /// The uppercased UUID of an already-provisioned WHOOP, or null if none. Lets the
-  /// pairing flow skip the picker when the band is already set up via ASK.
-  static Future<String?> provisionedId() async {
-    if (!Platform.isIOS) return null;
+  /// Every ASK-provisioned accessory's uppercased CoreBluetooth UUID, in session
+  /// order (position 0 is the first band ever provisioned). Empty on Android and
+  /// iOS < 18.
+  static Future<List<String>> provisionedIds() async {
+    if (!Platform.isIOS) return const [];
     try {
-      return await _ch.invokeMethod<String>('provisionedId');
+      final ids = await _ch.invokeListMethod<String>('provisionedIds');
+      return ids ?? const [];
     } catch (_) {
-      return null;
+      return const [];
     }
+  }
+
+  /// The first provisioned accessory, or null. Kept as a thin wrapper over
+  /// [provisionedIds] so the two can never disagree.
+  static Future<String?> provisionedId() async {
+    final ids = await provisionedIds();
+    return ids.isEmpty ? null : ids.first;
   }
 
   /// Show the ASK picker and return the provisioned band's CoreBluetooth UUID (use as
   /// PairedDevice.remoteId). Throws on cancel / error so the caller can surface it.
-  static Future<String> showPicker() async {
-    final id = await _ch.invokeMethod<String>('showPicker');
+  ///
+  /// [addAnother] requests a SECOND accessory rather than skipping the picker for an
+  /// already-known one. Passing `null` (not `false`) on the default path keeps the wire
+  /// bytes byte-identical to today's call for the single-band path.
+  static Future<String> showPicker({bool addAnother = false}) async {
+    final id = await _ch.invokeMethod<String>(
+        'showPicker', addAnother ? true : null);
     if (id == null || id.isEmpty) {
       throw Exception('Pairing cancelled.');
     }

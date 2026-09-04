@@ -3,6 +3,8 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
+import '../ble/adapters/signals.dart';
+import '../data/coverage_resolver.dart';
 import 'substrate.dart';
 
 class PreparedDerivationDay {
@@ -26,6 +28,26 @@ class PreparedDerivationDay {
   /// the strict [daySub] so steps/wear/activity are never double-counted.
   final Substrate napSub;
 
+  /// M5: the resolved exclusive-owner spans, one entry per anchor signal
+  /// (`hr1Hz`, `rrIntervals`), over the union window `_prepareTargetDay`
+  /// resolved once. Empty (never populated) on the import path — a bulk
+  /// import has no `device_coverage` rows to resolve, and the masking call
+  /// site treats a missing signal key the same way an empty-table single-
+  /// device install does: one full-window span owned by the primary.
+  ///
+  /// NOT threaded through `toJson`/`fromJson` — see the ponytail note below.
+  final Map<InputSignal, List<OwnedSpan>> ownership;
+
+  /// M5: the priority order ACTUALLY USED to resolve [ownership], with
+  /// `_prepareTargetDay`'s empty-table fallback already applied. Carried
+  /// rather than re-read at stamp time: the day's `priority_hash` must name
+  /// the order the day derived under, and a user reordering the editor mid-
+  /// derive would otherwise have the stamp record an order no output used.
+  /// Empty on the import path, exactly like [ownership].
+  ///
+  /// NOT threaded through `toJson`/`fromJson`, same reason as [ownership].
+  final Map<InputSignal, List<String>> priority;
+
   const PreparedDerivationDay({
     required this.date,
     required this.endSec,
@@ -39,6 +61,8 @@ class PreparedDerivationDay {
     required this.sleepSub,
     Substrate? napSub,
     this.sleepSource = 'auto',
+    this.ownership = const {},
+    this.priority = const {},
   }) : napSub = napSub ?? daySub;
 
   Map<String, dynamic> toJson() => {
@@ -54,6 +78,11 @@ class PreparedDerivationDay {
     'day_sub': daySub.toJson(),
     'sleep_sub': sleepSub.toJson(),
     'nap_sub': napSub.toJson(),
+    // ponytail: `ownership` is NOT round-tripped here. Grepped for real
+    // callers of PreparedDerivationDay.toJson()/fromJson() outside this file
+    // — none exist (only `candidate.toPreparedDay(...)` at
+    // derivation_engine.dart constructs one, and it is consumed directly,
+    // never serialized). Add JSON threading if a real caller appears.
   };
 
   static PreparedDerivationDay fromJson(Map<String, dynamic> m) {
@@ -198,6 +227,8 @@ class SleepSessionCandidate {
     required Substrate daySub,
     required Substrate sleepSub,
     Substrate? napSub,
+    Map<InputSignal, List<OwnedSpan>> ownership = const {},
+    Map<InputSignal, List<String>> priority = const {},
   }) => PreparedDerivationDay(
     date: dayId,
     // `endSec` is what the engine anchors FINALIZATION on
@@ -220,6 +251,8 @@ class SleepSessionCandidate {
     daySub: daySub,
     napSub: napSub,
     sleepSub: sleepSub,
+    ownership: ownership,
+    priority: priority,
   );
 }
 
@@ -450,6 +483,51 @@ class _PrepareAccumulator {
   /// an event that happens at most a handful of times in a band's life.
   final Set<String> _families = {};
 
+  /// Distinct `device_id`s seen across every page fed in (see
+  /// [Substrate.deviceIds]). Unlike [_families] this is NOT collapsed to a
+  /// singleton — it answers "which devices contributed", not "whose
+  /// calibration applies", and a real multi-device day has more than one.
+  final Set<String> _deviceIds = {};
+
+  void _noteDeviceId(Object? v) {
+    if (v is String) _deviceIds.add(v);
+  }
+
+  /// Which column supplied this day's skin temperature: `'raw'` (a relative
+  /// ADC count) or `'c'` (centi-°C). Null until the first row carries one.
+  ///
+  /// ONE UNIT PER DAY, AND THE FIRST ROW PICKS IT. `skinTemp` is a positional
+  /// array with no unit tag and the two columns are different quantities —
+  /// gen4's raw count is ~30 000, centi-°C is ~3 300 — so a day holding both
+  /// produces a z over a 10x step change and renders as a fever. A row in the
+  /// minority unit lands on the array's ABSENT sentinel (0, which every ADC
+  /// consumer's `v > 0` gate already reads as "no reading"), never converted
+  /// and never scaled: there is no per-family calibration that would make the
+  /// conversion honest.
+  ///
+  /// Unreachable today — a day's admitted rows are all one family, because
+  /// `derivableSourceSql()` renders `source IS NULL` (db.dart:116) — and that
+  /// is exactly why it is written now rather than discovered when the M5
+  /// resolver starts admitting two devices to one day.
+  String? _skinTempUnit;
+  // Read only by test/skin_temp_unit_test.dart today (via _skinTempFor's
+  // return value, not this field directly); M5 surfaces it as a refusal note.
+  // ignore: unused_field
+  int _skinTempUnitDrops = 0;
+
+  /// The array value for one row's two temperature columns, in the day's
+  /// established unit. 0 = absent (see [_skinTempUnit]).
+  int _skinTempFor(int? tempRaw, double? tempC) {
+    final unit = tempRaw != null ? 'raw' : (tempC != null ? 'c' : null);
+    if (unit == null) return 0;
+    _skinTempUnit ??= unit;
+    if (unit != _skinTempUnit) {
+      _skinTempUnitDrops++;
+      return 0;
+    }
+    return unit == 'raw' ? tempRaw! : (tempC! * 100).round();
+  }
+
   void _noteFamily(Object? v) {
     if (v is String && v.isNotEmpty) _families.add(v);
   }
@@ -532,6 +610,7 @@ class _PrepareAccumulator {
     for (final recTs in seconds) {
       final row = frameByRecTs[recTs];
       _noteFamily(row?['device_family']);
+      _noteDeviceId(row?['device_id']);
       tsSec.add(recTs);
       // NULL (absent), a beat-only second (no row at all) and an impossible
       // byte all land on the same 0 — the array's one "no usable HR this
@@ -559,9 +638,11 @@ class _PrepareAccumulator {
       // carry whichever the row has, in centi-°C to stay integral and positive
       // through the `v > 0` gate every ADC consumer uses. A user who swaps
       // gen4 → gen5 mid-history steps the baseline once; the z re-settles.
+      // See [_skinTempFor]/[_skinTempUnit] for the ONE-UNIT-PER-DAY guard
+      // that stops a second device's other unit from mixing into this array.
       final tempRaw = _num(row?['skin_temp_raw'])?.toInt();
       final tempC = _num(row?['skin_temp_c'])?.toDouble();
-      skinTemp.add(tempRaw ?? (tempC == null ? 0 : (tempC * 100).round()));
+      skinTemp.add(_skinTempFor(tempRaw, tempC));
       // NO skin contact on the decoded path, and no column to read: the byte the
       // name refers to is the sign+exponent half of a float32, never a contact
       // measurement. The array stays 1:1 with tsSec, all-zero ⇒ absent.
@@ -607,20 +688,35 @@ class _PrepareAccumulator {
     }
   }
 
-  Substrate buildSubstrate() => Substrate(
-    tsSec: tsSec,
-    hr: hr,
-    rrTsMs: rrTsMs,
-    rrMs: rrMs,
-    ax: ax,
-    ay: ay,
-    az: az,
-    spo2Red: spo2Red,
-    spo2Ir: spo2Ir,
-    skinTemp: skinTemp,
-    skinContact: skinContact,
-    stepCount: stepCount,
-    hrValid: hrValid,
-    deviceFamily: deviceFamily,
-  );
+  Substrate buildSubstrate() {
+    // `_skinTempUnitDrops` (see [_skinTempFor]) is structurally 0 today —
+    // `derivableSourceSql()` renders `source IS NULL` (db.dart:116), so a
+    // day's admitted rows are all one family and never trip the guard.
+    // Deliberately NOT a crashing `assert` here: this file's own test fixture
+    // (test/two_device_fixture_test.dart case 3) exercises the guard by
+    // bypassing that admission filter on purpose — which a debug-mode assert
+    // would turn into a test crash instead of the intended "minority unit
+    // reads as absent" assertion. `Substrate` has no field to carry the
+    // count, and adding one is an analytics-shaped change with a pin bump,
+    // which M0 must not take; M5 — which is what makes two-device admission
+    // reachable for real — turns this into a refusal note on
+    // `wellness.skin_temp` instead.
+    return Substrate(
+      tsSec: tsSec,
+      hr: hr,
+      rrTsMs: rrTsMs,
+      rrMs: rrMs,
+      ax: ax,
+      ay: ay,
+      az: az,
+      spo2Red: spo2Red,
+      spo2Ir: spo2Ir,
+      skinTemp: skinTemp,
+      skinContact: skinContact,
+      stepCount: stepCount,
+      hrValid: hrValid,
+      deviceFamily: deviceFamily,
+      deviceIds: _deviceIds,
+    );
+  }
 }

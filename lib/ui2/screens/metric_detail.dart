@@ -9,11 +9,14 @@
 // Every metric goes through THIS screen. Forty bespoke detail screens is how
 // the old UI ended up with forty different opinions about what a chart is.
 
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/adapters/signals.dart';
 import '../../data/day_label.dart';
+import '../../data/db.dart' show LocalDb;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -23,6 +26,17 @@ import 'day_steps.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'journal_compose.dart' show OsTextField;
+import '../profile/devices.dart'
+    show
+        DeviceFilter,
+        DeviceOption,
+        declaringDeviceIds,
+        liveSources,
+        showReasonSheet,
+        signalCandidates,
+        signalDisplayName,
+        signalWinners,
+        unanimousWinner;
 import 'sleep_detail.dart';
 
 // ═══════════════════ the vocabulary ═══════════════════
@@ -46,6 +60,20 @@ class MetricSpec {
   final String method;
   final String citation;
 
+  /// The INPUT SIGNALS this metric physically needs. A device that does not
+  /// declare every one of them cannot produce it, which is what makes the
+  /// per-device filter and its three visibility gates computable from the
+  /// registry with no query at all (final-plan §6.1, §6.5).
+  ///
+  /// SUPERSET, not intersection: a device qualifies only when its
+  /// `BandAdapter.signals` covers all of these. Readiness has four inputs, so a
+  /// chest strap that supplies two of them cannot serve a readiness chart, and
+  /// offering it one would be a control that can only ever draw an empty axis.
+  ///
+  /// Empty is the honest default: a metric nobody has classified declares no
+  /// requirement, every gate below evaluates false, and the screen is today's.
+  final Set<InputSignal> requires;
+
   const MetricSpec({
     required this.chartKey,
     required this.title,
@@ -57,6 +85,7 @@ class MetricSpec {
     this.suppressFix,
     this.method = '',
     this.citation = '',
+    this.requires = const {},
   });
 }
 
@@ -72,6 +101,7 @@ const _specs = <String, MetricSpec>{
         'a rolling window of the overnight series. Not a spot reading, and not '
         'a daytime minimum.',
     citation: 'Nocturnal heart-rate minimum; personal baseline, not population',
+    requires: {InputSignal.hr1Hz},
   ),
   'hrv': MetricSpec(
     chartKey: 'hrv',
@@ -84,6 +114,7 @@ const _specs = <String, MetricSpec>{
         'the Lipponen–Tarvainen method before any statistic is taken. '
         'Pulse-derived, so this is PRV: real and trendable, but not ECG HRV.',
     citation: 'Task Force 1996 · Lipponen & Tarvainen 2019',
+    requires: {InputSignal.rrIntervals},
   ),
   'readiness': MetricSpec(
     chartKey: 'recovery',
@@ -98,6 +129,12 @@ const _specs = <String, MetricSpec>{
         'enough history to use it, is listed on the Readiness screen. Missing '
         'inputs are re-weighted, never zero-filled.',
     citation: 'Plews 2013 (lnRMSSD) · Hopkins smallest-worthwhile-change gate',
+    requires: {
+      InputSignal.rrIntervals,
+      InputSignal.hr1Hz,
+      InputSignal.accel1Hz,
+      InputSignal.skinTempRaw,
+    },
   ),
   'resp_rate': MetricSpec(
     chartKey: 'resp_rate',
@@ -110,6 +147,7 @@ const _specs = <String, MetricSpec>{
         'periodic modulation breathing imposes on beat timing — over a grid of '
         'candidate rates.',
     citation: 'Pimentel 2017',
+    requires: {InputSignal.rrIntervals},
   ),
   'sleep': MetricSpec(
     chartKey: 'sleep',
@@ -120,6 +158,7 @@ const _specs = <String, MetricSpec>{
     method: 'Total sleep time from the wrist z-angle sleep window, staged by a '
         'combined actigraphy and heart-rate model.',
     citation: 'van Hees 2015 · Webster / Cole–Kripke rescoring',
+    requires: {InputSignal.accel1Hz, InputSignal.hr1Hz},
   ),
   'efficiency': MetricSpec(
     chartKey: 'efficiency',
@@ -129,6 +168,7 @@ const _specs = <String, MetricSpec>{
     icon: LucideIcons.bedDouble,
     method: 'Time asleep as a fraction of time in bed.',
     citation: 'AASM sleep-accounting definitions',
+    requires: {InputSignal.accel1Hz, InputSignal.hr1Hz},
   ),
   'deep': MetricSpec(
     chartKey: 'deep',
@@ -139,6 +179,7 @@ const _specs = <String, MetricSpec>{
     method: 'A low-confidence overlay: a wrist sensor cannot see slow-wave '
         'activity, so deep sleep here is heart-rate flatness inside NREM.',
     citation: 'Cole–Kripke wake spine + HRV overlay',
+    requires: {InputSignal.accel1Hz, InputSignal.hr1Hz},
   ),
   'rem': MetricSpec(
     chartKey: 'rem',
@@ -149,6 +190,7 @@ const _specs = <String, MetricSpec>{
     method: 'Staged from beat-timing variability and movement. A wrist sensor '
         'separates REM from light sleep only approximately.',
     citation: 'Webster / Cole–Kripke rescoring + HRV staging',
+    requires: {InputSignal.accel1Hz, InputSignal.hr1Hz},
   ),
   'steps': MetricSpec(
     chartKey: 'steps',
@@ -165,6 +207,12 @@ const _specs = <String, MetricSpec>{
         'one sample a second can resolve, so a day with no counter behind it '
         'reports no steps rather than a guess.',
     citation: 'AN-2554 pedometer · phone pedometer (HealthKit / Health Connect)',
+    // Deliberately EMPTY — see final-plan §4.6. Steps are resolved by
+    // `live_coverage_policy.dart`, which ranks by SPAN not device and credits
+    // by overlap subtraction; a device-ownership filter on this screen would
+    // be a per-device view of a quantity that is explicitly not per-device
+    // (and would reintroduce the 622-vs-18,856 double count, db.dart:2166-2172).
+    requires: {},
   ),
   'calories': MetricSpec(
     chartKey: 'calories',
@@ -175,6 +223,7 @@ const _specs = <String, MetricSpec>{
     method: 'Heart-rate-to-energy regression over the waking span, anchored on '
         'your weight, age and sex. An estimate, and sensitive to all three.',
     citation: 'Keytel 2005 · Harris–Benedict / Mifflin BMR floor',
+    requires: {InputSignal.hr1Hz},
   ),
   'strain': MetricSpec(
     chartKey: 'strain',
@@ -183,6 +232,7 @@ const _specs = <String, MetricSpec>{
     icon: LucideIcons.zap,
     method: 'Cardiovascular load over the day, compressed onto a 0–21 scale.',
     citation: 'Banister TRIMP family · log-compressed',
+    requires: {InputSignal.hr1Hz},
   ),
   'trimp': MetricSpec(
     chartKey: 'trimp',
@@ -192,6 +242,7 @@ const _specs = <String, MetricSpec>{
     method: 'Training impulse: time in each heart-rate zone, weighted by the '
         'physiological cost of that zone.',
     citation: 'Banister 1975 · Edwards 1993',
+    requires: {InputSignal.hr1Hz},
   ),
   'stress': MetricSpec(
     chartKey: 'stress',
@@ -203,6 +254,7 @@ const _specs = <String, MetricSpec>{
         'how tightly beat intervals cluster. There is deliberately no fallback '
         'when the resting window is missing.',
     citation: 'Baevsky 2008',
+    requires: {InputSignal.rrIntervals},
   ),
   'dip': MetricSpec(
     chartKey: 'dip',
@@ -212,6 +264,7 @@ const _specs = <String, MetricSpec>{
     icon: LucideIcons.trendingDown,
     method: 'How far sleeping heart rate falls below the waking average.',
     citation: 'Nocturnal dipping literature; personal baseline',
+    requires: {InputSignal.hr1Hz},
   ),
   'hrr': MetricSpec(
     chartKey: 'hrr',
@@ -222,6 +275,7 @@ const _specs = <String, MetricSpec>{
     method: 'The drop in heart rate over the 60 seconds after a bout ends, '
         'averaged across the day\'s bouts.',
     citation: 'Cole 1999 (HRR-60)',
+    requires: {InputSignal.hr1Hz},
   ),
   'lf_hf': MetricSpec(
     chartKey: 'lf_hf',
@@ -232,6 +286,7 @@ const _specs = <String, MetricSpec>{
         'variability, from a Lomb–Scargle periodogram (the series is unevenly '
         'sampled, so an FFT would be wrong).',
     citation: 'Laguna 1998 · Bigger 1992',
+    requires: {InputSignal.rrIntervals},
   ),
   'hrv_cv': MetricSpec(
     chartKey: 'hrv_cv',
@@ -242,6 +297,7 @@ const _specs = <String, MetricSpec>{
     higherBetter: false,
     method: 'Night-to-night coefficient of variation of RMSSD.',
     citation: 'Within-user dispersion',
+    requires: {InputSignal.rrIntervals},
   ),
   'brv': MetricSpec(
     chartKey: 'brv',
@@ -252,6 +308,7 @@ const _specs = <String, MetricSpec>{
     method: 'Coefficient of variation of per-window respiratory rate across '
         'the night.',
     citation: 'Within-user dispersion',
+    requires: {InputSignal.rrIntervals},
   ),
   // Both of these were written to `metric_series` on every derive since v55 and
   // had no spec, so nothing could open them — `specOf` fell through to a
@@ -266,6 +323,7 @@ const _specs = <String, MetricSpec>{
         'z-angle window detector the night uses, confirmed by a heart-rate dip. '
         'Naps are counted separately and never folded into time asleep.',
     citation: 'van Hees 2015 window detection + nocturnal HR dip',
+    requires: {InputSignal.accel1Hz, InputSignal.hr1Hz},
   ),
   'active_min': MetricSpec(
     chartKey: 'active_min',
@@ -278,6 +336,7 @@ const _specs = <String, MetricSpec>{
         'a population one before that. This is activity VOLUME, not locomotion: '
         'steps are counted by a pedometer and are never derived from it.',
     citation: 'ENMO over a personal dynamic-range floor',
+    requires: {InputSignal.accel1Hz},
   ),
   'wear': MetricSpec(
     chartKey: 'wear',
@@ -288,6 +347,7 @@ const _specs = <String, MetricSpec>{
     method: 'Minutes with a band record present. The band logs to flash only '
         'while it is on a wrist, so record presence IS wear.',
     citation: 'Record-presence, not heart-rate validity',
+    requires: {InputSignal.accel1Hz},
   ),
 
   // ── charted nowhere, on purpose ──
@@ -304,6 +364,7 @@ const _specs = <String, MetricSpec>{
         'your own recent nights. There is no conversion to degrees anywhere in '
         'the path.',
     citation: 'Relative only — uncalibrated ADC',
+    requires: {InputSignal.skinTempRaw},
   ),
   // `spo2`, `odi_per_hour` and `strain_effort` used to live here as cards that
   // existed only to explain that they were empty. A metric this app does not
@@ -369,6 +430,41 @@ class MetricData {
   /// draws it.
   final int stepGoal;
 
+  /// WHICH DEVICES CONTRIBUTED TO EACH DAY in this series, keyed by day label.
+  ///
+  /// A DAY, NOT A SPAN. `MetricDetail`'s scrubber is per-calendar-day
+  /// (`_dayOfSlot`), so a day with two contributing devices has no single
+  /// owner and claiming one would be fabricated precision (final-plan §1.4,
+  /// §4.4). Values are `device_id`s — `''` is the primary band.
+  ///
+  /// EMPTY on every single-device day, and on every day derived before schema
+  /// 50: `metric_series_version.coverage_devices` is NULL there and NULL is
+  /// never retro-filled with a guess. An empty map makes every gate in §8
+  /// false, which is what keeps this screen byte-identical for one device.
+  final Map<String, List<String>> coverage;
+
+  /// WHAT WAS PHYSICALLY RECORDING on each day, keyed by day label, from
+  /// `device_coverage` — which is written at ingest and never pruned, so it
+  /// answers for days whose substrate is long gone.
+  ///
+  /// Loaded ONLY when [coverage] already shows two or more distinct devices
+  /// across the window. Its single job is the middle row of §6.2's table:
+  /// separating "your ring was on your finger and produced nothing" from
+  /// "nothing was on your body". A single-device install never pays for it.
+  final Map<String, List<String>> recording;
+
+  /// The filter's rows. Registry facts crossed with [coverage] — see
+  /// [_deviceOptions]. Empty means no filter is drawn.
+  final List<DeviceOption> sources;
+
+  /// The device whose data [series] holds, or NULL for the merged view.
+  ///
+  /// Null is the ONLY value on this screen in M6: `metric_series` holds one
+  /// merged value per day and a per-device daily trend does not exist and must
+  /// not be faked (final-plan §6.4, §7.3). Selecting a device DIMS the days it
+  /// did not contribute to; it does not re-query.
+  final String? viewingDeviceId;
+
   const MetricData({
     this.series = const [],
     this.wear = const [],
@@ -377,12 +473,26 @@ class MetricData {
     this.daysAvailable = 0,
     this.algoBreaks = const [],
     this.stepGoal = kDefaultStepGoal,
+    this.coverage = const {},
+    this.recording = const {},
+    this.sources = const [],
+    this.viewingDeviceId,
   });
 
-  static Future<MetricData> load(LocalRepository repo, String key) async {
+  static Future<MetricData> load(
+    LocalRepository repo,
+    String key, {
+    /// Registry-only candidates, from `signalCandidates(app, requires: …)`.
+    /// Const-empty default so every existing caller and every test compiles
+    /// unchanged and gets today's screen.
+    List<DeviceOption> candidates = const [],
+  }) async {
     final spec = specOf(key);
     if (spec.suppress != null) return const MetricData();
-    final chart = await repo.getChart(spec.chartKey);
+    final chart = await repo.getChart(
+      spec.chartKey,
+      signals: {for (final s in spec.requires) s.name},
+    );
     final days = await repo.availableDays();
     final outcome = _outcomeOf[key];
     final stepGoal = key == 'steps'
@@ -404,6 +514,8 @@ class MetricData {
           if (e is Map && e['outcome'] == outcome) e.cast<String, dynamic>(),
       ];
     }
+    final coverage = _coverageOf(chart['coverage_devices']);
+    final recording = _coverageOf(chart['coverage_recording']);
     return MetricData(
       series: pointsOf(chart),
       wear: pointsOf({'points': chart['wear']}),
@@ -415,8 +527,101 @@ class MetricData {
           if (b is Map && b['t'] is num) (b['t'] as num).round(),
       ],
       stepGoal: stepGoal,
+      coverage: coverage,
+      recording: recording,
+      sources: _deviceOptions(candidates, coverage),
+      // viewingDeviceId stays null: see the field's doc.
     );
   }
+}
+
+/// `{day: [deviceId, …]}` out of a `getChart` payload. A malformed or absent
+/// key is an EMPTY map, never a partial one — a half-read coverage map would
+/// attribute a day to fewer devices than actually fed it, which is the one
+/// error this whole feature exists to avoid making.
+Map<String, List<String>> _coverageOf(Object? raw) {
+  if (raw is! Map) return const {};
+  final out = <String, List<String>>{};
+  for (final e in raw.entries) {
+    final day = e.key;
+    final ids = e.value;
+    if (day is! String || ids is! List) continue;
+    out[day] = [for (final v in ids) if (v is String) v];
+  }
+  return out;
+}
+
+/// Registry candidacy crossed with what the window actually holds.
+///
+/// A candidate with no coverage anywhere in the window stays SELECTABLE and
+/// gains a reason — "you may ask this device, and the answer for this window is
+/// nothing" is a different statement from "this device cannot answer at all",
+/// and §6.3 draws both.
+List<DeviceOption> _deviceOptions(
+  List<DeviceOption> candidates,
+  Map<String, List<String>> coverage,
+) {
+  if (candidates.length < 2) return const [];
+  final seen = {for (final ids in coverage.values) ...ids};
+  return [
+    for (final o in candidates)
+      if (!o.selectable || seen.contains(o.deviceId))
+        o
+      else
+        (
+          deviceId: o.deviceId,
+          label: o.label,
+          selectable: true,
+          reason: 'no data in this range',
+        ),
+  ];
+}
+
+/// TWO OR MORE DISTINCT DEVICES APPEAR IN THE VISIBLE WINDOW'S ATTRIBUTION.
+///
+/// Not "two are paired" — two actually CONTRIBUTED. Two devices that both
+/// measure HR where only one had data yesterday get pills (you can ask the
+/// other one) and no label (there is nothing to disambiguate).
+/// The devices behind one day, as the user's own words for them, in a stable
+/// order. Empty when the day has no attribution — which is every day on a
+/// single-device install and every day derived before schema 50.
+List<String> _labelsFor(
+  String day,
+  Map<String, List<String>> coverage,
+  List<DeviceOption> sources,
+) {
+  final ids = coverage[day];
+  if (ids == null || ids.isEmpty) return const [];
+  // `sources` order is `rankSources`' order, so `Ring + Band` is the same way
+  // round on every day and in every readout.
+  final names = [for (final o in sources) if (ids.contains(o.deviceId)) o.label];
+  // ALL OF THEM OR NONE. `LocalDb.deleteDevice` drops the `device` row while
+  // `metric_series_version.coverage_devices` keeps the id, so after forgetting
+  // one of two sensors a day it fed has an id with no name. Naming the
+  // survivor alone would credit one of two contributors, which is the thing
+  // §4.4 refuses; the day goes unattributed instead.
+  return names.length == ids.length ? names : const [];
+}
+
+/// "Ring", "Ring + Band", "" — the trailing clause of a readout with a value.
+String _contributors(List<String> names) => names.join(' + ');
+
+/// "Ring was recording", "2 devices were recording" — the trailing clause of a
+/// readout with NO value but with coverage. Plural-safe without a plural rule:
+/// naming two devices and getting the verb agreement wrong is how this reads as
+/// machine output.
+String _wereRecording(List<String> names) => names.length == 1
+    ? '${names.first} was recording'
+    : '${names.length} devices were recording';
+
+bool _labelSources(MetricData d) {
+  if (d.coverage.isEmpty) return false;
+  final seen = <String>{};
+  for (final ids in d.coverage.values) {
+    seen.addAll(ids);
+    if (seen.length >= 2) return true;
+  }
+  return false;
 }
 
 class MetricDetail extends StatefulWidget {
@@ -464,6 +669,33 @@ class _MetricDetailState extends State<MetricDetail> {
   /// 30-day window is not slot 12 of a year.
   int? _pick;
 
+  /// The device selected on the pill row, or null for the merged view. A
+  /// window change clears it the same way it clears [_pick] — a device
+  /// selection is about a window, and slot semantics change with the window.
+  String? _device;
+
+  /// The device winning EACH of this metric's required signals — read once
+  /// per load from `signal_priority`, falling through to the physics ladder
+  /// (§4.5 rule 3, already encoded in `d.sources`' rankSources order) where
+  /// no row exists. Empty until a load resolves, and on a single-device
+  /// install (the gate in `_load`), which is what keeps that case unchanged.
+  ///
+  /// A MAP, not one id. It used to be `signalPriority(spec.requires.first)`'s
+  /// winner, which readiness — four required signals — can only answer for
+  /// one of them: with a strap first for beat timing and the band first for
+  /// continuous heart rate, the caption named the strap and said it was
+  /// feeding readiness, and the Prefer button vanished for the band because
+  /// it "already won" a signal it won one of four times.
+  Map<InputSignal, String?> _winners = const {};
+
+  /// The device winning all of them, or null when they disagree.
+  String? get _preferredId => unanimousWinner(_winners);
+
+  /// Whether the winners disagree — the case the caption must not flatten.
+  /// `_preferredId` is null here AND when nothing has resolved, so the two
+  /// are only separable with this.
+  bool get _split => _winners.isNotEmpty && _preferredId == null;
+
   /// How many range buttons this install has data behind.
   ///
   /// Nothing prunes the derived series, so the honest horizon is the life of
@@ -496,7 +728,7 @@ class _MetricDetailState extends State<MetricDetail> {
     final note = _lockedNote(c, d);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       SubTabs(_labelsOf(c).sublist(0, n), _range.clamp(0, n - 1),
-          (i) => setState(() => (_range = i, _pick = null)),
+          (i) => setState(() => (_range = i, _pick = null, _device = null)),
           color: color),
       if (note != null) ...[
         const SizedBox(height: S.x2),
@@ -517,14 +749,47 @@ class _MetricDetailState extends State<MetricDetail> {
   }
 
   Future<void> _load() async {
+    // FIRST LINE, because the line under it reads `context` unconditionally.
+    // Both callers can land after disposal: the post-frame callback fires
+    // whether or not the element survived the frame, and `_prefer` awaits a
+    // modal sheet the user can dismiss by leaving the screen. Guarded here and
+    // not at each call site — one guard where every caller already routes.
+    if (!mounted) return;
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
       return;
     }
     try {
-      final d = await MetricData.load(repo, widget.metricKey);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      final spec = specOf(widget.metricKey);
+      // Registry-only, no query — cheap regardless of device count. The
+      // protected single-device case is guarded downstream, not here:
+      // `candidates.length < 2` (below) drops this to `const []` before
+      // anything renders, since a lone candidate is never a choice.
+      final candidates = mounted
+          ? signalCandidates(context, context.read<AppState>(),
+              requires: spec.requires)
+          : const <DeviceOption>[];
+      final d = await MetricData.load(repo, widget.metricKey,
+          candidates: candidates);
+      var winners = const <InputSignal, String?>{};
+      if (d.sources.length >= 2 && spec.requires.isNotEmpty && mounted) {
+        // Read before the query, so the `mounted` in the condition above is
+        // the last word on `context` — nothing awaits between them.
+        final sources = liveSources(context.read<AppState>());
+        // One query for every signal, not one per signal — `_prefer` writes
+        // all of `spec.requires`, so this reads all of them back.
+        final stored = await LocalDb.signalPriorities();
+        winners = signalWinners(
+          sources,
+          requires: spec.requires,
+          stored: stored,
+          fallback: d.sources.firstWhereOrNull((o) => o.selectable)?.deviceId,
+        );
+      }
+      if (mounted) {
+        setState(() => (_d = d, _winners = winners, _loading = false));
+      }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -615,7 +880,7 @@ class _MetricDetailState extends State<MetricDetail> {
       ] else ...[
         _ranges(c, d, spec.color),
         const SizedBox(height: S.x5),
-        _hero(c, spec, all, series, vals, win, d.wear, d.algoBreaks),
+        _hero(c, spec, all, series, vals, win, d.wear, d.algoBreaks, d),
         // Today's count against the goal set on this screen's own edit
         // affordance — a trend average has no goal to be measured against, so
         // this stays win == 1 only, same gate as the Breakdown link below.
@@ -700,9 +965,146 @@ class _MetricDetailState extends State<MetricDetail> {
   // that looks broken: with one day of history, seven days and thirty days
   // really do average to the same number, and "1 of 30 days" says so where
   // a bare figure looked like a bug.
+  /// The label of one winning device, or the placeholder while nothing has
+  /// resolved yet.
+  String _labelOf(MetricData d, String? id) =>
+      d.sources.firstWhereOrNull((o) => o.deviceId == id)?.label ??
+      'the default source';
+
+  /// What is feeding this metric, in as many lines as the truth needs: ONE
+  /// naming the metric when every required signal resolves to the same
+  /// device, one PER SIGNAL when they do not.
+  ///
+  /// The split case gets the signals' own names rather than a joined device
+  /// list, because "Using Polar H10 and WHOOP for readiness" says the two are
+  /// interchangeable here, and which device serves which input is the whole
+  /// content of the setting. Rearranging them stays where it belongs, in the
+  /// priority editor — this only has to stop asserting an agreement.
+  List<String> _usingLines(
+      BuildContext c, AppLocalizations? l, MetricSpec spec, MetricData d) {
+    String line(String device, String subject) =>
+        l?.metricDetailUsingForX(device, subject) ??
+        'Using $device for $subject.';
+    if (!_split) {
+      return [line(_labelOf(d, _preferredId), spec.title.toLowerCase())];
+    }
+    return [
+      for (final e in _winners.entries)
+        line(_labelOf(d, e.value), signalDisplayName(c, e.key).toLowerCase()),
+    ];
+  }
+
+  /// Non-null exactly when the pill row has a SELECTED, SELECTABLE device
+  /// that is not already winning EVERY required signal — the condition under
+  /// which the "Prefer this device" button does something.
+  ///
+  /// Split winners make `_preferredId` null, so the button is offered for any
+  /// selectable device there, including one that already wins some of the
+  /// signals: the tap that makes it win the rest is exactly the work left.
+  DeviceOption? _preferCandidate(MetricData d) => d.sources.firstWhereOrNull(
+      (o) => o.deviceId == _device && o.selectable && o.deviceId != _preferredId);
+
+  /// Which slots to dim for the selected device, or null when there is
+  /// nothing to dim.
+  ///
+  /// Selecting a device keeps the MERGED line and dims the days that device
+  /// was not part of. The honest statement is "these are the days your ring
+  /// was involved", not "this is your ring's 90-day RHR" (final-plan §6.4) —
+  /// and the caption says which.
+  ///
+  /// A DAY WITH NO COVERAGE ENTRY IS UNKNOWN, NOT ABSENT, and is left bright.
+  /// `coverage_devices` is NULL on every day derived before schema 50 and is
+  /// never retro-filled, so dimming on a missing entry turned "we do not know"
+  /// into "this device was not there" — over a whole window, on an install
+  /// whose history predates the column. Null when nothing is dimmed: a
+  /// fully-bright chart under "these are the days X was involved" is the same
+  /// claim by other means, so the caption is gated on this too.
+  List<bool>? _dimMask(MetricData d, int slots) {
+    if (_device == null || slots <= 0) return null;
+    final mask = <bool>[];
+    var any = false;
+    for (var i = 0; i < slots; i++) {
+      final ids = d.coverage[_dayOfSlot(i, slots)] ?? const [];
+      final out = ids.isNotEmpty && !ids.contains(_device);
+      if (out) any = true;
+      mask.add(out);
+    }
+    return any ? mask : null;
+  }
+
+  /// ONE string for the button's face and its announcement. The semantic label
+  /// used to be a hardcoded English sentence over a face that went through
+  /// `AppLocalizations` — so VoiceOver on a German install read the button out
+  /// in English. Nothing is gained by the two differing.
+  String _preferLabel(AppLocalizations? l, DeviceOption o) =>
+      l?.metricDetailPreferX(o.label) ?? 'Prefer ${o.label}';
+
+  Future<void> _prefer(DeviceOption o) async {
+    if (_d == null || !mounted) return;
+    final spec = specOf(widget.metricKey);
+    // PER SIGNAL, never per metric. "Priority for readiness" has no meaning —
+    // readiness has four inputs (final-plan §4.5). A per-metric control is
+    // therefore a mapping DOWN to that metric's signals, written for each of
+    // them, and it is the only per-metric form allowed.
+    //
+    // And the ORDER is per signal too, built from the devices that declare
+    // THAT signal — not from this metric's pills. `d.sources` is candidacy for
+    // the whole of `spec.requires`, so a chest strap that emits RR and no
+    // accelerometer is `selectable: false` on readiness; writing readiness'
+    // three signals from one selectable-filtered list deleted that strap's
+    // `rrIntervals` row, and `signal_priority`'s rows ARE the resolver's
+    // candidate list, so it also vanished from HRV — a metric this screen was
+    // never showing. `declaringDeviceIds` is the same list the priority editor
+    // ranks, so the two writers can never disagree.
+    final sources = liveSources(context.read<AppState>());
+    for (final sig in spec.requires) {
+      final declaring = declaringDeviceIds(sources, sig);
+      try {
+        // A selectable option declares every required signal, so it is in
+        // `declaring` — unless the device was unpaired between load and tap.
+        // Then this is a failed write, not a licence to insert an id no
+        // adapter backs: a phantom row is a candidate the resolver would hand
+        // a window to.
+        if (!declaring.contains(o.deviceId)) throw StateError('gone');
+        await LocalDb.setSignalPriority(sig, [
+          o.deviceId,
+          for (final id in declaring) if (id != o.deviceId) id,
+        ]);
+      } catch (_) {
+        // Readiness writes four signals, so a throw on the second leaves two
+        // written and two not. Say so and RE-READ rather than stamp
+        // `_winners` optimistically — the caption then names whatever
+        // actually persisted, which is the only thing anyone can act on, and
+        // a half-written set of signals IS the split state the caption now
+        // has words for.
+        // `SignalPriorityScreen` handles its own write the same way.
+        if (!mounted) return;
+        await showReasonSheet(
+          context,
+          AppLocalizations.of(context)?.devicesRequestNotSaved ??
+              'That request could not be saved. Please try again.',
+        );
+        await _load();
+        return;
+      }
+    }
+    // Bounded re-derive: `invalidateForPriorityChange` is M5's; M6 only calls
+    // it if present. It has not landed on this branch yet (verified via
+    // grep), so the write above stands on its own and the numbers move on the
+    // next natural derive rather than immediately — stated here rather than
+    // left for the reader to wonder.
+    // Every signal in `spec.requires` was just written to this device, so the
+    // whole set agrees — the loop above returned early if any write did not
+    // land.
+    if (mounted) {
+      setState(() =>
+          _winners = {for (final sig in spec.requires) sig: o.deviceId});
+    }
+  }
+
   Widget _hero(BuildContext c, MetricSpec spec, List<ChartPoint> all,
       List<double?> series, List<double> vals, int win,
-      List<ChartPoint> wear, List<int> algoBreaks) {
+      List<ChartPoint> wear, List<int> algoBreaks, MetricData d) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final mean = vals.reduce((a, b) => a + b) / vals.length;
@@ -752,6 +1154,47 @@ class _MetricDetailState extends State<MetricDetail> {
                 style: F.cap.copyWith(color: p.ink3)),
           ),
         ],
+        if (d.sources.length >= 2) ...[
+          const SizedBox(height: S.x4),
+          DeviceFilter(
+            options: d.sources,
+            selected: _device,
+            onSelect: (id) => setState(() => _device = id),
+            color: spec.color,
+          ),
+          const SizedBox(height: S.x2),
+          Row(children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final s in _usingLines(c, l, spec, d))
+                    Text(s, style: F.over.copyWith(color: p.ink3)),
+                ],
+              ),
+            ),
+            // Only offered for a SELECTED, SELECTABLE device that is not
+            // already winning. A button whose effect is already true is a
+            // button that teaches the control does nothing.
+            if (_preferCandidate(d) case final o?)
+              Pressable(
+                onTap: () => _prefer(o),
+                semanticLabel: _preferLabel(l, o),
+                child: Text(
+                  _preferLabel(l, o),
+                  style: F.cap.copyWith(
+                      color: p.on(spec.color), fontWeight: FontWeight.w600),
+                ),
+              ),
+          ]),
+          const SizedBox(height: S.x1),
+          Text(
+            l?.metricDetailHistoryKeepsSource ??
+                'Days already finished keep the source they were calculated '
+                    'with.',
+            style: F.over.copyWith(color: p.ink3),
+          ),
+        ],
         // No chart on Today. These series carry one value per day, so a
         // one-day window is a single point — and a single point drawn on an
         // axis is a shape pretending to be a trend. "Your normal range" below
@@ -784,6 +1227,7 @@ class _MetricDetailState extends State<MetricDetail> {
                     when b >= 0 && b < series.length && series.length - 1 - b > 0)
                   (series.length - 1 - b - .5) / (series.length - 1),
           ];
+          final dim = _dimMask(d, series.length);
           return ChartFrame(
             title: spec.title,
             unit: spec.unit.isEmpty ? 'score' : spec.unit,
@@ -834,25 +1278,73 @@ class _MetricDetailState extends State<MetricDetail> {
               step: 1 / (series.length - 1),
               label: spec.title,
               describe: (v) =>
-                  _slotSays(c, spec, series, _slotAt(v, series.length)),
+                  _slotSays(c, spec, series, _slotAt(v, series.length), d),
               onChanged: (v) =>
                   setState(() => _pick = _slotAt(v, series.length)),
-              child: CustomPaint(
-                size: Size.infinite,
-                // Fill only when the axis genuinely starts at zero. Shaded to
-                // a baseline of 52 bpm, a 52→60 week reads as a mountain — the
-                // truncated-axis form with the truncation hidden.
-                painter: LineChart(series, p.on(spec.color),
-                    fill: axis?.min == 0,
-                    dots: series.length <= 40,
-                    t: animate(c, 1),
-                    dotInk: p.card,
-                    axis: axis),
-              ),
+              // Fill only when the axis genuinely starts at zero. Shaded to
+              // a baseline of 52 bpm, a 52→60 week reads as a mountain — the
+              // truncated-axis form with the truncation hidden.
+              child: dim == null
+                  ? CustomPaint(
+                      size: Size.infinite,
+                      painter: LineChart(series, p.on(spec.color),
+                          fill: axis?.min == 0,
+                          dots: series.length <= 40,
+                          t: animate(c, 1),
+                          dotInk: p.card,
+                          axis: axis),
+                    )
+                  // No painter signature changes: the merged series drawn
+                  // dim UNDER the same series masked to the contributing
+                  // days, drawn on top — the painter's own null-break
+                  // behaviour is what makes the mask legible.
+                  : Stack(children: [
+                      CustomPaint(
+                        size: Size.infinite,
+                        painter: LineChart(series, p.ink3,
+                            fill: axis?.min == 0,
+                            dots: series.length <= 40,
+                            t: animate(c, 1),
+                            dotInk: p.card,
+                            axis: axis),
+                      ),
+                      CustomPaint(
+                        size: Size.infinite,
+                        painter: LineChart(
+                            [
+                              for (var i = 0; i < series.length; i++)
+                                dim[i] ? null : series[i],
+                            ],
+                            p.on(spec.color),
+                            fill: axis?.min == 0,
+                            dots: series.length <= 40,
+                            t: animate(c, 1),
+                            dotInk: p.card,
+                            axis: axis),
+                      ),
+                    ]),
             ),
           );
         }),
-        if (_pick != null) _picked(c, spec, series),
+        // Which device is selected, one line, only when it dims the chart —
+        // see `_dimMask` for why a bright chart may not carry this sentence.
+        if (win > 1 && _device != null && _dimMask(d, series.length) != null)
+          Padding(
+            padding: const EdgeInsets.only(top: S.x2),
+            child: Text(
+              l?.metricDetailDimmedCaption(
+                      d.sources
+                              .firstWhereOrNull((o) => o.deviceId == _device)
+                              ?.label ??
+                          '',
+                    ) ??
+                  'These are the days '
+                      '${d.sources.firstWhereOrNull((o) => o.deviceId == _device)?.label ?? ''} '
+                      'was involved. The line is your merged reading.',
+              style: F.over.copyWith(color: p.ink3),
+            ),
+          ),
+        if (_pick != null) _picked(c, spec, series, d),
         // L4 — the coverage denominator, under the curve it belongs to.
         //
         // Deliberately unflattering, and gated to the ranges where it changes
@@ -916,17 +1408,56 @@ class _MetricDetailState extends State<MetricDetail> {
     return dayLabelOf(DateTime(n.year, n.month, n.day - (len - 1 - i)));
   }
 
-  /// What the slider reads out. The value, or the fact that the day is a hole.
-  String _slotSays(BuildContext c, MetricSpec spec, List<double?> series, int i) {
+  /// What the slider reads out. The value, the fact that the day is a hole,
+  /// and — only when two devices contributed to this window — which of them
+  /// was behind it (final-plan §6.2, at day granularity per §6.0).
+  String _slotSays(
+    BuildContext c,
+    MetricSpec spec,
+    List<double?> series,
+    int i,
+    MetricData d,
+  ) {
     final l = AppLocalizations.of(c);
-    final day = prettyDay(_dayOfSlot(i, series.length), l);
+    final day = _dayOfSlot(i, series.length);
+    final pretty = prettyDay(day, l);
     final v = series[i];
-    return v == null
-        ? (l?.metricDetailSlotNoRecord(day) ?? '$day, no record')
-        : (l?.metricDetailSlotWithValue(
-                    day, _fmt(spec, v), unitBeside(spec.unit)) ??
-                '$day, ${_fmt(spec, v)} ${unitBeside(spec.unit)}')
-            .trimRight();
+
+    // THE GATE. `_labelSources` is false on every single-device install, and
+    // when it is false the two `return`s below are the two strings this
+    // function returned before this change, character for character.
+    final attribute = _labelSources(d);
+
+    if (v != null) {
+      final base = (l?.metricDetailSlotWithValue(
+                  pretty, _fmt(spec, v), unitBeside(spec.unit)) ??
+              '$pretty, ${_fmt(spec, v)} ${unitBeside(spec.unit)}')
+          .trimRight();
+      if (!attribute) return base;
+      final who = _contributors(_labelsFor(day, d.coverage, d.sources));
+      // A day inside a two-device window that nevertheless has one
+      // contributor names that one; a day with NO attribution names none.
+      // Never a single name on a day two devices fed (final-plan §4.4).
+      return who.isEmpty ? base : '$base · $who';
+    }
+
+    // NO VALUE. Two different facts, and only the second is the user's doing.
+    if (attribute) {
+      final rec = _labelsFor(day, d.recording, d.sources);
+      if (rec.isNotEmpty) {
+        return l?.metricDetailSlotNoValueRecording(
+                pretty, _wereRecording(rec)) ??
+            '$pretty, no value · ${_wereRecording(rec)}';
+      }
+      // Empty is two different things (see `_labelsFor`): nothing recorded, or
+      // something did and this install can no longer name it. Only the first
+      // may be stated.
+      if ((d.recording[day] ?? const []).isEmpty) {
+        return l?.metricDetailSlotNothingRecording(pretty) ??
+            '$pretty, nothing was recording';
+      }
+    }
+    return l?.metricDetailSlotNoRecord(pretty) ?? '$pretty, no record';
   }
 
   /// The touched day, and the door into it.
@@ -934,43 +1465,62 @@ class _MetricDetailState extends State<MetricDetail> {
   /// A day with a value is a day that derived, so the door always leads
   /// somewhere. A day with no value says so and offers nothing — an action
   /// button is a promise, and there is no screen behind an empty day.
-  Widget _picked(BuildContext c, MetricSpec spec, List<double?> series) {
+  Widget _picked(
+    BuildContext c,
+    MetricSpec spec,
+    List<double?> series,
+    MetricData d,
+  ) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final i = _pick!.clamp(0, series.length - 1);
     final day = _dayOfSlot(i, series.length);
     final v = series[i];
+    final attributed = _labelSources(d) && _labelsFor(day, d.coverage, d.sources).isNotEmpty;
+    final who = attributed ? _contributors(_labelsFor(day, d.coverage, d.sources)) : '';
     return Padding(
       padding: const EdgeInsets.only(top: S.x3),
       child: Surface(
         color: p.card2,
         elevation: 0,
         onTap: v == null ? null : () => go(c, _dayScreen(widget.metricKey, day)),
-        semanticLabel: v == null
-            ? (l?.metricDetailSlotNoRecord(prettyDay(day, l)) ??
-                '${prettyDay(day, l)}, no record')
-            : (l?.metricDetailOpenDay(prettyDay(day, l)) ??
-                'Open ${prettyDay(day, l)}'),
-        child: Row(children: [
-          Expanded(
-            child: Text(dayNavLabel(day),
-                style:
-                    F.body.copyWith(color: p.ink, fontWeight: FontWeight.w600),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis),
-          ),
-          const SizedBox(width: S.x3),
-          Text(
-            v == null
-                ? (l?.metricDetailNoRecordLabel ?? 'No record')
-                : '${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight(),
-            style: v == null
-                ? F.cap.copyWith(color: p.ink3)
-                : F.n17.copyWith(color: p.ink),
-          ),
-          if (v != null) ...[
-            const SizedBox(width: S.x2),
-            Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+        semanticLabel: [
+          v == null
+              ? (l?.metricDetailSlotNoRecord(prettyDay(day, l)) ??
+                  '${prettyDay(day, l)}, no record')
+              : (l?.metricDetailOpenDay(prettyDay(day, l)) ??
+                  'Open ${prettyDay(day, l)}'),
+          if (attributed) who,
+        ].join(' · '),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(
+              child: Text(dayNavLabel(day),
+                  style: F.body
+                      .copyWith(color: p.ink, fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+            ),
+            const SizedBox(width: S.x3),
+            Text(
+              v == null
+                  ? (l?.metricDetailNoRecordLabel ?? 'No record')
+                  : '${_fmt(spec, v)} ${unitBeside(spec.unit)}'.trimRight(),
+              style: v == null
+                  ? F.cap.copyWith(color: p.ink3)
+                  : F.n17.copyWith(color: p.ink),
+            ),
+            if (v != null) ...[
+              const SizedBox(width: S.x2),
+              Icon(LucideIcons.chevronRight, size: 18, color: p.ink3),
+            ],
+          ]),
+          // WHICH DEVICE, second line, only under the gate. A day-level scalar
+          // from a merged substrate has no single producer, so this names the
+          // SET (final-plan §4.4) and never picks one of two.
+          if (attributed) ...[
+            const SizedBox(height: S.x1),
+            Text(who, style: F.over.copyWith(color: p.ink3)),
           ],
         ]),
       ),

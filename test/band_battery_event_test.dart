@@ -145,11 +145,15 @@ void main() {
       await db.delete('band_events');
 
       // 99.7% / 4375 mV, OFF the charger.
-      await LocalDb.insertEvent(3, 1786502089, _mgLevel);
-      await LocalDb.insertEvent(63, 1786502089, _mgExt);
-      await LocalDb.insertEvent(7, 1786510000, _mgChargingOn);
+      await LocalDb.insertEvent(3, 1786502089, _mgLevel,
+          deviceId: LocalDb.kPrimaryDeviceId);
+      await LocalDb.insertEvent(63, 1786502089, _mgExt,
+          deviceId: LocalDb.kPrimaryDeviceId);
+      await LocalDb.insertEvent(7, 1786510000, _mgChargingOn,
+          deviceId: LocalDb.kPrimaryDeviceId);
       // 82.7% / 4335 mV, ON the charger — a real frame off the same strap.
-      await LocalDb.insertEvent(3, 1786510510, _mgLevelCharging);
+      await LocalDb.insertEvent(3, 1786510510, _mgLevelCharging,
+          deviceId: LocalDb.kPrimaryDeviceId);
 
       final rows = await LocalDb.recentBandBatterySamples();
       expect(rows.where((r) => r['millivolts'] != null), isNotEmpty);

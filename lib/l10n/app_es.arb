@@ -203,7 +203,7 @@
   "pairSensorWhatThisAdds": "Qué añade esto",
   "pairSensorPairAnother": "Emparejar otro",
   "pairSensorExplainer": "Un sensor solo se usa mientras un entrenamiento está en curso, y solo para la frecuencia cardíaca y el tiempo entre latidos. No reemplaza tu banda, nunca se usa durante la noche, y nada de lo que registra alimenta una puntuación todavía: sus lecturas se guardan y se muestran, y eso es todo.",
-  "pairSensorSearchWouldHideSheet": "Buscar ocultaría la hoja de emparejamiento de WHOOP",
+  "pairSensorSearchWouldHideSheet": "Buscar ocultaría la hoja de emparejamiento del sistema",
   "pairSensorSearchAnyway": "Buscar de todos modos",
   "pairSensorSearching": "Buscando…",
   "pairSensorSearchForSensors": "Buscar sensores",

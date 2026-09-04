@@ -219,6 +219,22 @@ const _notComponents = {
   // the pure half and is what `pair_sensor_test.dart` pumps, at a real phone
   // width, in each of its states.
   'PairSensorScreen', 'PairSensorView',
+  // The unified device picker — first pair, re-pair, and add-a-sensor now
+  // all reach this one screen. Same reason as PairSensorScreen above (owns a
+  // live BLE scan across every notify-class registry entry at once, reads
+  // the `device` table, checks the iOS ASK gate on init) plus its own:
+  // `PairingScreen` is one of its sub-routes, and a gallery case pushing
+  // into that would try the SAME live-radio work a second time.
+  // `DevicePickerView` is the pure half; `device_picker_test.dart` pumps it
+  // in each of its states instead.
+  'DevicePickerScreen', 'DevicePickerView',
+  // The per-signal priority editor. A Scaffold route that reads AppState and
+  // `signal_priority` on load (M6) — the gallery has no Provider<AppState>
+  // above it, so a case would crash the sweep at its own postFrameCallback
+  // rather than render a fixture. No pure half exists yet to pump instead
+  // (there is nothing today to hand it — every install has one device); add
+  // one and a gallery case together if that changes.
+  'SignalPriorityScreen',
   // The double-tap picker. A Scaffold route whose whole content is decided by
   // what the OS answered to a method channel, so a gallery case would be a
   // photograph of a fixture rather than of the screen. Rendered instead by

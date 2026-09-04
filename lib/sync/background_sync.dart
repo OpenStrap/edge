@@ -17,6 +17,9 @@ import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../ble/adapters/_registry.dart' show kWhoopGen4;
+import '../ble/adapters/host.dart' show BandHost;
+import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
 import '../ble/oura_link.dart';
 import '../compute/derivation_engine.dart';
@@ -68,25 +71,40 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     }
 
     // Connect → drain → store. No live streams (battery): in and out.
+    // `bandHost` is `late final`: the closure below captures the variable,
+    // not a value, so it is fine that it is only assigned after `engine`
+    // (whose facade adapter needs `engine` itself) is constructed.
+    late final BandHost bandHost;
     final engine = BleEngine(
       onRecord: (sample, raw) => LocalDb.insertRecord(raw, sample),
       onState: (_) {},
-      onEvent: (id, ts, hex) => LocalDb.insertEvent(id, ts, hex),
+      // This path drains exactly the one paired band (PairedDevice.load()),
+      // so kPrimaryDeviceId is the correct value here, not a placeholder.
+      onEvent: (id, ts, hex) =>
+          LocalDb.insertEvent(id, ts, hex, deviceId: LocalDb.kPrimaryDeviceId),
       log: (l) => debugPrint('[bgsync] $l'),
       onRecordsBatch: LocalDb.insertRecordsBatch,
+      // Routed through BandHost (M1a) rather than calling
+      // LocalDb.commitSyncBatch directly — same durable commit, same
+      // arguments, one extra await frame, and the SAME failure contract:
+      // `commitNativeBatch` rethrows so `DrainController.commit` still reads
+      // durability from a throw and `TrimAckPolicy` still blocks the ACK.
       onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
-          LocalDb.commitSyncBatch(raws, samples,
-              trimToken: trimTokenHex,
-              archives: archives,
-              deviceFamily: deviceFamily,
-              onCheckpoint: (msg) => debugPrint('[bgsync][COMMIT] $msg')),
+          bandHost.commitNativeBatch(raws, samples, trimTokenHex,
+              archives: archives, deviceFamily: deviceFamily),
       onArchiveRecord: LocalDb.archiveRawRecord,
-      cursorReader: LocalDb.getCursorInt,
+      cursorReader: (base) =>
+          LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
       // Mark this as the background drainer: if the foreground app engine already
       // owns the band (same process — iOS restore-wake OR Android headless boot /
       // foreground service), this engine YIELDS instead of opening a second drain
       // that would double-ACK the same offload and stall the trim cursor.
       isBackgroundDrainer: true,
+    );
+    bandHost = BandHost(
+      adapter: WhoopFramedAdapter(engine, kWhoopGen4),
+      deviceId: LocalDb.kPrimaryDeviceId,
+      onLog: (msg) => debugPrint('[bgsync][COMMIT] $msg'),
     );
 
     // connect() subscribes → SET_CLOCK → INIT, so the historical offload is already

@@ -9,6 +9,7 @@
 // read from canonical decoded tables keyed by physiological time so replayed or
 // duplicated historical seconds cannot bloat compute.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -26,7 +27,10 @@ import '../compute/substrate.dart' show beatTimesMs;
 // `show` keeps the rest of the engine out of this namespace.
 import '../coach/coach_db.dart' show CoachDb;
 import '../compute/derivation_engine.dart' show kAlgoVersion;
+import '../ble/adapters/adapter.dart' show NeutralSample;
+import '../ble/adapters/signals.dart' show InputSignal;
 import '../import/import_container.dart';
+import 'coverage_resolver.dart' show CoverageInterval;
 import 'day_label.dart';
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
@@ -187,6 +191,8 @@ class LocalDb {
     'metric_series_version',
     'baselines',
     'raw_archive',
+    'device_coverage',
+    'signal_priority',
     'sync_cursor',
     // The retention window. Big, and last for that reason.
     'decoded_onehz',
@@ -337,7 +343,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 50;
+  static const int schemaVersion = 51;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -358,6 +364,23 @@ class LocalDb {
   /// A SECONDARY device gets a real id, issued by its adapter from something
   /// the band emits across the handshake — never from the link.
   static const String kPrimaryDeviceId = '';
+
+  /// The `sync_cursor` name for a per-offloading-device bookmark.
+  ///
+  /// THE PRIMARY KEEPS THE BARE KEY, FOREVER. This is not cosmetic and it is
+  /// not a transitional shim. Every install on disk today stores `counter_hw`,
+  /// `rec_ts_hw` and `strap_trim` under those exact names; a naive
+  /// `'$base:$deviceId'` renders `'rec_ts_hw:'` for the primary ('' is its id —
+  /// see [kPrimaryDeviceId]), which is a NEW, EMPTY key. `RecordGate` would
+  /// then seed its frontier from 0, the band would re-offer its whole flash,
+  /// and `strap_trim` would echo nothing — the "Groundhog Day" re-flood,
+  /// delivered by a migration.
+  ///
+  /// There is deliberately no migration step for this: the primary's keys are
+  /// already correct, and only a device that has never had a cursor gets a
+  /// suffixed one.
+  static String cursorKeyFor(String base, String deviceId) =>
+      deviceId == kPrimaryDeviceId ? base : '$base:$deviceId';
 
   /// Split [items] into `_maxSqlVars`-sized chunks for `IN (…)` binding.
   static Iterable<List<T>> _sqlVarChunks<T>(List<T> items) sync* {
@@ -422,6 +445,8 @@ class LocalDb {
         await _createPrimitiveArtifacts(db);
         await _createLiveCoverage(db);
         await _createDevice(db);
+        await _createDeviceCoverage(db);
+        await _createSignalPriority(db);
         await _createWorkoutSuggestions(db);
         await _createSleepOverride(db);
         await _createSleepNap(db);
@@ -941,6 +966,71 @@ class LocalDb {
           // metric and nothing here changes a derived number.
           await _createAlarmSchedule(db);
         }
+        if (oldV < 51) {
+          // MULTI-DEVICE ATTRIBUTION, commit 1 of 7 (M3). Two new empty
+          // tables only in this commit — device_coverage / signal_priority —
+          // no backfill, nothing read. Rewrites no existing row's value, so
+          // this ships without a kAlgoVersion bump. Later M3 commits add
+          // steps 2-7 to this SAME rung (device.role/.wearing, the four
+          // rekeys, the coverage backfill); do not add a new `if (oldV < 51)`
+          // block for them.
+          await _createDeviceCoverage(db);
+          await _createSignalPriority(db);
+          // Step 2: device.role / .wearing. ADD COLUMN with a constant
+          // DEFAULT does not rewrite the table, so this is O(1) in device
+          // rows. The primary band's row IS the primary, permanently — that
+          // is what `id = ''` (kPrimaryDeviceId) means. Roles move, keys do
+          // not. A no-op on a database with no device row yet.
+          await _addColumnIfMissing(
+            db, 'device', 'role', "TEXT NOT NULL DEFAULT 'paired'",
+          );
+          await _addColumnIfMissing(
+            db, 'device', 'wearing', 'INTEGER NOT NULL DEFAULT 1',
+          );
+          // A rung must no-op on a table this ladder has not created yet
+          // (the same rule _addColumnIfMissing follows above).
+          if ((await _columnsOf(db, 'device')).isNotEmpty) {
+            await db.execute(
+              "UPDATE device SET role = 'primary' WHERE id = ?",
+              [kPrimaryDeviceId],
+            );
+          }
+          // Step 3 (metric_series_version.coverage_devices/.priority_hash)
+          // needs NO rung code: _createMetricSeriesVersion adds them with its
+          // own guarded ALTERs and is already reached from _createDerived,
+          // which _repairOpenSchema calls on every open.
+
+          // Step 4: band_backlog. Keyed by one epoch second, so two devices
+          // connecting in the same second overwrite each other. Re-keyed, NOT
+          // dropped: the series is what establishes the records-per-day
+          // divisor (see _createBandBacklog, which is why it is exempt from
+          // retention), and `_recordPagesBehind` reads the newest row back to
+          // see whether `wrap_count` moved — a drop loses the history and
+          // blinds that check for a connect. Same helper as step 5, one rung
+          // earlier so the table exists for a database that never had it.
+          await _createBandBacklog(db);
+          await _rekeyByDeviceIdV51(db, 'band_backlog', keyTail: const ['ts']);
+
+          // Step 5: the four re-keys. LAST of the DDL, self-skipping,
+          // idempotent. raw_archive first because it is the expensive one
+          // and a crash after it means the rest re-runs cheaply; the temp
+          // table is dropped up front so a re-run is clean either way.
+          await _rekeyByDeviceIdV51(db, 'raw_archive', keyTail: const ['hex']);
+          await _rekeyByDeviceIdV51(db, 'band_events', keyTail: const ['hex']);
+          await _rekeyByDeviceIdV51(db, 'events', keyTail: const ['hex']);
+          await _rekeyByDeviceIdV51(
+            db, 'band_battery', keyTail: const ['ts', 'source'],
+          );
+
+          // Step 6: coverage for the days the substrate still holds. Bounded,
+          // minute-bucketed, and it claims nothing about pruned days.
+          await _backfillDeviceCoverage(db);
+
+          // Step 7: signal_priority is DELIBERATELY NOT SEEDED. An empty
+          // table IS the physics ladder (rankSources()), and a seeded copy
+          // of it is a second source of truth that goes stale against the
+          // adapter.
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -993,6 +1083,8 @@ class LocalDb {
     await _ensureLiveCoverageSource(db);
     await _ensureLiveCoverageDeviceId(db);
     await _createDevice(db);
+    await _createDeviceCoverage(db);
+    await _createSignalPriority(db);
     await _createExternalHr(db);
     await _createImportedMeasurement(db);
     // CREATE TABLE IF NOT EXISTS on the every-open repair path, and NO schema
@@ -1704,7 +1796,9 @@ class LocalDb {
         label       TEXT,
         tier        TEXT,
         first_seen  INTEGER NOT NULL,
-        last_seen   INTEGER NOT NULL
+        last_seen   INTEGER NOT NULL,
+        role        TEXT NOT NULL DEFAULT 'paired',
+        wearing     INTEGER NOT NULL DEFAULT 1
       )
     ''');
   }
@@ -1738,6 +1832,14 @@ class LocalDb {
       'tier': tier,
       'first_seen': now,
       'last_seen': now,
+      // NAMED, not left to the column DEFAULT. `id == ''` IS the primary band
+      // permanently, and the v51 rung stamps that row `'primary'` on every
+      // UPGRADED database — so taking the `'paired'` default here would give a
+      // FRESH install a different role for the same row than an upgraded one,
+      // and the first reader of this column would be wrong on exactly the
+      // installs that never migrated. Insert-only (the conflict algorithm is
+      // IGNORE), so it can never demote a row that already exists.
+      'role': id == kPrimaryDeviceId ? 'primary' : 'paired',
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
     // ONE flag decides both the placeholder and its argument. It is a local
     // and not the expression twice because the two must never disagree: a
@@ -1893,6 +1995,30 @@ class LocalDb {
     Observation o, {
     String deviceId = kPrimaryDeviceId,
   }) => putObservations([o], deviceId: deviceId);
+
+  /// VENDOR SCALARS FOR ONE DAY, for DISPLAY ONLY.
+  ///
+  /// The first reader this table has ever had. Read
+  /// `test/observation_isolation_test.dart` before adding a second: nothing may
+  /// read `observation` into a baseline, into a trend that also holds derived
+  /// values, or into any input to a derivation (OBSERVATION_SPEC §3). This
+  /// returns rows carrying their own `attribution` precisely so a caller
+  /// CANNOT render one as ours — the vendor's name travels with the number
+  /// and the UI has no shape for it without one.
+  ///
+  /// Ordered by `attribution, name` so the same day renders in the same order
+  /// on every build.
+  static Future<List<Map<String, Object?>>> observationsForDay(
+    String date,
+  ) async {
+    final db = await instance;
+    return db.query(
+      'observation',
+      where: 'date = ?',
+      whereArgs: [date],
+      orderBy: 'attribution ASC, COALESCE(vendor_key, key) ASC',
+    );
+  }
 
   // ── IMPORTED WORKOUTS (Apple Health / Health Connect) ──────────────────────
   /// A workout some OTHER app recorded, held in its own table for the same
@@ -2082,6 +2208,329 @@ class LocalDb {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_live_coverage_day ON live_coverage(day)',
     );
+  }
+
+  /// device_coverage — WHEN a device was physically emitting a signal. NEVER a
+  /// conclusion, never a value, never physiology: five integers saying "this
+  /// device produced `signal` rows across [start_ts, end_ts)".
+  ///
+  /// WHY IT IS A TABLE AND NOT A DERIVE-TIME COMPUTATION. The 1 Hz substrate is
+  /// pruned at `rawRetentionDays = 3`, so "what was recording last March" cannot
+  /// be reconstructed from rows — they are gone. This is written at INGEST and
+  /// survives the prune, which makes it the only artifact that can answer the
+  /// question at all. Five integers per few hours per device: a decade of two
+  /// devices is well under a megabyte.
+  ///
+  /// NOT PRUNED by retention, for the `band_battery` reason (`pruneDecodedBeforeRecTs`):
+  /// a 3-day cap on a series whose only use is comparing a day to the days
+  /// around it destroys it.
+  ///
+  /// `signal` is an `InputSignal.name` — an INPUT the device emits, never a
+  /// metric key. See `ble/adapters/signals.dart`: a metric key here would make
+  /// this a capability table, which is the thing that file exists to refuse.
+  ///
+  /// INTERVALS FROM ONE DEVICE MAY OVERLAP. The key is only `start_ts`, and
+  /// `mergeFrom` can import a foreign export's intervals over local ones. Every
+  /// reader must union same-device intervals rather than assume disjointness.
+  static Future<void> _createDeviceCoverage(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS device_coverage (
+        device_id TEXT NOT NULL,
+        signal    TEXT NOT NULL,
+        start_ts  INTEGER NOT NULL,
+        end_ts    INTEGER NOT NULL,
+        PRIMARY KEY (device_id, signal, start_ts)
+      )
+    ''');
+    // The resolver's only query shape: every device's coverage for ONE signal
+    // over ONE window. `signal` leads because it is always an equality, then
+    // start_ts for the range scan.
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coverage_window '
+      'ON device_coverage(signal, start_ts, end_ts)',
+    );
+    // The ingest writer's query: the OPEN interval for one (device, signal),
+    // which is the one with the highest start_ts. Without this, extending an
+    // interval on every commit is a scan of the whole table.
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_coverage_device '
+      'ON device_coverage(device_id, signal, start_ts DESC)',
+    );
+  }
+
+  /// signal_priority — the user's explicit per-signal device order.
+  ///
+  /// SPARSE BY CONSTRUCTION, and that is the whole design. No row for a
+  /// (signal, device) means "use the physics ladder" — `rankSources()` in
+  /// `ui2/profile/devices.dart`. A user who never touches a control has ZERO
+  /// rows here and gets exactly today's behaviour, which is what makes this
+  /// table free for every single-device install.
+  ///
+  /// `user_set = 1` means the user reordered this signal. It is what the
+  /// one-tap reset deletes and what `priority_hash` hashes. Rows are written
+  /// only from the point of evidence (the filter row under a chart) or the
+  /// device screen's per-signal reorder list — never as an N x M settings grid.
+  ///
+  /// `signal` is an `InputSignal.name`, same as `device_coverage.signal`.
+  /// Priority for a METRIC has no meaning: readiness has four inputs.
+  static Future<void> _createSignalPriority(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS signal_priority (
+        signal    TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        rank      INTEGER NOT NULL,
+        user_set  INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (signal, device_id)
+      )
+    ''');
+  }
+
+  /// v51 step 6: coverage intervals for the substrate rows that survive.
+  ///
+  /// WHAT IT CLAIMS, AND WHAT IT REFUSES TO CLAIM. Only the days
+  /// `decoded_onehz` / `decoded_rr` still hold, which is `rawRetentionDays = 3`
+  /// plus whatever `_maxRawHoldDays` has held back. A day already pruned gets
+  /// NO coverage row. That is correct and it is the honest answer: we do not
+  /// know what was recording, so we do not claim.
+  ///
+  /// NO WINDOW FUNCTIONS. minSdk 26 ships SQLite 3.18; ROW_NUMBER() landed in
+  /// 3.25, so the textbook gaps-and-islands query throws `no such function`
+  /// inside onUpgrade's ONE exclusive transaction and quarantines the
+  /// database. Instead: GROUP BY a 60-second bucket server-side (the
+  /// resolver's own grid, so nothing is lost), then coalesce adjacent buckets
+  /// in Dart.
+  ///
+  /// BOUNDED, which is what makes it safe on the launch path: 3 days x 1,440
+  /// minutes x 5 signals = 21,600 rows worst case, and in practice far fewer.
+  ///
+  /// SIGNALS ARE READ OFF COLUMNS, one predicate each, and each predicate says
+  /// only what the column says. There is deliberately no `ppgGreen` and no
+  /// `accelHighRate`: neither has a `decoded_onehz` column, so there is
+  /// nothing to read and a claim would be invented. `vendorScalars` is not a
+  /// raw signal and lives in `observation`.
+  static Future<void> _backfillDeviceCoverage(Database db) async {
+    // A DB whose ladder has not created these must no-op rather than throw.
+    for (final t in const ['decoded_onehz', 'device_coverage']) {
+      final present = await db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", [t],
+      );
+      if (present.isEmpty) return;
+    }
+    // Pre-v47 shape has no device_id; every row is the primary by definition.
+    final cols = await _columnsOf(db, 'decoded_onehz');
+    final dev = cols.contains('device_id') ? 'device_id' : "'$kPrimaryDeviceId'";
+
+    const kBucket = 60; // seconds — the resolver's grid
+    // One interval may absorb a gap of up to this many buckets and stay open.
+    // Two buckets, not one: a 1 Hz stream that drops a single second must not
+    // split an interval, and anything longer is a real gap the resolver
+    // should see. ponytail: fixed at 2; make it cadence-derived only if a
+    // real capture shows 2 is wrong.
+    const kMaxGapBuckets = 2;
+
+    final specs = <String, String>{
+      'hr1Hz': 'hr IS NOT NULL',
+      'accel1Hz': 'ax IS NOT NULL AND ay IS NOT NULL AND az IS NOT NULL',
+      'ppgRedIr': 'spo2_red_raw IS NOT NULL OR spo2_ir_raw IS NOT NULL',
+      'skinTempRaw': 'skin_temp_raw IS NOT NULL',
+    };
+
+    final batch = db.batch();
+    var queued = 0;
+
+    Future<void> emit(String signal, List<Map<String, Object?>> buckets) async {
+      String? openDev;
+      int? openStart, openEnd;
+      void flush() {
+        if (openDev == null) return;
+        batch.insert('device_coverage', {
+          'device_id': openDev,
+          'signal': signal,
+          'start_ts': openStart,
+          'end_ts': openEnd,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        queued++;
+        openDev = null;
+      }
+
+      for (final r in buckets) {
+        final d = (r['d'] as String?) ?? kPrimaryDeviceId;
+        final b = (r['b'] as num).toInt() * kBucket;
+        final oe = openEnd;
+        if (openDev == d && oe != null && b - oe <= kMaxGapBuckets * kBucket) {
+          openEnd = b + kBucket;
+          continue;
+        }
+        flush();
+        openDev = d;
+        openStart = b;
+        openEnd = b + kBucket;
+      }
+      flush();
+    }
+
+    for (final e in specs.entries) {
+      // ORDER BY device THEN bucket: the coalescer is a single pass and must
+      // see one device's buckets contiguously.
+      final rows = await db.rawQuery(
+        'SELECT $dev AS d, rec_ts / $kBucket AS b FROM decoded_onehz '
+        'WHERE rec_ts > 0 AND (${e.value}) '
+        'GROUP BY d, b ORDER BY d ASC, b ASC',
+      );
+      await emit(e.key, rows);
+    }
+    // RR beats live in their own table, one row per beat.
+    final rrCols = await _columnsOf(db, 'decoded_rr');
+    if (rrCols.isNotEmpty) {
+      final rrDev =
+          rrCols.contains('device_id') ? 'device_id' : "'$kPrimaryDeviceId'";
+      final rows = await db.rawQuery(
+        'SELECT $rrDev AS d, rec_ts / $kBucket AS b FROM decoded_rr '
+        'WHERE rec_ts > 0 GROUP BY d, b ORDER BY d ASC, b ASC',
+      );
+      await emit('rrIntervals', rows);
+    }
+    if (queued > 0) await batch.commit(noResult: true);
+  }
+
+  /// The ingest-time writer §6.5 describes: extend or open a coverage
+  /// interval for every signal THIS BATCH actually carried a non-null value
+  /// for — never off an adapter's declared capability, because a declared
+  /// signal that arrived absent must not produce a coverage claim (the
+  /// "declared-but-absent is worse than missing" rule).
+  ///
+  /// Runs inside the SAME transaction [commitSyncBatch] durably commits the
+  /// rows in, so an interval can never claim a second whose row did not
+  /// commit — the safe-trim invariant covers both.
+  ///
+  /// PER-SIGNAL SPANS, NOT THE BATCH SPAN. Each signal's interval is built
+  /// from the SECONDS THAT SIGNAL WAS ACTUALLY IN, the way
+  /// [_backfillDeviceCoverage] builds its intervals off each predicate's own
+  /// rows. Giving every "present somewhere in this batch" signal the whole
+  /// `[first, last)` span is the bug that shape avoids: one RR-bearing record
+  /// followed by ten HR-only minutes claimed ten minutes of `rrIntervals`
+  /// coverage, and `resolveOwnership` would then hand this device seconds it
+  /// never measured that signal in.
+  ///
+  /// [sampleSecs] is parallel to [samples] and carries each record's `rec_ts`
+  /// — the same value [_queueDecodedOneHz] keys its row on, so an interval and
+  /// the rows it describes are on one clock. Neutrals carry their own.
+  static Future<void> _extendCoverageVia(
+    DatabaseExecutor txn, {
+    required String deviceId,
+    required List<Sample?> samples,
+    required List<int> sampleSecs,
+    List<NeutralSample>? neutrals,
+    Map<String, int>? toleranceSec,
+  }) async {
+    assert(samples.length == sampleSecs.length,
+        'sampleSecs must be parallel to samples');
+    final seen = <String, List<int>>{};
+    void observe(String signal, int sec) =>
+        (seen[signal] ??= <int>[]).add(sec);
+    for (var i = 0; i < samples.length; i++) {
+      final s = samples[i];
+      if (s == null) continue;
+      final sec = sampleSecs[i];
+      // A record with no usable timestamp describes no second, so it can
+      // found no interval. `_queueDecodedOneHz` refuses the same rows.
+      if (sec <= 0) continue;
+      if (s.hr > 0) observe('hr1Hz', sec);
+      if (s.ax != null && s.ay != null && s.az != null) {
+        observe('accel1Hz', sec);
+      }
+      if (s.spo2RedRaw != null || s.spo2IrRaw != null) {
+        observe('ppgRedIr', sec);
+      }
+      if (s.skinTempRaw != null) observe('skinTempRaw', sec);
+      if (s.rrIntervalsMs.isNotEmpty) observe('rrIntervals', sec);
+    }
+    if (neutrals != null) {
+      for (final n in neutrals) {
+        if (n.tsEpoch <= 0) continue;
+        if (n.hr != null) observe('hr1Hz', n.tsEpoch);
+        if (n.rrMs.isNotEmpty) observe('rrIntervals', n.tsEpoch);
+      }
+    }
+    if (seen.isEmpty) return;
+
+    const kBucket = 60; // seconds — the resolver's grid, same as the backfill
+    for (final e in seen.entries) {
+      final signal = e.key;
+      final tolerance = toleranceSec?[signal] ?? (2 * kBucket);
+      // ONE TOLERANCE, TWO JOBS: it splits this batch's seconds into spans AND
+      // decides whether the first span extends the stored open interval. The
+      // same number for both is what makes the result independent of where the
+      // batch boundaries happened to fall — the run of seconds a device was
+      // emitting is the same fact whether it arrived in one commit or five.
+      final secs = e.value..sort();
+      final spans = <(int, int)>[]; // [start, end) — end exclusive
+      var spanStart = secs.first;
+      var prev = secs.first;
+      for (final sec in secs.skip(1)) {
+        if (sec - prev > tolerance) {
+          spans.add((spanStart, prev + 1));
+          spanStart = sec;
+        }
+        prev = sec;
+      }
+      spans.add((spanStart, prev + 1));
+
+      // Only the FIRST span can extend the stored open interval: the rest are
+      // later than it by more than `tolerance` (that is what split them), so
+      // the extend test below would reject them anyway.
+      final open = await txn.query(
+        'device_coverage',
+        columns: ['start_ts', 'end_ts'],
+        where: 'device_id = ? AND signal = ?',
+        whereArgs: [deviceId, signal],
+        orderBy: 'start_ts DESC',
+        limit: 1,
+      );
+      final startTs =
+          open.isEmpty ? null : (open.single['start_ts'] as num).toInt();
+      final endTs =
+          open.isEmpty ? null : (open.single['end_ts'] as num).toInt();
+      for (var i = 0; i < spans.length; i++) {
+        final (firstSec, lastSec) = spans[i];
+        // EXTEND ONLY A SPAN THAT STARTS AT OR AFTER THE OPEN INTERVAL and is
+        // within tolerance of its end. `firstSec - endTs <= tolerance` on its
+        // own is also true when the whole span PREDATES the interval (the
+        // difference is negative), and the `lastSec > endTs` body then wrote
+        // nothing at all. That is the normal WHOOP path: a live commit opens an
+        // interval at "now", the historical drain then commits records from
+        // hours earlier, and those hours got no coverage row — after which
+        // `resolveOwnership` reports no owner for them and the substrate load
+        // can drop the matching rows. Same-device intervals may overlap (see
+        // `_createDeviceCoverage`) and every reader unions them, so the safe
+        // repair is a separate interval.
+        if (i == 0 &&
+            startTs != null &&
+            endTs != null &&
+            firstSec >= startTs &&
+            firstSec - endTs <= tolerance) {
+          if (lastSec > endTs) {
+            await txn.update(
+              'device_coverage',
+              {'end_ts': lastSec},
+              where: 'device_id = ? AND signal = ? AND start_ts = ?',
+              whereArgs: [deviceId, signal, startTs],
+            );
+          }
+        } else {
+          await txn.insert(
+            'device_coverage',
+            {
+              'device_id': deviceId,
+              'signal': signal,
+              'start_ts': firstSec,
+              'end_ts': lastSec,
+            },
+            conflictAlgorithm: ConflictAlgorithm.ignore,
+          );
+        }
+      }
+    }
   }
 
   /// Ensure `live_coverage.source` exists (v27).
@@ -2322,31 +2771,47 @@ class LocalDb {
   /// State is carried in from BEFORE [loSec] so a window that opens mid-removal
   /// is still covered, and an unterminated removal extends to [hiSec] rather
   /// than being dropped (absent evidence of return is not evidence of return).
-  static Future<List<List<int>>> wristOffSpans(int loSec, int hiSec) =>
+  static Future<List<List<int>>> wristOffSpans(
+    int loSec,
+    int hiSec, {
+    required String deviceId,
+  }) =>
       _toggleSpans(
         loSec,
         hiSec,
         onId: proto.EventId.wristOn,
         offId: proto.EventId.wristOff,
+        deviceId: deviceId,
       );
 
   /// Spans ([startSec, endSec]) in [loSec, hiSec) during which the band was on
   /// the charger — off-wrist by definition, and motionless.
-  static Future<List<List<int>>> chargingSpans(int loSec, int hiSec) =>
+  static Future<List<List<int>>> chargingSpans(
+    int loSec,
+    int hiSec, {
+    required String deviceId,
+  }) =>
       _toggleSpans(
         loSec,
         hiSec,
         onId: proto.EventId.chargingOff,
         offId: proto.EventId.chargingOn,
+        deviceId: deviceId,
       );
 
   /// Build "state active" spans from a pair of toggle events, clipped to
   /// [loSec, hiSec). [offId] opens a span; [onId] closes it.
+  ///
+  /// [deviceId] is required, not optional-with-default: without it, one
+  /// device's charging spans mask a DIFFERENT device's worn night — put band
+  /// B on the charger and band A's real sleep gets excluded as "charging",
+  /// silently, and it survives the 3-day prune into the baselines.
   static Future<List<List<int>>> _toggleSpans(
     int loSec,
     int hiSec, {
     required int onId,
     required int offId,
+    required String deviceId,
   }) async {
     if (hiSec <= loSec) return const [];
     final db = await instance;
@@ -2354,16 +2819,16 @@ class LocalDb {
     final prior = await db.query(
       'band_events',
       columns: ['ts', 'event_id'],
-      where: 'ts < ? AND event_id IN (?, ?)',
-      whereArgs: [loSec, onId, offId],
+      where: 'device_id = ? AND ts < ? AND event_id IN (?, ?)',
+      whereArgs: [deviceId, loSec, onId, offId],
       orderBy: 'ts DESC',
       limit: 1,
     );
     final rows = await db.query(
       'band_events',
       columns: ['ts', 'event_id'],
-      where: 'ts >= ? AND ts < ? AND event_id IN (?, ?)',
-      whereArgs: [loSec, hiSec, onId, offId],
+      where: 'device_id = ? AND ts >= ? AND ts < ? AND event_id IN (?, ?)',
+      whereArgs: [deviceId, loSec, hiSec, onId, offId],
       orderBy: 'ts ASC',
     );
 
@@ -2484,12 +2949,83 @@ class LocalDb {
   /// Read-only view of [_syncFullDowngrades] for diagnostics/tests.
   static int get syncFullDowngrades => _syncFullDowngrades;
 
+  /// Serialises the ACK-gating commit process-wide.
+  ///
+  /// `PRAGMA synchronous` is PER-CONNECTION and there is one sqflite
+  /// connection per isolate, so two overlapping [commitSyncBatch] calls
+  /// interleave their FULL/NORMAL brackets: the inner one's `finally` restores
+  /// NORMAL while the outer transaction is still open, and the outer commit —
+  /// the one an ACK is about to be written for — silently runs at NORMAL. Two
+  /// bands offloading at once is the concurrency this exists for; today the
+  /// offload processor is single-flight and BandOwnership yields the headless
+  /// drain, which is the serialization this replaces with a mechanism.
+  ///
+  /// Same shape as `withScanLock` (`lib/ble/ble_state.dart`), copied rather
+  /// than imported because that file depends on Flutter and this one must not.
+  ///
+  /// ponytail: ONE global lock, so two bands' commits queue rather than run
+  /// concurrently. That is correct anyway — they share one SQLite write lock —
+  /// and per-device locks would not help. Revisit only if a measured
+  /// throughput problem appears, which needs two simultaneously-offloading
+  /// bands and has never been observed.
+  // No refcount: the gate serialises, so the bracket is never nested. A count
+  // would be dead code whose only reachable state is a leak.
+  static Future<void> _commitGate = Future.value();
+
+  static Future<T> _withCommitGate<T>(Future<T> Function() body) {
+    final completer = Completer<T>();
+    _commitGate = _commitGate.then((_) async {
+      try {
+        completer.complete(await body());
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
+
   static Future<void> commitSyncBatch(
     List<RawRecord> raws,
     List<Sample?> samples, {
     String? trimToken,
     Map<String, String>? extraCursors,
     List<ArchiveRecord>? archives,
+    /// Rows from a band with no framed record to decode — a notify sensor's
+    /// beats, a ring's stamped temperature. Queued into the SAME transaction
+    /// as [raws], so a source with no flash still gets the one durable write
+    /// path and the one conflict policy. Null on every WHOOP commit, where it
+    /// costs exactly one null check.
+    List<NeutralSample>? neutrals,
+    void Function(String)? onCheckpoint,
+    String? deviceFamily,
+    String deviceId = kPrimaryDeviceId,
+    // Per-signal (InputSignal.name) tolerance for the coverage writer's
+    // "still the same interval" gap check. db.dart cannot read a
+    // BandAdapter's declared cadence (it imports nothing from lib/ble/), so
+    // the host supplies it; a signal absent from the map defaults to
+    // 2*kBucket (120s) inside [_extendCoverageVia].
+    Map<String, int>? coverageToleranceSec,
+  }) =>
+      _withCommitGate(() => _commitSyncBatchLocked(
+            raws,
+            samples,
+            trimToken: trimToken,
+            extraCursors: extraCursors,
+            archives: archives,
+            neutrals: neutrals,
+            onCheckpoint: onCheckpoint,
+            deviceFamily: deviceFamily,
+            deviceId: deviceId,
+            coverageToleranceSec: coverageToleranceSec,
+          ));
+
+  static Future<void> _commitSyncBatchLocked(
+    List<RawRecord> raws,
+    List<Sample?> samples, {
+    String? trimToken,
+    Map<String, String>? extraCursors,
+    List<ArchiveRecord>? archives,
+    List<NeutralSample>? neutrals,
     void Function(String)? onCheckpoint,
     // Which strap this batch came off, from the LIVE LINK (the engine pins it at
     // service discovery). Null = the caller could not name it, which lands as
@@ -2497,25 +3033,25 @@ class LocalDb {
     String? deviceFamily,
     // WHICH PHYSICAL DEVICE these rows belong to (see [kPrimaryDeviceId]).
     String deviceId = kPrimaryDeviceId,
+    Map<String, int>? coverageToleranceSec,
   }) async {
-    // B4: `sync_cursor` is a SINGLE GLOBAL `name TEXT PRIMARY KEY` namespace
-    // shared with everything else that keeps a scalar (`frozen_headline`, …),
-    // and `band_backlog` carries `device_family` but no device id. So the trim
-    // token, `counter_hw`, `rec_ts_hw` and the data range of a SECOND
-    // offloading band would land on the first band's cursor and mis-trim its
-    // flash. Namespacing that key space is a phase-4 job (it needs the device
-    // table and a decision about which keys are per-device at all); refusing is
-    // the honest thing until then, and it refuses in the SAFE direction —
-    // nothing commits, so nothing is ACKed and the band keeps its data.
-    //
-    // ponytail: global cursor namespace, one offloading device. Per-device
-    // namespacing when a second adapter can actually offload.
-    if (deviceId != kPrimaryDeviceId) {
-      throw StateError(
-        'commitSyncBatch: sync_cursor is a single global namespace and cannot '
-        'hold a second offloading device (deviceId="$deviceId"). Namespace it '
-        'before enabling a non-primary offload path.',
-      );
+    // NEUTRAL ROWS BELONG TO A NON-PRIMARY DEVICE. "" is the primary band
+    // permanently (see kPrimaryDeviceId); a neutral-sample writer is by
+    // definition a band with no framed record, which the primary is not.
+    assert(
+      neutrals == null || neutrals.isEmpty || deviceId != kPrimaryDeviceId,
+      'neutral rows belong to a non-primary device; "" is the primary band '
+      'permanently (see kPrimaryDeviceId).',
+    );
+    // AND THEY MUST NAME THEIR SOURCE. `source` is what separates a secondary
+    // band's rows from the primary's: NULL there IS the primary band
+    // (kPrimaryBandSourceSql) and is admitted by derivableSourceSql(), so an
+    // unnamed neutral row would not merely lose provenance — it would be read
+    // as the strap's own. Refused rather than asserted: a release build must
+    // not be the one place this can happen, and the caller (BandHost) already
+    // re-buffers a failed batch. Every writer today passes `adapter.id`.
+    if (neutrals != null && neutrals.isNotEmpty && deviceFamily == null) {
+      throw ArgumentError.notNull('deviceFamily');
     }
     void checkpoint(String msg) {
       try {
@@ -2585,8 +3121,20 @@ class LocalDb {
       await db.transaction((txn) async {
         // Read the existing high-water THROUGH the txn — never via the global db
         // handle, which would deadlock against this same open transaction.
-        var maxCounter = await _cursorIntVia(txn, 'counter_hw') ?? 0;
-        var maxRecTs = await _cursorIntVia(txn, 'rec_ts_hw') ?? 0;
+        final kCounter = cursorKeyFor('counter_hw', deviceId);
+        final kRecTs = cursorKeyFor('rec_ts_hw', deviceId);
+        var maxCounter = await _cursorIntVia(txn, kCounter) ?? 0;
+        var maxRecTs = await _cursorIntVia(txn, kRecTs) ?? 0;
+        // For the coverage writer (§6.5): each record's OWN second, parallel to
+        // `samples`, never the cursor high-water (which predates the batch and
+        // would claim coverage for seconds this commit never touched) and never
+        // a single batch-wide span (which would claim every signal for every
+        // second any signal appeared in — see [_extendCoverageVia]).
+        // Sized off `samples`, not `raws`: the raws loop only walks
+        // `raws.length`, and a caller that passed a longer sample list must not
+        // trip the parallel-length assert. An unvisited slot stays 0, which
+        // [_extendCoverageVia] reads as "no second", so it claims nothing.
+        final sampleSecs = List<int>.filled(samples.length, 0);
         // CHUNKED BATCH: sqflite serialises an ENTIRE batch's operations+args into
         // ONE platform-channel message, and the native side builds a single
         // ArrayList of every argument. A large backlog offload (raws in the
@@ -2613,6 +3161,7 @@ class LocalDb {
         if (archives != null) {
           for (final a in archives) {
             batch.insert('raw_archive', {
+              'device_id': deviceId,
               'counter': a.counter,
               'hex': a.hex,
               'packet_type': a.packetType,
@@ -2648,7 +3197,24 @@ class LocalDb {
           );
           if (raw.counter > maxCounter) maxCounter = raw.counter;
           if (recTs > maxRecTs) maxRecTs = recTs;
+          sampleSecs[i] = recTs;
           if (ops >= chunkOps) await flushChunk();
+        }
+        // NEUTRAL ROWS. No flash counter to advance maxCounter from — both
+        // current writers (ble_hrs, oura) hard-code counter: 0 and leave a
+        // ponytail note saying so; maxCounter stays a WHOOP-only concept.
+        if (neutrals != null) {
+          for (final n in neutrals) {
+            ops += _queueNeutralOneHz(
+              batch,
+              n,
+              // Non-null by the refusal at the top of this method.
+              deviceFamily: deviceFamily!,
+              deviceId: deviceId,
+            );
+            if (n.tsEpoch > maxRecTs) maxRecTs = n.tsEpoch;
+            if (ops >= chunkOps) await flushChunk();
+          }
         }
         checkpoint(
           'decoded_archive_queued raws=${raws.length} '
@@ -2656,9 +3222,23 @@ class LocalDb {
         );
         await flushChunk();
         checkpoint('decoded_archive_committed');
-        await setCursor('counter_hw', '$maxCounter', txn: txn);
-        await setCursor('rec_ts_hw', '$maxRecTs', txn: txn);
-        if (trimToken != null) await setCursor('strap_trim', trimToken, txn: txn);
+        // COVERAGE, in the same transaction as the rows it describes — so an
+        // interval can never claim a second whose row did not commit, and the
+        // safe-trim invariant covers both. See _extendCoverageVia.
+        await _extendCoverageVia(
+          txn,
+          deviceId: deviceId,
+          samples: samples,
+          sampleSecs: sampleSecs,
+          neutrals: neutrals,
+          toleranceSec: coverageToleranceSec,
+        );
+        await setCursor(kCounter, '$maxCounter', txn: txn);
+        await setCursor(kRecTs, '$maxRecTs', txn: txn);
+        if (trimToken != null) {
+          await setCursor(cursorKeyFor('strap_trim', deviceId), trimToken,
+              txn: txn);
+        }
         if (extraCursors != null) {
           for (final e in extraCursors.entries) {
             await setCursor(e.key, e.value, txn: txn);
@@ -2798,6 +3378,31 @@ class LocalDb {
       );
     } catch (_) {
       /* already present */
+    }
+    // v51: WHICH DEVICES contributed to this day at all, and WHICH PRIORITY
+    // ORDER was in force when it derived.
+    //
+    // Same rules as `source` and `device_family` above, and they matter more
+    // here: nullable, NO DEFAULT, and NEVER retro-filled. A day derived before
+    // this column existed has no recorded contributor set, and the honest
+    // answer is "not recorded" — attributing it to the primary by assumption
+    // would fabricate the one fact this column exists to carry.
+    //
+    // `coverage_devices` is a comma-joined device_id list, not JSON: it is read
+    // as a set for a label ("Ring + Band") and written once per day. A day with
+    // one contributor writes that one id, so a single-device install's column
+    // reads '' — which is the primary, and is not the same as NULL.
+    //
+    // `priority_hash` is a short hash of the priority order, for the same
+    // reason `algo_version` is here: a change-point search must refuse to run
+    // across a priority seam rather than report the day the arbitration
+    // changed as a finding about the user.
+    for (final c in const ['coverage_devices TEXT', 'priority_hash TEXT']) {
+      try {
+        await db.execute('ALTER TABLE metric_series_version ADD COLUMN $c');
+      } catch (_) {
+        /* already present */
+      }
     }
   }
 
@@ -4288,6 +4893,50 @@ class LocalDb {
     await db.execute('ALTER TABLE $tmp RENAME TO $table');
   }
 
+  /// v51: put `device_id` in front of a content-keyed or time-keyed table's PK.
+  ///
+  /// Self-skipping and idempotent, the same three ways [_rekeyTableByDevice]
+  /// is: a table that already carries `device_id` is left alone (so a fresh
+  /// install at v51+ does no work), an absent table returns early (its
+  /// current DDL already carries the new key), and the temp table is dropped
+  /// up front so a crash mid-migration re-runs cleanly.
+  ///
+  /// Every existing row is copied under `device_id = ''` (kPrimaryDeviceId) —
+  /// the primary band, which is exactly what those rows have always meant. No
+  /// value is rewritten and no derived number can move, which is why this
+  /// ships without a kAlgoVersion bump.
+  ///
+  /// INSERT OR IGNORE, not REPLACE: the old key was already unique, so the
+  /// copy cannot collide, and IGNORE is the conflict policy every one of
+  /// these tables is written with in production (`insertEvent`,
+  /// `archiveRawRecord`, `insertBandBatterySample`). Matching it means a
+  /// re-run cannot evict a row.
+  static Future<void> _rekeyByDeviceIdV51(
+    Database db,
+    String table, {
+    required List<String> keyTail,
+  }) async {
+    final info = await db.rawQuery('PRAGMA table_info($table)');
+    if (info.isEmpty) return;
+    final names = [for (final c in info) c['name'] as String];
+    if (names.contains('device_id')) return;
+    final tmp = '_${table}_v51';
+    await db.execute('DROP TABLE IF EXISTS $tmp');
+    await db.execute(
+      'CREATE TABLE $tmp (${_rebuildDdlBody(
+        info,
+        prepend: ["device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId'"],
+        primaryKey: ['device_id', ...keyTail],
+      )})',
+    );
+    final cols = names.join(', ');
+    await db.execute(
+      "INSERT OR IGNORE INTO $tmp (device_id, $cols) SELECT '', $cols FROM $table",
+    );
+    await db.execute('DROP TABLE IF EXISTS $table');
+    await db.execute('ALTER TABLE $tmp RENAME TO $table');
+  }
+
   /// v43 (SLP-05): drop `NOT NULL` from `decoded_onehz.hr`.
   ///
   /// See [_createDecodedStore] for WHY. This is the same rebuild shape as
@@ -4874,6 +5523,80 @@ class LocalDb {
     return ops;
   }
 
+  /// Queue one [NeutralSample] — a row from a band with no framed record to
+  /// decode — plus its beats. Returns the op count, same contract as
+  /// [_queueDecodedOneHz]. The union of `hrs_link._flush` and
+  /// `oura_link._commit`'s bodies, not new logic — see M1 spec §9.3.
+  ///
+  /// REPLACE, not IGNORE, for the same reason [_queueDecodedOneHz] uses it: a
+  /// re-read of the same range is idempotent by design on a fetch-by-cursor
+  /// band.
+  ///
+  /// `beat_ts_ms` stays NULL here: [NeutralSample] carries no sub-second, so
+  /// there is nothing to write regardless of [NeutralSample.anchor] — this
+  /// widens the day a neutral source measures its own sub-second.
+  ///
+  /// `counter` is 0. It is a WHOOP flash-record number this class of band does
+  /// not have; nothing reads the column except `ORDER BY rec_ts, counter`.
+  /// ponytail: make it nullable when db.dart is next open for a schema
+  /// change — the note was already carried in both files this merges.
+  static int _queueNeutralOneHz(
+    Batch batch,
+    NeutralSample n, {
+    // NOT nullable, unlike the framed path's: see the refusal in
+    // [_commitSyncBatchLocked] — an unnamed `source` reads as the primary band.
+    required String deviceFamily,
+    required String deviceId,
+  }) {
+    final recTs = n.tsEpoch;
+    batch.insert(
+      'decoded_onehz',
+      {
+        'device_id': deviceId,
+        'ts_ms': recTs * 1000,
+        'rec_ts': recTs,
+        'counter': 0,
+        // Absent is NULL, never zeroed — same rule _queueDecodedOneHz
+        // follows for hr/accel/optical.
+        'hr': n.hr,
+        'skin_temp_c': n.skinTempC,
+        'device_family': deviceFamily,
+        'source': deviceFamily,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    var ops = 1;
+    // SCOPED TO THE WRITING DEVICE. Clear the second before reinserting so a
+    // shrinking beat count can't strand stale high-index beats — same
+    // reasoning as _queueRrBeats, and it must run even when this sample
+    // carries no beats, so a later re-read with fewer beats can't leave a
+    // stale tail from an earlier one.
+    batch.rawDelete(
+      'DELETE FROM decoded_rr WHERE device_id = ? AND ts_ms = ?',
+      [deviceId, recTs * 1000],
+    );
+    for (var i = 0; i < n.rrMs.length; i++) {
+      final rr = n.rrMs[i];
+      if (rr <= 0) continue;
+      batch.insert(
+        'decoded_rr',
+        {
+          'device_id': deviceId,
+          'ts_ms': recTs * 1000,
+          'rec_ts': recTs,
+          'beat_index': i,
+          'rr_ts_ms': recTs * 1000,
+          'rr_ms': rr,
+          'device_family': deviceFamily,
+          'source': deviceFamily,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      ops++;
+    }
+    return ops;
+  }
+
   static Future<void> _backfillDecodedStore(Database db) async {
     // MUST run before the first insert. This backfill writes through
     // `_queueDecodedOneHz`, which since v43 writes NULL for a record with no
@@ -4930,10 +5653,12 @@ class LocalDb {
   static Future<void> _createEvents(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS events (
-        hex TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
+        hex TEXT NOT NULL,
         event_id INTEGER,
         ts INTEGER,
-        captured_at INTEGER NOT NULL
+        captured_at INTEGER NOT NULL,
+        PRIMARY KEY (device_id, hex)
       )
     ''');
     // The PK is the frame hex, so a `ts` window (the timeline's day query, and
@@ -4948,12 +5673,14 @@ class LocalDb {
   static Future<void> _createBandSignals(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS band_events (
-        hex TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
+        hex TEXT NOT NULL,
         event_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         ts INTEGER NOT NULL,
         payload_json TEXT NOT NULL DEFAULT '{}',
-        captured_at INTEGER NOT NULL
+        captured_at INTEGER NOT NULL,
+        PRIMARY KEY (device_id, hex)
       )
     ''');
     await db.execute(
@@ -4961,6 +5688,7 @@ class LocalDb {
     );
     await db.execute('''
       CREATE TABLE IF NOT EXISTS band_battery (
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
         ts INTEGER NOT NULL,
         battery_pct REAL,
         charging INTEGER,
@@ -4968,7 +5696,7 @@ class LocalDb {
         millivolts INTEGER,
         charge_units INTEGER,
         source TEXT NOT NULL,
-        PRIMARY KEY (ts, source)
+        PRIMARY KEY (device_id, ts, source)
       )
     ''');
     await db.execute(
@@ -5001,14 +5729,16 @@ class LocalDb {
   static Future<void> _createBandBacklog(DatabaseExecutor db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS band_backlog (
-        ts INTEGER PRIMARY KEY,
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
+        ts INTEGER NOT NULL,
         written INTEGER,
         used INTEGER,
         capacity INTEGER,
         trim_page INTEGER,
         wrap_count INTEGER,
         free_records INTEGER,
-        device_family TEXT
+        device_family TEXT,
+        PRIMARY KEY (device_id, ts)
       )
     ''');
   }
@@ -5023,6 +5753,7 @@ class LocalDb {
   /// establishes it.
   static Future<void> putBandBacklog({
     required int ts,
+    String deviceId = kPrimaryDeviceId,
     int? written,
     int? used,
     int? capacity,
@@ -5033,6 +5764,7 @@ class LocalDb {
   }) async {
     final db = await instance;
     await db.insert('band_backlog', {
+      'device_id': deviceId,
       'ts': ts,
       'written': written,
       'used': used,
@@ -5045,12 +5777,22 @@ class LocalDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  /// The most recent [limit] backlog readings, newest first.
+  /// The most recent [limit] backlog readings, newest first. [deviceId] scopes
+  /// to one device when given; the one caller (ble_engine.dart) passes none in
+  /// M3, so this still returns the newest row from any device — what a
+  /// single-device install has always got.
   static Future<List<Map<String, dynamic>>> bandBacklog({
     int limit = 60,
+    String? deviceId,
   }) async {
     final db = await instance;
-    return db.query('band_backlog', orderBy: 'ts DESC', limit: limit);
+    return db.query(
+      'band_backlog',
+      where: deviceId == null ? null : 'device_id = ?',
+      whereArgs: deviceId == null ? null : [deviceId],
+      orderBy: 'ts DESC',
+      limit: limit,
+    );
   }
 
   /// Additive: add the `millivolts` column to an existing band_battery table.
@@ -5143,12 +5885,14 @@ class LocalDb {
   static Future<void> _createRawArchive(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS raw_archive (
-        hex TEXT PRIMARY KEY,
+        device_id TEXT NOT NULL DEFAULT '$kPrimaryDeviceId',
+        hex TEXT NOT NULL,
         counter INTEGER,
         packet_type INTEGER NOT NULL,
         rec_ts INTEGER,
         captured_at INTEGER NOT NULL,
-        reason TEXT NOT NULL
+        reason TEXT NOT NULL,
+        PRIMARY KEY (device_id, hex)
       )
     ''');
     await db.execute(
@@ -5157,7 +5901,17 @@ class LocalDb {
     );
   }
 
-  static Future<void> insertEvent(int eventId, int ts, String hex) async {
+  /// [deviceId] is required, not defaulted — a default here is exactly how a
+  /// second device's events would silently keep landing on the primary's key.
+  /// Every caller names the device explicitly; see the M3 spec's call-site
+  /// table for why each one is correct in M3 (a marked `kPrimaryDeviceId`
+  /// today, a real per-session id from M2 onward).
+  static Future<void> insertEvent(
+    int eventId,
+    int ts,
+    String hex, {
+    required String deviceId,
+  }) async {
     final capturedAt = DateTime.now().millisecondsSinceEpoch;
     // Parse BEFORE acquiring the handle so both inserts run back-to-back on one
     // validated `db` with no intervening await — minimizing the closed-DB race
@@ -5173,12 +5927,14 @@ class LocalDb {
     final battery = parsed == null ? null : batteryRowFromEvent(parsed);
     await _guardedWrite((db) async {
       await db.insert('events', {
+        'device_id': deviceId,
         'hex': hex,
         'event_id': eventId,
         'ts': ts,
         'captured_at': capturedAt,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
       await db.insert('band_events', {
+        'device_id': deviceId,
         'hex': hex,
         'event_id': eventId,
         'name': parsed?.name ?? proto.EventId.name(eventId),
@@ -5191,7 +5947,7 @@ class LocalDb {
       if (battery != null) {
         await db.insert(
           'band_battery',
-          battery,
+          {'device_id': deviceId, ...battery},
           conflictAlgorithm: ConflictAlgorithm.ignore,
         );
       }
@@ -5312,8 +6068,14 @@ class LocalDb {
     return units > 0 ? units : null;
   }
 
+  /// [deviceId] is REQUIRED and not defaulted. `band_battery` is keyed
+  /// `(device_id, ts, source)` with `ConflictAlgorithm.ignore`, so a writer
+  /// that omitted it let SQLite apply the primary-device default: a secondary
+  /// device's sample would be stored under the band and silently dropped on
+  /// the collision. Naming the originating device is the caller's job.
   static Future<void> insertBandBatterySample({
     required int ts,
+    required String deviceId,
     double? batteryPct,
     bool? charging,
     bool? wristOn,
@@ -5324,6 +6086,7 @@ class LocalDb {
     // insertEvent; never crash over a battery row (it re-arrives on the poll).
     await _guardedWrite((db) async {
       await db.insert('band_battery', {
+        'device_id': deviceId,
         'ts': ts,
         'battery_pct': batteryPct,
         'charging': charging == null ? null : (charging ? 1 : 0),
@@ -5403,9 +6166,22 @@ class LocalDb {
   /// Persist an undecodable historical record to the durable archive (never
   /// pruned). Used by the immediate fallback path; the drain path archives inside
   /// the same commit transaction as the batch (see [commitSyncBatch]).
-  static Future<void> archiveRawRecord(ArchiveRecord a) async {
+  ///
+  /// [deviceId] is written EXPLICITLY rather than left to the column default,
+  /// which is the same rule [insertEvent] states: `raw_archive` is keyed
+  /// `(device_id, hex)`, so a row that lands on the primary's key when it came
+  /// off another device is a frame the primary can evict. It defaults because
+  /// the only wiring today is `BleEngine`'s `ArchiveSink`, and that engine
+  /// drives the primary band and nothing else (`_cursorDeviceId`); a secondary
+  /// device's frames go through `BandHost` → [commitSyncBatch], which already
+  /// names its device.
+  static Future<void> archiveRawRecord(
+    ArchiveRecord a, {
+    String deviceId = kPrimaryDeviceId,
+  }) async {
     final db = await instance;
     await db.insert('raw_archive', {
+      'device_id': deviceId,
       'counter': a.counter,
       'hex': a.hex,
       'packet_type': a.packetType,
@@ -5485,26 +6261,49 @@ class LocalDb {
     final preDeviceKey =
         !(await _columnsOf(db, 'decoded_onehz')).contains('device_id');
 
+    // Same self-detection as `preDeviceKey` above, for `raw_archive`'s own
+    // rekey (v51): this function runs from the oldV<44 rung too, i.e. BEFORE
+    // the v51 rekey, so at that point `raw_archive` is still hex-keyed and the
+    // row-value comparison below must fall back to comparing `hex` alone.
+    final preArchiveDeviceKey =
+        !(await _columnsOf(db, 'raw_archive')).contains('device_id');
+
     final marks = List.filled(redrivableArchiveReasons.length, '?').join(',');
-    // Paged on `hex`, which is the table's PRIMARY KEY — a stable, total order
-    // that needs no extra index and no offset scan.
+    // Paged on (hex, device_id) — a stable, total order that needs no extra
+    // index and no offset scan. Post-v51, `hex` alone is no longer unique
+    // (two devices can share a byte-identical undecodable frame), so a plain
+    // `hex > ?` cursor would silently skip the second device's row.
     var afterHex = '';
+    var afterDevice = '';
     var recovered = 0;
     while (true) {
-      final rows = await db.rawQuery(
-        'SELECT hex, counter, packet_type, rec_ts, captured_at '
-        'FROM raw_archive WHERE reason IN ($marks) AND hex > ? '
-        'ORDER BY hex ASC LIMIT 500',
-        [...redrivableArchiveReasons, afterHex],
-      );
+      final rows = preArchiveDeviceKey
+          ? await db.rawQuery(
+              'SELECT hex, counter, packet_type, rec_ts, captured_at '
+              'FROM raw_archive WHERE reason IN ($marks) AND hex > ? '
+              'ORDER BY hex ASC LIMIT 500',
+              [...redrivableArchiveReasons, afterHex],
+            )
+          : await db.rawQuery(
+              'SELECT device_id, hex, counter, packet_type, rec_ts, captured_at '
+              'FROM raw_archive WHERE reason IN ($marks) AND (hex, device_id) > (?, ?) '
+              'ORDER BY hex ASC, device_id ASC LIMIT 500',
+              [...redrivableArchiveReasons, afterHex, afterDevice],
+            );
       if (rows.isEmpty) return recovered;
       afterHex = rows.last['hex'] as String;
+      afterDevice = preArchiveDeviceKey ? '' : rows.last['device_id'] as String;
 
-      // Decode first, keyed by the second each record claims. Two archived
-      // frames for the same second collapse here rather than fighting over the
-      // primary key inside the batch.
-      final byRecTs = <int, (RawRecord, Sample)>{};
+      // Decode first, keyed by (device, second) each record claims. Two
+      // archived frames for the SAME device and second collapse here rather
+      // than fighting over the primary key inside the batch — but two
+      // DIFFERENT devices sharing a second (or a byte-identical frame, the
+      // exact case the v51 rekey exists to preserve) must not collapse into
+      // one another.
+      final byDeviceRecTs = <(String, int), (RawRecord, Sample)>{};
       for (final r in rows) {
+        final deviceId =
+            preArchiveDeviceKey ? kPrimaryDeviceId : r['device_id'] as String;
         final raw = RawRecord(
           counter: (r['counter'] as num?)?.toInt() ?? 0,
           packetType: (r['packet_type'] as num?)?.toInt() ?? 0,
@@ -5522,27 +6321,51 @@ class LocalDb {
         // is the decoded timestamp — and a record with no plausible time has
         // nowhere to land in a table keyed by one.
         if (recTs <= 0) continue;
-        byRecTs[recTs] = (raw, s);
+        byDeviceRecTs[(deviceId, recTs)] = (raw, s);
       }
-      if (byRecTs.isEmpty) continue;
+      if (byDeviceRecTs.isEmpty) continue;
 
-      final keys = byRecTs.keys.toList();
-      final taken = <int>{};
-      for (var i = 0; i < keys.length; i += 400) {
-        final end = i + 400 < keys.length ? i + 400 : keys.length;
-        final slice = keys.sublist(i, end);
-        for (final e in await db.rawQuery(
-          'SELECT rec_ts FROM decoded_onehz WHERE rec_ts IN '
-          '(${List.filled(slice.length, '?').join(',')})',
-          slice,
-        )) {
-          taken.add((e['rec_ts'] as num).toInt());
+      // "Already decoded" must be checked PER DEVICE once decoded_onehz
+      // carries device_id — otherwise device B's second looks "taken" because
+      // device A already has a row at that same rec_ts.
+      final taken = <(String, int)>{};
+      if (preDeviceKey) {
+        final keys = [for (final k in byDeviceRecTs.keys) k.$2];
+        for (var i = 0; i < keys.length; i += 400) {
+          final end = i + 400 < keys.length ? i + 400 : keys.length;
+          final slice = keys.sublist(i, end);
+          for (final e in await db.rawQuery(
+            'SELECT rec_ts FROM decoded_onehz WHERE rec_ts IN '
+            '(${List.filled(slice.length, '?').join(',')})',
+            slice,
+          )) {
+            taken.add((kPrimaryDeviceId, (e['rec_ts'] as num).toInt()));
+          }
+        }
+      } else {
+        final byDevice = <String, List<int>>{};
+        for (final k in byDeviceRecTs.keys) {
+          (byDevice[k.$1] ??= []).add(k.$2);
+        }
+        for (final entry in byDevice.entries) {
+          final keys = entry.value;
+          for (var i = 0; i < keys.length; i += 400) {
+            final end = i + 400 < keys.length ? i + 400 : keys.length;
+            final slice = keys.sublist(i, end);
+            for (final e in await db.rawQuery(
+              'SELECT rec_ts FROM decoded_onehz WHERE device_id = ? AND '
+              'rec_ts IN (${List.filled(slice.length, '?').join(',')})',
+              [entry.key, ...slice],
+            )) {
+              taken.add((entry.key, (e['rec_ts'] as num).toInt()));
+            }
+          }
         }
       }
 
       final batch = db.batch();
       var queued = 0;
-      for (final e in byRecTs.entries) {
+      for (final e in byDeviceRecTs.entries) {
         if (taken.contains(e.key)) continue;
         final (raw, sample) = e.value;
         // `sample` is handed back as `preferred` so the hex is decoded once,
@@ -5552,6 +6375,7 @@ class LocalDb {
               batch,
               raw,
               sample,
+              deviceId: e.key.$1,
               preDeviceKey: preDeviceKey,
             ) >
             0) {
@@ -6052,7 +6876,7 @@ class LocalDb {
         'SELECT counter, rec_ts, hr, ax, ay, az, '
         'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
         'step_count, step_cadence, activity_class, skin_temp_c, '
-        'on_wrist, hr_valid, hr_alt, device_family '
+        'on_wrist, hr_valid, hr_alt, device_family, device_id '
         'FROM decoded_onehz '
         'WHERE rec_ts >= ? AND rec_ts <= ? AND ${derivableSourceSql()} '
         'ORDER BY rec_ts ASC, counter ASC LIMIT ?',
@@ -6063,7 +6887,7 @@ class LocalDb {
       'SELECT counter, rec_ts, hr, ax, ay, az, '
       'spo2_red_raw, spo2_ir_raw, skin_temp_raw, '
       'step_count, step_cadence, activity_class, skin_temp_c, '
-      'on_wrist, hr_valid, hr_alt, device_family '
+      'on_wrist, hr_valid, hr_alt, device_family, device_id '
       'FROM decoded_onehz '
       'WHERE rec_ts >= ? AND rec_ts <= ? AND ${derivableSourceSql()} '
       'AND (rec_ts > ? OR (rec_ts = ? AND counter > ?)) '
@@ -6094,11 +6918,186 @@ class LocalDb {
       // one record happened at the same millisecond. Both are returned because
       // `beat_ts_ms` is NULL on every row banked before the column existed and
       // on every source that carries no sub-second — the reader coalesces.
-      'SELECT rec_ts, beat_index, rr_ts_ms, rr_ms, beat_ts_ms FROM decoded_rr '
+      'SELECT rec_ts, beat_index, rr_ts_ms, rr_ms, beat_ts_ms, device_id '
+      'FROM decoded_rr '
       'WHERE rec_ts >= ? AND rec_ts <= ? AND ${derivableSourceSql()} '
       'ORDER BY rec_ts ASC, beat_index ASC',
       [lo, hi],
     );
+  }
+
+  // ── M5: the resolver's two reads (device_coverage / signal_priority) ───────
+
+  /// Devices that declare [signal], highest priority first. ALSO the
+  /// candidate list: a device with no row here does not declare the signal,
+  /// so it is not competing (candidacy before rank).
+  ///
+  /// The user's explicit order and the physics-seeded order live in the same
+  /// table and differ only by `user_set`, so ORDER BY rank is the whole
+  /// chain — the row IS the decision. Ties broken by device_id so the order
+  /// is TOTAL (a re-derive must get the same answer every run, and that only
+  /// holds if the sort keys reach a total order — see
+  /// live_coverage_policy.dart's steps resolver for the same lesson).
+  static Future<List<String>> signalPriority(InputSignal signal) async {
+    final db = await instance;
+    final rows = await db.query(
+      'signal_priority',
+      columns: ['device_id'],
+      where: 'signal = ?',
+      whereArgs: [signal.name],
+      orderBy: 'rank ASC, device_id ASC',
+    );
+    return [for (final r in rows) r['device_id'] as String];
+  }
+
+  /// THE USER'S OWN ORDER for one signal. Rewrites the whole signal's rows in
+  /// one transaction: a partial order is not an order, and two writers each
+  /// setting one rank is how two devices end up rank 0.
+  ///
+  /// `user_set = 1` on every row this writes. That flag is the ONLY thing the
+  /// one-tap reset reads (it deletes the signal's `user_set = 1` rows and lets
+  /// the physics ladder answer again) and the only thing that distinguishes a
+  /// preference from a seeded default (final-plan §4.5).
+  ///
+  /// [order] is highest priority FIRST. Ranks are written 0..n-1 densely, so
+  /// the stored order is readable without a second sort.
+  ///
+  /// Takes an [InputSignal], not a `String`, for the same reason
+  /// [signalPriority] does: the stored key is `signal.name`, and a caller
+  /// reaching for `signal.toString()` would write `InputSignal.hr1Hz`, which
+  /// never matches what the reader binds. The table is sparse by design, so
+  /// that failure is invisible — the preference simply does nothing.
+  static Future<void> setSignalPriority(
+    InputSignal signal,
+    List<String> order,
+  ) async {
+    final db = await instance;
+    final name = signal.name;
+    await db.transaction((txn) async {
+      await txn.delete('signal_priority', where: 'signal = ?', whereArgs: [name]);
+      for (var i = 0; i < order.length; i++) {
+        await txn.insert('signal_priority', {
+          'signal': name,
+          'device_id': order[i],
+          'rank': i,
+          'user_set': 1,
+        });
+      }
+    });
+  }
+
+  /// Back to physics for one signal. NOT a write of the computed order — that
+  /// would freeze today's ladder into the table and stop tracking the adapter
+  /// declarations it is derived from.
+  static Future<void> clearSignalPriority(InputSignal signal) async {
+    final db = await instance;
+    await db.delete(
+      'signal_priority',
+      where: 'signal = ? AND user_set = 1',
+      whereArgs: [signal.name],
+    );
+  }
+
+  /// The signals whose order the USER set by hand, so the editor can offer a
+  /// reset for exactly those. Beside the other `signal_priority` accessors so
+  /// no screen has to open the raw handle and name the `user_set` column
+  /// itself — a rename would otherwise break a UI file the migration author
+  /// has no reason to open.
+  static Future<Set<String>> userSetSignals() async {
+    final db = await instance;
+    final rows = await db.query(
+      'signal_priority',
+      columns: ['signal'],
+      where: 'user_set = 1',
+      distinct: true,
+    );
+    return {for (final r in rows) r['signal'] as String};
+  }
+
+  /// `{signal: [deviceId, …]}`, highest first, for every signal that has rows.
+  /// Sparse: an absent signal falls through to `rankSources()` (§4.5's ladder).
+  static Future<Map<String, List<String>>> signalPriorities() async {
+    final db = await instance;
+    final rows = await db.query('signal_priority', orderBy: 'signal ASC, rank ASC, device_id ASC');
+    final out = <String, List<String>>{};
+    for (final r in rows) {
+      (out[r['signal'] as String] ??= []).add(r['device_id'] as String);
+    }
+    return out;
+  }
+
+  /// [signal]'s coverage intervals overlapping [from, to), every device.
+  static Future<List<CoverageInterval>> coverageIntervals(
+    InputSignal signal,
+    int from,
+    int to,
+  ) async {
+    final db = await instance;
+    final rows = await db.query(
+      'device_coverage',
+      where: 'signal = ? AND end_ts > ? AND start_ts < ?',
+      whereArgs: [signal.name, from, to], // rides idx_coverage_window
+    );
+    return [
+      for (final r in rows)
+        (
+          deviceId: r['device_id'] as String,
+          start: (r['start_ts'] as num).toInt(),
+          end: (r['end_ts'] as num).toInt(),
+        ),
+    ];
+  }
+
+  /// WHICH DEVICES WERE PHYSICALLY RECORDING each LOCAL day in a window, per
+  /// signal — from `device_coverage`, which is written at ingest and never
+  /// pruned, so this answers for days whose 1 Hz substrate went at
+  /// `rawRetentionDays = 3`.
+  ///
+  /// NOT the same question as `metric_series_version.coverage_devices`. That
+  /// says which devices FED THE NUMBER; this says which were recording. They
+  /// differ whenever a device was covered but lost arbitration, and the
+  /// difference is exactly what separates "your ring reported nothing for
+  /// eleven minutes" from "nothing was on your body" (final-plan §6.2).
+  ///
+  /// [signals] are `InputSignal.name` strings. An empty list returns an empty
+  /// map rather than every signal — a caller that did not say what it needs is
+  /// not asking for everything.
+  static Future<Map<String, List<String>>> coverageDevicesByDay({
+    required List<String> signals,
+    required int fromSec,
+    required int toSec,
+  }) async {
+    if (signals.isEmpty || toSec <= fromSec) return const {};
+    final db = await instance;
+    final marks = List.filled(signals.length, '?').join(',');
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT device_id, start_ts, end_ts FROM device_coverage '
+      'WHERE signal IN ($marks) AND end_ts > ? AND start_ts < ?',
+      [...signals, fromSec, toSec],
+    );
+    // Interval -> LOCAL day labels. A night's span crosses midnight, so one
+    // row lands on two days; `dayLabelOf` is the only helper that gets the 23 h
+    // and 25 h days right, and walking with `DateTime(y, m, d + 1)` walks the
+    // calendar rather than adding 86400 s.
+    final out = <String, Set<String>>{};
+    for (final r in rows) {
+      final id = r['device_id'] as String? ?? kPrimaryDeviceId;
+      final a = ((r['start_ts'] as num).toInt()).clamp(fromSec, toSec);
+      // `end_ts` is EXCLUSIVE (see the table's doc), so the last second this
+      // row actually covers is one before it. Converted BEFORE the clamp: an
+      // interval ending exactly at local midnight otherwise walks into the
+      // next day and hands it a contributor it had no coverage in.
+      final b = ((r['end_ts'] as num).toInt() - 1).clamp(fromSec, toSec);
+      var d = DateTime.fromMillisecondsSinceEpoch(a * 1000);
+      final last = DateTime.fromMillisecondsSinceEpoch(b * 1000);
+      // Bounded by the clamp above: at most one iteration per day in the
+      // window, whatever the row claims.
+      while (!d.isAfter(last)) {
+        (out[dayLabelOf(d)] ??= <String>{}).add(id);
+        d = DateTime(d.year, d.month, d.day + 1);
+      }
+    }
+    return {for (final e in out.entries) e.key: e.value.toList()..sort()};
   }
 
   // ── VERSIONED DERIVED STORE I/O (day_result; main isolate only) ─────────────
@@ -6137,6 +7136,16 @@ class LocalDb {
     // straps or carries no stamp at all. Same rule as [source]: never guessed.
     // See [_createMetricSeriesVersion] and [foreignFamilyDates].
     String? deviceFamily,
+    // M5: the day's contributor set (`daySub.deviceIds`, comma-joined,
+    // sorted for determinism) — '' alone for every single-device install
+    // today. Null, never guessed, same discipline as [deviceFamily].
+    String? coverageDevices,
+    // M5: the priority order in force when this day derived — the STRING a
+    // change-point search can refuse across (`coverage_resolver.dart
+    // .priorityKey`), not a hash. Column is named `priority_hash` (already
+    // migrated in by M3); this stores the readable string under that name
+    // rather than renaming a shipped column.
+    String? priorityHash,
   }) async {
     final db = await instance;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -6192,6 +7201,8 @@ class LocalDb {
             // here rather than inheriting the previous writer's claim.
             'source': source,
             'device_family': deviceFamily,
+            'coverage_devices': coverageDevices,
+            'priority_hash': priorityHash,
           }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
       }
@@ -7180,6 +8191,8 @@ class LocalDb {
       // `decoded_onehz` pointing at a `device_id` nothing can name. The PRIMARY
       // row is deliberately skipped on the way in; see the guard below.
       'device',
+      'device_coverage',
+      'signal_priority',
       'sync_cursor',
     ];
     // Columns this app's schema actually has, per table — so a row from a NEWER
@@ -7649,6 +8662,8 @@ class LocalDb {
       'imported_workout',
       'observation',
       'device',
+      'device_coverage',
+      'signal_priority',
     ];
 
     final missingTables = <String>[];

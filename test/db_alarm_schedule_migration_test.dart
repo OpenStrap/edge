@@ -59,13 +59,16 @@ void main() {
   });
 
   test(
-      'upgrade from v49 reaches schemaVersion 50 and creates alarm_schedule '
-      'keyed on weekday', () async {
+      'upgrade from v49 reaches the current schemaVersion and creates '
+      'alarm_schedule keyed on weekday', () async {
     const name = 'openstrap_alarm_schedule_migration_test.db';
     created.add(name);
     await _seedEmptyV49Db(name);
     final version = await _openThroughLocalDb(name);
-    expect(LocalDb.schemaVersion, 50);
+    // schemaVersion moved 50->51 for M3 (multi-device attribution) after this
+    // test was written for the alarm_schedule table's own v50 rung — the
+    // literal below tracks whatever the ladder currently ends on, not a
+    // number this test owns.
     expect(version, LocalDb.schemaVersion);
 
     final db = await LocalDb.instance;

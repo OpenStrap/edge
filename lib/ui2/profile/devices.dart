@@ -7,8 +7,20 @@
 // platform health stores: Apple Health and Health Connect rank by whatever
 // wrote last (with a manual priority list bolted on top), so a phone's step
 // estimate can quietly outrank a chest strap. Here the better sensor wins and
-// recency only breaks a tie within a tier. There is no user preference and the
-// screen no longer claims one — no control ever set an order.
+// recency only breaks a tie within a tier.
+//
+// RULING (supersedes the "no user preference" clause this paragraph used to
+// carry). The default order for every signal is derived from physics, computed
+// from `BandAdapter.signals`; `rankSources`' tier ladder stays as the source of
+// that default. A user may reorder WITHIN ONE SIGNAL, and when they do the row
+// is marked `user_set = 1` with a one-tap reset. Recency never enters a
+// cross-device comparison. The screen no longer claims a preference it cannot
+// set, because now it can.
+//
+// PER SIGNAL, never per metric, and never an N×M grid in Settings. "Priority
+// for readiness" has no meaning — readiness has four inputs. Only a handful of
+// declared signals ever contend, so `contendedSignals` is usually empty and
+// `SignalPriorityScreen`'s entry row is then absent entirely.
 //
 // TWO BUCKETS AND ONLY TWO: what is measuring, and what is NOT YET — the
 // second with a reason and a PERMANENCE beside it. "Not yet" without a
@@ -31,20 +43,21 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura;
+    show BandEntry, kBandRegistry, kBleHrs, kOura, declaredSignals;
+import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
-import '../../ble/ble_state.dart' show BandStatus;
+import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
 import '../../notify/battery_forecast.dart';
+import '../../state/prefs.dart' show Prefs;
 import '../../sync/paired_device.dart' show cleanDeviceLabel;
 import '../../state/app_state.dart';
-import '../onboarding/pairing.dart';
+import '../pairing/device_picker.dart' show DevicePickerScreen;
 import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
-import 'pair_sensor.dart' show PairSensorScreen;
 import 'profile.dart';
 import 'settings.dart' show backToRoot;
 
@@ -124,6 +137,482 @@ String? bandLabelFor(String? adapterId) {
     if (e.id == adapterId) return e.label;
   }
   return null;
+}
+
+/// One row in a metric screen's device filter (final-plan §6.3).
+///
+/// THREE STATES, and the third is why this is a type rather than a
+/// `List<String>`: a device that cannot supply the metric is SHOWN, disabled,
+/// with the reason. An unexplained absent option is the thing users file bugs
+/// about, and an unexplained empty chart is worse.
+typedef DeviceOption = ({
+  /// `device.id`. `''` is the primary band, permanently (ASSUMPTIONS A1).
+  String deviceId,
+
+  /// What the pill says — the user's own label for the device.
+  String label,
+
+  /// False when the device does not declare every signal the metric needs.
+  /// The pill is drawn and untappable.
+  bool selectable,
+
+  /// Non-null ONLY when the option is worth explaining: the missing-signal
+  /// reason for a non-selectable one, or the empty-window reason for a
+  /// selectable one with no coverage. Null on the ordinary case.
+  String? reason,
+});
+
+/// The metric-screen device filter: one pill per candidate, plus the reason
+/// under it when there is one.
+///
+/// ABSENT, not empty, when [options] has fewer than two entries — the widget
+/// returns `SizedBox.shrink()` so a single-device screen has no row, no
+/// padding, and no layout shift. That is the assertion the single-device
+/// goldens make (final-plan §6.5).
+class DeviceFilter extends StatelessWidget {
+  const DeviceFilter({
+    super.key,
+    required this.options,
+    required this.selected,
+    required this.onSelect,
+    this.color = C.blue,
+  });
+
+  final List<DeviceOption> options;
+
+  /// Null is "All devices" — the merged view, and the default.
+  final String? selected;
+
+  /// Null argument means All devices.
+  final ValueChanged<String?> onSelect;
+  final Color color;
+
+  @override
+  Widget build(BuildContext c) {
+    if (options.length < 2) return const SizedBox.shrink();
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    final all = l?.deviceFilterAllDevices ?? 'All devices';
+    final labels = [all, for (final o in options) o.label];
+    final index = selected == null
+        ? 0
+        : options.indexWhere((o) => o.deviceId == selected) + 1;
+    // Index 0 is All devices and is always tappable, so every disabled index
+    // is shifted by one — the off-by-one that would otherwise grey the wrong
+    // pill.
+    final disabled = <int>{
+      for (var i = 0; i < options.length; i++)
+        if (!options[i].selectable) i + 1,
+    };
+    final shown = index <= 0 ? null : options[index - 1];
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      SubTabs(
+        labels,
+        index < 0 ? 0 : index,
+        (i) => onSelect(i == 0 ? null : options[i - 1].deviceId),
+        color: color,
+        disabled: disabled,
+      ),
+      // THE REASON, for the selected pill and for any disabled one. Never an
+      // unexplained empty chart and never an unexplained dead option.
+      if (shown?.reason case final r?) ...[
+        const SizedBox(height: S.x2),
+        Text('${shown!.label} · $r', style: F.over.copyWith(color: p.ink3)),
+      ] else if (disabled.isNotEmpty) ...[
+        const SizedBox(height: S.x2),
+        Text(
+          [
+            // `reason` is documented as non-null for a non-selectable option
+            // but the type does not enforce it, and an unguarded
+            // interpolation renders the literal text "null" beside the label.
+            for (final o in options)
+              if (!o.selectable)
+                o.reason == null ? o.label : '${o.label} · ${o.reason}',
+          ].join('   '),
+          style: F.over.copyWith(color: p.ink3),
+        ),
+      ],
+    ]);
+  }
+}
+
+/// The global per-signal priority editor: one drag-reorder list per contended
+/// signal, reached from `MyDevicesView`'s "Which source wins" row. Only
+/// contended signals get a list — a signal only one paired device declares
+/// has nothing to order (final-plan §4.5).
+class SignalPriorityScreen extends StatefulWidget {
+  const SignalPriorityScreen({super.key});
+
+  @override
+  State<SignalPriorityScreen> createState() => _SignalPriorityScreenState();
+}
+
+class _SignalPriorityScreenState extends State<SignalPriorityScreen> {
+  bool _loading = true;
+  List<InputSignal> _signals = const [];
+  Map<InputSignal, List<String>> _order = const {};
+  Map<String, String> _labels = const {};
+  Set<String> _userSet = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    final app = context.read<AppState>();
+    final sources = liveSources(app);
+    final signals = contendedSignalsOf(sources);
+    final labels = <String, String>{
+      // The phone has no `device` row, so no id. Coalesced to `''` its null
+      // collapsed onto the PRIMARY BAND's key, and a map literal keeps
+      // insertion order with last-write-wins — so a phone iterated after the
+      // band renamed the band's row in the reorder list. The user then drags
+      // a row labelled "Your phone" that actually moves the band, in the one
+      // editor that decides which device wins a signal.
+      for (final s in sources) ?deviceIdOf(s): s.name,
+    };
+    final priorities = await LocalDb.signalPriorities();
+    final order = <InputSignal, List<String>>{};
+    for (final sig in signals) {
+      final declaring = declaringDeviceIds(sources, sig);
+      final stored = priorities[sig.name];
+      order[sig] = stored != null && stored.isNotEmpty
+          ? [
+              for (final id in stored) if (declaring.contains(id)) id,
+              for (final id in declaring) if (!stored.contains(id)) id,
+            ]
+          : declaring;
+    }
+    final userSet = await LocalDb.userSetSignals();
+    if (!mounted) return;
+    setState(() {
+      _signals = signals;
+      _labels = labels;
+      _order = order;
+      _userSet = userSet;
+      _loading = false;
+    });
+  }
+
+  /// A write that did not land must never look like one that did — the list
+  /// snapping back with no sentence anywhere is how a user believes they set
+  /// a preference they did not.
+  Future<void> _sayNotSaved() => showReasonSheet(
+        context,
+        AppLocalizations.of(context)?.devicesOrderNotSaved ??
+            'That order could not be saved. Nothing changed.',
+      );
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final l = AppLocalizations.of(c);
+    return Scaffold(
+      backgroundColor: p.bg,
+      body: SafeArea(
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: S.x4),
+            child: NavBar(l?.devicesWhichSourceWins ?? 'Which source wins'),
+          ),
+          if (_loading)
+            const Expanded(child: Center(child: CircularProgressIndicator()))
+          else
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  for (final sig in _signals) ...[
+                    Section(
+                      signalDisplayName(c, sig),
+                      Column(children: [
+                        ReorderableListView(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          onReorder: (from, to) async {
+                            final ids = [...?_order[sig]];
+                            // ReorderableListView's `to` is the index BEFORE removal.
+                            ids.insert(
+                                to > from ? to - 1 : to, ids.removeAt(from));
+                            try {
+                              await LocalDb.setSignalPriority(sig, ids);
+                            } catch (_) {
+                              // The stored order is unchanged, so leave the
+                              // list where it was rather than showing an order
+                              // nothing persisted. Same shape as `_saveRpe`.
+                              if (mounted) await _sayNotSaved();
+                              return;
+                            }
+                            if (!mounted) return;
+                            setState(() {
+                              _order = {..._order, sig: ids};
+                              _userSet = {..._userSet, sig.name};
+                            });
+                          },
+                          children: [
+                            for (final id in _order[sig] ?? const <String>[])
+                              ListTile(
+                                key: ValueKey(id),
+                                title: Text(_labels[id] ?? id),
+                              ),
+                          ],
+                        ),
+                        if (_userSet.contains(sig.name))
+                          Pressable(
+                            onTap: () async {
+                              try {
+                                await LocalDb.clearSignalPriority(sig);
+                              } catch (_) {
+                                if (mounted) await _sayNotSaved();
+                                return;
+                              }
+                              await _load();
+                            },
+                            semanticLabel: 'Reset ${signalDisplayName(c, sig)} '
+                                'to the default order',
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: S.x2),
+                              child: Text(
+                                l?.devicesResetToDefault ??
+                                    'Back to the default order',
+                                style: F.cap.copyWith(color: p.on(C.blue)),
+                              ),
+                            ),
+                          ),
+                      ]),
+                    ),
+                    const SizedBox(height: S.x4),
+                  ],
+                  Text(
+                    l?.metricDetailHistoryKeepsSource ??
+                        'Days already finished keep the source they were '
+                            'calculated with.',
+                    style: F.over.copyWith(color: p.ink3),
+                  ),
+                ],
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// The HUMAN name for a signal, for a heading or a screen reader.
+///
+/// `InputSignal.name` is a Dart identifier — `hr1Hz`, `rrIntervals`,
+/// `skinTempRaw` — and it was reaching a settings screen as a section title
+/// and as a semantic label. An exhaustive `switch` with no `default` makes a
+/// future [InputSignal] member a COMPILE ERROR here rather than a leaked
+/// identifier, the same protection `sourceTierLabel` gives.
+String signalDisplayName(BuildContext c, InputSignal s) {
+  final l = AppLocalizations.of(c);
+  return switch (s) {
+    InputSignal.rrIntervals =>
+      l?.signalRrIntervals ?? 'Beat-to-beat intervals',
+    InputSignal.hr1Hz => l?.signalHr1Hz ?? 'Continuous heart rate',
+    InputSignal.hrSparse => l?.signalHrSparse ?? 'Heart rate',
+    InputSignal.accel1Hz => l?.signalAccel1Hz ?? 'Movement',
+    InputSignal.accelHighRate =>
+      l?.signalAccelHighRate ?? 'High-rate movement',
+    InputSignal.ppgGreen => l?.signalPpgGreen ?? 'Green PPG',
+    InputSignal.ppgRedIr => l?.signalPpgRedIr ?? 'Red/infrared PPG',
+    InputSignal.skinTempRaw => l?.signalSkinTempRaw ?? 'Skin temperature',
+    InputSignal.vendorScalars =>
+      l?.signalVendorScalars ?? 'The device’s own numbers',
+  };
+}
+
+/// Why this device cannot serve a metric, from the signals it does NOT declare.
+///
+/// Generated, never written per device per metric: it stays true when an
+/// adapter's declarations change and it costs nothing at the fortieth device.
+/// One phrase per [InputSignal] — the physical absence, not the metric.
+///
+/// Takes a [BuildContext] for the same reason [signalDisplayName] does: this
+/// is rendered to the user, as a disabled pill's sub-label, so it is translated
+/// like every other sentence on the screen. And NOT by reusing
+/// [signalDisplayName]: "no accelerometer" and "no temperature sensor" name the
+/// hardware, where the display names ("Movement", "Skin temperature") name what
+/// the user reads off it — the distinction this doc comment's last line is
+/// about. A `switch` with no `default` for the same reason as well: a new
+/// [InputSignal] member is a compile error here rather than a device silently
+/// explaining itself as "cannot supply this".
+String missingSignalReason(BuildContext c, Set<InputSignal> missing) {
+  final l = AppLocalizations.of(c);
+  String words(InputSignal s) => switch (s) {
+        InputSignal.rrIntervals =>
+          l?.missingSignalRrIntervals ?? 'no beat-to-beat intervals',
+        InputSignal.hr1Hz =>
+          l?.missingSignalHr1Hz ?? 'no continuous heart rate',
+        InputSignal.hrSparse => l?.missingSignalHrSparse ?? 'no heart rate',
+        InputSignal.accel1Hz => l?.missingSignalAccel1Hz ?? 'no accelerometer',
+        InputSignal.accelHighRate =>
+          l?.missingSignalAccelHighRate ?? 'no high-rate accelerometer',
+        InputSignal.ppgGreen => l?.missingSignalPpgGreen ?? 'no green PPG',
+        InputSignal.ppgRedIr =>
+          l?.missingSignalPpgRedIr ?? 'no red/infrared PPG',
+        InputSignal.skinTempRaw =>
+          l?.missingSignalSkinTempRaw ?? 'no temperature sensor',
+        InputSignal.vendorScalars =>
+          l?.missingSignalVendorScalars ?? 'reports nothing of its own',
+      };
+  // Ordered by the enum so two devices missing the same pair read identically.
+  final parts = [for (final s in InputSignal.values) if (missing.contains(s)) s];
+  return parts.isEmpty
+      ? (l?.missingSignalUnknown ?? 'cannot supply this')
+      : words(parts.first);
+}
+
+/// The devices that could serve [requires], newest-facts-only: a registry
+/// declaration compared against a `device` row. NO QUERY, which is what makes
+/// the visibility gate in §6.5 free.
+///
+/// SUPERSET test. A device qualifies only when its adapter declares every one
+/// of [requires] — see `MetricSpec.requires`.
+///
+/// [c] is only ever used to translate a rejected device's `reason` — see
+/// [missingSignalReason]. Nothing about WHICH devices qualify depends on it.
+List<DeviceOption> signalCandidates(
+  BuildContext c,
+  AppState app, {
+  required Set<InputSignal> requires,
+}) =>
+    candidatesFromSources(c, rankSources(liveSources(app)), requires: requires);
+
+/// The STORAGE device id for [s], or null when it has none.
+///
+/// `HealthSource.deviceId` is null for BOTH the primary band (whose stored id
+/// is `LocalDb.kPrimaryDeviceId`, `''`) and the phone (which has no `device`
+/// row at all), so the two need different answers from the same field. One
+/// helper rather than the ternary repeated at every consumer: coalescing the
+/// phone's null to `''` silently maps it ONTO the band, and force-unwrapping
+/// it throws the first time a phone source reaches a new path.
+String? deviceIdOf(HealthSource s) =>
+    s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId;
+
+/// The pure half of [signalCandidates] — split out so a test can hand-build
+/// [HealthSource]s (as `device_sources_test.dart` already does) instead of a
+/// live `AppState`. [c] is passed straight through to [missingSignalReason]
+/// and has no say in which sources qualify.
+List<DeviceOption> candidatesFromSources(
+  BuildContext c,
+  List<HealthSource> sources, {
+  required Set<InputSignal> requires,
+}) {
+  if (requires.isEmpty) return const [];
+  final out = <DeviceOption>[];
+  for (final s in sources) {
+    // The phone has no `device` row and no adapter. It is a step counter, and
+    // steps are the one metric with no `requires` at all (§4.6), so it can
+    // never be a candidate here.
+    final id = deviceIdOf(s);
+    if (id == null) continue;
+    final declared = declaredSignals(s.family);
+    // A device declaring NOTHING is not a candidate for anything — never
+    // shown, not even disabled. `OuraAdapter.signals == const {}` is exactly
+    // this case (§0): the ring is not "missing everything", it is out of
+    // scope for every metric, and a permanent disabled pill on every screen
+    // would be the noise §0 promises a WHOOP + ring user never sees.
+    if (declared.isEmpty) continue;
+    final missing = requires.difference(declared);
+    out.add((
+      deviceId: id,
+      label: s.name,
+      selectable: missing.isEmpty,
+      reason: missing.isEmpty ? null : missingSignalReason(c, missing),
+    ));
+  }
+  return out;
+}
+
+/// The devices that DECLARE [sig], in the physics ladder's order.
+///
+/// The one correct basis for a `signal_priority` write. `setSignalPriority`
+/// replaces every row of a signal, and `signalPriority`'s rows are ALSO the
+/// resolver's candidate list — so an order built from anything narrower than
+/// "declares this signal" (a metric's selectable pills, say) silently deletes
+/// a device from a signal it really does declare, and takes it out of every
+/// OTHER metric that shares that signal. Per signal, never per metric.
+List<String> declaringDeviceIds(List<HealthSource> sources, InputSignal sig) => [
+      for (final s in rankSources(sources))
+        // Skipped, never force-unwrapped: an id-less source (the phone) has
+        // nothing to rank, and `!` here would throw the day one declares a
+        // contended signal.
+        if (deviceIdOf(s) case final id?)
+          if (declaredSignals(s.family).contains(sig)) id,
+    ];
+
+/// Who currently wins each of [requires] — `{signal: deviceId}`, in
+/// [requires]' own order, from the stored `signal_priority` orders in
+/// [stored] (`LocalDb.signalPriorities()`'s shape, keyed by `signal.name`).
+///
+/// PER SIGNAL, because per signal is the only shape the table has. A metric's
+/// "preferred device" is a question about SEVERAL signals: readiness needs
+/// four, and nothing stops a user putting a chest strap first for beat timing
+/// and the band first for continuous heart rate. Reading `requires.first`
+/// alone and calling its winner the metric's preferred device asserts an
+/// agreement that may not exist — see [unanimousWinner], which is the test
+/// for whether it does.
+///
+/// A stored id is skipped unless the device still DECLARES that signal, the
+/// same filter [SignalPriorityScreen] applies when it renders an order: a row
+/// left behind by a forgotten device has no adapter to serve the window, and
+/// the resolver passes over it too (it has no coverage to own). [fallback]
+/// answers a signal with no usable row — the ladder's choice, which the
+/// caller already has in hand.
+Map<InputSignal, String?> signalWinners(
+  List<HealthSource> sources, {
+  required Set<InputSignal> requires,
+  required Map<String, List<String>> stored,
+  String? fallback,
+}) {
+  final out = <InputSignal, String?>{};
+  for (final sig in requires) {
+    final declaring = declaringDeviceIds(sources, sig);
+    String? winner;
+    for (final id in stored[sig.name] ?? const <String>[]) {
+      if (declaring.contains(id)) {
+        winner = id;
+        break;
+      }
+    }
+    out[sig] = winner ?? fallback;
+  }
+  return out;
+}
+
+/// The device winning EVERY signal in [winners], or null when they disagree —
+/// and null for an empty map, which is "nothing resolved", not agreement.
+///
+/// Null is therefore not "no preference": a caller showing one device's name
+/// must ALSO know whether the winners were split, or it labels a split
+/// configuration with whatever its no-preference placeholder happens to say.
+String? unanimousWinner(Map<InputSignal, String?> winners) {
+  final distinct = winners.values.toSet();
+  return distinct.length == 1 ? distinct.first : null;
+}
+
+/// Signals TWO OR MORE paired devices declare. The whole content of the
+/// priority editor, and the reason it is usually empty: only a handful of the
+/// declared signals ever contend, so the table is tens of rows forever
+/// (final-plan §4.5).
+List<InputSignal> contendedSignals(AppState app) =>
+    contendedSignalsOf(liveSources(app));
+
+/// The pure half of [contendedSignals] — see [candidatesFromSources].
+List<InputSignal> contendedSignalsOf(List<HealthSource> sources) {
+  final n = <InputSignal, int>{};
+  for (final s in sources) {
+    final id = deviceIdOf(s);
+    if (id == null) continue;
+    for (final sig in declaredSignals(s.family)) {
+      n[sig] = (n[sig] ?? 0) + 1;
+    }
+  }
+  return [for (final s in InputSignal.values) if ((n[s] ?? 0) >= 2) s];
 }
 
 /// Bands the owner has personally held and cross-confirmed. Everything else is
@@ -372,9 +861,17 @@ List<HealthSource> liveSources(AppState app, {bool sensorLive = false}) => [
 
 /// Quality first, then recency, then the name. The inverse of last-writer-wins.
 ///
-/// There was a `preferred` list here that no caller ever passed and no screen
-/// could set — the card above it told the user their own preference was "the
-/// last word", which was a mechanism that did not exist.
+/// THE DEFAULT ORDER, and only that. There was a `preferred` list here that no
+/// caller ever passed and no screen could set — the card above it told the user
+/// their own preference was "the last word", which was a mechanism that did not
+/// exist. That is what died, and the reason it died was last-writer-wins plus a
+/// preference nothing could write. Neither has come back.
+///
+/// What HAS come back is a user order, and it does not live here: it lives in
+/// `signal_priority`, per SIGNAL, written from `SignalPriorityScreen` and from
+/// the metric screen's own "Prefer this device" row. This function is
+/// precedence rule 3 of three — consulted only where that table is silent, and
+/// it is silent for every install with one device.
 List<HealthSource> rankSources(List<HealthSource> sources) {
   final out = [...sources];
   out.sort((a, b) {
@@ -424,6 +921,8 @@ class MyDevices extends StatelessWidget {
       // way back to pairing. So push it.
       onPair: () => goto(c, const RePair()),
       onAddSensor: () => addSensor(c),
+      contendedSignals: contendedSignals(app),
+      onSignalPriority: () => goto(c, const SignalPriorityScreen()),
     );
   }
 }
@@ -456,49 +955,102 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
 
 /// Choose which kind of sensor to pair, then hand off to the pairing screen.
 Future<void> addSensor(BuildContext c) async {
+  // Count paired secondary devices (the `device` table minus the primary row).
+  //
+  // PAIRED ROWS, NOT LIVE SLOTS, and deliberately: admission here is a
+  // question about the sensors this phone manages, not about who holds a GATT
+  // link in this instant. Live slot state is transient — `OuraLink` holds one
+  // only from connect through `stop()`, `HrsLink` only for a workout — so
+  // reading it would admit or refuse the same pairing depending on the second
+  // it was tapped, and a slot freed a moment later cannot un-refuse anything.
+  // The same constant bounds both because the number is the same number; the
+  // sentence below states the PAIRING rule, which is the one enforced here.
+  final secondaryCount = (await LocalDb.deviceRows())
+      .where((r) => r['id'] != LocalDb.kPrimaryDeviceId)
+      .length;
+  if (secondaryCount >= kMaxConcurrentSecondaryLinks) {
+    if (!c.mounted) return;
+    // DERIVED FROM THE CONSTANT the check above uses. Hardcoded, the sentence
+    // states a different rule from the one enforced the moment the cap moves.
+    await showReasonSheet(
+        c,
+        AppLocalizations.of(c)
+                ?.devicesSensorLimit(kMaxConcurrentSecondaryLinks) ??
+            'This phone will pair at most $kMaxConcurrentSecondaryLinks '
+                'sensors alongside your band. Remove one to add another.');
+    return;
+  }
+  if (!c.mounted) return;
+  // `includeBand: false` — this phone already has its one primary band;
+  // re-pairing it is `RePair`'s job, not a row beside a chest strap here.
+  await goto(c, const DevicePickerScreen(includeBand: false));
+  // The picker's own sub-screens write a `device` row; nothing tells
+  // AppState that happened.
+  if (c.mounted) await c.read<AppState>().refreshSensors();
+}
+
+/// Ask for a SECOND framed band. iOS cannot show the system pairing sheet while a
+/// CBCentralManager exists in the process, and on an already-paired install
+/// flutter_blue_plus creates one during start-up and never releases it — so the
+/// sheet can only be shown on the next launch, before start-up touches the radio.
+/// This writes the request; `AppState._initSteps` performs it.
+///
+/// NOT surfaced from any visible button in M4 — no second framed band exists yet
+/// to provision against (see MULTIDEVICE_PROGRESS.md's M4 notes). This wires the
+/// plumbing and its test only.
+Future<void> addFramedBand(BuildContext c) async {
+  // ACKED, not fire-and-forget. `Prefs.setBool` updates the cache
+  // OPTIMISTICALLY and never rolls it back (see prefs.dart), and this flag's
+  // whole purpose is to survive the restart the sheet below asks for — a
+  // write that did not land would leave the user following correct
+  // instructions to no effect.
+  final saved = await Prefs.setBoolAcked(Prefs.kAskAddPendingKey, true);
+  if (!c.mounted) return;
+  if (!saved) {
+    await showReasonSheet(
+        c,
+        AppLocalizations.of(c)?.devicesRequestNotSaved ??
+            'That request could not be saved. Please try again.');
+    return;
+  }
+  await showRestartRequiredSheet(c);
+}
+
+/// One-sentence sheet: the ASK ordering constraint, stated where the user is.
+Future<void> showRestartRequiredSheet(BuildContext c) async {
   final p = P.of(c);
-  final choice = await showModalBottomSheet<int>(
+  await showModalBottomSheet<void>(
     context: c,
-    backgroundColor: p.bg,
-    builder: (d) => SafeArea(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const SizedBox(height: S.x4),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: S.x4),
-          child: Row(children: [
-            Text(AppLocalizations.of(c)?.devicesAddASensor ?? 'Add a sensor',
-                style: F.t2.copyWith(color: p.ink)),
-          ]),
+    backgroundColor: p.card,
+    showDragHandle: true,
+    builder: (sheet) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x4),
+        child: Text(
+          'iOS can only show the system pairing sheet before the app has used '
+          'Bluetooth. Close OpenStrap completely, then reopen it — the sheet '
+          'appears on its own.',
+          style: F.body.copyWith(color: p.ink),
         ),
-        const SizedBox(height: S.x3),
-        // Same horizontal inset as the header text above and every other
-        // SetRow list in this file (each lives inside a `Surface(pad:
-        // EdgeInsets.symmetric(horizontal: S.x4))`) — without it these rows
-        // ran edge-to-edge against the sheet, the one place in the screen
-        // that broke the convention.
-        for (var i = 0; i < kPairableSensors.length; i++)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: SetRow(
-              sensorIcon(kPairableSensors[i].entry.id),
-              C.green,
-              kPairableSensors[i].entry.label,
-              sub: kPairableSensors[i].blurb,
-              onTap: () => Navigator.of(d).pop(i),
-            ),
-          ),
-        const SizedBox(height: S.x4),
-      ]),
+      ),
     ),
   );
-  if (choice == null || !c.mounted) return;
-  final sensor = kPairableSensors[choice];
-  await goto(
-    c,
-    PairSensorScreen(entry: sensor.entry, onPicked: sensor.pick),
+}
+
+/// One-sentence sheet giving a reason a requested action was refused.
+Future<void> showReasonSheet(BuildContext c, String reason) async {
+  final p = P.of(c);
+  await showModalBottomSheet<void>(
+    context: c,
+    backgroundColor: p.card,
+    showDragHandle: true,
+    builder: (sheet) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, S.x4),
+        child: Text(reason, style: F.body.copyWith(color: p.ink)),
+      ),
+    ),
   );
-  // The screen writes a `device` row; nothing tells AppState that happened.
-  if (c.mounted) await c.read<AppState>().refreshSensors();
 }
 
 /// Pairing, pushed rather than gated.
@@ -517,7 +1069,11 @@ class RePair extends StatelessWidget {
         if (c.mounted) Navigator.of(c).maybePop();
       });
     }
-    return PairingScreen(onSkip: () => Navigator.of(c).maybePop());
+    // NO `onSkip`. That argument is first-run onboarding's "Skip for now",
+    // and its note says the app opens without a band and nothing is measured
+    // — a sentence about a decision this user made long ago. A re-pair backs
+    // out through `NavBar`'s own back button, exactly as `addSensor` does.
+    return const DevicePickerScreen();
   }
 }
 
@@ -528,12 +1084,20 @@ class MyDevicesView extends StatelessWidget {
   /// The band's own state, from `bandStatusFor`. Null when nothing is paired.
   final BandStatus? status;
 
+  /// Signals two or more paired devices declare — from `contendedSignals`.
+  /// Empty on every single-device install, which keeps the priority-editor
+  /// entry row absent by default (final-plan §4.5).
+  final List<InputSignal> contendedSignals;
+  final VoidCallback? onSignalPriority;
+
   const MyDevicesView({
     super.key,
     this.sources = const [],
     this.onPair,
     this.onAddSensor,
     this.status,
+    this.contendedSignals = const [],
+    this.onSignalPriority,
   });
 
   @override
@@ -622,6 +1186,20 @@ class MyDevicesView extends StatelessWidget {
                             'A heart-rate strap or a ring, alongside the band',
                         onTap: onAddSensor),
                   ),
+                // ONLY when something can actually contend. A reorder screen
+                // over one device is a control with nothing to order, which is
+                // the empty-rung problem this screen already refuses (§6.5).
+                if (contendedSignals.isNotEmpty && onSignalPriority != null) ...[
+                  const SizedBox(height: S.x3),
+                  Surface(
+                    pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                    child: SetRow(LucideIcons.arrowUpDown, C.blue,
+                        l?.devicesWhichSourceWins ?? 'Which source wins',
+                        sub: l?.devicesWhichSourceWinsSub ??
+                            'When two of your devices measure the same thing',
+                        onTap: onSignalPriority),
+                  ),
+                ],
                 // NOT YET — removed from this screen per product decision
                 // (owner's call, live review). `kNotYet`/`NotYet` still hold
                 // the reasons and permanences below; only the render is gone.

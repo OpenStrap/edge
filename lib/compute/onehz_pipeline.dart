@@ -1035,7 +1035,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'confidence': skinTempZ == null ? 0 : 0.5,
       'tier': Tier.relative,
       // Both columns: gen4 stores a raw ADC count, gen5 centi-°C. Either way
-      // this is only ever a deviation from the user's OWN baseline.
+      // this is only ever a deviation from the user's OWN baseline. The two
+      // never mix within one day's array — see derive_prepare.dart's
+      // _skinTempFor / _skinTempUnit for the read-side gate.
       'inputs_used': const ['skin_temp_raw', 'skin_temp_c'],
       'note':
           'relative deviation (z) vs your baseline; raw sensor units, '

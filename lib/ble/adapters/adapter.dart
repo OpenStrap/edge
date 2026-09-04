@@ -37,6 +37,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import '../../data/observation.dart' show Observation;
 import '_registry.dart';
 import 'signals.dart';
 
@@ -227,6 +228,19 @@ class BandNote extends BandEvent {
   final String key;
   final Object? value;
   const BandNote(this.key, [this.value]);
+}
+
+/// Numbers the band computed ITSELF — its own RMSSD, its own sleep score.
+/// Declared as `InputSignal.vendorScalars` and stored in `observation`,
+/// attributed to the vendor, never an input to one of our derivations and
+/// never in a baseline.
+class VendorScalars extends BandEvent {
+  const VendorScalars(this.rows);
+
+  /// `data/observation.dart`'s type. `key` for a comparable quantity,
+  /// `vendorKey` for a proprietary composite — the split is the rule that
+  /// stops "readiness" meaning three algorithms.
+  final List<Observation> rows;
 }
 
 /// One band, driven.

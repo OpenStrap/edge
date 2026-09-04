@@ -13,6 +13,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
+import 'package:openstrap_edge/ble/ble_state.dart'
+    show acquireSecondaryLinkSlot, releaseSecondaryLinkSlot;
 import 'package:openstrap_edge/ble/hrs_link.dart';
 import 'package:openstrap_edge/data/db.dart';
 
@@ -149,6 +151,171 @@ void main() {
       expect(await b, isFalse);
       // And the memo clears, so a later arm is a real attempt again.
       expect(identical(HrsLink.instance.arm(), a), isFalse);
+    });
+  });
+
+  // WHY THESE LIVE AT THIS LEVEL. `flutter_blue_plus` has no simulator path,
+  // so a test cannot hold a real 12 s connect open — but it does not have to.
+  // `_arm` awaits a secondary-link slot immediately BEFORE `connect()`, so
+  // exhausting the cap parks an attempt for as long as the test likes, in
+  // pure Dart, at the exact point the traced races happen. Past that point
+  // `connect()` throws (no plugin is registered under `flutter test`), which
+  // is the failing-arm path these tests want anyway.
+  group('arm/disarm serialisation', () {
+    setUpAll(() {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    });
+
+    setUp(() async {
+      await LocalDb.close();
+      LocalDb.dbName = 'hrs_arm_test.db';
+      final dir = await databaseFactory.getDatabasesPath();
+      await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+      await LocalDb.upsertDevice(
+        id: 'hrs-0a1b2c3d',
+        adapterId: kBleHrs.id,
+        remoteId: 'AA:BB:CC:DD:EE:FF',
+        label: 'Test Strap',
+        tier: 'beatToBeat',
+      );
+    });
+
+    tearDown(() async {
+      // Before the disarm, or the cleanup throws the failure the test asked
+      // for.
+      HrsLink.failTeardownForTest = null;
+      await HrsLink.instance.disarm();
+      await LocalDb.close();
+    });
+
+    /// Both slots, so nothing can get past `_arm`'s acquire until the test
+    /// says so. Returns them in the order they must be given back.
+    Future<void> takeBothSlots() async {
+      expect(await acquireSecondaryLinkSlot(), isTrue);
+      expect(await acquireSecondaryLinkSlot(), isTrue);
+    }
+
+    /// Two acquires only BOTH succeed against a cap of two if the attempts
+    /// under test released everything they took.
+    Future<void> expectNoSlotLeak() async {
+      const wait = Duration(seconds: 2);
+      expect(await acquireSecondaryLinkSlot(timeout: wait), isTrue);
+      expect(await acquireSecondaryLinkSlot(timeout: wait), isTrue,
+          reason: 'a slot was never released');
+      releaseSecondaryLinkSlot();
+      releaseSecondaryLinkSlot();
+    }
+
+    test('arm → disarm → arm inside one window gives a FRESH attempt',
+        () async {
+      await takeBothSlots();
+      final a = HrsLink.instance.arm();
+      // Let it get as far as the acquire, where it now cannot proceed.
+      await pumpEventQueue();
+      await HrsLink.instance.disarm();
+      final b = HrsLink.instance.arm();
+
+      // THE REGRESSION. `_arming` was memoized but not generation-guarded and
+      // `disarm()` never cleared it, so `b` was handed `a` — the attempt the
+      // disarm had just cancelled, which can only answer `false` now. Both
+      // callers got `false`, nothing was armed, and `b` had never tried.
+      expect(identical(a, b), isFalse);
+
+      releaseSecondaryLinkSlot();
+      releaseSecondaryLinkSlot();
+      // `a` was cancelled, so `false` is the honest answer for it. `b` really
+      // tried: it took a slot and reached `connect()`, which has no plugin
+      // registered under a test.
+      expect(await a, isFalse);
+      expect(await b, isFalse);
+      // And the cancelled attempt did not take the fresh one down with it —
+      // no dangling half-armed state either way.
+      await expectNoSlotLeak();
+    });
+
+    test('the cancelled attempt resolves last and disturbs nothing', () async {
+      // Same sequence, opposite wake order: the FRESH attempt finishes before
+      // the cancelled one is even woken, so `a`'s cleanup lands on state `b`
+      // has already finished with. Both must still answer cleanly and neither
+      // may strand a slot.
+      //
+      // NOT the test for `_arm`'s generation-aware catch — that branch needs
+      // the disarm to land INSIDE `connect()`, and `connect()` throws before
+      // its first real await under a test (no plugin is registered), so `a`
+      // bails at the post-acquire check here instead. That branch is
+      // trace-verified only; a seam to reach it would be a fake connect,
+      // which proves the fake.
+      await takeBothSlots();
+      final a = HrsLink.instance.arm();
+      await pumpEventQueue();
+      await HrsLink.instance.disarm();
+      final b = HrsLink.instance.arm();
+      releaseSecondaryLinkSlot();
+      expect(await b, isFalse);
+      releaseSecondaryLinkSlot();
+      expect(await a, isFalse);
+      await expectNoSlotLeak();
+    });
+
+    test('a teardown that throws still releases the slot it held', () async {
+      HrsLink.failTeardownForTest = () => throw StateError('tail flush failed');
+      // The arm reaches `connect()`, which throws (no plugin); its catch tears
+      // down, and the teardown throws on top of that. `_disarm` had no
+      // try/finally, so every line below `_host.stop()` was skipped — and the
+      // secondary-link slot the arm took before connecting stayed held for the
+      // life of the process, so the strap could never be armed again.
+      expect(await HrsLink.instance.arm(), isFalse,
+          reason: 'a failed teardown must not become a THROWN arm()');
+      expect(await HrsLink.instance.arm(), isFalse);
+      await expectNoSlotLeak();
+    });
+
+    test('a teardown that throws still clears what a surface reads', () async {
+      // The rest of that `finally`, and the only part a test with no radio can
+      // observe directly: `_reading` is cleared on the LAST line of it, after
+      // `_armed = false`, `_host = null` and the slot release, so a null here
+      // means all of those ran too. (`_armed` cannot be pinned on its own —
+      // proving it stale needs an arm that SUCCEEDED, and `flutter_blue_plus`
+      // has no path to one under a test.)
+      await HrsLink.instance.ingestForTest('hrs-0a1b2c3d', const [
+        (1_800_000_000, kHrWithTwoRr),
+      ]);
+      expect(HrsLink.instance.reading.value, isNotNull,
+          reason: 'a replayed beat is what there is to leave behind');
+
+      HrsLink.failTeardownForTest = () => throw StateError('tail flush failed');
+      // The error still reaches the caller — someone awaiting a flush before
+      // reading the session back must learn it failed. It just no longer takes
+      // the state with it.
+      await expectLater(
+          HrsLink.instance.disarm(), throwsA(isA<StateError>()));
+      expect(HrsLink.instance.reading.value, isNull,
+          reason: 'a number left on screen after the link died is a lie');
+    });
+
+    test('an arm chained on a FAILING teardown still runs', () async {
+      HrsLink.failTeardownForTest = () => throw StateError('tail flush failed');
+      final d = HrsLink.instance.disarm();
+      final a = HrsLink.instance.arm(); // chains on that teardown
+      // The disarm's own caller still learns the flush failed. That error is
+      // theirs — which is exactly why the arm must not inherit it.
+      await expectLater(d, throwsA(isA<StateError>()));
+      // `teardown.then((_) => arm())` had no `onError`: the chain broke, the
+      // arm never ran, and a caller that only asked to be armed got the
+      // flush's StateError thrown at it instead of an answer.
+      expect(await a, isFalse);
+      await expectNoSlotLeak();
+    });
+
+    test('a WHOOP-only install still exits before it touches anything',
+        () async {
+      // No `ble_hrs` row at all — the single-device case, which must reach the
+      // same early return it always did: no slot taken, no connect, no state.
+      await LocalDb.deleteDevice('hrs-0a1b2c3d');
+      expect(await HrsLink.pairedSensorRow(), isNull);
+      expect(await HrsLink.instance.arm(), isFalse);
+      await expectNoSlotLeak();
     });
   });
 }

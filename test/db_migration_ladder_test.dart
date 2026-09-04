@@ -1255,4 +1255,280 @@ void main() {
       expect(await LocalDb.deviceRow(), isNull);
     },
   );
+
+  test(
+    'v50 adds device_coverage + signal_priority, both empty, idempotent reopen',
+    () async {
+      const name = 'migrate_v50_device_coverage_test.db';
+      created.add(name);
+      await _seedOldDb(name, 50, _v5DerivedDdl);
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+
+      expect(await db.query('device_coverage'), isEmpty);
+      expect(await db.query('signal_priority'), isEmpty);
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+
+      // Reopening (same-version repair pass) must not throw or duplicate.
+      await LocalDb.close();
+      LocalDb.lastRebuild = null;
+      LocalDb.dbName = name;
+      final db2 = await LocalDb.instance;
+      expect(LocalDb.lastRebuild, isNull);
+      expect(await db2.query('device_coverage'), isEmpty);
+      expect(await db2.query('signal_priority'), isEmpty);
+    },
+  );
+
+  test(
+    'v50 gives device.role/.wearing: the primary row becomes role=primary, '
+    'wearing=1 everywhere',
+    () async {
+      const name = 'migrate_v50_device_role_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        50,
+        [
+          '''
+          CREATE TABLE device (
+            id TEXT PRIMARY KEY, adapter_id TEXT, remote_id TEXT,
+            label TEXT, tier TEXT,
+            first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL
+          )
+          ''',
+          ..._v5DerivedDdl,
+        ],
+        seedRows: (db) async {
+          await db.insert('device', {
+            'id': '',
+            'first_seen': 1786000000,
+            'last_seen': 1786000000,
+          });
+          await db.insert('device', {
+            'id': 'second-strap',
+            'first_seen': 1786000000,
+            'last_seen': 1786000000,
+          });
+        },
+      );
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+      final rows = await db.query('device', orderBy: 'id ASC');
+      expect(rows.length, 2);
+      final byId = {for (final r in rows) r['id']: r};
+      expect(byId['']!['role'], 'primary');
+      expect(byId['second-strap']!['role'], 'paired');
+      expect([for (final r in rows) r['wearing']], [1, 1]);
+    },
+  );
+
+  test(
+    'v50 re-keys raw_archive / band_events / events / band_battery onto '
+    'device_id without losing a row, restores their indexes, and a second '
+    'open is idempotent',
+    () async {
+      const name = 'migrate_v50_rekey_test.db';
+      created.add(name);
+      await _seedOldDb(
+        name,
+        50,
+        [
+          '''
+          CREATE TABLE raw_archive (
+            hex TEXT PRIMARY KEY, counter INTEGER, packet_type INTEGER NOT NULL,
+            rec_ts INTEGER, captured_at INTEGER NOT NULL, reason TEXT NOT NULL
+          )
+          ''',
+          '''
+          CREATE TABLE band_events (
+            hex TEXT PRIMARY KEY, event_id INTEGER NOT NULL, name TEXT NOT NULL,
+            ts INTEGER NOT NULL, payload_json TEXT NOT NULL DEFAULT '{}',
+            captured_at INTEGER NOT NULL
+          )
+          ''',
+          '''
+          CREATE TABLE events (
+            hex TEXT PRIMARY KEY, event_id INTEGER, ts INTEGER,
+            captured_at INTEGER NOT NULL
+          )
+          ''',
+          '''
+          CREATE TABLE band_battery (
+            ts INTEGER NOT NULL, battery_pct REAL, charging INTEGER,
+            wrist_on INTEGER, millivolts INTEGER, charge_units INTEGER,
+            source TEXT NOT NULL, PRIMARY KEY (ts, source)
+          )
+          ''',
+          ..._v5DerivedDdl,
+        ],
+        seedRows: (db) async {
+          await db.insert('raw_archive', {
+            'hex': 'aa01', 'counter': 1, 'packet_type': 0x2F,
+            'rec_ts': 1786000001, 'captured_at': 1786000001000,
+            'reason': 'undecodable_rec_v99',
+          });
+          await db.insert('band_events', {
+            'hex': 'bb01', 'event_id': 56, 'name': 'alarmSet',
+            'ts': 1786000002, 'captured_at': 1786000002000,
+          });
+          await db.insert('events', {
+            'hex': 'cc01', 'event_id': 56, 'ts': 1786000003,
+            'captured_at': 1786000003000,
+          });
+          await db.insert('band_battery', {
+            'ts': 1786000004, 'battery_pct': 88.0, 'charging': 0,
+            'wrist_on': 1, 'source': 'band_event',
+          });
+        },
+      );
+
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+
+      for (final t in const [
+        'raw_archive', 'band_events', 'events', 'band_battery',
+      ]) {
+        final rows = await db.query(t);
+        expect(rows.length, 1, reason: '$t row count must be unchanged');
+        expect(rows.single['device_id'], LocalDb.kPrimaryDeviceId,
+            reason: '$t migrated row must belong to the primary device');
+      }
+
+      final indexNames = [
+        for (final r in await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='index'",
+        ))
+          r['name'] as String,
+      ];
+      for (final ix in const [
+        'idx_raw_archive_captured',
+        'idx_band_events_ts',
+        'idx_band_battery_ts',
+        'idx_events_ts',
+      ]) {
+        expect(indexNames, contains(ix));
+      }
+      expect(indexNames.where((n) => n.contains('_v51')), isEmpty,
+          reason: 'no leftover temp-named indexes');
+
+      // Idempotent second open: nothing re-rekeys or re-drops.
+      await LocalDb.close();
+      LocalDb.lastRebuild = null;
+      LocalDb.dbName = name;
+      final db2 = await LocalDb.instance;
+      expect(LocalDb.lastRebuild, isNull);
+      for (final t in const [
+        'raw_archive', 'band_events', 'events', 'band_battery',
+      ]) {
+        expect((await db2.query(t)).length, 1);
+      }
+    },
+  );
+
+  test(
+    'THE M3 GATE: re-ingesting an already-migrated event under a second '
+    'device leaves two rows, and re-inserting the first device\'s leaves it '
+    'still two',
+    () async {
+      const name = 'migrate_v50_dedupe_regression_test.db';
+      created.add(name);
+      await _seedOldDb(name, 50, _v5DerivedDdl);
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+
+      Future<void> insertAs(String deviceId) => db.insert('band_events', {
+            'device_id': deviceId,
+            'hex': 'shared-hex',
+            'event_id': 56,
+            'name': 'alarmSet',
+            'ts': 1786000010,
+            'captured_at': 1786000010000,
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      Future<void> insertEventsAs(String deviceId) =>
+          db.insert('events', {
+            'device_id': deviceId,
+            'hex': 'shared-hex',
+            'event_id': 56,
+            'ts': 1786000010,
+            'captured_at': 1786000010000,
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      await insertAs('');
+      await insertEventsAs('');
+      await insertAs('device-b');
+      await insertEventsAs('device-b');
+      expect(await db.query('band_events'), hasLength(2));
+      expect(await db.query('events'), hasLength(2));
+
+      // Re-ingest the first device's — must not create a third row.
+      await insertAs('');
+      await insertEventsAs('');
+      expect(await db.query('band_events'), hasLength(2));
+      expect(await db.query('events'), hasLength(2));
+    },
+  );
+
+  test(
+    'raw_archive: two devices sharing a byte-identical undecodable frame '
+    'both survive, and a re-flood from one device still dedups',
+    () async {
+      const name = 'migrate_v50_archive_cross_device_test.db';
+      created.add(name);
+      await _seedOldDb(name, 50, _v5DerivedDdl);
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+
+      Future<void> archiveAs(String deviceId) => db.insert('raw_archive', {
+            'device_id': deviceId,
+            'hex': 'deadbeef',
+            'counter': 1,
+            'packet_type': 0x2F,
+            'rec_ts': 1786000020,
+            'captured_at': 1786000020000,
+            'reason': 'undecodable_rec_v99',
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+      await archiveAs('');
+      await archiveAs('device-b');
+      expect(await db.query('raw_archive'), hasLength(2));
+
+      await archiveAs(''); // re-flood
+      expect(await db.query('raw_archive'), hasLength(2));
+    },
+  );
+
+  test(
+    'redriveArchivedRecords after the v50 rekey recovers BOTH devices\' '
+    'copy of an identical re-drivable frame',
+    () async {
+      const name = 'migrate_v50_archive_redrive_test.db';
+      created.add(name);
+      await _seedOldDb(name, 50, _v5DerivedDdl);
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final db = await LocalDb.instance;
+
+      const hex =
+          '2f128000394801a6e5776a0040008300000000000000000000616d0d85830000'
+          'fff678893fcd5b1ac07b9466bd8fb2b23e0d8eb20000000000000000001e0131'
+          '01570c500b010c020c0100000000000000000000000000000000000000000000'
+          '010053748080000000fcaf98c0000000';
+      for (final deviceId in const ['', 'device-b']) {
+        await db.insert('raw_archive', {
+          'device_id': deviceId,
+          'hex': hex,
+          'counter': 21510400,
+          'packet_type': 0x2F,
+          'captured_at': 1786242475895,
+          'reason': 'undecodable_rec_v18',
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+
+      expect(await LocalDb.redriveArchivedRecords(db), 2,
+          reason: 'both devices\' identical frame must decode, not just one');
+    },
+  );
 }

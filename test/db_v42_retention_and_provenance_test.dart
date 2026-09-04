@@ -252,9 +252,12 @@ void main() {
     await _useFreshDb('v42_band_events_test.db');
     const old = 1000;
     // Two transitions and one chatty event, all well behind the cutoff.
-    await LocalDb.insertEvent(proto.EventId.wristOff, old, 'aa01');
-    await LocalDb.insertEvent(proto.EventId.wristOn, old + 100, 'aa02');
-    await LocalDb.insertEvent(33, old + 50, 'aa03');
+    await LocalDb.insertEvent(proto.EventId.wristOff, old, 'aa01',
+        deviceId: LocalDb.kPrimaryDeviceId);
+    await LocalDb.insertEvent(proto.EventId.wristOn, old + 100, 'aa02',
+        deviceId: LocalDb.kPrimaryDeviceId);
+    await LocalDb.insertEvent(33, old + 50, 'aa03',
+        deviceId: LocalDb.kPrimaryDeviceId);
 
     await LocalDb.pruneDecodedBeforeRecTs(old + 10000);
 
@@ -270,10 +273,64 @@ void main() {
     );
     // The point of keeping them: the off-wrist span detectNaps rejects against
     // is still reconstructable long after the substrate is gone.
-    expect(await LocalDb.wristOffSpans(old - 10, old + 200), [
-      [old, old + 100],
-    ]);
+    expect(
+      await LocalDb.wristOffSpans(old - 10, old + 200,
+          deviceId: LocalDb.kPrimaryDeviceId),
+      [
+        [old, old + 100],
+      ],
+    );
   });
+
+  test(
+    'wristOffSpans/chargingSpans are scoped per device: band B charging '
+    'does not mask band A\'s worn night',
+    () async {
+      await _useFreshDb('v42_span_scoping_test.db');
+      const t = 5000;
+      final db = await LocalDb.instance;
+      Future<void> bandEvent(String deviceId, int eventId, int ts) =>
+          db.insert('band_events', {
+            'device_id': deviceId,
+            'hex': '$deviceId-$eventId-$ts',
+            'event_id': eventId,
+            'name': proto.EventId.name(eventId),
+            'ts': ts,
+            'captured_at': ts * 1000,
+          });
+
+      // Device A: wrist off [t, t+50). Device B: charging on [t, t+50).
+      await bandEvent('device-a', proto.EventId.wristOff, t);
+      await bandEvent('device-a', proto.EventId.wristOn, t + 50);
+      await bandEvent('device-b', proto.EventId.chargingOn, t);
+      await bandEvent('device-b', proto.EventId.chargingOff, t + 50);
+
+      expect(
+        await LocalDb.wristOffSpans(t - 10, t + 100, deviceId: 'device-a'),
+        [
+          [t, t + 50],
+        ],
+      );
+      expect(
+        await LocalDb.wristOffSpans(t - 10, t + 100, deviceId: 'device-b'),
+        isEmpty,
+        reason: 'device B never went off-wrist',
+      );
+      expect(
+        await LocalDb.chargingSpans(t - 10, t + 100, deviceId: 'device-b'),
+        [
+          [t, t + 50],
+        ],
+      );
+      expect(
+        await LocalDb.chargingSpans(t - 10, t + 100, deviceId: 'device-a'),
+        isEmpty,
+        reason: 'device A was never on the charger — the bug this fixes '
+            'is device B\'s charging spans suppressing device A\'s real '
+            'worn night',
+      );
+    },
+  );
 
   test('raw_archive thins to a 1-in-60 sample behind the retention edge',
       () async {

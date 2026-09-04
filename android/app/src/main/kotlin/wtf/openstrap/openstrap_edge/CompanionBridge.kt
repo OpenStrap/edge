@@ -14,6 +14,8 @@ import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
 import io.flutter.plugin.common.MethodChannel
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * CompanionDeviceManager (CDM) integration.
@@ -35,17 +37,67 @@ import io.flutter.plugin.common.MethodChannel
  * from API 31. Below those we silently degrade (the foreground service + sticky
  * restart still work).
  */
+
+/**
+ * Pure request-code bookkeeping for in-flight CDM associations, keyed by uppercased MAC.
+ *
+ * Extracted from [CompanionBridge] so the attribution logic — the actual bug fixed here —
+ * is testable with plain JUnit, with no Android framework/Robolectric dependency.
+ *
+ * WAS a single `@Volatile pendingMac: String?` on [CompanionBridge]. Two concurrent
+ * `associate()` calls overwrote each other, so the loser's MAC never reached
+ * `startObservingDevicePresence` and that device got no OS presence relaunch — with every
+ * log line still reading as success. Two calls is not hypothetical: `_persistPaired` fires
+ * `associateCompanion` fire-and-forget per device.
+ */
+internal class PendingAssociations {
+    /** One in-flight association: the chooser request code and the Flutter reply. */
+    class Entry(val requestCode: Int, val result: MethodChannel.Result?)
+
+    // ConcurrentHashMap because `associate` runs on the platform thread and
+    // `handleActivityResult` on the main thread.
+    private val pending = ConcurrentHashMap<String, Entry>()
+
+    /**
+     * Chooser request codes are allocated from this base so a result can be traced back
+     * to its MAC. The FIRST allocation is the base itself, which is the value this code
+     * has always used — a single-device pairing sends the identical request code it did
+     * before.
+     */
+    private val nextSlot = AtomicInteger(0)
+
+    /** Already has a dialog in flight for [mac]? (idempotence check for `associate`). */
+    fun inFlight(mac: String): Boolean = pending.containsKey(mac)
+
+    /** Allocate a request code and record [mac] as in-flight. */
+    fun begin(mac: String, result: MethodChannel.Result?, base: Int, span: Int): Int {
+        val code = base + (nextSlot.getAndIncrement() % span)
+        pending[mac] = Entry(code, result)
+        return code
+    }
+
+    fun requestCodeFor(mac: String): Int? = pending[mac]?.requestCode
+
+    fun remove(mac: String) {
+        pending.remove(mac)
+    }
+
+    /** The MAC awaiting [requestCode], if any — does not remove it. */
+    fun macFor(requestCode: Int): String? =
+        pending.entries.firstOrNull { it.value.requestCode == requestCode }?.key
+}
+
 object CompanionBridge {
     private const val TAG = "CompanionBridge"
+
     private const val REQUEST_CODE_ASSOCIATE = 0x4A11
+    private const val REQUEST_CODE_SPAN = 16
 
     /** The visible Activity, registered by MainActivity (needed to launch the CDM dialog). */
     @Volatile
     var currentActivity: Activity? = null
 
-    // MAC waiting for the user to accept the CDM dialog (completed in onActivityResult).
-    @Volatile
-    private var pendingMac: String? = null
+    private val pending = PendingAssociations()
 
     private fun manager(context: Context): CompanionDeviceManager? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
@@ -96,6 +148,14 @@ object CompanionBridge {
             result.success("no_activity")
             return
         }
+        // Idempotence per MAC: a second associate for a MAC whose dialog is already up
+        // is the duplicate this map exists to notice, not a reason to launch a second
+        // chooser for the same device.
+        if (pending.inFlight(upper)) {
+            result.success("dialog_shown")
+            return
+        }
+        pending.begin(upper, result, REQUEST_CODE_ASSOCIATE, REQUEST_CODE_SPAN)
         try {
             val scanFilter = ScanFilter.Builder().setDeviceAddress(upper).build()
             val deviceFilter = BluetoothLeDeviceFilter.Builder()
@@ -103,72 +163,85 @@ object CompanionBridge {
                 .build()
             val request = AssociationRequest.Builder()
                 .addDeviceFilter(deviceFilter)
+                // setSingleDevice(true) STAYS: the filter is already pinned to one MAC,
+                // so the clean one-tap dialog is correct and was never the bug.
                 .setSingleDevice(true)
                 .build()
-            pendingMac = upper
             @Suppress("DEPRECATION") // non-Executor overload: valid on all supported APIs
             dm.associate(request, object : CompanionDeviceManager.Callback() {
                 @Deprecated("Deprecated in API 33; still delivered on 26–32")
                 override fun onDeviceFound(chooserLauncher: IntentSender) {
-                    launchChooser(chooserLauncher, result)
+                    launchChooser(upper, chooserLauncher, result)
                 }
 
                 // API 33+ path (default impl would forward to onDeviceFound, but be explicit).
                 override fun onAssociationPending(intentSender: IntentSender) {
-                    launchChooser(intentSender, result)
+                    launchChooser(upper, intentSender, result)
                 }
 
                 override fun onAssociationCreated(associationInfo: AssociationInfo) {
                     // Some OS builds skip the pending step when the device was
                     // associated before. Nothing to launch — just observe.
-                    Log.i(TAG, "association created: ${associationInfo.id}")
+                    Log.i(TAG, "association created for $upper: ${associationInfo.id}")
+                    pending.remove(upper)
                     startObserving(context, upper)
                     try { result.success("associated") } catch (_: Exception) {}
                 }
 
                 override fun onFailure(error: CharSequence?) {
-                    Log.w(TAG, "association failed: $error")
-                    pendingMac = null
+                    Log.w(TAG, "association failed for $upper: $error")
+                    pending.remove(upper)
                     try { result.success("failed: $error") } catch (_: Exception) {}
                 }
             }, null)
         } catch (e: Exception) {
-            Log.w(TAG, "associate threw: $e")
-            pendingMac = null
+            Log.w(TAG, "associate threw for $upper: $e")
+            pending.remove(upper)
             result.success("error: $e")
         }
     }
 
-    private fun launchChooser(sender: IntentSender, result: MethodChannel.Result) {
+    private fun launchChooser(mac: String, sender: IntentSender, result: MethodChannel.Result) {
         val activity = currentActivity
-        if (activity == null) {
-            pendingMac = null
+        val code = pending.requestCodeFor(mac)
+        if (activity == null || code == null) {
+            pending.remove(mac)
             try { result.success("no_activity") } catch (_: Exception) {}
             return
         }
         try {
-            activity.startIntentSenderForResult(sender, REQUEST_CODE_ASSOCIATE, null, 0, 0, 0)
+            activity.startIntentSenderForResult(sender, code, null, 0, 0, 0)
             try { result.success("dialog_shown") } catch (_: Exception) {}
         } catch (e: Exception) {
-            Log.w(TAG, "chooser launch failed: $e")
-            pendingMac = null
+            Log.w(TAG, "chooser launch failed for $mac: $e")
+            pending.remove(mac)
             try { result.success("error: $e") } catch (_: Exception) {}
         }
     }
 
     /**
      * MainActivity forwards its activity results here. Returns true when the result was
-     * the CDM association dialog (consumed).
+     * one of OUR association dialogs (consumed) — resolved through the pending map, so a
+     * second device's dialog result can never be credited to the first device's MAC.
      */
     fun handleActivityResult(context: Context, requestCode: Int, resultCode: Int): Boolean {
-        if (requestCode != REQUEST_CODE_ASSOCIATE) return false
-        val mac = pendingMac
-        pendingMac = null
-        if (resultCode == Activity.RESULT_OK && mac != null) {
+        if (requestCode < REQUEST_CODE_ASSOCIATE ||
+            requestCode >= REQUEST_CODE_ASSOCIATE + REQUEST_CODE_SPAN) return false
+        val mac = pending.macFor(requestCode)
+        // In range but unknown: our own dialog whose entry was already dropped (process
+        // recreated the Activity, or a failure path cleared it). Consume it — forwarding
+        // it to super would offer it to plugins as if it were theirs — but attribute
+        // nothing.
+        if (mac == null) {
+            Log.i(TAG, "association result $requestCode has no pending entry — ignored")
+            return true
+        }
+        pending.remove(mac)
+        if (resultCode == Activity.RESULT_OK) {
             Log.i(TAG, "companion association accepted for $mac")
             startObserving(context, mac)
         } else {
-            Log.i(TAG, "companion association declined/cancelled (code=$resultCode)")
+            Log.i(TAG, "companion association declined/cancelled for $mac (code=$resultCode)")
         }
         return true
     }

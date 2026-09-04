@@ -45,6 +45,8 @@
 
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
+import 'signals.dart';
+
 /// GATT Heart Rate Service and its Heart Rate Measurement characteristic.
 /// Written out in full 128-bit form rather than the 16-bit shorthand: the
 /// shorthand's expansion is a platform detail we should not depend on.
@@ -243,6 +245,14 @@ class BandEntry {
   /// WHOOP 4 that emits one is silently dropped on the floor.
   final bool logsConsoleOutput;
 
+  /// Extra scan-time name match for a band that advertises its name but not
+  /// (reliably) its service UUID. Null for a band with no such fallback.
+  ///
+  /// This is the per-entry replacement for the `name.contains('whoop')`
+  /// literal `scan()` used to carry directly — see `transport.dart`. Takes
+  /// the ALREADY-LOWERCASED platform name.
+  final bool Function(String lowercaseName)? nameMatcher;
+
   /// A framed WHOOP-family band: an envelope, a command characteristic, and a
   /// flash the offload engine trims.
   const BandEntry.framed({
@@ -260,6 +270,7 @@ class BandEntry {
     this.setClockDriftGated = false,
     this.burstCountGateEnforced = false,
     this.logsConsoleOutput = false,
+    this.nameMatcher,
   })  : _requiredCharacteristics = requiredCharacteristics,
         _commands = commands,
         _service = null,
@@ -290,6 +301,7 @@ class BandEntry {
         setClockDriftGated = false,
         burstCountGateEnforced = false,
         logsConsoleOutput = false,
+        nameMatcher = null,
         innerOpcodeOffset = -1,
         innerVersionOffset = -1,
         innerCounterOffset = -1;
@@ -315,6 +327,8 @@ class BandEntry {
   int get frameOpcodeIndex => wire!.headerLen + innerOpcodeOffset;
 }
 
+bool _nameContainsWhoop(String lowercaseName) => lowercaseName.contains('whoop');
+
 /// WHOOP 4 ("Harvard", 6108xxxx).
 ///
 /// Every value below is the gen4 arm of an `isGen5` branch that used to live in
@@ -334,6 +348,10 @@ const BandEntry kWhoopGen4 = BandEntry.framed(
   setClockDriftGated: false,
   burstCountGateEnforced: false,
   logsConsoleOutput: false,
+  // A gen4 sometimes advertises its name but not a matchable service UUID —
+  // see `transport.dart`'s scan(). WHOOP 5 has no such fallback: its `fd4b`
+  // member UUID is reliable.
+  nameMatcher: _nameContainsWhoop,
   commands: BandWireCommands(
     hello: Cmd.getHelloHarvard,
     helloBody: <int>[0x00],
@@ -441,3 +459,52 @@ final List<BandEntry> kFramedBands =
 /// a [BandProfile] rather than an entry.
 BandEntry bandEntryFor(BandProfile wire) =>
     kBandRegistry.firstWhere((e) => e.wire?.type == wire.type);
+
+/// `BandAdapter.signals`, by `device.adapter_id` — what M6's per-device
+/// filter (final-plan §6.1, §6.5) reads with no query at all.
+///
+/// DRIFT FROM THE OBVIOUS `Map<String, BandAdapter>` SHAPE (M1 did not add
+/// this — verified via grep, zero matches — so M6 adds it here per §1's own
+/// fallback instruction). `WhoopFramedAdapter` needs a live `BleEngine` to
+/// construct (`whoop_gen4.dart`) and there is no such instance at this
+/// static, top-level scope; `OuraAdapter` needs a pairing key. Every adapter's
+/// `signals` getter is a plain literal with no computed dependency, so this
+/// maps straight to the declared signals instead of a constructed instance —
+/// KEPT IN SYNC BY HAND with `whoop_gen4.dart`'s `kWhoopGen4Signals`,
+/// `ble_hrs.dart`'s `BleHrsAdapter.signals` and `oura.dart`'s
+/// `OuraAdapter.signals`, since importing those three back into this file
+/// (each of which already imports THIS file for its `BandEntry`) would be a
+/// needless import cycle for three lines of data.
+///
+/// gen5 reuses gen4's map: `kWhoopGen5`'s own doc comment states "same inner
+/// payload layout as gen4 — only the envelope differs", so gen4's declared
+/// signal set is the verified fact for gen5 too, not a guess.
+const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
+    <String, Map<InputSignal, Duration>>{
+  'gen4': {
+    InputSignal.hr1Hz: Duration(seconds: 1),
+    InputSignal.rrIntervals: Duration(seconds: 1),
+    InputSignal.accel1Hz: Duration(seconds: 1),
+    InputSignal.ppgRedIr: Duration(seconds: 1),
+    InputSignal.skinTempRaw: Duration(seconds: 1),
+  },
+  'gen5': {
+    InputSignal.hr1Hz: Duration(seconds: 1),
+    InputSignal.rrIntervals: Duration(seconds: 1),
+    InputSignal.accel1Hz: Duration(seconds: 1),
+    InputSignal.ppgRedIr: Duration(seconds: 1),
+    InputSignal.skinTempRaw: Duration(seconds: 1),
+  },
+  'ble_hrs': {
+    InputSignal.hrSparse: Duration(seconds: 1),
+    InputSignal.rrIntervals: Duration(seconds: 1),
+  },
+  'oura': <InputSignal, Duration>{},
+};
+
+/// The signals one adapter declares, or empty for an id this build has no
+/// entry for — mirrors `bandLabelFor`'s null-is-honest shape
+/// (`devices.dart:122-127`): an unknown device is never quietly filed under
+/// the nearest one we know.
+Set<InputSignal> declaredSignals(String? adapterId) =>
+    kAdapterSignals[adapterId]?.keys.toSet() ?? const {};
