@@ -458,7 +458,7 @@ const BandEntry kOura = BandEntry.notify(
 /// same role `_nameContainsWhoop` plays for WHOOP 4. Takes the
 /// already-lowercased name.
 bool _looksLikeColmi(String lowercaseName) =>
-    RegExp(r'^r0\d_').hasMatch(lowercaseName) ||
+    RegExp(r'^(?:r02_|r03_|r06_|r09_)').hasMatch(lowercaseName) ||
     lowercaseName.startsWith('colmi r10_');
 
 /// Colmi smart ring family (advertised as `R02_*`, `R03_*`, `R06_*`, `R09_*`,

@@ -320,12 +320,22 @@ class HrsLink {
     // `withServices` filter below already excluded from the scan entirely —
     // only a real scan against real hardware settles whether that filter
     // ever does.
-    String? entryIdFor(List<Guid> advertised, String lowercaseName) {
+    // Split from the genuine service match on purpose: a name match is the
+    // same kind of guess the comment above already warns about, and caching
+    // it into `confirmed` would make it permanent the same way. Only
+    // [serviceMatchFor] is safe to lock in — a peripheral's GATT identity
+    // does not change mid-scan, but its advertised name matching a pattern
+    // is not proof of anything and gets re-tried every advertisement instead.
+    String? serviceMatchFor(List<Guid> advertised) {
       for (final g in advertised) {
         for (final e in entries) {
           if (g == Guid(e.service)) return e.id;
         }
       }
+      return null;
+    }
+
+    String? nameMatchFor(String lowercaseName) {
       for (final e in entries) {
         if (e.nameMatcher?.call(lowercaseName) ?? false) return e.id;
       }
@@ -359,15 +369,14 @@ class HrsLink {
         // Re-attempted on EVERY advertisement until one confirms, then fixed:
         // a confirmed match cannot change (a peripheral does not swap GATT
         // identity mid-scan) and re-reading it would only add work.
+        final svcMatch = serviceMatchFor(r.advertisementData.serviceUuids);
+        if (svcMatch != null) confirmed[id] = svcMatch;
         final match = confirmed[id] ??
-            entryIdFor(
-              r.advertisementData.serviceUuids,
-              (r.advertisementData.advName.isNotEmpty
-                      ? r.advertisementData.advName
-                      : r.device.platformName)
-                  .toLowerCase(),
-            );
-        if (match != null) confirmed[id] = match;
+            svcMatch ??
+            nameMatchFor((r.advertisementData.advName.isNotEmpty
+                    ? r.advertisementData.advName
+                    : r.device.platformName)
+                .toLowerCase());
         final now = (
           device: r.device,
           label: label,

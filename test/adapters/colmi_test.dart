@@ -14,7 +14,7 @@ import 'package:openstrap_edge/ble/adapters/colmi.dart';
 /// one-frame reply (tagged with the request's own command id), then ends.
 /// Enough to exercise the write/collect loop without hand-building a
 /// multi-packet history reply.
-Future<List<BandEvent>> _replay({
+Future<({List<BandEvent> events, List<(String, List<int>)> writes})> _replay({
   required int Function() nowSeconds,
   Duration quietTimeout = const Duration(milliseconds: 20),
 }) async {
@@ -48,8 +48,14 @@ Future<List<BandEvent>> _replay({
   await done.future.timeout(const Duration(seconds: 5));
   await sub.cancel();
   await link.close();
-  return events;
+  return (events: events, writes: link.writes);
 }
+
+/// [value] as 5 little-endian bytes, matching `colmi.dart`'s own private
+/// `_leBytes5` (not reachable from here — library-private per file, not per
+/// package) byte for byte.
+List<int> _leBytes5(int value) =>
+    List<int>.generate(5, (i) => (value >> (8 * i)) & 0xff);
 
 void main() {
   test('a frame checksums as the low byte of the sum of bytes 0-14', () {
@@ -86,7 +92,9 @@ void main() {
 
   test('a paged history walk writes a day-cursor request per command and '
       'banks every reply as raw, decoding nothing', () async {
-    final events = await _replay(nowSeconds: () => 1_800_000_000);
+    const nowSeconds = 1_800_000_000;
+    final result = await _replay(nowSeconds: () => nowSeconds);
+    final events = result.events;
     final samples = [
       for (final e in events)
         if (e is SampleBatch) ...e.samples,
@@ -108,14 +116,54 @@ void main() {
     // the host reads a rolling window on its own schedule, same as a
     // notify-only sensor.
     expect(events.whereType<OffloadCheckpoint>(), isEmpty);
+
+    // The exact write sequence: one battery request, then 7 days of
+    // [hr, stress, hrv, activity], each on the write characteristic. This is
+    // the assertion the event-only checks above cannot make — it fails the
+    // moment the history loop is shortened, skipped, or reordered while the
+    // battery request alone still produces an event.
+    final writes = result.writes;
+    expect(writes, hasLength(1 + 7 * 4));
+    for (final (uuid, _) in writes) {
+      expect(uuid, kColmiWriteChar);
+    }
+    expect(writes[0].$2, colmiFrame(kColmiCmdBattery));
+
+    for (var day = 0; day < 7; day++) {
+      final base = 1 + day * 4;
+      final dayTs = nowSeconds - day * 86400;
+      expect(writes[base].$2, colmiFrame(kColmiCmdHrHistory, <int>[day, ..._leBytes5(dayTs)]));
+      expect(writes[base + 1].$2, colmiFrame(kColmiCmdStressHistory, <int>[day]));
+      expect(writes[base + 2].$2, colmiFrame(kColmiCmdHrvHistory, <int>[day]));
+
+      final date = DateTime.fromMillisecondsSinceEpoch(dayTs * 1000, isUtc: false);
+      expect(
+        writes[base + 3].$2,
+        colmiFrame(kColmiCmdActivityHistory, <int>[
+          colmiBcd(date.year % 100),
+          colmiBcd(date.month),
+          colmiBcd(date.day),
+        ]),
+      );
+    }
   });
 
   test('cursor is deterministic off the injected clock, never a real one',
       () async {
-    final events = await _replay(nowSeconds: () => 1_800_000_000);
-    // Every write this adapter made is reconstructible from the fixed clock —
-    // proven by the fact the fake link's reply loop above (matching purely on
-    // "a new write landed") was enough for every command to get answered.
-    expect(events, isNotEmpty);
+    // Two independent replays off the SAME injected clock produce the
+    // BYTE-IDENTICAL write sequence — proof the day-cursor bytes come only
+    // from [nowSeconds], never `DateTime.now()`.
+    const nowSeconds = 1_800_000_000;
+    final a = await _replay(nowSeconds: () => nowSeconds);
+    final b = await _replay(nowSeconds: () => nowSeconds);
+    expect(
+      a.writes.map((w) => w.$2).toList(),
+      b.writes.map((w) => w.$2).toList(),
+    );
+
+    // A different injected clock moves the HR walk's timestamp bytes and the
+    // activity walk's BCD date — the cursor tracks the clock, not a fixed day.
+    final c = await _replay(nowSeconds: () => nowSeconds + 86400);
+    expect(a.writes[1].$2, isNot(c.writes[1].$2));
   });
 }
