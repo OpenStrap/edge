@@ -63,6 +63,21 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The NO1-family service, shared byte-for-byte by the TLW64 and the F1 —
+/// same service, same control/notify pair, same command bytes for every
+/// function the two have in common. The F1 additionally answers a few
+/// opcodes (realtime steps, realtime/fetch heart rate) the TLW64's firmware
+/// does not, which is a superset relationship, not a different protocol.
+const String kNo1Service = '000055ff-0000-1000-8000-00805f9b34fb';
+
+/// Host to band, one command byte per write, no length field and no
+/// checksum.
+const String kNo1ControlChar = '000033f1-0000-1000-8000-00805f9b34fb';
+
+/// Band to host. Every reply and every unprompted push share this one
+/// characteristic.
+const String kNo1NotifyChar = '000033f2-0000-1000-8000-00805f9b34fb';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -438,12 +453,32 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// The NO1-family control board: the TLW64 smartwatch and the F1 wristband,
+/// one entry for both since they answer the same service with the same
+/// command bytes (see [kNo1Service]'s own doc).
+///
+/// NOT framed: no envelope, no CRC, one command byte per write. EXPERIMENTAL
+/// and it stays that way — nobody on this project owns either device
+/// (ASSUMPTIONS R6). `signals` is `const {}` and this id is absent from
+/// `kDerivableSources`: this family readably exposes steps, sleep and (on the
+/// F1) heart rate, and none of it is decoded — see `tlw64.dart`.
+const BandEntry kNo1Band = BandEntry.notify(
+  id: 'tlw64',
+  label: 'TLW64 / NO1 F1',
+  service: kNo1Service,
+  characteristics: <String>[kNo1ControlChar, kNo1NotifyChar],
+  // Neither device's client reads its clock back to confirm it, so there is
+  // no measured origin to anchor a reading to.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kNo1Band,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +535,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'tlw64': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no
