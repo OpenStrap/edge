@@ -35,7 +35,12 @@ import 'signals.dart';
 /// The adapter. Const, and it holds no session state — everything a session
 /// needs lives inside [run].
 class QHybridAdapter extends BandAdapter {
-  const QHybridAdapter();
+  /// How long to wait for the battery-probe reply before abstaining.
+  /// Overridable only so a test does not have to sit through it — same
+  /// reason `oura.dart`'s `replyTimeout` is a constructor parameter.
+  final Duration probeTimeout;
+
+  const QHybridAdapter({this.probeTimeout = const Duration(seconds: 5)});
 
   @override
   BandEntry get entry => kQHybrid;
@@ -43,9 +48,6 @@ class QHybridAdapter extends BandAdapter {
   /// NOTHING. See the header: every frame is banked raw, undecoded.
   @override
   Map<InputSignal, Duration> get signals => const {};
-
-  /// How long to wait for the battery-probe reply before abstaining.
-  static const Duration _kProbeTimeout = Duration(seconds: 5);
 
   @override
   Stream<BandEvent> run(BandLink link) async* {
@@ -77,9 +79,9 @@ class QHybridAdapter extends BandAdapter {
         return;
       }
       final confirmed = await probeReply.future
-          .timeout(_kProbeTimeout, onTimeout: () => false);
+          .timeout(probeTimeout, onTimeout: () => false);
       if (!confirmed) {
-        link.log('qhybrid: no probe reply within ${_kProbeTimeout.inSeconds}s; '
+        link.log('qhybrid: no probe reply within ${probeTimeout.inSeconds}s; '
             'abstaining (likely the encrypted sibling protocol).');
         return;
       }
@@ -88,7 +90,15 @@ class QHybridAdapter extends BandAdapter {
       for (final s in subs) {
         await s.cancel();
       }
-      await raw.close();
+      // NOT awaited. `raw.close()`'s returned future only completes once
+      // every buffered event has been delivered to a listener — and on the
+      // abstain path (probe refused or never confirmed) nothing has EVER
+      // listened to `raw`, so awaiting it here hangs this whole method
+      // forever the moment any characteristic notifies before the probe
+      // settles. Nothing downstream needs to know `raw` finished draining;
+      // the subscriptions above are already cancelled, which is the real
+      // teardown.
+      raw.close();
     }
   }
 }
