@@ -79,42 +79,48 @@ class PineTimeLink {
         try {
           final device = BluetoothDevice.fromId(remoteId);
           await device.connect(timeout: const Duration(seconds: 20));
-          final services = await device.discoverServices();
-          final link = GattBandLink(
-            entry: kPineTime,
-            services: services,
-            onLog: (m) => debugPrint('[pinetime] $m'),
-          );
-          _link = link;
-          final missing =
-              link.missingCharacteristics(kPineTime.requiredCharacteristics);
-          if (missing.isNotEmpty) {
-            debugPrint('[pinetime] ${kPineTime.label}: missing required '
-                'characteristic(s) '
-                '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
-            // Clears `_link` too — leaving it set here is the one failure
-            // exit that skipped the same cleanup every other exit runs
-            // through `finally { await stop(); }`.
-            await stop();
-            await device.disconnect().catchError((_) {});
-            return false;
-          }
-          final host = BandHost(
-            adapter: const PineTimeAdapter(),
-            deviceId: deviceId,
-            onLog: (m) => debugPrint('[pinetime] $m'),
-          );
-          _host = host;
-          final done = host.run(link);
+          // EVERYTHING past the connect is inside this `finally` now — a
+          // throw out of `discoverServices()` or `GattBandLink(...)` used to
+          // skip the disconnect below entirely, wedging the device connected
+          // with nothing left to tear it down.
           try {
-            await done.timeout(_listenWindow, onTimeout: () {});
+            final services = await device.discoverServices();
+            final link = GattBandLink(
+              entry: kPineTime,
+              services: services,
+              onLog: (m) => debugPrint('[pinetime] $m'),
+            );
+            _link = link;
+            final missing =
+                link.missingCharacteristics(kPineTime.requiredCharacteristics);
+            if (missing.isNotEmpty) {
+              debugPrint('[pinetime] ${kPineTime.label}: missing required '
+                  'characteristic(s) '
+                  '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
+              // Clears `_link` too — leaving it set here is the one failure
+              // exit that skipped the same cleanup every other exit runs
+              // through `finally { await stop(); }`.
+              await stop();
+              return false;
+            }
+            final host = BandHost(
+              adapter: const PineTimeAdapter(),
+              deviceId: deviceId,
+              onLog: (m) => debugPrint('[pinetime] $m'),
+            );
+            _host = host;
+            final done = host.run(link);
+            try {
+              await done.timeout(_listenWindow, onTimeout: () {});
+            } finally {
+              await stop();
+            }
+            return true;
           } finally {
-            await stop();
             try {
               await device.disconnect();
             } catch (_) {/* already gone */}
           }
-          return true;
         } catch (e) {
           debugPrint('[pinetime] connect failed: $e');
           return false;
