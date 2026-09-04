@@ -63,6 +63,17 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The SMA-Q2-OSS watch's service — a board-specific UUID, not the standard
+/// Nordic UART Service its numbering resembles.
+const String kSmaq2ossService = '51be0001-c182-4f3a-9359-21337bce51f6';
+
+/// Host to watch. Every command this board answers is written here.
+const String kSmaq2ossWriteChar = '51be0002-c182-4f3a-9359-21337bce51f6';
+
+/// Watch to host, notify. Every reply and every unprompted push share this
+/// one characteristic.
+const String kSmaq2ossNotifyChar = '51be0003-c182-4f3a-9359-21337bce51f6';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -438,12 +449,32 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// The SMA-Q2-OSS, an open-hardware smartwatch.
+///
+/// NOT framed: no CRC and no inner-record layout the framed machinery's
+/// [BandEntry.innerOpcodeOffset] etc. could describe — see `smaq2oss.dart`.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and this id is absent from `kDerivableSources` — a paired
+/// watch holds a session and archives every frame it sends, and surfaces no
+/// health signal at all.
+const BandEntry kSmaq2oss = BandEntry.notify(
+  id: 'smaq2oss',
+  label: 'SMA-Q2-OSS',
+  service: kSmaq2ossService,
+  characteristics: <String>[kSmaq2ossWriteChar, kSmaq2ossNotifyChar],
+  // No clock this build reads back — every frame is stamped on arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kSmaq2oss,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +531,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'smaq2oss': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no
