@@ -37,6 +37,7 @@ import '../ble/android_background.dart';
 import '../ble/ble_engine.dart';
 import '../ble/hrs_link.dart';
 import '../ble/live_cadence.dart';
+import '../ble/polar_pmd_link.dart';
 import '../ble/live_step_runs.dart';
 import '../ble/ble_state.dart'
     show AlarmConfirmation, AlarmEffect, SyncActivityWindow;
@@ -5746,6 +5747,7 @@ class AppState extends ChangeNotifier {
     // A paired heart-rate sensor is armed by a workout and only by a workout —
     // the same rule GPS follows. No-op when nothing is paired.
     unawaited(HrsLink.instance.arm());
+    unawaited(PolarPmdLink.instance.arm());
   }
 
   /// Why route tracking is NOT running for the current route-eligible workout
@@ -5940,6 +5942,7 @@ class AppState extends ChangeNotifier {
           // kept and the gap shows honestly as a segment break.
           unawaited(_maybeStartRouteTracking(id, activeWorkout!.type));
           unawaited(HrsLink.instance.arm());
+          unawaited(PolarPmdLink.instance.arm());
           _deriveScheduler.setWorkoutActive(true);
           ScreenWake.enable();
         } else {
@@ -5994,6 +5997,7 @@ class AppState extends ChangeNotifier {
     // AWAITED, like the route tail: an unawaited disarm races the finish screen
     // and the last buffered batch of sensor beats never reaches the database.
     await HrsLink.instance.disarm();
+    await PolarPmdLink.instance.disarm();
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     final w = activeWorkout!;
@@ -6109,6 +6113,7 @@ class AppState extends ChangeNotifier {
     // AWAITED, like the route tail: an unawaited disarm races the finish screen
     // and the last buffered batch of sensor beats never reaches the database.
     await HrsLink.instance.disarm();
+    await PolarPmdLink.instance.disarm();
     ScreenWake.release();
     _deriveScheduler.setWorkoutActive(false);
     activeWorkout = null;

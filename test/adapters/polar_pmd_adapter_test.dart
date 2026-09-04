@@ -96,11 +96,18 @@ void main() {
 
   test('the START command is written before anything is read', () async {
     final link = ReplayBandLink();
-    final sub = kPolarPmdAdapter.run(link).listen((_) {});
+    final done = Completer<void>();
+    final sub = kPolarPmdAdapter.run(link).listen((_) {}, onDone: done.complete);
     await _settle();
     expect(link.writes.single, (kPolarPmdControlChar, polarPmdStartPpi()));
-    await sub.cancel();
+    // Resolved with a reply rather than left to the 5 s timeout: an
+    // uncompleted `started` future leaves its Timer running past this test's
+    // own end, which does not fail anything but bleeds 5 real seconds into
+    // whatever runs next.
+    link.feed(kPolarPmdControlChar, kStartOk, atSec: 1_800_000_000);
     await link.close();
+    await done.future.timeout(const Duration(seconds: 5));
+    await sub.cancel();
   });
 
   test('a refused START ends the session with no samples', () async {

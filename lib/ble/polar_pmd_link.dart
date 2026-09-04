@@ -16,10 +16,10 @@
 // NOTHING HERE HAS MET HARDWARE (ASSUMPTIONS R6). It ships EXPERIMENTAL, and
 // `kDerivableSources` stays empty until the owner has held one.
 //
-// NOT YET WIRED TO A WORKOUT. Nothing calls [arm]/[disarm] today — the same
-// call sites that arm `HrsLink` at workout start/stop need a matching call
-// for this link, which is a separate, deliberate follow-up (tracing every
-// caller of `HrsLink.instance.arm()` was out of scope for this change).
+// ARMED AT THE SAME CALL SITES AS `HrsLink` — every place `app_state.dart`
+// arms or disarms the heart-rate sensor now does the same for this link,
+// unconditionally: [arm] is a no-op returning false when nothing is paired,
+// same as `HrsLink.arm`.
 
 import 'dart:async';
 
