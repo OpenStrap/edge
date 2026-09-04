@@ -63,6 +63,17 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The Makibes HR3's service — the standard Nordic UART Service, reused by
+/// large numbers of unrelated gadgets, not a fingerprint on its own.
+const String kMakibesHr3Service = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Host to band. Every command this board answers is written here.
+const String kMakibesHr3ControlChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Band to host, notify. Every reply and every unprompted push share this
+/// one characteristic.
+const String kMakibesHr3ReportChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -438,12 +449,36 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// The Makibes HR3, an unbranded OEM board sold under that one storefront
+/// name.
+///
+/// NOT framed: no CRC and no inner-record layout the framed machinery's
+/// [BandEntry.innerOpcodeOffset] etc. could describe — see
+/// `makibeshr3.dart`. The service is the standard Nordic UART Service, which
+/// on its own matches large numbers of unrelated gadgets — see
+/// [kMakibesHr3Service]'s own doc.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and this id is absent from `kDerivableSources` — a paired
+/// board holds a session and archives every frame it sends, and surfaces no
+/// health signal at all.
+const BandEntry kMakibesHr3 = BandEntry.notify(
+  id: 'makibeshr3',
+  label: 'Makibes HR3',
+  service: kMakibesHr3Service,
+  characteristics: <String>[kMakibesHr3ControlChar, kMakibesHr3ReportChar],
+  // No clock this build reads back — every frame is stamped on arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kMakibesHr3,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +535,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'makibeshr3': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no
