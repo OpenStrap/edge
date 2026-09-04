@@ -15,6 +15,7 @@ import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
 import 'package:openstrap_edge/ble/adapters/oura.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
 import 'package:openstrap_edge/ble/adapters/whoop_gen4.dart';
+import 'package:openstrap_edge/ble/adapters/xwatch.dart';
 
 void main() {
   test('kAdapterSignals matches each adapter own declaration', () {
@@ -25,6 +26,7 @@ void main() {
       'gen5': kWhoopGen4Signals,
       'ble_hrs': const BleHrsAdapter().signals,
       'oura': OuraAdapter(key: const [0]).signals,
+      'xwatch': const XWatchAdapter().signals,
     };
 
     // Every registry id is covered above: a NEW adapter must extend this test,

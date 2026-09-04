@@ -63,6 +63,17 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The XWatch's service — the generic `0xfff0` custom-service pattern many
+/// unrelated boards reuse, not a fingerprint on its own.
+const String kXWatchService = '0000fff0-0000-1000-8000-00805f9b34fb';
+
+/// Host to watch. Every command this board answers is written here.
+const String kXWatchWriteChar = '0000fff6-0000-1000-8000-00805f9b34fb';
+
+/// Watch to host, notify. Every reply and every unprompted push share this
+/// one characteristic.
+const String kXWatchNotifyChar = '0000fff7-0000-1000-8000-00805f9b34fb';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -438,12 +449,32 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// The XWatch, an unbranded OEM board sold under that one storefront name.
+///
+/// NOT framed: no CRC and no inner-record layout the framed machinery's
+/// [BandEntry.innerOpcodeOffset] etc. could describe — see `xwatch.dart`.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and this id is absent from `kDerivableSources` — a paired
+/// board holds a session and archives every frame it sends, and surfaces no
+/// health signal at all.
+const BandEntry kXWatch = BandEntry.notify(
+  id: 'xwatch',
+  label: 'XWatch',
+  service: kXWatchService,
+  characteristics: <String>[kXWatchWriteChar, kXWatchNotifyChar],
+  // No clock this build reads back — every frame is stamped on arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kXWatch,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +531,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'xwatch': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no
