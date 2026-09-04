@@ -187,18 +187,39 @@ class HrsLink {
   /// written to prevent, arrived at from the other side.
   static Object? _scanOwner;
 
+  /// How long to wait for a stop to actually land before giving up on it. A
+  /// stop that will not finish must not be able to hang a pairing tap.
+  static const Duration _stopScanTimeout = Duration(seconds: 3);
+
   /// End [owner]'s scan early if it is the one actually running. No-op
   /// otherwise — when someone else holds the radio, and when [owner]'s own
   /// scan is still queued behind the lock.
+  ///
+  /// AWAIT THIS BEFORE CONNECTING. The returned future completes only once the
+  /// radio has really stopped scanning: `flutter_blue_plus`'s own `stopScan`
+  /// flips `isScanning` false and awaits the platform call, and it takes the
+  /// same "scan" mutex `startScan` does, so awaiting it also covers a stop
+  /// issued in the sliver before a start has engaged. Fire-and-forget — which
+  /// this used to be — begins the connect with the scan still tearing down,
+  /// and a connect racing a live scan is the classic Android GATT-133.
+  /// `dispose` has nothing to await with and does not need to: nothing follows
+  /// it onto the radio.
   ///
   /// ponytail: a queued scan is still not cancellable, so a dismissed screen
   /// can hold the lock for its full window doing nothing. That costs a wait,
   /// never a wrong answer, which is the direction to fail in. Give
   /// `withScanLock` a cancellation token only if a real flow needs the lock
   /// back sooner.
-  static void stopScanIfRunning(Object owner) {
+  static Future<void> stopScanIfRunning(Object owner) async {
     if (!identical(_scanOwner, owner)) return;
-    unawaited(FlutterBluePlus.stopScan());
+    try {
+      await FlutterBluePlus.stopScan().timeout(_stopScanTimeout);
+    } catch (e) {
+      // A stop that throws or will not land is not worth failing a pair over —
+      // the connect that follows is the thing the user asked for, and the scan
+      // window closes on its own timeout regardless.
+      debugPrint('[hrs] stopScan did not land: $e');
+    }
   }
 
   /// Scan for peripherals advertising [entry]'s service and report them as
@@ -347,11 +368,19 @@ class HrsLink {
       if (changed) onResults(_ranked(seen));
     });
     try {
+      // CLAIMED BEFORE THE START, not after it. `startScan` flips the radio on
+      // partway through its own body and only THEN returns, so an owner set on
+      // the line after it leaves a window where the scan is live and
+      // [stopScanIfRunning] cannot see whose it is — a screen dismissed in that
+      // window held the radio for the full 15 s doing nothing. Claiming it
+      // first cannot fail the other way either: `flutter_blue_plus` serialises
+      // `startScan`/`stopScan` through one mutex, so a stop issued in the
+      // window queues behind this start and takes effect on the way out.
+      _scanOwner = owner;
       await FlutterBluePlus.startScan(
         withServices: serviceGuids,
         timeout: timeout,
       );
-      _scanOwner = owner;
       // The scan's own timeout is what stops it; this waits that out.
       await FlutterBluePlus.isScanning.where((on) => on == false).first;
     } catch (e) {

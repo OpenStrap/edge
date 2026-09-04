@@ -104,8 +104,10 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     // scan is still queued behind `withScanLock` would end the RUNNING
     // holder's scan — which then reports "found nothing" with no error to
     // say why. Hence the `owner` token: it is this `State`, so the check is
-    // "mine", not "one of ours".
-    HrsLink.stopScanIfRunning(this);
+    // "mine", not "one of ours". Unawaited here, and only here: `dispose`
+    // cannot await one, and nothing follows it onto the radio — unlike
+    // `_pick`, where a connect does.
+    unawaited(HrsLink.stopScanIfRunning(this));
     super.dispose();
   }
 
@@ -167,6 +169,11 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     // the screen is torn down and rebuilt — the same "stuck busy" failure
     // mode a returned failure string already has a real answer for.
     final l = AppLocalizations.of(context);
+    // OUR OWN SCAN, ENDED AND WAITED OUT, before anything connects. This
+    // screen's 15 s window is very likely still running when a row is tapped,
+    // and a connect racing a live scan is the classic Android GATT-133. Read
+    // `l` above the await, because `context` after one is the lint's point.
+    await HrsLink.stopScanIfRunning(this);
     String? failure;
     try {
       failure = widget.onPicked != null

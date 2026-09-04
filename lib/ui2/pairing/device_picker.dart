@@ -97,8 +97,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     // Ends THIS screen's scan early if it is the one running — see
     // `PairSensorScreen.dispose` for why this is never a bare
     // `FlutterBluePlus.stopScan()`, and `HrsLink._scanOwner` for why the
-    // token has to be this `State` rather than a flag.
-    HrsLink.stopScanIfRunning(this);
+    // token has to be this `State` rather than a flag. Unawaited here, and
+    // only here: `dispose` cannot await one, and nothing follows it onto the
+    // radio — unlike `_pickNearby`, where a connect does.
+    unawaited(HrsLink.stopScanIfRunning(this));
     super.dispose();
   }
 
@@ -159,8 +161,12 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     // list under the finger that is already committed to one row. `PairSensor`
     // does not do this because it has one entry and a shorter list; here the
     // reorder is visible.
-    HrsLink.stopScanIfRunning(this);
+    //
+    // AWAITED, so the connect below starts on a radio that has really stopped
+    // scanning rather than one still tearing the scan down. Read before the
+    // await, because `context` after one is the lint's whole point.
     final l = AppLocalizations.of(context);
+    await HrsLink.stopScanIfRunning(this);
     String? failure;
     try {
       failure = sensor.pick != null
