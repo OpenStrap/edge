@@ -999,6 +999,10 @@
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
   },
+  "devicePickerBlurbMiband234": "A Mi Band 2, 3 or 4. Pairs and connects; nothing derives from it yet.",
+  "@devicePickerBlurbMiband234": {
+    "description": "Category row subtitle for a Mi Band 2/3/4."
+  },
   "devicePickerCannotPairFromHere": "That device cannot be paired from this screen.",
   "@devicePickerCannotPairFromHere": {
     "description": "Shown when a tapped category has no pairing step behind it."

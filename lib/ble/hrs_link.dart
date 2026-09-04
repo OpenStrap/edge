@@ -65,6 +65,7 @@ import 'ble_state.dart'
         withScanLock,
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
+import 'miband_link.dart' show MiBand234Link;
 import 'oura_link.dart' show OuraLink;
 
 export 'adapters/host.dart' show HrsReading;
@@ -566,10 +567,11 @@ class HrsLink {
   /// Refuses [LocalDb.kPrimaryDeviceId] outright: that row is the band, and
   /// unpairing the band is a different flow with a different promise.
   ///
-  /// DISPATCHES ON `adapter_id` BEFORE TOUCHING ANYTHING. An Oura row carries
-  /// a secret this class knows nothing about — [OuraLink.forgetRing] drops the
-  /// stored key and the row together, and calling `disarm()` on it here would
-  /// leave that key behind while looking like a complete forget.
+  /// DISPATCHES ON `adapter_id` BEFORE TOUCHING ANYTHING. An Oura or Mi Band
+  /// row carries a secret this class knows nothing about —
+  /// [OuraLink.forgetRing] and [MiBand234Link.forgetBand] drop the stored key
+  /// and the row together, and calling `disarm()` on either here would leave
+  /// that key behind while looking like a complete forget.
   static Future<void> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[hrs] refusing to forget the primary band from here.');
@@ -580,6 +582,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kMiBand234.id) {
+      await MiBand234Link.forgetBand(id);
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows

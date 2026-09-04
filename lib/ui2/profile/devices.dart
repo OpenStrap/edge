@@ -43,9 +43,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura, declaredSignals;
+    show BandEntry, kBandRegistry, kBleHrs, kMiBand234, kOura, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
+import '../../ble/miband_link.dart' show pairMiBand234;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
@@ -773,6 +774,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' => LucideIcons.circleDot,
+      'miband234' => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -950,6 +952,14 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kMiBand234,
+    blurb: 'A Mi Band 2, 3 or 4. It must have no key installed yet — one '
+        'still bound to Mi Fit or Zepp will refuse to pair. Unpair it from '
+        'that app first, or use a factory-reset unit. Pairs and connects; '
+        'nothing derives from it yet.',
+    pick: pairMiBand234,
   ),
 ];
 
