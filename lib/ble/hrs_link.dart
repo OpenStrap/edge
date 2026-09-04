@@ -500,6 +500,10 @@ class HrsLink {
   /// [tier] defaults to the strap's, and a band whose measurement quality
   /// differs must say so rather than inherit it — the tier is what decides
   /// precedence between two sources, so a wrong one is a silent wrong number.
+  /// NULLABLE for exactly that reason: a band that supplies no signal at all
+  /// (`entry`'s own `BandAdapter.signals` is empty) has no quality to rank,
+  /// and a caller for one must pass `tier: null` rather than inherit a
+  /// strap's — the same call `oura_link.dart`'s own custom pairing path makes.
   ///
   /// Nothing is written unless the peripheral passed the characteristic check:
   /// a row pointing at a device that cannot answer is a sensor that appears
@@ -508,7 +512,7 @@ class HrsLink {
     BandEntry entry,
     BluetoothDevice device, {
     String? label,
-    String tier = 'beatToBeat',
+    String? tier = 'beatToBeat',
   }) async {
     try {
       await device.connect(timeout: _connectTimeout);
