@@ -22,6 +22,7 @@ import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
 import '../ble/oura_link.dart';
+import '../ble/ringconn_link.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
@@ -213,16 +214,22 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       '(${BandOwnership.debugState})',
     );
     BandOwnership.release(ownedLease);
-    // Piggyback the ring on the same OS wake window, after the band work is
-    // fully done so it can never delay or interfere with WHOOP's own timing.
-    // OuraLink.sync() already no-ops when nothing is paired and never throws,
-    // but this is the one shared headless entry point (every wake source
-    // funnels through runHeadlessSync via HeadlessSyncGate) so a failure here
-    // must not be allowed to escape and mark the WHOOP cycle as errored.
+    // Piggyback paired sensors on the same OS wake window, after the band
+    // work is fully done so neither can ever delay or interfere with WHOOP's
+    // own timing. Both `sync()` calls already no-op when nothing is paired
+    // and never throw, but this is the one shared headless entry point (every
+    // wake source funnels through runHeadlessSync via HeadlessSyncGate) so a
+    // failure in either must not be allowed to escape and mark the WHOOP
+    // cycle as errored.
     try {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    try {
+      await RingConnLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] ringconn sync skipped: $e');
     }
   }
 }

@@ -53,8 +53,25 @@ import 'signals.dart';
 const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
 const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
 
+/// Device Information Service's System ID characteristic — an 8-byte EUI-64.
+/// Standard GATT, not band-specific; RingConn is the first entry that needs
+/// to read it (its own BLE MAC has to come from somewhere, and there is no
+/// vendor server to ask — see `ringconn.dart`'s `ringConnMacFromSystemId`).
+const String kSystemIdUuid = '00002a23-0000-1000-8000-00805f9b34fb';
+
 /// The Oura ring's GATT service, identical across the generations seen so far.
 const String kOuraService = '98ed0001-a541-11e4-b6a0-0002a5d5c51b';
+
+/// RingConn's one data service — Gen 2, Gen 2 Air and Gen 3 all speak the
+/// identical service, characteristics, framing and opcode set.
+const String kRingConnService = '8327ad99-2d87-4a22-a8ce-6dd7971c0437';
+
+/// Host to ring. Every RingConn command is written here, with response.
+const String kRingConnCommandChar = '8327ad98-2d87-4a22-a8ce-6dd7971c0437';
+
+/// Ring to host. Every status reply and every history page share this one
+/// characteristic — there is no separate data pipe.
+const String kRingConnNotifyChar = '8327ad97-2d87-4a22-a8ce-6dd7971c0437';
 
 /// Host to ring. Every Oura command is written here, with response.
 const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
@@ -253,6 +270,18 @@ class BandEntry {
   /// the ALREADY-LOWERCASED platform name.
   final bool Function(String lowercaseName)? nameMatcher;
 
+  /// The `device.tier` a plain notify-class pairing (`pick: null` in
+  /// `kPairableSensors`) writes for THIS band, unless the pairing call site
+  /// overrides it. Null is a refusal, not an oversight: `HealthSource.tier`
+  /// decides measurement-quality precedence between sources, and a band that
+  /// declares no [InputSignal] at all (`OuraAdapter.signals` / a future
+  /// `RingConnAdapter.signals`, both `const {}`) has no quality to rank —
+  /// see `devices.dart`'s own doc on why Oura's pairing leaves this unset.
+  /// `HrsLink.pairNotifySensor` falls back to this field exactly so a SECOND
+  /// zero-signal notify-class band does not silently inherit the first one's
+  /// hardcoded `'beatToBeat'` default.
+  final String? pairTier;
+
   /// A framed WHOOP-family band: an envelope, a command characteristic, and a
   /// flash the offload engine trims.
   const BandEntry.framed({
@@ -274,6 +303,9 @@ class BandEntry {
   })  : _requiredCharacteristics = requiredCharacteristics,
         _commands = commands,
         _service = null,
+        // Meaningless for a framed band — it never reaches
+        // `HrsLink.pairNotifySensor`, which is the only reader of this field.
+        pairTier = null,
         timeAnchor = TimeAnchor.measured;
 
   /// A notify-only sensor: one service, one or more notify characteristics, no
@@ -289,6 +321,8 @@ class BandEntry {
     required String service,
     required List<String> characteristics,
     required this.timeAnchor,
+    this.nameMatcher,
+    this.pairTier,
   })  : _service = service,
         _requiredCharacteristics = characteristics,
         gatt = null,
@@ -301,7 +335,6 @@ class BandEntry {
         setClockDriftGated = false,
         burstCountGateEnforced = false,
         logsConsoleOutput = false,
-        nameMatcher = null,
         innerOpcodeOffset = -1,
         innerVersionOffset = -1,
         innerCounterOffset = -1;
@@ -410,6 +443,10 @@ const BandEntry kBleHrs = BandEntry.notify(
   characteristics: <String>[kHeartRateMeasurementUuid],
   // The strap reports durations and has no clock. See [TimeAnchor].
   timeAnchor: TimeAnchor.arrival,
+  // Genuinely beat-to-beat: electrical R-peak detection is exactly what
+  // [SourceTier.beatToBeat] means. Written out explicitly now that a SECOND
+  // `pick: null` band exists ([kRingConn]) which must NOT inherit it.
+  pairTier: 'beatToBeat',
 );
 
 /// The Oura ring, a fetch-by-cursor band with a challenge-response handshake.
@@ -438,12 +475,52 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// RingConn (Gen 2, Gen 2 Air, Gen 3) — one service, a challenge-response
+/// handshake keyed by the ring's own BLE MAC, and two independent history
+/// channels the ring resumes on its own (this build persists no cursor for
+/// either — see `ringconn.dart` and `ringconn_link.dart`).
+///
+/// A REAL, UNRESOLVED RISK: the ring is not reliably known to advertise
+/// [kRingConnService] in its foreground scan advertisement — only its name
+/// (`RingConn Gen2-XXXX` etc). `nameMatcher` is left null here rather than
+/// guessed at: if the service prefix alone turns out not to find the ring on
+/// a live scan, this is where a name fallback belongs (see
+/// [BandEntry.framed]'s own use of one for WHOOP 4's own unreliable service
+/// ad), not something to wire blind against a ring nobody here owns.
+///
+/// [kSystemIdUuid] is listed as required rather than left to a plain GATT
+/// read against "whatever the peripheral happens to expose": the handshake's
+/// MAC recovery has nothing to fall back to without it.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns a ring,
+/// so not a byte of this path has met hardware (ASSUMPTIONS R6).
+/// [TimeAnchor.arrival] is the conservative default for a band that decodes
+/// nothing into a timestamped sample yet — see `RingConnAdapter.signals`.
+///
+/// `pairTier` is left null (its default), same reasoning as Oura's own
+/// pairing: a band with no declared signal has no measurement quality to
+/// rank. It is `pick: null` in `kPairableSensors` even so — see
+/// `BandEntry.pairTier`'s own doc for why that no longer risks inheriting
+/// [kBleHrs]'s `'beatToBeat'`.
+const BandEntry kRingConn = BandEntry.notify(
+  id: 'ringconn',
+  label: 'RingConn',
+  service: kRingConnService,
+  characteristics: <String>[
+    kRingConnCommandChar,
+    kRingConnNotifyChar,
+    kSystemIdUuid,
+  ],
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kRingConn,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -471,10 +548,11 @@ BandEntry bandEntryFor(BandProfile wire) =>
 /// `signals` getter is a plain literal with no computed dependency, so this
 /// maps straight to the declared signals instead of a constructed instance —
 /// KEPT IN SYNC BY HAND with `whoop_gen4.dart`'s `kWhoopGen4Signals`,
-/// `ble_hrs.dart`'s `BleHrsAdapter.signals` and `oura.dart`'s
-/// `OuraAdapter.signals`, since importing those three back into this file
-/// (each of which already imports THIS file for its `BandEntry`) would be a
-/// needless import cycle for three lines of data.
+/// `ble_hrs.dart`'s `BleHrsAdapter.signals`, `oura.dart`'s
+/// `OuraAdapter.signals` and `ringconn.dart`'s `RingConnAdapter.signals`,
+/// since importing those back into this file (each of which already imports
+/// THIS file for its `BandEntry`) would be a needless import cycle for a
+/// handful of lines of data.
 ///
 /// gen5 reuses gen4's map: `kWhoopGen5`'s own doc comment states "same inner
 /// payload layout as gen4 — only the envelope differs", so gen4's declared
@@ -500,6 +578,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'ringconn': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no

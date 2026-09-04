@@ -66,6 +66,7 @@ import 'ble_state.dart'
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
 import 'oura_link.dart' show OuraLink;
+import 'ringconn_link.dart' show RingConnLink;
 
 export 'adapters/host.dart' show HrsReading;
 
@@ -497,9 +498,13 @@ class HrsLink {
   /// that DOES need a key exchange supplies its own step to the screen and
   /// never calls this.
   ///
-  /// [tier] defaults to the strap's, and a band whose measurement quality
-  /// differs must say so rather than inherit it — the tier is what decides
-  /// precedence between two sources, so a wrong one is a silent wrong number.
+  /// [tier] defaults to [BandEntry.pairTier] — the registry entry's OWN
+  /// answer to "what is this band's measurement quality", so a caller that
+  /// omits it can never silently inherit some OTHER band's tier the way a
+  /// hardcoded literal default would the moment a second `pick: null` band
+  /// existed (see that field's own doc). Passing it explicitly still wins,
+  /// for the one caller that genuinely needs to say something different from
+  /// the registry's default.
   ///
   /// Nothing is written unless the peripheral passed the characteristic check:
   /// a row pointing at a device that cannot answer is a sensor that appears
@@ -508,7 +513,7 @@ class HrsLink {
     BandEntry entry,
     BluetoothDevice device, {
     String? label,
-    String tier = 'beatToBeat',
+    String? tier,
   }) async {
     try {
       await device.connect(timeout: _connectTimeout);
@@ -538,7 +543,7 @@ class HrsLink {
         adapterId: entry.id,
         remoteId: device.remoteId.str,
         label: label,
-        tier: tier,
+        tier: tier ?? entry.pairTier,
       );
       return null;
     } catch (e) {
@@ -569,7 +574,10 @@ class HrsLink {
   /// DISPATCHES ON `adapter_id` BEFORE TOUCHING ANYTHING. An Oura row carries
   /// a secret this class knows nothing about — [OuraLink.forgetRing] drops the
   /// stored key and the row together, and calling `disarm()` on it here would
-  /// leave that key behind while looking like a complete forget.
+  /// leave that key behind while looking like a complete forget. A RingConn
+  /// row carries no such secret, but still needs [RingConnLink.forgetRing]
+  /// rather than this class's own `disarm()` — that call tears down a live
+  /// WORKOUT sensor session, not a RingConn `sync()` that may be mid-drain.
   static Future<void> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[hrs] refusing to forget the primary band from here.');
@@ -580,6 +588,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kRingConn.id) {
+      await RingConnLink.forgetRing(id);
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows

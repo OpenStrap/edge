@@ -43,7 +43,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura, declaredSignals;
+    show BandEntry, kBandRegistry, kBleHrs, kOura, kRingConn, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
@@ -773,6 +773,11 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' => LucideIcons.circleDot,
+      // A generic icon-library glyph, never a brand mark (see
+      // `device_picker.dart`'s own note on that rule) — and distinct from
+      // Oura's on purpose, so two rings on one screen do not read as the
+      // same device.
+      'ringconn' => LucideIcons.gem,
       _ => LucideIcons.heartPulse,
     };
 
@@ -950,6 +955,17 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kRingConn,
+    blurb: 'Pairs directly, no app or account needed. Every sync starts from '
+        'now rather than a saved bookmark, so a sync run right after the '
+        'RingConn app’s own sync can come back looking emptier than expected '
+        '— the ring shares one resume point between whichever app reads it '
+        'first.',
+    // Null means the plain notify-class pairing — the whole handshake lives
+    // inside RingConnAdapter.run, same as kBleHrs.
+    pick: null,
   ),
 ];
 
