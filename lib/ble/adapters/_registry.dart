@@ -53,6 +53,22 @@ import 'signals.dart';
 const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
 const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
 
+/// Casio's "2C/2D all-features" GATT service — shared across the current
+/// G-Shock/smartwatch line (GBX100, GW-B5600, GMW-B5000, ECB-S100/Edifice and
+/// later models speaking the same profile). NOT the older `KEY_CONTAINER`-only
+/// scheme (e.g. GB-6900), a different and incompatible wire scheme that is out
+/// of scope here.
+const String kCasioService = '26eb000d-b012-49a8-b1f8-394fb2032b0f';
+
+/// Host to watch: a one- or two-byte feature-request tag, write-with-response.
+const String kCasioReadRequestChar = '26eb002c-b012-49a8-b1f8-394fb2032b0f';
+
+/// Watch to host: every feature reply and setting notification shares this one
+/// characteristic — `[featureTag, ...payload]`, the first byte echoing the
+/// request. Reads and writes for settings both land here too; this adapter
+/// only ever reads.
+const String kCasioAllFeaturesChar = '26eb002d-b012-49a8-b1f8-394fb2032b0f';
+
 /// The Oura ring's GATT service, identical across the generations seen so far.
 const String kOuraService = '98ed0001-a541-11e4-b6a0-0002a5d5c51b';
 
@@ -438,12 +454,36 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// A Casio G-Shock / current-generation Casio smartwatch speaking the 2C/2D
+/// "all-features" GATT scheme (GBX100, GW-B5600, GMW-B5000, ECB-S100/Edifice
+/// and later models sharing the profile).
+///
+/// Plain unencrypted GATT, tagged request/response by a one-byte feature id —
+/// no envelope, no CRC, no counter, no crypto handshake anywhere in the
+/// connect flow. Standard platform BLE bonding is the whole of what "pairing"
+/// means here, same as [kBleHrs].
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so not
+/// a byte of this path has met hardware (ASSUMPTIONS R6). It pairs, connects,
+/// and banks every feature reply raw; `kDerivableSources` stays empty until
+/// someone has actually held one.
+const BandEntry kCasio = BandEntry.notify(
+  id: 'casio',
+  label: 'Casio G-Shock',
+  service: kCasioService,
+  characteristics: <String>[kCasioReadRequestChar, kCasioAllFeaturesChar],
+  // No clock in the wire format this adapter reads; every frame is stamped on
+  // arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kCasio,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +540,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'casio': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no

@@ -270,6 +270,12 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      // No localized string for this entry yet — l10n keys are generated
+      // across every locale file, which is out of scope for a single-device
+      // PR. Plain English only, same shape as every other blurb's fallback.
+      'casio' =>
+        'GBX100, GW-B5600, GMW-B5000, ECB-S100 and current Casio '
+            'smartwatches. Pairs and connects; nothing derives from it yet.',
       _ => l?.devicePickerBlurbSensor ??
           'A chest strap or armband, for beat timing during a workout.',
     };
