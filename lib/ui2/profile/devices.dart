@@ -774,6 +774,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' => LucideIcons.circleDot,
+      'jyou' => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
