@@ -58,6 +58,21 @@ class LefunLink {
   /// The session driving [LefunAdapter] over [_link]. See `adapters/host.dart`.
   BandHost? _host;
 
+  /// `device.id` of whichever paired row is CURRENTLY connected, or null
+  /// between syncs. This is a singleton session over potentially several
+  /// paired rows (`_sync` loops them one at a time), so a caller tearing down
+  /// one specific row — `HrsLink.forgetDevice`'s Lefun branch — must check
+  /// this before calling [stop]: stopping unconditionally would drop
+  /// whichever OTHER row's sync happened to be live at that moment.
+  ///
+  /// ponytail: not exercised by a test — reaching the race this guards
+  /// requires a genuinely concurrent forget-during-sync, which
+  /// `flutter_blue_plus` has no simulator path to construct deterministically
+  /// (the same reason `ingestForTest` below drives one session start to
+  /// finish rather than leaving it live). Add one if this ever gets a second,
+  /// non-radio way to hold a session open across an await.
+  String? get currentDeviceId => _host?.deviceId;
+
   bool _busy = false;
 
   /// Connect to every paired Lefun-family device, poll battery, drain the

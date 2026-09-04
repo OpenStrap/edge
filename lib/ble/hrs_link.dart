@@ -589,8 +589,14 @@ class HrsLink {
     if (row?['adapter_id'] == kLefun.id) {
       // No secret to drop — the envelope this device speaks has no key
       // exchange — so this is a plain stop-and-delete, same shape as Oura's
-      // forget minus the keychain half.
-      await LefunLink.instance.stop();
+      // forget minus the keychain half. GATED ON THE LIVE SESSION ACTUALLY
+      // BEING THIS ROW: `LefunLink` is a singleton over potentially several
+      // paired rows, so stopping it unconditionally would drop a DIFFERENT
+      // Lefun device's in-flight sync if one happened to be live when this
+      // one was forgotten.
+      if (LefunLink.instance.currentDeviceId == id) {
+        await LefunLink.instance.stop();
+      }
       await LocalDb.deleteDevice(id);
       return;
     }
