@@ -212,7 +212,8 @@ class RingConnAdapter extends BandAdapter {
       return;
     }
 
-    for (var page = 0; page < _kMaxPagesPerBurst; page++) {
+    var page = 0;
+    for (; page < _kMaxPagesPerBurst; page++) {
       final rec = await inbox.next(replyTimeout);
       if (rec == null) {
         link.log('ringconn: no reply within the timeout on channel '
@@ -240,6 +241,16 @@ class RingConnAdapter extends BandAdapter {
       if (ringConnEndsBurst(f.respid)) break;
       // Anything else is archived above and otherwise ignored — the loop
       // keeps waiting for a frame that IS one of the two.
+    }
+    // The only exit that is NOT one of the logged breaks above: the loop ran
+    // out its full range without the ring ever signalling the burst was
+    // done. Every byte received is still archived above — this is a log
+    // line about an unusually long burst, not a data-loss report — but it
+    // needs to say so, the same as every other early-exit path here does.
+    if (page == _kMaxPagesPerBurst) {
+      link.log('ringconn: hit the $_kMaxPagesPerBurst-page cap on channel '
+          '$channel with no burst-end reply; stopping this session\'s '
+          'drain there.');
     }
     if (raw.isNotEmpty) yield SampleBatch(const [], raw: raw);
   }
