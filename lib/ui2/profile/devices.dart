@@ -62,6 +62,7 @@ import '../../ble/adapters/_registry.dart'
         kQHybrid,
         kWatch9,
         kWearFit,
+        kXWatch,
         kZeTime,
         declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
@@ -80,6 +81,7 @@ import '../../ble/ringconn_link.dart' show RingConnLink;
 import '../../ble/tlw64_link.dart' show Tlw64Link;
 import '../../ble/watch9_link.dart' show Watch9Link;
 import '../../ble/wearfit_link.dart' show WearFitLink;
+import '../../ble/xwatch_link.dart' show XWatchLink;
 import '../../ble/zetime_link.dart' show ZeTimeLink, pairZeTime;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
@@ -818,6 +820,7 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'wearfit' ||
       'zetime' ||
       'watch9' ||
+      'xwatch' ||
       'tlw64' =>
         LucideIcons.watch,
       _ => LucideIcons.heartPulse,
@@ -997,6 +1000,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kXWatch,
+    blurb: 'An unbranded XWatch board. Pairs and banks its raw data in the '
+        'background, but does not derive anything from it yet — nobody on '
+        'this project owns one to verify its numbers against.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written.
+    pick: null,
   ),
   (
     entry: kWatch9,
@@ -1676,6 +1688,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'jyou' => () => _syncJyou(c),
         'tlw64' => () => _syncNo1Band(c),
         'watch9' => () => _syncWatch9(c),
+        'xwatch' => () => _syncXWatch(c),
         _ => null,
       },
       onForget: s.deviceId != null
@@ -1711,6 +1724,21 @@ Future<void> _syncRing(BuildContext c, String? family) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Pull whatever a paired XWatch has sent since the last connect, now,
+/// because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncXWatch(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await XWatchLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the board. It has to be nearby, and not '
+            'connected to another app.'),
   ));
 }
 
@@ -2238,11 +2266,12 @@ class DeviceDetailView extends StatelessWidget {
                             // cursor; every other `onSync` wired today is a
                             // bounded listen window with no request and no
                             // stored-history drain — see e.g.
-                            // `Tlw64Link.sync()` and `Watch9Link.sync()`.
-                            // Claiming a "fetch" for those would be a promise
-                            // the connect does not keep. `devicesSyncNowSub`
-                            // only has a fetch phrasing in every locale, so it
-                            // must not be consulted for a listen-only family.
+                            // `Tlw64Link.sync()`, `Watch9Link.sync()` and
+                            // `XWatchLink.sync()`. Claiming a "fetch" for
+                            // those would be a promise the connect does not
+                            // keep. `devicesSyncNowSub` only has a fetch
+                            // phrasing in every locale, so it must not be
+                            // consulted for a listen-only family.
                             sub: s.family == 'oura'
                                 ? (l?.devicesSyncNowSub ??
                                     'Fetch whatever it has been holding')
