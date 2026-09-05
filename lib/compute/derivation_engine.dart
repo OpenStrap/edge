@@ -1791,6 +1791,12 @@ const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
 // (wearfit) — 06cb5f2 is verified an ancestor of the tip below (`git
 // merge-base --is-ancestor 06cb5f2… fe1464d…`), so moving the pin there
 // loses nothing from this branch's own repin.
+// REPIN (this branch, superseded by the merge): the ring11m adapter's own
+// protocol needs `feat/ring11m-protocol` (c6cc5ef), but protocol's own
+// `origin/main` tip below is THAT SAME PR's merge commit — verified
+// (`git merge-base --is-ancestor c6cc5ef… fe1464d…`) — so main's pin already
+// carries this branch's wire format; nothing is lost by taking it as-is.
+// NO kAlgoVersion bump either way: ring11m's adapter declares no signal.
 const String kProtocolPin = 'fe1464db98b84ac4d3ce6175d54ada11356d6c62';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

@@ -42,6 +42,7 @@ void main() {
           'watch9',
           'banglejs',
           'garmin',
+          'ring11m',
         ]);
   });
 

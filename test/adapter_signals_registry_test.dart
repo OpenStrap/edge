@@ -30,6 +30,7 @@ import 'package:openstrap_edge/ble/adapters/oura.dart';
 import 'package:openstrap_edge/ble/adapters/pebble.dart';
 import 'package:openstrap_edge/ble/adapters/pinetime.dart';
 import 'package:openstrap_edge/ble/adapters/qhybrid.dart';
+import 'package:openstrap_edge/ble/adapters/ring11m.dart';
 import 'package:openstrap_edge/ble/adapters/ringconn.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
 import 'package:openstrap_edge/ble/adapters/smaq2oss.dart';
@@ -51,6 +52,7 @@ void main() {
       'gen5': kWhoopGen4Signals,
       'ble_hrs': const BleHrsAdapter().signals,
       'oura': OuraAdapter(key: const [0]).signals,
+      'ring11m': const Ring11mAdapter().signals,
       'coros': const CorosAdapter().signals,
       'garmin': const GarminAdapter().signals,
       'ultrahuman': UltrahumanAdapter().signals,

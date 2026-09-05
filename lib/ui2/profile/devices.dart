@@ -62,6 +62,7 @@ import '../../ble/adapters/_registry.dart'
         kOura,
         kO2Ring,
         kPebble,
+        kRing11m,
         kRingConn,
         kCasio,
         kDt78,
@@ -90,6 +91,7 @@ import '../../ble/makibeshr3_link.dart' show MakibesHr3Link;
 import '../../ble/miband_link.dart' show MiBand234Link, pairMiBand234;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/pebble_link.dart' show PebbleLink;
+import '../../ble/ring11m_link.dart' show Ring11mLink;
 import '../../ble/smaq2oss_link.dart' show Smaq2ossLink;
 import '../../ble/o2ring_link.dart' show O2RingLink, pairO2Ring;
 import '../../ble/hplus_link.dart' show HPlusLink;
@@ -829,7 +831,7 @@ class HealthSource {
 /// The glyph for a paired sensor. A ring is not a chest strap and the row is
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
-      'oura' || 'o2ring' || 'lefun' || 'colmi' || 'ringconn' =>
+      'oura' || 'o2ring' || 'lefun' || 'colmi' || 'ringconn' || 'ring11m' =>
         LucideIcons.circleDot,
       'coros' => LucideIcons.timer,
       'ultrahuman' => LucideIcons.circle,
@@ -1031,6 +1033,16 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kRing11m,
+    blurb: 'An unbranded smart ring sold under many storefront names '
+        '(not the Colmi R11/R12). No account or key needed. Banks its own '
+        'data; nothing else derives from it yet.',
+    // Null means the plain notify-class pairing — no key exchange needed
+    // before the row can be written. The negotiation runs inside the
+    // adapter's own session, once connected.
+    pick: null,
   ),
   (
     entry: kCoros,
@@ -1793,7 +1805,8 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
       onSync: switch (s.family) {
-        'oura' || 'ringconn' || 'o2ring' => () => _syncRing(c, s.family),
+        'oura' || 'ringconn' || 'o2ring' || 'ring11m' =>
+          () => _syncRing(c, s.family),
         'coros' => () => _syncCorosWatch(c),
         'garmin' => () => _syncGarminWatch(c),
         'ultrahuman' => () => _syncUltrahumanRing(c),
@@ -1834,8 +1847,8 @@ class _DeviceDetailState extends State<DeviceDetail> {
 /// ring that had nothing to give, and those need different remedies.
 ///
 /// [family] picks WHICH ring's link runs — a plain equality dispatch rather
-/// than a generic "ring link" interface, because there are only three of
-/// these today and a fourth makes this a `switch`, not an abstraction.
+/// than a generic "ring link" interface, because there are only a handful of
+/// these today and a lot more makes this a `switch`, not an abstraction.
 Future<void> _syncRing(BuildContext c, String? family) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
@@ -1844,6 +1857,7 @@ Future<void> _syncRing(BuildContext c, String? family) async {
   final ok = switch (family) {
     'o2ring' => await O2RingLink.instance.sync(),
     'ringconn' => await RingConnLink.instance.sync(),
+    'ring11m' => await Ring11mLink.instance.sync(),
     _ => await OuraLink.instance.sync(),
   };
   if (!c.mounted) return;

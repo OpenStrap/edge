@@ -53,6 +53,18 @@ import 'signals.dart';
 const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
 const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
 
+/// A generic white-label smart ring's GATT service ("R11M"/"R10M", also sold
+/// as "TK5") — NOT the Colmi R11/R12, a different, unrelated product on a
+/// different protocol.
+const String kRing11mService = 'be940000-7333-be46-b7ae-689e71722bd5';
+
+/// Host to ring. Every command is written here, with response, and direct
+/// replies arrive on it too.
+const String kRing11mCommandChar = 'be940001-7333-be46-b7ae-689e71722bd5';
+
+/// Ring to host. Bulk history blocks stream here.
+const String kRing11mHistoryChar = 'be940003-7333-be46-b7ae-689e71722bd5';
+
 /// Withings Steel HR / Activité's GATT service. One characteristic, both
 /// directions: commands are written to it, every reply arrives as a
 /// notification on the same UUID.
@@ -806,6 +818,28 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// A generic white-label smart ring, sold as "R11M"/"R10M"/"TK5" under many
+/// storefront names — NOT the Colmi R11/R12, a different, unrelated product.
+///
+/// NOT framed: the wire has a group/command/length/CRC header but no inner
+/// opcode byte the framed machinery's offsets could describe — see
+/// `ring11m.dart` in `protocol`.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and this id is absent from `kDerivableSources` — a paired ring
+/// negotiates, archives every frame it sends, and surfaces no health signal
+/// at all.
+const BandEntry kRing11m = BandEntry.notify(
+  id: 'ring11m',
+  label: 'Smart ring (R11M/R10M)',
+  service: kRing11mService,
+  characteristics: <String>[kRing11mCommandChar, kRing11mHistoryChar],
+  // No clock this build reads back from a history record — every frame is
+  // stamped on arrival, same as the generic HRS strap.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// A Coros sports watch (Pace/Apex/Vertix series): every standard GATT
 /// service answers a plain connect, no pairing or bonding enforced.
 ///
@@ -1498,6 +1532,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWatch9,
   kBangleJs,
   kGarmin,
+  kRing11m,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -1559,6 +1594,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'ring11m': <InputSignal, Duration>{},
   'coros': {
     InputSignal.hrSparse: Duration(seconds: 1),
     InputSignal.rrIntervals: Duration(seconds: 1),

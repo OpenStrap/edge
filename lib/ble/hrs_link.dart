@@ -77,6 +77,7 @@ import 'o2ring_link.dart' show O2RingLink;
 import 'oura_link.dart' show OuraLink;
 import 'pebble_link.dart' show PebbleLink;
 import 'qhybrid_link.dart' show QHybridLink;
+import 'ring11m_link.dart' show Ring11mLink;
 import 'ringconn_link.dart' show RingConnLink;
 import 'ultrahuman_link.dart' show UltrahumanLink;
 import 'watch9_link.dart' show Watch9Link;
@@ -666,6 +667,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kRing11m.id) {
+      await Ring11mLink.forget(id);
       return;
     }
     if (row?['adapter_id'] == kCoros.id) {
