@@ -270,6 +270,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      // No dedicated l10n key yet — same untranslated sentence
+      // `kPairableSensors` already carries for this entry.
+      'pinetime' => 'Pairs and banks its raw data in the background, but '
+          'does not derive anything from it yet.',
       // No localized string for this entry yet — l10n keys are generated
       // across every locale file, which is out of scope for a single-device
       // PR. Plain English only, same shape as every other blurb's fallback.

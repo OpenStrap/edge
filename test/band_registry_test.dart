@@ -16,6 +16,7 @@ void main() {
           'gen5',
           'ble_hrs',
           'oura',
+          'pinetime',
           'qhybrid',
           'colmi',
           'casio',
@@ -54,6 +55,21 @@ void main() {
     // The two halves that could NOT be expressed — see the registry header.
     expect(kBleHrs.gatt, isNull, reason: 'GattProfile is six WHOOP UUIDs');
     expect(kBleHrs.wire, isNull, reason: 'BandProfile is a framed envelope');
+  });
+
+  test('a PineTime entry filters on its OWN service, not the shared HRS one',
+      () {
+    expect(kPineTime.isFramed, isFalse);
+    expect(kPineTime.service, kPineTimeMotionService);
+    expect(kPineTime.servicePrefix, '00030000');
+    // Distinct from kBleHrs's own scan filter — two rows sharing one service
+    // is the collision `HrsLink.scanForAny` treats as a registry bug.
+    expect(kPineTime.service, isNot(kBleHrs.service));
+    // Both required, even though they sit on two different GATT services —
+    // `GattBandLink` matches a characteristic across every discovered
+    // service, not only the scan-filter one.
+    expect(kPineTime.requiredCharacteristics,
+        [kPineTimeStepCountChar, kHeartRateMeasurementUuid]);
   });
 
   test('D3 — frameOpcodeIndex lands on the opcode of a real built frame', () {

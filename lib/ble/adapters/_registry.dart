@@ -104,6 +104,16 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// A PineTime's motion service. Vendor-custom 128-bit uuid — its own GATT
+/// identity, distinct from the SIG heart-rate service this same watch also
+/// answers on (see [kHeartRateServiceUuid]).
+const String kPineTimeMotionService = '00030000-78fc-48fe-8e23-433b3a1942d0';
+
+/// Step count, notify. The only motion-service characteristic subscribed here
+/// — the same service's raw tri-axial characteristic is a separate, less
+/// settled read on real firmware, so nothing here touches it.
+const String kPineTimeStepCountChar = '00030001-78fc-48fe-8e23-433b3a1942d0';
+
 /// Colmi smart ring family's primary command/notify service. A second,
 /// separate service (sleep + SpO2 "big data") coexists on the same ring and
 /// is untouched by this build — see `colmi.dart`'s header.
@@ -491,6 +501,31 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// A PineTime running its open firmware. No auth, no write of any kind — two
+/// independent notify characteristics on two different services: this
+/// watch's own motion service, and the SIG heart-rate service [kBleHrs] also
+/// answers on.
+///
+/// [kPineTimeMotionService] is the scan-filter service (a vendor uuid unique
+/// to this entry — the heart-rate service is [kBleHrs]'s own scan filter, and
+/// two registry rows filtering on the same service is the collision
+/// `HrsLink.scanForAny` treats as a registry bug, not a runtime ambiguity).
+/// Both notify characteristics are still required: `GattBandLink` matches a
+/// characteristic across every service the peripheral discovers, not only
+/// the scan-filter one.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and `kDerivableSources` never gets this id — step count and
+/// heart rate are both readable and neither is decoded.
+const BandEntry kPineTime = BandEntry.notify(
+  id: 'pinetime',
+  label: 'PineTime',
+  service: kPineTimeMotionService,
+  characteristics: <String>[kPineTimeStepCountChar, kHeartRateMeasurementUuid],
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Fossil/Skagen's original "hybrid" smartwatch line — models like `HW.0.0`,
 /// `HL.0.0`, `DN.1.0`. NOT the encrypted Hybrid HR / Gen 6 line, a different
 /// sibling protocol that happens to advertise the same service UUID.
@@ -582,6 +617,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kPineTime,
   kQHybrid,
   kColmi,
   kCasio,
@@ -612,10 +648,11 @@ BandEntry bandEntryFor(BandProfile wire) =>
 /// `signals` getter is a plain literal with no computed dependency, so this
 /// maps straight to the declared signals instead of a constructed instance —
 /// KEPT IN SYNC BY HAND with `whoop_gen4.dart`'s `kWhoopGen4Signals`,
-/// `ble_hrs.dart`'s `BleHrsAdapter.signals` and `oura.dart`'s
-/// `OuraAdapter.signals`, since importing those three back into this file
-/// (each of which already imports THIS file for its `BandEntry`) would be a
-/// needless import cycle for three lines of data.
+/// `ble_hrs.dart`'s `BleHrsAdapter.signals`, `oura.dart`'s
+/// `OuraAdapter.signals` and `pinetime.dart`'s `PineTimeAdapter.signals`,
+/// since importing those back into this file (each of which already imports
+/// THIS file for its `BandEntry`) would be a needless import cycle for a few
+/// lines of data.
 ///
 /// gen5 reuses gen4's map: `kWhoopGen5`'s own doc comment states "same inner
 /// payload layout as gen4 — only the envelope differs", so gen4's declared
@@ -641,6 +678,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'pinetime': <InputSignal, Duration>{},
   'qhybrid': <InputSignal, Duration>{},
   'colmi': <InputSignal, Duration>{},
   'casio': <InputSignal, Duration>{},

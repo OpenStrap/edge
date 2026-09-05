@@ -50,6 +50,7 @@ import '../../ble/adapters/_registry.dart'
         kColmi,
         kOura,
         kCasio,
+        kPineTime,
         kQHybrid,
         declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
@@ -57,6 +58,7 @@ import '../../ble/casio_link.dart' show CasioLink;
 import '../../ble/colmi_link.dart' show ColmiLink;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/pinetime_link.dart' show PineTimeLink;
 import '../../ble/qhybrid_link.dart' show QHybridLink, pairQHybrid;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
@@ -784,7 +786,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' || 'colmi' => LucideIcons.circleDot,
-      'qhybrid' || 'casio' => LucideIcons.watch,
+      'pinetime' || 'qhybrid' || 'casio' => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -962,6 +964,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kPineTime,
+    blurb: 'Pairs and banks its raw data in the background, but does not '
+        'derive anything from it yet — nobody on this project owns one to '
+        'verify its numbers against.',
+    // Null means the plain notify-class pairing, which is the whole of what
+    // this watch needs — no auth, no key.
+    pick: null,
   ),
   (
     entry: kQHybrid,
@@ -1518,6 +1529,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // WHOOP from a chest strap's page.
       onSync: switch (s.family) {
         'oura' => () => _syncRing(c),
+        'pinetime' => () => _syncPineTime(c),
         'qhybrid' => () => _syncQHybrid(c),
         'colmi' => () => _syncColmiRing(c),
         'casio' => () => _syncCasio(c, s.deviceId),
@@ -1548,6 +1560,31 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Connect and bank the watch's raw bytes, now, because the user asked. Same
+/// shape as [_syncRing] — a sync that silently did nothing is
+/// indistinguishable from a watch that had nothing to give, and those need
+/// different remedies.
+Future<void> _syncPineTime(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  // `devicesSyncing`/`devicesSynced` are genuinely generic ("Syncing"/
+  // "Synced."), unlike `devicesSyncingTheRing`/`devicesCouldNotReachRing`,
+  // which name the ring by copy — reusing those here would show the wrong
+  // device in the snack bar, so the failure sentence stays untranslated
+  // rather than borrowing one that says the wrong thing.
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await PineTimeLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.hideCurrentSnackBar();
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the watch. It has to be nearby, and not connected '
+            'to another app.'),
   ));
 }
 
