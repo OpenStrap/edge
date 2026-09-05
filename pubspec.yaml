@@ -144,13 +144,18 @@ dependencies:
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
       #
-      # REPIN (this branch): protocol `feat/ring11m-protocol` @ e42d010, on
+      # REPIN (this branch): protocol `feat/ring11m-protocol` @ c6cc5ef, on
       # top of main's #43 merge (docs-only, no lib/ change since 471034c).
       # Adds the R11M/R10M smart ring wire format — frame codec + crc16,
       # negotiation commands, history block terminator + ack/nack — nothing
-      # existing changes. NO kAlgoVersion bump: no decoder for a stored
-      # signal is touched, and this ring's own adapter declares no signal.
-      ref: e42d0100fec4138a24daee5e52db55a1bd2bc720
+      # existing changes. Repinned once more after review: buildRing11mFrame
+      # rejects a payload past the u16 length field, the model-query command
+      # sends its verified example payload instead of an empty one, the
+      # manual-measurement/auto-toggle builders validate their selector, and
+      # `ring11mHistoryBlockCrcOk` is the paired check for a parsed
+      # terminator. NO kAlgoVersion bump: no decoder for a stored signal is
+      # touched, and this ring's own adapter declares no signal.
+      ref: c6cc5ef3a4e61dcf8b0147e7c4fc8ef4adeba89c
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

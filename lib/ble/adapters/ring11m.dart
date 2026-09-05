@@ -155,7 +155,7 @@ class Ring11mAdapter extends BandAdapter {
           if (f.command == kRing11mCmdHistoryTerminator) {
             final term = parseRing11mHistoryTerminator(f);
             if (term != null) {
-              final ok = ring11mHistoryCrc(blockData) == term.crc16;
+              final ok = ring11mHistoryBlockCrcOk(blockData, term);
               yield BandNote(ok ? 'ring11m_block_ack' : 'ring11m_block_nack',
                   term.packetCount);
               await link.write(kRing11mCommandChar, buildRing11mHistoryAck(ok));
