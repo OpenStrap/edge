@@ -127,16 +127,13 @@ dependencies:
       # in lib/compute/derivation_engine.dart, which moves together with this
       # ref and pubspec.lock (the pin-equality test fails a partial repin).
       #
-      # REPIN: protocol main @ 471034c, the #42 (audit/consolidated-fixes)
-      # merge — 6 commits on top of 6664854: decodeFrame's short-packet
-      # dispatch now tries the v2 realtime-HR parser before falling back to
-      # v1 (rev-2 packets were being misdecoded); R10 live dispatch no longer
-      # drops hr==0 (off-wrist) records to a bare data_record and now carries
-      # ts_epoch like the other realtime_hr branches; the copy-pasted LE
-      # (sec, subsec) byte packing used by 5 command builders and the
-      # hand-rolled _pow10/gen5 u16/i16/u32 readers were deduped; and #36
-      # lands raw R11 frame decoding (`R11Raw`/`decodeR11Raw`, meaning
-      # unconfirmed — see live.dart).
+      # REPIN (this branch): protocol `lefun-protocol` @ 4284f9a, 2 commits on
+      # top of 471034c (everything above). Adds the Lefun band's own wire
+      # module this branch's `lib/ble/adapters/lefun.dart` calls:
+      # `buildLefunFrame`/`parseLefunFrame`, `decodeLefunBattery`, and
+      # `kLefunReportBattery` — a bounded envelope codec plus battery decode,
+      # nothing else. No decoded physiological field (owner ruling: nobody on
+      # this project owns the hardware).
       #
       # NO kAlgoVersion bump: every changed decoder here is on the live
       # realtime path (decodeFrame's `realtime_hr`/`realtime_small`, R11) —
@@ -153,7 +150,81 @@ dependencies:
       # NO kAlgoVersion bump: Ultrahuman's `signals` stays `const {}` (raw
       # drain/archive only, nothing decoded into a derivable signal), so no
       # existing decoder or stored number changes.
-      ref: 1caf44850c4c4f0eacef7dc60c61369e4123e284
+      #
+      # MERGE (main → this branch): main's own repin below (protocol tip
+      # fe1464d) already contains 1caf448 as an ancestor (verified via
+      # `git merge-base --is-ancestor 1caf448… fe1464d…` on the protocol
+      # repo), so the ref moves to that tip; nothing from this branch's own
+      # repin is lost.
+      # REPIN (this branch): protocol `feat/dafit-moyoung-protocol` @ 06cb5f2,
+      # 3 commits on top of 471034c. Adds the dafit/moyoung frame codec
+      # (`DafitFrame`/`parseDafitFrame`/`buildDafitAck`/`dafitInitSequence`) —
+      # a new adapter-only wire format, no existing decoder touched.
+      #
+      # NO kAlgoVersion bump: dafit has no signals (const {}, excluded from
+      # kDerivableSources per the hardware-ownership invariant), so no
+      # decoded value or day_result number is affected.
+      #
+      # MERGE (main → this branch): main's own repin below (protocol tip
+      # fe1464d) already contains 06cb5f2 as an ancestor (verified via
+      # `git merge-base --is-ancestor 06cb5f2… fe1464d…`), so the ref moves
+      # to that tip; nothing from this branch's own repin is lost.
+      #
+      # REPIN (this branch): protocol PR #49 head @ fbda904 (not yet on main).
+      # Adds the o2ring frame envelope/INFO-reply parser this branch's
+      # adapter calls. NO kAlgoVersion bump: o2ring declares no signals, so
+      # nothing it decodes reaches derivation.
+      #
+      # MERGE (main → this branch): main's own repin below (protocol tip
+      # fe1464d) already contains fbda904 as an ancestor (verified via
+      # `git merge-base --is-ancestor fbda904… fe1464d…` — PR#49/o2ring is
+      # folded into the tip via the `d297055` merge commit), so the ref moves
+      # to that tip; nothing from this branch's own repin is lost.
+      #
+      # REPIN (this branch): protocol PR #47 head @ d8a1685 — a PR-branch
+      # head, not a main merge commit, because this is the branch that needs
+      # what #47 adds and #47 has not merged yet. Pure addition on top of
+      # 471034c (only lib/src/zetime.dart, openstrap_protocol.dart's export,
+      # and a test file changed — no existing file touched), so it carries no
+      # risk to any other adapter. Adds `parseZeTimeFrame`,
+      # `zetimeBatteryLevel`, `zetimeRequestFrame`, `kZeTimeCmdBattery`,
+      # `kZeTimeAckToken` for the ZeTime command envelope + battery decode.
+      #
+      # NO kAlgoVersion bump: ZeTime carries no derivable signal
+      # (`ZeTimeAdapter.signals` is `const {}`), so nothing here feeds the
+      # derivation pipeline.
+      #
+      # REPIN (this branch): protocol `feat/wearfit-howear-protocol` @ 1cf8e61,
+      # one commit ahead of #42 (471034c). Carries the wearfit/howear frame
+      # codec (parseWearFitFrame/wearFitCmdGetBattery/parseWearFitBattery)
+      # this branch's adapter needs; nothing else on the WHOOP/oura/miband
+      # path changes.
+      #
+      # REPIN (main): protocol `feat/ringconn` @ b819ee0, 2 commits on top of
+      # 471034c. Adds the ring's frame codec this branch's
+      # `lib/ble/adapters/ringconn.dart` calls: `parseRingConnFrame`,
+      # `RingConnFrame`, the bulk-page reader, and the channel constants
+      # (`kRingConnChannelSleep`/`...Awake`). No decoded field — raw frames
+      # only (owner ruling: nobody on this project owns the hardware).
+      #
+      # NO kAlgoVersion bump: nothing here feeds a stored metric.
+      #
+      # MERGE (main → this branch): this branch's own repin (wearfit @
+      # 1cf8e61) and main's (ringconn @ b819ee0) are parallel commits on
+      # protocol, neither an ancestor of the other — verified via
+      # `git merge-base --is-ancestor`. protocol's own `origin/main` has
+      # already merged both (its own independent per-device PR queue, PR#50
+      # wearfit-howear and PR#48 ringconn both folded in), so the ref moves
+      # to that tip rather than either single-device SHA — this is both
+      # repins standing, not a choice between them.
+      #
+      # MERGE (main → this branch, 2nd hop): this branch's own PR#47 head
+      # (d8a1685, ZeTime) is ALSO already an ancestor of this same tip —
+      # verified via `git merge-base --is-ancestor d8a1685… origin/main` on
+      # protocol, true — protocol's PR#47 merged as b8430e4 before #48/#50
+      # landed. So `fe1464d` carries ZeTime, wearfit and ringconn together;
+      # nothing from this branch's own repin is lost by moving to it.
+      ref: fe1464db98b84ac4d3ce6175d54ada11356d6c62
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
@@ -351,6 +422,11 @@ dependencies:
   # so the round trip is testable headless. `crypto` (already transitive) has
   # HMAC but no AEAD, which is the one primitive that must not be improvised.
   pointycastle: ^3.9.1
+
+  # The Withings Steel HR / Activité challenge proof is a plain SHA1, not a
+  # cipher — declared directly now that `lib/ble/adapters/withings_steel_hr.dart`
+  # imports it, rather than riding along as transitive.
+  crypto: ^3.0.3
 
   # Background scheduled derivation (the heavy nightly pass: sleep staging +
   # 24-h spectra). Android: a real OS-scheduled WorkManager job. iOS: see the
