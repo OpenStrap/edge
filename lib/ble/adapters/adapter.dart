@@ -79,6 +79,15 @@ abstract class BandLink {
   /// POWER_CYCLE by any path.
   Future<bool> write(String characteristicUuid, List<int> value);
 
+  /// One-shot GATT read. Returns null for a missing characteristic, a dead
+  /// link, a timeout or a read error alike — [write]'s "false covers every
+  /// failure the same way" contract, applied to the other direction.
+  ///
+  /// For a characteristic with no notify property (Device Information
+  /// Service's read-only strings, say) — [notify] stays the right call for
+  /// anything that can push updates on its own.
+  Future<List<int>?> read(String characteristicUuid);
+
   /// One line into the engine log the user can already see and export.
   void log(String message);
 }
@@ -298,6 +307,15 @@ class ReplayBandLink implements BandLink {
 
   /// What [write] returns. Set false to exercise an adapter's failure path.
   bool writeSucceeds = true;
+
+  /// What [read] returns for a given characteristic — prime it before running
+  /// the adapter. Absent means null, same as a real peripheral without that
+  /// characteristic.
+  final Map<String, List<int>> reads = {};
+
+  @override
+  Future<List<int>?> read(String characteristicUuid) async =>
+      reads[characteristicUuid];
 
   /// Single-subscription on purpose: it BUFFERS, so a fixture may be fed
   /// before the adapter has got around to subscribing and nothing is dropped.

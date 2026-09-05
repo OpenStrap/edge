@@ -63,6 +63,24 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// One of the Nordic-UART-shaped 128-bit services a Coros watch exposes
+/// alongside the standard SIG services below — used here only as the scan
+/// filter, since a bare `0000180d` (heart rate) would collide with
+/// [kBleHrs] and get shadowed by it (that entry is matched first). NOT
+/// independently confirmed against a real advertisement payload (post-connect
+/// service enumeration is documented; the advertised UUID list is not) — see
+/// `coros.dart`'s own header before trusting this against real hardware.
+const String kCorosService = '6e400001-b5a3-f393-e0a9-77656c6f6f70';
+
+/// Standard Battery Service characteristic, read+notify, one byte 0-100.
+const String kBatteryLevelUuid = '00002a19-0000-1000-8000-00805f9b34fb';
+
+/// Standard Device Information Service characteristics — read-only UTF-8
+/// strings, no notify property.
+const String kModelNumberUuid = '00002a24-0000-1000-8000-00805f9b34fb';
+const String kSerialNumberUuid = '00002a25-0000-1000-8000-00805f9b34fb';
+const String kFirmwareRevisionUuid = '00002a26-0000-1000-8000-00805f9b34fb';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -438,12 +456,40 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// A Coros sports watch (Pace/Apex/Vertix series): every standard GATT
+/// service answers a plain connect, no pairing or bonding enforced.
+///
+/// NOT framed: no envelope, no command channel, no offload — see the header
+/// note on why activity/sleep/step history stays out of scope entirely.
+/// `characteristics` are battery + device-info; heart rate is read via
+/// [kHeartRateMeasurementUuid] directly in `coros.dart` and is deliberately
+/// NOT required here, since a watch that answers battery and identity but not
+/// heart rate should still connect.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}`-equivalent territory for anything but the generic HR parse —
+/// `kDerivableSources` stays empty regardless, same as every other band here.
+const BandEntry kCoros = BandEntry.notify(
+  id: 'coros',
+  label: 'Coros watch',
+  service: kCorosService,
+  characteristics: <String>[
+    kBatteryLevelUuid,
+    kModelNumberUuid,
+    kSerialNumberUuid,
+    kFirmwareRevisionUuid,
+  ],
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kCoros,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -500,6 +546,10 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'coros': {
+    InputSignal.hrSparse: Duration(seconds: 1),
+    InputSignal.rrIntervals: Duration(seconds: 1),
+  },
 };
 
 /// The signals one adapter declares, or empty for an id this build has no
