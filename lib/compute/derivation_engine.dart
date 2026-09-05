@@ -1726,6 +1726,18 @@ const int kAlgoVersion = 87;
 // main took analytics 7105256 → 187e026 (the v80 gate above); this branch
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
+// REPIN (this branch) @ 96d47d7 — protocol `feat/garmin-gfdi-protocol`, on
+// top of the #42 merge above. Adds `garmin.dart` only: COBS + Multi-Link
+// framing, the GFDI frame/CRC16, the device-information parser, and a
+// minimal protobuf reader for one battery round trip — a new module, no
+// existing decoder touched. NO kAlgoVersion bump: nothing on the
+// derivation/persisted-record path moves.
+//
+// MERGE (main → this branch): main's own repin below (protocol tip fe1464d)
+// already contains 96d47d7 as an ancestor (verified: `git merge-base
+// --is-ancestor 96d47d7 fe1464d` on the protocol repo) — main's pin is
+// strictly ahead, nothing this branch's garmin repin added is lost by
+// taking it.
 //
 // REPIN (this branch): protocol PR #51 head @ 1caf448, on top of 471034c —
 // same reasoning as pubspec.yaml's comment beside the `ref:`. This branch

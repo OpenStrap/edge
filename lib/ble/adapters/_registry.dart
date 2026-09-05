@@ -139,6 +139,19 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// Garmin's Multi-Link service — one characteristic pair carries every
+/// logical service (GFDI, the numbered real-time streams) this device family
+/// speaks, routed by a handle byte. See `protocol`'s `garmin.dart`.
+const String kGarminService = '6a4e2800-667b-11e3-949a-0800200c9a66';
+
+/// Host to watch. Every ML control frame and every GFDI/COBS chunk is
+/// written here, with response.
+const String kGarminWriteChar = '6a4e2820-667b-11e3-949a-0800200c9a66';
+
+/// Watch to host. Every ML control reply and every GFDI/COBS chunk arrives
+/// here — there is no separate data pipe.
+const String kGarminNotifyChar = '6a4e2810-667b-11e3-949a-0800200c9a66';
+
 /// The Ultrahuman Ring Air's command/response service. The primary service —
 /// `BandEntry.notify` points at this one, not the device-state service below.
 const String kUltrahumanCommandService = '86f65000-f706-58a0-95b2-1fb9261e4dc7';
@@ -772,6 +785,30 @@ const BandEntry kOura = BandEntry.notify(
   // Both, and the command characteristic is genuinely required: unlike a
   // heart-rate strap this band answers nothing until it has been written to.
   characteristics: <String>[kOuraCommandChar, kOuraNotifyChar],
+  timeAnchor: TimeAnchor.arrival,
+);
+
+/// A Garmin sports watch (GFDI v2), paired through the watch's own
+/// Settings -> Sensors & Accessories -> Phone -> Pair Phone menu.
+///
+/// NOT framed: there is a frame length and a CRC, but they sit inside a COBS
+/// byte stream carried on a Multi-Link handle rather than directly on the
+/// characteristic the way [BandProfile] models — a different reassembly
+/// shape [innerOpcodeOffset] etc. could not describe. See `protocol`'s
+/// `garmin.dart` for the wire format itself.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns a Garmin
+/// watch, so not a byte of this path has met hardware (ASSUMPTIONS R6).
+/// `signals` is `const {}` and this id is absent from `kDerivableSources` —
+/// a paired watch answers a device-info push and one battery request, and
+/// surfaces no health signal at all.
+const BandEntry kGarmin = BandEntry.notify(
+  id: 'garmin',
+  label: 'Garmin watch',
+  service: kGarminService,
+  characteristics: <String>[kGarminWriteChar, kGarminNotifyChar],
+  // No clock this build reads back; the watch's own GFDI clock is what
+  // CURRENT_TIME_REQUEST answers, not something read into a stored sample.
   timeAnchor: TimeAnchor.arrival,
 );
 
@@ -1412,6 +1449,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kJyou,
   kWatch9,
   kBangleJs,
+  kGarmin,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -1497,6 +1535,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
   'jyou': <InputSignal, Duration>{},
   'watch9': <InputSignal, Duration>{},
   'banglejs': <InputSignal, Duration>{},
+  'garmin': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no

@@ -68,6 +68,7 @@ import 'ble_state.dart'
 import 'banglejs_link.dart' show BangleJsLink;
 import 'colmi_link.dart' show ColmiLink;
 import 'dafit_link.dart' show DafitLink;
+import 'garmin_link.dart' show GarminLink;
 import 'hplus_link.dart' show HPlusLink;
 import 'lefun_link.dart' show LefunLink;
 import 'miband_link.dart' show MiBand234Link;
@@ -664,6 +665,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kGarmin.id) {
+      await GarminLink.forget(id);
       return;
     }
     if (row?['adapter_id'] == kUltrahuman.id) {

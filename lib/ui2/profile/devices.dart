@@ -50,6 +50,7 @@ import '../../ble/adapters/_registry.dart'
         kBleHrs,
         kColmi,
         kDafit,
+        kGarmin,
         kId115,
         kJyou,
         kHPlus,
@@ -79,6 +80,7 @@ import '../../ble/casio_link.dart' show CasioLink;
 import '../../ble/colmi_link.dart' show ColmiLink;
 import '../../ble/dafit_link.dart' show DafitLink;
 import '../../ble/dt78_link.dart' show Dt78Link;
+import '../../ble/garmin_link.dart' show GarminLink;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/id115_link.dart' show Id115Link;
 import '../../ble/jyou_link.dart' show JyouLink;
@@ -830,6 +832,7 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'ultrahuman' => LucideIcons.circle,
       'dafit' ||
       'dt78' ||
+      'garmin' ||
       'hplus' ||
       'id115' ||
       'makibeshr3' ||
@@ -1025,6 +1028,17 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kGarmin,
+    blurb: 'A Garmin sports watch. Before pairing here, put the watch into '
+        'its own Settings → Sensors & Accessories → Phone → Pair Phone '
+        'screen — it will not accept a new connection otherwise. Reads its '
+        'model, firmware and battery; nothing else derives from it yet.',
+    // Null means the plain notify-class pairing — no key exchange this pass
+    // implements. The Multi-Link/GFDI handshake runs inside the adapter's
+    // own session, once connected.
+    pick: null,
   ),
   (
     entry: kUltrahuman,
@@ -1768,6 +1782,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // WHOOP from a chest strap's page.
       onSync: switch (s.family) {
         'oura' || 'ringconn' || 'o2ring' => () => _syncRing(c, s.family),
+        'garmin' => () => _syncGarminWatch(c),
         'ultrahuman' => () => _syncUltrahumanRing(c),
         'miband234' => () => _syncMiband(c),
         'dafit' => () => _syncDafitWatch(c),
@@ -1825,6 +1840,25 @@ Future<void> _syncRing(BuildContext c, String? family) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Hold a session with the paired watch, now, because the user asked. There
+/// is no stored history drained here — see `garmin_link.dart`'s own header —
+/// so this just reopens the GFDI channel and banks whatever the device-info
+/// push and one battery answer give it.
+Future<void> _syncGarminWatch(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await GarminLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachRing ??
+            'Could not reach it. It has to be nearby, and not connected to '
+                'another app.')),
   ));
 }
 
@@ -2202,6 +2236,7 @@ Future<void> _syncCasio(BuildContext c, String? deviceId) async {
                 'connected to another app.')),
   ));
 }
+
 /// Forget a paired sensor. Same promise as forgetting the band — the source
 /// goes, the measurements stay — and it is true for the same reason: every row
 /// the sensor wrote keeps its own `device_id`, and nothing here touches them.

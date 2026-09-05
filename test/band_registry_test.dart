@@ -40,6 +40,7 @@ void main() {
           'jyou',
           'watch9',
           'banglejs',
+          'garmin',
         ]);
   });
 
@@ -75,6 +76,16 @@ void main() {
     // The two halves that could NOT be expressed — see the registry header.
     expect(kBleHrs.gatt, isNull, reason: 'GattProfile is six WHOOP UUIDs');
     expect(kBleHrs.wire, isNull, reason: 'BandProfile is a framed envelope');
+  });
+
+  test('a Garmin entry has one service and its write/notify pair', () {
+    expect(kGarmin.isFramed, isFalse);
+    expect(kGarmin.service, kGarminService);
+    expect(kGarmin.requiredCharacteristics,
+        [kGarminWriteChar, kGarminNotifyChar]);
+    expect(kGarmin.gatt, isNull);
+    expect(kGarmin.wire, isNull);
+    expect(() => kGarmin.commands, throwsA(anything));
   });
 
   test('a PineTime entry filters on its OWN service, not the shared HRS one',
