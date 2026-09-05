@@ -73,8 +73,19 @@ class PebbleAdapter extends BandAdapter {
         case _kPpogattCmdData:
           // ACK the serial we just received, THEN bank the payload — the
           // watch re-sends an un-ACKed packet, so a decode failure below must
-          // never swallow the ACK.
-          await link.write(kPebblePpogattWriteUuid, <int>[(serial << 3) | 1]);
+          // never swallow the ACK. But an ACK that the transport itself
+          // reports as unconfirmed means the watch will retransmit this same
+          // serial regardless of what we do here — banking it now too would
+          // just double the archive row when that retransmit lands.
+          final acknowledged = await link.write(
+            kPebblePpogattWriteUuid,
+            <int>[(serial << 3) | 1],
+          );
+          if (!acknowledged) {
+            link.log('pebble: ack write unconfirmed for serial $serial, '
+                'expecting a retransmit');
+            continue;
+          }
           yield SampleBatch(
             const [],
             raw: [Uint8List.fromList(value.sublist(1))],
