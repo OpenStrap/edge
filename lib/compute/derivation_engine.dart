@@ -1726,8 +1726,15 @@ const int kAlgoVersion = 87;
 // main took analytics 7105256 → 187e026 (the v80 gate above); this branch
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
+// REPIN (this branch) @ c6cc5ef — protocol `feat/ring11m-protocol`, adding
+// the R11M/R10M smart ring wire format (frame codec + crc16, negotiation
+// commands, history block terminator + ack/nack). NO kAlgoVersion bump: no
+// decoder for a stored signal is touched, and this ring's own adapter
+// declares no signal — this constant moves only because
+// `test/db_serve_version_and_reads_test.dart` pins it equal to pubspec.yaml's
+// `ref:` and pubspec.lock's resolved-ref, so a partial repin fails the suite.
 const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
-const String kProtocolPin = '471034cb84b85edb37e72b6f6add79a2d7929294';
+const String kProtocolPin = 'c6cc5ef3a4e61dcf8b0147e7c4fc8ef4adeba89c';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
