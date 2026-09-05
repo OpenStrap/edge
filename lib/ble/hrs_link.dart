@@ -65,6 +65,7 @@ import 'ble_state.dart'
         withScanLock,
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
+import 'hplus_link.dart' show HPlusLink;
 import 'oura_link.dart' show OuraLink;
 
 export 'adapters/host.dart' show HrsReading;
@@ -510,6 +511,14 @@ class HrsLink {
   /// Nothing is written unless the peripheral passed the characteristic check:
   /// a row pointing at a device that cannot answer is a sensor that appears
   /// paired and never produces a beat.
+  ///
+  /// Pulled out of [pairNotifySensor] so the derivation itself — the part a
+  /// future adapter can get wrong — is reachable by a test that has no
+  /// `BluetoothDevice` to connect.
+  @visibleForTesting
+  static String? deriveTier(String? explicit, String adapterId) =>
+      explicit ?? (declaredSignals(adapterId).isEmpty ? null : 'beatToBeat');
+
   static Future<String?> pairNotifySensor(
     BandEntry entry,
     BluetoothDevice device, {
@@ -544,7 +553,7 @@ class HrsLink {
         adapterId: entry.id,
         remoteId: device.remoteId.str,
         label: label,
-        tier: tier ?? (declaredSignals(entry.id).isEmpty ? null : 'beatToBeat'),
+        tier: deriveTier(tier, entry.id),
       );
       return null;
     } catch (e) {
@@ -575,7 +584,11 @@ class HrsLink {
   /// DISPATCHES ON `adapter_id` BEFORE TOUCHING ANYTHING. An Oura row carries
   /// a secret this class knows nothing about — [OuraLink.forgetRing] drops the
   /// stored key and the row together, and calling `disarm()` on it here would
-  /// leave that key behind while looking like a complete forget.
+  /// leave that key behind while looking like a complete forget. An HPlus row
+  /// has no secret, but its live connection is [HPlusLink.instance], a
+  /// separate singleton from this class's own chest-strap session —
+  /// `disarm()` here would tear down the wrong link and leave the real one
+  /// (and its `BandHost`'s flush timer) running against a deleted device id.
   static Future<void> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[hrs] refusing to forget the primary band from here.');
@@ -586,6 +599,15 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kHPlus.id) {
+      // HPlusLink.instance owns this band's live connection, not HrsLink's
+      // own chest-strap session — stopping the wrong one would leave the
+      // real link (and its BandHost's flush timer) running against a
+      // device_id that no longer exists.
+      await HPlusLink.instance.stop();
+      await LocalDb.deleteDevice(id);
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows

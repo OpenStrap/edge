@@ -19,9 +19,11 @@
 // NO PAIRING KEY, EITHER. Unlike the ring and the Mi Band, this wire has no
 // auth handshake — pairing is the plain notify-class flow
 // `HrsLink.pairNotifySensor` already runs for every unauthenticated sensor —
-// so there is no secret to store, drop, or clean up on forgetting; forgetting
-// this band is the same generic `HrsLink.forgetDevice` every other
-// unauthenticated notify-class sensor already uses.
+// so there is no secret to store, drop, or clean up on forgetting. But the
+// LIVE SESSION is owned by this file's own `HPlusLink.instance`, not by
+// `HrsLink.instance`'s chest-strap session, so `HrsLink.forgetDevice` still
+// carries an explicit branch that stops `instance` here before deleting the
+// row — it is only the key-cleanup half of forgetting that this band skips.
 
 import 'dart:async';
 
