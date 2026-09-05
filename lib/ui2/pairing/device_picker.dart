@@ -273,6 +273,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       'colmi' => l?.devicePickerBlurbColmi ??
           'A Colmi ring. Pairs and banks its history; nothing is decoded '
               'into a number yet.',
+      // 'casio' takes no special case here, same as every other notify-class
+      // sensor (watch9, xwatch, …): the generic sensor blurb below already
+      // fits, and it is the one that is actually localized.
       _ => l?.devicePickerBlurbSensor ??
           'A chest strap or armband, for beat timing during a workout.',
     };
