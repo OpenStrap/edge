@@ -148,6 +148,57 @@ void main() {
     }
   });
 
+  test('a frame tagged for a different command, or too short to be one, is '
+      'dropped with a log line, never silently, and never shrinks the wait '
+      'for the real reply', () async {
+    const nowSeconds = 1_800_000_000;
+    final link = ReplayBandLink();
+    final adapter = ColmiAdapter(
+      nowSeconds: () => nowSeconds,
+      firstReplyTimeout: const Duration(milliseconds: 100),
+      quietTimeout: const Duration(milliseconds: 20),
+    );
+    final events = <BandEvent>[];
+    final done = Completer<void>();
+    final sub = adapter.run(link).listen(events.add, onDone: done.complete);
+
+    // Same echo loop as `_replay`, except the VERY FIRST reply (the battery
+    // request) is preceded by cross-talk — a stress-history reply, and a
+    // truncated 2-byte notification — that must be dropped and logged rather
+    // than banked as the battery value or requeued as its own batch.
+    unawaited(() async {
+      var lastWriteCount = 0;
+      var first = true;
+      while (!done.isCompleted) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        if (link.writes.length > lastWriteCount) {
+          final (_, value) = link.writes.last;
+          lastWriteCount = link.writes.length;
+          if (first) {
+            first = false;
+            link.feed(kColmiNotifyChar,
+                colmiFrame(kColmiCmdStressHistory, <int>[9]), atSec: nowSeconds);
+            link.feed(kColmiNotifyChar, <int>[0x03, 0x2a], atSec: nowSeconds);
+          }
+          final reply = List<int>.from(value)..[1] = 0x2a;
+          link.feed(kColmiNotifyChar, reply, atSec: nowSeconds);
+        }
+      }
+    }());
+
+    await done.future.timeout(const Duration(seconds: 5));
+    await sub.cancel();
+    await link.close();
+
+    final batteryRaw = [
+      for (final e in events)
+        if (e is SampleBatch) ...?e.raw,
+    ].where((f) => f[0] == kColmiCmdBattery);
+    expect(batteryRaw, hasLength(1)); // only the real reply, banked once.
+    expect(link.logs, anyElement(contains('dropped a reply tagged')));
+    expect(link.logs, anyElement(contains('dropped a 2-byte frame')));
+  });
+
   test('cursor is deterministic off the injected clock, never a real one',
       () async {
     // Two independent replays off the SAME injected clock produce the

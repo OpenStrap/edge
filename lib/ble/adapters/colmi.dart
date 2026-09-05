@@ -37,9 +37,12 @@
 // ring, so not a byte of this path has met hardware (ASSUMPTIONS R6).
 // `signals` is `const {}`, matching `kOura`'s empty map — not `hrSparse` even
 // though the ring plainly measures heart rate, because nothing here has
-// checked a decode against real bytes. Every frame this adapter receives is
-// archived verbatim; nothing is translated into `decoded_onehz` or any other
-// analytics-facing column.
+// checked a decode against real bytes. Every frame that answers the command
+// it was requested under is archived verbatim; nothing is translated into
+// `decoded_onehz` or any other analytics-facing column. A frame that does not
+// answer the command being awaited — cross-talk, or a truncated notification
+// — is dropped and logged rather than banked: this adapter's per-command
+// buffer has nowhere honest to file a reply that isn't one.
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -154,8 +157,8 @@ class ColmiAdapter extends BandAdapter {
         );
     try {
       if (await link.write(kColmiWriteChar, colmiFrame(kColmiCmdBattery))) {
-        final frames =
-            await _collect(inbox, kColmiCmdBattery, firstReplyTimeout, quietTimeout);
+        final frames = await _collect(
+            inbox, kColmiCmdBattery, firstReplyTimeout, quietTimeout, link.log);
         if (frames.isNotEmpty) {
           yield BandNote('battery', frames.last[1]);
           yield SampleBatch(const [], raw: frames);
@@ -180,7 +183,8 @@ class ColmiAdapter extends BandAdapter {
                 '0x${cmd.toRadixString(16)} (day $day).');
             continue;
           }
-          final frames = await _collect(inbox, cmd, firstReplyTimeout, quietTimeout);
+          final frames =
+              await _collect(inbox, cmd, firstReplyTimeout, quietTimeout, link.log);
           if (frames.isNotEmpty) yield SampleBatch(const [], raw: frames);
         }
 
@@ -193,8 +197,8 @@ class ColmiAdapter extends BandAdapter {
         ];
         if (await link.write(
             kColmiWriteChar, colmiFrame(kColmiCmdActivityHistory, activityPayload))) {
-          final frames = await _collect(
-              inbox, kColmiCmdActivityHistory, firstReplyTimeout, quietTimeout);
+          final frames = await _collect(inbox, kColmiCmdActivityHistory,
+              firstReplyTimeout, quietTimeout, link.log);
           if (frames.isNotEmpty) yield SampleBatch(const [], raw: frames);
         } else {
           link.log('colmi: write refused for activity history (day $day).');
@@ -210,12 +214,16 @@ class ColmiAdapter extends BandAdapter {
   /// Anything tagged a different command id — an unsolicited battery push
   /// landing mid-walk, say — is dropped here rather than requeued: this
   /// protocol is a strict sequential request/reply, so cross-talk during one
-  /// command's collection window is not expected.
+  /// command's collection window is not expected. [onLog] is told about every
+  /// drop — this adapter's "archived verbatim" promise is only for frames
+  /// that answer the command being awaited, and a silent drop would leave the
+  /// raw_archive short with no trace of why.
   static Future<List<Uint8List>> _collect(
     _Inbox inbox,
     int cmd,
     Duration first,
     Duration quiet,
+    void Function(String) onLog,
   ) async {
     final out = <Uint8List>[];
     var timeout = first;
@@ -232,6 +240,13 @@ class ColmiAdapter extends BandAdapter {
       if (f.length == 16 && f[0] == cmd) {
         out.add(f);
         timeout = quiet;
+      } else if (f.length == 16) {
+        onLog('colmi: dropped a reply tagged '
+            '0x${f[0].toRadixString(16)} while awaiting '
+            '0x${cmd.toRadixString(16)} (e.g. an unsolicited push mid-walk).');
+      } else {
+        onLog('colmi: dropped a ${f.length}-byte frame, not a real '
+            '16-byte reply.');
       }
     }
   }
