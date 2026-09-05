@@ -21,6 +21,8 @@ import '../ble/adapters/_registry.dart' show kWhoopGen4;
 import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
+import '../ble/casio_link.dart';
+import '../ble/colmi_link.dart';
 import '../ble/oura_link.dart';
 import '../ble/qhybrid_link.dart';
 import '../compute/derivation_engine.dart';
@@ -232,6 +234,21 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await QHybridLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] qhybrid sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: no-ops when unpaired, must never let a
+    // failure here mark the WHOOP cycle as errored.
+    try {
+      await ColmiLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] colmi sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: CasioLink.sync() already no-ops when
+    // nothing is paired and never throws, but a failure here still must not
+    // escape and mark the WHOOP cycle as errored.
+    try {
+      await CasioLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] casio sync skipped: $e');
     }
   }
 }

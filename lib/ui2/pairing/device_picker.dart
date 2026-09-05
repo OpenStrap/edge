@@ -10,8 +10,8 @@
 // into three different accounts of one action again.
 //
 // WHAT IT DOES NOT DO. It does not invent support. The category list below
-// is exactly [kBandRegistry] — real entries, not aspirational
-// ones — because a category tile for a scale or a blood-pressure cuff this
+// is exactly [kBandRegistry] — real entries, not aspirational ones —
+// because a category tile for a scale or a blood-pressure cuff this
 // app cannot read from would be a promise with nothing behind it. See
 // ASSUMPTIONS R6 and `sensorIcon`'s own doc for the same rule applied
 // elsewhere.
@@ -276,6 +276,12 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       'qhybrid' =>
         'The original Fossil/Skagen hybrid smartwatch, not the newer '
             'Hybrid HR. Pairs and connects; nothing derives from it yet.',
+      'colmi' => l?.devicePickerBlurbColmi ??
+          'A Colmi ring. Pairs and banks its history; nothing is decoded '
+              'into a number yet.',
+      // 'casio' takes no special case here, same as every other notify-class
+      // sensor (watch9, xwatch, …): the generic sensor blurb below already
+      // fits, and it is the one that is actually localized.
       _ => l?.devicePickerBlurbSensor ??
           'A chest strap or armband, for beat timing during a workout.',
     };

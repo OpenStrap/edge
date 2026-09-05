@@ -12,6 +12,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
+import 'package:openstrap_edge/ble/adapters/casio.dart';
+import 'package:openstrap_edge/ble/adapters/colmi.dart';
 import 'package:openstrap_edge/ble/adapters/oura.dart';
 import 'package:openstrap_edge/ble/adapters/qhybrid.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
@@ -27,6 +29,8 @@ void main() {
       'ble_hrs': const BleHrsAdapter().signals,
       'oura': OuraAdapter(key: const [0]).signals,
       'qhybrid': kQHybridAdapter.signals,
+      'colmi': kColmiAdapter.signals,
+      'casio': const CasioAdapter().signals,
     };
 
     // Every registry id is covered above: a NEW adapter must extend this test,
@@ -47,6 +51,7 @@ void main() {
       () {
     expect(declaredSignals('gen4'), kWhoopGen4Signals.keys.toSet());
     expect(declaredSignals('oura'), isEmpty);
+    expect(declaredSignals('casio'), isEmpty);
     expect(declaredSignals('nothing-we-speak'), isEmpty);
     expect(declaredSignals(null), isEmpty);
   });
