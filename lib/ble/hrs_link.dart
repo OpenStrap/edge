@@ -66,6 +66,7 @@ import 'ble_state.dart'
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
 import 'oura_link.dart' show OuraLink;
+import 'watch9_link.dart' show Watch9Link;
 
 export 'adapters/host.dart' show HrsReading;
 
@@ -566,10 +567,14 @@ class HrsLink {
   /// Refuses [LocalDb.kPrimaryDeviceId] outright: that row is the band, and
   /// unpairing the band is a different flow with a different promise.
   ///
-  /// DISPATCHES ON `adapter_id` BEFORE TOUCHING ANYTHING. An Oura row carries
-  /// a secret this class knows nothing about — [OuraLink.forgetRing] drops the
-  /// stored key and the row together, and calling `disarm()` on it here would
-  /// leave that key behind while looking like a complete forget.
+  /// DISPATCHES ON `adapter_id` BEFORE TOUCHING ANYTHING. Every adapter with
+  /// its own dedicated `*Link` class and session needs its own case here —
+  /// falling through to the generic branch below disarms the completely
+  /// unrelated `instance` (the ble_hrs chest-strap session) instead of the
+  /// session that actually owns this device. An Oura row carries a secret
+  /// this class knows nothing about — [OuraLink.forgetRing] drops the stored
+  /// key and the row together, and calling `disarm()` on it here would leave
+  /// that key behind while looking like a complete forget.
   static Future<void> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[hrs] refusing to forget the primary band from here.');
@@ -580,6 +585,14 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kWatch9.id) {
+      // Stop its own session before the row goes — same reasoning as the
+      // generic branch below, aimed at the link that actually owns this
+      // device instead of the unrelated ble_hrs singleton.
+      await Watch9Link.instance.stop();
+      await LocalDb.deleteDevice(id);
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows

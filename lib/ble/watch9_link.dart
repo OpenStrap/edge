@@ -6,11 +6,10 @@
 // file writes becomes a number — every row it commits carries a non-null
 // `source`.
 //
-// THIN COUSIN OF `tlw64_link.dart`. There is no pairing key, no cursor and no
-// documented "must write this or it stalls" behaviour to reproduce — see
-// `watch9.dart`'s own header on why nothing is ever written. So this is a
-// plain bounded listen window: connect, catch whatever the board sends on
-// its own, tear down.
+// There is no pairing key, no cursor and no documented "must write this or
+// it stalls" behaviour to reproduce — see `watch9.dart`'s own header on why
+// nothing is ever written. So this is a plain bounded listen window: connect,
+// catch whatever the board sends on its own, tear down.
 
 import 'dart:async';
 
@@ -159,7 +158,7 @@ class Watch9Link {
     if (bytes.isEmpty) return null;
     return ArchiveRecord(
       hex: _hex(bytes),
-      // NULL, not 0 — see `tlw64_link.dart`'s identical note on why a
+      // NULL, not 0 — see `ArchiveRecord.counter`'s own doc comment on why a
       // constant 0 would be accidental thinning-exemption policy.
       counter: null,
       packetType: bytes[0],
