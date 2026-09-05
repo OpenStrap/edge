@@ -203,4 +203,37 @@ void main() {
     // path at all, so there is nothing to checkpoint.
     expect(events.whereType<OffloadCheckpoint>(), isEmpty);
   });
+
+  test(
+      'cancelling the session cancels all three optional-channel '
+      'subscriptions, not just the auth one', () async {
+    final link = ReplayBandLink();
+    final sub = _adapter().run(link).listen((_) {});
+    // Spin until the handshake has written past the auth characteristic and
+    // subscribed to battery/steps/HR — same drive loop as the test above,
+    // minus collecting events, stopping the instant the subscribe happens.
+    var served = 0;
+    for (var spin = 0;
+        spin < 400 && !link.isListening(kHuami234BatteryChar);
+        spin++) {
+      await Future<void>.delayed(Duration.zero);
+      while (served < link.writes.length) {
+        for (final f in _reconnectReply(served, link.writes[served].$2)) {
+          link.feed(kHuami234AuthChar, f, atSec: 1786000000);
+        }
+        served++;
+      }
+    }
+    expect(link.isListening(kHuami234BatteryChar), isTrue);
+    expect(link.isListening(kHuami234StepsChar), isTrue);
+    expect(link.isListening(kHeartRateMeasurementUuid), isTrue);
+
+    // This is what `BandHost.stop()` does: cancel the subscription on
+    // `run()`, WITHOUT the link itself ever ending. A leak would leave all
+    // three still listening after this.
+    await sub.cancel();
+    expect(link.isListening(kHuami234BatteryChar), isFalse);
+    expect(link.isListening(kHuami234StepsChar), isFalse);
+    expect(link.isListening(kHeartRateMeasurementUuid), isFalse);
+  });
 }

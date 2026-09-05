@@ -166,7 +166,22 @@ class MiBand234Adapter extends BandAdapter {
   /// is no completion signal on any of these channels to wait for, unlike the
   /// history drain this file deliberately never opens.
   Stream<BandEvent> _subscribeOptional(BandLink link) {
-    final controller = StreamController<BandEvent>();
+    // Fan-in of 3 upstream notify subscriptions into one stream. A bare
+    // StreamController has no idea those subscriptions exist, so cancelling
+    // a *listener* of `controller.stream` (which is all `run()`'s finally
+    // can reach once this stream has been handed off via `yield*`) would
+    // otherwise leave battery/steps/HR listening forever. `onCancel` is the
+    // controller's own hook for exactly this: it fires when the stream's one
+    // listener cancels, which is what happens when `BandHost.stop()` cancels
+    // `run()`'s subscription and that cancellation propagates through
+    // `yield*`.
+    final subs = <StreamSubscription<(int, List<int>)>>[];
+    late final StreamController<BandEvent> controller;
+    controller = StreamController<BandEvent>(onCancel: () async {
+      for (final s in subs) {
+        await s.cancel();
+      }
+    });
     const channels = <(String uuid, int archiveTag)>[
       (kHuami234BatteryChar, kMiBand234ArchiveBattery),
       (kHuami234StepsChar, kMiBand234ArchiveSteps),
@@ -179,7 +194,7 @@ class MiBand234Adapter extends BandAdapter {
     }
 
     for (final (uuid, tag) in channels) {
-      link.notify(uuid).listen(
+      subs.add(link.notify(uuid).listen(
         (rec) {
           if (controller.isClosed) return;
           // The tag is prepended for the archive builder to key `reason`
@@ -193,7 +208,7 @@ class MiBand234Adapter extends BandAdapter {
         },
         onDone: endOne,
         onError: (Object _) => endOne(),
-      );
+      ));
     }
     return controller.stream;
   }
