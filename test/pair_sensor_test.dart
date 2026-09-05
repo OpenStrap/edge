@@ -123,6 +123,62 @@ void main() {
     });
   });
 
+  group('the paired lookup', () {
+    // `PairSensorScreen` is generic over `BandEntry` — it is pushed for a
+    // Colmi ring exactly as it is for a strap. `_load()` used to ask
+    // `HrsLink.pairedSensorRow()`, which only ever matches `ble_hrs`; a ring
+    // row was invisible to its own pairing screen and "already paired" never
+    // rendered. Pinned against the real database, not a fake, because the bug
+    // was in what column value the query matched, not in the widget tree.
+    setUpAll(() {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    });
+
+    setUp(() async {
+      await LocalDb.close();
+      LocalDb.dbName = 'pair_sensor_paired_lookup_test.db';
+      final dir = await databaseFactory.getDatabasesPath();
+      await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+    });
+
+    tearDown(() async => LocalDb.close());
+
+    testWidgets('a paired Colmi ring renders the Paired section for its own '
+        'screen, not "nothing paired"', (t) async {
+      // `t.runAsync` — a `testWidgets` body runs under `FakeAsync`, which
+      // does not drive real I/O (sqflite_common_ffi's real isolate/FFI
+      // round trip); the write here and the poll below both escape into it,
+      // matching `ui2_labs_delete_test.dart`'s `_seed`/`_until` idiom.
+      await t.runAsync(() => LocalDb.upsertDevice(
+            id: 'colmi-aaaa1111',
+            adapterId: kColmi.id,
+            remoteId: 'AA:BB:CC:DD:EE:FF',
+            label: 'R02_1234',
+            tier: 'raw',
+          ));
+
+      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: PairSensorScreen(entry: kColmi),
+      ));
+      // `_load()`'s own real DB read (fired from `initState`, unawaited)
+      // needs the same real-async escape to ever resolve under this zone.
+      for (var i = 0; i < 60 && find.text('Paired').evaluate().isEmpty; i++) {
+        await t.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)));
+        await t.pump();
+      }
+
+      expect(find.text('Paired'), findsOneWidget);
+      expect(find.text('R02_1234'), findsOneWidget);
+      expect(find.text('Forget this sensor'), findsOneWidget);
+    });
+  });
+
   group('the screen renders', () {
     testWidgets('nothing paired, nothing found: it says what would find one',
         (t) async {

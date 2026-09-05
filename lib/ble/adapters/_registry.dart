@@ -79,6 +79,18 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// Colmi smart ring family's primary command/notify service. A second,
+/// separate service (sleep + SpO2 "big data") coexists on the same ring and
+/// is untouched by this build — see `colmi.dart`'s header.
+const String kColmiService = '6e40fff0-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Host to ring. Every command frame is written here.
+const String kColmiWriteChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Ring to host. Every reply — including an unprompted battery push — arrives
+/// here, tagged by the same command id the request went out under.
+const String kColmiNotifyChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
 /// What a stored timestamp actually IS for a given band.
 ///
 /// The distinction is load-bearing and it is not cosmetic. A WHOOP record
@@ -305,6 +317,7 @@ class BandEntry {
     required String service,
     required List<String> characteristics,
     required this.timeAnchor,
+    this.nameMatcher,
   })  : _service = service,
         _requiredCharacteristics = characteristics,
         gatt = null,
@@ -317,7 +330,6 @@ class BandEntry {
         setClockDriftGated = false,
         burstCountGateEnforced = false,
         logsConsoleOutput = false,
-        nameMatcher = null,
         innerOpcodeOffset = -1,
         innerVersionOffset = -1,
         innerCounterOffset = -1;
@@ -454,6 +466,37 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// This ring family advertises a stable name — `R0\d_*` (R02/R03/R06/R09) or
+/// `COLMI R10_*` — so matching on it is a fallback for whatever an
+/// advertising payload's service list drops. Whether a real ring's 31-byte
+/// advertising payload also carries `6e40fff0…` is unconfirmed without
+/// hardware, so this is belt-and-suspenders alongside the service filter, the
+/// same role `_nameContainsWhoop` plays for WHOOP 4. Takes the
+/// already-lowercased name.
+bool _looksLikeColmi(String lowercaseName) =>
+    RegExp(r'^(?:r02_|r03_|r06_|r09_)').hasMatch(lowercaseName) ||
+    lowercaseName.startsWith('colmi r10_');
+
+/// Colmi smart ring family (advertised as `R02_*`, `R03_*`, `R06_*`, `R09_*`,
+/// `COLMI R10_*`). A fixed 16-byte checksummed command/notify protocol with no
+/// encryption and no handshake of any kind — connect, discover, subscribe,
+/// write.
+///
+/// [TimeAnchor.arrival]: there is no command in this protocol that reads the
+/// ring's clock back, so nothing here is a measured origin.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns a Colmi
+/// ring, so not a byte of this path has met hardware (ASSUMPTIONS R6). It
+/// pairs, connects and banks raw bytes; `kDerivableSources` stays empty.
+const BandEntry kColmi = BandEntry.notify(
+  id: 'colmi',
+  label: 'Colmi ring',
+  service: kColmiService,
+  characteristics: <String>[kColmiWriteChar, kColmiNotifyChar],
+  timeAnchor: TimeAnchor.arrival,
+  nameMatcher: _looksLikeColmi,
+);
+
 /// A Casio G-Shock / current-generation Casio smartwatch speaking the 2C/2D
 /// "all-features" GATT scheme (GBX100, GW-B5600, GMW-B5000, ECB-S100/Edifice
 /// and later models sharing the profile).
@@ -483,6 +526,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kColmi,
   kCasio,
 ];
 
@@ -540,6 +584,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'colmi': <InputSignal, Duration>{},
   'casio': <InputSignal, Duration>{},
 };
 
