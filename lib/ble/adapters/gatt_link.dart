@@ -72,10 +72,12 @@ class GattBandLink implements BandLink {
   /// of these BACK TO BACK before a session's bounded window ever reaches the
   /// notify phase; at 15s each, four sequential reads could burn a full
   /// minute on one unresponsive characteristic before the caller's own
-  /// session timeout even has a chance to matter. 3s is still generous for a
-  /// live GATT round trip and keeps a fully-unresponsive worst case bounded
-  /// to a number the caller's session window can actually plan around.
-  static const Duration _readTimeout = Duration(seconds: 3);
+  /// session timeout even has a chance to matter. 2s is still generous for a
+  /// live GATT round trip, and it is what lets a caller doing four of these
+  /// (Coros's status pull) size its own session window with real seconds left
+  /// over for whatever comes after the reads, even in the fully-unresponsive
+  /// worst case.
+  static const Duration _readTimeout = Duration(seconds: 2);
 
   /// One write in flight at a time — the same [WriteChain] `BleEngine._write`
   /// runs on, one instance per link. Not shared with the engine's: two
@@ -150,10 +152,15 @@ class GattBandLink implements BandLink {
       return null;
     }
     try {
-      return await c.read().timeout(_readTimeout);
-    } on TimeoutException {
-      log('read timeout: no GATT response in ${_readTimeout.inSeconds}s.');
-      return null;
+      // The timeout goes INTO the call, not wrapped around it. flutter_blue_plus
+      // serialises every GATT operation behind one global mutex and only
+      // releases it when the operation's OWN future settles — an outer
+      // `Future.timeout` does not cancel that future, so a wrapped read still
+      // held the mutex (and the platform channel) for its internal default of
+      // 15s regardless of how quickly this method gave up on it, and every
+      // other BLE op on this phone — including the primary band's — queues
+      // behind that same mutex.
+      return await c.read(timeout: _readTimeout.inSeconds);
     } catch (e) {
       log('read error: $e');
       return null;
