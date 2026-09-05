@@ -1726,8 +1726,14 @@ const int kAlgoVersion = 87;
 // main took analytics 7105256 → 187e026 (the v80 gate above); this branch
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
+// REPIN (this branch) @ 96d47d7 — protocol `feat/garmin-gfdi-protocol`, on
+// top of the #42 merge above. Adds `garmin.dart` only: COBS + Multi-Link
+// framing, the GFDI frame/CRC16, the device-information parser, and a
+// minimal protobuf reader for one battery round trip — a new module, no
+// existing decoder touched. NO kAlgoVersion bump: nothing on the
+// derivation/persisted-record path moves.
 const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
-const String kProtocolPin = '471034cb84b85edb37e72b6f6add79a2d7929294';
+const String kProtocolPin = '96d47d7fafae17dae3d0644837a3054e72101637';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
