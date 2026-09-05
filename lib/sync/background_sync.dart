@@ -22,6 +22,7 @@ import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
 import '../ble/oura_link.dart';
+import '../ble/ring11m_link.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
@@ -223,6 +224,12 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same piggyback, same reasoning, for a paired ring11m sensor.
+    try {
+      await Ring11mLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] ring11m sync skipped: $e');
     }
   }
 }
