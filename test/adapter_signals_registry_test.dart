@@ -34,6 +34,7 @@ import 'package:openstrap_edge/ble/adapters/tlw64.dart';
 import 'package:openstrap_edge/ble/adapters/watch9.dart';
 import 'package:openstrap_edge/ble/adapters/wearfit.dart';
 import 'package:openstrap_edge/ble/adapters/whoop_gen4.dart';
+import 'package:openstrap_edge/ble/adapters/withings_steel_hr.dart';
 import 'package:openstrap_edge/ble/adapters/xwatch.dart';
 import 'package:openstrap_edge/ble/adapters/zetime.dart';
 
@@ -46,6 +47,7 @@ void main() {
       'gen5': kWhoopGen4Signals,
       'ble_hrs': const BleHrsAdapter().signals,
       'oura': OuraAdapter(key: const [0]).signals,
+      'withings_steel_hr': WithingsSteelHrAdapter(firstConnect: true).signals,
       'miband234': MiBand234Adapter(key: const [0]).signals,
       'pebble': kPebbleAdapter.signals,
       'makibeshr3': const MakibesHr3Adapter().signals,
@@ -87,6 +89,7 @@ void main() {
       () {
     expect(declaredSignals('gen4'), kWhoopGen4Signals.keys.toSet());
     expect(declaredSignals('oura'), isEmpty);
+    expect(declaredSignals('withings_steel_hr'), isEmpty);
     expect(declaredSignals('pebble'), isEmpty);
     expect(declaredSignals('casio'), isEmpty);
     expect(declaredSignals('nothing-we-speak'), isEmpty);

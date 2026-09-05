@@ -53,6 +53,12 @@ import 'signals.dart';
 const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
 const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
 
+/// Withings Steel HR / Activité's GATT service. One characteristic, both
+/// directions: commands are written to it, every reply arrives as a
+/// notification on the same UUID.
+const String kWithingsSteelHrService = '00000020-5749-5448-0037-000000000000';
+const String kWithingsWriteChar = '00000024-5749-5448-0037-000000000000';
+
 /// The DaFit/MOYOUNG-V2 clone-watch family's GATT service — an otherwise
 /// generic Nordic UART Service. Shared by the whole cluster of unbranded
 /// boards this build recognizes (M6/M4/LH716/Sunset 6/Watch7/Fit1900-style),
@@ -736,6 +742,28 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// Withings Steel HR / Activité. A challenge-response session gate, never
+/// payload encryption — see `withings_steel_hr.dart` for the handshake and
+/// [WithingsSteelHrAdapter.firstConnect] for why a fresh pairing skips it.
+/// Matched by advertised name (`startsWith('steel')` or `startsWith(
+/// 'activite')`, case-insensitive) is a pairing-UI concern, not a scan
+/// filter — the custom service UUID above is already unambiguous.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one yet,
+/// so not a byte of this path has met hardware (ASSUMPTIONS R6). It pairs,
+/// connects and banks every reply raw; `kDerivableSources` stays empty until
+/// someone has actually held one.
+const BandEntry kWithingsSteelHr = BandEntry.notify(
+  id: 'withings_steel_hr',
+  label: 'Withings Steel HR',
+  service: kWithingsSteelHrService,
+  characteristics: <String>[kWithingsWriteChar],
+  // Nothing here decodes a signal, let alone one with a clock of its own;
+  // every archived frame is stamped on arrival like every other unproven
+  // notify-class band.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Mi Band 2, 3 and 4 — the shared "Huami legacy" GATT protocol, subclassed
 /// unchanged across all three generations.
 ///
@@ -1258,6 +1286,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kWithingsSteelHr,
   kMiBand234,
   kPebble,
   kMakibesHr3,
@@ -1339,6 +1368,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'withings_steel_hr': <InputSignal, Duration>{},
   'miband234': <InputSignal, Duration>{},
   'pebble': <InputSignal, Duration>{},
   'makibeshr3': <InputSignal, Duration>{},

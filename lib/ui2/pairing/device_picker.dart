@@ -270,6 +270,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      'withings_steel_hr' => l?.devicePickerBlurbWithingsSteelHr ??
+          'Pairs and connects — nothing it captures is decoded into a '
+              'number yet.',
       'miband234' => l?.devicePickerBlurbMiband234 ??
           'A Mi Band 2, 3 or 4. Pairs and connects; nothing derives from it '
               'yet.',

@@ -1039,6 +1039,10 @@
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
   },
+  "devicePickerBlurbWithingsSteelHr": "Pairs and connects — nothing it captures is decoded into a number yet.",
+  "@devicePickerBlurbWithingsSteelHr": {
+    "description": "Category row subtitle for the Withings Steel HR / Activité."
+  },
   "devicePickerBlurbMiband234": "A Mi Band 2, 3 or 4. Pairs and connects; nothing derives from it yet.",
   "@devicePickerBlurbMiband234": {
     "description": "Category row subtitle for a Mi Band 2/3/4."

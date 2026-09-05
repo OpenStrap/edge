@@ -39,6 +39,7 @@ import '../ble/smaq2oss_link.dart';
 import '../ble/tlw64_link.dart';
 import '../ble/watch9_link.dart';
 import '../ble/wearfit_link.dart';
+import '../ble/withings_steel_hr_link.dart';
 import '../ble/xwatch_link.dart';
 import '../ble/zetime_link.dart';
 import '../compute/derivation_engine.dart';
@@ -243,6 +244,13 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same reasoning, same wake window: a paired Withings row otherwise never
+    // gets a second connection past pairing, since nothing else calls this.
+    try {
+      await WithingsSteelHrLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] withings sync skipped: $e');
     }
     // Same reasoning, same slot, for a paired Mi Band: MiBand234Link.sync()
     // also no-ops when nothing is paired and never throws, but guard it

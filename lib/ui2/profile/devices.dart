@@ -67,6 +67,7 @@ import '../../ble/adapters/_registry.dart'
         kSmaq2oss,
         kWatch9,
         kWearFit,
+        kWithingsSteelHr,
         kXWatch,
         kZeTime,
         declaredSignals;
@@ -91,6 +92,8 @@ import '../../ble/ringconn_link.dart' show RingConnLink;
 import '../../ble/tlw64_link.dart' show Tlw64Link;
 import '../../ble/watch9_link.dart' show Watch9Link;
 import '../../ble/wearfit_link.dart' show WearFitLink;
+import '../../ble/withings_steel_hr_link.dart'
+    show WithingsSteelHrLink, pairWithingsSteelHr;
 import '../../ble/xwatch_link.dart' show XWatchLink;
 import '../../ble/zetime_link.dart' show ZeTimeLink, pairZeTime;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
@@ -836,7 +839,8 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'watch9' ||
       'xwatch' ||
       'tlw64' ||
-      'smaq2oss' =>
+      'smaq2oss' ||
+      'withings_steel_hr' =>
         LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
@@ -1015,6 +1019,13 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kWithingsSteelHr,
+    blurb: 'Pairs and connects, with no account and no subscription. Nothing '
+        'it captures is decoded into a number yet — no one on this project '
+        'has held one.',
+    pick: pairWithingsSteelHr,
   ),
   (
     entry: kMiBand234,
@@ -1739,6 +1750,8 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'dafit' => () => _syncDafitWatch(c),
         'zetime' => () => _syncZeTime(c),
         'wearfit' => () => _syncSensor(c, WearFitLink.instance.sync),
+        'withings_steel_hr' =>
+          () => _syncSensor(c, WithingsSteelHrLink.instance.sync),
         'dt78' => () => _syncDt78(c),
         'hplus' => () => _syncHPlus(c),
         'id115' => () => _syncId115(c),

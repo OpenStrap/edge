@@ -77,6 +77,7 @@ import 'qhybrid_link.dart' show QHybridLink;
 import 'ringconn_link.dart' show RingConnLink;
 import 'watch9_link.dart' show Watch9Link;
 import 'wearfit_link.dart' show WearFitLink;
+import 'withings_steel_hr_link.dart' show WithingsSteelHrLink;
 
 export 'adapters/host.dart' show HrsReading;
 
@@ -635,9 +636,12 @@ class HrsLink {
   /// secret this class knows nothing about — [OuraLink.forgetRing] and
   /// [MiBand234Link.forgetBand] drop the stored key and the row together, and
   /// calling `disarm()` on either here would leave that key behind while
-  /// looking like a complete forget. An O2Ring row carries no secret, but
-  /// [O2RingLink.forgetRing] still tears down a live session before the row
-  /// goes — the same reason this dispatch exists at all. A RingConn row
+  /// looking like a complete forget. A Withings row has no secret to lose,
+  /// but [WithingsSteelHrLink.forgetDevice] still owns stopping ITS OWN live
+  /// session before the row goes — `disarm()` here only knows about this
+  /// class's own connection, not that one. An O2Ring row carries no secret,
+  /// but [O2RingLink.forgetRing] still tears down a live session before the
+  /// row goes — the same reason this dispatch exists at all. A RingConn row
   /// carries no such secret either, but still needs [RingConnLink.forgetRing]
   /// rather than this class's own `disarm()` — that call tears down a live
   /// WORKOUT sensor session, not a RingConn `sync()` that may be mid-drain. An
@@ -658,6 +662,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kWithingsSteelHr.id) {
+      await WithingsSteelHrLink.forgetDevice(id);
       return;
     }
     if (row?['adapter_id'] == kMiBand234.id) {
