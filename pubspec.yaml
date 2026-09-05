@@ -143,7 +143,14 @@ dependencies:
       # live high-rate streams are never persisted (see invariant #1), so no
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
-      ref: 471034cb84b85edb37e72b6f6add79a2d7929294
+      #
+      # REPIN (this branch): protocol `feat/ring11m-protocol` @ e42d010, on
+      # top of main's #43 merge (docs-only, no lib/ change since 471034c).
+      # Adds the R11M/R10M smart ring wire format — frame codec + crc16,
+      # negotiation commands, history block terminator + ack/nack — nothing
+      # existing changes. NO kAlgoVersion bump: no decoder for a stored
+      # signal is touched, and this ring's own adapter declares no signal.
+      ref: e42d0100fec4138a24daee5e52db55a1bd2bc720
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
