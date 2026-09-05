@@ -43,8 +43,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura, declaredSignals;
+    show BandEntry, kBandRegistry, kBleHrs, kGarmin, kOura, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
+import '../../ble/garmin_link.dart' show GarminLink;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
@@ -773,6 +774,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' => LucideIcons.circleDot,
+      'garmin' => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -950,6 +952,17 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kGarmin,
+    blurb: 'A Garmin sports watch. Before pairing here, put the watch into '
+        'its own Settings → Sensors & Accessories → Phone → Pair Phone '
+        'screen — it will not accept a new connection otherwise. Reads its '
+        'model, firmware and battery; nothing else derives from it yet.',
+    // Null means the plain notify-class pairing — no key exchange this pass
+    // implements. The Multi-Link/GFDI handshake runs inside the adapter's
+    // own session, once connected.
+    pick: null,
   ),
 ];
 
@@ -1475,7 +1488,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: switch (s.family) {
+        'oura' => () => _syncRing(c),
+        'garmin' => () => _syncGarminWatch(c),
+        _ => null,
+      },
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1501,6 +1518,25 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Hold a session with the paired watch, now, because the user asked. There
+/// is no stored history drained here — see `garmin_link.dart`'s own header —
+/// so this just reopens the GFDI channel and banks whatever the device-info
+/// push and one battery answer give it.
+Future<void> _syncGarminWatch(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await GarminLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachRing ??
+            'Could not reach it. It has to be nearby, and not connected to '
+                'another app.')),
   ));
 }
 

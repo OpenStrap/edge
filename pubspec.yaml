@@ -143,7 +143,13 @@ dependencies:
       # live high-rate streams are never persisted (see invariant #1), so no
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
-      ref: 471034cb84b85edb37e72b6f6add79a2d7929294
+      #
+      # REPIN (this branch): protocol `feat/garmin-gfdi-protocol` @ 96d47d7,
+      # on top of the #42 merge above. Adds `garmin.dart`: COBS + Multi-Link
+      # framing, the GFDI frame/CRC16, the device-information parser, and a
+      # minimal protobuf reader/writer for one battery round trip. Nothing
+      # existing changed — NO kAlgoVersion bump.
+      ref: 96d47d7fafae17dae3d0644837a3054e72101637
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

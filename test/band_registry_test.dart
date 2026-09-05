@@ -10,7 +10,7 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 void main() {
   test('ids are unique and stable — they are stamped as device_family', () {
     expect(kBandRegistry.map((e) => e.id).toList(),
-        <String>['gen4', 'gen5', 'ble_hrs', 'oura']);
+        <String>['gen4', 'gen5', 'ble_hrs', 'oura', 'garmin']);
   });
 
   test('D1 — the scan service list is exactly the two WHOOP services', () {
@@ -45,6 +45,16 @@ void main() {
     // The two halves that could NOT be expressed — see the registry header.
     expect(kBleHrs.gatt, isNull, reason: 'GattProfile is six WHOOP UUIDs');
     expect(kBleHrs.wire, isNull, reason: 'BandProfile is a framed envelope');
+  });
+
+  test('a Garmin entry has one service and its write/notify pair', () {
+    expect(kGarmin.isFramed, isFalse);
+    expect(kGarmin.service, kGarminService);
+    expect(kGarmin.requiredCharacteristics,
+        [kGarminWriteChar, kGarminNotifyChar]);
+    expect(kGarmin.gatt, isNull);
+    expect(kGarmin.wire, isNull);
+    expect(() => kGarmin.commands, throwsA(anything));
   });
 
   test('D3 — frameOpcodeIndex lands on the opcode of a real built frame', () {
