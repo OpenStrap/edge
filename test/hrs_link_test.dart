@@ -152,6 +152,34 @@ void main() {
       // And the memo clears, so a later arm is a real attempt again.
       expect(identical(HrsLink.instance.arm(), a), isFalse);
     });
+
+    test('forgetting an unrelated watch9 row leaves this strap session alone',
+        () async {
+      // Regression: forgetDevice used to fall through to the generic branch
+      // for any non-Oura row, which disarms `HrsLink.instance` — the
+      // completely unrelated chest-strap singleton — even when the row being
+      // forgotten belongs to Watch9Link's own session.
+      await HrsLink.instance.ingestForTest(deviceId, const [
+        (1_800_000_000, kHrWithTwoRr),
+      ]);
+      expect(HrsLink.instance.reading.value, isNotNull);
+
+      const watch9Id = 'watch9-aa11bb22';
+      await LocalDb.upsertDevice(
+        id: watch9Id,
+        adapterId: kWatch9.id,
+        remoteId: '11:22:33:44:55:66',
+      );
+      await HrsLink.forgetDevice(watch9Id);
+
+      // `disarm()` unconditionally nulls this on its way out — if it had
+      // fired, this would be null too.
+      expect(HrsLink.instance.reading.value, isNotNull);
+      final row = (await LocalDb.deviceRows())
+          .where((r) => r['id'] == watch9Id)
+          .toList();
+      expect(row, isEmpty, reason: 'the watch9 row itself is still forgotten');
+    });
   });
 
   // WHY THESE LIVE AT THIS LEVEL. `flutter_blue_plus` has no simulator path,
@@ -316,6 +344,60 @@ void main() {
       expect(await HrsLink.pairedSensorRow(), isNull);
       expect(await HrsLink.instance.arm(), isFalse);
       await expectNoSlotLeak();
+    });
+  });
+
+  group('forgetDevice', () {
+    setUpAll(() {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    });
+
+    setUp(() async {
+      await LocalDb.close();
+      LocalDb.dbName = 'hrs_forget_test.db';
+      final dir = await databaseFactory.getDatabasesPath();
+      await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+    });
+
+    tearDown(() async => LocalDb.close());
+
+    test(
+        'an HPlus row goes through HPlusLink.instance, not the '
+        'chest-strap disarm', () async {
+      const id = 'hplus-11223344';
+      await LocalDb.upsertDevice(
+        id: id,
+        adapterId: kHPlus.id,
+        remoteId: 'AA:BB:CC:DD:EE:00',
+        label: 'Test Band',
+      );
+
+      // No BLE plugin is registered under `flutter test`, so this only
+      // proves the dispatch: it must reach `HPlusLink.instance.stop()`
+      // (a no-op with nothing connected) rather than `HrsLink.instance
+      // .disarm()`, and it must delete the row either way.
+      await HrsLink.forgetDevice(id);
+
+      final rows = await LocalDb.deviceRows();
+      expect(rows.where((r) => r['id'] == id), isEmpty);
+    });
+  });
+
+  // Pure derivation, no BLE plugin needed — pulled out of `pairNotifySensor`
+  // specifically so this ternary has a test that doesn't need one.
+  group('tier derivation', () {
+    test('a strap that declares beat-to-beat gets that tier by default', () {
+      expect(HrsLink.deriveTier(null, kBleHrs.id), 'beatToBeat');
+    });
+
+    test('a band that declares no signals stays null, not inherited', () {
+      expect(HrsLink.deriveTier(null, kHPlus.id), isNull);
+    });
+
+    test('an explicit tier always wins over the derivation', () {
+      expect(HrsLink.deriveTier('explicit', kHPlus.id), 'explicit');
+      expect(HrsLink.deriveTier('explicit', kBleHrs.id), 'explicit');
     });
   });
 }
