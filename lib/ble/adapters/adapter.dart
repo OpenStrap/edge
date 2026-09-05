@@ -327,31 +327,21 @@ class ReplayBandLink implements BandLink {
   /// End every channel, which ends `run()`. Await the run subscription's
   /// `done` after this rather than guessing at a delay.
   ///
-  /// DRAINS IN ROUNDS, not one snapshot. An adapter that calls [notify] lazily
-  /// — after an `await` this method's own `await c.close()` yields to — adds
-  /// a new entry to [_channels] while a round is mid-iteration. Clearing the
-  /// map before that round starts means the new entry lands in a fresh map
-  /// the next round picks up, instead of a snapshot silently losing it.
-  ///
-  /// A CHANNEL WITH NO LISTENER IS NOT AWAITED. A single-subscription
-  /// [StreamController]'s `close()` future only completes once its done event
-  /// has actually been delivered to a listener, so a channel a fixture fed
-  /// but an adapter never subscribed to (or has not subscribed to yet — a
-  /// lazy, sequential subscriber reaches its second `notify()` only after an
-  /// earlier one resolves) would hang this forever. `close()` is still called
-  /// on every channel either way, so a listener that attaches afterward still
-  /// gets its done event immediately.
+  /// PLAIN AND UNCONDITIONAL, on purpose — a `hasListener`-gated version (skip
+  /// the await, fire-and-forget `close()` on a channel with no listener yet)
+  /// was tried here and reverted: it reproducibly hung `HrsLink.ingestForTest`
+  /// teardown (`test/pair_sensor_test.dart`'s disarm case), bisected down to
+  /// this exact conditional — not the round-draining wrapper some earlier
+  /// version of this method also carried, which made no difference either
+  /// way. A single-subscription `StreamController.close()` is normally safe to
+  /// await even with no listener attached — it does not block waiting for one
+  /// to appear — so there was no real bug this gate was fixing; whatever
+  /// narrow race it was reasoning about did not hold up against the real
+  /// fixture. Keep this plain.
   Future<void> close() async {
-    while (_channels.isNotEmpty) {
-      final round = _channels.values.toList();
-      _channels.clear();
-      for (final c in round) {
-        if (c.hasListener) {
-          await c.close();
-        } else {
-          unawaited(c.close());
-        }
-      }
+    for (final c in _channels.values) {
+      await c.close();
     }
+    _channels.clear();
   }
 }
