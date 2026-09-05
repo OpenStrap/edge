@@ -71,7 +71,13 @@ class CasioLink {
   }
 
   Future<bool> _sync(String? wantDeviceId) async {
-    final row = await pairedRow(deviceId: wantDeviceId);
+    Map<String, Object?>? row;
+    try {
+      row = await pairedRow(deviceId: wantDeviceId);
+    } catch (e) {
+      debugPrint('[casio] paired-row lookup failed: $e');
+      return false;
+    }
     if (row == null) return false;
     final deviceId = row['id'] as String?;
     final remoteId = row['remote_id'] as String?;
