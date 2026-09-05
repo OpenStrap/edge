@@ -6,11 +6,10 @@
 // file writes becomes a number — every row it commits carries a non-null
 // `source`.
 //
-// THIN COUSIN OF `watch9_link.dart`. There is no pairing key, no cursor and
-// no documented "must write this or it stalls" behaviour to reproduce — see
-// `xwatch.dart`'s own header on why nothing is ever written. So this is a
-// plain bounded listen window: connect, catch whatever the board sends on
-// its own, tear down.
+// There is no pairing key, no cursor and no documented "must write this or
+// it stalls" behaviour to reproduce — see `xwatch.dart`'s own header on why
+// nothing is ever written. So this is a plain bounded listen window: connect,
+// catch whatever the board sends on its own, tear down.
 
 import 'dart:async';
 
@@ -124,7 +123,7 @@ class XWatchLink {
           await host.run(link).timeout(_listenWindow, onTimeout: () {});
           return true;
         } catch (e) {
-          debugPrint('[xwatch] connect failed: $e');
+          debugPrint('[xwatch] session failed: $e');
           return false;
         } finally {
           // `BandHost.stop()` awaits `_runSub?.cancel()` and a final
@@ -159,8 +158,8 @@ class XWatchLink {
     if (bytes.isEmpty) return null;
     return ArchiveRecord(
       hex: _hex(bytes),
-      // NULL, not 0 — see `tlw64_link.dart`'s identical note on why a
-      // constant 0 would be accidental thinning-exemption policy.
+      // NULL, not 0 — a constant 0 would read as accidental
+      // thinning-exemption policy.
       counter: null,
       packetType: bytes[0],
       recTs: null,
