@@ -128,12 +128,16 @@ class BangleJsLink {
             buildArchive: _buildArchiveRow,
           );
           _host = host;
-          // Not awaited to completion: `run()`'s stream never ends on its
-          // own for this adapter (see banglejs.dart) — only `stop()` (below,
-          // in the `finally`) or the link closing does. The window is what
-          // bounds this call.
-          unawaited(host.run(link));
-          await Future<void>.delayed(_listenWindow);
+          // Race the window against `run()` itself: `run()`'s stream never
+          // ends on its own for this adapter (see banglejs.dart) while the
+          // watch keeps talking, so the window is what bounds the common
+          // case — but a mid-window disconnect still ends the underlying
+          // stream (host.dart's `run` completes on any stream end, error or
+          // not, it never rethrows), and `Future.any` lets that finish this
+          // call early instead of holding the secondary-link slot for the
+          // full window regardless.
+          await Future.any(
+              [host.run(link), Future<void>.delayed(_listenWindow)]);
           return true;
         } finally {
           // Drop the link and DISCONNECT before the slot is released.
