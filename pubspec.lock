@@ -945,9 +945,11 @@ packages:
   openstrap_protocol:
     dependency: "direct main"
     description:
-      path: "/tmp/protocol-ringconn-wt"
-      relative: false
-    source: path
+      path: "."
+      ref: b819ee09fe2248525c308ef9d26abf28033efdc8
+      resolved-ref: b819ee09fe2248525c308ef9d26abf28033efdc8
+      url: "https://github.com/OpenStrap/protocol.git"
+    source: git
     version: "1.0.0"
   ota_update:
     dependency: "direct main"
