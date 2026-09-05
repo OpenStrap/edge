@@ -38,6 +38,7 @@ import '../ble/qhybrid_link.dart';
 import '../ble/ringconn_link.dart';
 import '../ble/smaq2oss_link.dart';
 import '../ble/tlw64_link.dart';
+import '../ble/ultrahuman_link.dart';
 import '../ble/watch9_link.dart';
 import '../ble/wearfit_link.dart';
 import '../ble/withings_steel_hr_link.dart';
@@ -245,6 +246,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: UltrahumanLink.sync() no-ops when
+    // nothing is paired and never throws, but this call must not be allowed
+    // to escape and mark the WHOOP cycle as errored either way.
+    try {
+      await UltrahumanLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] ultrahuman sync skipped: $e');
     }
     // Same reasoning, same wake window: a paired Withings row otherwise never
     // gets a second connection past pairing, since nothing else calls this.

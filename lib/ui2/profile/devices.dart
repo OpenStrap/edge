@@ -66,6 +66,7 @@ import '../../ble/adapters/_registry.dart'
         kPineTime,
         kQHybrid,
         kSmaq2oss,
+        kUltrahuman,
         kWatch9,
         kWearFit,
         kWithingsSteelHr,
@@ -92,6 +93,7 @@ import '../../ble/pinetime_link.dart' show PineTimeLink;
 import '../../ble/qhybrid_link.dart' show QHybridLink, pairQHybrid;
 import '../../ble/ringconn_link.dart' show RingConnLink;
 import '../../ble/tlw64_link.dart' show Tlw64Link;
+import '../../ble/ultrahuman_link.dart' show UltrahumanLink;
 import '../../ble/watch9_link.dart' show Watch9Link;
 import '../../ble/wearfit_link.dart' show WearFitLink;
 import '../../ble/withings_steel_hr_link.dart'
@@ -825,6 +827,7 @@ class HealthSource {
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' || 'o2ring' || 'lefun' || 'colmi' || 'ringconn' =>
         LucideIcons.circleDot,
+      'ultrahuman' => LucideIcons.circle,
       'dafit' ||
       'dt78' ||
       'hplus' ||
@@ -1022,6 +1025,14 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kUltrahuman,
+    blurb: 'Reads the ring directly. No account, no key exchange — just pair '
+        'it like a chest strap.',
+    // Null: this wire has no auth at all, so there is no key/handshake step
+    // beyond the plain notify-class pairing — same as `kBleHrs`.
+    pick: null,
   ),
   (
     entry: kWithingsSteelHr,
@@ -1757,6 +1768,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // WHOOP from a chest strap's page.
       onSync: switch (s.family) {
         'oura' || 'ringconn' || 'o2ring' => () => _syncRing(c, s.family),
+        'ultrahuman' => () => _syncUltrahumanRing(c),
         'miband234' => () => _syncMiband(c),
         'dafit' => () => _syncDafitWatch(c),
         'zetime' => () => _syncZeTime(c),
@@ -1806,6 +1818,26 @@ Future<void> _syncRing(BuildContext c, String? family) async {
     'ringconn' => await RingConnLink.instance.sync(),
     _ => await OuraLink.instance.sync(),
   };
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachRing ??
+            'Could not reach the ring. It has to be nearby, and not connected '
+                'to another app.')),
+  ));
+}
+
+/// Drain the Ultrahuman ring, now, because the user asked. Same shape as
+/// [_syncRing] — a separate function rather than a shared one parametrised on
+/// the link, because the two links are two distinct types with nothing to
+/// abstract over for a single button's tap handler.
+Future<void> _syncUltrahumanRing(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncingTheRing ?? 'Syncing the ring…')));
+  final ok = await UltrahumanLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
@@ -2170,7 +2202,6 @@ Future<void> _syncCasio(BuildContext c, String? deviceId) async {
                 'connected to another app.')),
   ));
 }
-
 /// Forget a paired sensor. Same promise as forgetting the band — the source
 /// goes, the measurements stay — and it is true for the same reason: every row
 /// the sensor wrote keeps its own `device_id`, and nothing here touches them.

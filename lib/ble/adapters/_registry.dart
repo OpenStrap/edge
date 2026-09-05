@@ -139,6 +139,21 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The Ultrahuman Ring Air's command/response service. The primary service —
+/// `BandEntry.notify` points at this one, not the device-state service below.
+const String kUltrahumanCommandService = '86f65000-f706-58a0-95b2-1fb9261e4dc7';
+
+/// Host to ring. Write-with-response, which is also what triggers bonding.
+const String kUltrahumanWriteChar = '86f65001-f706-58a0-95b2-1fb9261e4dc7';
+
+/// Ring to host. Every command reply and every history batch.
+const String kUltrahumanNotifyChar = '86f65002-f706-58a0-95b2-1fb9261e4dc7';
+
+/// Battery/temperature notify characteristic on a SEPARATE service. Optional —
+/// not in [kUltrahuman]'s required characteristics — so a ring that does not
+/// answer on it still pairs and drains.
+const String kUltrahumanDeviceStateChar = '86f61001-f706-58a0-95b2-1fb9261e4dc7';
+
 /// Nordic's UART Service — a public vendor spec used as a generic
 /// serial-over-BLE pipe, not a protocol any one product owns. NOT unique to
 /// Bangle.js: Puck.js, Pixl.js, MDBT42Q and any other Espruino/Nordic dev
@@ -760,6 +775,42 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// The Ultrahuman Ring Air. A fetch-by-index band with no auth and no
+/// envelope: a bare `[opcode, ...body]` request and a
+/// `[opcode, result, count, payload…, trailer(2)]` response, both on ONE
+/// notify characteristic.
+///
+/// [TimeAnchor.measured]: unlike Oura's undocumented decisecond-uptime
+/// counter, this ring's record carries its own unix-second timestamp — three
+/// of them, independently — so a record IS its own clock and needs no
+/// cross-session anchor.
+///
+/// NOT framed. There is no CRC anywhere in this protocol, no inner opcode byte
+/// inside an envelope (there is no envelope), and the ring never trims on our
+/// say-so — `0x04` fetches by record index, so a re-read is idempotent
+/// exactly the way Oura's fetch-by-cursor is (`OffloadCheckpoint`'s own
+/// "fetch-by-range" row).
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns a ring, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and `kDerivableSources` never gets this id — every field in the
+/// 32-byte record is banked to `raw_archive` verbatim and none of it becomes a
+/// number until someone has held one.
+///
+/// NO NAME-MATCHER SCAN FALLBACK, unlike gen4's. `BandEntry.notify` has no
+/// such field at all — a notify-class entry's scan (`HrsLink.scanForAny`)
+/// matches purely on the advertised service uuid, and only the FRAMED
+/// constructor's [nameMatcher] plugs into anything (WHOOP's own
+/// `transport.dart` scan). Adding one here would mean widening the seam for a
+/// single band rather than using what it already offers.
+const BandEntry kUltrahuman = BandEntry.notify(
+  id: 'ultrahuman',
+  label: 'Ultrahuman Ring Air',
+  service: kUltrahumanCommandService,
+  characteristics: <String>[kUltrahumanWriteChar, kUltrahumanNotifyChar],
+  timeAnchor: TimeAnchor.measured,
+);
+
 /// Bangle.js: no byte-level record protocol at all. It exposes Nordic's UART
 /// Service, a generic serial-over-BLE pipe, behind which runs a full Espruino
 /// JavaScript REPL — the phone writes JS source text, the watch executes it
@@ -1337,6 +1388,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kUltrahuman,
   kWithingsSteelHr,
   kMiBand234,
   kPebble,
@@ -1388,7 +1440,8 @@ BandEntry bandEntryFor(BandProfile wire) =>
 /// maps straight to the declared signals instead of a constructed instance —
 /// KEPT IN SYNC BY HAND with `whoop_gen4.dart`'s `kWhoopGen4Signals`,
 /// `ble_hrs.dart`'s `BleHrsAdapter.signals`, `oura.dart`'s
-/// `OuraAdapter.signals`, `o2ring.dart`'s `O2RingAdapter.signals`,
+/// `OuraAdapter.signals`, `ultrahuman.dart`'s `UltrahumanAdapter.signals`,
+/// `o2ring.dart`'s `O2RingAdapter.signals`,
 /// `zetime.dart`'s `ZeTimeAdapter.signals`, `ringconn.dart`'s
 /// `RingConnAdapter.signals`, `dt78.dart`'s `Dt78Adapter.signals` and
 /// `pinetime.dart`'s `PineTimeAdapter.signals`, since importing those back
@@ -1420,6 +1473,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'ultrahuman': <InputSignal, Duration>{},
   'withings_steel_hr': <InputSignal, Duration>{},
   'miband234': <InputSignal, Duration>{},
   'pebble': <InputSignal, Duration>{},

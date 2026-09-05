@@ -270,6 +270,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      // No l10n key: this is the one new category blurb that has not gone
+      // through translation yet — see the PR notes rather than the other
+      // localised branches above for why.
+      'ultrahuman' => 'Reads the ring directly — no account, no key exchange.',
       'withings_steel_hr' => l?.devicePickerBlurbWithingsSteelHr ??
           'Pairs and connects — nothing it captures is decoded into a '
               'number yet.',

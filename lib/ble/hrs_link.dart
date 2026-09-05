@@ -76,6 +76,7 @@ import 'oura_link.dart' show OuraLink;
 import 'pebble_link.dart' show PebbleLink;
 import 'qhybrid_link.dart' show QHybridLink;
 import 'ringconn_link.dart' show RingConnLink;
+import 'ultrahuman_link.dart' show UltrahumanLink;
 import 'watch9_link.dart' show Watch9Link;
 import 'wearfit_link.dart' show WearFitLink;
 import 'withings_steel_hr_link.dart' show WithingsSteelHrLink;
@@ -663,6 +664,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kUltrahuman.id) {
+      await UltrahumanLink.forgetRing(id);
       return;
     }
     if (row?['adapter_id'] == kWithingsSteelHr.id) {

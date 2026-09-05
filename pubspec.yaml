@@ -141,6 +141,21 @@ dependencies:
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
       #
+      # REPIN (this branch): protocol PR #51 head @ 1caf448, on top of 471034c.
+      # This branch needs the Ultrahuman wire format (`UltrahumanRecord`,
+      # `UltrahumanResponse`, the k-constants and cmd builders) that #51 adds
+      # and main doesn't have yet — same reasoning as the earlier gen5 PR-head
+      # pins above. Repin to #51's main merge commit once it lands.
+      #
+      # NO kAlgoVersion bump: Ultrahuman's `signals` stays `const {}` (raw
+      # drain/archive only, nothing decoded into a derivable signal), so no
+      # existing decoder or stored number changes.
+      #
+      # MERGE (main → this branch): main's own repin below (protocol tip
+      # fe1464d) already contains 1caf448 as an ancestor (verified via
+      # `git merge-base --is-ancestor 1caf448… fe1464d…` on the protocol
+      # repo), so the ref moves to that tip; nothing from this branch's own
+      # repin is lost.
       # REPIN (this branch): protocol `feat/dafit-moyoung-protocol` @ 06cb5f2,
       # 3 commits on top of 471034c. Adds the dafit/moyoung frame codec
       # (`DafitFrame`/`parseDafitFrame`/`buildDafitAck`/`dafitInitSequence`) —

@@ -1727,6 +1727,16 @@ const int kAlgoVersion = 87;
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
 //
+// REPIN (this branch): protocol PR #51 head @ 1caf448, on top of 471034c —
+// same reasoning as pubspec.yaml's comment beside the `ref:`. This branch
+// needs the Ultrahuman wire format that #51 adds and main doesn't have yet.
+// NO kAlgoVersion bump: Ultrahuman's `signals` stays `const {}`, so nothing
+// this pin adds is ever read by a decoder.
+//
+// MERGE (main → this branch): main's own repin below (protocol tip fe1464d)
+// already contains 1caf448 as an ancestor (verified: `git merge-base
+// --is-ancestor 1caf448 fe1464d` on the protocol repo) — main's pin is
+// strictly ahead, nothing this branch's repin added is lost by taking it.
 // REPIN (this branch) @ fbda904 — protocol OpenStrap/protocol#49 head, which
 // adds the o2ring frame envelope/parser. NO kAlgoVersion bump: o2ring's
 // adapter `signals` stays `const {}` (excluded from `kDerivableSources`), so

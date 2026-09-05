@@ -16,6 +16,7 @@ void main() {
           'gen5',
           'ble_hrs',
           'oura',
+          'ultrahuman',
           'withings_steel_hr',
           'miband234',
           'pebble',
