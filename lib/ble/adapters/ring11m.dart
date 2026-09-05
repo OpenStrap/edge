@@ -145,9 +145,14 @@ class Ring11mAdapter extends BandAdapter {
 
       // Whatever the ring sends from here — an unsolicited history block, a
       // realtime push, nothing at all — for the bounded window below.
-      final deadline = DateTime.now().add(listenWindow);
+      //
+      // A `Stopwatch`, not two `DateTime.now()` reads: wall time can jump
+      // (NTP sync, DST, a manual clock change) in either direction, and a
+      // backward jump would make `remaining` larger than `listenWindow` and
+      // hold this session open well past its bound.
+      final elapsed = Stopwatch()..start();
       while (true) {
-        final remaining = deadline.difference(DateTime.now());
+        final remaining = listenWindow - elapsed.elapsed;
         if (remaining <= Duration.zero) break;
         final f = await inbox.next(remaining);
         if (f == null) break; // timed out, or the link closed
