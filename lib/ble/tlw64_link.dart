@@ -16,12 +16,13 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
+import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost;
 import 'adapters/tlw64.dart';
@@ -152,6 +153,34 @@ class Tlw64Link {
     _link?.close();
     _link = null;
     await _host?.stop();
+    _host = null;
+  }
+
+  /// Feed raw notification bytes as if a paired band were connected, and
+  /// bank them. The only way in: `flutter_blue_plus` has no simulator path,
+  /// so without this seam nothing below the radio connect could be
+  /// exercised at all. Replays through the SAME [BandHost] and
+  /// [_buildArchiveRow] the radio drives, over a [ReplayBandLink].
+  @visibleForTesting
+  Future<void> ingestForTest(
+    String deviceId,
+    List<(int, List<int>)> arrivals,
+  ) async {
+    final host = BandHost(
+      adapter: const Tlw64Adapter(),
+      deviceId: deviceId,
+      onLog: (m) => debugPrint('[tlw64] $m'),
+      buildArchive: _buildArchiveRow,
+    );
+    _host = host;
+    final link = ReplayBandLink();
+    final done = host.run(link);
+    for (final (sec, value) in arrivals) {
+      link.feed(kNo1NotifyChar, value, atSec: sec);
+    }
+    await link.close();
+    await done;
+    await host.stop();
     _host = null;
   }
 

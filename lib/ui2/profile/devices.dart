@@ -1821,11 +1821,13 @@ class DeviceDetailView extends StatelessWidget {
                             // stored-history drain — see e.g.
                             // `Tlw64Link.sync()`. Claiming a "fetch" for
                             // those would be a promise the connect does not
-                            // keep.
-                            sub: l?.devicesSyncNowSub ??
-                                (s.family == 'oura'
-                                    ? 'Fetch whatever it has been holding'
-                                    : 'Listen for whatever it sends right now'),
+                            // keep. `devicesSyncNowSub` only has a fetch
+                            // phrasing in every locale, so it must not be
+                            // consulted for a listen-only family.
+                            sub: s.family == 'oura'
+                                ? (l?.devicesSyncNowSub ??
+                                    'Fetch whatever it has been holding')
+                                : 'Listen for whatever it sends right now',
                             onTap: onSync),
                       ],
                     ]),
