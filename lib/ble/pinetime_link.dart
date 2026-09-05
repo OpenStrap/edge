@@ -58,21 +58,27 @@ class PineTimeLink {
   }
 
   Future<bool> _sync() async {
-    final row = await pairedRow();
-    if (row == null) return false;
-    final deviceId = row['id'] as String?;
-    final remoteId = row['remote_id'] as String?;
-    if (deviceId == null || remoteId == null || remoteId.isEmpty) return false;
-    if (deviceId == LocalDb.kPrimaryDeviceId) {
-      // The primary band's id, permanently. This watch writing under it
-      // would interleave its (undecoded, sample-less) rows with the band's
-      // own.
-      debugPrint('[pinetime] refusing to sync: the row claims the primary '
-          'device id — re-pair it with a minted id.');
-      return false;
-    }
-
+    // The WHOLE body is inside this try now, `pairedRow()` included — a
+    // `LocalDb.deviceRows()` failure used to escape uncaught, breaking
+    // `sync()`'s no-throw contract and leaving the manual caller's "Syncing"
+    // snackbar never replaced with a result.
     try {
+      final row = await pairedRow();
+      if (row == null) return false;
+      final deviceId = row['id'] as String?;
+      final remoteId = row['remote_id'] as String?;
+      if (deviceId == null || remoteId == null || remoteId.isEmpty) {
+        return false;
+      }
+      if (deviceId == LocalDb.kPrimaryDeviceId) {
+        // The primary band's id, permanently. This watch writing under it
+        // would interleave its (undecoded, sample-less) rows with the band's
+        // own.
+        debugPrint('[pinetime] refusing to sync: the row claims the primary '
+            'device id — re-pair it with a minted id.');
+        return false;
+      }
+
       // A cap on concurrent SECONDARY links (never the primary band's own
       // connect — see ble_state.dart's kMaxConcurrentSecondaryLinks doc).
       return await withSecondaryLinkSlot(() async {
