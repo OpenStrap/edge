@@ -67,20 +67,23 @@ class JyouLink {
   }
 
   Future<bool> _sync() async {
-    final row = await pairedRow();
-    if (row == null) return false;
-    final deviceId = row['id'] as String?;
-    final remoteId = row['remote_id'] as String?;
-    if (deviceId == null || remoteId == null || remoteId.isEmpty) return false;
-    if (deviceId == LocalDb.kPrimaryDeviceId) {
-      // The primary band's id, permanently. This band writing under it would
-      // interleave its (undecoded, sample-less) rows with the band's own.
-      debugPrint('[jyou] refusing to sync: the row claims the primary '
-          'device id — re-pair it with a minted id.');
-      return false;
-    }
-
     try {
+      final row = await pairedRow();
+      if (row == null) return false;
+      final deviceId = row['id'] as String?;
+      final remoteId = row['remote_id'] as String?;
+      if (deviceId == null || remoteId == null || remoteId.isEmpty) {
+        return false;
+      }
+      if (deviceId == LocalDb.kPrimaryDeviceId) {
+        // The primary band's id, permanently. This band writing under it
+        // would interleave its (undecoded, sample-less) rows with the
+        // band's own.
+        debugPrint('[jyou] refusing to sync: the row claims the primary '
+            'device id — re-pair it with a minted id.');
+        return false;
+      }
+
       // A cap on concurrent SECONDARY links (never the primary band's own
       // connect — see ble_state.dart's kMaxConcurrentSecondaryLinks doc).
       return await withSecondaryLinkSlot(() async {
