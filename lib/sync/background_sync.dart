@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../ble/adapters/_registry.dart' show kWhoopGen4;
 import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
+import '../ble/banglejs_link.dart';
 import '../ble/ble_engine.dart';
 import '../ble/oura_link.dart';
 import '../compute/derivation_engine.dart';
@@ -223,6 +224,13 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same reasoning as the ring above: no-ops when unpaired, must never
+    // escape and mark the WHOOP cycle as errored.
+    try {
+      await BangleJsLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] banglejs sync skipped: $e');
     }
   }
 }

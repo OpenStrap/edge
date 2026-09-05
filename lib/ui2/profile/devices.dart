@@ -45,6 +45,7 @@ import 'package:provider/provider.dart';
 import '../../ble/adapters/_registry.dart'
     show BandEntry, kBandRegistry, kBleHrs, kOura, kBangleJs, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
+import '../../ble/banglejs_link.dart' show BangleJsLink;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
@@ -1484,7 +1485,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: s.family == kOura.id
+          ? () => _syncRing(c)
+          : s.family == kBangleJs.id
+              ? () => _syncBangleJs(c)
+              : null,
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1510,6 +1515,27 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Connect to the paired watch and give it a window to say whatever it is
+/// going to say, now, because the user asked. Same shape as [_syncRing]: a
+/// sync that silently did nothing is indistinguishable from a watch with
+/// nothing to give, and those need different remedies.
+Future<void> _syncBangleJs(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(SnackBar(
+      content:
+          Text(l?.devicesSyncingTheWatch ?? 'Syncing the watch…')));
+  final ok = await BangleJsLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachWatch ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
   ));
 }
 
