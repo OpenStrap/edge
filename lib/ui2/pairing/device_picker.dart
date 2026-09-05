@@ -270,6 +270,11 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      // No dedicated l10n key for this one — it is the same "pairs and
+      // banks, nothing decoded yet" sentence `kPairableSensors` already
+      // carries for it, English-only like every other category blurb until
+      // it earns one.
+      'dt78' => 'Pairs and banks its raw data — nothing is decoded yet.',
       // No l10n key yet — added when this device gets one, same as every
       // other string here started life as a fallback before its key existed.
       'lefun' => 'A generic ring or band sold under many storefront names. '

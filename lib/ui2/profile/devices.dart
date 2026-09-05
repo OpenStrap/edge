@@ -53,12 +53,14 @@ import '../../ble/adapters/_registry.dart'
         kLefun,
         kOura,
         kCasio,
+        kDt78,
         kPineTime,
         kQHybrid,
         declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/casio_link.dart' show CasioLink;
 import '../../ble/colmi_link.dart' show ColmiLink;
+import '../../ble/dt78_link.dart' show Dt78Link;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/jyou_link.dart' show JyouLink;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
@@ -791,7 +793,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' || 'lefun' || 'colmi' => LucideIcons.circleDot,
-      'hplus' || 'pinetime' || 'qhybrid' || 'casio' || 'jyou' =>
+      'dt78' || 'hplus' || 'pinetime' || 'qhybrid' || 'casio' || 'jyou' =>
         LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
@@ -970,6 +972,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kDt78,
+    blurb: 'Pairs and banks its raw data in the background, but does not '
+        'derive anything from it yet — nobody on this project owns one to '
+        'verify its numbers against.',
+    // Null means the plain notify-class pairing, which is the whole of what
+    // this watch needs — no auth, no key.
+    pick: null,
   ),
   (
     entry: kLefun,
@@ -1568,6 +1579,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // WHOOP from a chest strap's page.
       onSync: switch (s.family) {
         'oura' => () => _syncRing(c),
+        'dt78' => () => _syncDt78(c),
         'hplus' => () => _syncHPlus(c),
         'pinetime' => () => _syncPineTime(c),
         'qhybrid' => () => _syncQHybrid(c),
@@ -1601,6 +1613,36 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Connect and bank the watch's raw bytes, now, because the user asked. Same
+/// shape as [_syncRing] — a separate family behind a separate link, same
+/// reason a sync that did nothing needs to say so.
+Future<void> _syncDt78(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  // Checked BEFORE calling sync(), which answers `false` for "already
+  // syncing" and "could not reach the watch" alike — a real distinction the
+  // snack bar should not blur into one failure sentence.
+  if (Dt78Link.instance.busy) {
+    messenger?.showSnackBar(const SnackBar(content: Text('Already syncing.')));
+    return;
+  }
+  // `devicesSyncing`/`devicesSynced` are genuinely generic ("Syncing"/
+  // "Synced."), unlike `devicesSyncingTheRing`/`devicesCouldNotReachRing`,
+  // which name the ring by copy — reusing those here would show the wrong
+  // device in the snack bar, so the failure sentence stays untranslated
+  // rather than borrowing one that says the wrong thing.
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await Dt78Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the watch. It has to be nearby, and not connected '
+            'to another app.'),
   ));
 }
 
