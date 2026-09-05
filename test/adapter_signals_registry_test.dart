@@ -11,11 +11,35 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
+import 'package:openstrap_edge/ble/adapters/banglejs.dart';
 import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
+import 'package:openstrap_edge/ble/adapters/casio.dart';
+import 'package:openstrap_edge/ble/adapters/colmi.dart';
+import 'package:openstrap_edge/ble/adapters/dafit.dart';
+import 'package:openstrap_edge/ble/adapters/dt78.dart';
 import 'package:openstrap_edge/ble/adapters/garmin.dart';
+import 'package:openstrap_edge/ble/adapters/hplus.dart';
+import 'package:openstrap_edge/ble/adapters/id115.dart';
+import 'package:openstrap_edge/ble/adapters/jyou.dart';
+import 'package:openstrap_edge/ble/adapters/lefun.dart';
+import 'package:openstrap_edge/ble/adapters/makibeshr3.dart';
+import 'package:openstrap_edge/ble/adapters/miband234.dart';
+import 'package:openstrap_edge/ble/adapters/o2ring.dart';
 import 'package:openstrap_edge/ble/adapters/oura.dart';
+import 'package:openstrap_edge/ble/adapters/pebble.dart';
+import 'package:openstrap_edge/ble/adapters/pinetime.dart';
+import 'package:openstrap_edge/ble/adapters/qhybrid.dart';
+import 'package:openstrap_edge/ble/adapters/ringconn.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
+import 'package:openstrap_edge/ble/adapters/smaq2oss.dart';
+import 'package:openstrap_edge/ble/adapters/tlw64.dart';
+import 'package:openstrap_edge/ble/adapters/ultrahuman.dart';
+import 'package:openstrap_edge/ble/adapters/watch9.dart';
+import 'package:openstrap_edge/ble/adapters/wearfit.dart';
 import 'package:openstrap_edge/ble/adapters/whoop_gen4.dart';
+import 'package:openstrap_edge/ble/adapters/withings_steel_hr.dart';
+import 'package:openstrap_edge/ble/adapters/xwatch.dart';
+import 'package:openstrap_edge/ble/adapters/zetime.dart';
 
 void main() {
   test('kAdapterSignals matches each adapter own declaration', () {
@@ -27,6 +51,30 @@ void main() {
       'ble_hrs': const BleHrsAdapter().signals,
       'oura': OuraAdapter(key: const [0]).signals,
       'garmin': const GarminAdapter().signals,
+      'ultrahuman': UltrahumanAdapter().signals,
+      'withings_steel_hr': WithingsSteelHrAdapter(firstConnect: true).signals,
+      'miband234': MiBand234Adapter(key: const [0]).signals,
+      'pebble': kPebbleAdapter.signals,
+      'makibeshr3': const MakibesHr3Adapter().signals,
+      'id115': const Id115Adapter().signals,
+      'smaq2oss': const Smaq2ossAdapter().signals,
+      'xwatch': const XWatchAdapter().signals,
+      'tlw64': const Tlw64Adapter().signals,
+      'dafit': kDafitAdapter.signals,
+      'o2ring': const O2RingAdapter().signals,
+      'zetime': const ZeTimeAdapter().signals,
+      'wearfit': const WearFitAdapter().signals,
+      'ringconn': RingConnAdapter().signals,
+      'dt78': const Dt78Adapter().signals,
+      'lefun': LefunAdapter().signals,
+      'hplus': const HPlusAdapter().signals,
+      'pinetime': kPineTimeAdapter.signals,
+      'qhybrid': kQHybridAdapter.signals,
+      'colmi': kColmiAdapter.signals,
+      'casio': const CasioAdapter().signals,
+      'jyou': const JyouAdapter().signals,
+      'watch9': const Watch9Adapter().signals,
+      'banglejs': kBangleJsAdapter.signals,
     };
 
     // Every registry id is covered above: a NEW adapter must extend this test,
@@ -47,6 +95,9 @@ void main() {
       () {
     expect(declaredSignals('gen4'), kWhoopGen4Signals.keys.toSet());
     expect(declaredSignals('oura'), isEmpty);
+    expect(declaredSignals('withings_steel_hr'), isEmpty);
+    expect(declaredSignals('pebble'), isEmpty);
+    expect(declaredSignals('casio'), isEmpty);
     expect(declaredSignals('nothing-we-speak'), isEmpty);
     expect(declaredSignals(null), isEmpty);
   });

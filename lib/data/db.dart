@@ -2899,6 +2899,14 @@ class LocalDb {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// Drop a sync-cursor row so a later [getCursor] sees it as unset again.
+  /// Used when forgetting a device whose cursor must not outlive the row it
+  /// was tracking — a re-paired device otherwise inherits stale progress.
+  static Future<void> deleteCursor(String name) async {
+    final db = await instance;
+    await db.delete('sync_cursor', where: 'name = ?', whereArgs: [name]);
+  }
+
   /// Cursor holding the FROZEN morning readiness headline (see #128): the
   /// day-tagged value pinned once today's overnight first settles on a genuinely
   /// complete night, so the Today hero + recovery story stop drifting through
