@@ -58,8 +58,12 @@ class WithingsSteelHrLink {
     return null;
   }
 
-  /// Forget a paired watch: drop its `device` row. There is no stored
-  /// secret to drop alongside it — see the file header.
+  /// Forget a paired watch: drop its `device` row and its `firstConnect`
+  /// cursor. There is no stored secret to drop alongside it — see the file
+  /// header. The cursor must go too: a re-pair mints the SAME device id
+  /// (derived from the BLE remote id), so a leftover `firstConnect = false`
+  /// would make `sync()` skip `INITIAL_CONNECT` for what may be a factory-
+  /// reset watch expecting it.
   static Future<bool> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[withings_steel_hr] refusing to forget the primary band '
@@ -67,6 +71,7 @@ class WithingsSteelHrLink {
       return false;
     }
     if (instance._deviceId == id) await instance.stop();
+    await LocalDb.deleteCursor(_firstConnectItem(id));
     await LocalDb.deleteDevice(id);
     return true;
   }

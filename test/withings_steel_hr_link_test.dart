@@ -166,4 +166,20 @@ void main() {
     final row = await WithingsSteelHrLink.pairedRow();
     expect(row?['id'], _deviceId);
   });
+
+  test('forgetting a device clears its firstConnect cursor, not just the '
+      'device row — a re-pair mints the same id and must not inherit a '
+      'stale "already past first connect" bookmark', () async {
+    await LocalDb.upsertDevice(
+      id: _deviceId,
+      adapterId: kWithingsSteelHr.id,
+      remoteId: _mac,
+      label: 'Withings Steel HR',
+    );
+    await LocalDb.setCursor('withings_steel_hr_first_connect:$_deviceId', '0');
+    await WithingsSteelHrLink.forgetDevice(_deviceId);
+    expect(await LocalDb.deviceRow(_deviceId), isNull);
+    expect(await LocalDb.getCursor('withings_steel_hr_first_connect:$_deviceId'),
+        isNull);
+  });
 }
