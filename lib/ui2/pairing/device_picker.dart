@@ -10,8 +10,8 @@
 // into three different accounts of one action again.
 //
 // WHAT IT DOES NOT DO. It does not invent support. The category list below
-// is exactly [kBandRegistry] — three real entries, not six aspirational
-// ones — because a category tile for a scale or a blood-pressure cuff this
+// is exactly [kBandRegistry] — real entries, not aspirational ones —
+// because a category tile for a scale or a blood-pressure cuff this
 // app cannot read from would be a promise with nothing behind it. See
 // ASSUMPTIONS R6 and `sensorIcon`'s own doc for the same rule applied
 // elsewhere.
@@ -274,6 +274,50 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       // every other category blurb below the first two.
       'tlw64' => 'A TLW64 or NO1 F1 fitness band. Pairs and banks its raw '
           'data; nothing is derived from it yet.',
+      // No localized string yet — this device is new enough that adding one
+      // is out of scope here; the English fallback the other cases carry is
+      // this one's only copy for now.
+      'dafit' => 'An unbranded DaFit/MOYOUNG-style watch. Pairs and banks '
+          'its own data; nothing derives from it yet.',
+      'o2ring' => l?.devicePickerBlurbO2Ring ??
+          'Reads its battery, model and serial. No reading from the ring '
+              'itself is decoded yet.',
+      'zetime' => l?.devicePickerBlurbZeTime ??
+          'Pairs and connects. Nothing is decoded from it yet beyond its own '
+              'battery level.',
+      'wearfit' => l?.devicePickerBlurbWearFit ??
+          'A Howear-branded band, paired through the WearFit app family.',
+      // No dedicated l10n key for this one — it is the same "pairs and
+      // banks, nothing decoded yet" sentence `kPairableSensors` already
+      // carries for it, English-only like every other category blurb until
+      // it earns one.
+      'dt78' => 'Pairs and banks its raw data — nothing is decoded yet.',
+      // No l10n key yet — added when this device gets one, same as every
+      // other string here started life as a fallback before its key existed.
+      'lefun' => 'A generic ring or band sold under many storefront names. '
+          'Pairs and connects; reports nothing yet.',
+      'hplus' => 'A generic HPlus-family HR band. Pairs and banks its '
+          'history; nothing is decoded into a number yet.',
+      // No dedicated l10n key yet — same untranslated sentence
+      // `kPairableSensors` already carries for this entry.
+      'pinetime' => 'Pairs and banks its raw data in the background, but '
+          'does not derive anything from it yet.',
+      // No localized string for this entry yet — l10n keys are generated
+      // across every locale file, which is out of scope for a single-device
+      // PR. Plain English only, same shape as every other blurb's fallback.
+      'qhybrid' =>
+        'The original Fossil/Skagen hybrid smartwatch, not the newer '
+            'Hybrid HR. Pairs and connects; nothing derives from it yet.',
+      'colmi' => l?.devicePickerBlurbColmi ??
+          'A Colmi ring. Pairs and banks its history; nothing is decoded '
+              'into a number yet.',
+      // 'casio' takes no special case here, same as every other notify-class
+      // sensor (watch9, xwatch, …): the generic sensor blurb below already
+      // fits, and it is the one that is actually localized.
+      // No localized key: this falls through to English only, the same
+      // reason `asteroidos`'s own row (a different, unbuilt PR) does.
+      'jyou' => 'A budget activity band. Pairs and banks its raw data, but '
+          'nothing is derived from it yet.',
       _ => l?.devicePickerBlurbSensor ??
           'A chest strap or armband, for beat timing during a workout.',
     };
