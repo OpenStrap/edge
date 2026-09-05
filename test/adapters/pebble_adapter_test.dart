@@ -79,6 +79,18 @@ void main() {
     expect(link.logs, contains('pebble: ack for serial 1'));
   });
 
+  test('an unconfirmed ack write banks nothing, expecting a retransmit',
+      () async {
+    final link = ReplayBandLink()..writeSucceeds = false;
+    // header = (serial 3 << 3) | command 0 = 0x18, payload [0xAA, 0xBB].
+    final events = await replay(link, [
+      <int>[0x18, 0xAA, 0xBB],
+    ]);
+    expect(events.whereType<SampleBatch>(), isEmpty);
+    expect(link.logs, contains('pebble: ack write unconfirmed for serial 3, '
+        'expecting a retransmit'));
+  });
+
   test('a Pebble stores nothing on our say-so, so it never emits an '
       'OffloadCheckpoint', () async {
     final link = ReplayBandLink();

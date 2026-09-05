@@ -527,13 +527,23 @@ class HrsLink {
       );
       final missing =
           link.missingCharacteristics(entry.requiredCharacteristics);
-      link.close();
       if (missing.isNotEmpty) {
+        link.close();
         return 'That device answered, but it does not expose the '
             '${entry.label} data this needs '
             '(missing ${missing.map((u) => u.substring(0, 8)).join(", ")}). '
             'Nothing was saved.';
       }
+      // Some notify-class bands (Pebble) gate everything past this point on
+      // OS-level bonding, triggered by a write here rather than by an
+      // app-layer key — see `BandEntry.bondTriggerCharacteristic`.
+      final bondChar = entry.bondTriggerCharacteristic;
+      if (bondChar != null && !await link.write(bondChar, const [0x01])) {
+        link.close();
+        return 'That device did not accept Bluetooth pairing. Nothing was '
+            'saved.';
+      }
+      link.close();
       await LocalDb.upsertDevice(
         id: mintDeviceId(entry, device.remoteId.str),
         adapterId: entry.id,

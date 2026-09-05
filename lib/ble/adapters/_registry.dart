@@ -277,6 +277,13 @@ class BandEntry {
   /// the ALREADY-LOWERCASED platform name.
   final bool Function(String lowercaseName)? nameMatcher;
 
+  /// Characteristic a notify-class sensor needs written to (any value, WITH
+  /// response) to move the OS into bonded state before it will do anything
+  /// else — see `kPebblePairingTriggerUuid`'s doc comment. Null for every
+  /// band that either needs no bonding or bonds through `ble_engine`'s own
+  /// `createBond()` path (every framed entry).
+  final String? bondTriggerCharacteristic;
+
   /// A framed WHOOP-family band: an envelope, a command characteristic, and a
   /// flash the offload engine trims.
   const BandEntry.framed({
@@ -298,6 +305,7 @@ class BandEntry {
   })  : _requiredCharacteristics = requiredCharacteristics,
         _commands = commands,
         _service = null,
+        bondTriggerCharacteristic = null,
         timeAnchor = TimeAnchor.measured;
 
   /// A notify-only sensor: one service, one or more notify characteristics, no
@@ -313,6 +321,7 @@ class BandEntry {
     required String service,
     required List<String> characteristics,
     required this.timeAnchor,
+    this.bondTriggerCharacteristic,
   })  : _service = service,
         _requiredCharacteristics = characteristics,
         gatt = null,
@@ -484,6 +493,10 @@ const BandEntry kPebble = BandEntry.notify(
   // No clock of its own reaches this layer — every banked chunk is stamped by
   // arrival, same as every other notify-class entry with no measured origin.
   timeAnchor: TimeAnchor.arrival,
+  // See `kPebblePairingTriggerUuid`'s doc comment — a write here is what
+  // moves the watch into bonded state, and PPoGATT never authenticates
+  // without it.
+  bondTriggerCharacteristic: kPebblePairingTriggerUuid,
 );
 
 /// Every band this build can see. Order is match order during discovery.
