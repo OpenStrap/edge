@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../ble/adapters/_registry.dart' show kWhoopGen4;
 import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
+import '../ble/banglejs_link.dart';
 import '../ble/ble_engine.dart';
 import '../ble/casio_link.dart';
 import '../ble/colmi_link.dart';
@@ -405,6 +406,27 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     } catch (e) {
       debugPrint('[bgsync] watch9 sync skipped: $e');
     }
+    // Same reasoning as the ring above: no-ops when unpaired, must never
+    // escape and mark the WHOOP cycle as errored. Unlike Oura's cursor-drain
+    // (which completes as soon as its own protocol says so), this pipe has no
+    // end-of-history signal (see banglejs_link.dart) — every attempt is a
+    // full ~20s connect-and-listen window, run sequentially AFTER the WHOOP
+    // drain. The BLE-restore wake (ios_ble_restore.dart) can fire on every
+    // WHOOP reconnect, so gate attempts behind a cooldown rather than paying
+    // that window on every single wake regardless of how recently we tried.
+    // ponytail: fixed cooldown, not adaptive to how often this watch
+    // actually has something to say — revisit if real usage shows it's wrong.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (shouldAttemptBangleJsSync(
+          prefs.getInt(_kLastBangleJsAttemptMs), now)) {
+        await prefs.setInt(_kLastBangleJsAttemptMs, now);
+        await BangleJsLink.instance.sync();
+      }
+    } catch (e) {
+      debugPrint('[bgsync] banglejs sync skipped: $e');
+    }
   }
 }
 
@@ -414,6 +436,20 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
 // signals here), independent of THIS cycle's outcome: it reads the durable
 // `rec_ts_hw` cursor, which reflects the full sync history, not just this run.
 const String _kLastStalenessNotifiedMs = 'last_staleness_notified_ms';
+
+/// How often a headless wake is allowed to actually attempt a Bangle.js
+/// connect-and-listen window (see the call site's doc, further down).
+const String _kLastBangleJsAttemptMs = 'last_banglejs_sync_attempt_ms';
+const Duration _kBangleJsSyncCooldown = Duration(minutes: 20);
+
+/// True when a headless wake should actually pay for a Bangle.js
+/// connect-and-listen window, given the last attempt's stored epoch-ms (or
+/// null if never attempted) and now's epoch-ms. Pure so the cooldown math
+/// is checkable without standing up the BLE stack.
+@visibleForTesting
+bool shouldAttemptBangleJsSync(int? lastAttemptMs, int nowMs) =>
+    lastAttemptMs == null ||
+    nowMs - lastAttemptMs >= _kBangleJsSyncCooldown.inMilliseconds;
 
 /// [allowPermissionPrompt] defaults to `false` because this function's
 /// PRIMARY callers (below, inside [runHeadlessSync]) run headless — see

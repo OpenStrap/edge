@@ -336,6 +336,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       // reason `asteroidos`'s own row (a different, unbuilt PR) does.
       'jyou' => 'A budget activity band. Pairs and banks its raw data, but '
           'nothing is derived from it yet.',
+      'banglejs' => l?.devicePickerBlurbBangleJs ??
+          'Pairs any Espruino/Nordic-UART device generically, not just '
+              'Bangle.js-branded watches. Banks raw bytes only; nothing is '
+              'decoded into a number.',
       _ => l?.devicePickerBlurbSensor ??
           'A chest strap or armband, for beat timing during a workout.',
     };

@@ -38,6 +38,7 @@ void main() {
           'casio',
           'jyou',
           'watch9',
+          'banglejs',
         ]);
   });
 

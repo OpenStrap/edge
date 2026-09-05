@@ -763,6 +763,10 @@
   "@devicesCouldNotReachRing": {
     "description": "Snackbar: sync failed."
   },
+  "devicesSyncingTheWatch": "Syncing the watch…",
+  "@devicesSyncingTheWatch": {
+    "description": "Snackbar: syncing Bangle.js."
+  },
   "devicesConnectingZeTime": "Connecting…",
   "@devicesConnectingZeTime": {
     "description": "Snackbar: connecting to the ZeTime."
@@ -1054,6 +1058,10 @@
   "devicePickerBlurbColmi": "A Colmi ring. Pairs and banks its history; nothing is decoded into a number yet.",
   "@devicePickerBlurbColmi": {
     "description": "Category row subtitle for a Colmi smart ring."
+  },
+  "devicePickerBlurbBangleJs": "Pairs any Espruino/Nordic-UART device generically, not just Bangle.js-branded watches. Banks raw bytes only; nothing is decoded into a number.",
+  "@devicePickerBlurbBangleJs": {
+    "description": "Category row subtitle for Bangle.js and other Nordic-UART devices."
   },
   "devicePickerCannotPairFromHere": "That device cannot be paired from this screen.",
   "@devicePickerCannotPairFromHere": {

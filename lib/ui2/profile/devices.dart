@@ -46,6 +46,7 @@ import '../../ble/adapters/_registry.dart'
     show
         BandEntry,
         kBandRegistry,
+        kBangleJs,
         kBleHrs,
         kColmi,
         kDafit,
@@ -72,6 +73,7 @@ import '../../ble/adapters/_registry.dart'
         kZeTime,
         declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
+import '../../ble/banglejs_link.dart' show BangleJsLink;
 import '../../ble/casio_link.dart' show CasioLink;
 import '../../ble/colmi_link.dart' show ColmiLink;
 import '../../ble/dafit_link.dart' show DafitLink;
@@ -840,7 +842,8 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'xwatch' ||
       'tlw64' ||
       'smaq2oss' ||
-      'withings_steel_hr' =>
+      'withings_steel_hr' ||
+      'banglejs' =>
         LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
@@ -1218,6 +1221,14 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'against.',
     // Null means the plain notify-class pairing, same as the heart-rate
     // sensor above.
+    pick: null,
+  ),
+  (
+    entry: kBangleJs,
+    blurb: 'Pairs any Espruino/Nordic-UART device generically, not just '
+        'Bangle.js-branded watches. Banks raw bytes only; nothing is decoded '
+        'into a number.',
+    // Plain notify-class pairing — no handshake to run at pick time.
     pick: null,
   ),
 ];
@@ -1766,6 +1777,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'watch9' => () => _syncWatch9(c),
         'xwatch' => () => _syncXWatch(c),
         'smaq2oss' => () => _syncSmaq2oss(c),
+        'banglejs' => () => _syncBangleJs(c),
         _ => null,
       },
       onForget: s.deviceId != null
@@ -1966,6 +1978,26 @@ Future<void> _syncZeTime(BuildContext c) async {
     content: Text(ok
         ? (l?.devicesConnectedZeTime ?? 'Connected.')
         : (l?.devicesCouldNotReachZeTime ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
+  ));
+}
+
+/// Connect to the paired watch and give it a window to say whatever it is
+/// going to say, now, because the user asked. Same shape as [_syncRing]: a
+/// sync that silently did nothing is indistinguishable from a watch with
+/// nothing to give, and those need different remedies.
+Future<void> _syncBangleJs(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(SnackBar(
+      content: Text(l?.devicesSyncingTheWatch ?? 'Syncing the watch…')));
+  final ok = await BangleJsLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachWatch ??
             'Could not reach the watch. It has to be nearby, and not '
                 'connected to another app.')),
   ));

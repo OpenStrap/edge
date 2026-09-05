@@ -11,6 +11,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
+import 'package:openstrap_edge/ble/adapters/banglejs.dart';
 import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
 import 'package:openstrap_edge/ble/adapters/casio.dart';
 import 'package:openstrap_edge/ble/adapters/colmi.dart';
@@ -69,6 +70,7 @@ void main() {
       'casio': const CasioAdapter().signals,
       'jyou': const JyouAdapter().signals,
       'watch9': const Watch9Adapter().signals,
+      'banglejs': kBangleJsAdapter.signals,
     };
 
     // Every registry id is covered above: a NEW adapter must extend this test,

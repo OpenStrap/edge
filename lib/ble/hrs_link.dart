@@ -65,6 +65,7 @@ import 'ble_state.dart'
         withScanLock,
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
+import 'banglejs_link.dart' show BangleJsLink;
 import 'colmi_link.dart' show ColmiLink;
 import 'dafit_link.dart' show DafitLink;
 import 'hplus_link.dart' show HPlusLink;
@@ -729,6 +730,10 @@ class HrsLink {
     }
     if (row?['adapter_id'] == kColmi.id) {
       await ColmiLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kBangleJs.id) {
+      await BangleJsLink.forget(id);
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows
