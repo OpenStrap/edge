@@ -87,11 +87,20 @@ class DafitAdapter extends BandAdapter {
         // coverage is deliberately zero, so nothing distinguishes "worth
         // keeping" from "not yet understood" — see the header note.
         archived.add(raw);
+        // SIGNAL BEFORE THE ACK WRITE, NOT AFTER. `link.write` can sit for as
+        // long as `GattBandLink._writeTimeout` (8s) — the same span as this
+        // session's own window — so gating the flush on it left a frame that
+        // had already been archived undelivered for up to 8s, right up
+        // against the moment a session-end teardown cancels this generator's
+        // own subscription. A cancelled subscription can never receive a
+        // *later* yield (Dart drops it), so the fix is to never make the bank
+        // wait on the write at all: signal immediately, while the session is
+        // still certainly live, and let the write finish on its own after.
+        if (!flush.isClosed) flush.add(null);
         final f = parseDafitFrame(raw);
         if (f != null && _isAckable(f)) {
           await link.write(kDafitWriteChar, buildDafitAck(f));
         }
-        if (!flush.isClosed) flush.add(null);
       },
       onDone: () {
         if (!flush.isClosed) flush.close();

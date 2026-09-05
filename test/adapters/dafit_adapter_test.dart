@@ -148,4 +148,34 @@ void main() {
     final raw = [for (final e in events) if (e is SampleBatch) ...?e.raw];
     expect(raw, anyElement(orderedEquals(buttonFrame)));
   });
+
+  test(
+      'a frame is banked even when the session is torn down while its ack '
+      'write is still in flight', () async {
+    // The real teardown this reproduces: `DafitLink.stop()` closes the link
+    // (ending this notify subscription's stream, hence `onDone`) BEFORE
+    // `BandHost.stop()` cancels the outer subscription — cancelling an
+    // async* generator parked on a link that has not yet closed does not
+    // reliably unwind it at all (`host.dart`'s own `stop()` doc), so `onDone`
+    // closing `flush` is the real end-of-session signal here, not a bare
+    // subscription cancel. `flush` closing while the frame's `flush.add`
+    // is still gated behind the (potentially 8s-long) ack write is exactly
+    // what silently dropped it.
+    final link = ReplayBandLink();
+    final hwInfoReply =
+        buildDafitFrame(kDafitGroupRequestData, kDafitCmdGetHwInfo, [0x01, 0x02]);
+    final events = await replay(adapter, link, whileRunning: (l) async {
+      // NOW the delay, after the handshake's own 8 writes (unrelated to the
+      // race under test) have already resolved — from here on only the
+      // reply's ack write is slow.
+      l.writeDelay = const Duration(milliseconds: 200);
+      l.feed(kDafitNotifyChar, hwInfoReply, atSec: 1_800_000_000);
+      // Enough for `archived.add` to run, nowhere near enough for the 200ms
+      // ack write to resolve — `replay()` closes the link right after this.
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    });
+
+    final raw = [for (final e in events) if (e is SampleBatch) ...?e.raw];
+    expect(raw, anyElement(orderedEquals(hwInfoReply)));
+  });
 }

@@ -299,6 +299,12 @@ class ReplayBandLink implements BandLink {
   /// What [write] returns. Set false to exercise an adapter's failure path.
   bool writeSucceeds = true;
 
+  /// Extra delay before [write] resolves. Zero unless a test sets it — for
+  /// exercising a race against a write that is still genuinely in flight
+  /// (the real `GattBandLink._writeTimeout` is 8s, long enough to still be
+  /// pending when a session's own teardown starts).
+  Duration writeDelay = Duration.zero;
+
   /// Single-subscription on purpose: it BUFFERS, so a fixture may be fed
   /// before the adapter has got around to subscribing and nothing is dropped.
   /// A second `notify()` of the same characteristic throws, which is correct —
@@ -313,6 +319,7 @@ class ReplayBandLink implements BandLink {
   @override
   Future<bool> write(String characteristicUuid, List<int> value) async {
     writes.add((characteristicUuid, value));
+    if (writeDelay > Duration.zero) await Future<void>.delayed(writeDelay);
     return writeSucceeds;
   }
 

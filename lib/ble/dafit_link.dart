@@ -18,13 +18,14 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' show kDafitAckHeader;
 
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
+import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/dafit.dart';
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart';
@@ -133,12 +134,7 @@ class DafitLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
-          final host = BandHost(
-            adapter: const DafitAdapter(),
-            deviceId: deviceId,
-            onLog: (m) => debugPrint('[dafit] $m'),
-            buildArchive: _buildArchiveRow,
-          );
+          final host = _makeHost(deviceId, const DafitAdapter());
           _host = host;
           // The adapter holds this open for as long as the link lives — see
           // the header note — so this session is bounded here, not by
@@ -173,6 +169,55 @@ class DafitLink {
         await d.disconnect();
       } catch (_) {/* already gone */}
     }
+  }
+
+  /// Build this session's [BandHost]. One place, so `_sync()` and
+  /// [ingestForTest] cannot drift on what each callback does.
+  BandHost _makeHost(String deviceId, DafitAdapter adapter) => BandHost(
+        adapter: adapter,
+        deviceId: deviceId,
+        onLog: (m) => debugPrint('[dafit] $m'),
+        buildArchive: _buildArchiveRow,
+      );
+
+  /// Replay a scripted watch through the REAL [DafitAdapter] and the real
+  /// write path, over the SAME [BandHost] wiring `_sync` uses. The only way
+  /// in: the entry point is a BLE notification and `flutter_blue_plus` has no
+  /// simulator path, so without this seam nothing below `sync()`'s connect
+  /// call — `_buildArchiveRow`'s counter/reason mapping and the commit
+  /// through [LocalDb.commitSyncBatch] — could be exercised at all.
+  @visibleForTesting
+  Future<ReplayBandLink> ingestForTest(
+    String deviceId,
+    DateTime Function() now,
+    List<(int, List<int>)> notifications,
+  ) async {
+    _deviceId = deviceId;
+    final link = ReplayBandLink();
+    final host = _makeHost(
+      deviceId,
+      DafitAdapter(now: now, handshakePause: Duration.zero),
+    );
+    _host = host;
+    final done = host.run(link);
+    await Future<void>.delayed(Duration.zero); // let notify() subscribe
+    for (final (atSec, value) in notifications) {
+      link.feed(kDafitNotifyChar, value, atSec: atSec);
+      // One microtask turn per notification, so each is fully archived
+      // (and, where ackable, its ack write started) before the next is
+      // delivered — feeding them back-to-back races the single-subscription
+      // channel's own dispatch against the adapter's `archived`/`flush`
+      // bookkeeping.
+      await Future<void>.delayed(Duration.zero);
+    }
+    // Close, then wait for `run()` to actually finish, rather than guessing
+    // at a delay: the adapter's `await for` is asynchronous and a flush
+    // racing it would silently drop the tail.
+    await link.close();
+    await done;
+    await host.stop();
+    _host = null;
+    return link;
   }
 
   /// Bank one frame verbatim, decoded or not — this family's decode coverage
