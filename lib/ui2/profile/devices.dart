@@ -1488,7 +1488,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       onSync: s.family == 'oura'
           ? () => _syncRing(c)
           : s.family == 'casio'
-              ? () => _syncCasio(c)
+              ? () => _syncCasio(c, s.deviceId)
               : null,
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
@@ -1519,19 +1519,22 @@ Future<void> _syncRing(BuildContext c) async {
 }
 
 /// Same shape as [_syncRing] — a separate family behind a separate link, same
-/// reason a sync that did nothing needs to say so.
-Future<void> _syncCasio(BuildContext c) async {
+/// reason a sync that did nothing needs to say so. [deviceId] is this row's
+/// own id: two Casio watches can be paired at once, and without it this
+/// always synced whichever one `CasioLink.pairedRow()` happened to see first.
+Future<void> _syncCasio(BuildContext c, String? deviceId) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
   messenger?.showSnackBar(
       SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
-  final ok = await CasioLink.instance.sync();
+  final ok = await CasioLink.instance.sync(deviceId: deviceId);
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
         ? (l?.devicesSynced ?? 'Synced.')
-        : 'Could not reach the watch. It has to be nearby, and not connected '
-            'to another app.'),
+        : (l?.devicesCouldNotReachWatch ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
   ));
 }
 
