@@ -70,6 +70,16 @@ abstract class BandLink {
   /// [BandEntry.requiredCharacteristics], where the connect aborts loudly.
   Stream<(int atSec, List<int> value)> notify(String characteristicUuid);
 
+  /// Read a characteristic once. Returns null on a missing characteristic, a
+  /// dead link, or a timeout — the same failure vocabulary [write] uses.
+  ///
+  /// The whole surface used to be `notify`/`write`/`log`, and every band so
+  /// far only ever needed to be WRITTEN to or NOTIFIED by. RingConn's auth
+  /// needs one plain GATT read (the standard System ID characteristic, to
+  /// recover its own BLE MAC) that no framed band and no notify-only sensor
+  /// before it required — see `ringconn.dart`.
+  Future<List<int>?> read(String characteristicUuid);
+
   /// Write with response, which is also what triggers bonding. Returns whether
   /// the GATT write was confirmed; false covers a missing characteristic, a
   /// dead link, a timeout and a refused opcode alike.
@@ -299,6 +309,12 @@ class ReplayBandLink implements BandLink {
   /// What [write] returns. Set false to exercise an adapter's failure path.
   bool writeSucceeds = true;
 
+  /// Extra delay before [write] resolves. Zero unless a test sets it — for
+  /// exercising a race against a write that is still genuinely in flight
+  /// (the real `GattBandLink._writeTimeout` is 8s, long enough to still be
+  /// pending when a session's own teardown starts).
+  Duration writeDelay = Duration.zero;
+
   /// Single-subscription on purpose: it BUFFERS, so a fixture may be fed
   /// before the adapter has got around to subscribing and nothing is dropped.
   /// A second `notify()` of the same characteristic throws, which is correct —
@@ -310,9 +326,19 @@ class ReplayBandLink implements BandLink {
   Stream<(int, List<int>)> notify(String characteristicUuid) =>
       _channel(characteristicUuid).stream;
 
+  /// What [read] answers, by characteristic uuid. A test sets this before
+  /// exercising the adapter; an uuid with no entry answers null, same as a
+  /// real link's missing-characteristic case.
+  final Map<String, List<int>> readValues = {};
+
+  @override
+  Future<List<int>?> read(String characteristicUuid) async =>
+      readValues[characteristicUuid];
+
   @override
   Future<bool> write(String characteristicUuid, List<int> value) async {
     writes.add((characteristicUuid, value));
+    if (writeDelay > Duration.zero) await Future<void>.delayed(writeDelay);
     return writeSucceeds;
   }
 
