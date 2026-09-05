@@ -25,7 +25,7 @@ Future<List<BandEvent>> replay(
   List<(int, List<int>)> arrivals, {
   Map<String, List<int>> reads = const {},
 }) async {
-  final link = ReplayBandLink()..reads.addAll(reads);
+  final link = ReplayBandLink()..readValues.addAll(reads);
   final events = <BandEvent>[];
   final done = Completer<void>();
   // onDone is wired BEFORE anything is fed: `run()` finishing is what we wait

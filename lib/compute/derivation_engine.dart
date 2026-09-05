@@ -1726,8 +1726,72 @@ const int kAlgoVersion = 87;
 // main took analytics 7105256 → 187e026 (the v80 gate above); this branch
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
+// REPIN (this branch) @ 96d47d7 — protocol `feat/garmin-gfdi-protocol`, on
+// top of the #42 merge above. Adds `garmin.dart` only: COBS + Multi-Link
+// framing, the GFDI frame/CRC16, the device-information parser, and a
+// minimal protobuf reader for one battery round trip — a new module, no
+// existing decoder touched. NO kAlgoVersion bump: nothing on the
+// derivation/persisted-record path moves.
+//
+// MERGE (main → this branch): main's own repin below (protocol tip fe1464d)
+// already contains 96d47d7 as an ancestor (verified: `git merge-base
+// --is-ancestor 96d47d7 fe1464d` on the protocol repo) — main's pin is
+// strictly ahead, nothing this branch's garmin repin added is lost by
+// taking it.
+//
+// REPIN (this branch): protocol PR #51 head @ 1caf448, on top of 471034c —
+// same reasoning as pubspec.yaml's comment beside the `ref:`. This branch
+// needs the Ultrahuman wire format that #51 adds and main doesn't have yet.
+// NO kAlgoVersion bump: Ultrahuman's `signals` stays `const {}`, so nothing
+// this pin adds is ever read by a decoder.
+//
+// MERGE (main → this branch): main's own repin below (protocol tip fe1464d)
+// already contains 1caf448 as an ancestor (verified: `git merge-base
+// --is-ancestor 1caf448 fe1464d` on the protocol repo) — main's pin is
+// strictly ahead, nothing this branch's repin added is lost by taking it.
+// REPIN (this branch) @ fbda904 — protocol OpenStrap/protocol#49 head, which
+// adds the o2ring frame envelope/parser. NO kAlgoVersion bump: o2ring's
+// adapter `signals` stays `const {}` (excluded from `kDerivableSources`), so
+// nothing this pin adds is ever read by a decoder the derivation pipeline
+// calls — no stored number can change.
+//
+// MERGE (main → this branch): main's own repin below (protocol tip fe1464d)
+// already contains fbda904 as an ancestor (verified: `git merge-base
+// --is-ancestor fbda904 fe1464d` — PR#49/o2ring-protocol is folded in via the
+// `d297055` merge commit) — main's pin is strictly ahead, nothing this
+// branch's repin added is lost by taking it.
+//
+// REPIN (this branch): protocol `feat/wearfit-howear-protocol` @ 1cf8e61, one
+// commit ahead of #42 (471034c). Adds the wearfit/howear frame codec
+// (parseWearFitFrame/wearFitCmdGetBattery/parseWearFitBattery) this branch's
+// adapter calls. `signals` for the new adapter is `const {}` (no derivable
+// source), so this touches no decoder any existing day_result reads. NO
+// kAlgoVersion bump.
+//
+// REPIN (main) @ b819ee0 — protocol `feat/ringconn`, 2 commits on top of
+// 471034c. Adds the ring's frame codec (`parseRingConnFrame` and friends);
+// no decoded field, so no kAlgoVersion move. Must match pubspec.yaml's
+// `ref:` — see this file's own note above.
+//
+// MERGE (main → this branch): this branch's repin (wearfit @ 1cf8e61) and
+// main's (ringconn @ b819ee0) are parallel protocol commits, neither an
+// ancestor of the other. protocol's own `origin/main` already merged both
+// (PR#50 wearfit-howear, PR#48 ringconn, and everything after) — this pin
+// moves to that tip (fe1464d) to match pubspec.yaml's `ref:` rather than
+// picking one single-device SHA over the other. Verified: `1cf8e61` (this
+// branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
+// commit is already folded in, nothing is lost by moving to the tip.
 const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
-const String kProtocolPin = '471034cb84b85edb37e72b6f6add79a2d7929294';
+// REPIN (this branch): protocol dafit/moyoung head @ 06cb5f2 — the DaFit/
+// MOYOUNG-V2 frame envelope this branch's adapter banks raw. NO kAlgoVersion
+// bump: dafit carries no derivable signal.
+//
+// MERGE (main → this branch): protocol's own origin/main has since merged
+// dafit/moyoung along with #47 (zetime), #48 (ringconn) and #50
+// (wearfit) — 06cb5f2 is verified an ancestor of the tip below (`git
+// merge-base --is-ancestor 06cb5f2… fe1464d…`), so moving the pin there
+// loses nothing from this branch's own repin.
+const String kProtocolPin = 'fe1464db98b84ac4d3ce6175d54ada11356d6c62';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
