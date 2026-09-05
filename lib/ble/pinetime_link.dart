@@ -13,15 +13,35 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart'
+    show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../data/db.dart';
+import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
+import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost;
 import 'adapters/pinetime.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
+
+String _hex(List<int> b) =>
+    b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+
+/// Bank one frame verbatim, decoded or not — same call `oura_link.dart` makes.
+/// `packetType` is the frame's own first byte, not a real tag: the two notify
+/// channels are merged upstream (`pinetime.dart`) with no marker for which one
+/// a frame came from, so `reason` cannot name a channel either.
+ArchiveRecord _buildArchiveRow(List<int> bytes, int capturedAtMs) =>
+    ArchiveRecord(
+      hex: _hex(bytes),
+      counter: null,
+      packetType: bytes.isNotEmpty ? bytes[0] : 0,
+      recTs: null,
+      capturedAt: capturedAtMs,
+      reason: 'pinetime_frame',
+    );
 
 /// The live link to a paired PineTime. One instance; a second concurrent
 /// unit is not a thing anyone asked for.
@@ -110,11 +130,7 @@ class PineTimeLink {
                     '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
                 return false;
               }
-              final host = BandHost(
-                adapter: const PineTimeAdapter(),
-                deviceId: deviceId,
-                onLog: (m) => debugPrint('[pinetime] $m'),
-              );
+              final host = _makeHost(deviceId);
               _host = host;
               await host.run(link).timeout(_listenWindow, onTimeout: () {});
               return true;
@@ -143,6 +159,37 @@ class PineTimeLink {
     _link?.close();
     _link = null;
     await _host?.stop();
+    _host = null;
+  }
+
+  /// Build this session's [BandHost]. One place, so `_sync()` and
+  /// [ingestForTest] cannot drift on whether raw frames get archived — see
+  /// `oura_link.dart`'s own `_makeHost` for the same discipline.
+  BandHost _makeHost(String deviceId) => BandHost(
+        adapter: const PineTimeAdapter(),
+        deviceId: deviceId,
+        onLog: (m) => debugPrint('[pinetime] $m'),
+        buildArchive: _buildArchiveRow,
+      );
+
+  /// Replay scripted notifications through the REAL [PineTimeAdapter] and the
+  /// real write path. The only way in: the entry point is a BLE notification
+  /// and `flutter_blue_plus` has no simulator path.
+  @visibleForTesting
+  Future<void> ingestForTest(
+    String deviceId,
+    List<(String characteristicUuid, int atSec, List<int> value)> arrivals,
+  ) async {
+    final host = _makeHost(deviceId);
+    _host = host;
+    final link = ReplayBandLink();
+    final done = host.run(link);
+    for (final (uuid, sec, value) in arrivals) {
+      link.feed(uuid, value, atSec: sec);
+    }
+    await link.close();
+    await done;
+    await host.stop();
     _host = null;
   }
 }
