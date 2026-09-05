@@ -71,6 +71,14 @@ class WithingsSteelHrLink {
       return false;
     }
     if (instance._deviceId == id) await instance.stop();
+    // `stop()` only unblocks `_sync`'s `await host.run(link)` — it does not
+    // wait for `_sync` to finish running past that point, and `_sync` writes
+    // the `firstConnect` cursor AFTER it. Awaiting the in-flight `_sync`
+    // itself (not just `stop`) guarantees that write, if it happens, lands
+    // before the delete below — otherwise it can land after and resurrect
+    // the exact stale-cursor bug this cursor delete exists to prevent.
+    final inFlight = instance._inFlight;
+    if (inFlight != null) await inFlight;
     await LocalDb.deleteCursor(_firstConnectItem(id));
     await LocalDb.deleteDevice(id);
     return true;
@@ -88,6 +96,11 @@ class WithingsSteelHrLink {
   /// having attempted a connection.
   bool _sessionReady = false;
 
+  /// The currently (or most recently) in-flight [_sync] call, so
+  /// [forgetDevice] can wait for it to actually finish rather than just for
+  /// [stop] to unblock it.
+  Future<bool>? _inFlight;
+
   /// Connect to the paired watch, run the handshake, archive whatever
   /// arrives until the link ends, disconnect.
   ///
@@ -96,7 +109,9 @@ class WithingsSteelHrLink {
   Future<bool> sync() {
     if (_busy) return Future.value(false);
     _busy = true;
-    return _sync().whenComplete(() => _busy = false);
+    final f = _sync().whenComplete(() => _busy = false);
+    _inFlight = f;
+    return f;
   }
 
   Future<bool> _sync() async {
@@ -224,6 +239,15 @@ class WithingsSteelHrLink {
       // the right bytes.
       reason: 'withings_msg_0x${msg.type.toRadixString(16).padLeft(2, '0')}',
     );
+  }
+
+  /// Test-only seam for the `forgetDevice`/`_inFlight` race: sets the two
+  /// fields `forgetDevice` reads without driving a real (or replayed)
+  /// session.
+  @visibleForTesting
+  void debugSetInFlightForTest(String deviceId, Future<bool> future) {
+    _deviceId = deviceId;
+    _inFlight = future;
   }
 
   /// Replay a scripted watch through the REAL [WithingsSteelHrAdapter] and

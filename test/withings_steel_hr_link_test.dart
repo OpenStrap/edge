@@ -8,6 +8,7 @@
 // decoder can find, and not clearing the one bit of session state this band
 // persists on the strength of a mere connection attempt.
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -181,5 +182,35 @@ void main() {
     expect(await LocalDb.deviceRow(_deviceId), isNull);
     expect(await LocalDb.getCursor('withings_steel_hr_first_connect:$_deviceId'),
         isNull);
+  });
+
+  test('forgetDevice waits for an in-flight sync to actually finish, not '
+      'just for stop() to unblock it, before deleting the cursor', () async {
+    await LocalDb.upsertDevice(
+      id: _deviceId,
+      adapterId: kWithingsSteelHr.id,
+      remoteId: _mac,
+      label: 'Withings Steel HR',
+    );
+    final cursorKey = 'withings_steel_hr_first_connect:$_deviceId';
+    final gate = Completer<void>();
+    // Stands in for `_sync`'s own late `setCursor` write, which happens
+    // after `host.run()` returns (i.e. after `stop()` has already unblocked
+    // it) — the exact window the race lived in.
+    final inFlight = gate.future.then((_) async {
+      await LocalDb.setCursor(cursorKey, '0');
+      return true;
+    });
+    WithingsSteelHrLink.instance.debugSetInFlightForTest(_deviceId, inFlight);
+
+    final forgetting = WithingsSteelHrLink.forgetDevice(_deviceId);
+    await Future<void>.delayed(Duration.zero); // let forgetDevice reach the await
+    gate.complete(); // now the "sync" performs its late cursor write
+    await forgetting;
+
+    expect(await LocalDb.deviceRow(_deviceId), isNull);
+    expect(await LocalDb.getCursor(cursorKey), isNull,
+        reason: 'not resurrected as "0" by the in-flight sync finishing '
+            'after stop() but before the delete');
   });
 }

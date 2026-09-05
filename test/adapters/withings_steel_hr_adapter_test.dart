@@ -221,4 +221,18 @@ void main() {
     expect(batches.single.raw!.single, big,
         reason: 'reassembled verbatim, header included');
   });
+
+  test('a TLV whose declared length overruns the message body rejects the '
+      'whole message, not just the structures parsed before the overrun',
+      () {
+    // Header: 0x01, msgType=kWithingsMsgChallenge, structLen=6 (matches the
+    // 6-byte body below, so the message-level length check passes and the
+    // overrun is caught only by the inner TLV's own declared length).
+    final bytes = Uint8List.fromList([
+      0x01, 0x01, 0x28, 0x00, 0x06,
+      // one TLV: type=1, declared payload length=10, but only 2 bytes follow
+      0x00, 0x01, 0x00, 0x0A, 0xAA, 0xBB,
+    ]);
+    expect(parseWithingsMessage(bytes), isNull);
+  });
 }
