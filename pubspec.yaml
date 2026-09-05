@@ -143,7 +143,12 @@ dependencies:
       # live high-rate streams are never persisted (see invariant #1), so no
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
-      ref: 471034cb84b85edb37e72b6f6add79a2d7929294
+      #
+      # REPIN (this branch): protocol PR #49 head @ fbda904 (not yet on main).
+      # Adds the o2ring frame envelope/INFO-reply parser this branch's
+      # adapter calls. NO kAlgoVersion bump: o2ring declares no signals, so
+      # nothing it decodes reaches derivation.
+      ref: fbda904267b6bb456cc218a7f8db8f254412d53c
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
