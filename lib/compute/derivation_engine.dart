@@ -1726,8 +1726,14 @@ const int kAlgoVersion = 87;
 // main took analytics 7105256 → 187e026 (the v80 gate above); this branch
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
+//
+// REPIN (this branch): protocol PR #51 head @ 1caf448, on top of 471034c —
+// same reasoning as pubspec.yaml's comment beside the `ref:`. This branch
+// needs the Ultrahuman wire format that #51 adds and main doesn't have yet.
+// NO kAlgoVersion bump: Ultrahuman's `signals` stays `const {}`, so nothing
+// this pin adds is ever read by a decoder.
 const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
-const String kProtocolPin = '471034cb84b85edb37e72b6f6add79a2d7929294';
+const String kProtocolPin = '1caf44850c4c4f0eacef7dc60c61369e4123e284';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
