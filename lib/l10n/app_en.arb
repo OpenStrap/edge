@@ -873,7 +873,11 @@
   },
   "devicesSyncNowSub": "Fetch whatever it has been holding",
   "@devicesSyncNowSub": {
-    "description": "Row sub: manual sync."
+    "description": "Row sub: manual sync, for a sensor that fetches held history off a cursor (e.g. Oura)."
+  },
+  "devicesSyncNowSubListen": "Listen for whatever it sends right now",
+  "@devicesSyncNowSubListen": {
+    "description": "Row sub: manual sync, for a sensor that only opens a bounded listen window with no history fetch."
   },
   "devicesName": "Name",
   "@devicesName": {
