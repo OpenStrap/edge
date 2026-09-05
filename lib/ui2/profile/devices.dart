@@ -43,12 +43,59 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura, kWithingsSteelHr, declaredSignals;
+    show
+        BandEntry,
+        kBandRegistry,
+        kBleHrs,
+        kColmi,
+        kDafit,
+        kId115,
+        kJyou,
+        kHPlus,
+        kLefun,
+        kMakibesHr3,
+        kMiBand234,
+        kNo1Band,
+        kOura,
+        kO2Ring,
+        kPebble,
+        kRingConn,
+        kCasio,
+        kDt78,
+        kPineTime,
+        kQHybrid,
+        kSmaq2oss,
+        kWatch9,
+        kWearFit,
+        kWithingsSteelHr,
+        kXWatch,
+        kZeTime,
+        declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
+import '../../ble/casio_link.dart' show CasioLink;
+import '../../ble/colmi_link.dart' show ColmiLink;
+import '../../ble/dafit_link.dart' show DafitLink;
+import '../../ble/dt78_link.dart' show Dt78Link;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
+import '../../ble/id115_link.dart' show Id115Link;
+import '../../ble/jyou_link.dart' show JyouLink;
+import '../../ble/makibeshr3_link.dart' show MakibesHr3Link;
+import '../../ble/miband_link.dart' show MiBand234Link, pairMiBand234;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/pebble_link.dart' show PebbleLink;
+import '../../ble/smaq2oss_link.dart' show Smaq2ossLink;
+import '../../ble/o2ring_link.dart' show O2RingLink, pairO2Ring;
+import '../../ble/hplus_link.dart' show HPlusLink;
+import '../../ble/pinetime_link.dart' show PineTimeLink;
+import '../../ble/qhybrid_link.dart' show QHybridLink, pairQHybrid;
+import '../../ble/ringconn_link.dart' show RingConnLink;
+import '../../ble/tlw64_link.dart' show Tlw64Link;
+import '../../ble/watch9_link.dart' show Watch9Link;
+import '../../ble/wearfit_link.dart' show WearFitLink;
 import '../../ble/withings_steel_hr_link.dart'
     show WithingsSteelHrLink, pairWithingsSteelHr;
+import '../../ble/xwatch_link.dart' show XWatchLink;
+import '../../ble/zetime_link.dart' show ZeTimeLink, pairZeTime;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -774,8 +821,27 @@ class HealthSource {
 /// The glyph for a paired sensor. A ring is not a chest strap and the row is
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
-      'oura' => LucideIcons.circleDot,
-      'withings_steel_hr' => LucideIcons.watch,
+      'oura' || 'o2ring' || 'lefun' || 'colmi' || 'ringconn' =>
+        LucideIcons.circleDot,
+      'dafit' ||
+      'dt78' ||
+      'hplus' ||
+      'id115' ||
+      'makibeshr3' ||
+      'miband234' ||
+      'pebble' ||
+      'pinetime' ||
+      'qhybrid' ||
+      'casio' ||
+      'jyou' ||
+      'wearfit' ||
+      'zetime' ||
+      'watch9' ||
+      'xwatch' ||
+      'tlw64' ||
+      'smaq2oss' ||
+      'withings_steel_hr' =>
+        LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -960,6 +1026,199 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'it captures is decoded into a number yet — no one on this project '
         'has held one.',
     pick: pairWithingsSteelHr,
+  ),
+  (
+    entry: kMiBand234,
+    blurb: 'A Mi Band 2, 3 or 4. It must have no key installed yet — one '
+        'still bound to Mi Fit or Zepp will refuse to pair. Unpair it from '
+        'that app first, or use a factory-reset unit. Pairs and connects; '
+        'nothing derives from it yet.',
+    pick: pairMiBand234,
+  ),
+  (
+    entry: kPebble,
+    blurb: 'Pebble 2 or Pebble 2 SE only — older Pebbles need Bluetooth '
+        'Classic, which this app cannot reach. Nothing is decoded yet — raw '
+        'bytes are archived for a future update to make sense of.',
+    // Same generic notify-class pairing as the chest strap above — no key,
+    // no pre-pairing step.
+    pick: null,
+  ),
+  (
+    entry: kMakibesHr3,
+    blurb: 'An unbranded Makibes HR3 board. Pairs and banks its raw data in '
+        'the background, but does not derive anything from it yet — nobody '
+        'on this project owns one to verify its numbers against.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written.
+    pick: null,
+  ),
+  (
+    entry: kId115,
+    blurb: 'An unbranded ID115 board. Pairs and banks its raw data in the '
+        'background, but does not derive anything from it yet — nobody on '
+        'this project owns one to verify its numbers against.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written.
+    pick: null,
+  ),
+  (
+    entry: kSmaq2oss,
+    blurb: 'An SMA-Q2-OSS smartwatch. Pairs and banks its raw data in the '
+        'background, but does not derive anything from it yet — nobody on '
+        'this project owns one to verify its numbers against.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written.
+    pick: null,
+  ),
+  (
+    entry: kXWatch,
+    blurb: 'An unbranded XWatch board. Pairs and banks its raw data in the '
+        'background, but does not derive anything from it yet — nobody on '
+        'this project owns one to verify its numbers against.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written.
+    pick: null,
+  ),
+  (
+    entry: kWatch9,
+    blurb: 'An unbranded Watch9 board. Pairs and banks its raw data in the '
+        'background, but does not derive anything from it yet — nobody on '
+        'this project owns one to verify its numbers against.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written.
+    pick: null,
+  ),
+  (
+    entry: kNo1Band,
+    blurb: 'A TLW64 or NO1 F1 fitness band. Pairs and banks its raw data in '
+        'the background, but does not derive anything from it yet — nobody '
+        'on this project owns one to verify its numbers against.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written.
+    pick: null,
+  ),
+  (
+    entry: kDafit,
+    blurb: 'An unbranded DaFit/MOYOUNG-style watch, sold under many storefront '
+        'names. Banks its own data; nothing else derives from it yet.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written. The init handshake runs inside
+    // the adapter's own session, once connected.
+    pick: null,
+  ),
+  (
+    entry: kO2Ring,
+    blurb: 'Reads its battery, model and serial. No SpO2 or pulse reading '
+        'from the ring itself appears anywhere in the app yet.',
+    pick: pairO2Ring,
+  ),
+  (
+    entry: kZeTime,
+    blurb: 'Pairs and connects. Nothing is decoded from it yet beyond its own '
+        'battery level — no one on this project has held one to confirm what '
+        'its other data means.',
+    pick: pairZeTime,
+  ),
+  (
+    entry: kWearFit,
+    blurb: 'A Howear-branded band (HK8 Ultra, HK8 Pro Max and similar), paired '
+        'through the WearFit app family. Banks its own battery report and '
+        'whatever else it sends; nothing else derives from it yet.',
+    // Null means the plain notify-class pairing — no key, no clock, no
+    // handshake needed before the row can be written.
+    pick: null,
+  ),
+  (
+    entry: kRingConn,
+    blurb: 'Pairs directly, no app or account needed. Every sync starts from '
+        'now rather than a saved bookmark, so a sync run right after the '
+        'RingConn app’s own sync can come back looking emptier than expected '
+        '— the ring shares one resume point between whichever app reads it '
+        'first.',
+    // Null means the plain notify-class pairing — the whole handshake lives
+    // inside RingConnAdapter.run, same as kBleHrs.
+    pick: null,
+  ),
+  (
+    entry: kDt78,
+    blurb: 'Pairs and banks its raw data in the background, but does not '
+        'derive anything from it yet — nobody on this project owns one to '
+        'verify its numbers against.',
+    // Null means the plain notify-class pairing, which is the whole of what
+    // this watch needs — no auth, no key.
+    pick: null,
+  ),
+  (
+    entry: kLefun,
+    blurb: 'A generic Bluetooth ring or band from the family sold under many '
+        'storefront names. Pairs and connects, but reports nothing yet — '
+        'nobody on this project has held one to verify what its numbers mean.',
+    // No key, no handshake — plain notify-class pairing, with no measurement
+    // tier: this device declares no signal at all (`LefunAdapter.signals` is
+    // `const {}`), so there is no quality to rank it against another source.
+    pick: (device) => HrsLink.pairNotifySensor(
+      kLefun,
+      device,
+      label: cleanDeviceLabel(device.platformName),
+      tier: null,
+    ),
+  ),
+  (
+    entry: kHPlus,
+    blurb: 'A generic HPlus-family HR band (HPlus, Makibes F68, Zeblaze and '
+        'similar). No account, no handshake — it pairs and banks what it '
+        'sends, but nothing is decoded into a number yet.',
+    // Null: no auth step, so the plain notify-class pairing is the whole of
+    // what this band needs — same as [kBleHrs].
+    pick: null,
+  ),
+  (
+    entry: kPineTime,
+    blurb: 'Pairs and banks its raw data in the background, but does not '
+        'derive anything from it yet — nobody on this project owns one to '
+        'verify its numbers against.',
+    // Null means the plain notify-class pairing, which is the whole of what
+    // this watch needs — no auth, no key.
+    pick: null,
+  ),
+  (
+    entry: kQHybrid,
+    blurb: 'The original Fossil/Skagen hybrid smartwatch line, not the newer '
+        'Hybrid HR. Pairs and connects; nothing derives from it yet.',
+    // NOT plain notify-class pairing (`pick: null`): unlike a heart-rate
+    // strap, which a workout arms, this band has no workout role, so
+    // `pairQHybrid` is what runs its first real session — the adapter's own
+    // battery-probe confirms it is this protocol, not the encrypted Hybrid HR
+    // sibling, and whatever it answers in the bounded window right after is
+    // what gets archived. The same session is re-runnable afterward — see
+    // `qhybrid_link.dart` and this screen's own sync affordance.
+    pick: pairQHybrid,
+  ),
+  (
+    entry: kColmi,
+    blurb: 'A Colmi ring. No account, no handshake — it pairs and banks its '
+        'history, but nothing is decoded into a number yet.',
+    // Null: no auth step, so the plain notify-class pairing is the whole of
+    // what this ring needs — same as [kBleHrs].
+    pick: null,
+  ),
+  (
+    entry: kCasio,
+    blurb: 'GBX100, GW-B5600, GMW-B5000, ECB-S100 and current Casio '
+        'smartwatches. Pairs and connects; nothing derives from it yet.',
+    // Null means the plain notify-class pairing — standard BLE bonding is
+    // the whole of what this watch needs.
+    pick: null,
+  ),
+  (
+    entry: kJyou,
+    blurb: 'Pairs and banks its raw data, but does not derive anything from '
+        'it yet — nobody on this project owns one to verify its numbers '
+        'against.',
+    // Null means the plain notify-class pairing, same as the heart-rate
+    // sensor above.
+    pick: null,
   ),
 ];
 
@@ -1485,11 +1744,30 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura'
-          ? () => _syncRing(c)
-          : s.family == 'withings_steel_hr'
-              ? () => _syncSensor(c)
-              : null,
+      onSync: switch (s.family) {
+        'oura' || 'ringconn' || 'o2ring' => () => _syncRing(c, s.family),
+        'miband234' => () => _syncMiband(c),
+        'dafit' => () => _syncDafitWatch(c),
+        'zetime' => () => _syncZeTime(c),
+        'wearfit' => () => _syncSensor(c, WearFitLink.instance.sync),
+        'withings_steel_hr' =>
+          () => _syncSensor(c, WithingsSteelHrLink.instance.sync),
+        'dt78' => () => _syncDt78(c),
+        'hplus' => () => _syncHPlus(c),
+        'id115' => () => _syncId115(c),
+        'makibeshr3' => () => _syncMakibesHr3(c),
+        'pebble' => () => _syncPebble(c),
+        'pinetime' => () => _syncPineTime(c),
+        'qhybrid' => () => _syncQHybrid(c),
+        'colmi' => () => _syncColmiRing(c),
+        'casio' => () => _syncCasio(c, s.deviceId),
+        'jyou' => () => _syncJyou(c),
+        'tlw64' => () => _syncNo1Band(c),
+        'watch9' => () => _syncWatch9(c),
+        'xwatch' => () => _syncXWatch(c),
+        'smaq2oss' => () => _syncSmaq2oss(c),
+        _ => null,
+      },
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1502,12 +1780,20 @@ class _DeviceDetailState extends State<DeviceDetail> {
 /// Drain the ring, now, because the user asked. The result is a sentence
 /// either way: a sync that silently did nothing is indistinguishable from a
 /// ring that had nothing to give, and those need different remedies.
-Future<void> _syncRing(BuildContext c) async {
+///
+/// [family] picks WHICH ring's link runs — a plain equality dispatch rather
+/// than a generic "ring link" interface, because there are only three of
+/// these today and a fourth makes this a `switch`, not an abstraction.
+Future<void> _syncRing(BuildContext c, String? family) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
   messenger?.showSnackBar(
       SnackBar(content: Text(l?.devicesSyncingTheRing ?? 'Syncing the ring…')));
-  final ok = await OuraLink.instance.sync();
+  final ok = switch (family) {
+    'o2ring' => await O2RingLink.instance.sync(),
+    'ringconn' => await RingConnLink.instance.sync(),
+    _ => await OuraLink.instance.sync(),
+  };
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
@@ -1518,21 +1804,337 @@ Future<void> _syncRing(BuildContext c) async {
   ));
 }
 
-/// Drain a paired sensor (Withings Steel HR today), now, because the user
-/// asked. Same shape as [_syncRing]; only the link and the copy differ.
-Future<void> _syncSensor(BuildContext c) async {
+/// Drain the Mi Band, now, because the user asked. Same shape as
+/// [_syncRing]: a bounded-window snapshot (no cursor, see
+/// `MiBand234Link`'s own header), so "synced" here means "connected and
+/// collected what the window allowed", not "drained everything".
+Future<void> _syncMiband(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await MiBand234Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the band. It has to be nearby, and not '
+            'connected to another app.'),
+  ));
+}
+
+/// Drain the watch, now, because the user asked. Nothing decodes yet — see
+/// `pebble.dart`'s header — so a successful sync only ever means "bytes were
+/// banked to raw_archive", never a new reading anywhere on screen.
+Future<void> _syncPebble(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing the watch…')));
+  final ok = await PebbleLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the watch. It has to be nearby, and not '
+            'connected to another app.'),
+  ));
+}
+
+/// Pull whatever a paired Makibes HR3 has sent since the last connect, now,
+/// because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncMakibesHr3(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await MakibesHr3Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the board. It has to be nearby, and not '
+            'connected to another app.'),
+  ));
+}
+
+/// Pull whatever a paired ID115 has sent since the last connect, now,
+/// because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncId115(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await Id115Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the board. It has to be nearby, and not '
+            'connected to another app.'),
+  ));
+}
+
+/// Pull whatever a paired SMA-Q2-OSS has sent since the last connect, now,
+/// because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncSmaq2oss(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await Smaq2ossLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the watch. It has to be nearby, and not '
+            'connected to another app.'),
+  ));
+}
+
+/// Pull whatever a paired XWatch has sent since the last connect, now,
+/// because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncXWatch(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await XWatchLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the board. It has to be nearby, and not '
+            'connected to another app.'),
+  ));
+}
+
+/// Pull whatever a paired Watch9 has sent since the last connect, now,
+/// because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncWatch9(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await Watch9Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the board. It has to be nearby, and not '
+            'connected to another app.'),
+  ));
+}
+
+/// Pull whatever a paired NO1-family band has sent since the last connect,
+/// now, because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncNo1Band(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await Tlw64Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the band. It has to be nearby, and not connected '
+            'to another app.'),
+  ));
+}
+
+/// Hold a session with the paired watch, now, because the user asked. There
+/// is no history to drain here — see `dafit_link.dart`'s own header — so
+/// this just runs the handshake again and banks whatever arrives during it.
+Future<void> _syncDafitWatch(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  // No localized string yet — same call as device_picker.dart's 'dafit'
+  // blurb, and for the same reason. Deliberately NOT `devicesCouldNotReachRing`
+  // below either: that key is ring-specific text in every translated locale,
+  // and this device is a watch, not a ring.
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await DafitLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach it. It has to be nearby, and not connected to '
+            'another app.'),
+  ));
+}
+
+/// Connect to the ZeTime, ask its battery level, disconnect — the whole of
+/// what this band does today. Same "say something either way" reasoning as
+/// [_syncRing]: a silent no-op looks identical to a watch with nothing to
+/// give, and those need different remedies.
+Future<void> _syncZeTime(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(SnackBar(
+      content: Text(l?.devicesConnectingZeTime ?? 'Connecting…')));
+  final ok = await ZeTimeLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesConnectedZeTime ?? 'Connected.')
+        : (l?.devicesCouldNotReachZeTime ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
+  ));
+}
+
+/// Drain any other paired sensor family, now, because the user asked. Same
+/// promise as [_syncRing], generalized past the ring-specific wording — a
+/// WearFit band is not a ring.
+Future<void> _syncSensor(BuildContext c, Future<bool> Function() sync) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
   messenger?.showSnackBar(SnackBar(
       content:
-          Text(l?.devicesSyncingSensor ?? 'Syncing the sensor…')));
-  final ok = await WithingsSteelHrLink.instance.sync();
+          Text(l?.devicesSyncingTheSensor ?? 'Syncing the sensor…')));
+  final ok = await sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
         ? (l?.devicesSynced ?? 'Synced.')
         : (l?.devicesCouldNotReachSensor ??
             'Could not reach the sensor. It has to be nearby, and not '
+                'connected to another app.')),
+  ));
+}
+
+/// Connect and bank the watch's raw bytes, now, because the user asked. Same
+/// shape as [_syncRing] — a separate family behind a separate link, same
+/// reason a sync that did nothing needs to say so.
+Future<void> _syncDt78(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  // Checked BEFORE calling sync(), which answers `false` for "already
+  // syncing" and "could not reach the watch" alike — a real distinction the
+  // snack bar should not blur into one failure sentence.
+  if (Dt78Link.instance.busy) {
+    messenger?.showSnackBar(const SnackBar(content: Text('Already syncing.')));
+    return;
+  }
+  // `devicesSyncing`/`devicesSynced` are genuinely generic ("Syncing"/
+  // "Synced."), unlike `devicesSyncingTheRing`/`devicesCouldNotReachRing`,
+  // which name the ring by copy — reusing those here would show the wrong
+  // device in the snack bar, so the failure sentence stays untranslated
+  // rather than borrowing one that says the wrong thing.
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await Dt78Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the watch. It has to be nearby, and not connected '
+            'to another app.'),
+  ));
+}
+
+/// Connect to the band, now, because the user asked. Same "one sentence
+/// either way" shape as [_syncRing] — a sync that reached the band and one
+/// that could not are different remedies for the user.
+Future<void> _syncHPlus(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await HPlusLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the band. It has to be nearby, and not connected '
+            'to another app.'),
+  ));
+}
+
+/// Pull whatever a Jyou band has streamed since the last connect, now,
+/// because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncJyou(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await JyouLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the band. It has to be nearby, and not connected '
+            'to another app.'),
+  ));
+}
+
+/// Connect and bank the watch's raw bytes, now, because the user asked. Same
+/// shape as [_syncRing] — a sync that silently did nothing is
+/// indistinguishable from a watch that had nothing to give, and those need
+/// different remedies.
+Future<void> _syncPineTime(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  // `devicesSyncing`/`devicesSynced` are genuinely generic ("Syncing"/
+  // "Synced."), unlike `devicesSyncingTheRing`/`devicesCouldNotReachRing`,
+  // which name the ring by copy — reusing those here would show the wrong
+  // device in the snack bar, so the failure sentence stays untranslated
+  // rather than borrowing one that says the wrong thing.
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await PineTimeLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.hideCurrentSnackBar();
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the watch. It has to be nearby, and not connected '
+            'to another app.'),
+  ));
+}
+
+/// Hold a session with the paired watch, now, because the user asked. There
+/// is no history to drain here — see `qhybrid_link.dart`'s own header — so
+/// this just re-runs the same battery-probe-confirmed window pairing did and
+/// banks whatever the watch sends during it.
+Future<void> _syncQHybrid(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesConnectingWatch ?? 'Connecting…')));
+  final ok = await QHybridLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachWatch ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
+  ));
+}
+
+/// Same as [_syncRing], for a paired Colmi ring — the "sync now" affordance
+/// this device was missing entirely (it paired and never synced again).
+/// Shares the ring-generic strings above rather than minting Colmi-specific
+/// copy for the same sentence.
+Future<void> _syncColmiRing(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncingTheRing ?? 'Syncing the ring…')));
+  final ok = await ColmiLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachRing ??
+            'Could not reach the ring. It has to be nearby, and not connected '
+                'to another app.')),
+  ));
+}
+
+/// Same shape as [_syncRing] — a separate family behind a separate link, same
+/// reason a sync that did nothing needs to say so. [deviceId] is this row's
+/// own id: two Casio watches can be paired at once, and without it this
+/// always synced whichever one `CasioLink.pairedRow()` happened to see first.
+Future<void> _syncCasio(BuildContext c, String? deviceId) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await CasioLink.instance.sync(deviceId: deviceId);
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachWatch ??
+            'Could not reach the watch. It has to be nearby, and not '
                 'connected to another app.')),
   ));
 }
@@ -1818,8 +2420,20 @@ class DeviceDetailView extends StatelessWidget {
                         Divider(color: p.line, height: 1),
                         SetRow(LucideIcons.downloadCloud, C.blue,
                             l?.devicesSyncNow ?? 'Sync now',
-                            sub: l?.devicesSyncNowSub ??
-                                'Fetch whatever it has been holding',
+                            // Only Oura genuinely fetches held history off a
+                            // cursor; every other `onSync` wired today is a
+                            // bounded listen window with no request and no
+                            // stored-history drain — see e.g.
+                            // `Id115Link.sync()`, `MakibesHr3Link.sync()`,
+                            // `Smaq2ossLink.sync()`, `Tlw64Link.sync()`,
+                            // `Watch9Link.sync()` and `XWatchLink.sync()`.
+                            // Claiming a "fetch" for those would be a promise
+                            // the connect does not keep.
+                            sub: s.family == 'oura'
+                                ? (l?.devicesSyncNowSub ??
+                                    'Fetch whatever it has been holding')
+                                : (l?.devicesSyncNowSubListen ??
+                                    'Listen for whatever it sends right now'),
                             onTap: onSync),
                       ],
                     ]),
