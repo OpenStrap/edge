@@ -137,6 +137,24 @@ void main() {
       expect(await HrsLink.pairedSensorRow(), isNull);
     });
 
+    test('forgetting a Polar row deletes it without touching HrsLink',
+        () async {
+      // The dispatch bug this pins: `forgetDevice`'s non-Oura branch used to
+      // call `instance.disarm()` (HrsLink's own) unconditionally, which is a
+      // no-op for a row a different link owns. Routing on `adapter_id` must
+      // reach a `kPolarPmd` row the same way it already reaches an Oura one,
+      // and still leave HrsLink itself untouched (unarmed, as it started).
+      await LocalDb.upsertDevice(
+        id: 'polar_pmd-11:22:33:44:55:66',
+        adapterId: kPolarPmd.id,
+        remoteId: '11:22:33:44:55:66',
+      );
+      await HrsLink.forgetDevice('polar_pmd-11:22:33:44:55:66');
+      final rows = await LocalDb.deviceRows();
+      expect(rows.where((r) => r['adapter_id'] == kPolarPmd.id), isEmpty);
+      expect(HrsLink.instance.deviceId, isNull);
+    });
+
     test('two arms in flight are ONE arm', () async {
       // Every caller fires this `unawaited`, and the body awaits a database
       // read, a 12 s connect and discovery before it publishes anything. A

@@ -1782,21 +1782,23 @@ const int kAlgoVersion = 87;
 // branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
 // commit is already folded in, nothing is lost by moving to the tip.
 const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
-// REPIN (this branch): protocol dafit/moyoung head @ 06cb5f2 — the DaFit/
-// MOYOUNG-V2 frame envelope this branch's adapter banks raw. NO kAlgoVersion
-// bump: dafit carries no derivable signal.
-//
-// MERGE (main → this branch): protocol's own origin/main has since merged
-// dafit/moyoung along with #47 (zetime), #48 (ringconn) and #50
-// (wearfit) — 06cb5f2 is verified an ancestor of the tip below (`git
-// merge-base --is-ancestor 06cb5f2… fe1464d…`), so moving the pin there
-// loses nothing from this branch's own repin.
-// REPIN (this branch, superseded by the merge): the ring11m adapter's own
-// protocol needs `feat/ring11m-protocol` (c6cc5ef), but protocol's own
-// `origin/main` tip below is THAT SAME PR's merge commit — verified
-// (`git merge-base --is-ancestor c6cc5ef… fe1464d…`) — so main's pin already
+// REPIN (this branch, superseded by the merge): polar pmd's own protocol
+// needs `feat/polar-pmd-protocol` (87ee803), but protocol's own `origin/main`
+// tip below is THAT SAME PR's merge commit — verified
+// (`git merge-base --is-ancestor 87ee803… fe1464d…`) — so main's pin already
 // carries this branch's wire format; nothing is lost by taking it as-is.
-// NO kAlgoVersion bump either way: ring11m's adapter declares no signal.
+// NO kAlgoVersion bump either way: polar pmd's adapter declares no signal.
+//
+// REPIN (main): protocol dafit/moyoung head @ 06cb5f2 — the DaFit/MOYOUNG-V2
+// frame envelope. NO kAlgoVersion bump: dafit carries no derivable signal.
+// Protocol's own origin/main has since merged dafit/moyoung along with #47
+// (zetime), #48 (ringconn) and #50 (wearfit) — 06cb5f2 is verified an
+// ancestor of the tip below.
+// REPIN (main, superseded further): the ring11m adapter's own protocol needs
+// `feat/ring11m-protocol` (c6cc5ef), but protocol's own `origin/main` tip
+// below is THAT SAME PR's merge commit — verified — so main's pin already
+// carries that wire format too. NO kAlgoVersion bump: ring11m declares no
+// signal either.
 const String kProtocolPin = 'fe1464db98b84ac4d3ce6175d54ada11356d6c62';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

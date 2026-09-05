@@ -76,6 +76,7 @@ import 'miband_link.dart' show MiBand234Link;
 import 'o2ring_link.dart' show O2RingLink;
 import 'oura_link.dart' show OuraLink;
 import 'pebble_link.dart' show PebbleLink;
+import 'polar_pmd_link.dart' show PolarPmdLink;
 import 'qhybrid_link.dart' show QHybridLink;
 import 'ring11m_link.dart' show Ring11mLink;
 import 'ringconn_link.dart' show RingConnLink;
@@ -757,12 +758,17 @@ class HrsLink {
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows
-    // under an id nothing can explain any more. GATED ON THE ROW BEING THE
-    // ARMED HRS SENSOR, not called unconditionally — this fallback used to run
-    // for ANY adapter without its own branch above, which would tear down a
-    // live chest-strap session while forgetting an unrelated device (e.g. a
-    // Lefun ring paired alongside one).
-    if (row?['adapter_id'] == kBleHrsAdapter.id) {
+    // under an id nothing can explain any more. Every live-session link
+    // capable of writing under this id gets disarmed, not just this class's
+    // own — a Polar row's live sensor is `PolarPmdLink`, not `instance`. GATED
+    // ON THE ROW BEING THE ARMED HRS SENSOR for the `instance` branch, not
+    // called unconditionally — this fallback used to run for ANY adapter
+    // without its own branch above, which would tear down a live chest-strap
+    // session while forgetting an unrelated device (e.g. a Lefun ring paired
+    // alongside one).
+    if (row?['adapter_id'] == kPolarPmd.id) {
+      await PolarPmdLink.instance.disarm();
+    } else if (row?['adapter_id'] == kBleHrsAdapter.id) {
       await instance.disarm();
     }
     await LocalDb.deleteDevice(id);

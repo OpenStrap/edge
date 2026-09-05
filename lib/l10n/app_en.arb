@@ -1035,6 +1035,10 @@
   "@devicePickerBlurbRing": {
     "description": "Category row subtitle for the Oura ring."
   },
+  "devicePickerBlurbPolarPmd": "A Polar Verity Sense or OH1. Beat timing measured optically, streamed during a workout, same as a chest strap.",
+  "@devicePickerBlurbPolarPmd": {
+    "description": "Category row subtitle for a Polar PMD optical sensor."
+  },
   "devicePickerBlurbO2Ring": "Reads its battery, model and serial. No reading from the ring itself is decoded yet.",
   "@devicePickerBlurbO2Ring": {
     "description": "Category row subtitle for the Wellue O2Ring."

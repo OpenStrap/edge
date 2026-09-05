@@ -270,6 +270,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      'polar_pmd' => l?.devicePickerBlurbPolarPmd ??
+          'A Polar Verity Sense or OH1. Beat timing measured optically, '
+              'streamed during a workout, same as a chest strap.',
       'coros' => l?.devicePickerBlurbCoros ??
           'A sports watch. Reads battery and live heart rate — recorded '
               'activities stay on the watch.',

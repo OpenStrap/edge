@@ -366,6 +366,18 @@ class ReplayBandLink implements BandLink {
 
   /// End every channel, which ends `run()`. Await the run subscription's
   /// `done` after this rather than guessing at a delay.
+  ///
+  /// PLAIN AND UNCONDITIONAL, on purpose — a `hasListener`-gated version (skip
+  /// the await, fire-and-forget `close()` on a channel with no listener yet)
+  /// was tried here and reverted: it reproducibly hung `HrsLink.ingestForTest`
+  /// teardown (`test/pair_sensor_test.dart`'s disarm case), bisected down to
+  /// this exact conditional — not the round-draining wrapper some earlier
+  /// version of this method also carried, which made no difference either
+  /// way. A single-subscription `StreamController.close()` is normally safe to
+  /// await even with no listener attached — it does not block waiting for one
+  /// to appear — so there was no real bug this gate was fixing; whatever
+  /// narrow race it was reasoning about did not hold up against the real
+  /// fixture. Keep this plain.
   Future<void> close() async {
     for (final c in _channels.values) {
       await c.close();

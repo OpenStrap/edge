@@ -141,6 +141,18 @@ dependencies:
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
       #
+      # REPIN (this branch): protocol `feat/polar-pmd-protocol` @ 87ee803, on
+      # top of the #42 merge. Adds the PMD control-point start/stop writes and
+      # the PPI data-frame decoder polar_pmd.dart needs. NO kAlgoVersion bump:
+      # this device's entry stays out of `kDerivableSources` (unowned
+      # hardware), so nothing it decodes feeds a derived metric.
+      #
+      # MERGE (main → this branch): main's own repin below (protocol tip
+      # fe1464d) already contains 87ee803 as an ancestor (verified via
+      # `git merge-base --is-ancestor 87ee803… fe1464d…` on the protocol
+      # repo), so the ref moves to that tip; nothing from this branch's own
+      # repin is lost.
+      #
       # REPIN (this branch): protocol `feat/garmin-gfdi-protocol` @ 96d47d7,
       # on top of the #42 merge above. Adds `garmin.dart`: COBS + Multi-Link
       # framing, the GFDI frame/CRC16, the device-information parser, and a

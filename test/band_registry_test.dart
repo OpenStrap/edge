@@ -16,6 +16,7 @@ void main() {
           'gen5',
           'ble_hrs',
           'oura',
+          'polar_pmd',
           'coros',
           'ultrahuman',
           'withings_steel_hr',
