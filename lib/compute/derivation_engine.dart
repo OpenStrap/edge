@@ -1727,7 +1727,13 @@ const int kAlgoVersion = 87;
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
 const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
-const String kProtocolPin = '471034cb84b85edb37e72b6f6add79a2d7929294';
+// REPIN (this branch): protocol PR #47 head @ d8a1685 — the ZeTime command
+// envelope + battery decode this branch's adapter needs, not yet merged to
+// main. Pure addition on top of 471034c (only lib/src/zetime.dart, its
+// export, and a test file), so nothing else moves. NO kAlgoVersion bump:
+// ZeTime carries no derivable signal, so nothing here feeds the derivation
+// pipeline.
+const String kProtocolPin = 'd8a1685343e134ef7f6bd6edf7c41aeaf792ccfa';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
