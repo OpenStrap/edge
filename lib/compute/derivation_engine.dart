@@ -31,8 +31,6 @@ import 'package:flutter/foundation.dart';
 import 'findings.dart';
 import 'nap_edits.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_performance/firebase_performance.dart';
 
 import '../ble/adapters/signals.dart';
 import '../data/coverage_resolver.dart';
@@ -40,6 +38,7 @@ import '../data/db.dart';
 import '../data/day_label.dart';
 import '../data/series_codec.dart';
 import '../notify/fired_keys.dart';
+import '../telemetry/firebase_bridge.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../notify/tap_router.dart' show workoutSuggestionRoute;
@@ -2292,15 +2291,14 @@ class DerivationEngine {
       ..['concurrency'] = _deriveConcurrency
       ..['last_error'] = null;
       
-    Trace? runTrace;
+    FirebaseTraceHandle? runTrace;
     try {
       // Heavy/force passes only. Light passes run many times a day (including
       // all night in the background), and each trace is buffered + eventually
       // uploaded — periodic radio wakeups from a local-first app, for timings
       // the _diag map already captures locally.
-      if (Firebase.apps.isNotEmpty && (heavy || force)) {
-        runTrace = FirebasePerformance.instance.newTrace('derivation_engine_run');
-        await runTrace.start();
+      if (FirebaseBridge.isInitialized && (heavy || force)) {
+        runTrace = await FirebaseBridge.startTrace('derivation_engine_run');
         runTrace.putAttribute('mode', force ? 'force' : (heavy ? 'heavy' : 'light'));
       }
     } catch (_) {}

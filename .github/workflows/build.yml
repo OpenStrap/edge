@@ -243,6 +243,89 @@ jobs:
           files: ${{ steps.rename.outputs.apk }}
           generate_release_notes: true
 
+  # Keeps the F-Droid build recipe (docs/fdroid/*.yml) in sync with each
+  # release and, once a fdroiddata fork is configured, pushes the updated
+  # recipe there as a merge request. F-Droid builds from source itself (see
+  # docs/fdroid/wtf.openstrap.openstrap_edge.yml's header for the full
+  # rationale/verification) — this job never ships a binary to F-Droid, it
+  # only keeps the recipe's versionName/versionCode/commit current so the
+  # inclusion (or an update) has something correct to build. After the FIRST
+  # inclusion is merged, F-Droid's own AutoUpdateMode:Version +
+  # UpdateCheckMode:Tags bot picks up ordinary tags on its own — this job's
+  # ongoing job is mainly a safety net for now, and the sole mechanism before
+  # that first inclusion exists.
+  #
+  # Deliberately does NOT fail the release if fdroiddata isn't configured yet
+  # (no FDROID_GITLAB_TOKEN secret) — F-Droid isn't wired up until the first
+  # inclusion MR is manually opened and merged; this job just keeps the draft
+  # recipe current in the meantime and does the rest once it is wired up.
+  fdroid:
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # nothing here writes to THIS repo
+
+      # Stamp the release's real versionName/versionCode/commit into the
+      # checked-in draft recipe. Plain sed rather than a YAML library: the
+      # three fields each appear in exactly one recognizable spot in the file
+      # (see docs/fdroid/wtf.openstrap.openstrap_edge.yml), and keeping this
+      # a shell one-liner means no extra Python deps for a 3-line edit.
+      - name: Stamp release version into the fdroid recipe
+        run: |
+          set -euo pipefail
+          ver=$(grep -E '^version:' pubspec.yaml | head -1 | awk '{print $2}')
+          name=${ver%%+*}
+          build=${ver#*+}
+          tag="$GITHUB_REF_NAME"
+          f=docs/fdroid/wtf.openstrap.openstrap_edge.yml
+          sed -i \
+            -e "s/^\([[:space:]-]*versionName:[[:space:]]*\).*/\1$name/" \
+            -e "s/^\([[:space:]]*versionCode:[[:space:]]*\).*/\1$build/" \
+            -e "s/^\([[:space:]]*commit:[[:space:]]*\)[^ ]*/\1$tag/" \
+            -e "s/^CurrentVersion:.*/CurrentVersion: $name/" \
+            -e "s/^CurrentVersionCode:.*/CurrentVersionCode: $build/" \
+            "$f"
+          echo "Stamped $f -> versionName=$name versionCode=$build commit=$tag"
+
+      # Push the stamped recipe to a fdroiddata fork and open/update a merge
+      # request, ONLY once that fork + token are configured. Until then this
+      # step just explains what's missing and exits clean — the release
+      # itself must never fail on account of F-Droid plumbing.
+      - name: Sync recipe to fdroiddata fork
+        env:
+          FDROID_GITLAB_TOKEN: ${{ secrets.FDROID_GITLAB_TOKEN }}
+          FDROID_FORK_REPO: ${{ vars.FDROID_FORK_REPO }}   # e.g. https://gitlab.com/yourname/fdroiddata.git
+        run: |
+          set -euo pipefail
+          if [ -z "${FDROID_GITLAB_TOKEN:-}" ] || [ -z "${FDROID_FORK_REPO:-}" ]; then
+            echo "::notice::FDROID_GITLAB_TOKEN / FDROID_FORK_REPO not set — skipping fdroiddata sync."
+            echo "::notice::One-time setup: fork https://gitlab.com/fdroid/fdroiddata, add a GitLab"
+            echo "::notice::personal access token as the FDROID_GITLAB_TOKEN secret and the fork's"
+            echo "::notice::clone URL as the FDROID_FORK_REPO repo variable. Until the first"
+            echo "::notice::inclusion MR is opened and merged by hand, this step has nothing to do."
+            exit 0
+          fi
+
+          branch="update-openstrap-edge-${GITHUB_REF_NAME}"
+          workdir="$RUNNER_TEMP/fdroiddata"
+          repo_url="${FDROID_FORK_REPO/https:\/\//https:\/\/oauth2:${FDROID_GITLAB_TOKEN}@}"
+
+          git clone --depth 1 "$repo_url" "$workdir"
+          cp docs/fdroid/wtf.openstrap.openstrap_edge.yml \
+            "$workdir/metadata/wtf.openstrap.openstrap_edge.yml"
+
+          cd "$workdir"
+          git checkout -b "$branch"
+          git -c user.name="openstrap-release-bot" -c user.email="noreply@openstrap.wtf" \
+            commit -am "wtf.openstrap.openstrap_edge: update to ${GITHUB_REF_NAME}" \
+            --allow-empty -- metadata/wtf.openstrap.openstrap_edge.yml
+          git push -u origin "$branch" \
+            -o merge_request.create \
+            -o merge_request.title="wtf.openstrap.openstrap_edge: update to ${GITHUB_REF_NAME}" \
+            -o merge_request.target=fdroid/fdroiddata
+
   # Unsigned iOS .ipa for sideloading (AltStore / Sideloadly / TrollStore). It is
   # NOT App Store signed — users re-sign it with their own Apple ID on install.
   # Note: free-account sideloads re-sign with a different team id, so App Group
