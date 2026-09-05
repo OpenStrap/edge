@@ -127,6 +127,12 @@ void main() {
     expect(reached, isFalse);
   });
 
+  test('read() on a characteristic the peripheral does not expose returns '
+      'null rather than throwing', () async {
+    final link = _link();
+    expect(await link.read(kHeartRateMeasurementUuid), isNull);
+  });
+
   group('gattUuidMatches', () {
     test('a SIG 16-bit characteristic matches its registry entry', () {
       // `Guid.str` for `00002a37-0000-1000-8000-00805f9b34fb` is `2a37` — the
@@ -145,6 +151,54 @@ void main() {
       expect(gattUuidMatches(cmdTo, Guid(cmdTo)), isTrue);
       expect(gattUuidMatches(cmdTo, Guid(kWhoopGen4.gatt!.cmdFrom)), isFalse);
       expect(gattUuidMatches(kHeartRateMeasurementUuid, Guid('2a38')), isFalse);
+    });
+  });
+
+  group('raceUntilClosed', () {
+    // What `notify()` actually races on a real link: a source that answers
+    // once (a write+notify band with nothing left to say, e.g. WearFit) and
+    // then never emits and never completes on its own — the shape
+    // `BluetoothCharacteristic.onValueReceived` has, which `flutter_blue_plus`
+    // gives no simulator to fake directly.
+    test('ends the returned stream on closeSignal, even though the source '
+        'never emits again and never completes on its own', () async {
+      final source = StreamController<int>(); // never closed in this test
+      final closeSignal = Completer<void>();
+      final events = <int>[];
+      var done = false;
+      final sub = raceUntilClosed(source.stream, closeSignal.future).listen(
+        events.add,
+        onDone: () => done = true,
+      );
+
+      source.add(1);
+      await Future<void>.delayed(Duration.zero);
+      expect(events, [1]);
+      expect(done, isFalse, reason: 'the source is still open');
+
+      closeSignal.complete();
+      // Without the race, this would never fire — the same hang that made
+      // `StreamSubscription.cancel()` never resolve on a real teardown.
+      await Future<void>.delayed(Duration.zero);
+      expect(done, isTrue);
+
+      await sub.cancel();
+      await source.close();
+    });
+
+    test('still ends on its own when the source completes first', () async {
+      final source = StreamController<int>();
+      final closeSignal = Completer<void>();
+      var done = false;
+      final sub = raceUntilClosed(source.stream, closeSignal.future).listen(
+        (_) {},
+        onDone: () => done = true,
+      );
+
+      await source.close();
+      await Future<void>.delayed(Duration.zero);
+      expect(done, isTrue);
+      await sub.cancel();
     });
   });
 }
