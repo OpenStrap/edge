@@ -501,6 +501,9 @@ class HrsLink {
   /// [tier] defaults to the strap's, and a band whose measurement quality
   /// differs must say so rather than inherit it — the tier is what decides
   /// precedence between two sources, so a wrong one is a silent wrong number.
+  /// Pass `null` explicitly for an adapter with no decoded signal at all (see
+  /// `OuraLink.pairOuraRing`'s own comment on why NULL is a refusal, not a
+  /// default).
   ///
   /// Nothing is written unless the peripheral passed the characteristic check:
   /// a row pointing at a device that cannot answer is a sensor that appears
@@ -509,7 +512,7 @@ class HrsLink {
     BandEntry entry,
     BluetoothDevice device, {
     String? label,
-    String tier = 'beatToBeat',
+    String? tier = 'beatToBeat',
   }) async {
     try {
       await device.connect(timeout: _connectTimeout);

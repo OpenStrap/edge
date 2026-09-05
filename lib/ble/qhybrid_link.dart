@@ -42,8 +42,12 @@ import 'hrs_link.dart' show HrsLink;
 /// Pair a Fossil/Skagen Q Hybrid, then drive one bounded session over it so
 /// pairing means more than a `device` row — see this file's own header.
 Future<String?> pairQHybrid(BluetoothDevice device, {String? label}) async {
-  final failure =
-      await HrsLink.pairNotifySensor(kQHybrid, device, label: label);
+  // `tier` is left null on purpose: it means MEASUREMENT QUALITY and this
+  // adapter decodes nothing (`QHybridAdapter.signals` is `const {}`), so
+  // there is no quality to rank — see `OuraLink.pairOuraRing`'s own comment
+  // on the same pattern.
+  final failure = await HrsLink.pairNotifySensor(kQHybrid, device,
+      label: label, tier: null);
   if (failure != null) return failure;
   // Re-finds the row `pairNotifySensor` just wrote and reconnects by
   // `remote_id` — the exact same path a later manual/background sync takes —
