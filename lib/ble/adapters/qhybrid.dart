@@ -99,6 +99,10 @@ class QHybridAdapter extends BandAdapter {
             'abstaining (likely the encrypted sibling protocol).');
         return;
       }
+      // The only way a caller of `BandHost.run` (a `Future<void>`, success or
+      // abstain alike) learns the probe actually confirmed — same `BandNote`
+      // channel `oura.dart` uses for its own handshake facts.
+      yield const BandNote('qhybrid_confirmed');
       yield* raw.stream;
     } finally {
       for (final s in subs) {

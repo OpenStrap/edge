@@ -139,6 +139,12 @@ class QHybridLink {
       // released the slot, letting the next queued link connect while this
       // one was still disconnecting.
       return await withSecondaryLinkSlot(() async {
+        // `forget()` isn't gated on `_busy` — it can `stop()` and delete the
+        // row while this call was still queued for the slot. Re-read the row
+        // now that the slot is ours so a stale queued sync never connects and
+        // archives frames under an id nothing points to any more.
+        final still = await pairedRow();
+        if (still == null || still['id'] != deviceId) return false;
         try {
           final device = BluetoothDevice.fromId(remoteId);
           _device = device;
@@ -158,10 +164,18 @@ class QHybridLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
+          // Set only from the adapter's own `qhybrid_confirmed` note — see
+          // `qhybrid.dart` — so an abstained probe (encrypted sibling
+          // protocol, no reply) reports false instead of the bare completion
+          // of `host.run` reading as success.
+          var confirmed = false;
           final host = BandHost(
             adapter: kQHybridAdapter,
             deviceId: deviceId,
             onLog: (m) => debugPrint('[qhybrid] $m'),
+            onNote: (k, v) {
+              if (k == 'qhybrid_confirmed') confirmed = true;
+            },
             buildArchive: _buildArchiveRow,
           );
           _host = host;
@@ -171,7 +185,7 @@ class QHybridLink {
           // own doc says so, and it is what flushes whatever this session
           // banked before the link goes down.
           await host.run(link).timeout(_sessionWindow, onTimeout: () {});
-          return true;
+          return confirmed;
         } finally {
           // Drop the link and DISCONNECT before the slot is released.
           await stop();
@@ -190,15 +204,23 @@ class QHybridLink {
     // can still write on the way out, and that write must not reach the radio.
     _link?.close();
     _link = null;
-    await _host?.stop();
+    final host = _host;
     _host = null;
     _deviceId = null;
     final d = _device;
     _device = null;
-    if (d != null) {
-      try {
-        await d.disconnect();
-      } catch (_) {/* already gone */}
+    // Cleanup above already dropped every field regardless of what follows.
+    // The disconnect is in `finally` so a `host.stop()` that throws mid-flush
+    // (raw-archive write failure) still drops the live GATT connection
+    // instead of leaving the watch connected with nothing driving it.
+    try {
+      await host?.stop();
+    } finally {
+      if (d != null) {
+        try {
+          await d.disconnect();
+        } catch (_) {/* already gone */}
+      }
     }
   }
 }

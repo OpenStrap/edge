@@ -57,6 +57,10 @@ void main() {
     expect(events.every((e) => e is! SampleBatch || e.samples.isEmpty), isTrue);
     expect(events.whereType<OffloadCheckpoint>(), isEmpty);
     expect(adapter.signals, isEmpty);
+    // The only signal a `Future<void>`-returning `BandHost.run` gives its
+    // caller that the probe actually confirmed — see `qhybrid_link.dart`.
+    expect(events.whereType<BandNote>().map((n) => n.key),
+        contains('qhybrid_confirmed'));
   });
 
   test('no probe reply within the window abstains cleanly — nothing banked',

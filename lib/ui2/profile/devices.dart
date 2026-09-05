@@ -1528,15 +1528,18 @@ Future<void> _syncRing(BuildContext c) async {
 /// this just re-runs the same battery-probe-confirmed window pairing did and
 /// banks whatever the watch sends during it.
 Future<void> _syncQHybrid(BuildContext c) async {
+  final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Connecting…')));
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesConnectingWatch ?? 'Connecting…')));
   final ok = await QHybridLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
-        ? 'Synced.'
-        : 'Could not reach the watch. It has to be nearby, and not connected '
-            'to another app.'),
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachWatch ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
   ));
 }
 
