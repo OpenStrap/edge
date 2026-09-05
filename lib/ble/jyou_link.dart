@@ -14,15 +14,40 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart'
+    show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../data/db.dart';
+import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
+import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost;
 import 'adapters/jyou.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
+
+String _hex(List<int> b) =>
+    b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+
+/// Bank one frame verbatim, decoded or not — nothing here owns a decoder for
+/// this band (see jyou.dart's own header), so the tag byte is all there is
+/// to name it by.
+ArchiveRecord? _buildArchiveRow(List<int> bytes, int capturedAtMs) {
+  if (bytes.isEmpty) return null;
+  return ArchiveRecord(
+    hex: _hex(bytes),
+    // NULL, not 0: no flash-record counter on this band (it only streams
+    // live) — see ArchiveRecord.counter's own doc on why 0 is not the same
+    // as absent for `thinRawArchiveBefore`.
+    counter: null,
+    packetType: bytes[0],
+    // NULL: nothing on the wire carries a record time for this band.
+    recTs: null,
+    capturedAt: capturedAtMs,
+    reason: 'jyou_evt_0x${bytes[0].toRadixString(16).padLeft(2, '0')}',
+  );
+}
 
 /// The live link to a paired Jyou band. One instance; a second concurrent
 /// band of this family is not a thing anyone asked for.
@@ -111,6 +136,7 @@ class JyouLink {
               deviceId: deviceId,
               onLog: (m) => debugPrint('[jyou] $m'),
               onNote: _handleNote,
+              buildArchive: _buildArchiveRow,
             );
             _host = host;
             final done = host.run(link);
@@ -155,5 +181,22 @@ class JyouLink {
     _link = null;
     await _host?.stop();
     _host = null;
+  }
+
+  /// The SAME `BandHost` wiring `_sync` uses, over a [ReplayBandLink] instead
+  /// of a real peripheral — `flutter_blue_plus` has no simulator path (see
+  /// `OuraLink.ingestForTest`). Proves the host is wired to actually bank a
+  /// frame, not just that the adapter yields one.
+  @visibleForTesting
+  (BandHost, ReplayBandLink) hostForTest(String deviceId) {
+    final link = ReplayBandLink();
+    final host = BandHost(
+      adapter: const JyouAdapter(),
+      deviceId: deviceId,
+      onNote: _handleNote,
+      buildArchive: _buildArchiveRow,
+    );
+    _host = host;
+    return (host, link);
   }
 }
