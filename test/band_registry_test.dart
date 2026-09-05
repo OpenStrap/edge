@@ -30,6 +30,7 @@ void main() {
           'colmi',
           'casio',
           'jyou',
+          'watch9',
         ]);
   });
 

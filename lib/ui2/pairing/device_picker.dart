@@ -272,6 +272,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'Reads the ring directly — no Oura account or subscription.',
       // No localized key: English-only until this one earns one, same as
       // every other category blurb below the first two.
+      'watch9' => 'An unbranded Watch9 board. Pairs and banks its raw data; '
+          'nothing is derived from it yet.',
       'tlw64' => 'A TLW64 or NO1 F1 fitness band. Pairs and banks its raw '
           'data; nothing is derived from it yet.',
       // No localized string yet — this device is new enough that adding one
@@ -312,8 +314,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'A Colmi ring. Pairs and banks its history; nothing is decoded '
               'into a number yet.',
       // 'casio' takes no special case here, same as every other notify-class
-      // sensor (watch9, xwatch, …): the generic sensor blurb below already
-      // fits, and it is the one that is actually localized.
+      // sensor (xwatch, …): the generic sensor blurb below already fits, and
+      // it is the one that is actually localized.
       // No localized key: this falls through to English only, the same
       // reason `asteroidos`'s own row (a different, unbuilt PR) does.
       'jyou' => 'A budget activity band. Pairs and banks its raw data, but '

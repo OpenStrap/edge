@@ -73,6 +73,7 @@ import 'oura_link.dart' show OuraLink;
 import 'o2ring_link.dart' show O2RingLink;
 import 'qhybrid_link.dart' show QHybridLink;
 import 'ringconn_link.dart' show RingConnLink;
+import 'watch9_link.dart' show Watch9Link;
 import 'wearfit_link.dart' show WearFitLink;
 
 export 'adapters/host.dart' show HrsReading;
@@ -614,10 +615,14 @@ class HrsLink {
   /// Refuses [LocalDb.kPrimaryDeviceId] outright: that row is the band, and
   /// unpairing the band is a different flow with a different promise.
   ///
-  /// DISPATCHES ON `adapter_id` BEFORE TOUCHING ANYTHING. An Oura row carries
-  /// a secret this class knows nothing about — [OuraLink.forgetRing] drops the
-  /// stored key and the row together, and calling `disarm()` on it here would
-  /// leave that key behind while looking like a complete forget. An O2Ring row
+  /// DISPATCHES ON `adapter_id` BEFORE TOUCHING ANYTHING. Every adapter with
+  /// its own dedicated `*Link` class and session needs its own case here —
+  /// falling through to the generic branch below disarms the completely
+  /// unrelated `instance` (the ble_hrs chest-strap session) instead of the
+  /// session that actually owns this device. An Oura row carries a secret
+  /// this class knows nothing about — [OuraLink.forgetRing] drops the stored
+  /// key and the row together, and calling `disarm()` on it here would leave
+  /// that key behind while looking like a complete forget. An O2Ring row
   /// carries no secret, but [O2RingLink.forgetRing] still tears down a live
   /// session before the row goes — the same reason this dispatch exists at
   /// all. A RingConn row carries no such secret either, but still needs
@@ -627,7 +632,9 @@ class HrsLink {
   /// connection is [HPlusLink.instance], a separate singleton from this
   /// class's own chest-strap session — `disarm()` here would tear down the
   /// wrong link and leave the real one (and its `BandHost`'s flush timer)
-  /// running against a deleted device id.
+  /// running against a deleted device id. A Watch9 row is the same shape as
+  /// HPlus: [Watch9Link.instance] owns its own live connection, separate from
+  /// this class's chest-strap session.
   static Future<void> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[hrs] refusing to forget the primary band from here.');
@@ -638,6 +645,14 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kWatch9.id) {
+      // Stop its own session before the row goes — same reasoning as the
+      // generic branch below, aimed at the link that actually owns this
+      // device instead of the unrelated ble_hrs singleton.
+      await Watch9Link.instance.stop();
+      await LocalDb.deleteDevice(id);
       return;
     }
     if (row?['adapter_id'] == kDafit.id) {

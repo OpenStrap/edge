@@ -32,6 +32,7 @@ import '../ble/pinetime_link.dart';
 import '../ble/qhybrid_link.dart';
 import '../ble/ringconn_link.dart';
 import '../ble/tlw64_link.dart';
+import '../ble/watch9_link.dart';
 import '../ble/wearfit_link.dart';
 import '../ble/zetime_link.dart';
 import '../compute/derivation_engine.dart';
@@ -332,6 +333,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await JyouLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] jyou sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: Watch9Link.sync() already no-ops when
+    // nothing is paired and never throws, but a failure here still must not
+    // escape and mark the WHOOP cycle as errored.
+    try {
+      await Watch9Link.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] watch9 sync skipped: $e');
     }
   }
 }

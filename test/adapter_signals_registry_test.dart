@@ -26,6 +26,7 @@ import 'package:openstrap_edge/ble/adapters/qhybrid.dart';
 import 'package:openstrap_edge/ble/adapters/ringconn.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
 import 'package:openstrap_edge/ble/adapters/tlw64.dart';
+import 'package:openstrap_edge/ble/adapters/watch9.dart';
 import 'package:openstrap_edge/ble/adapters/wearfit.dart';
 import 'package:openstrap_edge/ble/adapters/whoop_gen4.dart';
 import 'package:openstrap_edge/ble/adapters/zetime.dart';
@@ -53,6 +54,7 @@ void main() {
       'colmi': kColmiAdapter.signals,
       'casio': const CasioAdapter().signals,
       'jyou': const JyouAdapter().signals,
+      'watch9': const Watch9Adapter().signals,
     };
 
     // Every registry id is covered above: a NEW adapter must extend this test,
