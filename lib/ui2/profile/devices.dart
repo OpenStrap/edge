@@ -60,6 +60,7 @@ import '../../ble/adapters/_registry.dart'
         kDt78,
         kPineTime,
         kQHybrid,
+        kSmaq2oss,
         kWatch9,
         kWearFit,
         kXWatch,
@@ -73,6 +74,7 @@ import '../../ble/dt78_link.dart' show Dt78Link;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/jyou_link.dart' show JyouLink;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/smaq2oss_link.dart' show Smaq2ossLink;
 import '../../ble/o2ring_link.dart' show O2RingLink, pairO2Ring;
 import '../../ble/hplus_link.dart' show HPlusLink;
 import '../../ble/pinetime_link.dart' show PineTimeLink;
@@ -821,7 +823,8 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'zetime' ||
       'watch9' ||
       'xwatch' ||
-      'tlw64' =>
+      'tlw64' ||
+      'smaq2oss' =>
         LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
@@ -1000,6 +1003,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kSmaq2oss,
+    blurb: 'An SMA-Q2-OSS smartwatch. Pairs and banks its raw data in the '
+        'background, but does not derive anything from it yet — nobody on '
+        'this project owns one to verify its numbers against.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written.
+    pick: null,
   ),
   (
     entry: kXWatch,
@@ -1689,6 +1701,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'tlw64' => () => _syncNo1Band(c),
         'watch9' => () => _syncWatch9(c),
         'xwatch' => () => _syncXWatch(c),
+        'smaq2oss' => () => _syncSmaq2oss(c),
         _ => null,
       },
       onForget: s.deviceId != null
@@ -1724,6 +1737,21 @@ Future<void> _syncRing(BuildContext c, String? family) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Pull whatever a paired SMA-Q2-OSS has sent since the last connect, now,
+/// because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncSmaq2oss(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await Smaq2ossLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the watch. It has to be nearby, and not '
+            'connected to another app.'),
   ));
 }
 
@@ -2266,12 +2294,12 @@ class DeviceDetailView extends StatelessWidget {
                             // cursor; every other `onSync` wired today is a
                             // bounded listen window with no request and no
                             // stored-history drain — see e.g.
-                            // `Tlw64Link.sync()`, `Watch9Link.sync()` and
-                            // `XWatchLink.sync()`. Claiming a "fetch" for
-                            // those would be a promise the connect does not
-                            // keep. `devicesSyncNowSub` only has a fetch
-                            // phrasing in every locale, so it must not be
-                            // consulted for a listen-only family.
+                            // `Smaq2ossLink.sync()`, `Tlw64Link.sync()`,
+                            // `Watch9Link.sync()` and `XWatchLink.sync()`.
+                            // Claiming a "fetch" for those would be a promise
+                            // the connect does not keep. `devicesSyncNowSub`
+                            // only has a fetch phrasing in every locale, so it
+                            // must not be consulted for a listen-only family.
                             sub: s.family == 'oura'
                                 ? (l?.devicesSyncNowSub ??
                                     'Fetch whatever it has been holding')

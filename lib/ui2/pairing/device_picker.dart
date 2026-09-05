@@ -272,6 +272,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'Reads the ring directly — no Oura account or subscription.',
       // No localized key: English-only until this one earns one, same as
       // every other category blurb below the first two.
+      'smaq2oss' => 'An SMA-Q2-OSS smartwatch. Pairs and banks its raw '
+          'data; nothing is derived from it yet.',
       'xwatch' => 'An unbranded XWatch board. Pairs and banks its raw data; '
           'nothing is derived from it yet.',
       'watch9' => 'An unbranded Watch9 board. Pairs and banks its raw data; '

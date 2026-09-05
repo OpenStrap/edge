@@ -27,6 +27,7 @@ import '../ble/dafit_link.dart';
 import '../ble/jyou_link.dart';
 import '../ble/lefun_link.dart';
 import '../ble/oura_link.dart';
+import '../ble/smaq2oss_link.dart';
 import '../ble/o2ring_link.dart';
 import '../ble/pinetime_link.dart';
 import '../ble/qhybrid_link.dart';
@@ -238,6 +239,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: Smaq2ossLink.sync() already no-ops
+    // when nothing is paired and never throws, but a failure here still must
+    // not escape and mark the WHOOP cycle as errored.
+    try {
+      await Smaq2ossLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] smaq2oss sync skipped: $e');
     }
     // Same piggyback, same reasoning: XWatchLink.sync() already no-ops when
     // nothing is paired and never throws, but a failure here still must not

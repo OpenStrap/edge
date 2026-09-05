@@ -16,6 +16,7 @@ void main() {
           'gen5',
           'ble_hrs',
           'oura',
+          'smaq2oss',
           'xwatch',
           'tlw64',
           'dafit',
