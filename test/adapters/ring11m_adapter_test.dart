@@ -170,4 +170,46 @@ void main() {
     // Undecoded and unclaimed: no signal is ever declared for a realtime push.
     expect(_adapter.signals, isEmpty);
   });
+
+  test(
+      'a history block arriving genuinely mid-negotiation is skipped and '
+      'requeued intact, not lost or reordered', () async {
+    // Every existing fixture in this file feeds its unsolicited frames
+    // BEFORE `run()` starts, so they sit in `_Inbox`'s buffer from the very
+    // first `firstWhere` call — never a frame delivered while a reply is
+    // genuinely still pending. This one delivers only once the model-query
+    // write has actually gone out (real async delivery via the notify
+    // stream, not a pre-seeded buffer), and never answers ANY negotiation
+    // write, so the block is skipped and reinserted three times in a row
+    // (model, battery, capability) before the main loop finally consumes
+    // it. A regression that drops, duplicates, or reorders the bytes across
+    // those reinserts corrupts the CRC the block is ack'd on.
+    const data = [1, 2, 3, 4, 5, 6, 7, 8];
+    final crc = ring11mHistoryCrc(data);
+    final link = ReplayBandLink();
+    final events = <BandEvent>[];
+    final done = Completer<void>();
+    final sub = _adapter.run(link).listen(events.add, onDone: done.complete);
+
+    var fed = false;
+    final timer = Timer.periodic(const Duration(milliseconds: 3), (_) {
+      if (fed || link.writes.isEmpty) return;
+      fed = true;
+      link.feed(kRing11mHistoryChar,
+          buildRing11mFrame(kRing11mGroupHealthHistory, 0x01, data), atSec: 1);
+      link.feed(
+        kRing11mHistoryChar,
+        buildRing11mFrame(kRing11mGroupHealthHistory, kRing11mCmdHistoryTerminator,
+            [0x01, 0x00, crc & 0xff, (crc >> 8) & 0xff]),
+        atSec: 1,
+      );
+    });
+    await done.future.timeout(const Duration(seconds: 3), onTimeout: () {});
+    timer.cancel();
+    await sub.cancel();
+
+    final notes = events.whereType<BandNote>().toList();
+    expect(notes.where((n) => n.key == 'ring11m_block_ack'), hasLength(1));
+    expect(notes.any((n) => n.key == 'ring11m_block_nack'), isFalse);
+  });
 }
