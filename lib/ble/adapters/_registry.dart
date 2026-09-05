@@ -463,10 +463,10 @@ const BandEntry kOura = BandEntry.notify(
 );
 
 /// Pebble 2 / Pebble 2 SE. Pure client, no envelope, no command channel —
-/// PPoGATT is banked verbatim and nothing is decoded past it, WHEN something
-/// drives [PebbleAdapter.run] — nothing does yet, so today pairing is all
-/// this entry actually does. See `pebble.dart`'s header for both that gap and
-/// why every older Pebble model is out of reach.
+/// PPoGATT is banked verbatim and nothing is decoded past it. `pebble_link.dart`'s
+/// `PebbleLink` drives [PebbleAdapter.run] on a periodic bounded window; see
+/// `pebble.dart`'s header for both that shape and why every older Pebble
+/// model is out of reach.
 ///
 /// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
 /// not a byte of this path has met hardware (ASSUMPTIONS R6).

@@ -12,18 +12,17 @@
 // alive, but nothing past it is decoded. That is a known ceiling, not a bug:
 // `signals` is empty, so nothing downstream is waiting on a live session.
 //
-// NOT WIRED TO ANY HOST YET, and that is a gap, not a ceiling. Registering
+// WIRED via `pebble_link.dart`'s `PebbleLink`, not `HrsLink`. Registering
 // [kPebble] in `kBandRegistry` makes PAIRING generic —
 // `HrsLink.pairNotifySensor` validates the characteristics and writes the
-// `device` row, same as a chest strap — but nothing calls [PebbleAdapter.run]
-// afterward: there is no `pebble_link.dart` running a periodic connect the
-// way `oura_link.dart`'s `sync()` does for the ring, and `HrsLink.arm()` is
-// hardcoded to `kBleHrsAdapter` and workout-scoped, so it never looks at this
-// entry either. A paired Pebble today writes its `device` row and then does
-// nothing, forever — this file is exercised by `pebble_adapter_test.dart` and
-// the compiler, never by a live session. Wiring one (a periodic drain, not
-// workout-armed — a watch on the wrist is not a chest strap) is follow-up
-// work, not done here.
+// `device` row, same as a chest strap — but `HrsLink.arm()` is hardcoded to
+// `kBleHrsAdapter` and workout-scoped, so it never drives this adapter.
+// `PebbleLink.sync()` does instead: a periodic connect-drain-disconnect over
+// a bounded wall-clock window (a watch on the wrist is not a chest strap),
+// called from the profile devices screen's sync affordance and the headless
+// background pass. `pebble_adapter_test.dart` proves the transport state
+// machine and `pebble_link_test.dart` proves a banked frame actually reaches
+// `raw_archive`.
 //
 // ONLY PEBBLE 2 / PEBBLE 2 SE. Every older model runs Bluetooth Classic SPP as
 // its primary channel, and even its BLE path requires the phone to also stand
