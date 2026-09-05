@@ -12,10 +12,24 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
+import 'package:openstrap_edge/ble/adapters/casio.dart';
+import 'package:openstrap_edge/ble/adapters/colmi.dart';
+import 'package:openstrap_edge/ble/adapters/dafit.dart';
+import 'package:openstrap_edge/ble/adapters/dt78.dart';
+import 'package:openstrap_edge/ble/adapters/hplus.dart';
+import 'package:openstrap_edge/ble/adapters/jyou.dart';
+import 'package:openstrap_edge/ble/adapters/lefun.dart';
+import 'package:openstrap_edge/ble/adapters/o2ring.dart';
 import 'package:openstrap_edge/ble/adapters/oura.dart';
+import 'package:openstrap_edge/ble/adapters/pinetime.dart';
+import 'package:openstrap_edge/ble/adapters/qhybrid.dart';
+import 'package:openstrap_edge/ble/adapters/ringconn.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
+import 'package:openstrap_edge/ble/adapters/tlw64.dart';
 import 'package:openstrap_edge/ble/adapters/watch9.dart';
+import 'package:openstrap_edge/ble/adapters/wearfit.dart';
 import 'package:openstrap_edge/ble/adapters/whoop_gen4.dart';
+import 'package:openstrap_edge/ble/adapters/zetime.dart';
 
 void main() {
   test('kAdapterSignals matches each adapter own declaration', () {
@@ -26,6 +40,20 @@ void main() {
       'gen5': kWhoopGen4Signals,
       'ble_hrs': const BleHrsAdapter().signals,
       'oura': OuraAdapter(key: const [0]).signals,
+      'tlw64': const Tlw64Adapter().signals,
+      'dafit': kDafitAdapter.signals,
+      'o2ring': const O2RingAdapter().signals,
+      'zetime': const ZeTimeAdapter().signals,
+      'wearfit': const WearFitAdapter().signals,
+      'ringconn': RingConnAdapter().signals,
+      'dt78': const Dt78Adapter().signals,
+      'lefun': LefunAdapter().signals,
+      'hplus': const HPlusAdapter().signals,
+      'pinetime': kPineTimeAdapter.signals,
+      'qhybrid': kQHybridAdapter.signals,
+      'colmi': kColmiAdapter.signals,
+      'casio': const CasioAdapter().signals,
+      'jyou': const JyouAdapter().signals,
       'watch9': const Watch9Adapter().signals,
     };
 
@@ -47,6 +75,7 @@ void main() {
       () {
     expect(declaredSignals('gen4'), kWhoopGen4Signals.keys.toSet());
     expect(declaredSignals('oura'), isEmpty);
+    expect(declaredSignals('casio'), isEmpty);
     expect(declaredSignals('nothing-we-speak'), isEmpty);
     expect(declaredSignals(null), isEmpty);
   });

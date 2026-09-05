@@ -346,4 +346,58 @@ void main() {
       await expectNoSlotLeak();
     });
   });
+
+  group('forgetDevice', () {
+    setUpAll(() {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    });
+
+    setUp(() async {
+      await LocalDb.close();
+      LocalDb.dbName = 'hrs_forget_test.db';
+      final dir = await databaseFactory.getDatabasesPath();
+      await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+    });
+
+    tearDown(() async => LocalDb.close());
+
+    test(
+        'an HPlus row goes through HPlusLink.instance, not the '
+        'chest-strap disarm', () async {
+      const id = 'hplus-11223344';
+      await LocalDb.upsertDevice(
+        id: id,
+        adapterId: kHPlus.id,
+        remoteId: 'AA:BB:CC:DD:EE:00',
+        label: 'Test Band',
+      );
+
+      // No BLE plugin is registered under `flutter test`, so this only
+      // proves the dispatch: it must reach `HPlusLink.instance.stop()`
+      // (a no-op with nothing connected) rather than `HrsLink.instance
+      // .disarm()`, and it must delete the row either way.
+      await HrsLink.forgetDevice(id);
+
+      final rows = await LocalDb.deviceRows();
+      expect(rows.where((r) => r['id'] == id), isEmpty);
+    });
+  });
+
+  // Pure derivation, no BLE plugin needed — pulled out of `pairNotifySensor`
+  // specifically so this ternary has a test that doesn't need one.
+  group('tier derivation', () {
+    test('a strap that declares beat-to-beat gets that tier by default', () {
+      expect(HrsLink.deriveTier(null, kBleHrs.id), 'beatToBeat');
+    });
+
+    test('a band that declares no signals stays null, not inherited', () {
+      expect(HrsLink.deriveTier(null, kHPlus.id), isNull);
+    });
+
+    test('an explicit tier always wins over the derivation', () {
+      expect(HrsLink.deriveTier('explicit', kHPlus.id), 'explicit');
+      expect(HrsLink.deriveTier('explicit', kBleHrs.id), 'explicit');
+    });
+  });
 }
