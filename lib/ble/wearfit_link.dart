@@ -60,6 +60,18 @@ class WearFitLink {
   String? _deviceId;
   bool _busy = false;
 
+  // The adapter's own stream never ends on its own (see wearfit.dart's
+  // header: no handshake, no end-of-data marker this build can read) — so
+  // nothing except a caller-imposed bound ever lets `host.run` return.
+  // Without this, `await host.run(link)` below blocks forever on real
+  // hardware: `stop()` never runs, the secondary-link slot never frees, and
+  // every later paired sensor sync starves behind it.
+  //
+  // ponytail: one fixed window, not an adaptive "stop N seconds after the
+  // last frame" cutoff — nobody has hardware to tune the latter against.
+  // Revisit once a real HK8 exists to time a battery-reply round trip.
+  static const Duration _sessionWindow = Duration(seconds: 20);
+
   /// Connect, run one session, disconnect. Returns false when nothing is
   /// paired or the connect/setup failed. SERIALISED: a second call while one
   /// is in flight is a no-op rather than a second radio session over the
@@ -113,7 +125,12 @@ class WearFitLink {
             buildArchive: _buildArchiveRow,
           );
           _host = host;
-          await host.run(link);
+          // Bounded, not open-ended — see `_sessionWindow`'s doc. A timeout
+          // here does not cancel the subscription itself (`Future.timeout`
+          // only abandons the await); the `finally` below's `stop()` is what
+          // actually tears the notify stream down, same as it does on a
+          // clean end.
+          await host.run(link).timeout(_sessionWindow, onTimeout: () {});
           return true;
         } finally {
           // Drop the link and DISCONNECT before the slot is released — same

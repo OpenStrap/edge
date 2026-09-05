@@ -763,6 +763,14 @@
   "@devicesCouldNotReachRing": {
     "description": "Snackbar: sync failed."
   },
+  "devicesSyncingTheSensor": "Syncing the sensor…",
+  "@devicesSyncingTheSensor": {
+    "description": "Snackbar: syncing a paired non-ring sensor (e.g. WearFit)."
+  },
+  "devicesCouldNotReachSensor": "Could not reach the sensor. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachSensor": {
+    "description": "Snackbar: sensor sync failed."
+  },
   "deviceFilterAllDevices": "All devices",
   "@deviceFilterAllDevices": {
     "description": "First pill in a metric screen's per-device filter — the merged view."

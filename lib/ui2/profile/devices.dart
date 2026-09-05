@@ -47,6 +47,7 @@ import '../../ble/adapters/_registry.dart'
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/wearfit_link.dart' show WearFitLink;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -1485,7 +1486,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: switch (s.family) {
+        'oura' => () => _syncRing(c),
+        'wearfit' => () => _syncSensor(c, WearFitLink.instance.sync),
+        _ => null,
+      },
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1511,6 +1516,26 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Drain any other paired sensor family, now, because the user asked. Same
+/// promise as [_syncRing], generalized past the ring-specific wording — a
+/// WearFit band is not a ring.
+Future<void> _syncSensor(BuildContext c, Future<bool> Function() sync) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(SnackBar(
+      content:
+          Text(l?.devicesSyncingTheSensor ?? 'Syncing the sensor…')));
+  final ok = await sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachSensor ??
+            'Could not reach the sensor. It has to be nearby, and not '
+                'connected to another app.')),
   ));
 }
 
