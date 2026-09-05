@@ -9,8 +9,18 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 void main() {
   test('ids are unique and stable — they are stamped as device_family', () {
-    expect(kBandRegistry.map((e) => e.id).toList(),
-        <String>['gen4', 'gen5', 'ble_hrs', 'oura', 'pinetime']);
+    expect(
+        kBandRegistry.map((e) => e.id).toList(),
+        <String>[
+          'gen4',
+          'gen5',
+          'ble_hrs',
+          'oura',
+          'pinetime',
+          'qhybrid',
+          'colmi',
+          'casio',
+        ]);
   });
 
   test('D1 — the scan service list is exactly the two WHOOP services', () {

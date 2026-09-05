@@ -43,11 +43,23 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura, kPineTime, declaredSignals;
+    show
+        BandEntry,
+        kBandRegistry,
+        kBleHrs,
+        kColmi,
+        kOura,
+        kCasio,
+        kPineTime,
+        kQHybrid,
+        declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
+import '../../ble/casio_link.dart' show CasioLink;
+import '../../ble/colmi_link.dart' show ColmiLink;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/pinetime_link.dart' show PineTimeLink;
+import '../../ble/qhybrid_link.dart' show QHybridLink, pairQHybrid;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -773,8 +785,8 @@ class HealthSource {
 /// The glyph for a paired sensor. A ring is not a chest strap and the row is
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
-      'oura' => LucideIcons.circleDot,
-      'pinetime' => LucideIcons.watch,
+      'oura' || 'colmi' => LucideIcons.circleDot,
+      'pinetime' || 'qhybrid' || 'casio' => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -960,6 +972,35 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'verify its numbers against.',
     // Null means the plain notify-class pairing, which is the whole of what
     // this watch needs — no auth, no key.
+    pick: null,
+  ),
+  (
+    entry: kQHybrid,
+    blurb: 'The original Fossil/Skagen hybrid smartwatch line, not the newer '
+        'Hybrid HR. Pairs and connects; nothing derives from it yet.',
+    // NOT plain notify-class pairing (`pick: null`): unlike a heart-rate
+    // strap, which a workout arms, this band has no workout role, so
+    // `pairQHybrid` is what runs its first real session — the adapter's own
+    // battery-probe confirms it is this protocol, not the encrypted Hybrid HR
+    // sibling, and whatever it answers in the bounded window right after is
+    // what gets archived. The same session is re-runnable afterward — see
+    // `qhybrid_link.dart` and this screen's own sync affordance.
+    pick: pairQHybrid,
+  ),
+  (
+    entry: kColmi,
+    blurb: 'A Colmi ring. No account, no handshake — it pairs and banks its '
+        'history, but nothing is decoded into a number yet.',
+    // Null: no auth step, so the plain notify-class pairing is the whole of
+    // what this ring needs — same as [kBleHrs].
+    pick: null,
+  ),
+  (
+    entry: kCasio,
+    blurb: 'GBX100, GW-B5600, GMW-B5000, ECB-S100 and current Casio '
+        'smartwatches. Pairs and connects; nothing derives from it yet.',
+    // Null means the plain notify-class pairing — standard BLE bonding is
+    // the whole of what this watch needs.
     pick: null,
   ),
 ];
@@ -1486,11 +1527,14 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura'
-          ? () => _syncRing(c)
-          : s.family == 'pinetime'
-              ? () => _syncPineTime(c)
-              : null,
+      onSync: switch (s.family) {
+        'oura' => () => _syncRing(c),
+        'pinetime' => () => _syncPineTime(c),
+        'qhybrid' => () => _syncQHybrid(c),
+        'colmi' => () => _syncColmiRing(c),
+        'casio' => () => _syncCasio(c, s.deviceId),
+        _ => null,
+      },
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1541,6 +1585,66 @@ Future<void> _syncPineTime(BuildContext c) async {
         ? (l?.devicesSynced ?? 'Synced.')
         : 'Could not reach the watch. It has to be nearby, and not connected '
             'to another app.'),
+  ));
+}
+
+/// Hold a session with the paired watch, now, because the user asked. There
+/// is no history to drain here — see `qhybrid_link.dart`'s own header — so
+/// this just re-runs the same battery-probe-confirmed window pairing did and
+/// banks whatever the watch sends during it.
+Future<void> _syncQHybrid(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesConnectingWatch ?? 'Connecting…')));
+  final ok = await QHybridLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachWatch ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
+  ));
+}
+
+/// Same as [_syncRing], for a paired Colmi ring — the "sync now" affordance
+/// this device was missing entirely (it paired and never synced again).
+/// Shares the ring-generic strings above rather than minting Colmi-specific
+/// copy for the same sentence.
+Future<void> _syncColmiRing(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncingTheRing ?? 'Syncing the ring…')));
+  final ok = await ColmiLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachRing ??
+            'Could not reach the ring. It has to be nearby, and not connected '
+                'to another app.')),
+  ));
+}
+
+/// Same shape as [_syncRing] — a separate family behind a separate link, same
+/// reason a sync that did nothing needs to say so. [deviceId] is this row's
+/// own id: two Casio watches can be paired at once, and without it this
+/// always synced whichever one `CasioLink.pairedRow()` happened to see first.
+Future<void> _syncCasio(BuildContext c, String? deviceId) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await CasioLink.instance.sync(deviceId: deviceId);
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachWatch ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
   ));
 }
 

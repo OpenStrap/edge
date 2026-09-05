@@ -65,7 +65,9 @@ import 'ble_state.dart'
         withScanLock,
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
+import 'colmi_link.dart' show ColmiLink;
 import 'oura_link.dart' show OuraLink;
+import 'qhybrid_link.dart' show QHybridLink;
 
 export 'adapters/host.dart' show HrsReading;
 
@@ -313,11 +315,31 @@ class HrsLink {
     // full, and the rest is in a scan response that has not landed yet). A
     // fallback returned from in here was indistinguishable from a real match,
     // so the caller cached a guess and never looked again.
-    String? entryIdFor(List<Guid> advertised) {
+    // [lowercaseName] is the belt-and-suspenders fallback: `BandEntry
+    // .nameMatcher` is the same per-entry escape hatch `transport.dart` uses
+    // for a framed band whose advertisement carries its name but not a
+    // matchable service UUID. It cannot rescue a device the OS-level
+    // `withServices` filter below already excluded from the scan entirely —
+    // only a real scan against real hardware settles whether that filter
+    // ever does.
+    // Split from the genuine service match on purpose: a name match is the
+    // same kind of guess the comment above already warns about, and caching
+    // it into `confirmed` would make it permanent the same way. Only
+    // [serviceMatchFor] is safe to lock in — a peripheral's GATT identity
+    // does not change mid-scan, but its advertised name matching a pattern
+    // is not proof of anything and gets re-tried every advertisement instead.
+    String? serviceMatchFor(List<Guid> advertised) {
       for (final g in advertised) {
         for (final e in entries) {
           if (g == Guid(e.service)) return e.id;
         }
+      }
+      return null;
+    }
+
+    String? nameMatchFor(String lowercaseName) {
+      for (final e in entries) {
+        if (e.nameMatcher?.call(lowercaseName) ?? false) return e.id;
       }
       return null;
     }
@@ -349,8 +371,14 @@ class HrsLink {
         // Re-attempted on EVERY advertisement until one confirms, then fixed:
         // a confirmed match cannot change (a peripheral does not swap GATT
         // identity mid-scan) and re-reading it would only add work.
-        final match = confirmed[id] ?? entryIdFor(r.advertisementData.serviceUuids);
-        if (match != null) confirmed[id] = match;
+        final svcMatch = serviceMatchFor(r.advertisementData.serviceUuids);
+        if (svcMatch != null) confirmed[id] = svcMatch;
+        final match = confirmed[id] ??
+            svcMatch ??
+            nameMatchFor((r.advertisementData.advName.isNotEmpty
+                    ? r.advertisementData.advName
+                    : r.device.platformName)
+                .toLowerCase());
         final now = (
           device: r.device,
           label: label,
@@ -500,6 +528,9 @@ class HrsLink {
   /// [tier] defaults to the strap's, and a band whose measurement quality
   /// differs must say so rather than inherit it — the tier is what decides
   /// precedence between two sources, so a wrong one is a silent wrong number.
+  /// Pass `null` explicitly for an adapter with no decoded signal at all (see
+  /// `OuraLink.pairOuraRing`'s own comment on why NULL is a refusal, not a
+  /// default).
   ///
   /// Nothing is written unless the peripheral passed the characteristic check:
   /// a row pointing at a device that cannot answer is a sensor that appears
@@ -508,7 +539,7 @@ class HrsLink {
     BandEntry entry,
     BluetoothDevice device, {
     String? label,
-    String tier = 'beatToBeat',
+    String? tier = 'beatToBeat',
   }) async {
     try {
       await device.connect(timeout: _connectTimeout);
@@ -580,6 +611,14 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kQHybrid.id) {
+      await QHybridLink.forget(id);
+      return;
+    }
+    if (row?['adapter_id'] == kColmi.id) {
+      await ColmiLink.forgetRing(id);
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows
