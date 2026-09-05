@@ -1732,8 +1732,44 @@ const int kAlgoVersion = 87;
 // adapter `signals` stays `const {}` (excluded from `kDerivableSources`), so
 // nothing this pin adds is ever read by a decoder the derivation pipeline
 // calls — no stored number can change.
+//
+// MERGE (main → this branch): main's own repin below (protocol tip fe1464d)
+// already contains fbda904 as an ancestor (verified: `git merge-base
+// --is-ancestor fbda904 fe1464d` — PR#49/o2ring-protocol is folded in via the
+// `d297055` merge commit) — main's pin is strictly ahead, nothing this
+// branch's repin added is lost by taking it.
+//
+// REPIN (this branch): protocol `feat/wearfit-howear-protocol` @ 1cf8e61, one
+// commit ahead of #42 (471034c). Adds the wearfit/howear frame codec
+// (parseWearFitFrame/wearFitCmdGetBattery/parseWearFitBattery) this branch's
+// adapter calls. `signals` for the new adapter is `const {}` (no derivable
+// source), so this touches no decoder any existing day_result reads. NO
+// kAlgoVersion bump.
+//
+// REPIN (main) @ b819ee0 — protocol `feat/ringconn`, 2 commits on top of
+// 471034c. Adds the ring's frame codec (`parseRingConnFrame` and friends);
+// no decoded field, so no kAlgoVersion move. Must match pubspec.yaml's
+// `ref:` — see this file's own note above.
+//
+// MERGE (main → this branch): this branch's repin (wearfit @ 1cf8e61) and
+// main's (ringconn @ b819ee0) are parallel protocol commits, neither an
+// ancestor of the other. protocol's own `origin/main` already merged both
+// (PR#50 wearfit-howear, PR#48 ringconn, and everything after) — this pin
+// moves to that tip (fe1464d) to match pubspec.yaml's `ref:` rather than
+// picking one single-device SHA over the other. Verified: `1cf8e61` (this
+// branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
+// commit is already folded in, nothing is lost by moving to the tip.
 const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
-const String kProtocolPin = 'fbda904267b6bb456cc218a7f8db8f254412d53c';
+// REPIN (this branch): protocol PR #47 head @ d8a1685 — the ZeTime command
+// envelope + battery decode this branch's adapter needs. NO kAlgoVersion
+// bump: ZeTime carries no derivable signal, so nothing here feeds the
+// derivation pipeline.
+//
+// MERGE (main → this branch): protocol's own origin/main has since merged
+// #47 (as b8430e4) along with #48 (ringconn) and #50 (wearfit) — d8a1685 is
+// verified an ancestor of the tip below, so moving the pin there loses
+// nothing from this branch's own repin.
+const String kProtocolPin = 'fe1464db98b84ac4d3ce6175d54ada11356d6c62';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
