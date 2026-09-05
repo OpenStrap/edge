@@ -763,6 +763,42 @@
   "@devicesCouldNotReachRing": {
     "description": "Snackbar: sync failed."
   },
+  "devicesCouldNotReachCorosWatch": "Could not reach it. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachCorosWatch": {
+    "description": "Snackbar: sync failed, for a paired Coros watch."
+  },
+  "devicesSyncingTheWatch": "Syncing the watch…",
+  "@devicesSyncingTheWatch": {
+    "description": "Snackbar: syncing Bangle.js."
+  },
+  "devicesConnectingZeTime": "Connecting…",
+  "@devicesConnectingZeTime": {
+    "description": "Snackbar: connecting to the ZeTime."
+  },
+  "devicesConnectedZeTime": "Connected.",
+  "@devicesConnectedZeTime": {
+    "description": "Snackbar: ZeTime connect succeeded."
+  },
+  "devicesCouldNotReachZeTime": "Could not reach the watch. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachZeTime": {
+    "description": "Snackbar: ZeTime connect failed."
+  },
+  "devicesSyncingTheSensor": "Syncing the sensor…",
+  "@devicesSyncingTheSensor": {
+    "description": "Snackbar: syncing a paired non-ring sensor (e.g. WearFit)."
+  },
+  "devicesCouldNotReachSensor": "Could not reach the sensor. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachSensor": {
+    "description": "Snackbar: sensor sync failed."
+  },
+  "devicesConnectingWatch": "Connecting…",
+  "@devicesConnectingWatch": {
+    "description": "Snackbar: connecting to the watch."
+  },
+  "devicesCouldNotReachWatch": "Could not reach the watch. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachWatch": {
+    "description": "Snackbar: sync failed."
+  },
   "deviceFilterAllDevices": "All devices",
   "@deviceFilterAllDevices": {
     "description": "First pill in a metric screen's per-device filter — the merged view."
@@ -873,7 +909,11 @@
   },
   "devicesSyncNowSub": "Fetch whatever it has been holding",
   "@devicesSyncNowSub": {
-    "description": "Row sub: manual sync."
+    "description": "Row sub: manual sync, for a sensor that fetches held history off a cursor (e.g. Oura)."
+  },
+  "devicesSyncNowSubListen": "Listen for whatever it sends right now",
+  "@devicesSyncNowSubListen": {
+    "description": "Row sub: manual sync, for a sensor that only opens a bounded listen window with no history fetch."
   },
   "devicesName": "Name",
   "@devicesName": {
@@ -995,9 +1035,41 @@
   "@devicePickerBlurbRing": {
     "description": "Category row subtitle for the Oura ring."
   },
+  "devicePickerBlurbO2Ring": "Reads its battery, model and serial. No reading from the ring itself is decoded yet.",
+  "@devicePickerBlurbO2Ring": {
+    "description": "Category row subtitle for the Wellue O2Ring."
+  },
+  "devicePickerBlurbWearFit": "A Howear-branded band, paired through the WearFit app family.",
+  "@devicePickerBlurbWearFit": {
+    "description": "Category row subtitle for a WearFit-family band."
+  },
   "devicePickerBlurbSensor": "A chest strap or armband, for beat timing during a workout.",
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
+  },
+  "devicePickerBlurbCoros": "A sports watch. Reads battery and live heart rate — recorded activities stay on the watch.",
+  "@devicePickerBlurbCoros": {
+    "description": "Category row subtitle for a Coros sports watch."
+  },
+  "devicePickerBlurbWithingsSteelHr": "Pairs and connects — nothing it captures is decoded into a number yet.",
+  "@devicePickerBlurbWithingsSteelHr": {
+    "description": "Category row subtitle for the Withings Steel HR / Activité."
+  },
+  "devicePickerBlurbMiband234": "A Mi Band 2, 3 or 4. Pairs and connects; nothing derives from it yet.",
+  "@devicePickerBlurbMiband234": {
+    "description": "Category row subtitle for a Mi Band 2/3/4."
+  },
+  "devicePickerBlurbZeTime": "Pairs and connects. Nothing is decoded from it yet beyond its own battery level.",
+  "@devicePickerBlurbZeTime": {
+    "description": "Category row subtitle for the MyKronoz ZeTime."
+  },
+  "devicePickerBlurbColmi": "A Colmi ring. Pairs and banks its history; nothing is decoded into a number yet.",
+  "@devicePickerBlurbColmi": {
+    "description": "Category row subtitle for a Colmi smart ring."
+  },
+  "devicePickerBlurbBangleJs": "Pairs any Espruino/Nordic-UART device generically, not just Bangle.js-branded watches. Banks raw bytes only; nothing is decoded into a number.",
+  "@devicePickerBlurbBangleJs": {
+    "description": "Category row subtitle for Bangle.js and other Nordic-UART devices."
   },
   "devicePickerCannotPairFromHere": "That device cannot be paired from this screen.",
   "@devicePickerCannotPairFromHere": {

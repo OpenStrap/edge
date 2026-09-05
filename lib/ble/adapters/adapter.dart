@@ -70,6 +70,23 @@ abstract class BandLink {
   /// [BandEntry.requiredCharacteristics], where the connect aborts loudly.
   Stream<(int atSec, List<int> value)> notify(String characteristicUuid);
 
+  /// Read a characteristic once. Returns null on a missing characteristic, a
+  /// dead link, or a timeout — the same failure vocabulary [write] uses.
+  ///
+  /// The whole surface used to be `notify`/`write`/`log`, and every band so
+  /// far only ever needed to be WRITTEN to or NOTIFIED by. RingConn's auth
+  /// needs one plain GATT read (the standard System ID characteristic, to
+  /// recover its own BLE MAC), and Coros's status pull needs several more
+  /// (battery, model, serial, firmware) — the first two bands that needed a
+  /// one-shot read where no framed band and no notify-only sensor before them
+  /// required one. See `ringconn.dart` and `coros.dart`.
+  ///
+  /// For a characteristic with no notify property (Device Information
+  /// Service's read-only strings, say) this is the only way to reach it —
+  /// [notify] stays the right call for anything that can push updates on its
+  /// own.
+  Future<List<int>?> read(String characteristicUuid);
+
   /// Write with response, which is also what triggers bonding. Returns whether
   /// the GATT write was confirmed; false covers a missing characteristic, a
   /// dead link, a timeout and a refused opcode alike.
@@ -299,6 +316,12 @@ class ReplayBandLink implements BandLink {
   /// What [write] returns. Set false to exercise an adapter's failure path.
   bool writeSucceeds = true;
 
+  /// Extra delay before [write] resolves. Zero unless a test sets it — for
+  /// exercising a race against a write that is still genuinely in flight
+  /// (the real `GattBandLink._writeTimeout` is 8s, long enough to still be
+  /// pending when a session's own teardown starts).
+  Duration writeDelay = Duration.zero;
+
   /// Single-subscription on purpose: it BUFFERS, so a fixture may be fed
   /// before the adapter has got around to subscribing and nothing is dropped.
   /// A second `notify()` of the same characteristic throws, which is correct —
@@ -310,9 +333,26 @@ class ReplayBandLink implements BandLink {
   Stream<(int, List<int>)> notify(String characteristicUuid) =>
       _channel(characteristicUuid).stream;
 
+  /// Whether anything is still listening to [characteristicUuid]'s stream.
+  /// Test-only: the way to prove a multi-channel adapter actually cancels
+  /// every upstream subscription it opened, not just the one it names in its
+  /// own `finally`.
+  bool isListening(String characteristicUuid) =>
+      _channels[characteristicUuid]?.hasListener ?? false;
+
+  /// What [read] answers, by characteristic uuid. A test sets this before
+  /// exercising the adapter; an uuid with no entry answers null, same as a
+  /// real link's missing-characteristic case.
+  final Map<String, List<int>> readValues = {};
+
+  @override
+  Future<List<int>?> read(String characteristicUuid) async =>
+      readValues[characteristicUuid];
+
   @override
   Future<bool> write(String characteristicUuid, List<int> value) async {
     writes.add((characteristicUuid, value));
+    if (writeDelay > Duration.zero) await Future<void>.delayed(writeDelay);
     return writeSucceeds;
   }
 
@@ -331,5 +371,13 @@ class ReplayBandLink implements BandLink {
       await c.close();
     }
     _channels.clear();
+  }
+
+  /// End one channel while the others stay open — for an adapter test that
+  /// needs to reproduce "one channel ends while another still has a frame
+  /// in flight" rather than a full teardown.
+  Future<void> closeChannel(String uuid) async {
+    final c = _channels.remove(uuid);
+    if (c != null) await c.close();
   }
 }

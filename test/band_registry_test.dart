@@ -9,8 +9,41 @@ import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 void main() {
   test('ids are unique and stable — they are stamped as device_family', () {
-    expect(kBandRegistry.map((e) => e.id).toList(),
-        <String>['gen4', 'gen5', 'ble_hrs', 'oura', 'ring11m']);
+    expect(
+        kBandRegistry.map((e) => e.id).toList(),
+        <String>[
+          'gen4',
+          'gen5',
+          'ble_hrs',
+          'oura',
+          'coros',
+          'ultrahuman',
+          'withings_steel_hr',
+          'miband234',
+          'pebble',
+          'makibeshr3',
+          'id115',
+          'smaq2oss',
+          'xwatch',
+          'tlw64',
+          'dafit',
+          'o2ring',
+          'zetime',
+          'wearfit',
+          'ringconn',
+          'dt78',
+          'lefun',
+          'hplus',
+          'pinetime',
+          'qhybrid',
+          'colmi',
+          'casio',
+          'jyou',
+          'watch9',
+          'banglejs',
+          'garmin',
+          'ring11m',
+        ]);
   });
 
   test('D1 — the scan service list is exactly the two WHOOP services', () {
@@ -37,6 +70,14 @@ void main() {
     }
   });
 
+  test('a Coros entry gates only on battery, never on an optional DIS string',
+      () {
+    // The Bluetooth SIG marks model/serial/firmware OPTIONAL — requiring any
+    // of them is how a real watch that omits one fails to connect at all.
+    expect(kCoros.requiredCharacteristics, [kBatteryLevelUuid]);
+    expect(kCoros.isFramed, isFalse);
+  });
+
   test('D10 — a generic HRS entry has one service and one notify char', () {
     expect(kBleHrs.isFramed, isFalse);
     expect(kBleHrs.service, kHeartRateServiceUuid);
@@ -45,6 +86,31 @@ void main() {
     // The two halves that could NOT be expressed — see the registry header.
     expect(kBleHrs.gatt, isNull, reason: 'GattProfile is six WHOOP UUIDs');
     expect(kBleHrs.wire, isNull, reason: 'BandProfile is a framed envelope');
+  });
+
+  test('a Garmin entry has one service and its write/notify pair', () {
+    expect(kGarmin.isFramed, isFalse);
+    expect(kGarmin.service, kGarminService);
+    expect(kGarmin.requiredCharacteristics,
+        [kGarminWriteChar, kGarminNotifyChar]);
+    expect(kGarmin.gatt, isNull);
+    expect(kGarmin.wire, isNull);
+    expect(() => kGarmin.commands, throwsA(anything));
+  });
+
+  test('a PineTime entry filters on its OWN service, not the shared HRS one',
+      () {
+    expect(kPineTime.isFramed, isFalse);
+    expect(kPineTime.service, kPineTimeMotionService);
+    expect(kPineTime.servicePrefix, '00030000');
+    // Distinct from kBleHrs's own scan filter — two rows sharing one service
+    // is the collision `HrsLink.scanForAny` treats as a registry bug.
+    expect(kPineTime.service, isNot(kBleHrs.service));
+    // Both required, even though they sit on two different GATT services —
+    // `GattBandLink` matches a characteristic across every discovered
+    // service, not only the scan-filter one.
+    expect(kPineTime.requiredCharacteristics,
+        [kPineTimeStepCountChar, kHeartRateMeasurementUuid]);
   });
 
   test('D3 — frameOpcodeIndex lands on the opcode of a real built frame', () {
@@ -76,6 +142,24 @@ void main() {
     expect(kWhoopGen4.timeAnchor, TimeAnchor.measured);
     expect(kWhoopGen5.timeAnchor, TimeAnchor.measured);
     expect(kBleHrs.timeAnchor, TimeAnchor.arrival);
+    expect(kPebble.timeAnchor, TimeAnchor.arrival);
+  });
+
+  test('Pebble 2 / Pebble 2 SE — one scan-filter service, five required '
+      'characteristics, no envelope', () {
+    expect(kPebble.isFramed, isFalse);
+    expect(kPebble.service, kPebbleServiceUuid);
+    expect(kPebble.servicePrefix, '0000fed9');
+    expect(kPebble.requiredCharacteristics, <String>[
+      kPebblePairingTriggerUuid,
+      kPebbleConnectivityUuid,
+      kPebbleMtuUuid,
+      kPebblePpogattReadUuid,
+      kPebblePpogattWriteUuid,
+    ]);
+    expect(kPebble.gatt, isNull);
+    expect(kPebble.wire, isNull);
+    expect(() => kPebble.commands, throwsA(isA<TypeError>()));
   });
 
   test('bandEntryFor maps a wire profile back to its entry', () {
