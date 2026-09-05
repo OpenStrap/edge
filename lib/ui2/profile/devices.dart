@@ -1532,7 +1532,9 @@ Future<void> _syncCorosWatch(BuildContext c) async {
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
         ? (l?.devicesSynced ?? 'Synced.')
-        : (l?.devicesCouldNotReachRing ??
+        // Its OWN string, not the ring's — `devicesCouldNotReachRing` names
+        // the device in its text, and a watch synced through here is not one.
+        : (l?.devicesCouldNotReachSensor ??
             'Could not reach it. It has to be nearby, and not connected to '
                 'another app.')),
   ));

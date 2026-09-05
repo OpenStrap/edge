@@ -33,7 +33,14 @@ class CorosLink {
 
   /// How long one session holds the link open once connected. Bounded rather
   /// than open-ended — see the header note.
-  static const Duration _sessionWindow = Duration(seconds: 8);
+  ///
+  /// 12s, not the 8s every other secondary link uses: [CorosAdapter.run]
+  /// does four sequential status reads BEFORE it ever subscribes to heart
+  /// rate, and each read carries its own [GattBandLink] timeout. Sized so a
+  /// fully unresponsive watch (four reads, each timing out) still leaves a
+  /// few real seconds for the heart-rate subscription to matter, instead of
+  /// the whole window being spent finding out nothing answers.
+  static const Duration _sessionWindow = Duration(seconds: 12);
 
   /// The last status pull, held in memory only — same non-durability as
   /// `OuraLink.batteryPct`/`batteryMv`: `band_battery` has no `device_id`

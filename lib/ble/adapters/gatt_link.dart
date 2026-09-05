@@ -67,6 +67,16 @@ class GattBandLink implements BandLink {
   static const Duration _notifyTimeout = Duration(seconds: 15);
   static const Duration _writeTimeout = Duration(seconds: 8);
 
+  /// [read]'s own bound — deliberately shorter than [_notifyTimeout]. A
+  /// one-shot status pull (Coros's battery/device-info reads) can run several
+  /// of these BACK TO BACK before a session's bounded window ever reaches the
+  /// notify phase; at 15s each, four sequential reads could burn a full
+  /// minute on one unresponsive characteristic before the caller's own
+  /// session timeout even has a chance to matter. 3s is still generous for a
+  /// live GATT round trip and keeps a fully-unresponsive worst case bounded
+  /// to a number the caller's session window can actually plan around.
+  static const Duration _readTimeout = Duration(seconds: 3);
+
   /// One write in flight at a time — the same [WriteChain] `BleEngine._write`
   /// runs on, one instance per link. Not shared with the engine's: two
   /// peripherals queueing behind each other is exactly what the per-remoteId
@@ -140,9 +150,9 @@ class GattBandLink implements BandLink {
       return null;
     }
     try {
-      return await c.read().timeout(_notifyTimeout);
+      return await c.read().timeout(_readTimeout);
     } on TimeoutException {
-      log('read timeout: no GATT response in ${_notifyTimeout.inSeconds}s.');
+      log('read timeout: no GATT response in ${_readTimeout.inSeconds}s.');
       return null;
     } catch (e) {
       log('read error: $e');

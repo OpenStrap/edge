@@ -37,6 +37,14 @@ void main() {
     }
   });
 
+  test('a Coros entry gates only on battery, never on an optional DIS string',
+      () {
+    // The Bluetooth SIG marks model/serial/firmware OPTIONAL — requiring any
+    // of them is how a real watch that omits one fails to connect at all.
+    expect(kCoros.requiredCharacteristics, [kBatteryLevelUuid]);
+    expect(kCoros.isFramed, isFalse);
+  });
+
   test('D10 — a generic HRS entry has one service and one notify char', () {
     expect(kBleHrs.isFramed, isFalse);
     expect(kBleHrs.service, kHeartRateServiceUuid);

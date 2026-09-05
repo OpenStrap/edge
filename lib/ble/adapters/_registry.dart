@@ -461,10 +461,17 @@ const BandEntry kOura = BandEntry.notify(
 ///
 /// NOT framed: no envelope, no command channel, no offload — see the header
 /// note on why activity/sleep/step history stays out of scope entirely.
-/// `characteristics` are battery + device-info; heart rate is read via
-/// [kHeartRateMeasurementUuid] directly in `coros.dart` and is deliberately
-/// NOT required here, since a watch that answers battery and identity but not
-/// heart rate should still connect.
+///
+/// `characteristics` IS BATTERY ALONE, deliberately. The Bluetooth SIG's
+/// Device Information Service marks model/serial/firmware as OPTIONAL —
+/// gating the connect on any of them is how a real watch that simply omits
+/// one string fails `missingCharacteristics` and never connects at all.
+/// `CorosAdapter._readString` already answers null for a characteristic that
+/// is not there; the honest gate is the one characteristic every watch in
+/// scope should answer. Heart rate is read via [kHeartRateMeasurementUuid]
+/// directly in `coros.dart` and is equally NOT required here, for the same
+/// reason: a watch that answers battery and identity but not heart rate
+/// should still connect.
 ///
 /// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
 /// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
@@ -474,12 +481,7 @@ const BandEntry kCoros = BandEntry.notify(
   id: 'coros',
   label: 'Coros watch',
   service: kCorosService,
-  characteristics: <String>[
-    kBatteryLevelUuid,
-    kModelNumberUuid,
-    kSerialNumberUuid,
-    kFirmwareRevisionUuid,
-  ],
+  characteristics: <String>[kBatteryLevelUuid],
   timeAnchor: TimeAnchor.arrival,
 );
 
