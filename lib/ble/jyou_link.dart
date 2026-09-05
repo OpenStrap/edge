@@ -90,39 +90,42 @@ class JyouLink {
         try {
           final device = BluetoothDevice.fromId(remoteId);
           await device.connect(timeout: const Duration(seconds: 20));
-          final services = await device.discoverServices();
-          final link = GattBandLink(
-            entry: kJyou,
-            services: services,
-            onLog: (m) => debugPrint('[jyou] $m'),
-          );
-          _link = link;
-          final missing =
-              link.missingCharacteristics(kJyou.requiredCharacteristics);
-          if (missing.isNotEmpty) {
-            debugPrint('[jyou] ${kJyou.label}: missing required '
-                'characteristic(s) '
-                '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
-            await device.disconnect().catchError((_) {});
-            return false;
-          }
-          final host = BandHost(
-            adapter: const JyouAdapter(),
-            deviceId: deviceId,
-            onLog: (m) => debugPrint('[jyou] $m'),
-            onNote: _handleNote,
-          );
-          _host = host;
-          final done = host.run(link);
           try {
-            await done.timeout(_listenWindow, onTimeout: () {});
-          } finally {
-            await stop();
+            final services = await device.discoverServices();
+            final link = GattBandLink(
+              entry: kJyou,
+              services: services,
+              onLog: (m) => debugPrint('[jyou] $m'),
+            );
+            _link = link;
+            final missing =
+                link.missingCharacteristics(kJyou.requiredCharacteristics);
+            if (missing.isNotEmpty) {
+              debugPrint('[jyou] ${kJyou.label}: missing required '
+                  'characteristic(s) '
+                  '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
+              return false;
+            }
+            final host = BandHost(
+              adapter: const JyouAdapter(),
+              deviceId: deviceId,
+              onLog: (m) => debugPrint('[jyou] $m'),
+              onNote: _handleNote,
+            );
+            _host = host;
+            final done = host.run(link);
             try {
-              await device.disconnect();
-            } catch (_) {/* already gone */}
+              await done.timeout(_listenWindow, onTimeout: () {});
+            } finally {
+              await stop();
+            }
+            return true;
+          } finally {
+            // Covers every post-connect failure (discoverServices, missing
+            // characteristics, host.run) as well as the success path — one
+            // teardown site instead of one per branch.
+            await device.disconnect().catchError((_) {});
           }
-          return true;
         } catch (e) {
           debugPrint('[jyou] connect failed: $e');
           return false;
