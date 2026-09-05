@@ -66,6 +66,7 @@ import 'ble_state.dart'
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
 import 'oura_link.dart' show OuraLink;
+import 'qhybrid_link.dart' show QHybridLink;
 
 export 'adapters/host.dart' show HrsReading;
 
@@ -580,6 +581,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kQHybrid.id) {
+      await QHybridLink.forget(id);
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows

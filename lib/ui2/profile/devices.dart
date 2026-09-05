@@ -47,7 +47,7 @@ import '../../ble/adapters/_registry.dart'
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
-import '../../ble/qhybrid_link.dart' show pairQHybrid;
+import '../../ble/qhybrid_link.dart' show QHybridLink, pairQHybrid;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -958,13 +958,12 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     blurb: 'The original Fossil/Skagen hybrid smartwatch line, not the newer '
         'Hybrid HR. Pairs and connects; nothing derives from it yet.',
     // NOT plain notify-class pairing (`pick: null`): unlike a heart-rate
-    // strap, which a workout arms, or Oura, which has its own re-runnable
-    // sync, this band has no ongoing use — nothing derives from it, so
-    // nothing ever arms or syncs it again after the `device` row exists.
-    // `pairQHybrid` is what makes pairing the one real session it gets: the
-    // adapter's own battery-probe confirms it is this protocol, not the
-    // encrypted Hybrid HR sibling, and whatever it answers in the bounded
-    // window right after is what gets archived — see `qhybrid_link.dart`.
+    // strap, which a workout arms, this band has no workout role, so
+    // `pairQHybrid` is what runs its first real session — the adapter's own
+    // battery-probe confirms it is this protocol, not the encrypted Hybrid HR
+    // sibling, and whatever it answers in the bounded window right after is
+    // what gets archived. The same session is re-runnable afterward — see
+    // `qhybrid_link.dart` and this screen's own sync affordance.
     pick: pairQHybrid,
   ),
 ];
@@ -1491,7 +1490,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: switch (s.family) {
+        'oura' => () => _syncRing(c),
+        'qhybrid' => () => _syncQHybrid(c),
+        _ => null,
+      },
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1517,6 +1520,23 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Hold a session with the paired watch, now, because the user asked. There
+/// is no history to drain here — see `qhybrid_link.dart`'s own header — so
+/// this just re-runs the same battery-probe-confirmed window pairing did and
+/// banks whatever the watch sends during it.
+Future<void> _syncQHybrid(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Connecting…')));
+  final ok = await QHybridLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the watch. It has to be nearby, and not connected '
+            'to another app.'),
   ));
 }
 
