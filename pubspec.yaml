@@ -135,8 +135,29 @@ dependencies:
       # nothing else. No decoded physiological field (owner ruling: nobody on
       # this project owns the hardware).
       #
+      # NO kAlgoVersion bump: every changed decoder here is on the live
+      # realtime path (decodeFrame's `realtime_hr`/`realtime_small`, R11) —
+      # live high-rate streams are never persisted (see invariant #1), so no
+      # stored day_result number moves. R11's meaning is still unconfirmed
+      # and edge does not read it.
+      #
+      # REPIN (this branch): protocol `feat/ringconn` @ b819ee0, 2 commits on
+      # top of 471034c. Adds the ring's frame codec this branch's
+      # `lib/ble/adapters/ringconn.dart` calls: `parseRingConnFrame`,
+      # `RingConnFrame`, the bulk-page reader, and the channel constants
+      # (`kRingConnChannelSleep`/`...Awake`). No decoded field — raw frames
+      # only (owner ruling: nobody on this project owns the hardware).
+      #
       # NO kAlgoVersion bump: nothing here feeds a stored metric.
-      ref: 4284f9a2829381f4a09cdda27fa72a4bdacfa231
+      #
+      # MERGE (main → this branch): main's own repin (lefun @ 4284f9a) and
+      # this branch's (ringconn @ b819ee0) are parallel commits on protocol,
+      # neither an ancestor of the other — verified via
+      # `git merge-base --is-ancestor`. protocol's own `origin/main` has
+      # already merged both (its own independent per-device PR queue), so the
+      # ref moves to that tip rather than either single-device SHA — this is
+      # both repins standing, not a choice between them.
+      ref: fe1464db98b84ac4d3ce6175d54ada11356d6c62
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

@@ -1726,8 +1726,19 @@ const int kAlgoVersion = 87;
 // main took analytics 7105256 → 187e026 (the v80 gate above); this branch
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
+//
+// REPIN (this branch) @ b819ee0 — protocol `feat/ringconn`, 2 commits on top
+// of 471034c. Adds the ring's frame codec (`parseRingConnFrame` and
+// friends); no decoded field, so no kAlgoVersion move. Must match
+// pubspec.yaml's `ref:` — see this file's own note above.
+//
+// MERGE (main → this branch): main's repin (lefun @ 4284f9a) and this
+// branch's (ringconn @ b819ee0) are parallel protocol commits, neither an
+// ancestor of the other. protocol's own `origin/main` already merged both —
+// this pin moves to that tip (fe1464d) to match pubspec.yaml's `ref:`
+// rather than picking one single-device SHA over the other.
 const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
-const String kProtocolPin = '4284f9a2829381f4a09cdda27fa72a4bdacfa231';
+const String kProtocolPin = 'fe1464db98b84ac4d3ce6175d54ada11356d6c62';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

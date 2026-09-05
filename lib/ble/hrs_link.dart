@@ -70,6 +70,7 @@ import 'hplus_link.dart' show HPlusLink;
 import 'lefun_link.dart' show LefunLink;
 import 'oura_link.dart' show OuraLink;
 import 'qhybrid_link.dart' show QHybridLink;
+import 'ringconn_link.dart' show RingConnLink;
 
 export 'adapters/host.dart' show HrsReading;
 
@@ -613,11 +614,15 @@ class HrsLink {
   /// DISPATCHES ON `adapter_id` BEFORE TOUCHING ANYTHING. An Oura row carries
   /// a secret this class knows nothing about — [OuraLink.forgetRing] drops the
   /// stored key and the row together, and calling `disarm()` on it here would
-  /// leave that key behind while looking like a complete forget. An HPlus row
-  /// has no secret, but its live connection is [HPlusLink.instance], a
-  /// separate singleton from this class's own chest-strap session —
-  /// `disarm()` here would tear down the wrong link and leave the real one
-  /// (and its `BandHost`'s flush timer) running against a deleted device id.
+  /// leave that key behind while looking like a complete forget. A RingConn
+  /// row carries no such secret, but still needs [RingConnLink.forgetRing]
+  /// rather than this class's own `disarm()` — that call tears down a live
+  /// WORKOUT sensor session, not a RingConn `sync()` that may be mid-drain.
+  /// An HPlus row similarly has no secret, but its live connection is
+  /// [HPlusLink.instance], a separate singleton from this class's own
+  /// chest-strap session — `disarm()` here would tear down the wrong link and
+  /// leave the real one (and its `BandHost`'s flush timer) running against a
+  /// deleted device id.
   static Future<void> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[hrs] refusing to forget the primary band from here.');
@@ -628,6 +633,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kRingConn.id) {
+      await RingConnLink.forgetRing(id);
       return;
     }
     if (row?['adapter_id'] == kLefun.id) {
