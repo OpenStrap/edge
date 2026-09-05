@@ -1760,15 +1760,15 @@ const int kAlgoVersion = 87;
 // branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
 // commit is already folded in, nothing is lost by moving to the tip.
 const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
-// REPIN (this branch): protocol PR #47 head @ d8a1685 — the ZeTime command
-// envelope + battery decode this branch's adapter needs. NO kAlgoVersion
-// bump: ZeTime carries no derivable signal, so nothing here feeds the
-// derivation pipeline.
+// REPIN (this branch): protocol dafit/moyoung head @ 06cb5f2 — the DaFit/
+// MOYOUNG-V2 frame envelope this branch's adapter banks raw. NO kAlgoVersion
+// bump: dafit carries no derivable signal.
 //
 // MERGE (main → this branch): protocol's own origin/main has since merged
-// #47 (as b8430e4) along with #48 (ringconn) and #50 (wearfit) — d8a1685 is
-// verified an ancestor of the tip below, so moving the pin there loses
-// nothing from this branch's own repin.
+// dafit/moyoung along with #47 (zetime), #48 (ringconn) and #50
+// (wearfit) — 06cb5f2 is verified an ancestor of the tip below (`git
+// merge-base --is-ancestor 06cb5f2… fe1464d…`), so moving the pin there
+// loses nothing from this branch's own repin.
 const String kProtocolPin = 'fe1464db98b84ac4d3ce6175d54ada11356d6c62';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling

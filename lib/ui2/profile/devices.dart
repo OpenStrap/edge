@@ -48,6 +48,7 @@ import '../../ble/adapters/_registry.dart'
         kBandRegistry,
         kBleHrs,
         kColmi,
+        kDafit,
         kJyou,
         kHPlus,
         kLefun,
@@ -64,6 +65,7 @@ import '../../ble/adapters/_registry.dart'
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/casio_link.dart' show CasioLink;
 import '../../ble/colmi_link.dart' show ColmiLink;
+import '../../ble/dafit_link.dart' show DafitLink;
 import '../../ble/dt78_link.dart' show Dt78Link;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/jyou_link.dart' show JyouLink;
@@ -802,6 +804,7 @@ class HealthSource {
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' || 'o2ring' || 'lefun' || 'colmi' || 'ringconn' =>
         LucideIcons.circleDot,
+      'dafit' ||
       'dt78' ||
       'hplus' ||
       'pinetime' ||
@@ -988,6 +991,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kDafit,
+    blurb: 'An unbranded DaFit/MOYOUNG-style watch, sold under many storefront '
+        'names. Banks its own data; nothing else derives from it yet.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written. The init handshake runs inside
+    // the adapter's own session, once connected.
+    pick: null,
   ),
   (
     entry: kO2Ring,
@@ -1628,6 +1640,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // WHOOP from a chest strap's page.
       onSync: switch (s.family) {
         'oura' || 'ringconn' || 'o2ring' => () => _syncRing(c, s.family),
+        'dafit' => () => _syncDafitWatch(c),
         'zetime' => () => _syncZeTime(c),
         'wearfit' => () => _syncSensor(c, WearFitLink.instance.sync),
         'dt78' => () => _syncDt78(c),
@@ -1672,6 +1685,27 @@ Future<void> _syncRing(BuildContext c, String? family) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Hold a session with the paired watch, now, because the user asked. There
+/// is no history to drain here — see `dafit_link.dart`'s own header — so
+/// this just runs the handshake again and banks whatever arrives during it.
+Future<void> _syncDafitWatch(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  // No localized string yet — same call as device_picker.dart's 'dafit'
+  // blurb, and for the same reason. Deliberately NOT `devicesCouldNotReachRing`
+  // below either: that key is ring-specific text in every translated locale,
+  // and this device is a watch, not a ring.
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await DafitLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach it. It has to be nearby, and not connected to '
+            'another app.'),
   ));
 }
 

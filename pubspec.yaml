@@ -141,6 +141,20 @@ dependencies:
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
       #
+      # REPIN (this branch): protocol `feat/dafit-moyoung-protocol` @ 06cb5f2,
+      # 3 commits on top of 471034c. Adds the dafit/moyoung frame codec
+      # (`DafitFrame`/`parseDafitFrame`/`buildDafitAck`/`dafitInitSequence`) —
+      # a new adapter-only wire format, no existing decoder touched.
+      #
+      # NO kAlgoVersion bump: dafit has no signals (const {}, excluded from
+      # kDerivableSources per the hardware-ownership invariant), so no
+      # decoded value or day_result number is affected.
+      #
+      # MERGE (main → this branch): main's own repin below (protocol tip
+      # fe1464d) already contains 06cb5f2 as an ancestor (verified via
+      # `git merge-base --is-ancestor 06cb5f2… fe1464d…`), so the ref moves
+      # to that tip; nothing from this branch's own repin is lost.
+      #
       # REPIN (this branch): protocol PR #49 head @ fbda904 (not yet on main).
       # Adds the o2ring frame envelope/INFO-reply parser this branch's
       # adapter calls. NO kAlgoVersion bump: o2ring declares no signals, so

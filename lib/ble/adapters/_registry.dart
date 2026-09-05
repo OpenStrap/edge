@@ -53,6 +53,18 @@ import 'signals.dart';
 const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
 const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
 
+/// The DaFit/MOYOUNG-V2 clone-watch family's GATT service — an otherwise
+/// generic Nordic UART Service. Shared by the whole cluster of unbranded
+/// boards this build recognizes (M6/M4/LH716/Sunset 6/Watch7/Fit1900-style),
+/// sold under many storefront names but all speaking the same envelope.
+const String kDafitService = '6e400001-b5a3-f393-e0a9-e50e24dcca9d';
+
+/// Host to band. Every command frame and ack is written here, with response.
+const String kDafitWriteChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9d';
+
+/// Band to host. Every reply, ack and unsolicited frame arrives here.
+const String kDafitNotifyChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9d';
+
 /// Device Information Service's System ID characteristic — an 8-byte EUI-64.
 /// Standard GATT, not band-specific; RingConn is the first entry that needs
 /// to read it (its own BLE MAC has to come from somewhere, and there is no
@@ -606,6 +618,27 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// A DaFit/MOYOUNG-V2 clone-watch: an unbranded OEM board, paired through
+/// the DaFit or MOYOUNG companion app family and sold under many storefront
+/// names (M6/M4/LH716/Sunset 6/Watch7/Fit1900-style).
+////// NOT framed: there is a length field and a command byte but no CRC and no
+/// inner-record layout the framed machinery's [innerOpcodeOffset] etc. could
+/// describe — see `dafit.dart` in `protocol` for the wire format itself.
+////// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and this id is absent from `kDerivableSources` — a paired band
+/// holds a session and archives every frame it sends, and surfaces no health
+/// signal at all.
+const BandEntry kDafit = BandEntry.notify(
+  id: 'dafit',
+  label: 'DaFit / MOYOUNG watch',
+  service: kDafitService,
+  characteristics: <String>[kDafitWriteChar, kDafitNotifyChar],
+  // No clock this build reads back — every frame is stamped on arrival, same
+  // as the generic HRS strap.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// The Wellue O2Ring, a pulse-oximeter ring with no authentication handshake
 /// at all — the whole session is a plain command/reply pair.
 ///
@@ -923,6 +956,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kDafit,
   kO2Ring,
   kZeTime,
   kWearFit,
@@ -995,6 +1029,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'dafit': <InputSignal, Duration>{},
   'o2ring': <InputSignal, Duration>{},
   'zetime': <InputSignal, Duration>{},
   'wearfit': <InputSignal, Duration>{},

@@ -66,6 +66,7 @@ import 'ble_state.dart'
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
 import 'colmi_link.dart' show ColmiLink;
+import 'dafit_link.dart' show DafitLink;
 import 'hplus_link.dart' show HPlusLink;
 import 'lefun_link.dart' show LefunLink;
 import 'oura_link.dart' show OuraLink;
@@ -637,6 +638,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kDafit.id) {
+      await DafitLink.forget(id);
       return;
     }
     if (row?['adapter_id'] == kO2Ring.id) {

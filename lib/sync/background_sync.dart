@@ -23,6 +23,7 @@ import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
 import '../ble/casio_link.dart';
 import '../ble/colmi_link.dart';
+import '../ble/dafit_link.dart';
 import '../ble/jyou_link.dart';
 import '../ble/lefun_link.dart';
 import '../ble/oura_link.dart';
@@ -234,6 +235,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: DafitLink.sync() no-ops when nothing is
+    // paired and never throws, but this is the one shared headless entry
+    // point, so a failure here must not escape either.
+    try {
+      await DafitLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] dafit sync skipped: $e');
     }
     // Same reasoning as the Oura piggyback just above: no-ops when nothing is
     // paired, never allowed to mark the WHOOP cycle as errored.
