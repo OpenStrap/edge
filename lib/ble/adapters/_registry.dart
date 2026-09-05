@@ -133,6 +133,17 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The Makibes HR3's service — the standard Nordic UART Service, reused by
+/// large numbers of unrelated gadgets, not a fingerprint on its own.
+const String kMakibesHr3Service = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Host to band. Every command this board answers is written here.
+const String kMakibesHr3ControlChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Band to host, notify. Every reply and every unprompted push share this
+/// one characteristic.
+const String kMakibesHr3ReportChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
 /// The ID115's service.
 const String kId115Service = '00000af0-0000-1000-8000-00805f9b34fb';
 
@@ -679,6 +690,29 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// The Makibes HR3, an unbranded OEM board sold under that one storefront
+/// name.
+///
+/// NOT framed: no CRC and no inner-record layout the framed machinery's
+/// [BandEntry.innerOpcodeOffset] etc. could describe — see
+/// `makibeshr3.dart`. The service is the standard Nordic UART Service, which
+/// on its own matches large numbers of unrelated gadgets — see
+/// [kMakibesHr3Service]'s own doc.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and this id is absent from `kDerivableSources` — a paired
+/// board holds a session and archives every frame it sends, and surfaces no
+/// health signal at all.
+const BandEntry kMakibesHr3 = BandEntry.notify(
+  id: 'makibeshr3',
+  label: 'Makibes HR3',
+  service: kMakibesHr3Service,
+  characteristics: <String>[kMakibesHr3ControlChar, kMakibesHr3ReportChar],
+  // No clock this build reads back — every frame is stamped on arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// The ID115, an unbranded OEM board sold under that one storefront name.
 ///
 /// NOT framed: no CRC and no inner-record layout the framed machinery's
@@ -1121,6 +1155,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kMakibesHr3,
   kId115,
   kSmaq2oss,
   kXWatch,
@@ -1199,6 +1234,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'makibeshr3': <InputSignal, Duration>{},
   'id115': <InputSignal, Duration>{},
   'smaq2oss': <InputSignal, Duration>{},
   'xwatch': <InputSignal, Duration>{},
