@@ -1039,6 +1039,10 @@
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
   },
+  "devicePickerBlurbMiband234": "A Mi Band 2, 3 or 4. Pairs and connects; nothing derives from it yet.",
+  "@devicePickerBlurbMiband234": {
+    "description": "Category row subtitle for a Mi Band 2/3/4."
+  },
   "devicePickerBlurbZeTime": "Pairs and connects. Nothing is decoded from it yet beyond its own battery level.",
   "@devicePickerBlurbZeTime": {
     "description": "Category row subtitle for the MyKronoz ZeTime."

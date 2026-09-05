@@ -16,6 +16,7 @@ void main() {
           'gen5',
           'ble_hrs',
           'oura',
+          'miband234',
           'pebble',
           'makibeshr3',
           'id115',

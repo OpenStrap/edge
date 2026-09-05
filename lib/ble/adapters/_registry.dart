@@ -133,6 +133,19 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The Mi Band 2/3/4 family's own GATT service. Standard SIG 128-bit base.
+/// Mi Band 1/1A/1S's `fee0` service is an older, different protocol — not
+/// this family, and this build never scans for it.
+const String kHuami234Service = '0000fee1-0000-1000-8000-00805f9b34fb';
+
+/// Write + notify. The only characteristic authentication needs, and the
+/// only one this registry entry requires — see [kMiBand234]'s own doc.
+const String kHuami234AuthChar = '00000009-0000-3512-2118-0009af100700';
+
+/// Optional, best-effort. Never required to connect.
+const String kHuami234BatteryChar = '00000006-0000-3512-2118-0009af100700';
+const String kHuami234StepsChar = '00000007-0000-3512-2118-0009af100700';
+
 /// Pebble 2 / Pebble 2 SE's scan-filter service. Older Pebbles are out of
 /// reach of a client-only host (Classic SPP, or a BLE path that needs the
 /// phone to run its own local GATT server) — see `pebble.dart`'s header.
@@ -723,6 +736,35 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// Mi Band 2, 3 and 4 — the shared "Huami legacy" GATT protocol, subclassed
+/// unchanged across all three generations.
+///
+/// A locally-generated AES-128 challenge/response, same shape as [kOura]'s:
+/// no cloud, no vendor account, no closed key material. AUTH is the only
+/// REQUIRED characteristic — battery, steps and standard heart rate are
+/// optional and best-effort (plain Mi Band 2 has no HR sensor at all; 2 HRX,
+/// 3 and 4 do), same reasoning [BandEntry.notify]'s own doc gives for a
+/// generic sensor.
+///
+/// Deliberately excluded from this generation's scope: Mi Band 5/6/7+ and Mi
+/// Band 6's optional "new protocol" toggle, which negotiate real per-session
+/// AES-CTR link encryption — a materially different, harder-to-verify crypto
+/// path this entry does not claim.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so not
+/// a byte of this path has met hardware (ASSUMPTIONS R6). It pairs, connects
+/// and banks battery/steps/HR raw; `kDerivableSources` stays empty until
+/// someone has actually held one.
+const BandEntry kMiBand234 = BandEntry.notify(
+  id: 'miband234',
+  label: 'Mi Band 2/3/4',
+  service: kHuami234Service,
+  characteristics: <String>[kHuami234AuthChar],
+  // No clock in any channel this adapter reads; every frame is stamped on
+  // arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Pebble 2 / Pebble 2 SE. Pure client, no envelope, no command channel —
 /// PPoGATT is banked verbatim and nothing is decoded past it. `pebble_link.dart`'s
 /// `PebbleLink` drives [PebbleAdapter.run] on a periodic bounded window; see
@@ -1216,6 +1258,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kMiBand234,
   kPebble,
   kMakibesHr3,
   kId115,
@@ -1296,6 +1339,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'miband234': <InputSignal, Duration>{},
   'pebble': <InputSignal, Duration>{},
   'makibeshr3': <InputSignal, Duration>{},
   'id115': <InputSignal, Duration>{},

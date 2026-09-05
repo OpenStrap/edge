@@ -69,6 +69,7 @@ import 'colmi_link.dart' show ColmiLink;
 import 'dafit_link.dart' show DafitLink;
 import 'hplus_link.dart' show HPlusLink;
 import 'lefun_link.dart' show LefunLink;
+import 'miband_link.dart' show MiBand234Link;
 import 'o2ring_link.dart' show O2RingLink;
 import 'oura_link.dart' show OuraLink;
 import 'pebble_link.dart' show PebbleLink;
@@ -630,22 +631,23 @@ class HrsLink {
   /// its own dedicated `*Link` class and session needs its own case here —
   /// falling through to the generic branch below disarms the completely
   /// unrelated `instance` (the ble_hrs chest-strap session) instead of the
-  /// session that actually owns this device. An Oura row carries a secret
-  /// this class knows nothing about — [OuraLink.forgetRing] drops the stored
-  /// key and the row together, and calling `disarm()` on it here would leave
-  /// that key behind while looking like a complete forget. An O2Ring row
-  /// carries no secret, but [O2RingLink.forgetRing] still tears down a live
-  /// session before the row goes — the same reason this dispatch exists at
-  /// all. A RingConn row carries no such secret either, but still needs
-  /// [RingConnLink.forgetRing] rather than this class's own `disarm()` — that
-  /// call tears down a live WORKOUT sensor session, not a RingConn `sync()`
-  /// that may be mid-drain. An HPlus row similarly has no secret, but its live
-  /// connection is [HPlusLink.instance], a separate singleton from this
-  /// class's own chest-strap session — `disarm()` here would tear down the
-  /// wrong link and leave the real one (and its `BandHost`'s flush timer)
-  /// running against a deleted device id. A Watch9 row is the same shape as
-  /// HPlus: [Watch9Link.instance] owns its own live connection, separate from
-  /// this class's chest-strap session.
+  /// session that actually owns this device. An Oura or Mi Band row carries a
+  /// secret this class knows nothing about — [OuraLink.forgetRing] and
+  /// [MiBand234Link.forgetBand] drop the stored key and the row together, and
+  /// calling `disarm()` on either here would leave that key behind while
+  /// looking like a complete forget. An O2Ring row carries no secret, but
+  /// [O2RingLink.forgetRing] still tears down a live session before the row
+  /// goes — the same reason this dispatch exists at all. A RingConn row
+  /// carries no such secret either, but still needs [RingConnLink.forgetRing]
+  /// rather than this class's own `disarm()` — that call tears down a live
+  /// WORKOUT sensor session, not a RingConn `sync()` that may be mid-drain. An
+  /// HPlus row similarly has no secret, but its live connection is
+  /// [HPlusLink.instance], a separate singleton from this class's own
+  /// chest-strap session — `disarm()` here would tear down the wrong link and
+  /// leave the real one (and its `BandHost`'s flush timer) running against a
+  /// deleted device id. A Watch9 row is the same shape as HPlus:
+  /// [Watch9Link.instance] owns its own live connection, separate from this
+  /// class's chest-strap session.
   static Future<void> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[hrs] refusing to forget the primary band from here.');
@@ -656,6 +658,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kMiBand234.id) {
+      await MiBand234Link.forgetBand(id);
       return;
     }
     if (row?['adapter_id'] == kPebble.id) {

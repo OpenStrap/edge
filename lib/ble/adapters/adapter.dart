@@ -326,6 +326,13 @@ class ReplayBandLink implements BandLink {
   Stream<(int, List<int>)> notify(String characteristicUuid) =>
       _channel(characteristicUuid).stream;
 
+  /// Whether anything is still listening to [characteristicUuid]'s stream.
+  /// Test-only: the way to prove a multi-channel adapter actually cancels
+  /// every upstream subscription it opened, not just the one it names in its
+  /// own `finally`.
+  bool isListening(String characteristicUuid) =>
+      _channels[characteristicUuid]?.hasListener ?? false;
+
   /// What [read] answers, by characteristic uuid. A test sets this before
   /// exercising the adapter; an uuid with no entry answers null, same as a
   /// real link's missing-characteristic case.

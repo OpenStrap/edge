@@ -21,6 +21,7 @@ import 'package:openstrap_edge/ble/adapters/id115.dart';
 import 'package:openstrap_edge/ble/adapters/jyou.dart';
 import 'package:openstrap_edge/ble/adapters/lefun.dart';
 import 'package:openstrap_edge/ble/adapters/makibeshr3.dart';
+import 'package:openstrap_edge/ble/adapters/miband234.dart';
 import 'package:openstrap_edge/ble/adapters/o2ring.dart';
 import 'package:openstrap_edge/ble/adapters/oura.dart';
 import 'package:openstrap_edge/ble/adapters/pebble.dart';
@@ -45,6 +46,7 @@ void main() {
       'gen5': kWhoopGen4Signals,
       'ble_hrs': const BleHrsAdapter().signals,
       'oura': OuraAdapter(key: const [0]).signals,
+      'miband234': MiBand234Adapter(key: const [0]).signals,
       'pebble': kPebbleAdapter.signals,
       'makibeshr3': const MakibesHr3Adapter().signals,
       'id115': const Id115Adapter().signals,

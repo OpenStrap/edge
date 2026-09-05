@@ -54,6 +54,7 @@ import '../../ble/adapters/_registry.dart'
         kHPlus,
         kLefun,
         kMakibesHr3,
+        kMiBand234,
         kNo1Band,
         kOura,
         kO2Ring,
@@ -78,6 +79,7 @@ import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/id115_link.dart' show Id115Link;
 import '../../ble/jyou_link.dart' show JyouLink;
 import '../../ble/makibeshr3_link.dart' show MakibesHr3Link;
+import '../../ble/miband_link.dart' show MiBand234Link, pairMiBand234;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/pebble_link.dart' show PebbleLink;
 import '../../ble/smaq2oss_link.dart' show Smaq2ossLink;
@@ -823,6 +825,7 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'hplus' ||
       'id115' ||
       'makibeshr3' ||
+      'miband234' ||
       'pebble' ||
       'pinetime' ||
       'qhybrid' ||
@@ -1012,6 +1015,14 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kMiBand234,
+    blurb: 'A Mi Band 2, 3 or 4. It must have no key installed yet — one '
+        'still bound to Mi Fit or Zepp will refuse to pair. Unpair it from '
+        'that app first, or use a factory-reset unit. Pairs and connects; '
+        'nothing derives from it yet.',
+    pick: pairMiBand234,
   ),
   (
     entry: kPebble,
@@ -1724,6 +1735,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // WHOOP from a chest strap's page.
       onSync: switch (s.family) {
         'oura' || 'ringconn' || 'o2ring' => () => _syncRing(c, s.family),
+        'miband234' => () => _syncMiband(c),
         'dafit' => () => _syncDafitWatch(c),
         'zetime' => () => _syncZeTime(c),
         'wearfit' => () => _syncSensor(c, WearFitLink.instance.sync),
@@ -1776,6 +1788,25 @@ Future<void> _syncRing(BuildContext c, String? family) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Drain the Mi Band, now, because the user asked. Same shape as
+/// [_syncRing]: a bounded-window snapshot (no cursor, see
+/// `MiBand234Link`'s own header), so "synced" here means "connected and
+/// collected what the window allowed", not "drained everything".
+Future<void> _syncMiband(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await MiBand234Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the band. It has to be nearby, and not '
+            'connected to another app.'),
   ));
 }
 
