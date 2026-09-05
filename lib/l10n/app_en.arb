@@ -763,6 +763,14 @@
   "@devicesCouldNotReachRing": {
     "description": "Snackbar: sync failed."
   },
+  "devicesConnectingWatch": "Connecting…",
+  "@devicesConnectingWatch": {
+    "description": "Snackbar: connecting to the watch."
+  },
+  "devicesCouldNotReachWatch": "Could not reach the watch. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachWatch": {
+    "description": "Snackbar: sync failed."
+  },
   "deviceFilterAllDevices": "All devices",
   "@deviceFilterAllDevices": {
     "description": "First pill in a metric screen's per-device filter — the merged view."
@@ -998,6 +1006,10 @@
   "devicePickerBlurbSensor": "A chest strap or armband, for beat timing during a workout.",
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
+  },
+  "devicePickerBlurbColmi": "A Colmi ring. Pairs and banks its history; nothing is decoded into a number yet.",
+  "@devicePickerBlurbColmi": {
+    "description": "Category row subtitle for a Colmi smart ring."
   },
   "devicePickerCannotPairFromHere": "That device cannot be paired from this screen.",
   "@devicePickerCannotPairFromHere": {

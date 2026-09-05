@@ -65,7 +65,11 @@ import 'ble_state.dart'
         withScanLock,
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
+import 'colmi_link.dart' show ColmiLink;
+import 'hplus_link.dart' show HPlusLink;
+import 'lefun_link.dart' show LefunLink;
 import 'oura_link.dart' show OuraLink;
+import 'qhybrid_link.dart' show QHybridLink;
 import 'ringconn_link.dart' show RingConnLink;
 
 export 'adapters/host.dart' show HrsReading;
@@ -314,11 +318,31 @@ class HrsLink {
     // full, and the rest is in a scan response that has not landed yet). A
     // fallback returned from in here was indistinguishable from a real match,
     // so the caller cached a guess and never looked again.
-    String? entryIdFor(List<Guid> advertised) {
+    // [lowercaseName] is the belt-and-suspenders fallback: `BandEntry
+    // .nameMatcher` is the same per-entry escape hatch `transport.dart` uses
+    // for a framed band whose advertisement carries its name but not a
+    // matchable service UUID. It cannot rescue a device the OS-level
+    // `withServices` filter below already excluded from the scan entirely —
+    // only a real scan against real hardware settles whether that filter
+    // ever does.
+    // Split from the genuine service match on purpose: a name match is the
+    // same kind of guess the comment above already warns about, and caching
+    // it into `confirmed` would make it permanent the same way. Only
+    // [serviceMatchFor] is safe to lock in — a peripheral's GATT identity
+    // does not change mid-scan, but its advertised name matching a pattern
+    // is not proof of anything and gets re-tried every advertisement instead.
+    String? serviceMatchFor(List<Guid> advertised) {
       for (final g in advertised) {
         for (final e in entries) {
           if (g == Guid(e.service)) return e.id;
         }
+      }
+      return null;
+    }
+
+    String? nameMatchFor(String lowercaseName) {
+      for (final e in entries) {
+        if (e.nameMatcher?.call(lowercaseName) ?? false) return e.id;
       }
       return null;
     }
@@ -350,8 +374,14 @@ class HrsLink {
         // Re-attempted on EVERY advertisement until one confirms, then fixed:
         // a confirmed match cannot change (a peripheral does not swap GATT
         // identity mid-scan) and re-reading it would only add work.
-        final match = confirmed[id] ?? entryIdFor(r.advertisementData.serviceUuids);
-        if (match != null) confirmed[id] = match;
+        final svcMatch = serviceMatchFor(r.advertisementData.serviceUuids);
+        if (svcMatch != null) confirmed[id] = svcMatch;
+        final match = confirmed[id] ??
+            svcMatch ??
+            nameMatchFor((r.advertisementData.advName.isNotEmpty
+                    ? r.advertisementData.advName
+                    : r.device.platformName)
+                .toLowerCase());
         final now = (
           device: r.device,
           label: label,
@@ -498,17 +528,27 @@ class HrsLink {
   /// that DOES need a key exchange supplies its own step to the screen and
   /// never calls this.
   ///
-  /// [tier] defaults to [BandEntry.pairTier] — the registry entry's OWN
-  /// answer to "what is this band's measurement quality", so a caller that
-  /// omits it can never silently inherit some OTHER band's tier the way a
-  /// hardcoded literal default would the moment a second `pick: null` band
-  /// existed (see that field's own doc). Passing it explicitly still wins,
-  /// for the one caller that genuinely needs to say something different from
-  /// the registry's default.
+  /// [tier] defaults to null and is only worth passing explicitly when a
+  /// caller knows better than the entry's own declared signals. Left null, it
+  /// is derived from [declaredSignals]: `'beatToBeat'` for a strap that
+  /// actually declares one (today, only [kBleHrs]), null for anything that
+  /// declares none — same "NULL is a refusal, not a default" rule
+  /// `oura_link.dart` states for its own row. A band whose measurement
+  /// quality differs from that must say so rather than inherit it — the tier
+  /// is what decides precedence between two sources, so a wrong one is a
+  /// silent wrong number.
   ///
   /// Nothing is written unless the peripheral passed the characteristic check:
   /// a row pointing at a device that cannot answer is a sensor that appears
   /// paired and never produces a beat.
+  ///
+  /// Pulled out of [pairNotifySensor] so the derivation itself — the part a
+  /// future adapter can get wrong — is reachable by a test that has no
+  /// `BluetoothDevice` to connect.
+  @visibleForTesting
+  static String? deriveTier(String? explicit, String adapterId) =>
+      explicit ?? (declaredSignals(adapterId).isEmpty ? null : 'beatToBeat');
+
   static Future<String?> pairNotifySensor(
     BandEntry entry,
     BluetoothDevice device, {
@@ -543,7 +583,7 @@ class HrsLink {
         adapterId: entry.id,
         remoteId: device.remoteId.str,
         label: label,
-        tier: tier ?? entry.pairTier,
+        tier: deriveTier(tier, entry.id),
       );
       return null;
     } catch (e) {
@@ -578,6 +618,11 @@ class HrsLink {
   /// row carries no such secret, but still needs [RingConnLink.forgetRing]
   /// rather than this class's own `disarm()` — that call tears down a live
   /// WORKOUT sensor session, not a RingConn `sync()` that may be mid-drain.
+  /// An HPlus row similarly has no secret, but its live connection is
+  /// [HPlusLink.instance], a separate singleton from this class's own
+  /// chest-strap session — `disarm()` here would tear down the wrong link and
+  /// leave the real one (and its `BandHost`'s flush timer) running against a
+  /// deleted device id.
   static Future<void> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[hrs] refusing to forget the primary band from here.');
@@ -594,9 +639,46 @@ class HrsLink {
       await RingConnLink.forgetRing(id);
       return;
     }
+    if (row?['adapter_id'] == kLefun.id) {
+      // No secret to drop — the envelope this device speaks has no key
+      // exchange — so this is a plain stop-and-delete, same shape as Oura's
+      // forget minus the keychain half. GATED ON THE LIVE SESSION ACTUALLY
+      // BEING THIS ROW: `LefunLink` is a singleton over potentially several
+      // paired rows, so stopping it unconditionally would drop a DIFFERENT
+      // Lefun device's in-flight sync if one happened to be live when this
+      // one was forgotten.
+      if (LefunLink.instance.currentDeviceId == id) {
+        await LefunLink.instance.stop();
+      }
+      await LocalDb.deleteDevice(id);
+      return;
+    }
+    if (row?['adapter_id'] == kHPlus.id) {
+      // HPlusLink.instance owns this band's live connection, not HrsLink's
+      // own chest-strap session — stopping the wrong one would leave the
+      // real link (and its BandHost's flush timer) running against a
+      // device_id that no longer exists.
+      await HPlusLink.instance.stop();
+      await LocalDb.deleteDevice(id);
+      return;
+    }
+    if (row?['adapter_id'] == kQHybrid.id) {
+      await QHybridLink.forget(id);
+      return;
+    }
+    if (row?['adapter_id'] == kColmi.id) {
+      await ColmiLink.forgetRing(id);
+      return;
+    }
     // Before the row goes, not after: a live session would keep writing rows
-    // under an id nothing can explain any more.
-    await instance.disarm();
+    // under an id nothing can explain any more. GATED ON THE ROW BEING THE
+    // ARMED HRS SENSOR, not called unconditionally — this fallback used to run
+    // for ANY adapter without its own branch above, which would tear down a
+    // live chest-strap session while forgetting an unrelated device (e.g. a
+    // Lefun ring paired alongside one).
+    if (row?['adapter_id'] == kBleHrsAdapter.id) {
+      await instance.disarm();
+    }
     await LocalDb.deleteDevice(id);
   }
 
