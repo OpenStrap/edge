@@ -141,6 +141,19 @@ dependencies:
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
       #
+      # REPIN (this branch): protocol PR #47 head @ d8a1685 — a PR-branch
+      # head, not a main merge commit, because this is the branch that needs
+      # what #47 adds and #47 has not merged yet. Pure addition on top of
+      # 471034c (only lib/src/zetime.dart, openstrap_protocol.dart's export,
+      # and a test file changed — no existing file touched), so it carries no
+      # risk to any other adapter. Adds `parseZeTimeFrame`,
+      # `zetimeBatteryLevel`, `zetimeRequestFrame`, `kZeTimeCmdBattery`,
+      # `kZeTimeAckToken` for the ZeTime command envelope + battery decode.
+      #
+      # NO kAlgoVersion bump: ZeTime carries no derivable signal
+      # (`ZeTimeAdapter.signals` is `const {}`), so nothing here feeds the
+      # derivation pipeline.
+      #
       # REPIN (this branch): protocol `feat/wearfit-howear-protocol` @ 1cf8e61,
       # one commit ahead of #42 (471034c). Carries the wearfit/howear frame
       # codec (parseWearFitFrame/wearFitCmdGetBattery/parseWearFitBattery)
@@ -164,6 +177,13 @@ dependencies:
       # wearfit-howear and PR#48 ringconn both folded in), so the ref moves
       # to that tip rather than either single-device SHA — this is both
       # repins standing, not a choice between them.
+      #
+      # MERGE (main → this branch, 2nd hop): this branch's own PR#47 head
+      # (d8a1685, ZeTime) is ALSO already an ancestor of this same tip —
+      # verified via `git merge-base --is-ancestor d8a1685… origin/main` on
+      # protocol, true — protocol's PR#47 merged as b8430e4 before #48/#50
+      # landed. So `fe1464d` carries ZeTime, wearfit and ringconn together;
+      # nothing from this branch's own repin is lost by moving to it.
       ref: fe1464db98b84ac4d3ce6175d54ada11356d6c62
   openstrap_analytics:
     git:

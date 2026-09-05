@@ -121,6 +121,29 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// MyKronoz ZeTime's base command service. A second service two digits up
+/// (`00007006-…`) carries one more characteristic this project does not use —
+/// the four here are the whole of what a device-fact probe needs.
+const String kZeTimeService = '00006006-0000-1000-8000-00805f9b34fb';
+
+/// Host to watch. Every command frame is written here.
+const String kZeTimeWriteChar = '00008001-0000-1000-8000-00805f9b34fb';
+
+/// Written with the fixed token `kZeTimeAckToken` after every write to
+/// [kZeTimeWriteChar] — the watch's own acknowledgement handshake, not a
+/// second command channel.
+const String kZeTimeAckChar = '00008002-0000-1000-8000-00805f9b34fb';
+
+/// Watch to host, synchronous command replies. Not read by this build — every
+/// reply it wants arrives on [kZeTimeNotifyChar] instead — but still in
+/// [kZeTime]'s required-characteristic set: a watch missing it is not
+/// considered paired.
+const String kZeTimeReplyChar = '00008003-0000-1000-8000-00805f9b34fb';
+
+/// Watch to host, asynchronous notifications. Every reply this build decodes
+/// arrives here.
+const String kZeTimeNotifyChar = '00008004-0000-1000-8000-00805f9b34fb';
+
 /// The service a WearFit-family band advertises for discovery. It carries no
 /// characteristics of its own — the write/notify pair below live on a
 /// separate, otherwise-generic Nordic UART Service the band exposes once
@@ -574,6 +597,33 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// MyKronoz ZeTime. A framed command/reply protocol — preamble, command,
+/// action, length, payload, end marker — but not a WHOOP-shaped one: four
+/// characteristics under one service and no CRC, which is exactly what
+/// [BandEntry.notify] is for (see the header note on why [BandEntry.framed]'s
+/// [GattProfile]/[BandProfile] cannot express this).
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so not
+/// a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is empty
+/// and `kAdapterSignals` below carries no entry with anything in it — this
+/// band may pair, connect and bank raw bytes; it decodes a battery level as a
+/// device fact and nothing else.
+const BandEntry kZeTime = BandEntry.notify(
+  id: 'zetime',
+  label: 'MyKronoz ZeTime',
+  service: kZeTimeService,
+  characteristics: <String>[
+    kZeTimeWriteChar,
+    kZeTimeAckChar,
+    kZeTimeReplyChar,
+    kZeTimeNotifyChar,
+  ],
+  // No clock decoded here (see `zetime.dart`'s own doc on what this file
+  // deliberately does not touch), so the conservative half of a two-clock
+  // situation — same call Oura's entry makes for the same reason.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// A Howear-branded band (HK8 Ultra, HK8 Pro Max and the like), paired
 /// through the WearFit / WearFit 2.0 / WearFit Pro companion app family.
 ///
@@ -839,6 +889,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kZeTime,
   kWearFit,
   kRingConn,
   kDt78,
@@ -877,11 +928,12 @@ BandEntry bandEntryFor(BandProfile wire) =>
 /// maps straight to the declared signals instead of a constructed instance —
 /// KEPT IN SYNC BY HAND with `whoop_gen4.dart`'s `kWhoopGen4Signals`,
 /// `ble_hrs.dart`'s `BleHrsAdapter.signals`, `oura.dart`'s
-/// `OuraAdapter.signals`, `ringconn.dart`'s `RingConnAdapter.signals`,
-/// `dt78.dart`'s `Dt78Adapter.signals` and `pinetime.dart`'s
-/// `PineTimeAdapter.signals`, since importing those back into this file (each
-/// of which already imports THIS file for its `BandEntry`) would be a
-/// needless import cycle for a handful of lines of data.
+/// `OuraAdapter.signals`, `zetime.dart`'s `ZeTimeAdapter.signals`,
+/// `ringconn.dart`'s `RingConnAdapter.signals`, `dt78.dart`'s
+/// `Dt78Adapter.signals` and `pinetime.dart`'s `PineTimeAdapter.signals`,
+/// since importing those back into this file (each of which already imports
+/// THIS file for its `BandEntry`) would be a needless import cycle for a
+/// handful of lines of data.
 ///
 /// gen5 reuses gen4's map: `kWhoopGen5`'s own doc comment states "same inner
 /// payload layout as gen4 — only the envelope differs", so gen4's declared
@@ -907,6 +959,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'zetime': <InputSignal, Duration>{},
   'wearfit': <InputSignal, Duration>{},
   'ringconn': <InputSignal, Duration>{},
   'dt78': <InputSignal, Duration>{},

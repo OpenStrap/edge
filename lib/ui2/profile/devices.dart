@@ -58,6 +58,7 @@ import '../../ble/adapters/_registry.dart'
         kPineTime,
         kQHybrid,
         kWearFit,
+        kZeTime,
         declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/casio_link.dart' show CasioLink;
@@ -71,6 +72,7 @@ import '../../ble/pinetime_link.dart' show PineTimeLink;
 import '../../ble/qhybrid_link.dart' show QHybridLink, pairQHybrid;
 import '../../ble/ringconn_link.dart' show RingConnLink;
 import '../../ble/wearfit_link.dart' show WearFitLink;
+import '../../ble/zetime_link.dart' show ZeTimeLink, pairZeTime;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -803,7 +805,8 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'qhybrid' ||
       'casio' ||
       'jyou' ||
-      'wearfit' =>
+      'wearfit' ||
+      'zetime' =>
         LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
@@ -982,6 +985,13 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kZeTime,
+    blurb: 'Pairs and connects. Nothing is decoded from it yet beyond its own '
+        'battery level — no one on this project has held one to confirm what '
+        'its other data means.',
+    pick: pairZeTime,
   ),
   (
     entry: kWearFit,
@@ -1609,6 +1619,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // WHOOP from a chest strap's page.
       onSync: switch (s.family) {
         'oura' || 'ringconn' => () => _syncRing(c, s.family),
+        'zetime' => () => _syncZeTime(c),
         'wearfit' => () => _syncSensor(c, WearFitLink.instance.sync),
         'dt78' => () => _syncDt78(c),
         'hplus' => () => _syncHPlus(c),
@@ -1646,6 +1657,26 @@ Future<void> _syncRing(BuildContext c, String? family) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Connect to the ZeTime, ask its battery level, disconnect — the whole of
+/// what this band does today. Same "say something either way" reasoning as
+/// [_syncRing]: a silent no-op looks identical to a watch with nothing to
+/// give, and those need different remedies.
+Future<void> _syncZeTime(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(SnackBar(
+      content: Text(l?.devicesConnectingZeTime ?? 'Connecting…')));
+  final ok = await ZeTimeLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesConnectedZeTime ?? 'Connected.')
+        : (l?.devicesCouldNotReachZeTime ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
   ));
 }
 
