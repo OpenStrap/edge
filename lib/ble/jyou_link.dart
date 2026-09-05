@@ -80,6 +80,11 @@ class JyouLink {
   /// signal.
   static const Duration _listenWindow = Duration(seconds: 20);
 
+  /// Bounds `discoverServices()` — an unbound wait there would hold the
+  /// secondary-link slot (and `_busy`) forever if the BLE stack wedges.
+  /// Same bound `ble_engine.dart` uses for the primary band's own connect.
+  static const Duration _serviceDiscoveryTimeout = Duration(seconds: 15);
+
   /// Connect, listen for [_listenWindow], disconnect.
   ///
   /// Returns false when nothing is paired or the connect failed. Never
@@ -116,7 +121,9 @@ class JyouLink {
           final device = BluetoothDevice.fromId(remoteId);
           await device.connect(timeout: const Duration(seconds: 20));
           try {
-            final services = await device.discoverServices();
+            final services = await device
+                .discoverServices()
+                .timeout(_serviceDiscoveryTimeout);
             final link = GattBandLink(
               entry: kJyou,
               services: services,
