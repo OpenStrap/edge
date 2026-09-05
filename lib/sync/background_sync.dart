@@ -21,8 +21,18 @@ import '../ble/adapters/_registry.dart' show kWhoopGen4;
 import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
+import '../ble/casio_link.dart';
+import '../ble/colmi_link.dart';
 import '../ble/dafit_link.dart';
+import '../ble/jyou_link.dart';
+import '../ble/lefun_link.dart';
 import '../ble/oura_link.dart';
+import '../ble/o2ring_link.dart';
+import '../ble/pinetime_link.dart';
+import '../ble/qhybrid_link.dart';
+import '../ble/ringconn_link.dart';
+import '../ble/wearfit_link.dart';
+import '../ble/zetime_link.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
@@ -214,12 +224,13 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       '(${BandOwnership.debugState})',
     );
     BandOwnership.release(ownedLease);
-    // Piggyback the ring on the same OS wake window, after the band work is
-    // fully done so it can never delay or interfere with WHOOP's own timing.
-    // OuraLink.sync() already no-ops when nothing is paired and never throws,
-    // but this is the one shared headless entry point (every wake source
-    // funnels through runHeadlessSync via HeadlessSyncGate) so a failure here
-    // must not be allowed to escape and mark the WHOOP cycle as errored.
+    // Piggyback paired sensors on the same OS wake window, after the band
+    // work is fully done so neither can ever delay or interfere with WHOOP's
+    // own timing. Both `sync()` calls already no-op when nothing is paired
+    // and never throw, but this is the one shared headless entry point (every
+    // wake source funnels through runHeadlessSync via HeadlessSyncGate) so a
+    // failure in either must not be allowed to escape and mark the WHOOP
+    // cycle as errored.
     try {
       await OuraLink.instance.sync();
     } catch (e) {
@@ -232,6 +243,86 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await DafitLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] dafit sync skipped: $e');
+    }
+    // Same reasoning as the Oura piggyback just above: no-ops when nothing is
+    // paired, never allowed to mark the WHOOP cycle as errored.
+    try {
+      await O2RingLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] o2ring sync skipped: $e');
+    }
+    // Same piggyback, same reasoning, for the ZeTime: one-shot notify-class
+    // link, no-ops when nothing is paired, must never mark the WHOOP cycle
+    // errored.
+    try {
+      await ZeTimeLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] zetime sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: WearFitLink.sync() no-ops when nothing
+    // is paired and never throws, so a failure here must not escape and mark
+    // the WHOOP cycle as errored either.
+    try {
+      await WearFitLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] wearfit sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: RingConnLink.sync() no-ops when nothing
+    // is paired and never throws, but this is still the one shared headless
+    // entry point, so a failure here must not escape and mark the WHOOP
+    // cycle as errored either.
+    try {
+      await RingConnLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] ringconn sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: LefunLink.sync() no-ops when nothing is
+    // paired and never throws, but this is still the one shared headless
+    // entry point, so a failure here must not escape and mark the WHOOP
+    // cycle as errored either.
+    try {
+      await LefunLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] lefun sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: PineTimeLink.sync() no-ops when
+    // nothing is paired and never throws, but the shared entry point must
+    // never let it escape and mark the WHOOP cycle as errored.
+    try {
+      await PineTimeLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] pinetime sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: QHybridLink.sync() no-ops when nothing
+    // is paired and never throws, but this is the one shared headless entry
+    // point, so a failure here must not escape either.
+    try {
+      await QHybridLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] qhybrid sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: no-ops when unpaired, must never let a
+    // failure here mark the WHOOP cycle as errored.
+    try {
+      await ColmiLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] colmi sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: CasioLink.sync() already no-ops when
+    // nothing is paired and never throws, but a failure here still must not
+    // escape and mark the WHOOP cycle as errored.
+    try {
+      await CasioLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] casio sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: JyouLink.sync() already no-ops when
+    // nothing is paired and never throws, but a failure here still must not
+    // escape and mark the WHOOP cycle as errored.
+    try {
+      await JyouLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] jyou sync skipped: $e');
     }
   }
 }
