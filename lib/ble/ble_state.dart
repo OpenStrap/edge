@@ -1858,8 +1858,9 @@ class WriteChain {
 /// safe-trim invariant depends on (commit-then-ACK, flash trim), and making it wait
 /// behind a chest strap would turn a sensor's 12 s connect timeout into a delayed
 /// band sync — which is exactly the regression this milestone must not ship. With
-/// today's two pairable sensor kinds (kBleHrs, kOura) the cap is never reached, so
-/// this is a guard for the N-device future, not a change in behaviour.
+/// today's pairable sensor kinds run at most two connected at once in
+/// practice (a strap plus a ring, say), the cap is rarely reached, so this
+/// is mostly a guard for the N-device future, not a change in behaviour.
 const int kMaxConcurrentSecondaryLinks = 2;
 
 int _secondaryLinksInUse = 0;

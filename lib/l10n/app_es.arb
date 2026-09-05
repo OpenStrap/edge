@@ -165,6 +165,7 @@
   "devicesSyncingTheRing": "Sincronizando el anillo…",
   "devicesSynced": "Sincronizado.",
   "devicesCouldNotReachRing": "No se pudo contactar con el anillo. Debe estar cerca y no conectado a otra app.",
+  "devicesCouldNotReachWatch": "No se pudo contactar con el reloj. Debe estar cerca y no conectado a otra app.",
   "devicesForgetSensor": "¿Olvidar {name}?",
   "devicesForgetSensorBody": "Deja de usarse durante los entrenamientos y hay que emparejarlo de nuevo. Todo lo ya guardado en este teléfono se conserva: esto elimina la fuente, no los datos.",
   "devicesKeepItPaired": "Mantenerlo emparejado",

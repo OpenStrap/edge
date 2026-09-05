@@ -43,8 +43,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/_registry.dart'
-    show BandEntry, kBandRegistry, kBleHrs, kOura, declaredSignals;
+    show BandEntry, kBandRegistry, kBleHrs, kOura, kCasio, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
+import '../../ble/casio_link.dart' show CasioLink;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
@@ -773,6 +774,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' => LucideIcons.circleDot,
+      'casio' => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -950,6 +952,14 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kCasio,
+    blurb: 'GBX100, GW-B5600, GMW-B5000, ECB-S100 and current Casio '
+        'smartwatches. Pairs and connects; nothing derives from it yet.',
+    // Null means the plain notify-class pairing — standard BLE bonding is
+    // the whole of what this watch needs.
+    pick: null,
   ),
 ];
 
@@ -1475,7 +1485,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: s.family == 'oura'
+          ? () => _syncRing(c)
+          : s.family == 'casio'
+              ? () => _syncCasio(c, s.deviceId)
+              : null,
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1501,6 +1515,26 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Same shape as [_syncRing] — a separate family behind a separate link, same
+/// reason a sync that did nothing needs to say so. [deviceId] is this row's
+/// own id: two Casio watches can be paired at once, and without it this
+/// always synced whichever one `CasioLink.pairedRow()` happened to see first.
+Future<void> _syncCasio(BuildContext c, String? deviceId) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await CasioLink.instance.sync(deviceId: deviceId);
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachWatch ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
   ));
 }
 

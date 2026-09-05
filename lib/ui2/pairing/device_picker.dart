@@ -270,6 +270,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      // 'casio' takes no special case here, same as every other notify-class
+      // sensor (watch9, xwatch, …): the generic sensor blurb below already
+      // fits, and it is the one that is actually localized.
       _ => l?.devicePickerBlurbSensor ??
           'A chest strap or armband, for beat timing during a workout.',
     };
