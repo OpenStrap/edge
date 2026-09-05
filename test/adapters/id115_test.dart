@@ -89,4 +89,27 @@ void main() {
     final events = await replay(normal: [(1_800_000_000, kNormalFrame)]);
     expect(events.whereType<OffloadCheckpoint>(), isEmpty);
   });
+
+  test(
+      'a health-channel frame arriving after the general channel ends '
+      'does not throw', () async {
+    final link = ReplayBandLink();
+    final errors = <Object>[];
+    final done = Completer<void>();
+    final sub = kId115Adapter.run(link).listen(
+          (_) {},
+          onError: errors.add,
+          onDone: done.complete,
+        );
+    await Future<void>.delayed(Duration.zero);
+    // The general channel ends first — this alone used to close the shared
+    // controller while the health channel was still open.
+    await link.closeChannel(kId115NotifyNormalChar);
+    // A frame still in flight on the health channel, after that closure.
+    link.feed(kId115NotifyHealthChar, kHealthFrame, atSec: 1_800_000_000);
+    await link.closeChannel(kId115NotifyHealthChar);
+    await done.future;
+    await sub.cancel();
+    expect(errors, isEmpty);
+  });
 }

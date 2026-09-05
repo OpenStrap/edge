@@ -46,13 +46,24 @@ class Id115Adapter extends BandAdapter {
     // ordering between the channels is not meaningful here — nothing this
     // file does depends on which channel a given frame arrived on.
     final frames = StreamController<Uint8List>();
+    // Either subscription closing (its channel ending, or an error) closes
+    // the shared controller — so the OTHER channel can still have a frame
+    // in flight afterwards. Guarded, not just `.add()`: an unguarded add on
+    // an already-closed controller throws `StateError` synchronously inside
+    // this data callback, with no `onError` above it to catch it.
+    void addFrame(Uint8List b) {
+      if (!frames.isClosed) frames.add(b);
+    }
+
     final normalSub = link.notify(kId115NotifyNormalChar).listen(
-          (rec) => frames.add(Uint8List.fromList(rec.$2)),
+          (rec) => addFrame(Uint8List.fromList(rec.$2)),
           onDone: frames.close,
           onError: (Object _) => frames.close(),
         );
     final healthSub = link.notify(kId115NotifyHealthChar).listen(
-          (rec) => frames.add(Uint8List.fromList(rec.$2)),
+          (rec) => addFrame(Uint8List.fromList(rec.$2)),
+          onDone: frames.close,
+          onError: (Object _) => frames.close(),
         );
     try {
       await for (final bytes in frames.stream) {
