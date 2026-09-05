@@ -763,6 +763,34 @@
   "@devicesCouldNotReachRing": {
     "description": "Snackbar: sync failed."
   },
+  "devicesConnectingZeTime": "Connecting…",
+  "@devicesConnectingZeTime": {
+    "description": "Snackbar: connecting to the ZeTime."
+  },
+  "devicesConnectedZeTime": "Connected.",
+  "@devicesConnectedZeTime": {
+    "description": "Snackbar: ZeTime connect succeeded."
+  },
+  "devicesCouldNotReachZeTime": "Could not reach the watch. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachZeTime": {
+    "description": "Snackbar: ZeTime connect failed."
+  },
+  "devicesSyncingTheSensor": "Syncing the sensor…",
+  "@devicesSyncingTheSensor": {
+    "description": "Snackbar: syncing a paired non-ring sensor (e.g. WearFit)."
+  },
+  "devicesCouldNotReachSensor": "Could not reach the sensor. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachSensor": {
+    "description": "Snackbar: sensor sync failed."
+  },
+  "devicesConnectingWatch": "Connecting…",
+  "@devicesConnectingWatch": {
+    "description": "Snackbar: connecting to the watch."
+  },
+  "devicesCouldNotReachWatch": "Could not reach the watch. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachWatch": {
+    "description": "Snackbar: sync failed."
+  },
   "deviceFilterAllDevices": "All devices",
   "@deviceFilterAllDevices": {
     "description": "First pill in a metric screen's per-device filter — the merged view."
@@ -873,7 +901,11 @@
   },
   "devicesSyncNowSub": "Fetch whatever it has been holding",
   "@devicesSyncNowSub": {
-    "description": "Row sub: manual sync."
+    "description": "Row sub: manual sync, for a sensor that fetches held history off a cursor (e.g. Oura)."
+  },
+  "devicesSyncNowSubListen": "Listen for whatever it sends right now",
+  "@devicesSyncNowSubListen": {
+    "description": "Row sub: manual sync, for a sensor that only opens a bounded listen window with no history fetch."
   },
   "devicesName": "Name",
   "@devicesName": {
@@ -995,6 +1027,14 @@
   "@devicePickerBlurbRing": {
     "description": "Category row subtitle for the Oura ring."
   },
+  "devicePickerBlurbO2Ring": "Reads its battery, model and serial. No reading from the ring itself is decoded yet.",
+  "@devicePickerBlurbO2Ring": {
+    "description": "Category row subtitle for the Wellue O2Ring."
+  },
+  "devicePickerBlurbWearFit": "A Howear-branded band, paired through the WearFit app family.",
+  "@devicePickerBlurbWearFit": {
+    "description": "Category row subtitle for a WearFit-family band."
+  },
   "devicePickerBlurbSensor": "A chest strap or armband, for beat timing during a workout.",
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
@@ -1002,6 +1042,14 @@
   "devicePickerBlurbMiband234": "A Mi Band 2, 3 or 4. Pairs and connects; nothing derives from it yet.",
   "@devicePickerBlurbMiband234": {
     "description": "Category row subtitle for a Mi Band 2/3/4."
+  },
+  "devicePickerBlurbZeTime": "Pairs and connects. Nothing is decoded from it yet beyond its own battery level.",
+  "@devicePickerBlurbZeTime": {
+    "description": "Category row subtitle for the MyKronoz ZeTime."
+  },
+  "devicePickerBlurbColmi": "A Colmi ring. Pairs and banks its history; nothing is decoded into a number yet.",
+  "@devicePickerBlurbColmi": {
+    "description": "Category row subtitle for a Colmi smart ring."
   },
   "devicePickerCannotPairFromHere": "That device cannot be paired from this screen.",
   "@devicePickerCannotPairFromHere": {
