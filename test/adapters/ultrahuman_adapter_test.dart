@@ -250,6 +250,39 @@ void main() {
     expect(events.whereType<OffloadCheckpoint>(), isEmpty);
   });
 
+  test('a fail frame after good ones banks the good records instead of '
+      'discarding them', () async {
+    final (events, link) = await _drive(_adapter(), (i, v) {
+      if (v.first == kUltrahumanOpGetEarliestIndex) {
+        return _index(kUltrahumanOpGetEarliestIndex, 0);
+      }
+      if (v.first == kUltrahumanOpGetLatestIndex) {
+        return _index(kUltrahumanOpGetLatestIndex, 9);
+      }
+      if (v.first == kUltrahumanOpGetRecordings) {
+        return [
+          // A full (7-record) ok frame, then a fail — not the first frame.
+          _response(kUltrahumanOpGetRecordings, kUltrahumanResultOk,
+              [for (var n = 0; n < 7; n++) ..._record(tsA: n)]),
+          _response(kUltrahumanOpGetRecordings, kUltrahumanResultFail, const []),
+        ];
+      }
+      return const [];
+    });
+    final batches = events.whereType<SampleBatch>().toList();
+    expect(batches, hasLength(1),
+        reason: 'the 7 good records from frame 0 must not be discarded');
+    expect(batches.first.raw, hasLength(7));
+    expect(
+        events.whereType<BandNote>().firstWhere((n) => n.key == 'ultrahuman_cursor').value,
+        7,
+        reason: 'the cursor must advance past the banked records so a retry '
+            'does not re-request them');
+    // The failure still ends the drain — only one pull is ever sent.
+    expect(link.writes.where((w) => w.$2.first == kUltrahumanOpGetRecordings),
+        hasLength(1));
+  });
+
   test('an unconfirmed batch leaves the cursor where it was', () async {
     final (events, link) = await _drive(
       _adapter(),

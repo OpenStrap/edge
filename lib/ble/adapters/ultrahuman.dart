@@ -143,12 +143,12 @@ class UltrahumanAdapter extends BandAdapter {
           yield BandNote('battery', pendingBatteryPct);
           pendingBatteryPct = null;
         }
-        if (got.aborted) {
-          link.log('ultrahuman: the ring reported a failure; ending the '
-              'drain.');
-          return;
-        }
         if (got.records.isEmpty) {
+          if (got.failed) {
+            link.log('ultrahuman: the ring reported a failure; ending the '
+                'drain.');
+            return;
+          }
           final remaining = latest == null ? null : latest - cursor + 1;
           if (remaining != null && remaining > 0) {
             link.log('ultrahuman: the ring answered $cursor with nothing but '
@@ -180,6 +180,16 @@ class UltrahumanAdapter extends BandAdapter {
         }
         cursor = newCursor;
         yield BandNote('ultrahuman_cursor', cursor);
+        if (got.failed) {
+          // The records already banked above are real — only the frame AFTER
+          // them failed. Advancing past them (already done, two lines up)
+          // means a retry only re-requests from the point of actual failure,
+          // instead of re-fetching and re-discarding the same good frames
+          // forever.
+          link.log('ultrahuman: the ring reported a failure after '
+              '${got.records.length} record(s) this pull; ending the drain.');
+          return;
+        }
         if (latest != null && cursor > latest) return;
       }
     } finally {
@@ -214,7 +224,14 @@ class UltrahumanAdapter extends BandAdapter {
     for (var frame = 0; frame < 1000; frame++) {
       final r = await inbox.next(kUltrahumanOpGetRecordings, replyTimeout);
       if (r == null) break; // no more frames arrived — end of this pull
-      if (r.result == kUltrahumanResultFail) return _Pull.abort();
+      // A fail frame carries no records of its own, but anything ALREADY
+      // collected from earlier ok frames this same pull is still good data —
+      // bank it (like the empty branch below) rather than discarding it, so a
+      // ring that fails partway through a pull doesn't force the drain to
+      // re-fetch and re-discard the same good frames forever.
+      if (r.result == kUltrahumanResultFail) {
+        return _Pull(records, raw, failed: true);
+      }
       if (r.result == kUltrahumanResultEmpty) break; // nothing from here on
       final frameRecords = parseUltrahumanRecords(r.payload);
       records.addAll(frameRecords);
@@ -243,12 +260,8 @@ class UltrahumanAdapter extends BandAdapter {
 class _Pull {
   final List<UltrahumanRecord> records;
   final List<Uint8List> raw;
-  final bool aborted;
-  const _Pull(this.records, this.raw) : aborted = false;
-  const _Pull.abort()
-      : records = const [],
-        raw = const [],
-        aborted = true;
+  final bool failed;
+  const _Pull(this.records, this.raw, {this.failed = false});
 }
 
 /// Response frames off the notify characteristic, buffered so a reply landing
