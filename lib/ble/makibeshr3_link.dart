@@ -14,12 +14,13 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
 import 'adapters/_registry.dart';
+import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost;
 import 'adapters/makibeshr3.dart';
@@ -85,20 +86,15 @@ class MakibesHr3Link {
       // connect — see ble_state.dart's kMaxConcurrentSecondaryLinks doc).
       return await withSecondaryLinkSlot(() async {
         final device = BluetoothDevice.fromId(remoteId);
-        try {
-          await device.connect(timeout: const Duration(seconds: 20));
-        } catch (e) {
-          // Never connected: nothing to disconnect.
-          debugPrint('[makibeshr3] connect failed: $e');
-          return false;
-        }
-        // EVERYTHING past this point runs with the radio connected, so a
+        // EVERYTHING past this point, including `connect()` itself, so a
         // `finally` — not a return inside a bare try/catch — is what
         // guarantees `stop()`/`disconnect()` on every exit, including a
-        // `discoverServices`/`GattBandLink`/`BandHost`/`host.run` throw. A
-        // caught-and-returned exception here used to skip that cleanup and
-        // leave the GATT connection open.
+        // `connect`/`discoverServices`/`GattBandLink`/`BandHost`/`host.run`
+        // throw. A `connect()` timeout can leave the platform BLE stack with
+        // connection state for this peripheral even though it never
+        // resolved; skipping the disconnect there used to strand it.
         try {
+          await device.connect(timeout: const Duration(seconds: 20));
           final services = await device.discoverServices();
           final link = GattBandLink(
             entry: kMakibesHr3,
@@ -167,5 +163,39 @@ class MakibesHr3Link {
       capturedAt: capturedAtMs,
       reason: 'makibeshr3_frame',
     );
+  }
+
+  /// Feed raw notification bytes as if a paired board with [deviceId] were
+  /// connected, and archive them. The only way in: the real entry point is a
+  /// BLE notification and `flutter_blue_plus` has no simulator path, so
+  /// without this seam nothing past `sync()`'s connect could be exercised.
+  ///
+  /// Replays through the SAME [BandHost]/[_buildArchiveRow] a real session
+  /// uses, over a [ReplayBandLink] — a seam that skipped either would prove
+  /// the wrong thing.
+  @visibleForTesting
+  Future<void> ingestForTest(
+    String deviceId,
+    List<(int, List<int>)> arrivals,
+  ) async {
+    final host = BandHost(
+      adapter: const MakibesHr3Adapter(),
+      deviceId: deviceId,
+      onLog: (m) => debugPrint('[makibeshr3] $m'),
+      buildArchive: _buildArchiveRow,
+    );
+    _host = host;
+    final link = ReplayBandLink();
+    final done = host.run(link);
+    for (final (sec, value) in arrivals) {
+      link.feed(kMakibesHr3ReportChar, value, atSec: sec);
+    }
+    // Close, then wait for `run()` to actually finish, rather than guessing
+    // at a delay: the adapter's `await for` is asynchronous and a flush
+    // racing it would silently drop the tail.
+    await link.close();
+    await done;
+    await host.stop();
+    _host = null;
   }
 }
