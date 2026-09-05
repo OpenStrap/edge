@@ -52,6 +52,7 @@ import '../../ble/adapters/_registry.dart'
         kHPlus,
         kLefun,
         kOura,
+        kO2Ring,
         kRingConn,
         kCasio,
         kDt78,
@@ -67,6 +68,7 @@ import '../../ble/dt78_link.dart' show Dt78Link;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/jyou_link.dart' show JyouLink;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/o2ring_link.dart' show O2RingLink, pairO2Ring;
 import '../../ble/hplus_link.dart' show HPlusLink;
 import '../../ble/pinetime_link.dart' show PineTimeLink;
 import '../../ble/qhybrid_link.dart' show QHybridLink, pairQHybrid;
@@ -798,7 +800,8 @@ class HealthSource {
 /// The glyph for a paired sensor. A ring is not a chest strap and the row is
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
-      'oura' || 'lefun' || 'colmi' || 'ringconn' => LucideIcons.circleDot,
+      'oura' || 'o2ring' || 'lefun' || 'colmi' || 'ringconn' =>
+        LucideIcons.circleDot,
       'dt78' ||
       'hplus' ||
       'pinetime' ||
@@ -985,6 +988,12 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kO2Ring,
+    blurb: 'Reads its battery, model and serial. No SpO2 or pulse reading '
+        'from the ring itself appears anywhere in the app yet.',
+    pick: pairO2Ring,
   ),
   (
     entry: kZeTime,
@@ -1618,7 +1627,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
       onSync: switch (s.family) {
-        'oura' || 'ringconn' => () => _syncRing(c, s.family),
+        'oura' || 'ringconn' || 'o2ring' => () => _syncRing(c, s.family),
         'zetime' => () => _syncZeTime(c),
         'wearfit' => () => _syncSensor(c, WearFitLink.instance.sync),
         'dt78' => () => _syncDt78(c),
@@ -1642,14 +1651,20 @@ class _DeviceDetailState extends State<DeviceDetail> {
 /// Drain the ring, now, because the user asked. The result is a sentence
 /// either way: a sync that silently did nothing is indistinguishable from a
 /// ring that had nothing to give, and those need different remedies.
+///
+/// [family] picks WHICH ring's link runs — a plain equality dispatch rather
+/// than a generic "ring link" interface, because there are only three of
+/// these today and a fourth makes this a `switch`, not an abstraction.
 Future<void> _syncRing(BuildContext c, String? family) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
   messenger?.showSnackBar(
       SnackBar(content: Text(l?.devicesSyncingTheRing ?? 'Syncing the ring…')));
-  final ok = family == 'ringconn'
-      ? await RingConnLink.instance.sync()
-      : await OuraLink.instance.sync();
+  final ok = switch (family) {
+    'o2ring' => await O2RingLink.instance.sync(),
+    'ringconn' => await RingConnLink.instance.sync(),
+    _ => await OuraLink.instance.sync(),
+  };
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok

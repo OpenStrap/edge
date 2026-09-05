@@ -26,6 +26,7 @@ import '../ble/colmi_link.dart';
 import '../ble/jyou_link.dart';
 import '../ble/lefun_link.dart';
 import '../ble/oura_link.dart';
+import '../ble/o2ring_link.dart';
 import '../ble/pinetime_link.dart';
 import '../ble/qhybrid_link.dart';
 import '../ble/ringconn_link.dart';
@@ -233,6 +234,13 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same reasoning as the Oura piggyback just above: no-ops when nothing is
+    // paired, never allowed to mark the WHOOP cycle as errored.
+    try {
+      await O2RingLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] o2ring sync skipped: $e');
     }
     // Same piggyback, same reasoning, for the ZeTime: one-shot notify-class
     // link, no-ops when nothing is paired, must never mark the WHOOP cycle

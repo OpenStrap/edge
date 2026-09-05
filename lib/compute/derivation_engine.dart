@@ -1727,6 +1727,18 @@ const int kAlgoVersion = 87;
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
 //
+// REPIN (this branch) @ fbda904 — protocol OpenStrap/protocol#49 head, which
+// adds the o2ring frame envelope/parser. NO kAlgoVersion bump: o2ring's
+// adapter `signals` stays `const {}` (excluded from `kDerivableSources`), so
+// nothing this pin adds is ever read by a decoder the derivation pipeline
+// calls — no stored number can change.
+//
+// MERGE (main → this branch): main's own repin below (protocol tip fe1464d)
+// already contains fbda904 as an ancestor (verified: `git merge-base
+// --is-ancestor fbda904 fe1464d` — PR#49/o2ring-protocol is folded in via the
+// `d297055` merge commit) — main's pin is strictly ahead, nothing this
+// branch's repin added is lost by taking it.
+//
 // REPIN (this branch): protocol `feat/wearfit-howear-protocol` @ 1cf8e61, one
 // commit ahead of #42 (471034c). Adds the wearfit/howear frame codec
 // (parseWearFitFrame/wearFitCmdGetBattery/parseWearFitBattery) this branch's

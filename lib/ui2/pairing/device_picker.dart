@@ -270,6 +270,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      'o2ring' => l?.devicePickerBlurbO2Ring ??
+          'Reads its battery, model and serial. No reading from the ring '
+              'itself is decoded yet.',
       'zetime' => l?.devicePickerBlurbZeTime ??
           'Pairs and connects. Nothing is decoded from it yet beyond its own '
               'battery level.',

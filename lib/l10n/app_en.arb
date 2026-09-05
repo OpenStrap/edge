@@ -1023,6 +1023,10 @@
   "@devicePickerBlurbRing": {
     "description": "Category row subtitle for the Oura ring."
   },
+  "devicePickerBlurbO2Ring": "Reads its battery, model and serial. No reading from the ring itself is decoded yet.",
+  "@devicePickerBlurbO2Ring": {
+    "description": "Category row subtitle for the Wellue O2Ring."
+  },
   "devicePickerBlurbWearFit": "A Howear-branded band, paired through the WearFit app family.",
   "@devicePickerBlurbWearFit": {
     "description": "Category row subtitle for a WearFit-family band."

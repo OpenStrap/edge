@@ -121,6 +121,15 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The Wellue O2Ring's GATT service (Viatom's pulse-oximeter ring family).
+const String kO2RingService = '14839ac4-7d7e-415c-9a42-167340cf2339';
+
+/// Host to ring. Every command is written here.
+const String kO2RingWriteChar = '8b00ace7-eb0b-49b0-bbe9-9aee0a26e1a3';
+
+/// Ring to host. Every command reply arrives here.
+const String kO2RingNotifyChar = '0734594a-a8e7-4b1a-a6b1-cd5243059a57';
+
 /// MyKronoz ZeTime's base command service. A second service two digits up
 /// (`00007006-…`) carries one more characteristic this project does not use —
 /// the four here are the whole of what a device-fact probe needs.
@@ -597,6 +606,31 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// The Wellue O2Ring, a pulse-oximeter ring with no authentication handshake
+/// at all — the whole session is a plain command/reply pair.
+///
+/// NOT framed, for the same three reasons [kOura] is not: the length field is
+/// a u16 that counts payload only, the trailing CRC is a single byte with no
+/// header/payload split the way [BandProfile] models one, and there is no
+/// inner opcode byte at a fixed offset the way a WHOOP record has one.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). See
+/// `o2ring.dart`'s own header for what is and is not implemented — the file
+/// commands that would drain a stored recording are deliberately absent,
+/// because the only public documentation for them disagrees with itself on
+/// where the reply fields land.
+const BandEntry kO2Ring = BandEntry.notify(
+  id: 'o2ring',
+  label: 'Wellue O2Ring',
+  service: kO2RingService,
+  characteristics: <String>[kO2RingWriteChar, kO2RingNotifyChar],
+  // No clock command exists in what this build speaks (INFO only), so there
+  // is nothing to anchor against. Arrival is the honest, conservative answer
+  // — same reasoning as `kOura`'s own doc comment.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// MyKronoz ZeTime. A framed command/reply protocol — preamble, command,
 /// action, length, payload, end marker — but not a WHOOP-shaped one: four
 /// characteristics under one service and no CRC, which is exactly what
@@ -889,6 +923,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kO2Ring,
   kZeTime,
   kWearFit,
   kRingConn,
@@ -928,12 +963,13 @@ BandEntry bandEntryFor(BandProfile wire) =>
 /// maps straight to the declared signals instead of a constructed instance —
 /// KEPT IN SYNC BY HAND with `whoop_gen4.dart`'s `kWhoopGen4Signals`,
 /// `ble_hrs.dart`'s `BleHrsAdapter.signals`, `oura.dart`'s
-/// `OuraAdapter.signals`, `zetime.dart`'s `ZeTimeAdapter.signals`,
-/// `ringconn.dart`'s `RingConnAdapter.signals`, `dt78.dart`'s
-/// `Dt78Adapter.signals` and `pinetime.dart`'s `PineTimeAdapter.signals`,
-/// since importing those back into this file (each of which already imports
-/// THIS file for its `BandEntry`) would be a needless import cycle for a
-/// handful of lines of data.
+/// `OuraAdapter.signals`, `o2ring.dart`'s `O2RingAdapter.signals`,
+/// `zetime.dart`'s `ZeTimeAdapter.signals`, `ringconn.dart`'s
+/// `RingConnAdapter.signals`, `dt78.dart`'s `Dt78Adapter.signals` and
+/// `pinetime.dart`'s `PineTimeAdapter.signals`, since importing those back
+/// into this file (each of which already imports THIS file for its
+/// `BandEntry`) would be a needless import cycle for a handful of lines of
+/// data.
 ///
 /// gen5 reuses gen4's map: `kWhoopGen5`'s own doc comment states "same inner
 /// payload layout as gen4 — only the envelope differs", so gen4's declared
@@ -959,6 +995,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'o2ring': <InputSignal, Duration>{},
   'zetime': <InputSignal, Duration>{},
   'wearfit': <InputSignal, Duration>{},
   'ringconn': <InputSignal, Duration>{},

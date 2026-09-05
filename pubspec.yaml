@@ -141,6 +141,17 @@ dependencies:
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
       #
+      # REPIN (this branch): protocol PR #49 head @ fbda904 (not yet on main).
+      # Adds the o2ring frame envelope/INFO-reply parser this branch's
+      # adapter calls. NO kAlgoVersion bump: o2ring declares no signals, so
+      # nothing it decodes reaches derivation.
+      #
+      # MERGE (main → this branch): main's own repin below (protocol tip
+      # fe1464d) already contains fbda904 as an ancestor (verified via
+      # `git merge-base --is-ancestor fbda904… fe1464d…` — PR#49/o2ring is
+      # folded into the tip via the `d297055` merge commit), so the ref moves
+      # to that tip; nothing from this branch's own repin is lost.
+      #
       # REPIN (this branch): protocol PR #47 head @ d8a1685 — a PR-branch
       # head, not a main merge commit, because this is the branch that needs
       # what #47 adds and #47 has not merged yet. Pure addition on top of
