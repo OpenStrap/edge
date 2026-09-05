@@ -224,12 +224,13 @@ void main() {
     // fetch is answered the same way by this script) drains two more.
     expect(acks, 2);
     final batches = events.whereType<SampleBatch>().toList();
-    // auth (1) + sleep-channel (1) + awake-channel (1).
-    expect(batches, hasLength(3));
+    // auth (1) + each channel yields its own frame the moment it arrives
+    // (sync-open ack, page 1, page 2 — one batch apiece, never accumulated
+    // for a single yield at the end of the burst) — 1 + 2*3.
+    expect(batches, hasLength(7));
     for (final b in batches.skip(1)) {
       expect(b.samples, isEmpty);
-      // sync-open ack + page 1 (fetch) + page 2 (ack reply) = 3 frames.
-      expect(b.raw, hasLength(3));
+      expect(b.raw, hasLength(1));
     }
     final page2 = _bulkPage(
       kRingConnRespBulkActivity,
@@ -238,7 +239,7 @@ void main() {
       [0x02],
     );
     expect(
-      batches[1].raw!.last,
+      batches.last.raw!.single,
       Uint8List.fromList(page2),
       reason: 'the last page reaches raw verbatim, header included',
     );
@@ -266,7 +267,9 @@ void main() {
       return const [];
     });
     final batches = events.whereType<SampleBatch>().toList();
-    expect(batches, hasLength(3));
+    // auth (1) + each channel's own sync-open-ack and fetch-empty frames,
+    // one batch apiece — 1 + 2*2.
+    expect(batches, hasLength(5));
     for (final b in batches) {
       expect(b.samples, isEmpty);
     }

@@ -47,6 +47,7 @@ import '../../ble/adapters/_registry.dart'
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/ringconn_link.dart' show RingConnLink;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -1491,7 +1492,9 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: s.family == 'oura' || s.family == 'ringconn'
+          ? () => _syncRing(c, s.family)
+          : null,
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1504,12 +1507,14 @@ class _DeviceDetailState extends State<DeviceDetail> {
 /// Drain the ring, now, because the user asked. The result is a sentence
 /// either way: a sync that silently did nothing is indistinguishable from a
 /// ring that had nothing to give, and those need different remedies.
-Future<void> _syncRing(BuildContext c) async {
+Future<void> _syncRing(BuildContext c, String? family) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
   messenger?.showSnackBar(
       SnackBar(content: Text(l?.devicesSyncingTheRing ?? 'Syncing the ring…')));
-  final ok = await OuraLink.instance.sync();
+  final ok = family == 'ringconn'
+      ? await RingConnLink.instance.sync()
+      : await OuraLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok

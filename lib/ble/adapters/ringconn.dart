@@ -109,6 +109,14 @@ class RingConnAdapter extends BandAdapter {
       // ring itself — drained one after the other, same command shape with
       // one byte differing (see `ringConnCmdSyncOpen`'s own doc).
       yield* _drainChannel(link, inbox, kRingConnChannelSleep);
+      // A frame the ring resent after the sleep channel's own loop already
+      // gave up waiting on it (a late ack reply, say) would otherwise sit in
+      // the inbox and get matched as the AWAKE channel's sync-open reply —
+      // there is no channel tag on that reply to tell the two apart. Still
+      // archived, never silently dropped (owner rulings R1-R3); just not
+      // read as belonging to the channel about to open.
+      final stale = inbox.drainStale();
+      if (stale.isNotEmpty) yield SampleBatch(const [], raw: stale);
       yield* _drainChannel(link, inbox, kRingConnChannelAwake);
     } finally {
       await sub.cancel();
@@ -184,7 +192,6 @@ class RingConnAdapter extends BandAdapter {
     _Inbox inbox,
     int channel,
   ) async* {
-    final raw = <Uint8List>[];
     final cursor = ringConnCursor(nowSeconds());
     if (!await link.write(
       kRingConnCommandChar,
@@ -192,23 +199,24 @@ class RingConnAdapter extends BandAdapter {
     )) {
       link.log('ringconn: sync-open refused on channel $channel; skipping '
           'it.');
-      if (raw.isNotEmpty) yield SampleBatch(const [], raw: raw);
       return;
     }
+    final syncOpenRaw = <Uint8List>[];
     final opened = await inbox.firstWhere(
       (f) => f.respid == kRingConnRespSyncOpen,
       replyTimeout,
-      onEach: raw.add,
+      onEach: syncOpenRaw.add,
     );
+    for (final b in syncOpenRaw) {
+      yield SampleBatch(const [], raw: [b]);
+    }
     if (opened == null) {
       link.log('ringconn: no sync-open reply on channel $channel.');
-      if (raw.isNotEmpty) yield SampleBatch(const [], raw: raw);
       return;
     }
     if (!await link.write(kRingConnCommandChar, ringConnCmdFetch())) {
       link.log('ringconn: fetch refused on channel $channel; ending its '
           'drain.');
-      if (raw.isNotEmpty) yield SampleBatch(const [], raw: raw);
       return;
     }
 
@@ -221,7 +229,14 @@ class RingConnAdapter extends BandAdapter {
         break;
       }
       final (f, bytes) = rec;
-      raw.add(bytes);
+      // Yielded BEFORE the ack below, not accumulated for one yield at the
+      // end of the whole burst: the ack is what advances the ring's own
+      // resume pointer (this host keeps none of its own — see the class
+      // doc), so a page must reach the host's buffer before that pointer
+      // moves. `raw_archive`'s primary key is (device_id, hex), so a page
+      // that happens to reach the host again some other way is a no-op, not
+      // a duplicate.
+      yield SampleBatch(const [], raw: [bytes]);
       if (ringConnIsBulk(f.respid)) {
         final parsed = parseRingConnBulkPage(f);
         // A page that will not slice cleanly is treated the same as the last
@@ -252,7 +267,6 @@ class RingConnAdapter extends BandAdapter {
           '$channel with no burst-end reply; stopping this session\'s '
           'drain there.');
     }
-    if (raw.isNotEmpty) yield SampleBatch(const [], raw: raw);
   }
 }
 
@@ -285,6 +299,15 @@ class _Inbox {
     final w = _waiter;
     _waiter = null;
     if (w != null && !w.isCompleted) w.complete(null);
+  }
+
+  /// Everything still buffered and unconsumed, cleared. Called between the
+  /// two channels — see `run()`'s own comment on why a straggler must not
+  /// carry over.
+  List<Uint8List> drainStale() {
+    final bytes = [for (final (_, b) in _buf) b];
+    _buf.clear();
+    return bytes;
   }
 
   /// The next frame, or null on timeout or a closed link.

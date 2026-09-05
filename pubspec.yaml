@@ -143,7 +143,16 @@ dependencies:
       # live high-rate streams are never persisted (see invariant #1), so no
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
-      ref: 471034cb84b85edb37e72b6f6add79a2d7929294
+      #
+      # REPIN (this branch): protocol `feat/ringconn` @ b819ee0, 2 commits on
+      # top of 471034c. Adds the ring's frame codec this branch's
+      # `lib/ble/adapters/ringconn.dart` calls: `parseRingConnFrame`,
+      # `RingConnFrame`, the bulk-page reader, and the channel constants
+      # (`kRingConnChannelSleep`/`...Awake`). No decoded field — raw frames
+      # only (owner ruling: nobody on this project owns the hardware).
+      #
+      # NO kAlgoVersion bump: nothing here feeds a stored metric.
+      ref: b819ee09fe2248525c308ef9d26abf28033efdc8
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
