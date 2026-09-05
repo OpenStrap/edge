@@ -143,7 +143,17 @@ dependencies:
       # live high-rate streams are never persisted (see invariant #1), so no
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
-      ref: 471034cb84b85edb37e72b6f6add79a2d7929294
+      #
+      # REPIN (this branch): protocol PR #51 head @ 1caf448, on top of 471034c.
+      # This branch needs the Ultrahuman wire format (`UltrahumanRecord`,
+      # `UltrahumanResponse`, the k-constants and cmd builders) that #51 adds
+      # and main doesn't have yet — same reasoning as the earlier gen5 PR-head
+      # pins above. Repin to #51's main merge commit once it lands.
+      #
+      # NO kAlgoVersion bump: Ultrahuman's `signals` stays `const {}` (raw
+      # drain/archive only, nothing decoded into a derivable signal), so no
+      # existing decoder or stored number changes.
+      ref: 1caf44850c4c4f0eacef7dc60c61369e4123e284
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
