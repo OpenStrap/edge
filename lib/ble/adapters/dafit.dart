@@ -74,11 +74,12 @@ class DafitAdapter extends BandAdapter {
 
   @override
   Stream<BandEvent> run(BandLink link) async* {
-    final archived = <Uint8List>[];
+    // Reassigned, not cleared, at each flush below — see the flush loop.
+    var archived = <Uint8List>[];
     // Fires once per notification the band sends, so the generator below has
     // something to `await for` on — a plain `StreamController<void>` rather
     // than re-deriving one from `archived`'s own length, which would race
-    // against the clear() below.
+    // against the swap in the flush loop below.
     final flush = StreamController<void>();
     final sub = link.notify(kDafitNotifyChar).listen(
       (rec) async {
@@ -113,12 +114,19 @@ class DafitAdapter extends BandAdapter {
       for (final frame in dafitInitSequence(now())) {
         if (!await link.write(kDafitWriteChar, frame)) {
           link.log('dafit: handshake write refused; ending the session.');
+          // Freeze intake BEFORE the terminal snapshot: this generator
+          // returns right after the yield below, so unlike the flush loop
+          // there is no later turn that could bank a frame the notify
+          // listener appends after the snapshot is taken. Cancelling here
+          // (the `finally` below cancels again, harmlessly) closes that
+          // window instead of just shrinking it.
+          await sub.cancel();
           // A reply to an EARLIER handshake step can have already landed and
           // been archived before this later step is refused — flush it so a
           // mid-handshake refusal doesn't silently drop it, same as every
           // other exit from this generator.
           if (archived.isNotEmpty) {
-            yield SampleBatch(const [], raw: List.of(archived));
+            yield SampleBatch(const [], raw: archived);
           }
           return;
         }
@@ -135,8 +143,14 @@ class DafitAdapter extends BandAdapter {
       // fired during the handshake above is still queued and delivered here.
       await for (final _ in flush.stream) {
         if (archived.isNotEmpty) {
-          yield SampleBatch(const [], raw: List.of(archived));
-          archived.clear();
+          // Swap in a fresh list BEFORE yielding, not clear() after: `yield`
+          // suspends this generator until the batch is delivered downstream,
+          // and the notify listener keeps running while it's suspended. A
+          // frame that lands in that window must append to the NEXT batch,
+          // not vanish into a clear() of the one already handed off.
+          final batch = archived;
+          archived = <Uint8List>[];
+          yield SampleBatch(const [], raw: batch);
         }
       }
     } finally {

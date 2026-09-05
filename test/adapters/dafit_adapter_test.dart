@@ -178,4 +178,36 @@ void main() {
     final raw = [for (final e in events) if (e is SampleBatch) ...?e.raw];
     expect(raw, anyElement(orderedEquals(hwInfoReply)));
   });
+
+  test(
+      'a frame that lands while an earlier batch is still being handed off '
+      'is not dropped', () async {
+    // The race this reproduces: `yield` suspends `run()` until the batch is
+    // delivered downstream, and the notify listener keeps running while
+    // it's suspended — feeding the second frame from inside the callback
+    // that receives the first batch lands it in exactly that window.
+    final link = ReplayBandLink();
+    final frame1 = buildDafitFrame(0x1c, 0x01);
+    final frame2 = buildDafitFrame(0x1c, 0x02);
+    final events = <BandEvent>[];
+    final done = Completer<void>();
+    var fedSecond = false;
+    final sub = adapter.run(link).listen((e) {
+      events.add(e);
+      if (!fedSecond && e is SampleBatch) {
+        fedSecond = true;
+        link.feed(kDafitNotifyChar, frame2, atSec: 1_800_000_001);
+      }
+    }, onDone: done.complete);
+    await Future<void>.delayed(Duration.zero); // let notify() subscribe
+    await Future<void>.delayed(Duration.zero); // let the handshake settle
+    link.feed(kDafitNotifyChar, frame1, atSec: 1_800_000_000);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    await link.close();
+    await done.future;
+    await sub.cancel();
+
+    final raw = [for (final e in events) if (e is SampleBatch) ...?e.raw];
+    expect(raw, anyElement(orderedEquals(frame2)));
+  });
 }
