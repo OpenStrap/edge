@@ -47,6 +47,7 @@ import '../../ble/adapters/_registry.dart'
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/pebble_link.dart' show PebbleLink;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -955,8 +956,8 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
   (
     entry: kPebble,
     blurb: 'Pebble 2 or Pebble 2 SE only — older Pebbles need Bluetooth '
-        'Classic, which this app cannot reach. Pairs only for now — nothing '
-        'is read or stored yet.',
+        'Classic, which this app cannot reach. Nothing is decoded yet — raw '
+        'bytes are archived for a future update to make sense of.',
     // Same generic notify-class pairing as the chest strap above — no key,
     // no pre-pairing step.
     pick: null,
@@ -1485,7 +1486,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: s.family == 'oura'
+          ? () => _syncRing(c)
+          : s.family == 'pebble'
+              ? () => _syncPebble(c)
+              : null,
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1511,6 +1516,23 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Drain the watch, now, because the user asked. Nothing decodes yet — see
+/// `pebble.dart`'s header — so a successful sync only ever means "bytes were
+/// banked to raw_archive", never a new reading anywhere on screen.
+Future<void> _syncPebble(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing the watch…')));
+  final ok = await PebbleLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the watch. It has to be nearby, and not '
+            'connected to another app.'),
   ));
 }
 
