@@ -165,6 +165,7 @@
   "devicesSyncingTheRing": "正在同步戒指…",
   "devicesSynced": "已同步。",
   "devicesCouldNotReachRing": "无法连接到戒指。它必须在附近，且未连接到其他应用。",
+  "devicesConnectingWatch": "正在连接…",
   "devicesCouldNotReachWatch": "无法连接到手表。它必须在附近，且未连接到其他应用。",
   "devicesForgetSensor": "忘记 {name}？",
   "devicesForgetSensorBody": "在锻炼期间将不再使用，需要重新配对。此手机上已保存的所有内容都会保留——这只是移除数据源，而不是数据。",

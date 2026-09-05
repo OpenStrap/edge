@@ -24,6 +24,7 @@ import '../ble/ble_engine.dart';
 import '../ble/casio_link.dart';
 import '../ble/colmi_link.dart';
 import '../ble/oura_link.dart';
+import '../ble/qhybrid_link.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
@@ -225,6 +226,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: QHybridLink.sync() no-ops when nothing
+    // is paired and never throws, but this is the one shared headless entry
+    // point, so a failure here must not escape either.
+    try {
+      await QHybridLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] qhybrid sync skipped: $e');
     }
     // Same piggyback, same reasoning: no-ops when unpaired, must never let a
     // failure here mark the WHOOP cycle as errored.

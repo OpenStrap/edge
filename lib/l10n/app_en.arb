@@ -763,6 +763,10 @@
   "@devicesCouldNotReachRing": {
     "description": "Snackbar: sync failed."
   },
+  "devicesConnectingWatch": "Connecting…",
+  "@devicesConnectingWatch": {
+    "description": "Snackbar: connecting to the watch."
+  },
   "devicesCouldNotReachWatch": "Could not reach the watch. It has to be nearby, and not connected to another app.",
   "@devicesCouldNotReachWatch": {
     "description": "Snackbar: sync failed."

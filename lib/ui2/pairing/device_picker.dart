@@ -270,6 +270,12 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      // No localized string for this entry yet — l10n keys are generated
+      // across every locale file, which is out of scope for a single-device
+      // PR. Plain English only, same shape as every other blurb's fallback.
+      'qhybrid' =>
+        'The original Fossil/Skagen hybrid smartwatch, not the newer '
+            'Hybrid HR. Pairs and connects; nothing derives from it yet.',
       'colmi' => l?.devicePickerBlurbColmi ??
           'A Colmi ring. Pairs and banks its history; nothing is decoded '
               'into a number yet.',

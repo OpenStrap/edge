@@ -50,12 +50,14 @@ import '../../ble/adapters/_registry.dart'
         kColmi,
         kOura,
         kCasio,
+        kQHybrid,
         declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/casio_link.dart' show CasioLink;
 import '../../ble/colmi_link.dart' show ColmiLink;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/qhybrid_link.dart' show QHybridLink, pairQHybrid;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -782,7 +784,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' || 'colmi' => LucideIcons.circleDot,
-      'casio' => LucideIcons.watch,
+      'qhybrid' || 'casio' => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -960,6 +962,19 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kQHybrid,
+    blurb: 'The original Fossil/Skagen hybrid smartwatch line, not the newer '
+        'Hybrid HR. Pairs and connects; nothing derives from it yet.',
+    // NOT plain notify-class pairing (`pick: null`): unlike a heart-rate
+    // strap, which a workout arms, this band has no workout role, so
+    // `pairQHybrid` is what runs its first real session — the adapter's own
+    // battery-probe confirms it is this protocol, not the encrypted Hybrid HR
+    // sibling, and whatever it answers in the bounded window right after is
+    // what gets archived. The same session is re-runnable afterward — see
+    // `qhybrid_link.dart` and this screen's own sync affordance.
+    pick: pairQHybrid,
   ),
   (
     entry: kColmi,
@@ -1501,13 +1516,13 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura'
-          ? () => _syncRing(c)
-          : s.family == 'colmi'
-              ? () => _syncColmiRing(c)
-              : s.family == 'casio'
-                  ? () => _syncCasio(c, s.deviceId)
-                  : null,
+      onSync: switch (s.family) {
+        'oura' => () => _syncRing(c),
+        'qhybrid' => () => _syncQHybrid(c),
+        'colmi' => () => _syncColmiRing(c),
+        'casio' => () => _syncCasio(c, s.deviceId),
+        _ => null,
+      },
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1533,6 +1548,26 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Hold a session with the paired watch, now, because the user asked. There
+/// is no history to drain here — see `qhybrid_link.dart`'s own header — so
+/// this just re-runs the same battery-probe-confirmed window pairing did and
+/// banks whatever the watch sends during it.
+Future<void> _syncQHybrid(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesConnectingWatch ?? 'Connecting…')));
+  final ok = await QHybridLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachWatch ??
+            'Could not reach the watch. It has to be nearby, and not '
+                'connected to another app.')),
   ));
 }
 

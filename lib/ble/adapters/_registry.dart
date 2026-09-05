@@ -53,6 +53,31 @@ import 'signals.dart';
 const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
 const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
 
+/// The Fossil/Skagen Q Hybrid's GATT service. NOT the encrypted Hybrid HR /
+/// Gen 6 sibling, which advertises this same UUID — see [kQHybrid]'s own doc.
+const String kQHybridService = '3dda0001-957f-7d4a-34a6-74696673696d';
+
+/// Host-to-watch control characteristic: write + notify, flat
+/// `[type, cmdId, ...payload]` request / `[3, cmdId, ...payload]` response,
+/// no CRC, no envelope.
+const String kQHybridControlChar = '3dda0002-957f-7d4a-34a6-74696673696d';
+
+/// File-download notify characteristics. A separate, undecoded chunking
+/// sub-protocol — banked raw only.
+const String kQHybridFileChar1 = '3dda0003-957f-7d4a-34a6-74696673696d';
+const String kQHybridFileChar2 = '3dda0004-957f-7d4a-34a6-74696673696d';
+
+/// A third notify characteristic in the same service — also used for a
+/// vibrate/find-my-watch write on the real device. Undecoded — banked raw
+/// only, same as the two above.
+const String kQHybridAuxChar = '3dda0005-957f-7d4a-34a6-74696673696d';
+
+/// Button-press notify characteristic. Fixed 11-byte frames — banked raw only.
+const String kQHybridButtonChar = '3dda0006-957f-7d4a-34a6-74696673696d';
+
+/// File-upload-ack notify characteristic — banked raw only.
+const String kQHybridUploadAckChar = '3dda0007-957f-7d4a-34a6-74696673696d';
+
 /// Casio's "2C/2D all-features" GATT service — shared across the current
 /// G-Shock/smartwatch line (GBX100, GW-B5600, GMW-B5000, ECB-S100/Edifice and
 /// later models speaking the same profile). NOT the older `KEY_CONTAINER`-only
@@ -466,6 +491,37 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// Fossil/Skagen's original "hybrid" smartwatch line — models like `HW.0.0`,
+/// `HL.0.0`, `DN.1.0`. NOT the encrypted Hybrid HR / Gen 6 line, a different
+/// sibling protocol that happens to advertise the same service UUID.
+///
+/// Plain unencrypted GATT, no crypto handshake, no pairing key: standard
+/// platform BLE bonding is the whole of what "pairing" means here, same as
+/// [kBleHrs]. A live scan match on the service UUID alone cannot tell this
+/// watch apart from its encrypted sibling before connecting, so the adapter
+/// self-confirms with a harmless battery-level probe before banking anything
+/// — see `qhybrid.dart`.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). It pairs,
+/// connects, confirms itself, and banks every notification raw;
+/// `kDerivableSources` stays empty until someone has actually held one.
+const BandEntry kQHybrid = BandEntry.notify(
+  id: 'qhybrid',
+  label: 'Fossil/Skagen Hybrid Smartwatch',
+  service: kQHybridService,
+  characteristics: <String>[
+    kQHybridControlChar,
+    kQHybridFileChar1,
+    kQHybridFileChar2,
+    kQHybridAuxChar,
+    kQHybridButtonChar,
+    kQHybridUploadAckChar,
+  ],
+  // No clock in the wire format at all; every frame is stamped on arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// This ring family advertises a stable name — `R0\d_*` (R02/R03/R06/R09) or
 /// `COLMI R10_*` — so matching on it is a fallback for whatever an
 /// advertising payload's service list drops. Whether a real ring's 31-byte
@@ -526,6 +582,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kQHybrid,
   kColmi,
   kCasio,
 ];
@@ -584,6 +641,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'qhybrid': <InputSignal, Duration>{},
   'colmi': <InputSignal, Duration>{},
   'casio': <InputSignal, Duration>{},
 };
