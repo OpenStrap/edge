@@ -1858,9 +1858,13 @@ class WriteChain {
 /// safe-trim invariant depends on (commit-then-ACK, flash trim), and making it wait
 /// behind a chest strap would turn a sensor's 12 s connect timeout into a delayed
 /// band sync — which is exactly the regression this milestone must not ship. With
-/// today's pairable sensor kinds run at most two connected at once in
-/// practice (a strap plus a ring, say), the cap is rarely reached, so this
-/// is mostly a guard for the N-device future, not a change in behaviour.
+/// today's growing list of pairable sensor kinds (kBleHrs, kOura, kLefun,
+/// kHPlus, kJyou, kPineTime, kQHybrid, kColmi, kCasio) the cap CAN be
+/// reached — a chest strap armed for a workout holds a slot for its whole
+/// duration, and a background wake syncing more than two of the rest
+/// together wants both of what is left — but the mechanism is a queue, not
+/// a refusal: the caller that arrives once both slots are taken waits, it
+/// does not fail.
 const int kMaxConcurrentSecondaryLinks = 2;
 
 int _secondaryLinksInUse = 0;

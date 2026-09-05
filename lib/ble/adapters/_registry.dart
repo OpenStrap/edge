@@ -104,6 +104,13 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The Lefun-protocol family's GATT service. One shared write/notify pair
+/// covers battery, firmware info and every historical report code alike —
+/// there is no separate command channel the way Oura's ring has.
+const String kLefunService = '000018d0-0000-1000-8000-00805f9b34fb';
+const String kLefunWriteChar = '00002d01-0000-1000-8000-00805f9b34fb';
+const String kLefunNotifyChar = '00002d00-0000-1000-8000-00805f9b34fb';
+
 /// The HPlus reference GATT service — one service shared across a whole
 /// family of low-cost wrist bands, not one product.
 const String kHPlusService = '14701820-620a-3973-7c78-9cfff0876abd';
@@ -524,6 +531,25 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// A Lefun-protocol OEM ring or band — the shared reference design behind a
+/// long list of storefront names, not one branded product. Plain, unencrypted
+/// GATT: no key, no nonce, no challenge/response anywhere in the envelope.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). Only the
+/// envelope and its checksum, plus the battery report, are decoded with any
+/// confidence — steps, sleep and PPG all ride the same envelope under their
+/// own report codes and have no decoder here, so `signals` is `const {}` and
+/// nothing this device writes becomes a metric.
+const BandEntry kLefun = BandEntry.notify(
+  id: 'lefun',
+  label: 'Smart ring/band (Lefun protocol)',
+  service: kLefunService,
+  characteristics: <String>[kLefunWriteChar, kLefunNotifyChar],
+  // No clock in the envelope this file decodes. See [TimeAnchor].
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// The HPlus reference profile — HPlus itself and every OEM re-skin sharing
 /// its firmware (same service, same two characteristics, same command byte).
 ///
@@ -683,6 +709,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kLefun,
   kHPlus,
   kPineTime,
   kQHybrid,
@@ -746,6 +773,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'lefun': <InputSignal, Duration>{},
   'hplus': <InputSignal, Duration>{},
   'pinetime': <InputSignal, Duration>{},
   'qhybrid': <InputSignal, Duration>{},

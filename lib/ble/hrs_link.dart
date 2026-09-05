@@ -67,6 +67,7 @@ import 'ble_state.dart'
         releaseSecondaryLinkSlot;
 import 'colmi_link.dart' show ColmiLink;
 import 'hplus_link.dart' show HPlusLink;
+import 'lefun_link.dart' show LefunLink;
 import 'oura_link.dart' show OuraLink;
 import 'qhybrid_link.dart' show QHybridLink;
 
@@ -629,6 +630,20 @@ class HrsLink {
       await OuraLink.forgetRing(id);
       return;
     }
+    if (row?['adapter_id'] == kLefun.id) {
+      // No secret to drop — the envelope this device speaks has no key
+      // exchange — so this is a plain stop-and-delete, same shape as Oura's
+      // forget minus the keychain half. GATED ON THE LIVE SESSION ACTUALLY
+      // BEING THIS ROW: `LefunLink` is a singleton over potentially several
+      // paired rows, so stopping it unconditionally would drop a DIFFERENT
+      // Lefun device's in-flight sync if one happened to be live when this
+      // one was forgotten.
+      if (LefunLink.instance.currentDeviceId == id) {
+        await LefunLink.instance.stop();
+      }
+      await LocalDb.deleteDevice(id);
+      return;
+    }
     if (row?['adapter_id'] == kHPlus.id) {
       // HPlusLink.instance owns this band's live connection, not HrsLink's
       // own chest-strap session — stopping the wrong one would leave the
@@ -647,8 +662,14 @@ class HrsLink {
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows
-    // under an id nothing can explain any more.
-    await instance.disarm();
+    // under an id nothing can explain any more. GATED ON THE ROW BEING THE
+    // ARMED HRS SENSOR, not called unconditionally — this fallback used to run
+    // for ANY adapter without its own branch above, which would tear down a
+    // live chest-strap session while forgetting an unrelated device (e.g. a
+    // Lefun ring paired alongside one).
+    if (row?['adapter_id'] == kBleHrsAdapter.id) {
+      await instance.disarm();
+    }
     await LocalDb.deleteDevice(id);
   }
 

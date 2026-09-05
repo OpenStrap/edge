@@ -24,6 +24,7 @@ import '../ble/ble_engine.dart';
 import '../ble/casio_link.dart';
 import '../ble/colmi_link.dart';
 import '../ble/jyou_link.dart';
+import '../ble/lefun_link.dart';
 import '../ble/oura_link.dart';
 import '../ble/pinetime_link.dart';
 import '../ble/qhybrid_link.dart';
@@ -228,6 +229,15 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: LefunLink.sync() no-ops when nothing is
+    // paired and never throws, but this is still the one shared headless
+    // entry point, so a failure here must not escape and mark the WHOOP
+    // cycle as errored either.
+    try {
+      await LefunLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] lefun sync skipped: $e');
     }
     // Same piggyback, same reasoning: PineTimeLink.sync() no-ops when
     // nothing is paired and never throws, but the shared entry point must

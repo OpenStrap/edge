@@ -16,6 +16,7 @@ void main() {
           'gen5',
           'ble_hrs',
           'oura',
+          'lefun',
           'hplus',
           'pinetime',
           'qhybrid',

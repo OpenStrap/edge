@@ -50,6 +50,7 @@ import '../../ble/adapters/_registry.dart'
         kColmi,
         kJyou,
         kHPlus,
+        kLefun,
         kOura,
         kCasio,
         kPineTime,
@@ -789,7 +790,7 @@ class HealthSource {
 /// The glyph for a paired sensor. A ring is not a chest strap and the row is
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
-      'oura' || 'colmi' => LucideIcons.circleDot,
+      'oura' || 'lefun' || 'colmi' => LucideIcons.circleDot,
       'hplus' || 'pinetime' || 'qhybrid' || 'casio' || 'jyou' =>
         LucideIcons.watch,
       _ => LucideIcons.heartPulse,
@@ -969,6 +970,21 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kLefun,
+    blurb: 'A generic Bluetooth ring or band from the family sold under many '
+        'storefront names. Pairs and connects, but reports nothing yet — '
+        'nobody on this project has held one to verify what its numbers mean.',
+    // No key, no handshake — plain notify-class pairing, with no measurement
+    // tier: this device declares no signal at all (`LefunAdapter.signals` is
+    // `const {}`), so there is no quality to rank it against another source.
+    pick: (device) => HrsLink.pairNotifySensor(
+      kLefun,
+      device,
+      label: cleanDeviceLabel(device.platformName),
+      tier: null,
+    ),
   ),
   (
     entry: kHPlus,
