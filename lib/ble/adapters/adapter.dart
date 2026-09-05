@@ -327,10 +327,11 @@ class ReplayBandLink implements BandLink {
   /// End every channel, which ends `run()`. Await the run subscription's
   /// `done` after this rather than guessing at a delay.
   ///
-  /// SNAPSHOT THE VALUES FIRST. An adapter that calls [notify] lazily — after
-  /// an `await` this method's own `await c.close()` yields to — adds a new
-  /// entry to [_channels] while this loop is mid-iteration, which throws
-  /// "Concurrent modification during iteration" on the live map.
+  /// DRAINS IN ROUNDS, not one snapshot. An adapter that calls [notify] lazily
+  /// — after an `await` this method's own `await c.close()` yields to — adds
+  /// a new entry to [_channels] while a round is mid-iteration. Clearing the
+  /// map before that round starts means the new entry lands in a fresh map
+  /// the next round picks up, instead of a snapshot silently losing it.
   ///
   /// A CHANNEL WITH NO LISTENER IS NOT AWAITED. A single-subscription
   /// [StreamController]'s `close()` future only completes once its done event
@@ -341,13 +342,16 @@ class ReplayBandLink implements BandLink {
   /// on every channel either way, so a listener that attaches afterward still
   /// gets its done event immediately.
   Future<void> close() async {
-    for (final c in _channels.values.toList()) {
-      if (c.hasListener) {
-        await c.close();
-      } else {
-        unawaited(c.close());
+    while (_channels.isNotEmpty) {
+      final round = _channels.values.toList();
+      _channels.clear();
+      for (final c in round) {
+        if (c.hasListener) {
+          await c.close();
+        } else {
+          unawaited(c.close());
+        }
       }
     }
-    _channels.clear();
   }
 }

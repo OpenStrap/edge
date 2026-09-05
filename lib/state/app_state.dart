@@ -1288,6 +1288,9 @@ class AppState extends ChangeNotifier {
     // no radio — `HrsLink.reading` is a plain notifier whose identity survives
     // arm/disarm, which is why one listener for the life of this object works.
     HrsLink.instance.reading.addListener(_onHrsReading);
+    // Same wiring, second notify-class sensor: PMD readings otherwise never
+    // reach liveHr/the live trace at all (arm/disarm alone don't feed it).
+    PolarPmdLink.instance.reading.addListener(_onPmdReading);
     _init();
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
@@ -1325,6 +1328,7 @@ class AppState extends ChangeNotifier {
     // Same wiring as the real constructor, and for the same reason it is safe
     // here: a ValueNotifier, no plugin.
     HrsLink.instance.reading.addListener(_onHrsReading);
+    PolarPmdLink.instance.reading.addListener(_onPmdReading);
   }
 
   /// A Siri/Shortcuts App Intent (e.g. "start breathing") may have set a
@@ -1379,6 +1383,10 @@ class AppState extends ChangeNotifier {
     final hrsId = _hrsTraceId;
     _hrsTraceId = null;
     if (hrsId != null) _clearLiveHrTrace(hrsId);
+    PolarPmdLink.instance.reading.removeListener(_onPmdReading);
+    final pmdId = _pmdTraceId;
+    _pmdTraceId = null;
+    if (pmdId != null) _clearLiveHrTrace(pmdId);
     BandOwnership.markForegroundIntent(false);
     _releaseForegroundLease();
     _deriveScheduler.dispose();
@@ -3594,6 +3602,12 @@ class AppState extends ChangeNotifier {
   /// the disarm tick cannot name the device it is ending.
   String? _hrsTraceId;
 
+  /// Same as [_hrsTraceId], for the second notify-class sensor. Both can be
+  /// armed at once (`kMaxConcurrentSecondaryLinks` is 2), each keyed under
+  /// its own `device_id` in `_liveHrTrace`, so one trace id each is enough —
+  /// no shared state between the two listeners.
+  String? _pmdTraceId;
+
   /// A paired heart-rate sensor's reading, into the SAME trace the band's
   /// engine state feeds.
   ///
@@ -3620,6 +3634,25 @@ class AppState extends ChangeNotifier {
     // `HrsReading()` with no bpm is the armed-but-searching state, not a
     // measurement — it is never billed as one.
     _hrsTraceId = id;
+    final atSec = r.atSec ?? DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    if (_appendLiveHr(id, r.bpm, atSec * 1000)) notifyListeners();
+  }
+
+  /// Same wiring as [_onHrsReading], for `PolarPmdLink` — a second, parallel
+  /// live-reading source, not a widening of the first (see that link's own
+  /// doc). Without this a Polar sensor's PPI-derived beats arm/disarm the
+  /// link but never reach `liveHr`, workout zones, or the live trace.
+  void _onPmdReading() {
+    if (_disposed) return;
+    final r = PolarPmdLink.instance.reading.value;
+    final id = PolarPmdLink.instance.deviceId ?? _pmdTraceId;
+    if (id == null) return;
+    if (r == null) {
+      _pmdTraceId = null;
+      if (_clearLiveHrTrace(id)) notifyListeners();
+      return;
+    }
+    _pmdTraceId = id;
     final atSec = r.atSec ?? DateTime.now().millisecondsSinceEpoch ~/ 1000;
     if (_appendLiveHr(id, r.bpm, atSec * 1000)) notifyListeners();
   }
