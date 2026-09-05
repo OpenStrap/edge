@@ -179,16 +179,22 @@ Uint8List? parseChallengeResponseStruct(Uint8List payload) {
   return Uint8List.sublistView(payload, 1, 1 + len);
 }
 
-List<WithingsStruct> _parseStructs(Uint8List body) {
+/// Null on anything malformed — trailing bytes too short to hold another
+/// structure header, or a declared payload length that overruns the body —
+/// rather than silently returning whatever structures parsed before the
+/// break. A message with a well-formed outer header but a broken inner TLV
+/// is rejected whole, not accepted with its tail quietly dropped.
+List<WithingsStruct>? _parseStructs(Uint8List body) {
   final out = <WithingsStruct>[];
   var i = 0;
-  while (i + 4 <= body.length) {
+  while (i < body.length) {
+    if (i + 4 > body.length) return null; // a stray tail, not a header
     final hdr = ByteData.sublistView(body, i, i + 4);
     final type = hdr.getUint16(0, Endian.big);
     final len = hdr.getUint16(2, Endian.big);
     final start = i + 4;
     final end = start + len;
-    if (end > body.length) break; // a truncated tail is dropped, not guessed
+    if (end > body.length) return null; // declared length overruns the body
     out.add(WithingsStruct(type, Uint8List.sublistView(body, start, end)));
     i = end;
   }
@@ -205,7 +211,9 @@ WithingsMessage? parseWithingsMessage(Uint8List bytes) {
   final type = hdr.getUint16(1, Endian.big);
   final structLen = hdr.getUint16(3, Endian.big);
   if (bytes.length - 5 != structLen) return null;
-  return WithingsMessage(type, _parseStructs(Uint8List.sublistView(bytes, 5)));
+  final structs = _parseStructs(Uint8List.sublistView(bytes, 5));
+  if (structs == null) return null;
+  return WithingsMessage(type, structs);
 }
 
 /// Buffers notification chunks into complete logical messages.

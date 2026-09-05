@@ -763,6 +763,14 @@
   "@devicesCouldNotReachRing": {
     "description": "Snackbar: sync failed."
   },
+  "devicesSyncingSensor": "Syncing the sensor…",
+  "@devicesSyncingSensor": {
+    "description": "Snackbar: syncing a generic paired sensor (e.g. Withings Steel HR)."
+  },
+  "devicesCouldNotReachSensor": "Could not reach the sensor. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachSensor": {
+    "description": "Snackbar: generic sensor sync failed."
+  },
   "deviceFilterAllDevices": "All devices",
   "@deviceFilterAllDevices": {
     "description": "First pill in a metric screen's per-device filter — the merged view."
@@ -998,6 +1006,10 @@
   "devicePickerBlurbSensor": "A chest strap or armband, for beat timing during a workout.",
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
+  },
+  "devicePickerBlurbWithingsSteelHr": "Pairs and connects — nothing it captures is decoded into a number yet.",
+  "@devicePickerBlurbWithingsSteelHr": {
+    "description": "Category row subtitle for the Withings Steel HR / Activité."
   },
   "devicePickerCannotPairFromHere": "That device cannot be paired from this screen.",
   "@devicePickerCannotPairFromHere": {

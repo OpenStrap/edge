@@ -47,7 +47,8 @@ import '../../ble/adapters/_registry.dart'
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
-import '../../ble/withings_steel_hr_link.dart' show pairWithingsSteelHr;
+import '../../ble/withings_steel_hr_link.dart'
+    show WithingsSteelHrLink, pairWithingsSteelHr;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -1484,7 +1485,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: s.family == 'oura'
+          ? () => _syncRing(c)
+          : s.family == 'withings_steel_hr'
+              ? () => _syncSensor(c)
+              : null,
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1510,6 +1515,25 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Drain a paired sensor (Withings Steel HR today), now, because the user
+/// asked. Same shape as [_syncRing]; only the link and the copy differ.
+Future<void> _syncSensor(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(SnackBar(
+      content:
+          Text(l?.devicesSyncingSensor ?? 'Syncing the sensor…')));
+  final ok = await WithingsSteelHrLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachSensor ??
+            'Could not reach the sensor. It has to be nearby, and not '
+                'connected to another app.')),
   ));
 }
 

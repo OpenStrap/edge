@@ -145,7 +145,10 @@ class WithingsSteelHrLink {
           if (firstConnect && _sessionReady) {
             await LocalDb.setCursor(_firstConnectItem(deviceId), '0');
           }
-          return true;
+          // Not "the run completed without throwing" — a session that never
+          // got past the handshake completes cleanly too. Report success
+          // only once the device has actually been treated as authenticated.
+          return _sessionReady;
         } finally {
           // Drop the link and DISCONNECT before the slot is released.
           await stop();
@@ -162,15 +165,22 @@ class WithingsSteelHrLink {
   Future<void> stop() async {
     _link?.close();
     _link = null;
-    await _host?.stop();
+    final host = _host;
     _host = null;
-    _deviceId = null;
-    final d = _device;
-    _device = null;
-    if (d != null) {
-      try {
-        await d.disconnect();
-      } catch (_) {/* already gone */}
+    try {
+      await host?.stop();
+    } finally {
+      // Cleared even if the host's own stop() throws (e.g. flushing to the
+      // db failed) — a stuck reference here would make the next sync() reuse
+      // a dead session instead of starting a fresh one.
+      _deviceId = null;
+      final d = _device;
+      _device = null;
+      if (d != null) {
+        try {
+          await d.disconnect();
+        } catch (_) {/* already gone */}
+      }
     }
   }
 
