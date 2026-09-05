@@ -22,6 +22,7 @@ import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
 import '../ble/oura_link.dart';
+import '../ble/zetime_link.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
@@ -223,6 +224,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same piggyback, same reasoning, for the ZeTime: one-shot notify-class
+    // link, no-ops when nothing is paired, must never mark the WHOOP cycle
+    // errored.
+    try {
+      await ZeTimeLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] zetime sync skipped: $e');
     }
   }
 }

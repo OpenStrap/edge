@@ -143,7 +143,20 @@ dependencies:
       # live high-rate streams are never persisted (see invariant #1), so no
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
-      ref: 471034cb84b85edb37e72b6f6add79a2d7929294
+      #
+      # REPIN (this branch): protocol PR #47 head @ d8a1685 — a PR-branch
+      # head, not a main merge commit, because this is the branch that needs
+      # what #47 adds and #47 has not merged yet. Pure addition on top of
+      # 471034c (only lib/src/zetime.dart, openstrap_protocol.dart's export,
+      # and a test file changed — no existing file touched), so it carries no
+      # risk to any other adapter. Adds `parseZeTimeFrame`,
+      # `zetimeBatteryLevel`, `zetimeRequestFrame`, `kZeTimeCmdBattery`,
+      # `kZeTimeAckToken` for the ZeTime command envelope + battery decode.
+      #
+      # NO kAlgoVersion bump: ZeTime carries no derivable signal
+      # (`ZeTimeAdapter.signals` is `const {}`), so nothing here feeds the
+      # derivation pipeline.
+      ref: d8a1685343e134ef7f6bd6edf7c41aeaf792ccfa
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
