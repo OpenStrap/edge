@@ -143,7 +143,14 @@ dependencies:
       # live high-rate streams are never persisted (see invariant #1), so no
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
-      ref: 471034cb84b85edb37e72b6f6add79a2d7929294
+      #
+      # REPIN (this branch): protocol `feat/polar-pmd-protocol` @ 87ee803, on
+      # top of the #42 merge. Adds the PMD control-point start/stop writes and
+      # the PPI data-frame decoder polar_pmd.dart needs. Interim PR-branch pin
+      # until protocol#45 merges to main. NO kAlgoVersion bump: this device's
+      # `signals` stays const {} (unowned hardware), so nothing it decodes
+      # feeds a derived metric.
+      ref: 87ee80349181c54df590f93fde35d2118e6e92b7
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
