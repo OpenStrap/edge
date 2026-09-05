@@ -1535,6 +1535,7 @@ Future<void> _syncPineTime(BuildContext c) async {
       SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
   final ok = await PineTimeLink.instance.sync();
   if (!c.mounted) return;
+  messenger?.hideCurrentSnackBar();
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
         ? (l?.devicesSynced ?? 'Synced.')
