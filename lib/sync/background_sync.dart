@@ -21,6 +21,7 @@ import '../ble/adapters/_registry.dart' show kWhoopGen4;
 import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
+import '../ble/miband_link.dart';
 import '../ble/oura_link.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
@@ -223,6 +224,15 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same reasoning, same slot, for a paired Mi Band: MiBand234Link.sync()
+    // also no-ops when nothing is paired and never throws, but guard it
+    // anyway so a surprise failure here still can't mark the WHOOP cycle
+    // errored.
+    try {
+      await MiBand234Link.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] miband234 sync skipped: $e');
     }
   }
 }

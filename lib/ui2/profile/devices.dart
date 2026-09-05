@@ -46,7 +46,7 @@ import '../../ble/adapters/_registry.dart'
     show BandEntry, kBandRegistry, kBleHrs, kMiBand234, kOura, declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
-import '../../ble/miband_link.dart' show pairMiBand234;
+import '../../ble/miband_link.dart' show MiBand234Link, pairMiBand234;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
@@ -1485,7 +1485,11 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // primary band's link, its restore identity and its trim cursor, none of
       // which a sensor has — pointing this at it would have unpaired the
       // WHOOP from a chest strap's page.
-      onSync: s.family == 'oura' ? () => _syncRing(c) : null,
+      onSync: switch (s.family) {
+        'oura' => () => _syncRing(c),
+        'miband234' => () => _syncMiband(c),
+        _ => null,
+      },
       onForget: s.deviceId != null
           ? () => _confirmForgetSensor(c, s)
           : app == null
@@ -1511,6 +1515,25 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Drain the Mi Band, now, because the user asked. Same shape as
+/// [_syncRing]: a bounded-window snapshot (no cursor, see
+/// `MiBand234Link`'s own header), so "synced" here means "connected and
+/// collected what the window allowed", not "drained everything".
+Future<void> _syncMiband(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
+  final ok = await MiBand234Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the band. It has to be nearby, and not '
+            'connected to another app.'),
   ));
 }
 
