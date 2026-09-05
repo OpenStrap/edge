@@ -246,7 +246,20 @@ class RingConnAdapter extends BandAdapter {
         final ack = f.respid == kRingConnRespBulkPpg
             ? ringConnCmdAckPpg()
             : ringConnCmdAckActivity();
-        if (!await link.write(kRingConnCommandChar, ack)) {
+        // THIS IS THE `trim-on-ack` ROW OF `OffloadCheckpoint`'s OWN TABLE,
+        // NOT A PLAIN WRITE: the ack above is what moves the ring's resume
+        // pointer past this page, so it must not reach the ring until the
+        // page just yielded is durably committed — a crash between an
+        // un-gated write and the periodic flush would lose a page the ring
+        // will never redeliver. `confirm` is the write itself, called by the
+        // host only after `_commit`, same contract `oura.dart` documents.
+        final acked = Completer<bool>();
+        yield OffloadCheckpoint(() async {
+          final ok = await link.write(kRingConnCommandChar, ack);
+          if (!acked.isCompleted) acked.complete(ok);
+          return ok;
+        });
+        if (!await acked.future.timeout(replyTimeout, onTimeout: () => false)) {
           link.log('ringconn: page ack refused on channel $channel; ending '
               'its drain.');
           break;

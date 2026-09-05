@@ -84,7 +84,13 @@ Future<(List<BandEvent>, ReplayBandLink)> _drive(
   final events = <BandEvent>[];
   final done = Completer<void>();
   final sub = adapter.run(link).listen(
-        (e) => events.add(e),
+        (e) {
+          events.add(e);
+          // Stand in for `BandHost`'s commit-then-confirm: nothing here
+          // decodes or persists, so every checkpoint confirms the instant it
+          // arrives — this drives the ack write same as a real commit would.
+          if (e is OffloadCheckpoint) unawaited(e.confirm());
+        },
         onDone: () => done.complete(),
       );
   var served = 0;
