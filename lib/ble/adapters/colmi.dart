@@ -225,9 +225,14 @@ class ColmiAdapter extends BandAdapter {
       // Every real frame is exactly 16 bytes; a short one is a truncated
       // notification, not this protocol's own reply, and dropped rather than
       // indexed — `f[0]` and, at the call site, `frames.last[1]` would
-      // otherwise be a RangeError away from ending the whole sync early.
-      if (f.length == 16 && f[0] == cmd) out.add(f);
-      timeout = quiet;
+      // otherwise be a RangeError away from ending the whole sync early. Only
+      // a frame that actually matched shrinks the wait to `quiet` — an
+      // unsolicited frame (a battery push mid-walk) must not shorten the
+      // window we're still waiting in for this command's real reply.
+      if (f.length == 16 && f[0] == cmd) {
+        out.add(f);
+        timeout = quiet;
+      }
     }
   }
 }
