@@ -49,6 +49,7 @@ import '../../ble/adapters/_registry.dart'
         kBangleJs,
         kBleHrs,
         kColmi,
+        kCoros,
         kDafit,
         kGarmin,
         kId115,
@@ -78,6 +79,7 @@ import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/banglejs_link.dart' show BangleJsLink;
 import '../../ble/casio_link.dart' show CasioLink;
 import '../../ble/colmi_link.dart' show ColmiLink;
+import '../../ble/coros_link.dart' show CorosLink;
 import '../../ble/dafit_link.dart' show DafitLink;
 import '../../ble/dt78_link.dart' show Dt78Link;
 import '../../ble/garmin_link.dart' show GarminLink;
@@ -829,6 +831,7 @@ class HealthSource {
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' || 'o2ring' || 'lefun' || 'colmi' || 'ringconn' =>
         LucideIcons.circleDot,
+      'coros' => LucideIcons.timer,
       'ultrahuman' => LucideIcons.circle,
       'dafit' ||
       'dt78' ||
@@ -1028,6 +1031,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kCoros,
+    blurb: 'A Coros sports watch. Reads battery, model/serial/firmware and '
+        'live heart rate — no pairing needed. Recorded runs, sleep and steps '
+        'stay on the watch; there is no public way to pull them off yet.',
+    // Null means the plain notify-class pairing — no key needed before the
+    // row can be written.
+    pick: null,
   ),
   (
     entry: kGarmin,
@@ -1782,6 +1794,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // WHOOP from a chest strap's page.
       onSync: switch (s.family) {
         'oura' || 'ringconn' || 'o2ring' => () => _syncRing(c, s.family),
+        'coros' => () => _syncCorosWatch(c),
         'garmin' => () => _syncGarminWatch(c),
         'ultrahuman' => () => _syncUltrahumanRing(c),
         'miband234' => () => _syncMiband(c),
@@ -1840,6 +1853,27 @@ Future<void> _syncRing(BuildContext c, String? family) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Hold a session with the paired watch, now, because the user asked. There
+/// is no history to drain here — see `coros_link.dart`'s own header — so this
+/// just refreshes the battery/identity status and banks whatever heart rate
+/// arrives during it.
+Future<void> _syncCorosWatch(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await CorosLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        // Its OWN string, not the ring's — `devicesCouldNotReachRing` names
+        // the device in its text, and a watch synced through here is not one.
+        : (l?.devicesCouldNotReachCorosWatch ??
+            'Could not reach it. It has to be nearby, and not connected to '
+                'another app.')),
   ));
 }
 

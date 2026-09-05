@@ -139,6 +139,24 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// One of the Nordic-UART-shaped 128-bit services a Coros watch exposes
+/// alongside the standard SIG services below — used here only as the scan
+/// filter, since a bare `0000180d` (heart rate) would collide with
+/// [kBleHrs] and get shadowed by it (that entry is matched first). NOT
+/// independently confirmed against a real advertisement payload (post-connect
+/// service enumeration is documented; the advertised UUID list is not) — see
+/// `coros.dart`'s own header before trusting this against real hardware.
+const String kCorosService = '6e400001-b5a3-f393-e0a9-77656c6f6f70';
+
+/// Standard Battery Service characteristic, read+notify, one byte 0-100.
+const String kBatteryLevelUuid = '00002a19-0000-1000-8000-00805f9b34fb';
+
+/// Standard Device Information Service characteristics — read-only UTF-8
+/// strings, no notify property.
+const String kModelNumberUuid = '00002a24-0000-1000-8000-00805f9b34fb';
+const String kSerialNumberUuid = '00002a25-0000-1000-8000-00805f9b34fb';
+const String kFirmwareRevisionUuid = '00002a26-0000-1000-8000-00805f9b34fb';
+
 /// Garmin's Multi-Link service — one characteristic pair carries every
 /// logical service (GFDI, the numbered real-time streams) this device family
 /// speaks, routed by a handle byte. See `protocol`'s `garmin.dart`.
@@ -788,6 +806,35 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// A Coros sports watch (Pace/Apex/Vertix series): every standard GATT
+/// service answers a plain connect, no pairing or bonding enforced.
+///
+/// NOT framed: no envelope, no command channel, no offload — see the header
+/// note on why activity/sleep/step history stays out of scope entirely.
+///
+/// `characteristics` IS BATTERY ALONE, deliberately. The Bluetooth SIG's
+/// Device Information Service marks model/serial/firmware as OPTIONAL —
+/// gating the connect on any of them is how a real watch that simply omits
+/// one string fails `missingCharacteristics` and never connects at all.
+/// `CorosAdapter._readString` already answers null for a characteristic that
+/// is not there; the honest gate is the one characteristic every watch in
+/// scope should answer. Heart rate is read via [kHeartRateMeasurementUuid]
+/// directly in `coros.dart` and is equally NOT required here, for the same
+/// reason: a watch that answers battery and identity but not heart rate
+/// should still connect.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}`-equivalent territory for anything but the generic HR parse —
+/// `kDerivableSources` stays empty regardless, same as every other band here.
+const BandEntry kCoros = BandEntry.notify(
+  id: 'coros',
+  label: 'Coros watch',
+  service: kCorosService,
+  characteristics: <String>[kBatteryLevelUuid],
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// A Garmin sports watch (GFDI v2), paired through the watch's own
 /// Settings -> Sensors & Accessories -> Phone -> Pair Phone menu.
 ///
@@ -1425,6 +1472,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kCoros,
   kUltrahuman,
   kWithingsSteelHr,
   kMiBand234,
@@ -1511,6 +1559,10 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'coros': {
+    InputSignal.hrSparse: Duration(seconds: 1),
+    InputSignal.rrIntervals: Duration(seconds: 1),
+  },
   'ultrahuman': <InputSignal, Duration>{},
   'withings_steel_hr': <InputSignal, Duration>{},
   'miband234': <InputSignal, Duration>{},

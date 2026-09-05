@@ -24,6 +24,7 @@ import '../ble/banglejs_link.dart';
 import '../ble/ble_engine.dart';
 import '../ble/casio_link.dart';
 import '../ble/colmi_link.dart';
+import '../ble/coros_link.dart';
 import '../ble/dafit_link.dart';
 import '../ble/garmin_link.dart';
 import '../ble/id115_link.dart';
@@ -247,6 +248,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: CorosLink.sync() no-ops when nothing is
+    // paired and never throws, but this is the one shared headless entry
+    // point, so a failure here must not escape either.
+    try {
+      await CorosLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] coros sync skipped: $e');
     }
     // Same piggyback, same reasoning: GarminLink.sync() no-ops when nothing
     // is paired and never throws, but this is the one shared headless entry

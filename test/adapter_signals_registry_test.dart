@@ -15,6 +15,7 @@ import 'package:openstrap_edge/ble/adapters/banglejs.dart';
 import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
 import 'package:openstrap_edge/ble/adapters/casio.dart';
 import 'package:openstrap_edge/ble/adapters/colmi.dart';
+import 'package:openstrap_edge/ble/adapters/coros.dart';
 import 'package:openstrap_edge/ble/adapters/dafit.dart';
 import 'package:openstrap_edge/ble/adapters/dt78.dart';
 import 'package:openstrap_edge/ble/adapters/garmin.dart';
@@ -50,6 +51,7 @@ void main() {
       'gen5': kWhoopGen4Signals,
       'ble_hrs': const BleHrsAdapter().signals,
       'oura': OuraAdapter(key: const [0]).signals,
+      'coros': const CorosAdapter().signals,
       'garmin': const GarminAdapter().signals,
       'ultrahuman': UltrahumanAdapter().signals,
       'withings_steel_hr': WithingsSteelHrAdapter(firstConnect: true).signals,

@@ -67,6 +67,7 @@ import 'ble_state.dart'
         releaseSecondaryLinkSlot;
 import 'banglejs_link.dart' show BangleJsLink;
 import 'colmi_link.dart' show ColmiLink;
+import 'coros_link.dart' show CorosLink;
 import 'dafit_link.dart' show DafitLink;
 import 'garmin_link.dart' show GarminLink;
 import 'hplus_link.dart' show HPlusLink;
@@ -665,6 +666,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kCoros.id) {
+      await CorosLink.forget(id);
       return;
     }
     if (row?['adapter_id'] == kGarmin.id) {

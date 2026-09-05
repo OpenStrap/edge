@@ -270,6 +270,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      'coros' => l?.devicePickerBlurbCoros ??
+          'A sports watch. Reads battery and live heart rate — recorded '
+              'activities stay on the watch.',
       // No l10n key: this is the one new category blurb that has not gone
       // through translation yet — see the PR notes rather than the other
       // localised branches above for why.

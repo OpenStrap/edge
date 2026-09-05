@@ -16,6 +16,7 @@ void main() {
           'gen5',
           'ble_hrs',
           'oura',
+          'coros',
           'ultrahuman',
           'withings_steel_hr',
           'miband234',
@@ -66,6 +67,14 @@ void main() {
         e.gatt!.data,
       ]);
     }
+  });
+
+  test('a Coros entry gates only on battery, never on an optional DIS string',
+      () {
+    // The Bluetooth SIG marks model/serial/firmware OPTIONAL — requiring any
+    // of them is how a real watch that omits one fails to connect at all.
+    expect(kCoros.requiredCharacteristics, [kBatteryLevelUuid]);
+    expect(kCoros.isFramed, isFalse);
   });
 
   test('D10 — a generic HRS entry has one service and one notify char', () {

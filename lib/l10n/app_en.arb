@@ -763,6 +763,10 @@
   "@devicesCouldNotReachRing": {
     "description": "Snackbar: sync failed."
   },
+  "devicesCouldNotReachCorosWatch": "Could not reach it. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachCorosWatch": {
+    "description": "Snackbar: sync failed, for a paired Coros watch."
+  },
   "devicesSyncingTheWatch": "Syncing the watch…",
   "@devicesSyncingTheWatch": {
     "description": "Snackbar: syncing Bangle.js."
@@ -1042,6 +1046,10 @@
   "devicePickerBlurbSensor": "A chest strap or armband, for beat timing during a workout.",
   "@devicePickerBlurbSensor": {
     "description": "Category row subtitle for a standard Bluetooth heart-rate sensor."
+  },
+  "devicePickerBlurbCoros": "A sports watch. Reads battery and live heart rate — recorded activities stay on the watch.",
+  "@devicePickerBlurbCoros": {
+    "description": "Category row subtitle for a Coros sports watch."
   },
   "devicePickerBlurbWithingsSteelHr": "Pairs and connects — nothing it captures is decoded into a number yet.",
   "@devicePickerBlurbWithingsSteelHr": {

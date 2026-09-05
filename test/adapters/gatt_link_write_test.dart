@@ -127,6 +127,12 @@ void main() {
     expect(reached, isFalse);
   });
 
+  test('read() on a characteristic the peripheral does not expose returns '
+      'null rather than throwing', () async {
+    final link = _link();
+    expect(await link.read(kHeartRateMeasurementUuid), isNull);
+  });
+
   group('gattUuidMatches', () {
     test('a SIG 16-bit characteristic matches its registry entry', () {
       // `Guid.str` for `00002a37-0000-1000-8000-00805f9b34fb` is `2a37` — the

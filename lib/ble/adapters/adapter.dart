@@ -76,8 +76,15 @@ abstract class BandLink {
   /// The whole surface used to be `notify`/`write`/`log`, and every band so
   /// far only ever needed to be WRITTEN to or NOTIFIED by. RingConn's auth
   /// needs one plain GATT read (the standard System ID characteristic, to
-  /// recover its own BLE MAC) that no framed band and no notify-only sensor
-  /// before it required — see `ringconn.dart`.
+  /// recover its own BLE MAC), and Coros's status pull needs several more
+  /// (battery, model, serial, firmware) — the first two bands that needed a
+  /// one-shot read where no framed band and no notify-only sensor before them
+  /// required one. See `ringconn.dart` and `coros.dart`.
+  ///
+  /// For a characteristic with no notify property (Device Information
+  /// Service's read-only strings, say) this is the only way to reach it —
+  /// [notify] stays the right call for anything that can push updates on its
+  /// own.
   Future<List<int>?> read(String characteristicUuid);
 
   /// Write with response, which is also what triggers bonding. Returns whether
