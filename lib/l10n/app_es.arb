@@ -165,6 +165,8 @@
   "devicesSyncingTheRing": "Sincronizando el anillo…",
   "devicesSynced": "Sincronizado.",
   "devicesCouldNotReachRing": "No se pudo contactar con el anillo. Debe estar cerca y no conectado a otra app.",
+  "devicesSyncingTheSensor": "Sincronizando el sensor…",
+  "devicesCouldNotReachSensor": "No se pudo contactar con el sensor. Debe estar cerca y no conectado a otra app.",
   "devicesConnectingWatch": "Conectando…",
   "devicesCouldNotReachWatch": "No se pudo contactar con el reloj. Debe estar cerca y no conectado a otra app.",
   "devicesForgetSensor": "¿Olvidar {name}?",

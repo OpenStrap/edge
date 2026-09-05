@@ -57,6 +57,7 @@ import '../../ble/adapters/_registry.dart'
         kDt78,
         kPineTime,
         kQHybrid,
+        kWearFit,
         declaredSignals;
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/casio_link.dart' show CasioLink;
@@ -69,6 +70,7 @@ import '../../ble/hplus_link.dart' show HPlusLink;
 import '../../ble/pinetime_link.dart' show PineTimeLink;
 import '../../ble/qhybrid_link.dart' show QHybridLink, pairQHybrid;
 import '../../ble/ringconn_link.dart' show RingConnLink;
+import '../../ble/wearfit_link.dart' show WearFitLink;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -795,7 +797,13 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' || 'lefun' || 'colmi' || 'ringconn' => LucideIcons.circleDot,
-      'dt78' || 'hplus' || 'pinetime' || 'qhybrid' || 'casio' || 'jyou' =>
+      'dt78' ||
+      'hplus' ||
+      'pinetime' ||
+      'qhybrid' ||
+      'casio' ||
+      'jyou' ||
+      'wearfit' =>
         LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
@@ -974,6 +982,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kWearFit,
+    blurb: 'A Howear-branded band (HK8 Ultra, HK8 Pro Max and similar), paired '
+        'through the WearFit app family. Banks its own battery report and '
+        'whatever else it sends; nothing else derives from it yet.',
+    // Null means the plain notify-class pairing — no key, no clock, no
+    // handshake needed before the row can be written.
+    pick: null,
   ),
   (
     entry: kRingConn,
@@ -1592,6 +1609,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
       // WHOOP from a chest strap's page.
       onSync: switch (s.family) {
         'oura' || 'ringconn' => () => _syncRing(c, s.family),
+        'wearfit' => () => _syncSensor(c, WearFitLink.instance.sync),
         'dt78' => () => _syncDt78(c),
         'hplus' => () => _syncHPlus(c),
         'pinetime' => () => _syncPineTime(c),
@@ -1628,6 +1646,26 @@ Future<void> _syncRing(BuildContext c, String? family) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Drain any other paired sensor family, now, because the user asked. Same
+/// promise as [_syncRing], generalized past the ring-specific wording — a
+/// WearFit band is not a ring.
+Future<void> _syncSensor(BuildContext c, Future<bool> Function() sync) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(SnackBar(
+      content:
+          Text(l?.devicesSyncingTheSensor ?? 'Syncing the sensor…')));
+  final ok = await sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : (l?.devicesCouldNotReachSensor ??
+            'Could not reach the sensor. It has to be nearby, and not '
+                'connected to another app.')),
   ));
 }
 

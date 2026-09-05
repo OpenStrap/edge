@@ -763,6 +763,14 @@
   "@devicesCouldNotReachRing": {
     "description": "Snackbar: sync failed."
   },
+  "devicesSyncingTheSensor": "Syncing the sensor…",
+  "@devicesSyncingTheSensor": {
+    "description": "Snackbar: syncing a paired non-ring sensor (e.g. WearFit)."
+  },
+  "devicesCouldNotReachSensor": "Could not reach the sensor. It has to be nearby, and not connected to another app.",
+  "@devicesCouldNotReachSensor": {
+    "description": "Snackbar: sensor sync failed."
+  },
   "devicesConnectingWatch": "Connecting…",
   "@devicesConnectingWatch": {
     "description": "Snackbar: connecting to the watch."
@@ -1002,6 +1010,10 @@
   "devicePickerBlurbRing": "Reads the ring directly — no Oura account or subscription.",
   "@devicePickerBlurbRing": {
     "description": "Category row subtitle for the Oura ring."
+  },
+  "devicePickerBlurbWearFit": "A Howear-branded band, paired through the WearFit app family.",
+  "@devicePickerBlurbWearFit": {
+    "description": "Category row subtitle for a WearFit-family band."
   },
   "devicePickerBlurbSensor": "A chest strap or armband, for beat timing during a workout.",
   "@devicePickerBlurbSensor": {

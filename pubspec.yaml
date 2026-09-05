@@ -141,8 +141,14 @@ dependencies:
       # stored day_result number moves. R11's meaning is still unconfirmed
       # and edge does not read it.
       #
-      # REPIN (this branch): protocol `feat/ringconn` @ b819ee0, 2 commits on
-      # top of 471034c. Adds the ring's frame codec this branch's
+      # REPIN (this branch): protocol `feat/wearfit-howear-protocol` @ 1cf8e61,
+      # one commit ahead of #42 (471034c). Carries the wearfit/howear frame
+      # codec (parseWearFitFrame/wearFitCmdGetBattery/parseWearFitBattery)
+      # this branch's adapter needs; nothing else on the WHOOP/oura/miband
+      # path changes.
+      #
+      # REPIN (main): protocol `feat/ringconn` @ b819ee0, 2 commits on top of
+      # 471034c. Adds the ring's frame codec this branch's
       # `lib/ble/adapters/ringconn.dart` calls: `parseRingConnFrame`,
       # `RingConnFrame`, the bulk-page reader, and the channel constants
       # (`kRingConnChannelSleep`/`...Awake`). No decoded field — raw frames
@@ -150,13 +156,14 @@ dependencies:
       #
       # NO kAlgoVersion bump: nothing here feeds a stored metric.
       #
-      # MERGE (main → this branch): main's own repin (lefun @ 4284f9a) and
-      # this branch's (ringconn @ b819ee0) are parallel commits on protocol,
-      # neither an ancestor of the other — verified via
+      # MERGE (main → this branch): this branch's own repin (wearfit @
+      # 1cf8e61) and main's (ringconn @ b819ee0) are parallel commits on
+      # protocol, neither an ancestor of the other — verified via
       # `git merge-base --is-ancestor`. protocol's own `origin/main` has
-      # already merged both (its own independent per-device PR queue), so the
-      # ref moves to that tip rather than either single-device SHA — this is
-      # both repins standing, not a choice between them.
+      # already merged both (its own independent per-device PR queue, PR#50
+      # wearfit-howear and PR#48 ringconn both folded in), so the ref moves
+      # to that tip rather than either single-device SHA — this is both
+      # repins standing, not a choice between them.
       ref: fe1464db98b84ac4d3ce6175d54ada11356d6c62
   openstrap_analytics:
     git:

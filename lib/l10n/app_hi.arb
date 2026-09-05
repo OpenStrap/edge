@@ -165,6 +165,8 @@
   "devicesSyncingTheRing": "रिंग सिंक हो रही है…",
   "devicesSynced": "सिंक हो गया।",
   "devicesCouldNotReachRing": "रिंग तक नहीं पहुंचा जा सका। यह पास होना चाहिए, और किसी अन्य ऐप से जुड़ा नहीं होना चाहिए।",
+  "devicesSyncingTheSensor": "सेंसर सिंक हो रहा है…",
+  "devicesCouldNotReachSensor": "सेंसर तक नहीं पहुंचा जा सका। यह पास होना चाहिए, और किसी अन्य ऐप से जुड़ा नहीं होना चाहिए।",
   "devicesConnectingWatch": "कनेक्ट हो रहा है…",
   "devicesCouldNotReachWatch": "घड़ी तक नहीं पहुंचा जा सका। यह पास होनी चाहिए, और किसी अन्य ऐप से जुड़ी नहीं होनी चाहिए।",
   "devicesForgetSensor": "{name} को भूल जाएं?",

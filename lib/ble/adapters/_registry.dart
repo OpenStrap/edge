@@ -121,6 +121,20 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// The service a WearFit-family band advertises for discovery. It carries no
+/// characteristics of its own — the write/notify pair below live on a
+/// separate, otherwise-generic Nordic UART Service the band exposes once
+/// connected. Shared by every Howear-branded model this build recognizes
+/// (HK8 Ultra, HK8 Pro Max and the like), which all speak the same envelope.
+const String kWearFitScanService = '0000fee7-0000-1000-8000-00805f9b34fb';
+
+/// Host to band, on the Nordic UART Service. Write-with-response, same as
+/// every other band's command characteristic.
+const String kWearFitWriteChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Band to host. Every reply and every unsolicited frame arrives here.
+const String kWearFitNotifyChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
 /// The DT78/DT92/DT66 family's service — a Nordic UART Service instance, and
 /// NOT a fingerprint: this exact triple is reused by unrelated gadgets (see
 /// `kDt78`'s own doc comment below).
@@ -560,6 +574,28 @@ const BandEntry kOura = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// A Howear-branded band (HK8 Ultra, HK8 Pro Max and the like), paired
+/// through the WearFit / WearFit 2.0 / WearFit Pro companion app family.
+///
+/// NOT framed: the envelope has a length byte and an opcode but no CRC and no
+/// inner-record layout the framed machinery's [innerOpcodeOffset] etc. could
+/// describe — see `wearfit.dart` in `protocol` for the wire format itself.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and this id is absent from `kDerivableSources` — a paired band
+/// captures its own battery report and archives everything else it sends,
+/// and surfaces no health signal at all.
+const BandEntry kWearFit = BandEntry.notify(
+  id: 'wearfit',
+  label: 'WearFit band',
+  service: kWearFitScanService,
+  characteristics: <String>[kWearFitWriteChar, kWearFitNotifyChar],
+  // No clock of its own that this build reads back; every frame is stamped
+  // on arrival, same as the generic HRS strap.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// RingConn (Gen 2, Gen 2 Air, Gen 3) — one service, a challenge-response
 /// handshake keyed by the ring's own BLE MAC, and two independent history
 /// channels the ring resumes on its own (this build persists no cursor for
@@ -803,6 +839,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kWearFit,
   kRingConn,
   kDt78,
   kLefun,
@@ -870,6 +907,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'wearfit': <InputSignal, Duration>{},
   'ringconn': <InputSignal, Duration>{},
   'dt78': <InputSignal, Duration>{},
   'lefun': <InputSignal, Duration>{},

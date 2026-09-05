@@ -71,6 +71,7 @@ import 'lefun_link.dart' show LefunLink;
 import 'oura_link.dart' show OuraLink;
 import 'qhybrid_link.dart' show QHybridLink;
 import 'ringconn_link.dart' show RingConnLink;
+import 'wearfit_link.dart' show WearFitLink;
 
 export 'adapters/host.dart' show HrsReading;
 
@@ -633,6 +634,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kWearFit.id) {
+      await WearFitLink.forgetDevice(id);
       return;
     }
     if (row?['adapter_id'] == kRingConn.id) {

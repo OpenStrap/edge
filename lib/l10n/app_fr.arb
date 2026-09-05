@@ -165,6 +165,8 @@
   "devicesSyncingTheRing": "Synchronisation de la bague…",
   "devicesSynced": "Synchronisé.",
   "devicesCouldNotReachRing": "Impossible de joindre la bague. Elle doit être à proximité et non connectée à une autre application.",
+  "devicesSyncingTheSensor": "Synchronisation du capteur…",
+  "devicesCouldNotReachSensor": "Impossible de joindre le capteur. Il doit être à proximité et non connecté à une autre application.",
   "devicesConnectingWatch": "Connexion…",
   "devicesCouldNotReachWatch": "Impossible de joindre la montre. Elle doit être à proximité et non connectée à une autre application.",
   "devicesForgetSensor": "Oublier {name} ?",
