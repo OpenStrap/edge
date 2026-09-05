@@ -183,6 +183,29 @@ class GattBandLink implements BandLink {
   }
 
   @override
+  Future<List<int>?> read(String characteristicUuid) async {
+    if (_closed) {
+      log('read skipped: it belongs to a link that is no longer live.');
+      return null;
+    }
+    final c = _find(characteristicUuid);
+    if (c == null) {
+      log('read: no characteristic ${characteristicUuid.substring(0, 8)} on '
+          'this peripheral.');
+      return null;
+    }
+    try {
+      return await c.read().timeout(_notifyTimeout);
+    } on TimeoutException {
+      log('read timeout: no GATT response in ${_notifyTimeout.inSeconds}s.');
+      return null;
+    } catch (e) {
+      log('read error: $e');
+      return null;
+    }
+  }
+
+  @override
   Future<bool> write(String characteristicUuid, List<int> value) {
     // THE DANGEROUS-OPCODE BLOCK, at the one place every adapter's writes
     // funnel through. It is here rather than in adapter code precisely so no

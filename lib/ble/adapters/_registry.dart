@@ -53,8 +53,66 @@ import 'signals.dart';
 const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
 const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
 
+/// Device Information Service's System ID characteristic — an 8-byte EUI-64.
+/// Standard GATT, not band-specific; RingConn is the first entry that needs
+/// to read it (its own BLE MAC has to come from somewhere, and there is no
+/// vendor server to ask — see `ringconn.dart`'s `ringConnMacFromSystemId`).
+const String kSystemIdUuid = '00002a23-0000-1000-8000-00805f9b34fb';
+
+/// The Fossil/Skagen Q Hybrid's GATT service. NOT the encrypted Hybrid HR /
+/// Gen 6 sibling, which advertises this same UUID — see [kQHybrid]'s own doc.
+const String kQHybridService = '3dda0001-957f-7d4a-34a6-74696673696d';
+
+/// Host-to-watch control characteristic: write + notify, flat
+/// `[type, cmdId, ...payload]` request / `[3, cmdId, ...payload]` response,
+/// no CRC, no envelope.
+const String kQHybridControlChar = '3dda0002-957f-7d4a-34a6-74696673696d';
+
+/// File-download notify characteristics. A separate, undecoded chunking
+/// sub-protocol — banked raw only.
+const String kQHybridFileChar1 = '3dda0003-957f-7d4a-34a6-74696673696d';
+const String kQHybridFileChar2 = '3dda0004-957f-7d4a-34a6-74696673696d';
+
+/// A third notify characteristic in the same service — also used for a
+/// vibrate/find-my-watch write on the real device. Undecoded — banked raw
+/// only, same as the two above.
+const String kQHybridAuxChar = '3dda0005-957f-7d4a-34a6-74696673696d';
+
+/// Button-press notify characteristic. Fixed 11-byte frames — banked raw only.
+const String kQHybridButtonChar = '3dda0006-957f-7d4a-34a6-74696673696d';
+
+/// File-upload-ack notify characteristic — banked raw only.
+const String kQHybridUploadAckChar = '3dda0007-957f-7d4a-34a6-74696673696d';
+
+/// Casio's "2C/2D all-features" GATT service — shared across the current
+/// G-Shock/smartwatch line (GBX100, GW-B5600, GMW-B5000, ECB-S100/Edifice and
+/// later models speaking the same profile). NOT the older `KEY_CONTAINER`-only
+/// scheme (e.g. GB-6900), a different and incompatible wire scheme that is out
+/// of scope here.
+const String kCasioService = '26eb000d-b012-49a8-b1f8-394fb2032b0f';
+
+/// Host to watch: a one- or two-byte feature-request tag, write-with-response.
+const String kCasioReadRequestChar = '26eb002c-b012-49a8-b1f8-394fb2032b0f';
+
+/// Watch to host: every feature reply and setting notification shares this one
+/// characteristic — `[featureTag, ...payload]`, the first byte echoing the
+/// request. Reads and writes for settings both land here too; this adapter
+/// only ever reads.
+const String kCasioAllFeaturesChar = '26eb002d-b012-49a8-b1f8-394fb2032b0f';
+
 /// The Oura ring's GATT service, identical across the generations seen so far.
 const String kOuraService = '98ed0001-a541-11e4-b6a0-0002a5d5c51b';
+
+/// RingConn's one data service — Gen 2, Gen 2 Air and Gen 3 all speak the
+/// identical service, characteristics, framing and opcode set.
+const String kRingConnService = '8327ad99-2d87-4a22-a8ce-6dd7971c0437';
+
+/// Host to ring. Every RingConn command is written here, with response.
+const String kRingConnCommandChar = '8327ad98-2d87-4a22-a8ce-6dd7971c0437';
+
+/// Ring to host. Every status reply and every history page share this one
+/// characteristic — there is no separate data pipe.
+const String kRingConnNotifyChar = '8327ad97-2d87-4a22-a8ce-6dd7971c0437';
 
 /// Host to ring. Every Oura command is written here, with response.
 const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
@@ -76,6 +134,70 @@ const String kWearFitWriteChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
 
 /// Band to host. Every reply and every unsolicited frame arrives here.
 const String kWearFitNotifyChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// The DT78/DT92/DT66 family's service — a Nordic UART Service instance, and
+/// NOT a fingerprint: this exact triple is reused by unrelated gadgets (see
+/// `kDt78`'s own doc comment below).
+const String kDt78Service = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Host to watch, write-without-response in both reference clients.
+const String kDt78WriteChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Watch to host, notify. Every reply and every unprompted push share this
+/// one characteristic.
+const String kDt78NotifyChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// The Lefun-protocol family's GATT service. One shared write/notify pair
+/// covers battery, firmware info and every historical report code alike —
+/// there is no separate command channel the way Oura's ring has.
+const String kLefunService = '000018d0-0000-1000-8000-00805f9b34fb';
+const String kLefunWriteChar = '00002d01-0000-1000-8000-00805f9b34fb';
+const String kLefunNotifyChar = '00002d00-0000-1000-8000-00805f9b34fb';
+
+/// The HPlus reference GATT service — one service shared across a whole
+/// family of low-cost wrist bands, not one product.
+const String kHPlusService = '14701820-620a-3973-7c78-9cfff0876abd';
+
+/// Host to band. Every HPlus command is written here, plaintext, no
+/// response required by the device.
+const String kHPlusControlChar = '14702856-620a-3973-7c78-9cfff0876abd';
+
+/// Band to host. Every notification — realtime stats, firmware version,
+/// sleep and day-summary records — shares this one characteristic.
+const String kHPlusMeasureChar = '14702853-620a-3973-7c78-9cfff0876abd';
+
+/// A Jyou/Y5-class band's GATT service. No auth, no envelope, no ambiguity
+/// with either rebrand's own service UUID (BFH16, Teclast H30 — a separate,
+/// unbuilt PR), so no scan-time name fallback is needed here.
+const String kJyouService = '000056ff-0000-1000-8000-00805f9b34fb';
+
+/// Host to band, write-with-response. Fixed 10-byte command frames.
+const String kJyouControlChar = '000033f3-0000-1000-8000-00805f9b34fb';
+
+/// Band to host. Variable-length frames tagged by their first byte.
+const String kJyouMeasureChar = '000033f4-0000-1000-8000-00805f9b34fb';
+
+/// A PineTime's motion service. Vendor-custom 128-bit uuid — its own GATT
+/// identity, distinct from the SIG heart-rate service this same watch also
+/// answers on (see [kHeartRateServiceUuid]).
+const String kPineTimeMotionService = '00030000-78fc-48fe-8e23-433b3a1942d0';
+
+/// Step count, notify. The only motion-service characteristic subscribed here
+/// — the same service's raw tri-axial characteristic is a separate, less
+/// settled read on real firmware, so nothing here touches it.
+const String kPineTimeStepCountChar = '00030001-78fc-48fe-8e23-433b3a1942d0';
+
+/// Colmi smart ring family's primary command/notify service. A second,
+/// separate service (sleep + SpO2 "big data") coexists on the same ring and
+/// is untouched by this build — see `colmi.dart`'s header.
+const String kColmiService = '6e40fff0-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Host to ring. Every command frame is written here.
+const String kColmiWriteChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Ring to host. Every reply — including an unprompted battery push — arrives
+/// here, tagged by the same command id the request went out under.
+const String kColmiNotifyChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
 /// What a stored timestamp actually IS for a given band.
 ///
@@ -303,6 +425,7 @@ class BandEntry {
     required String service,
     required List<String> characteristics,
     required this.timeAnchor,
+    this.nameMatcher,
   })  : _service = service,
         _requiredCharacteristics = characteristics,
         gatt = null,
@@ -315,7 +438,6 @@ class BandEntry {
         setClockDriftGated = false,
         burstCountGateEnforced = false,
         logsConsoleOutput = false,
-        nameMatcher = null,
         innerOpcodeOffset = -1,
         innerVersionOffset = -1,
         innerCounterOffset = -1;
@@ -474,6 +596,243 @@ const BandEntry kWearFit = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// RingConn (Gen 2, Gen 2 Air, Gen 3) — one service, a challenge-response
+/// handshake keyed by the ring's own BLE MAC, and two independent history
+/// channels the ring resumes on its own (this build persists no cursor for
+/// either — see `ringconn.dart` and `ringconn_link.dart`).
+///
+/// A REAL, UNRESOLVED RISK: the ring is not reliably known to advertise
+/// [kRingConnService] in its foreground scan advertisement — only its name
+/// (`RingConn Gen2-XXXX` etc). `nameMatcher` is left null here rather than
+/// guessed at: if the service prefix alone turns out not to find the ring on
+/// a live scan, this is where a name fallback belongs (see
+/// [BandEntry.framed]'s own use of one for WHOOP 4's own unreliable service
+/// ad), not something to wire blind against a ring nobody here owns.
+///
+/// [kSystemIdUuid] is listed as required rather than left to a plain GATT
+/// read against "whatever the peripheral happens to expose": the handshake's
+/// MAC recovery has nothing to fall back to without it.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns a ring,
+/// so not a byte of this path has met hardware (ASSUMPTIONS R6).
+/// [TimeAnchor.arrival] is the conservative default for a band that decodes
+/// nothing into a timestamped sample yet — see `RingConnAdapter.signals`.
+///
+/// It is `pick: null` in `kPairableSensors` even so: `RingConnAdapter.signals`
+/// is `const {}`, so `HrsLink.deriveTier` (which looks up `declaredSignals`
+/// for the pairing `adapter_id`) resolves this band's tier to null rather
+/// than inheriting [kBleHrs]'s `'beatToBeat'` — same reasoning as Oura's own
+/// pairing, same reason a wrong tier here is silent.
+const BandEntry kRingConn = BandEntry.notify(
+  id: 'ringconn',
+  label: 'RingConn',
+  service: kRingConnService,
+  characteristics: <String>[
+    kRingConnCommandChar,
+    kRingConnNotifyChar,
+    kSystemIdUuid,
+  ],
+  timeAnchor: TimeAnchor.arrival,
+);
+
+/// DT78 / DT92 / DT66 and the wider tail of WearFit-2.0-compatible OEM clones
+/// that share this exact service — one Nordic UART instance, no envelope, no
+/// checksum, no auth (`dt78.dart`'s own header has the worked byte examples).
+///
+/// The service/characteristic UUIDs are the generic Nordic UART reference
+/// triple, reused by large numbers of unrelated gadgets across many
+/// unaffiliated device families — so unlike gen4's `nameMatcher` there is no
+/// reliable advertised name to key on across resellers. The scan matches on
+/// service only; the picker surfaces a hit by its advertised name and lets
+/// the user confirm.
+///
+/// [TimeAnchor.arrival]: nothing in either reference client reads this
+/// watch's clock back, so there is no measured origin to anchor a reading to.
+///
+/// EXPERIMENTAL: nobody on this project owns one (ASSUMPTIONS R6). `signals`
+/// is `const {}` and `kDerivableSources` never gets this id — heart rate,
+/// SpO2, blood pressure, steps and sleep are all readable at fixed opcodes
+/// and none of it is decoded.
+const BandEntry kDt78 = BandEntry.notify(
+  id: 'dt78',
+  label: 'DT78 / DT92 / DT66',
+  service: kDt78Service,
+  characteristics: <String>[kDt78WriteChar, kDt78NotifyChar],
+  timeAnchor: TimeAnchor.arrival,
+);
+
+/// A Lefun-protocol OEM ring or band — the shared reference design behind a
+/// long list of storefront names, not one branded product. Plain, unencrypted
+/// GATT: no key, no nonce, no challenge/response anywhere in the envelope.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). Only the
+/// envelope and its checksum, plus the battery report, are decoded with any
+/// confidence — steps, sleep and PPG all ride the same envelope under their
+/// own report codes and have no decoder here, so `signals` is `const {}` and
+/// nothing this device writes becomes a metric.
+const BandEntry kLefun = BandEntry.notify(
+  id: 'lefun',
+  label: 'Smart ring/band (Lefun protocol)',
+  service: kLefunService,
+  characteristics: <String>[kLefunWriteChar, kLefunNotifyChar],
+  // No clock in the envelope this file decodes. See [TimeAnchor].
+  timeAnchor: TimeAnchor.arrival,
+);
+
+/// The HPlus reference profile — HPlus itself and every OEM re-skin sharing
+/// its firmware (same service, same two characteristics, same command byte).
+///
+/// Plaintext vendor command channel: no bonding, no encryption, no key
+/// material anywhere in the protocol. Unlike every other notify-only entry
+/// above, this band does not answer at all until a short init sequence has
+/// been written to it; see `hplus.dart` for what that sequence is and the one
+/// thing about it nobody has confirmed.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so not
+/// a byte of this path has met hardware (ASSUMPTIONS R6). It pairs, connects,
+/// and banks every reply raw; `kDerivableSources` stays empty until someone
+/// has actually held one.
+const BandEntry kHPlus = BandEntry.notify(
+  id: 'hplus',
+  label: 'HPlus HR band',
+  service: kHPlusService,
+  characteristics: <String>[kHPlusControlChar, kHPlusMeasureChar],
+  // No clock in any channel this adapter reads; every frame is stamped on
+  // arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
+/// A Jyou/Y5-class band: fixed 10-byte write commands, tag-byte notify
+/// frames, no auth and no envelope. One product family of three that share
+/// this opcode/checksum scheme over different GATT service sets — this entry
+/// is the base Y5 device ONLY; the BFH16 and Teclast H30 rebrands each layer
+/// their own service UUIDs on top and are a separate, unbuilt PR.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). Every decoded
+/// field — HR, steps, blood pressure, SpO2 — is a proprietary on-device
+/// estimate with no accuracy spec behind it, so `kDerivableSources` stays
+/// empty. See `jyou.dart`.
+const BandEntry kJyou = BandEntry.notify(
+  id: 'jyou',
+  label: 'Jyou Band',
+  service: kJyouService,
+  characteristics: <String>[kJyouControlChar, kJyouMeasureChar],
+  // No frame carries the band's own clock; every chunk is stamped on arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
+/// A PineTime running its open firmware. No auth, no write of any kind — two
+/// independent notify characteristics on two different services: this
+/// watch's own motion service, and the SIG heart-rate service [kBleHrs] also
+/// answers on.
+///
+/// [kPineTimeMotionService] is the scan-filter service (a vendor uuid unique
+/// to this entry — the heart-rate service is [kBleHrs]'s own scan filter, and
+/// two registry rows filtering on the same service is the collision
+/// `HrsLink.scanForAny` treats as a registry bug, not a runtime ambiguity).
+/// Both notify characteristics are still required: `GattBandLink` matches a
+/// characteristic across every service the peripheral discovers, not only
+/// the scan-filter one.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and `kDerivableSources` never gets this id — step count and
+/// heart rate are both readable and neither is decoded.
+const BandEntry kPineTime = BandEntry.notify(
+  id: 'pinetime',
+  label: 'PineTime',
+  service: kPineTimeMotionService,
+  characteristics: <String>[kPineTimeStepCountChar, kHeartRateMeasurementUuid],
+  timeAnchor: TimeAnchor.arrival,
+);
+
+/// Fossil/Skagen's original "hybrid" smartwatch line — models like `HW.0.0`,
+/// `HL.0.0`, `DN.1.0`. NOT the encrypted Hybrid HR / Gen 6 line, a different
+/// sibling protocol that happens to advertise the same service UUID.
+///
+/// Plain unencrypted GATT, no crypto handshake, no pairing key: standard
+/// platform BLE bonding is the whole of what "pairing" means here, same as
+/// [kBleHrs]. A live scan match on the service UUID alone cannot tell this
+/// watch apart from its encrypted sibling before connecting, so the adapter
+/// self-confirms with a harmless battery-level probe before banking anything
+/// — see `qhybrid.dart`.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). It pairs,
+/// connects, confirms itself, and banks every notification raw;
+/// `kDerivableSources` stays empty until someone has actually held one.
+const BandEntry kQHybrid = BandEntry.notify(
+  id: 'qhybrid',
+  label: 'Fossil/Skagen Hybrid Smartwatch',
+  service: kQHybridService,
+  characteristics: <String>[
+    kQHybridControlChar,
+    kQHybridFileChar1,
+    kQHybridFileChar2,
+    kQHybridAuxChar,
+    kQHybridButtonChar,
+    kQHybridUploadAckChar,
+  ],
+  // No clock in the wire format at all; every frame is stamped on arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
+/// This ring family advertises a stable name — `R0\d_*` (R02/R03/R06/R09) or
+/// `COLMI R10_*` — so matching on it is a fallback for whatever an
+/// advertising payload's service list drops. Whether a real ring's 31-byte
+/// advertising payload also carries `6e40fff0…` is unconfirmed without
+/// hardware, so this is belt-and-suspenders alongside the service filter, the
+/// same role `_nameContainsWhoop` plays for WHOOP 4. Takes the
+/// already-lowercased name.
+bool _looksLikeColmi(String lowercaseName) =>
+    RegExp(r'^(?:r02_|r03_|r06_|r09_)').hasMatch(lowercaseName) ||
+    lowercaseName.startsWith('colmi r10_');
+
+/// Colmi smart ring family (advertised as `R02_*`, `R03_*`, `R06_*`, `R09_*`,
+/// `COLMI R10_*`). A fixed 16-byte checksummed command/notify protocol with no
+/// encryption and no handshake of any kind — connect, discover, subscribe,
+/// write.
+///
+/// [TimeAnchor.arrival]: there is no command in this protocol that reads the
+/// ring's clock back, so nothing here is a measured origin.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns a Colmi
+/// ring, so not a byte of this path has met hardware (ASSUMPTIONS R6). It
+/// pairs, connects and banks raw bytes; `kDerivableSources` stays empty.
+const BandEntry kColmi = BandEntry.notify(
+  id: 'colmi',
+  label: 'Colmi ring',
+  service: kColmiService,
+  characteristics: <String>[kColmiWriteChar, kColmiNotifyChar],
+  timeAnchor: TimeAnchor.arrival,
+  nameMatcher: _looksLikeColmi,
+);
+
+/// A Casio G-Shock / current-generation Casio smartwatch speaking the 2C/2D
+/// "all-features" GATT scheme (GBX100, GW-B5600, GMW-B5000, ECB-S100/Edifice
+/// and later models sharing the profile).
+///
+/// Plain unencrypted GATT, tagged request/response by a one-byte feature id —
+/// no envelope, no CRC, no counter, no crypto handshake anywhere in the
+/// connect flow. Standard platform BLE bonding is the whole of what "pairing"
+/// means here, same as [kBleHrs].
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so not
+/// a byte of this path has met hardware (ASSUMPTIONS R6). It pairs, connects,
+/// and banks every feature reply raw; `kDerivableSources` stays empty until
+/// someone has actually held one.
+const BandEntry kCasio = BandEntry.notify(
+  id: 'casio',
+  label: 'Casio G-Shock',
+  service: kCasioService,
+  characteristics: <String>[kCasioReadRequestChar, kCasioAllFeaturesChar],
+  // No clock in the wire format this adapter reads; every frame is stamped on
+  // arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
@@ -481,6 +840,15 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kBleHrs,
   kOura,
   kWearFit,
+  kRingConn,
+  kDt78,
+  kLefun,
+  kHPlus,
+  kPineTime,
+  kQHybrid,
+  kColmi,
+  kCasio,
+  kJyou,
 ];
 
 /// The bands the OFFLOAD ENGINE can drive, and the bands iOS provisions
@@ -508,10 +876,12 @@ BandEntry bandEntryFor(BandProfile wire) =>
 /// `signals` getter is a plain literal with no computed dependency, so this
 /// maps straight to the declared signals instead of a constructed instance —
 /// KEPT IN SYNC BY HAND with `whoop_gen4.dart`'s `kWhoopGen4Signals`,
-/// `ble_hrs.dart`'s `BleHrsAdapter.signals` and `oura.dart`'s
-/// `OuraAdapter.signals`, since importing those three back into this file
-/// (each of which already imports THIS file for its `BandEntry`) would be a
-/// needless import cycle for three lines of data.
+/// `ble_hrs.dart`'s `BleHrsAdapter.signals`, `oura.dart`'s
+/// `OuraAdapter.signals`, `ringconn.dart`'s `RingConnAdapter.signals`,
+/// `dt78.dart`'s `Dt78Adapter.signals` and `pinetime.dart`'s
+/// `PineTimeAdapter.signals`, since importing those back into this file (each
+/// of which already imports THIS file for its `BandEntry`) would be a
+/// needless import cycle for a handful of lines of data.
 ///
 /// gen5 reuses gen4's map: `kWhoopGen5`'s own doc comment states "same inner
 /// payload layout as gen4 — only the envelope differs", so gen4's declared
@@ -538,6 +908,15 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
   },
   'oura': <InputSignal, Duration>{},
   'wearfit': <InputSignal, Duration>{},
+  'ringconn': <InputSignal, Duration>{},
+  'dt78': <InputSignal, Duration>{},
+  'lefun': <InputSignal, Duration>{},
+  'hplus': <InputSignal, Duration>{},
+  'pinetime': <InputSignal, Duration>{},
+  'qhybrid': <InputSignal, Duration>{},
+  'colmi': <InputSignal, Duration>{},
+  'casio': <InputSignal, Duration>{},
+  'jyou': <InputSignal, Duration>{},
 };
 
 /// The signals one adapter declares, or empty for an id this build has no

@@ -127,16 +127,13 @@ dependencies:
       # in lib/compute/derivation_engine.dart, which moves together with this
       # ref and pubspec.lock (the pin-equality test fails a partial repin).
       #
-      # REPIN: protocol main @ 471034c, the #42 (audit/consolidated-fixes)
-      # merge — 6 commits on top of 6664854: decodeFrame's short-packet
-      # dispatch now tries the v2 realtime-HR parser before falling back to
-      # v1 (rev-2 packets were being misdecoded); R10 live dispatch no longer
-      # drops hr==0 (off-wrist) records to a bare data_record and now carries
-      # ts_epoch like the other realtime_hr branches; the copy-pasted LE
-      # (sec, subsec) byte packing used by 5 command builders and the
-      # hand-rolled _pow10/gen5 u16/i16/u32 readers were deduped; and #36
-      # lands raw R11 frame decoding (`R11Raw`/`decodeR11Raw`, meaning
-      # unconfirmed — see live.dart).
+      # REPIN (this branch): protocol `lefun-protocol` @ 4284f9a, 2 commits on
+      # top of 471034c (everything above). Adds the Lefun band's own wire
+      # module this branch's `lib/ble/adapters/lefun.dart` calls:
+      # `buildLefunFrame`/`parseLefunFrame`, `decodeLefunBattery`, and
+      # `kLefunReportBattery` — a bounded envelope codec plus battery decode,
+      # nothing else. No decoded physiological field (owner ruling: nobody on
+      # this project owns the hardware).
       #
       # NO kAlgoVersion bump: every changed decoder here is on the live
       # realtime path (decodeFrame's `realtime_hr`/`realtime_small`, R11) —
@@ -149,7 +146,25 @@ dependencies:
       # codec (parseWearFitFrame/wearFitCmdGetBattery/parseWearFitBattery)
       # this branch's adapter needs; nothing else on the WHOOP/oura/miband
       # path changes.
-      ref: 1cf8e6192079f1aa0e8de1a44bc5f5bdb6847393
+      #
+      # REPIN (main): protocol `feat/ringconn` @ b819ee0, 2 commits on top of
+      # 471034c. Adds the ring's frame codec this branch's
+      # `lib/ble/adapters/ringconn.dart` calls: `parseRingConnFrame`,
+      # `RingConnFrame`, the bulk-page reader, and the channel constants
+      # (`kRingConnChannelSleep`/`...Awake`). No decoded field — raw frames
+      # only (owner ruling: nobody on this project owns the hardware).
+      #
+      # NO kAlgoVersion bump: nothing here feeds a stored metric.
+      #
+      # MERGE (main → this branch): this branch's own repin (wearfit @
+      # 1cf8e61) and main's (ringconn @ b819ee0) are parallel commits on
+      # protocol, neither an ancestor of the other — verified via
+      # `git merge-base --is-ancestor`. protocol's own `origin/main` has
+      # already merged both (its own independent per-device PR queue, PR#50
+      # wearfit-howear and PR#48 ringconn both folded in), so the ref moves
+      # to that tip rather than either single-device SHA — this is both
+      # repins standing, not a choice between them.
+      ref: fe1464db98b84ac4d3ce6175d54ada11356d6c62
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
