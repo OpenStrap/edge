@@ -13,7 +13,7 @@
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import '../data/db.dart';
@@ -174,6 +174,15 @@ class CasioLink {
       reason: 'casio_tag_0x${bytes[0].toRadixString(16).padLeft(2, '0')}',
     );
   }
+
+  /// Exposes [_buildArchiveRow] to its own test file. Touches no instance
+  /// state, so this is a plain pass-through, not a second implementation.
+  @visibleForTesting
+  static ArchiveRecord? buildArchiveRowForTest(
+    List<int> bytes,
+    int capturedAtMs,
+  ) =>
+      instance._buildArchiveRow(bytes, capturedAtMs);
 
   /// Drop the link, flush what has been buffered. Safe when nothing is
   /// connected.
