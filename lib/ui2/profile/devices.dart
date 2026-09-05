@@ -1822,10 +1822,10 @@ class DeviceDetailView extends StatelessWidget {
                             // `Smaq2ossLink.sync()`. Claiming a "fetch" for
                             // those would be a promise the connect does not
                             // keep.
-                            sub: l?.devicesSyncNowSub ??
-                                (s.family == 'oura'
-                                    ? 'Fetch whatever it has been holding'
-                                    : 'Listen for whatever it sends right now'),
+                            sub: s.family == 'oura'
+                                ? (l?.devicesSyncNowSub ??
+                                    'Fetch whatever it has been holding')
+                                : 'Listen for whatever it sends right now',
                             onTap: onSync),
                       ],
                     ]),
