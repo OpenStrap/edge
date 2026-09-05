@@ -1526,16 +1526,17 @@ Future<void> _syncDafitWatch(BuildContext c) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
   // No localized string yet — same call as device_picker.dart's 'dafit'
-  // blurb, and for the same reason.
+  // blurb, and for the same reason. Deliberately NOT `devicesCouldNotReachRing`
+  // below either: that key is ring-specific text in every translated locale,
+  // and this device is a watch, not a ring.
   messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
   final ok = await DafitLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
         ? (l?.devicesSynced ?? 'Synced.')
-        : (l?.devicesCouldNotReachRing ??
-            'Could not reach it. It has to be nearby, and not connected to '
-                'another app.')),
+        : 'Could not reach it. It has to be nearby, and not connected to '
+            'another app.'),
   ));
 }
 

@@ -119,4 +119,33 @@ void main() {
     expect(events, isEmpty);
     expect(link.writes, hasLength(1)); // stops at the first refusal
   });
+
+  test('a frame archived before a LATER refused write is not dropped',
+      () async {
+    // handshakePause > 0 here, deliberately: the default adapter's zero pause
+    // resolves all 8 writes in one microtask cascade, leaving no room to flip
+    // writeSucceeds mid-handshake the way a real refusal partway through can.
+    final localAdapter = DafitAdapter(
+      now: () => DateTime.utc(2024, 3, 5, 14, 22, 37),
+      handshakePause: const Duration(milliseconds: 5),
+    );
+    final link = ReplayBandLink();
+    final events = <BandEvent>[];
+    final done = Completer<void>();
+    final sub =
+        localAdapter.run(link).listen(events.add, onDone: done.complete);
+    await Future<void>.delayed(Duration.zero); // let notify() subscribe
+    // A button-press frame lands and is archived while the first handshake
+    // write is still succeeding.
+    final buttonFrame = buildDafitFrame(0x1c, 0x01);
+    link.feed(kDafitNotifyChar, buttonFrame, atSec: 1_800_000_000);
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    link.writeSucceeds = false; // the SECOND handshake write is refused
+    await done.future;
+    await sub.cancel();
+
+    expect(link.writes, hasLength(2)); // stops at the second write's refusal
+    final raw = [for (final e in events) if (e is SampleBatch) ...?e.raw];
+    expect(raw, anyElement(orderedEquals(buttonFrame)));
+  });
 }

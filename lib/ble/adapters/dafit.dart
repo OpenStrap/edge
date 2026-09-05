@@ -104,6 +104,13 @@ class DafitAdapter extends BandAdapter {
       for (final frame in dafitInitSequence(now())) {
         if (!await link.write(kDafitWriteChar, frame)) {
           link.log('dafit: handshake write refused; ending the session.');
+          // A reply to an EARLIER handshake step can have already landed and
+          // been archived before this later step is refused — flush it so a
+          // mid-handshake refusal doesn't silently drop it, same as every
+          // other exit from this generator.
+          if (archived.isNotEmpty) {
+            yield SampleBatch(const [], raw: List.of(archived));
+          }
           return;
         }
         // The band is documented to need time to act on each step; this is
