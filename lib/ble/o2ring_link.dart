@@ -17,7 +17,7 @@
 import 'dart:async';
 import 'dart:math' show Random;
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' show parseO2RingFrame;
 
@@ -190,23 +190,33 @@ class O2RingLink {
 
   /// Bank one frame verbatim, decoded or not (owner rulings R1-R3): the INFO
   /// reply's JSON is parsed for [BandNote]s already, but the bytes are
-  /// archived regardless so a future decoder (the file commands, once a real
-  /// ring resolves the ambiguity `o2ring.dart` documents) has something to
-  /// run over.
-  ArchiveRecord? _buildArchiveRow(List<int> bytes, int capturedAtMs) {
+  /// archived regardless — a truncated/corrupted notification included, since
+  /// that is the one a future decoder (the file commands, once a real ring
+  /// resolves the ambiguity `o2ring.dart` documents) would most need to run
+  /// over.
+  ArchiveRecord _buildArchiveRow(List<int> bytes, int capturedAtMs) {
     final f = parseO2RingFrame(bytes);
-    if (f == null) return null;
     return ArchiveRecord(
       hex: _hex(bytes),
       // NULL, not 0 — this band has no flash-record counter. See
       // `oura_link.dart`'s identical note on `thinRawArchiveBefore`.
       counter: null,
-      packetType: f.cmd,
+      // The cmd byte when the envelope checked out; 0 when it didn't even
+      // parse (matches `ble_engine.dart`'s undecodable-frame fallback).
+      packetType: f?.cmd ?? 0,
       recTs: null,
       capturedAt: capturedAtMs,
-      reason: 'o2ring_cmd_0x${f.cmd.toRadixString(16).padLeft(2, '0')}',
+      reason: f != null
+          ? 'o2ring_cmd_0x${f.cmd.toRadixString(16).padLeft(2, '0')}'
+          : 'o2ring_unparsed',
     );
   }
+
+  /// Test-only access to [_buildArchiveRow] — proves every byte reaches
+  /// `raw_archive` even when [parseO2RingFrame] refuses the frame.
+  @visibleForTesting
+  ArchiveRecord buildArchiveRowForTest(List<int> bytes, int capturedAtMs) =>
+      _buildArchiveRow(bytes, capturedAtMs);
 }
 
 /// Pair [device] as this phone's O2Ring. Null on success, or a sentence the
