@@ -69,8 +69,9 @@ import 'colmi_link.dart' show ColmiLink;
 import 'dafit_link.dart' show DafitLink;
 import 'hplus_link.dart' show HPlusLink;
 import 'lefun_link.dart' show LefunLink;
-import 'oura_link.dart' show OuraLink;
 import 'o2ring_link.dart' show O2RingLink;
+import 'oura_link.dart' show OuraLink;
+import 'pebble_link.dart' show PebbleLink;
 import 'qhybrid_link.dart' show QHybridLink;
 import 'ringconn_link.dart' show RingConnLink;
 import 'watch9_link.dart' show Watch9Link;
@@ -575,13 +576,23 @@ class HrsLink {
       );
       final missing =
           link.missingCharacteristics(entry.requiredCharacteristics);
-      link.close();
       if (missing.isNotEmpty) {
+        link.close();
         return 'That device answered, but it does not expose the '
             '${entry.label} data this needs '
             '(missing ${missing.map((u) => u.substring(0, 8)).join(", ")}). '
             'Nothing was saved.';
       }
+      // Some notify-class bands (Pebble) gate everything past this point on
+      // OS-level bonding, triggered by a write here rather than by an
+      // app-layer key — see `BandEntry.bondTriggerCharacteristic`.
+      final bondChar = entry.bondTriggerCharacteristic;
+      if (bondChar != null && !await link.write(bondChar, const [0x01])) {
+        link.close();
+        return 'That device did not accept Bluetooth pairing. Nothing was '
+            'saved.';
+      }
+      link.close();
       await LocalDb.upsertDevice(
         id: mintDeviceId(entry, device.remoteId.str),
         adapterId: entry.id,
@@ -645,6 +656,10 @@ class HrsLink {
         .firstOrNull;
     if (row?['adapter_id'] == kOura.id) {
       await OuraLink.forgetRing(id);
+      return;
+    }
+    if (row?['adapter_id'] == kPebble.id) {
+      await PebbleLink.forgetPebble(id);
       return;
     }
     if (row?['adapter_id'] == kWatch9.id) {

@@ -29,11 +29,12 @@ import '../ble/jyou_link.dart';
 import '../ble/lefun_link.dart';
 import '../ble/makibeshr3_link.dart';
 import '../ble/oura_link.dart';
-import '../ble/smaq2oss_link.dart';
 import '../ble/o2ring_link.dart';
+import '../ble/pebble_link.dart';
 import '../ble/pinetime_link.dart';
 import '../ble/qhybrid_link.dart';
 import '../ble/ringconn_link.dart';
+import '../ble/smaq2oss_link.dart';
 import '../ble/tlw64_link.dart';
 import '../ble/watch9_link.dart';
 import '../ble/wearfit_link.dart';
@@ -241,6 +242,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: a bounded connect-drain window that
+    // no-ops when nothing is paired and must never mark the WHOOP cycle
+    // errored on its own failure.
+    try {
+      await PebbleLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] pebble sync skipped: $e');
     }
     // Same piggyback, same reasoning: MakibesHr3Link.sync() already no-ops
     // when nothing is paired and never throws, but a failure here still

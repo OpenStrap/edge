@@ -57,6 +57,7 @@ import '../../ble/adapters/_registry.dart'
         kNo1Band,
         kOura,
         kO2Ring,
+        kPebble,
         kRingConn,
         kCasio,
         kDt78,
@@ -78,6 +79,7 @@ import '../../ble/id115_link.dart' show Id115Link;
 import '../../ble/jyou_link.dart' show JyouLink;
 import '../../ble/makibeshr3_link.dart' show MakibesHr3Link;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/pebble_link.dart' show PebbleLink;
 import '../../ble/smaq2oss_link.dart' show Smaq2ossLink;
 import '../../ble/o2ring_link.dart' show O2RingLink, pairO2Ring;
 import '../../ble/hplus_link.dart' show HPlusLink;
@@ -821,6 +823,7 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'hplus' ||
       'id115' ||
       'makibeshr3' ||
+      'pebble' ||
       'pinetime' ||
       'qhybrid' ||
       'casio' ||
@@ -1009,6 +1012,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kPebble,
+    blurb: 'Pebble 2 or Pebble 2 SE only — older Pebbles need Bluetooth '
+        'Classic, which this app cannot reach. Nothing is decoded yet — raw '
+        'bytes are archived for a future update to make sense of.',
+    // Same generic notify-class pairing as the chest strap above — no key,
+    // no pre-pairing step.
+    pick: null,
   ),
   (
     entry: kMakibesHr3,
@@ -1719,6 +1731,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'hplus' => () => _syncHPlus(c),
         'id115' => () => _syncId115(c),
         'makibeshr3' => () => _syncMakibesHr3(c),
+        'pebble' => () => _syncPebble(c),
         'pinetime' => () => _syncPineTime(c),
         'qhybrid' => () => _syncQHybrid(c),
         'colmi' => () => _syncColmiRing(c),
@@ -1763,6 +1776,23 @@ Future<void> _syncRing(BuildContext c, String? family) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Drain the watch, now, because the user asked. Nothing decodes yet — see
+/// `pebble.dart`'s header — so a successful sync only ever means "bytes were
+/// banked to raw_archive", never a new reading anywhere on screen.
+Future<void> _syncPebble(BuildContext c) async {
+  final l = AppLocalizations.of(c);
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing the watch…')));
+  final ok = await PebbleLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? (l?.devicesSynced ?? 'Synced.')
+        : 'Could not reach the watch. It has to be nearby, and not '
+            'connected to another app.'),
   ));
 }
 

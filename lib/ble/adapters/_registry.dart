@@ -133,6 +133,30 @@ const String kOuraCommandChar = '98ed0002-a541-11e4-b6a0-0002a5d5c51b';
 /// event share this one characteristic — there is no separate data pipe.
 const String kOuraNotifyChar = '98ed0003-a541-11e4-b6a0-0002a5d5c51b';
 
+/// Pebble 2 / Pebble 2 SE's scan-filter service. Older Pebbles are out of
+/// reach of a client-only host (Classic SPP, or a BLE path that needs the
+/// phone to run its own local GATT server) — see `pebble.dart`'s header.
+const String kPebbleServiceUuid = '0000fed9-0000-1000-8000-00805f9b34fb';
+
+/// Notify. Connectivity state.
+const String kPebbleConnectivityUuid = '00000001-328e-0fbb-c642-1aa6699bdada';
+
+/// Write. Triggers standard OS-level BLE bonding — no app-layer key exchange.
+const String kPebblePairingTriggerUuid = '00000002-328e-0fbb-c642-1aa6699bdada';
+
+/// Notify. MTU.
+const String kPebbleMtuUuid = '00000003-328e-0fbb-c642-1aa6699bdada';
+
+/// A separate service, discovered post-connect rather than scan-filtered:
+/// PPoGATT ("Pebble Protocol over GATT"), the reliable byte-transport.
+const String kPebblePpogattServiceUuid = '30000003-328e-0fbb-c642-1aa6699bdada';
+
+/// Read/notify. Every PPoGATT packet the watch sends arrives here.
+const String kPebblePpogattReadUuid = '30000004-328e-0fbb-c642-1aa6699bdada';
+
+/// Write. Every ACK and control reply this host sends goes here.
+const String kPebblePpogattWriteUuid = '30000006-328e-0fbb-c642-1aa6699bdada';
+
 /// The Makibes HR3's service — the standard Nordic UART Service, reused by
 /// large numbers of unrelated gadgets, not a fingerprint on its own.
 const String kMakibesHr3Service = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
@@ -505,6 +529,13 @@ class BandEntry {
   /// the ALREADY-LOWERCASED platform name.
   final bool Function(String lowercaseName)? nameMatcher;
 
+  /// Characteristic a notify-class sensor needs written to (any value, WITH
+  /// response) to move the OS into bonded state before it will do anything
+  /// else — see `kPebblePairingTriggerUuid`'s doc comment. Null for every
+  /// band that either needs no bonding or bonds through `ble_engine`'s own
+  /// `createBond()` path (every framed entry).
+  final String? bondTriggerCharacteristic;
+
   /// A framed WHOOP-family band: an envelope, a command characteristic, and a
   /// flash the offload engine trims.
   const BandEntry.framed({
@@ -526,6 +557,7 @@ class BandEntry {
   })  : _requiredCharacteristics = requiredCharacteristics,
         _commands = commands,
         _service = null,
+        bondTriggerCharacteristic = null,
         timeAnchor = TimeAnchor.measured;
 
   /// A notify-only sensor: one service, one or more notify characteristics, no
@@ -541,6 +573,7 @@ class BandEntry {
     required String service,
     required List<String> characteristics,
     required this.timeAnchor,
+    this.bondTriggerCharacteristic,
     this.nameMatcher,
   })  : _service = service,
         _requiredCharacteristics = characteristics,
@@ -688,6 +721,34 @@ const BandEntry kOura = BandEntry.notify(
   // heart-rate strap this band answers nothing until it has been written to.
   characteristics: <String>[kOuraCommandChar, kOuraNotifyChar],
   timeAnchor: TimeAnchor.arrival,
+);
+
+/// Pebble 2 / Pebble 2 SE. Pure client, no envelope, no command channel —
+/// PPoGATT is banked verbatim and nothing is decoded past it. `pebble_link.dart`'s
+/// `PebbleLink` drives [PebbleAdapter.run] on a periodic bounded window; see
+/// `pebble.dart`'s header for both that shape and why every older Pebble
+/// model is out of reach.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6).
+const BandEntry kPebble = BandEntry.notify(
+  id: 'pebble',
+  label: 'Pebble',
+  service: kPebbleServiceUuid,
+  characteristics: <String>[
+    kPebblePairingTriggerUuid,
+    kPebbleConnectivityUuid,
+    kPebbleMtuUuid,
+    kPebblePpogattReadUuid,
+    kPebblePpogattWriteUuid,
+  ],
+  // No clock of its own reaches this layer — every banked chunk is stamped by
+  // arrival, same as every other notify-class entry with no measured origin.
+  timeAnchor: TimeAnchor.arrival,
+  // See `kPebblePairingTriggerUuid`'s doc comment — a write here is what
+  // moves the watch into bonded state, and PPoGATT never authenticates
+  // without it.
+  bondTriggerCharacteristic: kPebblePairingTriggerUuid,
 );
 
 /// The Makibes HR3, an unbranded OEM board sold under that one storefront
@@ -1155,6 +1216,7 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kPebble,
   kMakibesHr3,
   kId115,
   kSmaq2oss,
@@ -1234,6 +1296,7 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'pebble': <InputSignal, Duration>{},
   'makibeshr3': <InputSignal, Duration>{},
   'id115': <InputSignal, Duration>{},
   'smaq2oss': <InputSignal, Duration>{},

@@ -270,6 +270,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      'pebble' => 'Pebble 2 or Pebble 2 SE only. Pairs only for now — '
+          'nothing is read or stored yet.',
       // No localized key: English-only until this one earns one, same as
       // every other category blurb below the first two.
       'makibeshr3' => 'An unbranded Makibes HR3 board. Pairs and banks its '

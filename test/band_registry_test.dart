@@ -16,6 +16,7 @@ void main() {
           'gen5',
           'ble_hrs',
           'oura',
+          'pebble',
           'makibeshr3',
           'id115',
           'smaq2oss',
@@ -116,6 +117,24 @@ void main() {
     expect(kWhoopGen4.timeAnchor, TimeAnchor.measured);
     expect(kWhoopGen5.timeAnchor, TimeAnchor.measured);
     expect(kBleHrs.timeAnchor, TimeAnchor.arrival);
+    expect(kPebble.timeAnchor, TimeAnchor.arrival);
+  });
+
+  test('Pebble 2 / Pebble 2 SE — one scan-filter service, five required '
+      'characteristics, no envelope', () {
+    expect(kPebble.isFramed, isFalse);
+    expect(kPebble.service, kPebbleServiceUuid);
+    expect(kPebble.servicePrefix, '0000fed9');
+    expect(kPebble.requiredCharacteristics, <String>[
+      kPebblePairingTriggerUuid,
+      kPebbleConnectivityUuid,
+      kPebbleMtuUuid,
+      kPebblePpogattReadUuid,
+      kPebblePpogattWriteUuid,
+    ]);
+    expect(kPebble.gatt, isNull);
+    expect(kPebble.wire, isNull);
+    expect(() => kPebble.commands, throwsA(isA<TypeError>()));
   });
 
   test('bandEntryFor maps a wire profile back to its entry', () {
