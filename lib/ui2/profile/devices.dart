@@ -52,6 +52,7 @@ import '../../ble/adapters/_registry.dart'
         kJyou,
         kHPlus,
         kLefun,
+        kNo1Band,
         kOura,
         kO2Ring,
         kRingConn,
@@ -75,6 +76,7 @@ import '../../ble/hplus_link.dart' show HPlusLink;
 import '../../ble/pinetime_link.dart' show PineTimeLink;
 import '../../ble/qhybrid_link.dart' show QHybridLink, pairQHybrid;
 import '../../ble/ringconn_link.dart' show RingConnLink;
+import '../../ble/tlw64_link.dart' show Tlw64Link;
 import '../../ble/wearfit_link.dart' show WearFitLink;
 import '../../ble/zetime_link.dart' show ZeTimeLink, pairZeTime;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
@@ -812,7 +814,8 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'casio' ||
       'jyou' ||
       'wearfit' ||
-      'zetime' =>
+      'zetime' ||
+      'tlw64' =>
         LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
@@ -991,6 +994,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kNo1Band,
+    blurb: 'A TLW64 or NO1 F1 fitness band. Pairs and banks its raw data in '
+        'the background, but does not derive anything from it yet — nobody '
+        'on this project owns one to verify its numbers against.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written.
+    pick: null,
   ),
   (
     entry: kDafit,
@@ -1650,6 +1662,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'colmi' => () => _syncColmiRing(c),
         'casio' => () => _syncCasio(c, s.deviceId),
         'jyou' => () => _syncJyou(c),
+        'tlw64' => () => _syncNo1Band(c),
         _ => null,
       },
       onForget: s.deviceId != null
@@ -1685,6 +1698,21 @@ Future<void> _syncRing(BuildContext c, String? family) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Pull whatever a paired NO1-family band has sent since the last connect,
+/// now, because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncNo1Band(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await Tlw64Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the band. It has to be nearby, and not connected '
+            'to another app.'),
   ));
 }
 
@@ -2178,8 +2206,19 @@ class DeviceDetailView extends StatelessWidget {
                         Divider(color: p.line, height: 1),
                         SetRow(LucideIcons.downloadCloud, C.blue,
                             l?.devicesSyncNow ?? 'Sync now',
-                            sub: l?.devicesSyncNowSub ??
-                                'Fetch whatever it has been holding',
+                            // Only Oura genuinely fetches held history off a
+                            // cursor; every other `onSync` wired today is a
+                            // bounded listen window with no request and no
+                            // stored-history drain — see e.g.
+                            // `Tlw64Link.sync()`. Claiming a "fetch" for
+                            // those would be a promise the connect does not
+                            // keep. `devicesSyncNowSub` only has a fetch
+                            // phrasing in every locale, so it must not be
+                            // consulted for a listen-only family.
+                            sub: s.family == 'oura'
+                                ? (l?.devicesSyncNowSub ??
+                                    'Fetch whatever it has been holding')
+                                : 'Listen for whatever it sends right now',
                             onTap: onSync),
                       ],
                     ]),

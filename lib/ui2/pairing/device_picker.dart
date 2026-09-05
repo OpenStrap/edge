@@ -270,6 +270,10 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
           'The strap this app is built around. WHOOP 4 or 5.',
       'oura' => l?.devicePickerBlurbRing ??
           'Reads the ring directly — no Oura account or subscription.',
+      // No localized key: English-only until this one earns one, same as
+      // every other category blurb below the first two.
+      'tlw64' => 'A TLW64 or NO1 F1 fitness band. Pairs and banks its raw '
+          'data; nothing is derived from it yet.',
       // No localized string yet — this device is new enough that adding one
       // is out of scope here; the English fallback the other cases carry is
       // this one's only copy for now.

@@ -25,6 +25,7 @@ import 'package:openstrap_edge/ble/adapters/pinetime.dart';
 import 'package:openstrap_edge/ble/adapters/qhybrid.dart';
 import 'package:openstrap_edge/ble/adapters/ringconn.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
+import 'package:openstrap_edge/ble/adapters/tlw64.dart';
 import 'package:openstrap_edge/ble/adapters/wearfit.dart';
 import 'package:openstrap_edge/ble/adapters/whoop_gen4.dart';
 import 'package:openstrap_edge/ble/adapters/zetime.dart';
@@ -38,6 +39,7 @@ void main() {
       'gen5': kWhoopGen4Signals,
       'ble_hrs': const BleHrsAdapter().signals,
       'oura': OuraAdapter(key: const [0]).signals,
+      'tlw64': const Tlw64Adapter().signals,
       'dafit': kDafitAdapter.signals,
       'o2ring': const O2RingAdapter().signals,
       'zetime': const ZeTimeAdapter().signals,
