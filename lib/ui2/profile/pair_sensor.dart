@@ -43,6 +43,7 @@ import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
 import '../../ble/hrs_link.dart';
+import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
@@ -112,7 +113,18 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
   }
 
   Future<void> _load() async {
-    final row = await HrsLink.pairedSensorRow();
+    // NOT `HrsLink.pairedSensorRow()` — that is hardcoded to the heart-rate
+    // strap's own adapter id, and this screen is generic over [BandEntry]
+    // (a Colmi ring, an Oura ring, a strap). Looked up by `widget.entry.id`
+    // directly so "already paired" renders for whichever band this screen
+    // was opened for.
+    Map<String, Object?>? row;
+    for (final r in await LocalDb.deviceRows()) {
+      if (r['adapter_id'] == widget.entry.id) {
+        row = r;
+        break;
+      }
+    }
     final held = await HrsLink.scanHeldBackReason();
     if (!mounted) return;
     setState(() {
