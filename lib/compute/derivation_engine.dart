@@ -1726,8 +1726,15 @@ const int kAlgoVersion = 87;
 // main took analytics 7105256 → 187e026 (the v80 gate above); this branch
 // took protocol 19d7291 → 6664854. kAlgoVersion is main's 81 — this branch
 // moves no derivation maths, which is why its own note says NO bump.
+//
+// REPIN (this branch): protocol `feat/wearfit-howear-protocol` @ 1cf8e61, one
+// commit ahead of #42 (471034c). Adds the wearfit/howear frame codec
+// (parseWearFitFrame/wearFitCmdGetBattery/parseWearFitBattery) this branch's
+// adapter calls. `signals` for the new adapter is `const {}` (no derivable
+// source), so this touches no decoder any existing day_result reads. NO
+// kAlgoVersion bump.
 const String kAnalyticsPin = '1fa8144a5e3b728ce91eeed6ecbc15d482933b44';
-const String kProtocolPin = '471034cb84b85edb37e72b6f6add79a2d7929294';
+const String kProtocolPin = '1cf8e6192079f1aa0e8de1a44bc5f5bdb6847393';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
