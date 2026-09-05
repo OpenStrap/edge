@@ -49,6 +49,7 @@ import '../../ble/adapters/_registry.dart'
         kBleHrs,
         kColmi,
         kDafit,
+        kId115,
         kJyou,
         kHPlus,
         kLefun,
@@ -72,6 +73,7 @@ import '../../ble/colmi_link.dart' show ColmiLink;
 import '../../ble/dafit_link.dart' show DafitLink;
 import '../../ble/dt78_link.dart' show Dt78Link;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
+import '../../ble/id115_link.dart' show Id115Link;
 import '../../ble/jyou_link.dart' show JyouLink;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/smaq2oss_link.dart' show Smaq2ossLink;
@@ -815,6 +817,7 @@ IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'dafit' ||
       'dt78' ||
       'hplus' ||
+      'id115' ||
       'pinetime' ||
       'qhybrid' ||
       'casio' ||
@@ -1003,6 +1006,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
         'unpair the ring), then close that app before pairing here.',
     pick: pairOuraRing,
+  ),
+  (
+    entry: kId115,
+    blurb: 'An unbranded ID115 board. Pairs and banks its raw data in the '
+        'background, but does not derive anything from it yet — nobody on '
+        'this project owns one to verify its numbers against.',
+    // Null means the plain notify-class pairing — no key, no clock write
+    // needed before the row can be written.
+    pick: null,
   ),
   (
     entry: kSmaq2oss,
@@ -1693,6 +1705,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'wearfit' => () => _syncSensor(c, WearFitLink.instance.sync),
         'dt78' => () => _syncDt78(c),
         'hplus' => () => _syncHPlus(c),
+        'id115' => () => _syncId115(c),
         'pinetime' => () => _syncPineTime(c),
         'qhybrid' => () => _syncQHybrid(c),
         'colmi' => () => _syncColmiRing(c),
@@ -1737,6 +1750,21 @@ Future<void> _syncRing(BuildContext c, String? family) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Pull whatever a paired ID115 has sent since the last connect, now,
+/// because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncId115(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await Id115Link.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the board. It has to be nearby, and not '
+            'connected to another app.'),
   ));
 }
 
@@ -2294,12 +2322,13 @@ class DeviceDetailView extends StatelessWidget {
                             // cursor; every other `onSync` wired today is a
                             // bounded listen window with no request and no
                             // stored-history drain — see e.g.
-                            // `Smaq2ossLink.sync()`, `Tlw64Link.sync()`,
-                            // `Watch9Link.sync()` and `XWatchLink.sync()`.
-                            // Claiming a "fetch" for those would be a promise
-                            // the connect does not keep. `devicesSyncNowSub`
-                            // only has a fetch phrasing in every locale, so it
-                            // must not be consulted for a listen-only family.
+                            // `Id115Link.sync()`, `Smaq2ossLink.sync()`,
+                            // `Tlw64Link.sync()`, `Watch9Link.sync()` and
+                            // `XWatchLink.sync()`. Claiming a "fetch" for
+                            // those would be a promise the connect does not
+                            // keep. `devicesSyncNowSub` only has a fetch
+                            // phrasing in every locale, so it must not be
+                            // consulted for a listen-only family.
                             sub: s.family == 'oura'
                                 ? (l?.devicesSyncNowSub ??
                                     'Fetch whatever it has been holding')

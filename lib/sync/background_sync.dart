@@ -24,6 +24,7 @@ import '../ble/ble_engine.dart';
 import '../ble/casio_link.dart';
 import '../ble/colmi_link.dart';
 import '../ble/dafit_link.dart';
+import '../ble/id115_link.dart';
 import '../ble/jyou_link.dart';
 import '../ble/lefun_link.dart';
 import '../ble/oura_link.dart';
@@ -239,6 +240,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await OuraLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] oura sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: Id115Link.sync() already no-ops when
+    // nothing is paired and never throws, but a failure here still must not
+    // escape and mark the WHOOP cycle as errored.
+    try {
+      await Id115Link.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] id115 sync skipped: $e');
     }
     // Same piggyback, same reasoning: Smaq2ossLink.sync() already no-ops
     // when nothing is paired and never throws, but a failure here still must

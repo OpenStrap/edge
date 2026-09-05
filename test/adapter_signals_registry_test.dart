@@ -17,6 +17,7 @@ import 'package:openstrap_edge/ble/adapters/colmi.dart';
 import 'package:openstrap_edge/ble/adapters/dafit.dart';
 import 'package:openstrap_edge/ble/adapters/dt78.dart';
 import 'package:openstrap_edge/ble/adapters/hplus.dart';
+import 'package:openstrap_edge/ble/adapters/id115.dart';
 import 'package:openstrap_edge/ble/adapters/jyou.dart';
 import 'package:openstrap_edge/ble/adapters/lefun.dart';
 import 'package:openstrap_edge/ble/adapters/o2ring.dart';
@@ -42,6 +43,7 @@ void main() {
       'gen5': kWhoopGen4Signals,
       'ble_hrs': const BleHrsAdapter().signals,
       'oura': OuraAdapter(key: const [0]).signals,
+      'id115': const Id115Adapter().signals,
       'smaq2oss': const Smaq2ossAdapter().signals,
       'xwatch': const XWatchAdapter().signals,
       'tlw64': const Tlw64Adapter().signals,

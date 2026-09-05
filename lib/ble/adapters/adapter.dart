@@ -358,4 +358,12 @@ class ReplayBandLink implements BandLink {
     }
     _channels.clear();
   }
+
+  /// End one channel while the others stay open — for an adapter test that
+  /// needs to reproduce "one channel ends while another still has a frame
+  /// in flight" rather than a full teardown.
+  Future<void> closeChannel(String uuid) async {
+    final c = _channels.remove(uuid);
+    if (c != null) await c.close();
+  }
 }
