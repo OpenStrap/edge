@@ -47,6 +47,7 @@ import '../../ble/adapters/_registry.dart'
 import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/polar_pmd_link.dart' show PolarPmdLink;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
@@ -793,12 +794,14 @@ SourceTier? tierNamed(Object? name) {
 /// The sources that actually exist right now. Nothing is listed that cannot
 /// produce a number today — everything else is in [kNotYet], with its reason.
 ///
-/// [sensorLive] is whether a paired sensor's link is up THIS INSTANT. It is
-/// passed in rather than read off `HrsLink` here because it changes on every
-/// beat: routing it through [AppState] would notify every listener in the app
-/// at 1 Hz for the duration of a workout, which is the rebuild storm this
-/// screen has already been fixed for once.
-List<HealthSource> liveSources(AppState app, {bool sensorLive = false}) => [
+/// [liveAdapterIds] names which paired sensors' links are up THIS INSTANT, by
+/// `adapter_id`. It is passed in rather than read off the links here because
+/// it changes on every beat: routing it through [AppState] would notify every
+/// listener in the app at 1 Hz for the duration of a workout, which is the
+/// rebuild storm this screen has already been fixed for once.
+List<HealthSource> liveSources(AppState app,
+        {Set<String> liveAdapterIds = const {}}) =>
+    [
       if (app.isPaired)
         HealthSource(
           name: app.strapName ?? 'Your band',
@@ -836,10 +839,10 @@ List<HealthSource> liveSources(AppState app, {bool sensorLive = false}) => [
           // never the nearest rung we happen to know.
           tier: tierNamed(r['tier']),
           icon: sensorIcon(r['adapter_id'] as String?),
-          // `sensorLive` reflects HrsLink.reading ONLY — a live HRS session
-          // must not mark an unrelated paired Oura row as connected just
-          // because some sensor happens to be live right now.
-          connected: sensorLive && r['adapter_id'] == kBleHrs.id,
+          // `liveAdapterIds` is keyed by adapter so a live PPI stream never
+          // marks an unrelated paired Oura row as connected just because
+          // some sensor happens to be live right now.
+          connected: liveAdapterIds.contains(r['adapter_id']),
           isBand: false,
           deviceId: r['id'] as String?,
           family: r['adapter_id'] as String?,
@@ -897,18 +900,26 @@ class MyDevices extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final app = c.watch<AppState>();
-    // The live reading is subscribed HERE and nowhere higher. It moves on every
-    // beat, so a listener on AppState would rebuild the whole app at 1 Hz for
-    // the length of a workout; this rebuilds one screen.
+    // Each live reading is subscribed HERE and nowhere higher. It moves on
+    // every beat, so a listener on AppState would rebuild the whole app at
+    // 1 Hz for the length of a workout; this rebuilds one screen. Nested
+    // rather than merged into one listenable because the two links are
+    // independent — either, both, or neither can be armed for a workout.
     return ValueListenableBuilder<HrsReading?>(
       valueListenable: HrsLink.instance.reading,
-      builder: (c, reading, _) => _build(c, app, reading != null),
+      builder: (c, hrsReading, _) => ValueListenableBuilder<HrsReading?>(
+        valueListenable: PolarPmdLink.instance.reading,
+        builder: (c, polarReading, _) => _build(c, app, {
+          if (hrsReading != null) kBleHrs.id,
+          if (polarReading != null) kPolarPmd.id,
+        }),
+      ),
     );
   }
 
-  Widget _build(BuildContext c, AppState app, bool sensorLive) {
+  Widget _build(BuildContext c, AppState app, Set<String> liveAdapterIds) {
     return MyDevicesView(
-      sources: rankSources(liveSources(app, sensorLive: sensorLive)),
+      sources: rankSources(liveSources(app, liveAdapterIds: liveAdapterIds)),
       // The band row's dot says connected or not. That covers six different
       // problems with six different fixes, and a user cannot fix a problem the
       // app will not name — so the engine's own verdict rides alongside it.

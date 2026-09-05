@@ -148,8 +148,8 @@ dependencies:
       # top of the #42 merge. Adds the PMD control-point start/stop writes and
       # the PPI data-frame decoder polar_pmd.dart needs. Interim PR-branch pin
       # until protocol#45 merges to main. NO kAlgoVersion bump: this device's
-      # `signals` stays const {} (unowned hardware), so nothing it decodes
-      # feeds a derived metric.
+      # entry stays out of `kDerivableSources` (unowned hardware), so nothing
+      # it decodes feeds a derived metric.
       ref: 87ee80349181c54df590f93fde35d2118e6e92b7
   openstrap_analytics:
     git:

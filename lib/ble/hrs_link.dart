@@ -66,6 +66,7 @@ import 'ble_state.dart'
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
 import 'oura_link.dart' show OuraLink;
+import 'polar_pmd_link.dart' show PolarPmdLink;
 
 export 'adapters/host.dart' show HrsReading;
 
@@ -583,8 +584,14 @@ class HrsLink {
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows
-    // under an id nothing can explain any more.
-    await instance.disarm();
+    // under an id nothing can explain any more. Every live-session link
+    // capable of writing under this id gets disarmed, not just this class's
+    // own — a Polar row's live sensor is `PolarPmdLink`, not `instance`.
+    if (row?['adapter_id'] == kPolarPmd.id) {
+      await PolarPmdLink.instance.disarm();
+    } else {
+      await instance.disarm();
+    }
     await LocalDb.deleteDevice(id);
   }
 
