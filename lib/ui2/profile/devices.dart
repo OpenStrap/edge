@@ -48,6 +48,7 @@ import '../../ble/adapters/_registry.dart'
         kBandRegistry,
         kBleHrs,
         kColmi,
+        kJyou,
         kOura,
         kCasio,
         kPineTime,
@@ -57,6 +58,7 @@ import '../../ble/adapters/signals.dart' show InputSignal;
 import '../../ble/casio_link.dart' show CasioLink;
 import '../../ble/colmi_link.dart' show ColmiLink;
 import '../../ble/hrs_link.dart' show HrsLink, HrsReading;
+import '../../ble/jyou_link.dart' show JyouLink;
 import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
 import '../../ble/pinetime_link.dart' show PineTimeLink;
 import '../../ble/qhybrid_link.dart' show QHybridLink, pairQHybrid;
@@ -786,7 +788,7 @@ class HealthSource {
 /// the only place a user can tell two paired sensors apart at a glance.
 IconData sensorIcon(String? adapterId) => switch (adapterId) {
       'oura' || 'colmi' => LucideIcons.circleDot,
-      'pinetime' || 'qhybrid' || 'casio' => LucideIcons.watch,
+      'pinetime' || 'qhybrid' || 'casio' || 'jyou' => LucideIcons.watch,
       _ => LucideIcons.heartPulse,
     };
 
@@ -1001,6 +1003,15 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'smartwatches. Pairs and connects; nothing derives from it yet.',
     // Null means the plain notify-class pairing — standard BLE bonding is
     // the whole of what this watch needs.
+    pick: null,
+  ),
+  (
+    entry: kJyou,
+    blurb: 'Pairs and banks its raw data, but does not derive anything from '
+        'it yet — nobody on this project owns one to verify its numbers '
+        'against.',
+    // Null means the plain notify-class pairing, same as the heart-rate
+    // sensor above.
     pick: null,
   ),
 ];
@@ -1533,6 +1544,7 @@ class _DeviceDetailState extends State<DeviceDetail> {
         'qhybrid' => () => _syncQHybrid(c),
         'colmi' => () => _syncColmiRing(c),
         'casio' => () => _syncCasio(c, s.deviceId),
+        'jyou' => () => _syncJyou(c),
         _ => null,
       },
       onForget: s.deviceId != null
@@ -1560,6 +1572,21 @@ Future<void> _syncRing(BuildContext c) async {
         : (l?.devicesCouldNotReachRing ??
             'Could not reach the ring. It has to be nearby, and not connected '
                 'to another app.')),
+  ));
+}
+
+/// Pull whatever a Jyou band has streamed since the last connect, now,
+/// because the user asked. Same shape as [_syncRing] one function up.
+Future<void> _syncJyou(BuildContext c) async {
+  final messenger = ScaffoldMessenger.maybeOf(c);
+  messenger?.showSnackBar(const SnackBar(content: Text('Syncing…')));
+  final ok = await JyouLink.instance.sync();
+  if (!c.mounted) return;
+  messenger?.showSnackBar(SnackBar(
+    content: Text(ok
+        ? 'Synced.'
+        : 'Could not reach the band. It has to be nearby, and not connected '
+            'to another app.'),
   ));
 }
 

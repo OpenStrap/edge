@@ -23,6 +23,7 @@ import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/ble_engine.dart';
 import '../ble/casio_link.dart';
 import '../ble/colmi_link.dart';
+import '../ble/jyou_link.dart';
 import '../ble/oura_link.dart';
 import '../ble/pinetime_link.dart';
 import '../ble/qhybrid_link.dart';
@@ -258,6 +259,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await CasioLink.instance.sync();
     } catch (e) {
       debugPrint('[bgsync] casio sync skipped: $e');
+    }
+    // Same piggyback, same reasoning: JyouLink.sync() already no-ops when
+    // nothing is paired and never throws, but a failure here still must not
+    // escape and mark the WHOOP cycle as errored.
+    try {
+      await JyouLink.instance.sync();
+    } catch (e) {
+      debugPrint('[bgsync] jyou sync skipped: $e');
     }
   }
 }

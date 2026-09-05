@@ -14,6 +14,7 @@ import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
 import 'package:openstrap_edge/ble/adapters/casio.dart';
 import 'package:openstrap_edge/ble/adapters/colmi.dart';
+import 'package:openstrap_edge/ble/adapters/jyou.dart';
 import 'package:openstrap_edge/ble/adapters/oura.dart';
 import 'package:openstrap_edge/ble/adapters/pinetime.dart';
 import 'package:openstrap_edge/ble/adapters/qhybrid.dart';
@@ -33,6 +34,7 @@ void main() {
       'qhybrid': kQHybridAdapter.signals,
       'colmi': kColmiAdapter.signals,
       'casio': const CasioAdapter().signals,
+      'jyou': const JyouAdapter().signals,
     };
 
     // Every registry id is covered above: a NEW adapter must extend this test,

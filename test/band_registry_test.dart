@@ -20,6 +20,7 @@ void main() {
           'qhybrid',
           'colmi',
           'casio',
+          'jyou',
         ]);
   });
 
