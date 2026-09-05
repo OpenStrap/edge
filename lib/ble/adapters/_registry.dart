@@ -53,6 +53,47 @@ import 'signals.dart';
 const String kHeartRateServiceUuid = '0000180d-0000-1000-8000-00805f9b34fb';
 const String kHeartRateMeasurementUuid = '00002a37-0000-1000-8000-00805f9b34fb';
 
+/// The Fossil/Skagen Q Hybrid's GATT service. NOT the encrypted Hybrid HR /
+/// Gen 6 sibling, which advertises this same UUID — see [kQHybrid]'s own doc.
+const String kQHybridService = '3dda0001-957f-7d4a-34a6-74696673696d';
+
+/// Host-to-watch control characteristic: write + notify, flat
+/// `[type, cmdId, ...payload]` request / `[3, cmdId, ...payload]` response,
+/// no CRC, no envelope.
+const String kQHybridControlChar = '3dda0002-957f-7d4a-34a6-74696673696d';
+
+/// File-download notify characteristics. A separate, undecoded chunking
+/// sub-protocol — banked raw only.
+const String kQHybridFileChar1 = '3dda0003-957f-7d4a-34a6-74696673696d';
+const String kQHybridFileChar2 = '3dda0004-957f-7d4a-34a6-74696673696d';
+
+/// A third notify characteristic in the same service — also used for a
+/// vibrate/find-my-watch write on the real device. Undecoded — banked raw
+/// only, same as the two above.
+const String kQHybridAuxChar = '3dda0005-957f-7d4a-34a6-74696673696d';
+
+/// Button-press notify characteristic. Fixed 11-byte frames — banked raw only.
+const String kQHybridButtonChar = '3dda0006-957f-7d4a-34a6-74696673696d';
+
+/// File-upload-ack notify characteristic — banked raw only.
+const String kQHybridUploadAckChar = '3dda0007-957f-7d4a-34a6-74696673696d';
+
+/// Casio's "2C/2D all-features" GATT service — shared across the current
+/// G-Shock/smartwatch line (GBX100, GW-B5600, GMW-B5000, ECB-S100/Edifice and
+/// later models speaking the same profile). NOT the older `KEY_CONTAINER`-only
+/// scheme (e.g. GB-6900), a different and incompatible wire scheme that is out
+/// of scope here.
+const String kCasioService = '26eb000d-b012-49a8-b1f8-394fb2032b0f';
+
+/// Host to watch: a one- or two-byte feature-request tag, write-with-response.
+const String kCasioReadRequestChar = '26eb002c-b012-49a8-b1f8-394fb2032b0f';
+
+/// Watch to host: every feature reply and setting notification shares this one
+/// characteristic — `[featureTag, ...payload]`, the first byte echoing the
+/// request. Reads and writes for settings both land here too; this adapter
+/// only ever reads.
+const String kCasioAllFeaturesChar = '26eb002d-b012-49a8-b1f8-394fb2032b0f';
+
 /// The Oura ring's GATT service, identical across the generations seen so far.
 const String kOuraService = '98ed0001-a541-11e4-b6a0-0002a5d5c51b';
 
@@ -73,6 +114,28 @@ const String kJyouControlChar = '000033f3-0000-1000-8000-00805f9b34fb';
 
 /// Band to host. Variable-length frames tagged by their first byte.
 const String kJyouMeasureChar = '000033f4-0000-1000-8000-00805f9b34fb';
+
+/// A PineTime's motion service. Vendor-custom 128-bit uuid — its own GATT
+/// identity, distinct from the SIG heart-rate service this same watch also
+/// answers on (see [kHeartRateServiceUuid]).
+const String kPineTimeMotionService = '00030000-78fc-48fe-8e23-433b3a1942d0';
+
+/// Step count, notify. The only motion-service characteristic subscribed here
+/// — the same service's raw tri-axial characteristic is a separate, less
+/// settled read on real firmware, so nothing here touches it.
+const String kPineTimeStepCountChar = '00030001-78fc-48fe-8e23-433b3a1942d0';
+
+/// Colmi smart ring family's primary command/notify service. A second,
+/// separate service (sleep + SpO2 "big data") coexists on the same ring and
+/// is untouched by this build — see `colmi.dart`'s header.
+const String kColmiService = '6e40fff0-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Host to ring. Every command frame is written here.
+const String kColmiWriteChar = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+
+/// Ring to host. Every reply — including an unprompted battery push — arrives
+/// here, tagged by the same command id the request went out under.
+const String kColmiNotifyChar = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
 /// What a stored timestamp actually IS for a given band.
 ///
@@ -300,6 +363,7 @@ class BandEntry {
     required String service,
     required List<String> characteristics,
     required this.timeAnchor,
+    this.nameMatcher,
   })  : _service = service,
         _requiredCharacteristics = characteristics,
         gatt = null,
@@ -312,7 +376,6 @@ class BandEntry {
         setClockDriftGated = false,
         burstCountGateEnforced = false,
         logsConsoleOutput = false,
-        nameMatcher = null,
         innerOpcodeOffset = -1,
         innerVersionOffset = -1,
         innerCounterOffset = -1;
@@ -469,12 +532,126 @@ const BandEntry kJyou = BandEntry.notify(
   timeAnchor: TimeAnchor.arrival,
 );
 
+/// A PineTime running its open firmware. No auth, no write of any kind — two
+/// independent notify characteristics on two different services: this
+/// watch's own motion service, and the SIG heart-rate service [kBleHrs] also
+/// answers on.
+///
+/// [kPineTimeMotionService] is the scan-filter service (a vendor uuid unique
+/// to this entry — the heart-rate service is [kBleHrs]'s own scan filter, and
+/// two registry rows filtering on the same service is the collision
+/// `HrsLink.scanForAny` treats as a registry bug, not a runtime ambiguity).
+/// Both notify characteristics are still required: `GattBandLink` matches a
+/// characteristic across every service the peripheral discovers, not only
+/// the scan-filter one.
+///
+/// EXPERIMENTAL, and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
+/// `const {}` and `kDerivableSources` never gets this id — step count and
+/// heart rate are both readable and neither is decoded.
+const BandEntry kPineTime = BandEntry.notify(
+  id: 'pinetime',
+  label: 'PineTime',
+  service: kPineTimeMotionService,
+  characteristics: <String>[kPineTimeStepCountChar, kHeartRateMeasurementUuid],
+  timeAnchor: TimeAnchor.arrival,
+);
+
+/// Fossil/Skagen's original "hybrid" smartwatch line — models like `HW.0.0`,
+/// `HL.0.0`, `DN.1.0`. NOT the encrypted Hybrid HR / Gen 6 line, a different
+/// sibling protocol that happens to advertise the same service UUID.
+///
+/// Plain unencrypted GATT, no crypto handshake, no pairing key: standard
+/// platform BLE bonding is the whole of what "pairing" means here, same as
+/// [kBleHrs]. A live scan match on the service UUID alone cannot tell this
+/// watch apart from its encrypted sibling before connecting, so the adapter
+/// self-confirms with a harmless battery-level probe before banking anything
+/// — see `qhybrid.dart`.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so
+/// not a byte of this path has met hardware (ASSUMPTIONS R6). It pairs,
+/// connects, confirms itself, and banks every notification raw;
+/// `kDerivableSources` stays empty until someone has actually held one.
+const BandEntry kQHybrid = BandEntry.notify(
+  id: 'qhybrid',
+  label: 'Fossil/Skagen Hybrid Smartwatch',
+  service: kQHybridService,
+  characteristics: <String>[
+    kQHybridControlChar,
+    kQHybridFileChar1,
+    kQHybridFileChar2,
+    kQHybridAuxChar,
+    kQHybridButtonChar,
+    kQHybridUploadAckChar,
+  ],
+  // No clock in the wire format at all; every frame is stamped on arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
+/// This ring family advertises a stable name — `R0\d_*` (R02/R03/R06/R09) or
+/// `COLMI R10_*` — so matching on it is a fallback for whatever an
+/// advertising payload's service list drops. Whether a real ring's 31-byte
+/// advertising payload also carries `6e40fff0…` is unconfirmed without
+/// hardware, so this is belt-and-suspenders alongside the service filter, the
+/// same role `_nameContainsWhoop` plays for WHOOP 4. Takes the
+/// already-lowercased name.
+bool _looksLikeColmi(String lowercaseName) =>
+    RegExp(r'^(?:r02_|r03_|r06_|r09_)').hasMatch(lowercaseName) ||
+    lowercaseName.startsWith('colmi r10_');
+
+/// Colmi smart ring family (advertised as `R02_*`, `R03_*`, `R06_*`, `R09_*`,
+/// `COLMI R10_*`). A fixed 16-byte checksummed command/notify protocol with no
+/// encryption and no handshake of any kind — connect, discover, subscribe,
+/// write.
+///
+/// [TimeAnchor.arrival]: there is no command in this protocol that reads the
+/// ring's clock back, so nothing here is a measured origin.
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns a Colmi
+/// ring, so not a byte of this path has met hardware (ASSUMPTIONS R6). It
+/// pairs, connects and banks raw bytes; `kDerivableSources` stays empty.
+const BandEntry kColmi = BandEntry.notify(
+  id: 'colmi',
+  label: 'Colmi ring',
+  service: kColmiService,
+  characteristics: <String>[kColmiWriteChar, kColmiNotifyChar],
+  timeAnchor: TimeAnchor.arrival,
+  nameMatcher: _looksLikeColmi,
+);
+
+/// A Casio G-Shock / current-generation Casio smartwatch speaking the 2C/2D
+/// "all-features" GATT scheme (GBX100, GW-B5600, GMW-B5000, ECB-S100/Edifice
+/// and later models sharing the profile).
+///
+/// Plain unencrypted GATT, tagged request/response by a one-byte feature id —
+/// no envelope, no CRC, no counter, no crypto handshake anywhere in the
+/// connect flow. Standard platform BLE bonding is the whole of what "pairing"
+/// means here, same as [kBleHrs].
+///
+/// EXPERIMENTAL and it stays that way: nobody on this project owns one, so not
+/// a byte of this path has met hardware (ASSUMPTIONS R6). It pairs, connects,
+/// and banks every feature reply raw; `kDerivableSources` stays empty until
+/// someone has actually held one.
+const BandEntry kCasio = BandEntry.notify(
+  id: 'casio',
+  label: 'Casio G-Shock',
+  service: kCasioService,
+  characteristics: <String>[kCasioReadRequestChar, kCasioAllFeaturesChar],
+  // No clock in the wire format this adapter reads; every frame is stamped on
+  // arrival.
+  timeAnchor: TimeAnchor.arrival,
+);
+
 /// Every band this build can see. Order is match order during discovery.
 const List<BandEntry> kBandRegistry = <BandEntry>[
   kWhoopGen4,
   kWhoopGen5,
   kBleHrs,
   kOura,
+  kPineTime,
+  kQHybrid,
+  kColmi,
+  kCasio,
   kJyou,
 ];
 
@@ -503,10 +680,11 @@ BandEntry bandEntryFor(BandProfile wire) =>
 /// `signals` getter is a plain literal with no computed dependency, so this
 /// maps straight to the declared signals instead of a constructed instance —
 /// KEPT IN SYNC BY HAND with `whoop_gen4.dart`'s `kWhoopGen4Signals`,
-/// `ble_hrs.dart`'s `BleHrsAdapter.signals` and `oura.dart`'s
-/// `OuraAdapter.signals`, since importing those three back into this file
-/// (each of which already imports THIS file for its `BandEntry`) would be a
-/// needless import cycle for three lines of data.
+/// `ble_hrs.dart`'s `BleHrsAdapter.signals`, `oura.dart`'s
+/// `OuraAdapter.signals` and `pinetime.dart`'s `PineTimeAdapter.signals`,
+/// since importing those back into this file (each of which already imports
+/// THIS file for its `BandEntry`) would be a needless import cycle for a few
+/// lines of data.
 ///
 /// gen5 reuses gen4's map: `kWhoopGen5`'s own doc comment states "same inner
 /// payload layout as gen4 — only the envelope differs", so gen4's declared
@@ -532,6 +710,10 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
   'oura': <InputSignal, Duration>{},
+  'pinetime': <InputSignal, Duration>{},
+  'qhybrid': <InputSignal, Duration>{},
+  'colmi': <InputSignal, Duration>{},
+  'casio': <InputSignal, Duration>{},
   'jyou': <InputSignal, Duration>{},
 };
 
