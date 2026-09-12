@@ -26,6 +26,12 @@ final class ShortcutUITests: XCTestCase {
     XCTAssertNotEqual(app.state, .runningForeground)
   }
 
+  func testLongSyncUsesSystemExecutionWithoutSuppressingPairingErrors() async throws {
+    backgroundApp()
+    try await expectPairingError("LongSyncDataIntent")
+    XCTAssertNotEqual(app.state, .runningForeground)
+  }
+
   func testForegroundFallbackUsesTheSameSyncEntryPoint() async throws {
     backgroundApp()
     do {

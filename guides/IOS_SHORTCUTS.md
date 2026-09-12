@@ -17,6 +17,14 @@ For a personal automation, choose a Time of Day trigger, select **Run Immediatel
 
 The ordinary action has a 25-second native deadline, including Flutter startup. The Dart transfer receives a slightly shorter budget so it can report partial progress before that deadline. An iOS interruption can still prevent a result from being returned. Apple's ordinary App Intent execution budget is approximately 30 seconds; see [LongRunningIntent](https://developer.apple.com/documentation/appintents/longrunningintent).
 
+## Sync Data (Long Running)
+
+On iOS 27 and later, builds made with Xcode 27 or later also expose **Sync Data (Long Running)**. It uses Apple's `LongRunningIntent` and `CancellableIntent` in the main app process, with the same sync bridge, persistence path, and **Ignore Connectivity Errors** option. The ordinary action remains available on iOS 16 and later; the app's deployment target is unchanged.
+
+The long-running action requests extended execution through `performBackgroundTask`. Its own deadline is ten minutes, including startup; this is a limit imposed by Edge, not a promise that iOS will grant ten minutes. System cancellation and timeouts cancel the matching sync request and preserve committed data.
+
+The system manages the progress Live Activity and its stop control. Progress counts actual saved batches and stays indeterminate because the band does not provide a reliable total batch count. Only a completed sync marks progress complete; partial, skipped, and already-running results do not. The connectivity-error option does not suppress this system UI. See [Apple's long-running intent walkthrough](https://developer.apple.com/videos/play/wwdc2026/345/).
+
 ## Lifecycle and data safety
 
 For an interactive fallback, **Open Edge and Sync** brings the app forward and invokes the same sync bridge. It is not intended for unattended locked-device automations. The action itself remains bounded, but an app-owned session can keep catching up while Edge is open.
@@ -29,7 +37,7 @@ Cancellation or a deadline stops an action-owned connection. Its gate and lease 
 
 ## Validation
 
-The Dart task tests cover completion, deadline classification, cancellation, progress suppression after cancellation, and ownership retention during cleanup. The iOS Runner tests cover bridge readiness, concurrent requests, late replies, cancellation, malformed responses, and the exact connectivity-error allowlist. A clean-simulator integration test calls through the real Flutter bridge and expects a missing-pairing error rather than success.
+The Dart task tests cover completion, deadline classification, cancellation, progress suppression after cancellation, and ownership retention during cleanup. The iOS Runner tests cover bridge readiness, concurrent requests, late replies, cancellation, malformed responses, and the exact connectivity-error allowlist. Long-running tests also cover its extended budget, truthful progress, and cancellation before dispatch. A clean-simulator integration test calls through the real Flutter bridge and expects a missing-pairing error rather than success.
 
 The separate **ShortcutIntents** Xcode scheme uses Apple's `AppIntentsTesting` framework on iOS 27 to exercise background invocation, relaunch after termination, and the foreground fallback through the system's intent infrastructure. It does not replace the ordinary **Runner** scheme or raise the application's deployment target. Use a clean simulator and a separate bundle identifier so these tests cannot use a real pairing or change an existing installation:
 
