@@ -132,7 +132,7 @@ void main() {
       expect(at, greaterThanOrEqualTo(0), reason: '$cb not found');
       // Slice to the NEXT callback at the same indent, so a guard belonging to
       // a neighbour can never be mistaken for this one's.
-      final next = bg.indexOf('\n      on', at + cb.length);
+      final next = bg.indexOf('\n    on', at + cb.length);
       final window = bg.substring(at, next < 0 ? bg.length : next);
       expect(window.contains('ResetGate.active'), isTrue,
           reason: '$cb writes without consulting ResetGate');
