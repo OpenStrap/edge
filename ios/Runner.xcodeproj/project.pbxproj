@@ -22,6 +22,8 @@
 		53962E972FF6EE120061A61B /* OpenStrapIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53962E942FF6EE120061A61B /* OpenStrapIntents.swift */; };
 		584C82D4C91D63C59A9B68ED /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A8259C983D095EF84D51BCF /* Foundation.framework */; };
 		5A0C00000000000000000001 /* ShortcutSyncBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C00000000000000000002 /* ShortcutSyncBridge.swift */; };
+		5A0C00000000000000000003 /* LongSyncDataIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C00000000000000000004 /* LongSyncDataIntent.swift */; };
+		5A0C00000000000000000005 /* LongSyncDataIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C00000000000000000006 /* LongSyncDataIntentTests.swift */; };
 		60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46A2B400A52A2CA90242C195 /* HealthRoutes.swift */; };
 		630172CC9317145AD5F8F3B7 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2C721EA0C8D31A3834E66203 /* Pods_RunnerTests.framework */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
@@ -126,6 +128,8 @@
 		53962E952FF6EE120061A61B /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		53962EBE2FF6EF790061A61B /* OpenStrapWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "OpenStrapWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A0C00000000000000000002 /* ShortcutSyncBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutSyncBridge.swift; sourceTree = "<group>"; };
+		5A0C00000000000000000004 /* LongSyncDataIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongSyncDataIntent.swift; sourceTree = "<group>"; };
+		5A0C00000000000000000006 /* LongSyncDataIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongSyncDataIntentTests.swift; sourceTree = "<group>"; };
 		606824C7302BC5108CEC40DF /* BleRestoreManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BleRestoreManager.swift; sourceTree = "<group>"; };
 		62B87A5BFE3C75EF3DA30015 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "Runner/GoogleService-Info.plist"; sourceTree = "<group>"; };
 		6A2B37C42FDD000100000001 /* Signing.defaults.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.defaults.xcconfig; sourceTree = "<group>"; };
@@ -239,6 +243,7 @@
 			isa = PBXGroup;
 			children = (
 				331C807B294A618700263BE5 /* RunnerTests.swift */,
+				5A0C00000000000000000006 /* LongSyncDataIntentTests.swift */,
 			);
 			path = RunnerTests;
 			sourceTree = "<group>";
@@ -336,6 +341,7 @@
 				ACCE55E7000000000000F11E /* AccessorySetup.swift */,
 				0BGTASK00000000000000002 /* BgSyncScheduler.swift */,
 				5A0C00000000000000000002 /* ShortcutSyncBridge.swift */,
+				5A0C00000000000000000004 /* LongSyncDataIntent.swift */,
 				46A2B400A52A2CA90242C195 /* HealthRoutes.swift */,
 				A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */,
 			);
@@ -726,6 +732,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */,
+				5A0C00000000000000000005 /* LongSyncDataIntentTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -766,6 +773,7 @@
 				ACCE55E7000000000000B11D /* AccessorySetup.swift in Sources */,
 				0BGTASK00000000000000001 /* BgSyncScheduler.swift in Sources */,
 				5A0C00000000000000000001 /* ShortcutSyncBridge.swift in Sources */,
+				5A0C00000000000000000003 /* LongSyncDataIntent.swift in Sources */,
 				60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */,
 				B9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */,
 			);
