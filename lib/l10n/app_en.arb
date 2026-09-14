@@ -7338,6 +7338,20 @@
   "@homeNothingDerivedBody": {
     "description": "Body shown on a first-run day with nothing derived yet."
   },
+  "homeSyncedThrough": "Synced through {when}",
+  "@homeSyncedThrough": {
+    "description": "Home header line: how far the data we hold reaches, on the band's own clock. {when} is a bare HH:mm when the record is from the day already on screen, or a full day + time otherwise.",
+    "placeholders": {
+      "when": {
+        "type": "String",
+        "example": "11:06"
+      }
+    }
+  },
+  "homeSyncedNever": "No band data yet",
+  "@homeSyncedNever": {
+    "description": "Home header line when no record has ever been banked from a band."
+  },
   "homeSyncingTitle": "Syncing with your band",
   "@homeSyncingTitle": {
     "description": "Title shown on a bare day while records are actively arriving from the band."

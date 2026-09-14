@@ -777,6 +777,10 @@ Substrate decodeSubstrate(List<String> hexes) {
       ..clear()
       ..addAll(sr);
   }
+  // The beats this path just placed can still overlap across a RECORD seam —
+  // see [monotonizeBeatAxis]. The sort above only runs when loose live beats
+  // were folded in, so it is not that guarantee.
+  monotonizeBeatAxis(rrTsMs);
 
   return Substrate(
     tsSec: tsSec,
@@ -799,6 +803,39 @@ Substrate decodeSubstrate(List<String> hexes) {
     // `hrValidAt` regardless.
     hrValid: List<int>.filled(n, -1),
   );
+}
+
+/// Hold a beat time axis non-decreasing — WITHOUT moving a single interval.
+///
+/// `beat_ts_ms` is a RECONSTRUCTED beat position: `beatTimesMs` anchors on the
+/// record's sub-second stamp under the model that the record's LAST beat sits
+/// at that stamp, then walks the intervals backwards from it. The anchor is
+/// measured; the placement is modelled. When two adjacent records' anchors sit
+/// closer together than one beat, the model puts record N+1's beat 0 EARLIER
+/// than record N's last beat, and beats are emitted in record order — so the
+/// axis steps backwards. Real, not theoretical: 94 inversions across 39,066
+/// beats in one day on a live install, every one at `beat_index = 0`, by
+/// 7-672 ms.
+///
+/// Analytics binary-searches this axis (`_cleanBeatsInWindow`) and asserts it
+/// is non-decreasing. That assert is compiled out in release, so a release
+/// build does not throw — it silently mis-selects each window's beats instead,
+/// which is the worse failure of the two.
+///
+/// THE ORDER IS NOT WHAT IS WRONG. Beats arrive in the order the strap detected
+/// them and that order IS the rhythm — `beat_clock_read_path_test` pins it as
+/// the contract it is. Only the modelled placement is repaired, and by the
+/// least it can be: each beat is held no earlier than the one before it. A sort
+/// would reshuffle a true interval series to satisfy an assert.
+///
+/// A held beat lands on a zero-length gap, which the axis already allows and
+/// already contains: the `rr_ts_ms` staircase fallback puts a whole record's
+/// beats on one millisecond, and analytics' window gather is written for those
+/// ties (its lower bound is inclusive precisely so tied beats are not dropped).
+void monotonizeBeatAxis(List<double> rrTsMs) {
+  for (var i = 1; i < rrTsMs.length; i++) {
+    if (rrTsMs[i] < rrTsMs[i - 1]) rrTsMs[i] = rrTsMs[i - 1];
+  }
 }
 
 /// Steps MEASURED by the band's own pedometer over [sub], or `null` when this

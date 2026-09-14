@@ -97,6 +97,7 @@ import '../sync/edge_tracking.dart';
 import '../sync/band_ownership.dart';
 import '../sync/high_freq_wake_window.dart';
 import '../sync/ios_bg_task.dart';
+import '../sync/reset_gate.dart';
 import '../sync/paired_device.dart';
 import '../sync/sync_policy.dart'
     show
@@ -223,6 +224,15 @@ class AppState extends ChangeNotifier {
   // "last data: …" indicator must show. Seeded from the DB at init, advanced as
   // records (drained + live) flow in.
   int? _lastRecTs;
+
+  /// "Delete everything" is in progress — refuse every record ingest path.
+  ///
+  /// Now [ResetGate], not a private field: the headless drain
+  /// (`runHeadlessSync`) builds its OWN BleEngine with callbacks wired straight
+  /// to LocalDb and no AppState in scope, so a flag living here could never be
+  /// consulted by it. Same isolate, so one static covers both — see
+  /// reset_gate.dart for why that holds and what would break it.
+  bool get _resetting => ResetGate.active;
   final List<String> logLines = [];
   bool busy = false;
 
@@ -1011,53 +1021,69 @@ class AppState extends ChangeNotifier {
   ///      that could re-create state are all downstream of the writes.
   ///   3. [signOut] last, because it flips the route and the UI unwinds.
   Future<void> resetAllData() async {
-    // 1 · nothing further leaves this phone, starting now.
-    telemetryConsent = false;
-    healthShareConsent = false;
-    consentChosen = false;
-    TelemetryService.instance.applyConsent(false);
-    HealthUploader.instance.deviceId = null; // maybeUpload bails without one
-    deviceId = '';
-
-    // 2 · every row in every table (see LocalDb.wipeAll for why it is not a
-    // hand-written table list, and for the sync_cursor decision).
-    await LocalDb.wipeAll();
-
-    // Surfaces outside the database that were still showing it.
-    await NotificationService.instance.cancelAll();
-    await WidgetService.clear();
+    // 0 · nothing further ENTERS the database either. The band is still
+    //     connected and still draining — see [_resetting].
+    ResetGate.enter();
     try {
-      await coachConfig?.save(apiKey: ''); // deletes the keychain entry
-    } catch (e) {
-      _log('[reset] keychain clear failed: $e');
+      // 1 · nothing further leaves this phone, starting now.
+      telemetryConsent = false;
+      healthShareConsent = false;
+      consentChosen = false;
+      TelemetryService.instance.applyConsent(false);
+      HealthUploader.instance.deviceId = null; // maybeUpload bails without one
+      deviceId = '';
+
+      // 2 · every row in every table (see LocalDb.wipeAll for why it is not a
+      // hand-written table list, and for the sync_cursor decision).
+      await LocalDb.wipeAll();
+
+      // Surfaces outside the database that were still showing it.
+      await NotificationService.instance.cancelAll();
+      await WidgetService.clear();
+      try {
+        await coachConfig?.save(apiKey: ''); // deletes the keychain entry
+      } catch (e) {
+        _log('[reset] keychain clear failed: $e');
+      }
+
+      // 3 · the whole preference namespace, not a remembered subset — same
+      // reason as wipeAll. A fresh install is the state being restored, and a
+      // fresh install has no preferences. The install id regenerates on the next
+      // launch, which is the point: the old anonymous id must not follow the
+      // user through a "delete everything".
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.clear();
+      } catch (e) {
+        _log('[reset] prefs clear failed: $e');
+      }
+      appStatus = null;
+      _savedAlarm = null;
+
+      // 4 · the in-memory mirrors of what we just deleted. These are plain
+      // fields, restored only by the profile load at launch, so leaving them
+      // alone kept both features RUNNING against the wiped database for the rest
+      // of the session — a re-pair without a relaunch would find phone steps
+      // still on and health export still syncing, which is not "a fresh install".
+      healthSyncEnabled = false;
+      healthState = HealthLinkState.unknown;
+      phoneStepsEnabled = false;
+      phoneStepsToday = 0;
+      _phoneStepsDay = null;
+      // The data edge, for the same reason. It only ever moves FORWARD, so a
+      // wipe that left it set meant a re-pair without a relaunch showed the
+      // deleted install's "Synced through …" — and no amount of syncing the new
+      // band could pull the label back to the truth.
+      _lastRecTs = null;
+      lastSynced = null;
+
+      // signOut() unpairs, so by the time it returns nothing is delivering.
+      await signOut();
+    } finally {
+      // Never leave ingest refused if the reset threw part-way: a half-reset
+      // install that silently drops every record is worse than the race.
+      ResetGate.leave();
     }
-
-    // 3 · the whole preference namespace, not a remembered subset — same
-    // reason as wipeAll. A fresh install is the state being restored, and a
-    // fresh install has no preferences. The install id regenerates on the next
-    // launch, which is the point: the old anonymous id must not follow the
-    // user through a "delete everything".
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
-    } catch (e) {
-      _log('[reset] prefs clear failed: $e');
-    }
-    appStatus = null;
-    _savedAlarm = null;
-
-    // 4 · the in-memory mirrors of what we just deleted. These are plain
-    // fields, restored only by the profile load at launch, so leaving them
-    // alone kept both features RUNNING against the wiped database for the rest
-    // of the session — a re-pair without a relaunch would find phone steps
-    // still on and health export still syncing, which is not "a fresh install".
-    healthSyncEnabled = false;
-    healthState = HealthLinkState.unknown;
-    phoneStepsEnabled = false;
-    phoneStepsToday = 0;
-    _phoneStepsDay = null;
-
-    await signOut();
   }
 
   /// The single onboarding/route the UI gate is in. `_Gate` selects on THIS so it
@@ -1219,7 +1245,12 @@ class AppState extends ChangeNotifier {
       // engine's callback shape for a value it does not have.
       onEvent: (id, ts, hex) =>
           _onLiveEvent(id, ts, hex, LocalDb.kPrimaryDeviceId),
-      onRecordsBatch: LocalDb.insertRecordsBatch,
+      // Gated for the same reason as [_onRecord] — this one is wired straight
+      // to LocalDb, so it bypasses every check AppState makes.
+      onRecordsBatch: (raws, samples) async {
+        if (_resetting) return; // see [_resetting]
+        await LocalDb.insertRecordsBatch(raws, samples);
+      },
       // RESUMABLE SYNC: atomic commit of decoded rows + continuation cursor
       // before the HISTORY_END ACK, and a reader to seed the offload frontier
       // from the durable high-water on (re)connect. Routed through BandHost
@@ -1227,11 +1258,28 @@ class AppState extends ChangeNotifier {
       // durable commit, same arguments, one extra await frame, and the SAME
       // failure contract: `commitNativeBatch` rethrows so
       // `DrainController.commit` still reads durability from a throw.
-      onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
-          _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
-              archives: archives, deviceFamily: deviceFamily),
+      onCommitBatch: (raws, samples, trimTokenHex,
+          {archives, deviceFamily}) async {
+        // THROWS, never silently succeeds. This is the ACK gate: only
+        // `onCommit` can bank raws + archives + trim cursor in one
+        // transaction, and DrainController reads durability FROM A THROW
+        // (see its safe-trim invariant). Returning quietly here would tell
+        // the drain the chunk was banked, it would ACK, and the band would
+        // trim flash that this reset refused to store — turning a race into
+        // real data loss on a band the user may not be deleting after all if
+        // the reset then fails. A throw blocks the ACK and the records stay
+        // on the strap.
+        if (ResetGate.active) {
+          throw StateError('data reset in progress — refusing to commit');
+        }
+        return _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
+            archives: archives, deviceFamily: deviceFamily);
+      },
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
-      onArchiveRecord: LocalDb.archiveRawRecord,
+      onArchiveRecord: (raw) async {
+        if (_resetting) return; // see [_resetting]
+        await LocalDb.archiveRawRecord(raw);
+      },
       cursorReader: (base) =>
           LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
       // Debounced compute trigger: with continuous listening there's no discrete
@@ -2786,9 +2834,20 @@ class AppState extends ChangeNotifier {
   // Historical singles only now (live frames go through _onLiveFrame and are
   // never persisted). Just write the raw record (+ optional decoded sample).
   Future<void> _onRecord(Sample? sample, RawRecord raw) async {
+    if (_resetting) return; // see [_resetting]
     final ts = raw.recTs ?? sample?.tsEpoch;
-    if (ts != null && ts > 0 && ts > (_lastRecTs ?? 0)) _lastRecTs = ts;
-    await LocalDb.insertRecord(raw, sample);
+    // AFTER the write, and gated on the write SAYING it wrote. `_lastRecTs` is
+    // the DATA EDGE — what is banked — and it only ever moves forward, so
+    // advancing it first meant a failed insert advertised a record the
+    // database does not hold, for the rest of the process. Now surfaced on
+    // Home ("Synced through …"), where claiming data we do not have is the one
+    // thing the line must not do. `insertRecord` returns false rather than
+    // throwing if it ever stops committing; today it can only return true or
+    // throw, and reading the result costs nothing to keep that honest.
+    final inserted = await LocalDb.insertRecord(raw, sample);
+    if (inserted && ts != null && ts > 0 && ts > (_lastRecTs ?? 0)) {
+      _lastRecTs = ts;
+    }
   }
 
   // Ephemeral live high-rate frame (0x28/0x2B/0x33) — NOT persisted. The

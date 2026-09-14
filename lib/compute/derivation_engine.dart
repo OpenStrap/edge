@@ -1612,7 +1612,25 @@ import 'substrate.dart';
 // had) in exactly the shape that kept "readiness —" live for three releases.
 // kAnalyticsPin/kProtocolPin are UNCHANGED: M5 touches no analytics or
 // protocol code.
-const int kAlgoVersion = 87;
+// v88 — THE BEAT AXIS IS HELD NON-DECREASING (`monotonizeBeatAxis`,
+// substrate.dart). `beat_ts_ms` is a modelled beat position walked backwards
+// from the record's sub-second anchor, so two records whose anchors sit closer
+// than one beat place N+1's first beat before N's last. Measured on a live
+// install: 94 inversions across 39,066 beats in a single day.
+//
+// Analytics binary-searches that axis and asserts it ascends. The assert is
+// compiled out in RELEASE — so shipped builds did not throw, they mis-selected
+// each 300 s window's beats, and every affected day was banked at v87 from a
+// window gather that had silently skipped or duplicated beats. Those results
+// cannot be told apart from good ones after the fact, which is exactly what a
+// version bump is for: the days re-derive instead of being served from cache
+// (`finalizedDayIds` / `sleepSessionCandidate` both key on kAlgoVersion).
+//
+// Real output change on affected days — window membership moves by up to the
+// inversion depth (672 ms measured) — so the bump is real. Interval VALUES and
+// their order are untouched by the repair; only the modelled clock moves.
+// kAnalyticsPin/kProtocolPin are UNCHANGED: the repair is entirely edge-side.
+const int kAlgoVersion = 88;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
