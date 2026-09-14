@@ -54,6 +54,20 @@ bool coachReady(BuildContext c) {
   }
 }
 
+/// [coachReady] for an event handler, which must not listen.
+///
+/// `watch` outside `build` trips a provider assert, and the catch above turns
+/// that into a plain "not configured" — so a tap handler asking [coachReady]
+/// sends a fully configured user to the setup form every time.
+bool coachReadyNow(BuildContext c) {
+  try {
+    final cfg = c.read<CoachConfig>();
+    return cfg.configured || cfg.keyUnreadable;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// What the Profile row should say under "AI coach", or null when there is no
 /// [CoachConfig] above this context at all.
 ///
@@ -75,7 +89,18 @@ String? coachSubtitle(BuildContext c) {
 }
 
 class CoachScreen extends StatefulWidget {
-  const CoachScreen({super.key});
+  /// A message to send the moment the engine is up — visibly, as the user's
+  /// own turn, so the model runs its tools on it like any other question
+  /// (nothing is injected as trusted prose). [startNewSession] opens a fresh
+  /// conversation for it first.
+  final String? initialMessage;
+  final bool startNewSession;
+
+  const CoachScreen({
+    super.key,
+    this.initialMessage,
+    this.startNewSession = false,
+  });
 
   @override
   State<CoachScreen> createState() => _CoachScreenState();
@@ -123,6 +148,7 @@ class _CoachScreenState extends State<CoachScreen> {
       engine.dispose();
       return;
     }
+    if (widget.startNewSession) engine.newSession();
     setState(() {
       _engine = engine;
       _items
@@ -130,7 +156,14 @@ class _CoachScreenState extends State<CoachScreen> {
         ..addAll(engine.transcript);
     });
     _scrollDown();
+    final first = widget.initialMessage;
+    if (first != null && first.trim().isNotEmpty && !_sentInitial) {
+      _sentInitial = true;
+      await _send(first);
+    }
   }
+
+  bool _sentInitial = false;
 
   @override
   void dispose() {

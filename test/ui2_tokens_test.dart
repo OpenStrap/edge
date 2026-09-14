@@ -195,6 +195,14 @@ void main() {
 const _notComponents = {
   // shell and routing
   'AppShell', 'Domain', 'GalleryScreen',
+  // WHOOP MG ECG routes: the Heart Screener entry reads the database and
+  // pushes; the capture screen owns a live BLE reading (a gallery case would
+  // start one); the detail screen reads and deletes a reading and routes to
+  // the coach; the wrist sheet pops a Navigator. `EcgCaptureBody` is the
+  // pure half of the capture screen and is what ecg_ui_test.dart pumps,
+  // phase by phase.
+  'EcgEntryCard', 'EcgHomeScreen', 'EcgCaptureScreen', 'EcgDetailScreen',
+  'EcgWristSheet',
   // onboarding routes
   'BootSplash', 'WelcomeScreen', 'WelcomeView', 'PairingScreen', 'PairingView',
   'ProfileSetupScreen', 'ProfileSetupView',

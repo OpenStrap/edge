@@ -945,11 +945,9 @@ packages:
   openstrap_protocol:
     dependency: "direct main"
     description:
-      path: "."
-      ref: fe1464db98b84ac4d3ce6175d54ada11356d6c62
-      resolved-ref: fe1464db98b84ac4d3ce6175d54ada11356d6c62
-      url: "https://github.com/OpenStrap/protocol.git"
-    source: git
+      path: "/home/alex/Documents/protocol-worktrees/mg-ecg-parser"
+      relative: false
+    source: path
     version: "1.0.0"
   ota_update:
     dependency: "direct main"

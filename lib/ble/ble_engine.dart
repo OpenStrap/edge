@@ -79,6 +79,7 @@ typedef CommitSyncBatchSink =
       List<Sample?> samples,
       String? trimTokenHex, {
       List<ArchiveRecord>? archives,
+      List<EcgRawPacket>? ecgRawPackets,
       String? deviceFamily,
     });
 
@@ -87,6 +88,84 @@ typedef CommitSyncBatchSink =
 /// drain path archives inside the SAME transaction as the batch commit so the
 /// safe-trim invariant holds (see [CommitSyncBatchSink]).
 typedef ArchiveSink = Future<void> Function(ArchiveRecord archive);
+
+// ── WHOOP MG ECG (Labrador) ─────────────────────────────────────────────────
+// The engine owns the transport half of an ECG reading: the exact command
+// lists, response correlation, history quiescence, the parsed live-R17
+// delivery and the link-generation guards. The reducer, the durable guard,
+// persistence and the UI live in lib/ecg/ behind `EcgTransport`.
+
+/// What the engine tells the ECG owner. Every event carries the link
+/// generation it belongs to, so a controller can drop anything from a link
+/// it did not start on.
+sealed class EcgEngineEvent {
+  final int linkGeneration;
+  const EcgEngineEvent(this.linkGeneration);
+}
+
+/// A CRC-valid live type-43 revision-17 packet, parsed.
+class EcgFrameEvent extends EcgEngineEvent {
+  final LabradorR17 r17;
+  const EcgFrameEvent(this.r17, super.linkGeneration);
+}
+
+/// A CRC-valid type-43 frame that CLAIMS revision 17 but does not parse
+/// (declared sample count past the packet, count above 100, …). During an
+/// armed capture this is a parse failure the owner must finish on.
+class EcgMalformedR17Event extends EcgEngineEvent {
+  final String reason;
+  const EcgMalformedR17Event(super.linkGeneration, this.reason);
+}
+
+/// The link the generation belonged to is gone (teardown ran).
+class EcgLinkDownEvent extends EcgEngineEvent {
+  const EcgLinkDownEvent(super.linkGeneration);
+}
+
+typedef EcgEventSink = void Function(EcgEngineEvent event);
+
+/// Runs once per connection AFTER bootstrap and BEFORE `listening` is
+/// published or the INIT drain claims history — the ECG recovery seam. The
+/// engine holds a recovery [EcgLease] for the duration, so the hook may call
+/// [BleEngine.ecgRecoveryCleanup]; nothing else can claim the transport and
+/// no history task can start until it returns.
+typedef EcgReadyHook = Future<void> Function(BleEngine engine);
+
+/// Exclusive ECG ownership of the command transport for ONE link. Issued by
+/// [BleEngine.ecgAcquire] (or held internally during READY recovery), bound
+/// to the session and link generation it was issued under; every ECG command
+/// validates it, and a stale lease (link replaced) is refused everywhere.
+class EcgLease {
+  final Object _owner; // the _Session this lease was issued for
+  final int linkGeneration;
+  final bool recovery;
+  const EcgLease._(this._owner, this.linkGeneration, {this.recovery = false});
+}
+
+/// One member of a Labrador command list: whether the write left the phone
+/// and whether a matching SUCCESS response came back within the timeout.
+class EcgCommandOutcome {
+  final String label;
+  final int opcode;
+  final bool written;
+  final bool succeeded;
+  const EcgCommandOutcome(
+    this.label,
+    this.opcode, {
+    required this.written,
+    required this.succeeded,
+  });
+
+  @override
+  String toString() =>
+      '$label(0x${opcode.toRadixString(16)}) written=$written ok=$succeeded';
+}
+
+typedef _EcgMember = (
+  String label,
+  int opcode,
+  Uint8List Function(int seq, BandProfile band) build,
+);
 
 /// Fired (debounced) after records are persisted so the caller can schedule a
 /// DerivationEngine pass. Replaces the old "runSync() → SyncReport → derive"
@@ -290,8 +369,11 @@ bool isBurstCountMemberType(int packetType) =>
     packetType == PacketType.relativeBatteryPackConsoleLogs;
 
 @visibleForTesting
-bool shouldPauseMaintenanceTraffic({required bool offloadActive}) =>
-    offloadActive;
+bool shouldPauseMaintenanceTraffic({
+  required bool offloadActive,
+  bool ecgLeased = false,
+}) =>
+    offloadActive || ecgLeased;
 
 /// Whether a HISTORY_END burst's packet accounting matches what the band
 /// reported sending (`expectedPacketCount`, from the metadata frame).
@@ -424,6 +506,11 @@ enum _HpsTerminalKind {
   /// the wire the task cannot make progress — it ends through the one abort
   /// boundary ([BleEngine._endHistoryTaskWithAbort]).
   resultWriteFailed,
+
+  /// The ECG owner took the transport ([BleEngine.ecgCancelHistory]): the
+  /// task ends through the one abort boundary and the band keeps its
+  /// checkpoint for the ordinary sync that follows the reading.
+  preempted,
 }
 
 class _HpsTerminal {
@@ -837,6 +924,13 @@ class BleEngine {
   final LiveFrameSink? onLiveFrame;
   final OffloadStateSink? onOffloadState;
 
+  /// WHOOP MG ECG events (parsed live R17, malformed R17, link down). RAM
+  /// only — never persisted here. See [EcgEngineEvent].
+  final EcgEventSink? onEcgEvent;
+
+  /// The READY-time ECG recovery seam — see [EcgReadyHook].
+  final EcgReadyHook? onReadyEcgRecovery;
+
   /// If provided, sync chunks are persisted via this ATOMIC commit (raw + samples
   /// + continuation cursor in one transaction) before the HISTORY_END ACK. This is
   /// what makes the offload resumable across restarts (durable cursor).
@@ -874,6 +968,8 @@ class BleEngine {
     this.onDataStored,
     this.onLiveFrame,
     this.onOffloadState,
+    this.onEcgEvent,
+    this.onReadyEcgRecovery,
     this.onCommitBatch,
     this.onArchiveRecord,
     this.cursorReader,
@@ -932,6 +1028,185 @@ class BleEngine {
   /// the service UUID matched) rather than `_session.band`, which DEFAULTS to
   /// gen4 before discovery has run.
   String? get linkDeviceFamily => state.generation;
+
+  // ── WHOOP MG ECG (Labrador) transport ───────────────────────────────────────
+
+  /// The current ECG lease, if any (capture or READY recovery).
+  EcgLease? _ecgLease;
+
+  /// Positively identified WHOOP MG: a revision-1 gen5 HELLO whose optical
+  /// discriminator is in the MAVERICK interval. False for gen4, for the
+  /// ordinary WHOOP 5.0 and before hello. Never inferred from the UUID, the
+  /// name or command acceptance.
+  bool get isMaverick => _gen5Hello?.isMaverick ?? false;
+
+  /// The link generation — bumped once per teardown. ECG work captures it
+  /// and ignores anything from an older link.
+  int get linkGeneration => _linkGeneration;
+
+  bool get ecgLeaseHeld => _ecgLease != null;
+
+  /// Claim the transport for an ECG reading. Synchronous, so a caller can
+  /// claim BEFORE awaiting history cancellation. Null when the link is not
+  /// connected or the transport is already leased (another capture, or READY
+  /// recovery still running).
+  EcgLease? ecgAcquire() {
+    final session = _session;
+    if (session == null || !session.connected) return null;
+    if (_ecgLease != null) return null;
+    final lease = EcgLease._(session, _linkGeneration);
+    _ecgLease = lease;
+    return lease;
+  }
+
+  /// True while [lease] is the live lease of the live link.
+  bool ecgLeaseValid(EcgLease lease) {
+    final session = _session;
+    return identical(_ecgLease, lease) &&
+        session != null &&
+        session.connected &&
+        identical(lease._owner, session) &&
+        lease.linkGeneration == _linkGeneration;
+  }
+
+  /// Release [lease]. A stale lease (not the current one) is ignored, so an
+  /// old controller cannot release a replacement link's lease.
+  void ecgRelease(EcgLease lease) {
+    if (identical(_ecgLease, lease)) _ecgLease = null;
+  }
+
+  /// End the phone-side history owner and wait for its lifecycle to go
+  /// quiescent (abort delivered or given up, marker handler out of any
+  /// parked commit). The canonical ECG START list still sends its own
+  /// opcode 20 afterwards — this is ownership, not the abort itself.
+  Future<void> ecgCancelHistory(EcgLease lease) async {
+    if (!ecgLeaseValid(lease)) return;
+    final session = lease._owner as _Session;
+    if (_offloadActive && !session.historyTaskEnded) {
+      await _endHistoryTaskWithAbort(
+        session: session,
+        kind: _HpsTerminalKind.preempted,
+        reason: 'ecg_preempted',
+      );
+    }
+    await _awaitHistoryLifecycleQuiescence();
+  }
+
+  static List<_EcgMember> _ecgPrepareMembers(WristSelection wrist) => [
+        ('selectWrist', Cmd.selectWrist,
+            (seq, band) => cmdSelectWrist(seq, wrist, profile: band)),
+        ('filteredOn', Cmd.toggleLabradorFiltered,
+            (seq, band) => cmdLabradorFiltered(seq, true, profile: band)),
+        ('rawSaveOn', Cmd.toggleLabradorRawSave,
+            (seq, band) => cmdLabradorRawSave(seq, true, profile: band)),
+      ];
+
+  static List<_EcgMember> _ecgStartMembers(LabradorOperation op) => [
+        ('abortHistorical', Cmd.abortHistoricalTransmits,
+            (seq, band) => cmdAbortHistorical(seq, profile: band)),
+        (
+          op == LabradorOperation.restart
+              ? 'generationRestart'
+              : 'generationStart',
+          Cmd.toggleLabradorDataGeneration,
+          (seq, band) => cmdLabradorDataGeneration(seq, op, profile: band),
+        ),
+      ];
+
+  static final List<_EcgMember> _ecgCleanupMembers = [
+    ('generationStop', Cmd.toggleLabradorDataGeneration,
+        (seq, band) =>
+            cmdLabradorDataGeneration(seq, LabradorOperation.stop, profile: band)),
+    ('filteredOff', Cmd.toggleLabradorFiltered,
+        (seq, band) => cmdLabradorFiltered(seq, false, profile: band)),
+    ('rawSaveOff', Cmd.toggleLabradorRawSave,
+        (seq, band) => cmdLabradorRawSave(seq, false, profile: band)),
+  ];
+
+  /// PREPARE: 123 wrist, 139 filtered ON, 125 raw-save ON. Attempt-all; the
+  /// caller accepts only when every member succeeded.
+  Future<List<EcgCommandOutcome>> ecgPrepare(
+    EcgLease lease,
+    WristSelection wrist,
+  ) =>
+      _runEcgList(lease, _ecgPrepareMembers(wrist));
+
+  /// START: 20 abort-history (unconditional), 124 generation START.
+  Future<List<EcgCommandOutcome>> ecgStart(EcgLease lease) =>
+      _runEcgList(lease, _ecgStartMembers(LabradorOperation.start));
+
+  /// RESTART: 20, 124 generation RESTART — only for the reducer's exact
+  /// explicit-restart predicate, never for ordinary contact loss.
+  Future<List<EcgCommandOutcome>> ecgRestart(EcgLease lease) =>
+      _runEcgList(lease, _ecgStartMembers(LabradorOperation.restart));
+
+  /// CLEANUP: 124 STOP, 139 OFF, 125 OFF — every member attempted, in order,
+  /// whatever an earlier one answered. The caller clears its durable guard
+  /// only when all three succeeded.
+  Future<List<EcgCommandOutcome>> ecgCleanup(EcgLease lease) =>
+      _runEcgList(lease, _ecgCleanupMembers);
+
+  /// The cleanup triplet under the READY recovery lease — callable only from
+  /// inside [onReadyEcgRecovery]. Empty (nothing written) otherwise.
+  Future<List<EcgCommandOutcome>> ecgRecoveryCleanup() {
+    final lease = _ecgLease;
+    if (lease == null || !lease.recovery) return Future.value(const []);
+    return _runEcgList(lease, _ecgCleanupMembers);
+  }
+
+  /// Attempt every member in order, one correlated await each (observer
+  /// before write, seq+opcode match, the common five-second timeout, no
+  /// retry). A member whose lease is no longer valid is recorded unwritten
+  /// and the rest are still walked, so the outcome list is always complete.
+  Future<List<EcgCommandOutcome>> _runEcgList(
+    EcgLease lease,
+    List<_EcgMember> members,
+  ) async {
+    final out = <EcgCommandOutcome>[];
+    for (final (label, opcode, build) in members) {
+      if (!ecgLeaseValid(lease)) {
+        out.add(EcgCommandOutcome(label, opcode,
+            written: false, succeeded: false));
+        continue;
+      }
+      final session = lease._owner as _Session;
+      final sent = await _sendAwaited(
+        opcode,
+        const [],
+        frameBuilder: (seq) => build(seq, session.band),
+        owner: session,
+      );
+      if (!sent.written) {
+        out.add(EcgCommandOutcome(label, opcode,
+            written: false, succeeded: false));
+        continue;
+      }
+      final r = await sent.response;
+      final ok = r != null && r.success;
+      _log('[ECG] $label opcode=$opcode → '
+          '${r == null ? 'no response' : 'status=${r.status}'}');
+      out.add(EcgCommandOutcome(label, opcode, written: true, succeeded: ok));
+    }
+    return out;
+  }
+
+  /// READY recovery: hold a recovery lease around [onReadyEcgRecovery] so
+  /// the hook can run the cleanup triplet before `listening` is published
+  /// and before the INIT drain. Returns false when the link died under it.
+  Future<bool> _runEcgReadyRecovery(_Session session) async {
+    final hook = onReadyEcgRecovery;
+    if (hook == null) return true;
+    final lease = EcgLease._(session, _linkGeneration, recovery: true);
+    _ecgLease = lease;
+    try {
+      await hook(this);
+    } catch (e) {
+      _log('[ECG] READY recovery hook threw: $e — continuing.');
+    } finally {
+      if (identical(_ecgLease, lease)) _ecgLease = null;
+    }
+    return !_sessionIsStale(session);
+  }
 
   // ── PROCESS-WIDE SINGLE-OWNER GUARD ─────────────────────────────────────────
   // The strap streams its historical offload to EVERY subscribed central. If two
@@ -1350,6 +1625,11 @@ class BleEngine {
       log: _log,
     );
   }
+
+  /// The armed drain controller (null before a link is set up) — so a test
+  /// can see what an ingested frame buffered without driving a HISTORY_END.
+  @visibleForTesting
+  DrainController? get debugDrain => _drain;
 
   /// Test seam onto the LOWEST-level write, so the dangerous-opcode block that
   /// lives there can be exercised on a pre-framed frame — which is exactly the
@@ -2485,7 +2765,10 @@ class BleEngine {
       // disconnect cancels it — no zombie timer firing into a dead characteristic.
       session.heartbeat = Timer.periodic(const Duration(seconds: 10), (_) {
         if (!session.connected ||
-            shouldPauseMaintenanceTraffic(offloadActive: _offloadActive)) {
+            shouldPauseMaintenanceTraffic(
+              offloadActive: _offloadActive,
+              ecgLeased: _ecgLease != null,
+            )) {
           return;
         }
         // Backgrounded: 60 s cadence. LINK_VALID is an app-level write, not
@@ -2542,6 +2825,13 @@ class BleEngine {
         _log('[HELLO gen5] bootstrap completed — clearing '
             '$_helloFailures accumulated hello failure(s) at READY.');
         _helloFailures = 0;
+      }
+      // WHOOP MG ECG recovery runs BEFORE READY is visible: a retained
+      // may-be-active guard gets the transport first, so no capture and no
+      // history task can start until the cleanup triplet has been attempted.
+      if (!await _runEcgReadyRecovery(session)) {
+        _log('[ECG] link died under READY recovery — not reporting ready.');
+        return false;
       }
       _setPhase(BleConnState.listening);
       // The charging-only battery-pack lookup launches strictly AFTER
@@ -3376,7 +3666,10 @@ class BleEngine {
       );
       return;
     }
-    if (shouldPauseMaintenanceTraffic(offloadActive: _offloadActive)) {
+    if (shouldPauseMaintenanceTraffic(
+              offloadActive: _offloadActive,
+              ecgLeased: _ecgLease != null,
+            )) {
       return;
     }
     // Proactive RTC recheck: every other clock verification is symptom-driven
@@ -3621,6 +3914,11 @@ class BleEngine {
       }
       return false;
     }
+    if (_ecgLeaseHeldFor(session)) {
+      _log('[SYNC] refresh($reason) refused — the ECG owner holds the '
+          'transport; history resumes after the reading.');
+      return false;
+    }
     if (_offloadActive && !d._complete) {
       _log(
         '[SYNC] refresh($reason) dropped — strap is already transmitting history.',
@@ -3640,10 +3938,13 @@ class BleEngine {
     // HistoryComplete tail-commit handling) — those rows re-attempt on the
     // next commit, exactly as documented there.
     if (session.historyTaskEnded &&
-        (d.bufferedRecords > 0 || d.bufferedArchives > 0)) {
+        (d.bufferedRecords > 0 ||
+            d.bufferedArchives > 0 ||
+            d.bufferedEcgRaw > 0)) {
       _log(
         '[SYNC] refresh($reason) — discarding the aborted previous task\'s '
         '${d.bufferedRecords} record(s) + ${d.bufferedArchives} archive(s) '
+        '+ ${d.bufferedEcgRaw} raw ECG '
         'of leftover un-ACKed buffer before starting a new task; the band '
         're-delivers them.',
       );
@@ -4173,6 +4474,7 @@ class BleEngine {
     List<int> payload, {
     Duration timeout = CommandAwaiter.defaultTimeout,
     Uint8List Function(int seq)? frameBuilder,
+    _Session? owner,
   }) async {
     if (_refuseDangerousOpcode(opcode)) {
       return (written: false, response: Future<CorrelatedResponse?>.value());
@@ -4181,7 +4483,7 @@ class BleEngine {
     final pending = _awaiter.register(seq, opcode, timeout: timeout);
     final frame = frameBuilder?.call(seq) ??
         buildCommand(seq, opcode, payload, _session?.band ?? BandProfile.gen4);
-    if (!await _write(frame)) {
+    if (!await _write(frame, owner: owner)) {
       pending.cancel();
       _log('WRITE FAILED for opcode 0x${opcode.toRadixString(16)} — '
           'command not delivered.');
@@ -4306,17 +4608,23 @@ class BleEngine {
     List<Sample?> samples,
     String? trimTokenHex, {
     List<ArchiveRecord>? archives,
+    List<EcgRawPacket>? ecgRawPackets,
     String? deviceFamily,
   }) async {
     final hasArchives = archives != null && archives.isNotEmpty;
-    if (raws.isEmpty && trimTokenHex == null && !hasArchives) return;
+    final hasEcgRaw = ecgRawPackets != null && ecgRawPackets.isNotEmpty;
+    if (raws.isEmpty && trimTokenHex == null && !hasArchives && !hasEcgRaw) {
+      return;
+    }
     // Stamp the family HERE, from the link that produced the chunk: this is the
     // last point that knows it. Callers may override (tests / a replay that
     // knows better); null falls back to the live link, which is itself null
     // before discovery has pinned one.
     await onCommitBatch!(raws, samples, trimTokenHex,
-        archives: archives, deviceFamily: deviceFamily ?? linkDeviceFamily);
-    if (raws.isNotEmpty || hasArchives) _noteStored();
+        archives: archives,
+        ecgRawPackets: ecgRawPackets,
+        deviceFamily: deviceFamily ?? linkDeviceFamily);
+    if (raws.isNotEmpty || hasArchives || hasEcgRaw) _noteStored();
   }
 
   // ── frame handling ─────────────────────────────────────────────────────────────
@@ -4374,6 +4682,19 @@ class BleEngine {
         liveHex,
         (liveTs != null && liveTs > 0) ? liveTs : null,
       );
+      // WHOOP MG live filtered ECG (type 43, data revision 17). Parsed here,
+      // delivered synchronously, never persisted by the engine — the ECG
+      // owner keeps only the accepted window (RAM otherwise). A frame that
+      // claims revision 17 but does not parse is reported, not dropped.
+      if (pt == PacketType.realtimeRawData &&
+          (_session?.band.isGen5 ?? false) &&
+          frame.inner.length > 1 &&
+          frame.inner[1] == LabradorR17.revision) {
+        final r17 = LabradorR17.parse(frame.inner);
+        onEcgEvent?.call(r17 != null
+            ? EcgFrameEvent(r17, _linkGeneration)
+            : EcgMalformedR17Event(_linkGeneration, 'r17_parse'));
+      }
       // Fall through to decodeFrame so the UI gets live telemetry (state.liveHr).
     }
     if (pt == PacketType.historicalData) {
@@ -4576,6 +4897,13 @@ class BleEngine {
 
   /// True once [session] is no longer the engine's live session — the guard
   /// every long-parked offload callback shares.
+  bool _ecgLeaseHeldFor(_Session session) {
+    final l = _ecgLease;
+    return l != null &&
+        identical(l._owner, session) &&
+        l.linkGeneration == _linkGeneration;
+  }
+
   bool _sessionIsStale(_Session session) =>
       _session != session || !session.connected;
 
@@ -4636,6 +4964,30 @@ class BleEngine {
     Sample? sample;
     final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final isGen5 = _session?.band.isGen5 ?? false;
+    // WHOOP MG raw ECG (type 47, revision 16): the band saved it under
+    // raw-save ON and ordinary history delivers it. Not a Sample — it has no
+    // 1 Hz meaning and skips the plausibility gate — but it IS a burst count
+    // member and it rides the safe-trim commit into ecg_raw_packet, its only
+    // durable store. Without a buffered drain it falls through to the
+    // archive path below, which keeps the bytes.
+    if (isGen5 && recType == Record.r16) {
+      final r16 = LabradorR16Raw.tryParse(frame.inner);
+      final d = _drain;
+      if (r16 != null && d != null && d.supportsSafeTrim) {
+        d.onEcgRawPacket(
+          EcgRawPacket(
+            hex: _innerHex(frame.inner),
+            deviceId: LocalDb.kPrimaryDeviceId,
+            sequence: r16.sequence,
+            strapSeconds: r16.strapSeconds,
+            strapSubsec: r16.subseconds,
+            capturedAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+          counter: counter,
+        );
+        return;
+      }
+    }
     if (isGen5) {
       // gen5 (WHOOP 5): `parseGen5Historical` dispatches across all four real
       // gen5 historical-record kinds (v18 per-second summary, v20 optical/
@@ -5743,7 +6095,9 @@ class BleEngine {
     );
     if (m.sub == SyncMeta.historyStart) {
       final d = _drain;
-      if (_offloadActive && d != null && d.bufferedRecords > 0) {
+      if (_offloadActive &&
+          d != null &&
+          (d.bufferedRecords > 0 || d.bufferedEcgRaw > 0)) {
         _log(
           '[SYNC] HistoryStart received during active burst — discarding '
           'partial open chunk and restarting burst state.',
@@ -5973,15 +6327,17 @@ class BleEngine {
       // This only decides whether the band may TRIM. Archives are committed in
       // the same transaction regardless — except on the no-progress path, which
       // returns before commit precisely because there is nothing to bank.
-      final hadDurableRows =
-          d.bufferedRecords > 0 || d.bufferedProgressArchives > 0;
+      final hadDurableRows = d.bufferedRecords > 0 ||
+          d.bufferedProgressArchives > 0 ||
+          d.bufferedEcgRaw > 0;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
         'expected=${m.expectedPacketCount} '
         'historical=${d.currentBurstHistoricalPacketCount} '
         'traffic=${d.currentBurstTrafficCount} token=$tokenHex '
         'dropped_this_burst=$droppedThisBurstForLog '
-        'durable_buffered=${d.bufferedRecords}+${d.bufferedArchives} '
+        'durable_buffered=${d.bufferedRecords}+${d.bufferedArchives}'
+        '+${d.bufferedEcgRaw} '
         'recTs=${r == null ? "none" : "${r.$1}..${r.$2}"}',
       );
       // Non-trimmable wiring (no onCommit): unbuffered fire-and-forget cannot
@@ -7352,7 +7708,11 @@ class BleEngine {
     // caller parked on a 5 s await through a teardown delays whatever the
     // reconnect wants to do next. Resolve them all as unanswered now.
     _awaiter.failAll();
+    final endedGeneration = _linkGeneration;
     _linkGeneration++;
+    // The ECG lease died with its link; tell the owner which generation.
+    _ecgLease = null;
+    onEcgEvent?.call(EcgLinkDownEvent(endedGeneration));
     _drain?.onLinkDown();
     _drain = null;
     // Fire a final derive for anything stored-but-not-yet-derived, then disarm the
@@ -7580,6 +7940,10 @@ class DrainController {
   // transaction as [_raws]/[_samples]/the trim cursor (see [commit]) so a future
   // firmware's records are durably set aside BEFORE the band is told to trim.
   final List<ArchiveRecord> _archives = [];
+  // WHOOP MG raw ECG (R16) records buffered for THIS chunk — same lifecycle
+  // as [_archives]: committed in the one pre-ACK transaction, restored on a
+  // failed commit, dropped with a discarded chunk.
+  final List<EcgRawPacket> _ecgRaw = [];
   // Per-burst packet accounting (per-revision counts + sequence gap detection),
   // merged into the session totals when a burst validates.
   final BurstStats burstStats = BurstStats();
@@ -7593,6 +7957,31 @@ class DrainController {
 
   int get bufferedRecords => _raws.length;
   int get bufferedArchives => _archives.length;
+  int get bufferedEcgRaw => _ecgRaw.length;
+
+  /// A raw ECG record for this chunk. Genuine, ACKable progress and a burst
+  /// count member (the band counts every type-47 frame it sent). Only the
+  /// buffered path exists for it: without [onCommit] there is no transaction
+  /// to ride, and R16 must never be persisted outside the pre-ACK commit.
+  void onEcgRawPacket(EcgRawPacket p, {required int counter}) {
+    if (!_buffering) {
+      throw StateError(
+        'DrainController.onEcgRawPacket needs the atomic commit sink — raw '
+        'ECG is persisted only inside the pre-ACK transaction',
+      );
+    }
+    records++;
+    recordsThisOffload++;
+    if (!_burstTallyClosed) {
+      burstStats.onHistoricalData(
+        PacketType.historicalData,
+        counter,
+        LabradorR16Raw.revision,
+      );
+    }
+    _lastProgressAt = DateTime.now();
+    _ecgRaw.add(p);
+  }
 
   /// Archives that represent real forward progress, i.e. everything EXCEPT the
   /// plausibility drops. A burst of records we simply cannot decode has still
@@ -7906,13 +8295,15 @@ class DrainController {
   /// is cleared only by [beginBurst] — a fresh HISTORY_START from the band.
   void discardOpenChunk() {
     _trimGuard.discardOpenChunk();
-    if (_raws.isEmpty && _archives.isEmpty) return;
+    if (_raws.isEmpty && _archives.isEmpty && _ecgRaw.isEmpty) return;
     log('discarding ${_raws.length} un-ACKed buffered records + '
-        '${_archives.length} archived (idle). This burst\'s HISTORY_END token '
-        'is now un-ACKable — the band keeps the chunk.');
+        '${_archives.length} archived + ${_ecgRaw.length} raw ECG (idle). '
+        'This burst\'s HISTORY_END token is now un-ACKable — the band keeps '
+        'the chunk.');
     _raws.clear();
     _samples.clear();
     _archives.clear();
+    _ecgRaw.clear();
   }
 
   /// SAFE-TRIM commit: persist the buffered chunk + the continuation [token]
@@ -7940,7 +8331,9 @@ class DrainController {
     final raws = List<RawRecord>.from(_raws);
     final samples = List<Sample?>.from(_samples);
     final archives = List<ArchiveRecord>.from(_archives);
-    final hadDurable = raws.isNotEmpty || archives.isNotEmpty;
+    final ecgRaw = List<EcgRawPacket>.from(_ecgRaw);
+    final hadDurable =
+        raws.isNotEmpty || archives.isNotEmpty || ecgRaw.isNotEmpty;
     // Token changed AND we actually banked something — empty ACKs must not
     // look like cursor progress to auto-continue / stuck-strap.
     lastTrimAdvanced =
@@ -7949,10 +8342,14 @@ class DrainController {
     _raws.clear();
     _samples.clear();
     _archives.clear();
+    _ecgRaw.clear();
     try {
       // Defense in depth (constructor already rejects onRecordsBatch-only):
       // never report durable success for buffered content without onCommit.
-      if (raws.isNotEmpty || archives.isNotEmpty || tokenHex != null) {
+      if (raws.isNotEmpty ||
+          archives.isNotEmpty ||
+          ecgRaw.isNotEmpty ||
+          tokenHex != null) {
         final commit = onCommit;
         if (commit == null) {
           throw StateError(
@@ -7961,7 +8358,8 @@ class DrainController {
             'archives=${archives.length}, token=${tokenHex != null})',
           );
         }
-        await commit(raws, samples, tokenHex, archives: archives);
+        await commit(raws, samples, tokenHex,
+            archives: archives, ecgRawPackets: ecgRaw);
       }
       return true;
     } catch (e) {
@@ -7970,11 +8368,13 @@ class DrainController {
       _raws.insertAll(0, raws);
       _samples.insertAll(0, samples);
       _archives.insertAll(0, archives);
+      _ecgRaw.insertAll(0, ecgRaw);
       // Roll back the trim bookkeeping too — nothing advanced.
       _lastAckedToken = previousAckedToken;
       lastTrimAdvanced = previousTrimAdvanced;
       log('offload commit FAILED ($e) — ${raws.length} records + '
-          '${archives.length} archived re-buffered; the caller MUST NOT ACK '
+          '${archives.length} archived + ${ecgRaw.length} raw ECG '
+          're-buffered; the caller MUST NOT ACK '
           'this chunk (the band still holds it).');
       return false;
     }

@@ -50,6 +50,9 @@ import '../ble/zetime_link.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
+import '../ecg/ecg_guard_store.dart';
+import '../ecg/ecg_recovery.dart';
+import '../ecg/ecg_transport.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../state/alarm_schedule.dart';
@@ -114,10 +117,29 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       // arguments, one extra await frame, and the SAME failure contract:
       // `commitNativeBatch` rethrows so `DrainController.commit` still reads
       // durability from a throw and `TrimAckPolicy` still blocks the ACK.
-      onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
+      onCommitBatch: (raws, samples, trimTokenHex,
+              {archives, ecgRawPackets, deviceFamily}) =>
           bandHost.commitNativeBatch(raws, samples, trimTokenHex,
-              archives: archives, deviceFamily: deviceFamily),
+              archives: archives,
+              ecgRawPackets: ecgRawPackets,
+              deviceFamily: deviceFamily),
       onArchiveRecord: LocalDb.archiveRawRecord,
+      // A WHOOP MG left generating by a dead process must be cleaned up
+      // BEFORE this drainer claims history — same rule as the foreground
+      // engine, controller-free.
+      onReadyEcgRecovery: (e) => ecgRecoverRetainedGuard(
+        guard: PrefsEcgGuardStore(),
+        serial: paired.serial,
+        cleanup: () async {
+          final out = await e.ecgRecoveryCleanup();
+          return EcgCommandListResult([
+            for (final o in out)
+              EcgMemberOutcome(o.label,
+                  written: o.written, succeeded: o.succeeded),
+          ]);
+        },
+        log: (l) => debugPrint('[bgsync] $l'),
+      ),
       cursorReader: (base) =>
           LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
       // Mark this as the background drainer: if the foreground app engine already

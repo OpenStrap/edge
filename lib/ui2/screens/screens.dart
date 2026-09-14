@@ -3,6 +3,7 @@ export 'ai_briefing.dart';
 export 'beats.dart';
 export 'circadian_detail.dart';
 export 'coach.dart';
+export 'ecg.dart';
 export 'coach_figures.dart';
 export 'findings_log.dart';
 export 'health_screen.dart';

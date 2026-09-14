@@ -159,7 +159,7 @@ class _Rig {
   /// everything session-scoped is concerned).
   void connect() => engine.debugInstallFakeLink(
         band: band,
-        onCommit: (raws, samples, token, {archives, deviceFamily}) async {
+        onCommit: (raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {
           final hold = holdCommit;
           if (hold != null) {
             holdCommit = null;
@@ -235,7 +235,7 @@ void main() {
     DrainController drain() => DrainController(
           onRecord: (sample, raw) async {},
           onRecordsBatch: null,
-          onCommit: (raws, samples, token, {archives, deviceFamily}) async {},
+          onCommit: (raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {},
           onArchive: null,
           log: (_) {},
         );
@@ -367,7 +367,7 @@ void main() {
         final d = DrainController(
           onRecord: (sample, r) async {},
           onRecordsBatch: null,
-          onCommit: (raws, samples, token, {archives, deviceFamily}) async {
+          onCommit: (raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {
             commits.add((token, raws.length));
           },
           onArchive: null,
