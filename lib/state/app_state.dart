@@ -97,6 +97,8 @@ import '../sync/edge_tracking.dart';
 import '../sync/band_ownership.dart';
 import '../sync/high_freq_wake_window.dart';
 import '../sync/ios_bg_task.dart';
+import '../sync/ios_shortcut_sync.dart';
+import '../sync/shortcut_sync_task.dart';
 import '../sync/paired_device.dart';
 import '../sync/sync_policy.dart'
     show
@@ -1227,9 +1229,16 @@ class AppState extends ChangeNotifier {
       // durable commit, same arguments, one extra await frame, and the SAME
       // failure contract: `commitNativeBatch` rethrows so
       // `DrainController.commit` still reads durability from a throw.
-      onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
-          _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
-              archives: archives, deviceFamily: deviceFamily),
+      onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) async {
+        try {
+          await _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
+              archives: archives, deviceFamily: deviceFamily);
+        } catch (_) {
+          // A persistence failure must not look like a quiet partial Shortcut sync.
+          IosShortcutSync.foregroundCommitFailed();
+          rethrow;
+        }
+      },
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: LocalDb.archiveRawRecord,
       cursorReader: (base) =>
@@ -1283,6 +1292,8 @@ class AppState extends ChangeNotifier {
     // skip the headless BLE path (it would fight FBP for the peripheral) — route
     // them to a catch-up pull over the existing live connection instead.
     IosBgTask.foregroundPull = foregroundCatchUp;
+    IosShortcutSync.foregroundSync = syncForShortcut;
+    IosShortcutSync.foregroundEngine = () => engine;
     taskerBridge; // force init: register the method channel handler
     // A paired sensor's live beats, into the same trace as the band's. Touches
     // no radio — `HrsLink.reading` is a plain notifier whose identity survives
@@ -1360,6 +1371,10 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (IosShortcutSync.foregroundSync == syncForShortcut) {
+      IosShortcutSync.foregroundSync = null;
+      IosShortcutSync.foregroundEngine = null;
+    }
     _syncQuietTimer?.cancel();
     _syncQuietTimer = null;
     _disposed = true;
@@ -4673,29 +4688,31 @@ class AppState extends ChangeNotifier {
   }
 
   // ── session: drain history, go live, stay connected ──────────────────────────
-  Future<void> openSession() async {
+  Future<void> openSession({bool foreground = true}) async {
     if (busy || paired == null) return;
     BandOwnership.markForegroundIntent(true);
     _log('[OWNERSHIP] foreground intent on (${BandOwnership.debugState})');
     // Returning to the foreground with the connection still alive (kept during
     // background): don't tear it down and reconnect — just reclaim ownership.
     final wasBackground = _background;
-    _background = false;
-    engine.setBackground(false);
+    if (foreground) {
+      _background = false;
+      engine.setBackground(false);
+    }
     // Coming back after hours (or days) suspended: re-read the phone's steps
     // for whatever day it is NOW.
-    if (phoneStepsEnabled) {
+    if (foreground && phoneStepsEnabled) {
       unawaited(syncPhoneSteps());
     }
     // Back in the foreground with an OS CPU/memory budget again — let the
     // scheduler drain any derive jobs that queued (durably) while backgrounded.
-    _deriveScheduler.setBackground(false);
+    if (foreground) _deriveScheduler.setBackground(false);
     // A background live downgrade may still be writing (its flags clear only on
     // completion). Let it finish before any reclaim path below re-arms live, so
     // the re-arm sees settled flags and its ON writes can't interleave with the
     // disable's trailing OFF writes.
     await _settleBgLiveDowngrade();
-    if (wasBackground && engine.isConnected) {
+    if (foreground && wasBackground && engine.isConnected) {
       IosBleRestore.foregroundActive = true;
       await IosBleRestore.setOwnsBand(true);
       EdgeTracking.start(); // Android: keep the foreground service up (idempotent)
@@ -4809,7 +4826,11 @@ class AppState extends ChangeNotifier {
       // (awaited, I/O-bound) recovery were then wiped by _resetLivePedometer.
       await _recoverOrphanedLiveSession();
       _resetLivePedometer(); // fresh live step count for this connected session
-      await engine.enableLiveStreams();
+      if (_background && !_hasLiveConsumer) {
+        if (Platform.isIOS) await engine.enableHrOnlyLive();
+      } else {
+        await engine.enableLiveStreams();
+      }
       unawaited(
         _kickSyncBurst(kickFirst: false).then((report) async {
           _log(
@@ -5094,6 +5115,33 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> syncNow() => openSession();
+
+  Future<SyncReport> syncForShortcut(ShortcutSyncTask task) async {
+    if (!initialized) task.update('starting');
+    while (!initialized && initError == null && !_disposed && !task.stopped) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    if (initError != null || _disposed) throw StateError('Edge is not ready');
+    if (busy) task.update('waiting');
+    while (busy && !task.stopped) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    if (task.stopped) return SyncReport(0, 0, false);
+    if (engine.isConnected &&
+        isLinkStale(engine.sinceLastRx, liveStreamArmed: engine.liveEnabled)) {
+      await engine.disconnect();
+    }
+    if (!engine.isConnected) {
+      task.update('connecting');
+      // A background Shortcut must not enable the UI's high-rate live streams.
+      await openSession(foreground: !_background);
+    }
+    if (task.stopped || !engine.isConnected) return SyncReport(0, 0, false);
+    final report = await _kickSyncBurst(kickFirst: _syncBurst == null);
+    if (report.records > 0) _deriveScheduler.markStoredData();
+    if (!_disposed) notifyListeners();
+    return report;
+  }
 
   Future<void> _refreshHighFreqWakeWindow() async {
     if (!engine.isConnected) return;
