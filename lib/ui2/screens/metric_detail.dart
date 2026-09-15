@@ -1292,7 +1292,10 @@ class _MetricDetailState extends State<MetricDetail> {
                           dots: series.length <= 40,
                           t: animate(c, 1),
                           dotInk: p.card,
-                          axis: axis),
+                          axis: axis,
+                          selectedX: _pick == null
+                              ? null
+                              : _slotAt01(_pick!, series.length)),
                     )
                   // No painter signature changes: the merged series drawn
                   // dim UNDER the same series masked to the contributing
@@ -1320,7 +1323,10 @@ class _MetricDetailState extends State<MetricDetail> {
                             dots: series.length <= 40,
                             t: animate(c, 1),
                             dotInk: p.card,
-                            axis: axis),
+                            axis: axis,
+                            selectedX: _pick == null
+                                ? null
+                                : _slotAt01(_pick!, series.length)),
                       ),
                     ]),
             ),
