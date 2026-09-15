@@ -120,12 +120,6 @@ android {
                 }
             }
         }
-        // The debug build is a standalone UI preview. Keeping the suffix on
-        // debug only means a release build retains the production identity,
-        // while the preview can be installed beside the real app.
-        debug {
-            applicationIdSuffix = ".preview"
-        }
     }
 }
 
