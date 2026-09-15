@@ -395,12 +395,17 @@ class LineChart extends CustomPainter {
   /// auto-scales, which is correct for a sparkline and nothing else.
   final AxisSpec? axis;
 
+  /// The selected slot as a 0…1 position across the chart. Null means the
+  /// chart is not selected and no cursor is drawn.
+  final double? selectedX;
+
   LineChart(this.d, this.color,
       {bool fill = true,
       this.dots = false,
       this.t = 1,
       this.dotInk,
-      this.axis})
+      this.axis,
+      this.selectedX})
       : fill = fill && axis != null;
 
   @override
@@ -458,6 +463,19 @@ class LineChart extends CustomPainter {
       }
       cv.drawPath(path, stroke);
     }
+
+    final x = selectedX?.clamp(0.0, 1.0);
+    if (x != null) {
+      cv.drawLine(
+        Offset(s.width * x, 0),
+        Offset(s.width * x, s.height),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = color.withValues(alpha: .72),
+      );
+    }
+
     if (dots && head != null) {
       cv.drawCircle(head, 4.5, Paint()..color = color);
       // The prototype knocked this out in hard white, which is a hole in a
@@ -469,7 +487,7 @@ class LineChart extends CustomPainter {
   @override
   bool shouldRepaint(covariant LineChart o) =>
       o.d != d || o.t != t || o.color != color || o.axis != axis ||
-      o.fill != fill;
+      o.fill != fill || o.selectedX != selectedX;
 }
 
 /// Discrete buckets — days of a week, minutes in a zone.
