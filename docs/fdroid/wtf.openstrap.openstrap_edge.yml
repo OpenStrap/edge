@@ -1,0 +1,117 @@
+# F-Droid build recipe for OpenStrap edge — VERIFIED locally, full combined
+# build (all three patches below applied together): `flutter build apk
+# --release` succeeds, and the resulting APK's classes.dex has zero
+# com/google/firebase and zero com/google/mlkit references. The only
+# remaining com/google/android/gms/* strings are microG's own FOSS
+# reimplementation classes (Apache-2.0, published under that namespace by
+# design so Google-API-compiled code links against them unmodified).
+#
+# This is NOT read by F-Droid from this repo — it's the file to copy into
+# fdroiddata (https://gitlab.com/fdroid/fdroiddata) as
+# metadata/wtf.openstrap.openstrap_edge.yml when opening the inclusion MR.
+# Keeping it here, versioned next to the app it describes.
+#
+# ── FIRST blocker: Firebase ─────────────────────────────────────────────────
+# pubspec.yaml depends on firebase_core/firebase_crashlytics/
+# firebase_performance/firebase_analytics. Firebase is already fully
+# optional at RUNTIME (see lib/telemetry/telemetry_service.dart and
+# android/app/build.gradle.kts — the app builds and runs with zero Firebase
+# credentials), but F-Droid rejects apps that bundle the Play Services /
+# Firebase Android libraries at all, used or not.
+#
+# Fix landed in this repo: every firebase_* import is confined to ONE file,
+# lib/telemetry/firebase_bridge.dart (see its header comment). A FLOSS-build
+# stand-in with the identical API and zero firebase_* imports lives at
+# docs/fdroid/firebase_bridge.floss.dart. The recipe just swaps that one file
+# and drops the four firebase_* pubspec lines — no other source edits
+# needed, so it survives future changes to telemetry_service.dart without
+# hand-patching call sites.
+#
+# ── SECOND blocker: geolocator's GMS location backend ───────────────────────
+# geolocator_android pulls com.google.android.gms:play-services-location
+# (used for GPS workout routes). Verified in its actual source
+# (GeolocationManager.java:72-88, geolocator_android 4.6.2): it already falls
+# back to plain android.location.LocationManager whenever Google Play
+# Services isn't available, via the SAME com.google.android.gms.location.*
+# package/class names either way. That's exactly what microG's FOSS
+# reimplementation (org.microg.gms:play-services-location, Apache-2.0)
+# ships, so a Gradle dependency substitution swaps it in with ZERO Dart/
+# Kotlin source changes — same technique used by organicmaps' F-Droid flavor
+# (github.com/organicmaps/organicmaps PR #9575). Appended to
+# android/app/build.gradle.kts by the recipe, not a permanent change to this
+# repo's checked-in file — the Play Store / GitHub-release build keeps
+# Google's real fused location provider. Must substitute the whole
+# basement/base/tasks family, not just play-services-location, or anything
+# else in the graph still pulling the real ones causes a duplicate-class
+# build failure (hit this locally before adding mobile_scanner's fix below —
+# see THIRD item).
+#
+# ── THIRD blocker: mobile_scanner's ML Kit ───────────────────────────────────
+# mobile_scanner (food barcode scan) bundles Google ML Kit on Android either
+# way — checked its build.gradle directly: both the bundled
+# com.google.mlkit:barcode-scanning and the useUnbundled
+# play-services-mlkit-barcode-scanning paths pull the REAL
+# com.google.android.gms:play-services-basement/base/tasks, which is also
+# what caused the SECOND item's duplicate-class conflict until this was
+# fixed. No Gradle-only escape hatch exists for ML Kit itself (unlike
+# geolocator, whose own code already had a non-GMS fallback path).
+#
+# Fix landed in this repo: every mobile_scanner import is confined to ONE
+# file, lib/scan/barcode_reader.dart (see its header comment) — same seam
+# pattern as firebase_bridge.dart. A FLOSS-build stand-in backed by
+# flutter_zxing (pub.dev, Apache-2.0, pure Dart FFI over the ZXing C++
+# library, zero Google dependencies) with the identical API lives at
+# docs/fdroid/barcode_reader.floss.dart. Verified to cover every barcode
+# format this app scans (EAN13/EAN8/UPC-A/UPC-E/DataBar/DataBarExpanded —
+# checked flutter_zxing's Format enum directly) and to build clean alongside
+# both fixes above. iOS and the Play Store / GitHub-release Android build
+# keep mobile_scanner unchanged; F-Droid never builds iOS at all.
+
+Categories:
+  - Health
+License: MIT
+SourceCode: https://github.com/OpenStrap/edge
+IssueTracker: https://github.com/OpenStrap/edge/issues
+
+AutoName: OpenStrap
+
+RepoType: git
+Repo: https://github.com/OpenStrap/edge.git
+
+Builds:
+  - versionName: 0.9.29
+    versionCode: 62
+    commit: v0.9.29           # TODO: tag this release before submitting
+    subdir: android
+    sudo:
+      # Firebase → no-op stub (see FIRST blocker above).
+      - cp docs/fdroid/firebase_bridge.floss.dart lib/telemetry/firebase_bridge.dart
+      - sed -i '/^[[:space:]]*firebase_core:/d;/^[[:space:]]*firebase_crashlytics:/d;/^[[:space:]]*firebase_performance:/d;/^[[:space:]]*firebase_analytics:/d' pubspec.yaml
+      - rm -f app/google-services.json
+      # Barcode scanner → flutter_zxing (see THIRD blocker above). Must run
+      # BEFORE the geolocator substitution below, or the real
+      # play-services-basement/base/tasks mobile_scanner still pulls in
+      # duplicates microG's substituted classes.
+      - cp docs/fdroid/barcode_reader.floss.dart lib/scan/barcode_reader.dart
+      - |
+        sed -i "s/^\([[:space:]]*mobile_scanner:.*\)/\1\n  flutter_zxing: ^2.3.0\n  camera: ^0.11.0/" pubspec.yaml
+      - sed -i '/^[[:space:]]*mobile_scanner:/d' pubspec.yaml
+      # geolocator's GMS location backend → microG (see SECOND blocker above).
+      - |
+        cat >> app/build.gradle.kts <<'EOF'
+        configurations.all {
+            resolutionStrategy.dependencySubstitution {
+                val microg = "0.3.14.250932"
+                substitute(module("com.google.android.gms:play-services-location")).using(module("org.microg.gms:play-services-location:$microg"))
+                substitute(module("com.google.android.gms:play-services-base")).using(module("org.microg.gms:play-services-base:$microg"))
+                substitute(module("com.google.android.gms:play-services-basement")).using(module("org.microg.gms:play-services-basement:$microg"))
+                substitute(module("com.google.android.gms:play-services-tasks")).using(module("org.microg.gms:play-services-tasks:$microg"))
+            }
+        }
+        EOF
+    output: app/build/outputs/apk/release/app-release-unsigned.apk
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 0.9.29
+CurrentVersionCode: 62
