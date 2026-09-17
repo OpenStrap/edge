@@ -4,13 +4,42 @@
 // device and the app calls the OpenAI-compatible provider directly.
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// True for the iOS/macOS errSecDuplicateItem shape the plugin surfaces when
+/// its own check-then-act (containsKey -> update, else add) still lands on
+/// top of an item it did not find — a leftover from a prior install is the
+/// reported real-world trigger, since Keychain items routinely outlive an app
+/// uninstall while everything else this app stores does not.
+bool _isDuplicateItemError(Object e) {
+  if (e is! PlatformException) return false;
+  final details = e.details;
+  if (details is int && details == -25299) return true;
+  final text = '${e.message ?? ''} ${e.details ?? ''}';
+  return text.contains('-25299') ||
+      text.contains('already exists in the keychain');
+}
 
 class CoachConfig extends ChangeNotifier {
   static const _kBaseUrl = 'coach_base_url';
   static const _kModel = 'coach_model';
   static const _kKey = 'coach_api_key'; // secure storage
+  static const _kTimeoutSeconds = 'coach_timeout_seconds';
+
+  /// A local model's first response includes Ollama/LM Studio loading the
+  /// whole model into memory, which alone can pass two minutes on modest
+  /// hardware — a short timeout gives total silence for that long and then a
+  /// hard TimeoutException with no way to give it more room. This is the
+  /// default for [timeoutSeconds], which is only user-configurable — and only
+  /// takes effect — for a local endpoint; see [requestTimeout].
+  static const int defaultTimeoutSeconds = 300;
+
+  /// Fixed timeout for a cloud provider, not user-configurable: those fail in
+  /// seconds, not minutes, when something is actually wrong, so a long
+  /// timeout only delays surfacing a real error. Two minutes.
+  static const int cloudTimeoutSeconds = 120;
 
   /// Set whenever a key is written, cleared when it is deleted. The keychain
   /// itself cannot answer "is there a key I currently can't read?" — a locked
@@ -51,6 +80,7 @@ class CoachConfig extends ChangeNotifier {
   String _baseUrl = defaultBaseUrl;
   String _model = '';
   String? _key; // cached in-memory after load
+  int _timeoutSeconds = defaultTimeoutSeconds;
 
   /// True when a key IS stored but this process could not read it (a locked
   /// keychain, a wedged keystore). Distinct from "no key configured", which the
@@ -113,6 +143,18 @@ class CoachConfig extends ChangeNotifier {
 
   String get baseUrl => _baseUrl;
   String get model => _model;
+  /// The saved, user-configurable timeout — meaningful only for a local
+  /// endpoint (see [requestTimeout]), but kept intact and readable regardless
+  /// of the endpoint currently configured so a UI can show/restore it as the
+  /// user switches back and forth.
+  int get timeoutSeconds => _timeoutSeconds;
+
+  /// The timeout actually applied to a provider request. A cloud endpoint
+  /// always gets the fixed [cloudTimeoutSeconds] — not [timeoutSeconds] — so
+  /// switching to a local endpoint to raise the timeout for a slow model can
+  /// never accidentally leave a cloud provider hanging for minutes too.
+  Duration get requestTimeout =>
+      Duration(seconds: isLocalEndpoint ? _timeoutSeconds : cloudTimeoutSeconds);
   String? get apiKey => _key;
   bool get hasKey => _key != null && _key!.isNotEmpty;
 
@@ -159,6 +201,7 @@ class CoachConfig extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _baseUrl = prefs.getString(_kBaseUrl) ?? defaultBaseUrl;
     _model = prefs.getString(_kModel) ?? '';
+    _timeoutSeconds = prefs.getInt(_kTimeoutSeconds) ?? defaultTimeoutSeconds;
     final marker = prefs.getBool(_kKeyPresent); // null = undetermined
     final generation = _generation;
 
@@ -253,7 +296,12 @@ class CoachConfig extends ChangeNotifier {
   /// Throws if the keychain refuses the write or delete — a caller that reports
   /// "saved" on a key that never reached storage is the same silent loss this
   /// class exists to stop.
-  Future<void> save({String? baseUrl, String? model, String? apiKey}) async {
+  Future<void> save({
+    String? baseUrl,
+    String? model,
+    String? apiKey,
+    int? timeoutSeconds,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     if (baseUrl != null) {
       _baseUrl = baseUrl.trim().isEmpty ? defaultBaseUrl : baseUrl.trim();
@@ -262,6 +310,13 @@ class CoachConfig extends ChangeNotifier {
     if (model != null) {
       _model = model.trim();
       await prefs.setString(_kModel, _model);
+    }
+    // A non-positive value would fail every request instantly, so it is
+    // rejected in favour of whatever was already in effect rather than
+    // silently accepted.
+    if (timeoutSeconds != null && timeoutSeconds > 0) {
+      _timeoutSeconds = timeoutSeconds;
+      await prefs.setInt(_kTimeoutSeconds, _timeoutSeconds);
     }
     if (apiKey != null) {
       _generation++;
@@ -279,12 +334,27 @@ class CoachConfig extends ChangeNotifier {
             await prefs.setBool(_kKeyPresent, false);
           } catch (_) {/* re-established by the next load */}
         } else {
-          await _secure.write(
-            key: _kKey,
-            value: k,
-            iOptions: _apple,
-            mOptions: _macos,
-          );
+          try {
+            await _secure.write(
+              key: _kKey,
+              value: k,
+              iOptions: _apple,
+              mOptions: _macos,
+            );
+          } on Object catch (e) {
+            // A leftover item the plugin's own containsKey missed is still
+            // sitting there — delete it and retry once. A second failure is
+            // rethrown as-is: this recovers the one known stale-item case, it
+            // does not mask a keychain that is genuinely stuck.
+            if (!_isDuplicateItemError(e)) rethrow;
+            await _secure.delete(key: _kKey, iOptions: _apple, mOptions: _macos);
+            await _secure.write(
+              key: _kKey,
+              value: k,
+              iOptions: _apple,
+              mOptions: _macos,
+            );
+          }
           try {
             await prefs.setBool(_kKeyPresent, true);
           } catch (_) {/* re-established by the next load */}

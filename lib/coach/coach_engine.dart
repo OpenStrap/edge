@@ -164,7 +164,20 @@ class CoachEngine {
   final CoachConfig config;
   final LocalRepository api;
   final String storageKey; // per-user, so accounts don't share a transcript
-  final http.Client _http = http.Client();
+  final http.Client _http;
+
+  /// True while [send] is inside its provider call(s). A local model can take
+  /// minutes to answer, and the screen that started the call is routinely
+  /// gone before it finishes — navigated away, or the app backgrounded and the
+  /// route rebuilt. [dispose] must not close [_http] while this is true: doing
+  /// so aborts the in-flight request out from under it, and the failure lands
+  /// in a screen state (the caller's `mounted` checks) that no longer exists
+  /// to show it — total silence instead of an answer or a real error.
+  bool _sending = false;
+
+  /// Set by [dispose] when it is called while [_sending] is true. The actual
+  /// close happens once [send]'s `finally` sees this flag, not before.
+  bool _disposeRequested = false;
 
   // OpenAI-format running history (system is added per-request) — the context we
   // resend every turn so the model remembers the conversation.
@@ -201,7 +214,12 @@ class CoachEngine {
     'Pulling the thread…',
   ];
 
-  CoachEngine({required this.config, required this.api, this.storageKey = 'anon'});
+  CoachEngine({
+    required this.config,
+    required this.api,
+    this.storageKey = 'anon',
+    http.Client? client,
+  }) : _http = client ?? http.Client();
 
   // ── prompt size ceilings ────────────────────────────────────────────────────
   //
@@ -451,6 +469,21 @@ class CoachEngine {
     required void Function(String?) onStatus,
     required Future<bool> Function(ActionRequest) confirm,
   }) async {
+    _sending = true;
+    try {
+      await _send(userText, onItem: onItem, onStatus: onStatus, confirm: confirm);
+    } finally {
+      _sending = false;
+      if (_disposeRequested) dispose();
+    }
+  }
+
+  Future<void> _send(
+    String userText, {
+    required void Function(CoachItem) onItem,
+    required void Function(String?) onStatus,
+    required Future<bool> Function(ActionRequest) confirm,
+  }) async {
     void emit(CoachItem it) { transcript.add(it); onItem(it); }
     emit(CoachItem.user(userText));
     _history.add({'role': 'user', 'content': userText});
@@ -626,7 +659,7 @@ class CoachEngine {
             },
             body: payload,
           )
-          .timeout(const Duration(seconds: 120));
+          .timeout(config.requestTimeout);
       if (resp.statusCode != 200) {
         throw CoachException(
             'Provider error (${resp.statusCode}): ${_briefErr(resp.body)}');
@@ -865,6 +898,19 @@ class CoachEngine {
   }
 
   void dispose() => _http.close();
+
+  /// What the screen should call instead of [dispose] directly. Closing
+  /// [_http] while [send] is mid-flight aborts that request; deferring the
+  /// close until [send]'s own `finally` sees it land is what lets a user
+  /// navigate away from the coach screen without losing an in-progress
+  /// answer.
+  void requestDispose() {
+    if (_sending) {
+      _disposeRequested = true;
+    } else {
+      dispose();
+    }
+  }
 
   // ── tool schema (OpenAI format) ───────────────────────────────────────────────
   static Map<String, dynamic> _fn(String name, String desc, Map<String, dynamic> props, [List<String> required = const []]) => {

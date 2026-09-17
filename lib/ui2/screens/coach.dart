@@ -136,7 +136,12 @@ class _CoachScreenState extends State<CoachScreen> {
   void dispose() {
     _input.dispose();
     _scroll.dispose();
-    _engine?.dispose();
+    // Not `_engine?.dispose()`: a `send` can still be in flight (a local
+    // model's first response can take minutes), and closing the shared HTTP
+    // client out from under it aborts the request instead of letting it land.
+    // `requestDispose` defers the actual close until `send`'s own `finally`
+    // sees it — see coach_engine.dart.
+    _engine?.requestDispose();
     super.dispose();
   }
 
@@ -775,6 +780,7 @@ class _CoachSetupState extends State<CoachSetup> {
   late final TextEditingController _base;
   late final TextEditingController _key;
   late final TextEditingController _search;
+  late final TextEditingController _timeout;
   String _model = '';
   List<String> _models = const [];
   bool _loading = false;
@@ -787,6 +793,7 @@ class _CoachSetupState extends State<CoachSetup> {
     _base = TextEditingController(text: cfg.baseUrl);
     _key = TextEditingController(text: cfg.apiKey ?? '');
     _search = TextEditingController();
+    _timeout = TextEditingController(text: cfg.timeoutSeconds.toString());
     _model = cfg.model;
     // The base URL decides which preset is lit and whether a key is needed, and
     // the search box filters the list — both are read during build, so both
@@ -804,6 +811,7 @@ class _CoachSetupState extends State<CoachSetup> {
     _base.dispose();
     _key.dispose();
     _search.dispose();
+    _timeout.dispose();
     super.dispose();
   }
 
@@ -854,11 +862,18 @@ class _CoachSetupState extends State<CoachSetup> {
     // what they are deleting. A key that could not be read seeds the field empty
     // through no fault of theirs, and saving would delete it unseen.
     final blindClear = _key.text.trim().isEmpty && cfg.apiKey == null;
+    // The field is hidden for a cloud endpoint (it has no effect there — see
+    // CoachConfig.requestTimeout), so its stale text must not overwrite the
+    // saved local timeout. Garbage or blank input for a local endpoint leaves
+    // the existing timeout untouched (CoachConfig also rejects <=0) rather
+    // than blocking the rest of the save over one bad field.
+    final timeoutSeconds = _isLocal ? int.tryParse(_timeout.text.trim()) : null;
     try {
       await cfg.save(
         baseUrl: _base.text,
         apiKey: blindClear ? null : _key.text,
         model: chosen,
+        timeoutSeconds: timeoutSeconds,
       );
     } catch (e) {
       if (mounted) {
@@ -1041,6 +1056,22 @@ class _CoachSetupState extends State<CoachSetup> {
                       ),
                     ),
                   ),
+                  if (_isLocal) ...[
+                    const SizedBox(height: S.x4),
+                    OsTextField(
+                      controller: _timeout,
+                      label: 'Request timeout (seconds)',
+                      hint: '300',
+                      keyboard: TextInputType.number,
+                    ),
+                    const SizedBox(height: S.x3),
+                    Text(
+                      'A local model can take a while to load before its first '
+                      'reply. Default is 5 minutes (300s). Cloud providers use '
+                      'a fixed 2-minute timeout and are not affected by this.',
+                      style: F.cap.copyWith(color: p.ink3, height: 1.5),
+                    ),
+                  ],
                   const SizedBox(height: S.x4),
                   BigButton(
                     l?.actionSave ?? 'Save',
