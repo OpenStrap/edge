@@ -780,6 +780,12 @@ class _CoachSetupState extends State<CoachSetup> {
   bool _loading = false;
   String? _msg;
 
+  /// The origin the text currently in [_key] was captured for — the base URL
+  /// at init, or wherever the base URL was when the key field was last typed
+  /// into. See [_onBaseChanged]: a key must not silently follow the base URL
+  /// to a different origin.
+  late String _keyOrigin;
+
   @override
   void initState() {
     super.initState();
@@ -788,6 +794,7 @@ class _CoachSetupState extends State<CoachSetup> {
     _key = TextEditingController(text: cfg.apiKey ?? '');
     _search = TextEditingController();
     _model = cfg.model;
+    _keyOrigin = coachEndpointOrigin(cfg.baseUrl);
     // The base URL decides which preset is lit and whether a key is needed, and
     // the search box filters the list — both are read during build, so both
     // have to rebuild it.
@@ -795,8 +802,23 @@ class _CoachSetupState extends State<CoachSetup> {
       if (mounted) setState(() {});
     }
 
-    _base.addListener(redraw);
+    _base.addListener(_onBaseChanged);
+    _key.addListener(() => _keyOrigin = coachEndpointOrigin(_base.text));
     _search.addListener(redraw);
+  }
+
+  /// Clears a carried-over key rather than letting Save silently send it to a
+  /// DIFFERENT origin than the one it was typed for — switching presets, or
+  /// editing the base URL to point somewhere else, must not reuse a cloud key
+  /// against a new local/private endpoint (or vice versa) without the user
+  /// re-entering it.
+  void _onBaseChanged() {
+    final origin = coachEndpointOrigin(_base.text);
+    if (origin != _keyOrigin && _key.text.isNotEmpty) {
+      _key.clear(); // fires _key's own listener, which re-syncs _keyOrigin
+      _msg = 'The API key was cleared because the endpoint changed.';
+    }
+    if (mounted) setState(() {});
   }
 
   @override

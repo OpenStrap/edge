@@ -7,6 +7,19 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// The origin (`scheme://host[:port]`) [url] resolves to, or the trimmed
+/// string itself when it doesn't parse as a URI with a host.
+///
+/// Used by the coach setup screen to tell whether an edit to the base URL
+/// actually changed WHERE requests go, as opposed to e.g. its path — an API
+/// key typed for one endpoint must not be silently carried over and sent to a
+/// different one just because the base-URL field still has text in it.
+String coachEndpointOrigin(String url) {
+  final u = Uri.tryParse(url.trim());
+  if (u == null || u.host.isEmpty) return url.trim();
+  return u.origin;
+}
+
 class CoachConfig extends ChangeNotifier {
   static const _kBaseUrl = 'coach_base_url';
   static const _kModel = 'coach_model';
