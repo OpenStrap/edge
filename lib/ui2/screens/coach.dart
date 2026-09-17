@@ -780,11 +780,22 @@ class _CoachSetupState extends State<CoachSetup> {
   bool _loading = false;
   String? _msg;
 
-  /// The origin the text currently in [_key] was captured for — the base URL
-  /// at init, or wherever the base URL was when the key field was last typed
-  /// into. See [_onBaseChanged]: a key must not silently follow the base URL
-  /// to a different origin.
+  /// The origin whatever key is currently STORED (in the keychain, not just
+  /// visible in [_key]) belongs to. Set at init and only ever advanced by
+  /// [_onBaseChanged] or a successful [_save] — never by [_key] itself, so
+  /// that clearing the field programmatically doesn't erase the record of an
+  /// origin change still needing [_pendingKeyDelete] applied.
   late String _keyOrigin;
+
+  /// True once the base URL has moved to a different origin than [_keyOrigin]
+  /// and no replacement key has been typed since. [_save] must force-delete
+  /// the stored key in this case rather than leaving it untouched — the
+  /// field reading empty is NOT proof there is nothing to delete: a key that
+  /// exists but could not be read (`CoachConfig.keyUnreadable`) also seeds
+  /// [_key] empty, and without this flag that "empty" was indistinguishable
+  /// from "no key ever existed", so the old, unreadable key survived the
+  /// origin change and was later sent to the new endpoint.
+  bool _pendingKeyDelete = false;
 
   @override
   void initState() {
@@ -803,7 +814,11 @@ class _CoachSetupState extends State<CoachSetup> {
     }
 
     _base.addListener(_onBaseChanged);
-    _key.addListener(() => _keyOrigin = coachEndpointOrigin(_base.text));
+    // A non-empty key is a real replacement for the current origin — but
+    // _key.clear() (used by _onBaseChanged itself) must NOT be read as one.
+    _key.addListener(() {
+      if (_key.text.isNotEmpty) _pendingKeyDelete = false;
+    });
     _search.addListener(redraw);
   }
 
@@ -814,8 +829,10 @@ class _CoachSetupState extends State<CoachSetup> {
   /// re-entering it.
   void _onBaseChanged() {
     final origin = coachEndpointOrigin(_base.text);
-    if (origin != _keyOrigin && _key.text.isNotEmpty) {
-      _key.clear(); // fires _key's own listener, which re-syncs _keyOrigin
+    if (origin != _keyOrigin) {
+      _keyOrigin = origin;
+      _pendingKeyDelete = true;
+      if (_key.text.isNotEmpty) _key.clear();
       _msg = 'The API key was cleared because the endpoint changed.';
     }
     if (mounted) setState(() {});
@@ -872,14 +889,14 @@ class _CoachSetupState extends State<CoachSetup> {
     }
     final cfg = context.read<CoachConfig>();
     final nav = Navigator.of(context);
-    // An empty key field means "delete my key" ONLY when we could show the user
-    // what they are deleting. A key that could not be read seeds the field empty
-    // through no fault of theirs, and saving would delete it unseen.
-    final blindClear = _key.text.trim().isEmpty && cfg.apiKey == null;
     try {
       await cfg.save(
         baseUrl: _base.text,
-        apiKey: blindClear ? null : _key.text,
+        apiKey: coachApiKeyToSave(
+          keyText: _key.text,
+          storedKeyReadable: cfg.apiKey != null,
+          pendingKeyDelete: _pendingKeyDelete,
+        ),
         model: chosen,
       );
     } catch (e) {
@@ -889,6 +906,7 @@ class _CoachSetupState extends State<CoachSetup> {
       }
       return;
     }
+    _pendingKeyDelete = false;
     if (mounted && nav.canPop()) nav.pop();
   }
 
@@ -932,10 +950,15 @@ class _CoachSetupState extends State<CoachSetup> {
                                     )
                                   : p.card2,
                               onTap: () => setState(() {
+                                // BEFORE assigning _base.text: that assignment
+                                // fires _onBaseChanged synchronously, which
+                                // may set _msg to explain a cleared key —
+                                // clearing _msg after it runs would silently
+                                // discard that explanation.
+                                _msg = null;
                                 _base.text = preset.baseUrl;
                                 _models = const [];
                                 _model = '';
-                                _msg = null;
                               }),
                               child: Row(
                                 children: [

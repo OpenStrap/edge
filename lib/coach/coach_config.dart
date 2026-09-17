@@ -20,6 +20,36 @@ String coachEndpointOrigin(String url) {
   return u.origin;
 }
 
+/// What the coach setup screen's Save should pass as [CoachConfig.save]'s
+/// `apiKey` argument.
+///
+/// [keyText] is the key field's current contents. [storedKeyReadable] is
+/// `CoachConfig.apiKey != null` — a key is stored AND this process could read
+/// it. [pendingKeyDelete] is true once the endpoint has changed since the
+/// stored key was last confirmed to belong to it (see
+/// `_CoachSetupState._onBaseChanged`).
+///
+/// [pendingKeyDelete] exists because an EMPTY field is not proof there is
+/// nothing to delete: a key that exists but could not be read
+/// (`CoachConfig.keyUnreadable`) also seeds the field empty, exactly like a
+/// key that was never set — without tracking the endpoint change separately,
+/// that unreadable-but-real key would survive Save untouched and later reach
+/// whatever new endpoint was configured.
+String? coachApiKeyToSave({
+  required String keyText,
+  required bool storedKeyReadable,
+  required bool pendingKeyDelete,
+}) {
+  final trimmed = keyText.trim();
+  if (trimmed.isNotEmpty) return keyText;
+  if (pendingKeyDelete) return ''; // force delete: no replacement was typed
+  // An empty field with a readable stored key means the user saw it and
+  // cleared it on purpose. An empty field with nothing readable (no key, or
+  // an unreadable one, and no endpoint change) must not be treated the same
+  // way — CoachConfig.save leaves a null apiKey untouched.
+  return storedKeyReadable ? '' : null;
+}
+
 class CoachConfig extends ChangeNotifier {
   static const _kBaseUrl = 'coach_base_url';
   static const _kModel = 'coach_model';
