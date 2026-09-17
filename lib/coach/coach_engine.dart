@@ -166,17 +166,21 @@ class CoachEngine {
   final String storageKey; // per-user, so accounts don't share a transcript
   final http.Client _http;
 
-  /// True while [send] is inside its provider call(s). A local model can take
-  /// minutes to answer, and the screen that started the call is routinely
-  /// gone before it finishes — navigated away, or the app backgrounded and the
-  /// route rebuilt. [dispose] must not close [_http] while this is true: doing
-  /// so aborts the in-flight request out from under it, and the failure lands
-  /// in a screen state (the caller's `mounted` checks) that no longer exists
-  /// to show it — total silence instead of an answer or a real error.
-  bool _sending = false;
+  /// Count of [send] calls currently inside their provider call(s). A local
+  /// model can take minutes to answer, and the screen that started the call
+  /// is routinely gone before it finishes — navigated away, or the app
+  /// backgrounded and the route rebuilt. [dispose] must not close [_http]
+  /// while this is above zero: doing so aborts whichever request(s) are still
+  /// in flight out from under them, and the failure lands in a screen state
+  /// (the caller's `mounted` checks) that no longer exists to show it — total
+  /// silence instead of an answer or a real error. A plain bool here would
+  /// under-count: if two `send` calls overlap, the first to finish would flip
+  /// it false and let a requested dispose close the client on the second.
+  int _sending = 0;
 
-  /// Set by [dispose] when it is called while [_sending] is true. The actual
-  /// close happens once [send]'s `finally` sees this flag, not before.
+  /// Set by [requestDispose] when it is called while [_sending] is above
+  /// zero. The actual close happens once the last overlapping [send]'s
+  /// `finally` sees the count reach zero, not before.
   bool _disposeRequested = false;
 
   // OpenAI-format running history (system is added per-request) — the context we
@@ -469,12 +473,12 @@ class CoachEngine {
     required void Function(String?) onStatus,
     required Future<bool> Function(ActionRequest) confirm,
   }) async {
-    _sending = true;
+    _sending++;
     try {
       await _send(userText, onItem: onItem, onStatus: onStatus, confirm: confirm);
     } finally {
-      _sending = false;
-      if (_disposeRequested) dispose();
+      _sending--;
+      if (_sending == 0 && _disposeRequested) dispose();
     }
   }
 
@@ -905,7 +909,7 @@ class CoachEngine {
   /// navigate away from the coach screen without losing an in-progress
   /// answer.
   void requestDispose() {
-    if (_sending) {
+    if (_sending > 0) {
       _disposeRequested = true;
     } else {
       dispose();

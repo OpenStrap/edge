@@ -106,4 +106,43 @@ void main() {
     engine.requestDispose();
     expect(client.closed, isTrue);
   });
+
+  test('two overlapping sends: the client stays open until BOTH finish',
+      () async {
+    // A plain "am I sending" bool would flip false when the FIRST of two
+    // overlapping sends finishes, and a dispose requested in that window
+    // would close the client out from under the second, still in-flight, send.
+    final client = _TrackingClient(const Duration(milliseconds: 150));
+    final engine = CoachEngine(
+      config: CoachConfig()..save(model: 'm'),
+      api: _FakeRepo(),
+      client: client,
+    );
+
+    final first = engine.send(
+      'hi',
+      onItem: (_) {},
+      onStatus: (_) {},
+      confirm: (_) async => true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    final second = engine.send(
+      'again',
+      onItem: (_) {},
+      onStatus: (_) {},
+      confirm: (_) async => true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    engine.requestDispose();
+    expect(client.closed, isFalse);
+
+    await first;
+    expect(client.closed, isFalse,
+        reason: 'the second send is still in flight');
+
+    await second;
+    expect(client.closed, isTrue,
+        reason: 'both sends are done, so the deferred dispose can run');
+  });
 }

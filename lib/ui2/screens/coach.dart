@@ -815,10 +815,7 @@ class _CoachSetupState extends State<CoachSetup> {
     super.dispose();
   }
 
-  bool get _isLocal {
-    final h = Uri.tryParse(_base.text.trim())?.host.toLowerCase() ?? '';
-    return h == 'localhost' || h == '127.0.0.1' || h == '::1';
-  }
+  bool get _isLocal => isLocalCoachHost(_base.text.trim());
 
   Future<void> _fetch() async {
     setState(() {
