@@ -969,7 +969,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         (arch == Arch.route || arch == Arch.journey) &&
         r.geo.length >= 2;
     final l = AppLocalizations.of(c);
-    final iconCount = 1 + (canChangeType ? 1 : 0) + (canExportGpx ? 1 : 0);
+    final iconCount = 1 + (canChangeType ? 1 : 0);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -996,15 +996,6 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   ),
                   const SizedBox(width: S.x3),
                 ],
-                if (canExportGpx) ...[
-                  Pressable(
-                    semanticLabel:
-                        l?.activitySummaryExportGpx ?? 'Export route as GPX',
-                    onTap: () => _exportGpx(c),
-                    child: Icon(LucideIcons.download, size: 18, color: p.ink2),
-                  ),
-                  const SizedBox(width: S.x3),
-                ],
                 Pressable(
                   semanticLabel: l?.activitySummaryShareThis(
                           a.name.toLowerCase()) ??
@@ -1016,6 +1007,28 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               ]),
             ),
           ),
+          // A dedicated, plainly-labeled button rather than a bare icon in the
+          // nav bar — this is the one export action worth naming outright.
+          // Text only: no Strava logo/imagery, per the no-brand-assets policy
+          // (the brand name as plain text is fine, brand marks are not).
+          if (canExportGpx)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, 0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Pressable(
+                  onTap: () => _exportGpx(c),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(LucideIcons.upload, size: 16, color: p.ink2),
+                    const SizedBox(width: S.x2),
+                    Text(
+                        l?.activitySummaryShareToStrava ?? 'Share to Strava',
+                        style: F.body.copyWith(
+                            color: p.ink2, fontWeight: FontWeight.w600)),
+                  ]),
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
             // Display labels are localized; `_tabs` itself stays the fixed
