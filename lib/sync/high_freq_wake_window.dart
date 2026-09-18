@@ -66,8 +66,16 @@ class HighFreqWakeWindow {
         habitualWakeMinute ~/ 60,
         habitualWakeMinute % 60,
       );
+      // Calendar arithmetic, not a Duration(days: 1) add — that's exactly 24
+      // elapsed hours, which lands an hour off across a DST transition.
       final targetWake = now.isAfter(todayTarget)
-          ? todayTarget.add(const Duration(days: 1))
+          ? DateTime(
+              now.year,
+              now.month,
+              now.day + 1,
+              habitualWakeMinute ~/ 60,
+              habitualWakeMinute % 60,
+            )
           : todayTarget;
       final windowStart = targetWake.subtract(lease);
       habitualPlan = HighFreqWakePlan(
