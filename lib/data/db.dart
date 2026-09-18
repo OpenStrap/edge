@@ -343,7 +343,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 52;
+  static const int schemaVersion = 53;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -452,6 +452,7 @@ class LocalDb {
         await _createSleepNap(db);
         await _createWorkoutRoute(db);
         await _createNotifFired(db);
+        await _createNotifSlots(db);
         await _createAlarmSchedule(db);
         await _ensureCoachViews(db);
       },
@@ -1041,6 +1042,16 @@ class LocalDb {
             'INTEGER NOT NULL DEFAULT 0',
           );
         }
+        if (oldV < 53) {
+          // Cross-isolate atomic OS-notification-id slot allocation — the
+          // same TOCTOU hazard `_createNotifFired` fixed for the fire-once
+          // guard, but for id allocation: two isolates could allocate a slot
+          // for two different dedupeKeys in the same category band at nearly
+          // the same instant and land on the same id. Purely additive; the
+          // legacy SharedPreferences-allocated ids are left as-is and simply
+          // stop being consulted for new allocations going forward.
+          await _createNotifSlots(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1120,6 +1131,7 @@ class LocalDb {
     await _ensureDayResultSkippedColumn(db);
     await _ensureDayResultPartialColumn(db);
     await _createNotifFired(db);
+    await _createNotifSlots(db);
     await _createAlarmSchedule(db);
     // CREATE TABLE IF NOT EXISTS on the every-open repair path, no schema
     // version bump needed — additive, no backfill (see _createImportedWorkout
@@ -1522,6 +1534,32 @@ class LocalDb {
     ''');
   }
 
+  /// The cross-isolate OS-notification-id slot allocator (see
+  /// [claimNotifSlot] and lib/notify/notification_ids.dart).
+  ///
+  /// Same root cause as [_createNotifFired]: SharedPreferences' read-then-write
+  /// has no atomicity across isolates, so two derivation isolates allocating a
+  /// slot for two different dedupeKeys in the same category band at nearly the
+  /// same instant can both read the same free candidate and both write it,
+  /// producing the same OS notification id and silently dropping one alert.
+  /// The UNIQUE index on `(category, slot)` is what makes an allocation
+  /// atomic: `INSERT OR IGNORE` either claims the slot or fails, there is no
+  /// window where two writers both believe they own it.
+  static Future<void> _createNotifSlots(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS notif_slots (
+        category TEXT NOT NULL,
+        dedupe_key TEXT NOT NULL,
+        slot INTEGER NOT NULL,
+        PRIMARY KEY (category, dedupe_key)
+      )
+    ''');
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_notif_slots_owner '
+      'ON notif_slots(category, slot)',
+    );
+  }
+
   /// Atomically claim [key] for a one-time OS notification fire.
   ///
   /// Returns true iff THIS caller won the claim (the row did not exist and we
@@ -1570,6 +1608,54 @@ class LocalDb {
       limit: 1,
     );
     return rows.isNotEmpty;
+  }
+
+  /// Atomically get-or-allocate the OS notification id slot for
+  /// `(category, dedupeKey)`. Returns the existing slot if one is already
+  /// owned; otherwise probes `bandSize` candidates starting at [startAt] and
+  /// claims the first free one via `INSERT OR IGNORE` against the
+  /// `(category, slot)` UNIQUE index. [startAt] is only a hint for where to
+  /// start probing; correctness comes from the UNIQUE index, not from it
+  /// being fresh — a stale hint just means a few wasted probes, never a
+  /// collision.
+  ///
+  /// Throws if the claim can't be decided — same contract as
+  /// [claimNotifFired] — so the caller falls back to the best-effort
+  /// SharedPreferences scheme rather than silently misallocating.
+  static Future<int> claimNotifSlot(
+    String category,
+    String dedupeKey, {
+    required int startAt,
+    required int bandSize,
+    int maxProbes = 1024,
+  }) async {
+    final slot = await _guardedWrite<int>((db) async {
+      return db.transaction<int>((txn) async {
+        final existing = await txn.query(
+          'notif_slots',
+          columns: ['slot'],
+          where: 'category = ? AND dedupe_key = ?',
+          whereArgs: [category, dedupeKey],
+          limit: 1,
+        );
+        if (existing.isNotEmpty) return existing.first['slot'] as int;
+
+        for (var i = 0; i < maxProbes; i++) {
+          final candidate = (startAt + i) % bandSize;
+          await txn.rawInsert(
+            'INSERT OR IGNORE INTO notif_slots(category, dedupe_key, slot) '
+            'VALUES(?, ?, ?)',
+            [category, dedupeKey, candidate],
+          );
+          final n =
+              Sqflite.firstIntValue(await txn.rawQuery('SELECT changes()'));
+          if (n == 1) return candidate;
+        }
+        throw StateError('notif_slots: no free slot within $maxProbes probes');
+      });
+    });
+    if (slot == null) throw StateError('notif_slots: claim undecided');
+    return slot;
   }
 
   /// Seed claims for [keys] without taking ownership — used once to carry the

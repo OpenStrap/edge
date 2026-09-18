@@ -11,11 +11,18 @@
 // scheme guaranteed nothing.
 //
 // Ids are now ALLOCATED instead: each dedupeKey takes the next free slot in its
-// category's band, recorded in shared_preferences so the id stays stable across
-// restarts (a re-post of the same logical event still replaces in place, which
-// is the one property the hash gave us for free). A reverse index (slot → key)
-// makes occupancy explicit, so an allocation can never land on a slot another
-// key already owns.
+// category's band. The allocation itself goes through `LocalDb.claimNotifSlot`
+// — one SQLite `INSERT OR IGNORE` against a UNIQUE(category, slot) index,
+// exactly the primitive `FiredKeyStore`/`claimNotifFired` uses for the
+// fire-once guard — because a plain SharedPreferences read-then-write has no
+// atomicity across isolates: the foreground app isolate and a headless
+// BLE/BGTask derive isolate can both read the same free slot before either
+// writes it back, and both then compute the same OS notification id (see
+// derivation_engine.dart's plain/escalated same-day dedupeKey pair for a real
+// case where two isolates can race to FIRST-allocate two different keys in
+// the same category band). The DB claim closes that window; SharedPreferences
+// is kept only as a mirror (for the in-memory memo / prune bookkeeping below)
+// and as the degraded-mode fallback when no DB is available.
 //
 // RETENTION. Allocations are pruned on the same schedule as FiredKeyStore's
 // fire-once claims: a date-prefixed dedupeKey older than [retentionDays] can no
@@ -31,6 +38,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/day_label.dart';
+import '../data/db.dart';
 import 'fired_keys.dart';
 import 'notification_event.dart';
 
@@ -119,6 +127,33 @@ class NotificationIds {
 
     final nextKey = '$_kNext$cat';
     final start = p?.getInt(nextKey) ?? _next[nextKey] ?? 0;
+
+    // Preferred path: one atomic DB claim (INSERT OR IGNORE against a
+    // UNIQUE(category, slot) index), the same primitive claimNotifFired uses
+    // for the fire-once guard. This is what actually closes the cross-isolate
+    // race described in the file header — `start` above is only a probe hint,
+    // the UNIQUE index is what makes the claim correct even if the hint is
+    // stale. Falls through to the SharedPreferences probe below on any
+    // failure (no DB in this process — a plain unit test, a torn-down
+    // background isolate — or the DB throwing).
+    try {
+      final slot = await LocalDb.claimNotifSlot(
+        cat,
+        e.dedupeKey,
+        startAt: start,
+        bandSize: bandSize,
+        maxProbes: maxProbes,
+      );
+      _slots[slotKey] = slot;
+      if (p != null) {
+        try {
+          await p.setInt(slotKey, slot);
+          await p.setInt(nextKey, (slot + 1) % bandSize);
+        } catch (_) {/* mirror is best-effort; the DB is the source of truth */}
+      }
+      return slot;
+    } catch (_) {/* degrade to the SharedPreferences scheme below */}
+
     var slot = start % bandSize;
     for (var i = 0; i < maxProbes; i++) {
       final candidate = (start + i) % bandSize;
