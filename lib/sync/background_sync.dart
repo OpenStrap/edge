@@ -192,7 +192,24 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await PairedDevice.save(paired.remoteId, paired.serial, generation: gen);
     }
     try {
-      final plan = await HighFreqWakeWindow.planNow();
+      // Read the schedule + currently-armed epoch BEFORE planNow, not after
+      // (as it used to be arranged below) — HighFreqWakeWindow needs the
+      // window of the alarm that's imminent, not the one about to be armed
+      // next by the re-arm block further down. Nothing between this read and
+      // that re-arm block writes 'alarm_epoch', so reading it here is the
+      // same value the old code read there.
+      final schedule = fillDefaultAlarmSchedule([
+        for (final r in await LocalDb.alarmScheduleRows())
+          AlarmScheduleEntry.fromRow(r),
+      ]);
+      final prefs = await SharedPreferences.getInstance();
+      final armedEpoch = prefs.getInt('alarm_epoch');
+      final armedWindow =
+          armedSmartWakeWindow(epoch: armedEpoch, schedule: schedule);
+      final plan = await HighFreqWakeWindow.planNow(
+        scheduledWindowEnd: armedWindow?.windowEnd,
+        scheduledWindowMinutes: armedWindow?.minutes ?? 0,
+      );
       await engine.applyHighFreqWakeWindow(
         enabled: plan.shouldEnable,
         targetWake: plan.targetWake,
@@ -218,15 +235,10 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       // LocalDb/SharedPreferences — the same store the foreground path uses,
       // so whichever side runs next sees a consistent value.
       try {
-        final schedule = fillDefaultAlarmSchedule([
-          for (final r in await LocalDb.alarmScheduleRows())
-            AlarmScheduleEntry.fromRow(r),
-        ]);
-        final prefs = await SharedPreferences.getInstance();
         final result = await armNextScheduledOccurrence(
           engine: engine,
           schedule: schedule,
-          currentArmedEpoch: prefs.getInt('alarm_epoch'),
+          currentArmedEpoch: armedEpoch,
         );
         if (result.disabled) {
           await prefs.remove('alarm_epoch');

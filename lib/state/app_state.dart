@@ -4555,15 +4555,11 @@ class AppState extends ChangeNotifier {
       if (!isConnected) return;
       final epoch = alarmEpoch;
       if (epoch == null || epoch == _smartWakeFiredForEpoch) return;
-      final windowEnd = DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
-      final entry = _schedule.firstWhere(
-        (e) => e.weekday == windowEnd.weekday - 1,
-        orElse: () => AlarmScheduleEntry(
-            weekday: 0, hour: 0, minute: 0, enabled: false),
-      );
+      final armed = armedSmartWakeWindow(epoch: epoch, schedule: _schedule);
+      if (armed == null) return;
       final now = DateTime.now();
       if (!inSmartWakeWindow(
-          windowEnd: windowEnd, minutes: entry.smartWindowMinutes, now: now)) {
+          windowEnd: armed.windowEnd, minutes: armed.minutes, now: now)) {
         return;
       }
       final recentRows = await LocalDb.onehzHrAccelBetween(
@@ -5306,7 +5302,11 @@ class AppState extends ChangeNotifier {
   Future<void> _refreshHighFreqWakeWindow() async {
     if (!engine.isConnected) return;
     try {
-      final plan = await HighFreqWakeWindow.planNow();
+      final armed = armedSmartWakeWindow(epoch: alarmEpoch, schedule: _schedule);
+      final plan = await HighFreqWakeWindow.planNow(
+        scheduledWindowEnd: armed?.windowEnd,
+        scheduledWindowMinutes: armed?.minutes ?? 0,
+      );
       await engine.applyHighFreqWakeWindow(
         enabled: plan.shouldEnable,
         targetWake: plan.targetWake,
