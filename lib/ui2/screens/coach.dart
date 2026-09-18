@@ -814,12 +814,13 @@ class _CoachSetupState extends State<CoachSetup> {
     }
 
     _base.addListener(_onBaseChanged);
-    // A non-empty key is a real replacement for the current origin — but
-    // _key.clear() (used by _onBaseChanged itself) must NOT be read as one,
-    // and neither must whitespace-only input (see coachKeyFieldHasReplacement).
-    _key.addListener(() {
-      if (coachKeyFieldHasReplacement(_key.text)) _pendingKeyDelete = false;
-    });
+    // Deliberately NOT tracked via a _key listener: an early attempt cleared
+    // _pendingKeyDelete as soon as the user typed a replacement, but typing
+    // one and then erasing it left the flag cleared with nothing to show for
+    // it — coachApiKeyToSave, called from _save with the CURRENT _key.text,
+    // already derives "is there a real replacement right now" correctly by
+    // checking the trimmed text itself; _pendingKeyDelete only needs to say
+    // whether the endpoint changed, not track the field's history.
     _search.addListener(redraw);
   }
 

@@ -8,6 +8,17 @@
 // key sitting in the keychain, to be picked up and sent to the NEW endpoint on
 // a later load — reported as a CWE-522 finding (PR #375) against the first
 // version of the origin-change fix (PR #374).
+//
+// The screen used to also track "has a replacement been typed" as separate
+// mutable state on a _key listener, clearing pendingKeyDelete the moment any
+// non-whitespace text appeared. That state only ever moved one way: typing a
+// replacement and then erasing it again left pendingKeyDelete cleared with no
+// replacement to show for it, so an unreadable stored key survived Save
+// untouched (EDGE-13's own bug, and a second CodeRabbit finding on top of it).
+// That tracking was removed entirely — this function's own
+// `trimmed.isNotEmpty` check already derives "is there a real replacement
+// right now" from keyText's value AT SAVE TIME, which cannot go stale the way
+// separately-tracked state can.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/coach/coach_config.dart';
@@ -82,5 +93,26 @@ void main() {
       ),
       '',
     );
+  });
+
+  test(
+      'a replacement typed after an endpoint change and then erased is '
+      'still force-deleted at Save time', () {
+    // Simulates: origin changes (pendingKeyDelete becomes true), the user
+    // types a replacement, then erases it — either to blank or to
+    // whitespace. Only the FINAL keyText at the moment _save() runs matters;
+    // there is no separate "was a replacement typed at some point" state left
+    // to go stale.
+    for (final erasedTo in ['', '   ', '\t']) {
+      expect(
+        coachApiKeyToSave(
+          keyText: erasedTo,
+          storedKeyReadable: false,
+          pendingKeyDelete: true,
+        ),
+        '',
+        reason: 'erasedTo: "$erasedTo"',
+      );
+    }
   });
 }
