@@ -175,4 +175,21 @@ class UnitsController extends ChangeNotifier {
     if (v == null) return null;
     return isImperial ? v * _cmPerIn : v;
   }
+
+  // ── strength load (live workout + summary; storage stays kg) ───────────────
+  /// "kg" / "lb" — the bare unit token for a strength load or volume figure.
+  String get weightUnit => isImperial ? 'lb' : 'kg';
+
+  /// A load or volume already known to exist, in kg → the number in the
+  /// display unit, unrounded (the caller's own formatter, e.g. [grouped] or
+  /// a fixed-point trim, rounds it).
+  double weightValue(num kg) => isImperial ? kg / _kgPerLb : kg.toDouble();
+
+  /// The stepper increment for a lift, in kg, given the exercise's own kg
+  /// step (see `ExerciseDef.step`) — metric uses it untouched; imperial
+  /// snaps to a clean 5 lb plate step rather than a raw conversion (2.5 kg
+  /// is an ugly ~5.5 lb; nobody loads a bar in that unit). 0 stays 0 for
+  /// bodyweight-only lifts.
+  double loadStepKg(double kgStep) =>
+      isImperial ? (kgStep <= 0 ? 0.0 : 5 * _kgPerLb) : kgStep;
 }

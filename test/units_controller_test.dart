@@ -67,4 +67,39 @@ void main() {
       expect(m.speed(10), '36.0 km/h');
     });
   });
+
+  group('strength load — storage stays kg, only display/step change', () {
+    test('weightUnit is kg/lb', () {
+      expect(UnitsController.seed(UnitSystem.metric).weightUnit, 'kg');
+      expect(UnitsController.seed(UnitSystem.imperial).weightUnit, 'lb');
+    });
+
+    test('weightValue converts a kg amount for display, metric untouched',
+        () {
+      final m = UnitsController.seed(UnitSystem.metric);
+      final i = UnitsController.seed(UnitSystem.imperial);
+      expect(m.weightValue(100), 100);
+      // 100 kg = 220.46 lb.
+      expect(i.weightValue(100), closeTo(220.46, 0.01));
+    });
+
+    test('loadStepKg keeps the exercise step in metric', () {
+      final m = UnitsController.seed(UnitSystem.metric);
+      expect(m.loadStepKg(2.5), 2.5);
+      expect(m.loadStepKg(0), 0);
+    });
+
+    test('loadStepKg snaps to a clean 5 lb plate step in imperial, not a '
+        'raw 2.5 kg → ~5.5 lb conversion', () {
+      final i = UnitsController.seed(UnitSystem.imperial);
+      final step = i.loadStepKg(2.5);
+      // 5 lb in kg.
+      expect(step, closeTo(2.2679618, 1e-6));
+      expect(i.weightValue(step), closeTo(5.0, 1e-6));
+    });
+
+    test('loadStepKg stays 0 for bodyweight-only lifts in imperial too', () {
+      expect(UnitsController.seed(UnitSystem.imperial).loadStepKg(0), 0);
+    });
+  });
 }

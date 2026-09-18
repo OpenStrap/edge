@@ -32,11 +32,13 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/day_label.dart' show todayLabel;
 import '../../data/db.dart' show DbRebuild;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
+import '../../notify/notification_prefs.dart' show NotificationPrefs;
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
@@ -189,6 +191,53 @@ String syncedThroughLabel(DateTime? at, String? todayId,
           '${at.minute.toString().padLeft(2, '0')}'
       : formatDayTime(at, l);
   return l?.homeSyncedThrough(when) ?? 'Synced through $when';
+}
+
+/// The band's battery, straight off the same [DeviceState] devices.dart
+/// already reads (`app.device.batteryPct`/`.charging`) — never a second poll.
+/// Null when unpaired or the strap hasn't reported a level yet, which this
+/// deliberately renders as nothing rather than a placeholder.
+(double, bool)? deviceBatteryOf(BuildContext c) {
+  try {
+    return c.select<AppState, (double, bool)?>((a) {
+      final pct = a.device.batteryPct;
+      final charging = a.device.charging;
+      // Both or neither — a known level with an unknown charging state must
+      // not fall back to `false`, which would draw a plain (or worse, red)
+      // icon over a charging state we simply haven't heard yet.
+      return (pct == null || charging == null) ? null : (pct, charging);
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Draining, not charging, at or under the same default the low-battery
+/// notification uses ([NotificationPrefs.batteryPctDefault]) — this reads the
+/// shared constant rather than the user's live pref, since a color hint on
+/// Home is not worth an async prefs read on every build.
+bool lowBattery(double pct, bool charging) =>
+    // Strict `<`, matching device_alerts.dart's own `fireLow` comparison —
+    // the color hint should agree with the alert at the boundary, not just
+    // near it.
+    !charging && pct < NotificationPrefs.batteryPctDefault;
+
+/// "78%" with a battery glyph, next to the sync line — the one place that
+/// already used a battery icon as an unrelated recovery-ring metaphor, but
+/// this is the actual reading. Mirrors devices.dart's `SourceRow` battery
+/// chip (same icon swap, same 13px size) rather than inventing a new look.
+Widget? batteryLine(BuildContext c) {
+  final battery = deviceBatteryOf(c);
+  if (battery == null) return null;
+  final (pct, charging) = battery;
+  final p = P.of(c);
+  final color = lowBattery(pct, charging) ? p.on(C.red) : p.ink3;
+  return Row(mainAxisSize: MainAxisSize.min, children: [
+    Icon(charging ? LucideIcons.batteryCharging : LucideIcons.battery,
+        size: 13, color: color),
+    const SizedBox(width: 3),
+    Text('${pct.round()}%', style: F.cap.copyWith(color: color)),
+  ]);
 }
 
 /// The status line as Home renders it, so the loading / failed / bare paths
@@ -1200,6 +1249,36 @@ class HomeData {
         insightsStale: insightsStale,
       );
 
+  /// A day OTHER than today, for the Home day switcher.
+  ///
+  /// Deliberately thin next to [load]: everything [load] does beyond the six
+  /// headline numbers below (frozen-morning-headline pin, the illness watch,
+  /// sleep coach need/bedtime, readiness drivers, the stale-rollup notice) is
+  /// about the ambiguity of an in-progress "today" — a past day already
+  /// settled, so there is nothing there to resolve. Reuses the same
+  /// date-parameterized getters the strain/sleep detail screens already read
+  /// ([LocalRepository.getDayStrain]/[getDaySleepV2]) plus the one figure
+  /// neither carries ([getDayOverview]'s readiness/resting_hr).
+  static Future<HomeData> loadForDay(LocalRepository repo, String date,
+      [AppLocalizations? l]) async {
+    final profile = await repo.getProfile();
+    final overview = await repo.getDayOverview(date);
+    final strain = await repo.getDayStrain(date);
+    final sleep = await repo.getDaySleepV2(date);
+    return HomeData(
+      name: profile['name']?.toString(),
+      dayId: date,
+      readiness: metricOf(overview['readiness']),
+      rhr: metricOf(overview['resting_hr']),
+      strain: metricOf(strain['strain']),
+      steps: metricOf(strain['steps']),
+      calories: metricOf(strain['calories']),
+      caloriesTotal: metricOf(strain['calories_total']),
+      sleepMin: metricOf(sleep['duration_min']),
+      stepGoal: (profile['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal,
+    );
+  }
+
   static Future<HomeData> load(LocalRepository repo, [AppLocalizations? l]) async {
     final today = await repo.getToday();
     final cd = await repo.getInsights();
@@ -1288,6 +1367,16 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   HomeData? _d;
   bool _loading = true;
 
+  /// The day requested by the switcher, or null for "today" — the same
+  /// null-means-today convention [_load] and [HomeData.load] already used
+  /// before there was a switcher.
+  String? _day;
+
+  /// `availableDays()` — newest first — for [DayNav]. Refetched with every
+  /// load: cheap, and a switcher stepping onto a day that just finished
+  /// deriving must see it show up without a relaunch.
+  List<String> _days = const [];
+
   /// The load THREW. Distinct from "there is nothing yet": a decode or a locked
   /// database is a read problem, and telling a user with three months of
   /// history that their band has never produced data is the wrong answer to it.
@@ -1347,13 +1436,28 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     }
     final t = beginRead(#home);
     try {
-      final d = await HomeData.load(repo, AppLocalizations.of(context));
+      final day = _day;
+      final l = AppLocalizations.of(context);
+      final d = day == null || day == todayLabel()
+          ? await HomeData.load(repo, l)
+          : await HomeData.loadForDay(repo, day, l);
+      final days = await repo.availableDays();
       if (stillNewest(#home, t)) {
-        setState(() => (_d = d, _loading = false, _failed = false));
+        setState(() => (_d = d, _days = days, _loading = false, _failed = false));
       }
     } catch (_) {
       if (stillNewest(#home, t)) setState(() => (_loading = false, _failed = true));
     }
+  }
+
+  /// Another day. The switcher never strands you off the record — [DayNav]
+  /// already restricts the arrows to [_days] — so this just re-loads for it.
+  void _goDay(String day) {
+    setState(() {
+      _day = day;
+      _loading = true;
+    });
+    _load();
   }
 
   /// The "nothing derived yet" card, upgraded with the one thing it used to
@@ -1418,7 +1522,20 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     return null;
   }
 
-  Widget _bareStatusCard(BuildContext c, HomeData d, AppLocalizations? l) {
+  Widget _bareStatusCard(BuildContext c, HomeData d, AppLocalizations? l,
+      {required bool pastDay}) {
+    // A PAST day with nothing on it is a settled fact, not a sync problem —
+    // "Sync the band" and the derive-phase cards below are both about THIS
+    // install's live pipeline catching up, which has nothing to do with a day
+    // the switcher stepped back onto.
+    if (pastDay) {
+      return const StatusCard(
+        'No data for this day',
+        'Nothing was recorded on this day.',
+        fix: '',
+        icon: LucideIcons.calendarOff,
+      );
+    }
     final phase = _phaseStatusCard(c, l);
     if (phase != null) return phase;
 
@@ -1468,6 +1585,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         // exactly when "how far are we?" is worth answering, and the header
         // this line normally sits under does not exist on this path.
         Align(alignment: Alignment.centerLeft, child: syncedThroughLine(c, null, l)),
+        // The battery reading lives on AppState.device, independent of
+        // HomeData — a load failure or first run must not hide it too.
+        if (batteryLine(c) case final battery?) ...[
+          const SizedBox(height: 2),
+          Align(alignment: Alignment.centerLeft, child: battery),
+        ],
         const SizedBox(height: S.x3),
         if (_loading)
           const Center(child: CircularProgressIndicator())
@@ -1517,6 +1640,11 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         d.steps.value == null &&
         d.calories.isEmpty;
 
+    // Whether the switcher is showing today or a day stepped back onto —
+    // gates the plan/live-workout copy below, which is about what to DO
+    // today and reads as a stale instruction on a day already in the past.
+    final isToday = _day == null || _day == todayLabel();
+
     final stale = staleInsightsCard(d.insightsStale, syncOf(c), l);
     // Above the greeting, not below it: if the app had to rebuild the database
     // to start, that outranks anything else this screen has to say today.
@@ -1560,6 +1688,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               // looking at today, or at last night?" used to be answerable
               // only by opening Profile > Devices.
               syncedThroughLine(c, d.dayId, l),
+              // Its own line, not squeezed into the sync line's row: at
+              // accessibility text sizes that row has no slack left, and
+              // `Expanded` would only shrink the sync text into extra wrapped
+              // lines to make room rather than ever actually overflow.
+              if (batteryLine(c) case final battery?) ...[
+                const SizedBox(height: 2),
+                battery,
+              ],
             ]),
           ),
           const SizedBox(width: S.x3),
@@ -1601,12 +1737,16 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         ]),
       ),
 
+      ...dayNavRow(_day ?? d.dayId, _days, _goDay),
+
       if (bare)
         // A live workout holds derivation, so a bare day with a session open
         // is the hold at work, not a sync problem — see [workoutHoldCard].
-        (widget.workoutLive ?? workoutLiveOf(c))
+        // Only for TODAY: a live workout right now says nothing about why a
+        // PAST day the switcher stepped onto has nothing on it.
+        isToday && (widget.workoutLive ?? workoutLiveOf(c))
             ? workoutHoldCard(l)
-            : _bareStatusCard(c, d, l)
+            : _bareStatusCard(c, d, l, pastDay: !isToday)
       else ...[
         // ── the three rings ──
         //
@@ -1661,7 +1801,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         Section(l?.homeAtAGlance ?? 'At a glance', _glance(c, d)),
 
         // ── today's plan: only what the app can actually stand behind ──
-        Section(l?.homeTodaysPlan ?? "Today's plan", _plan(c, p, d)),
+        // Skipped on a past day — "3,000 steps left" or "aim for 11.4
+        // strain" about a day already over is an instruction, not a fact.
+        if (isToday)
+          Section(l?.homeTodaysPlan ?? "Today's plan", _plan(c, p, d)),
 
         // ── the way into the whole day ──
         //

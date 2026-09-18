@@ -87,6 +87,14 @@ abstract class LocalRepository {
   Future<Map<String, dynamic>> getDayStrain(String date) =>
       throw UnimplementedError('re-layer: getDayStrain');
 
+  /// The two headline figures Home reads that no other day getter carries:
+  /// bare `readiness` and `resting_hr` (bpm, rounded) off [date]'s bundle, or
+  /// an empty map when nothing derived for that day. Backs the Home day
+  /// switcher — everything else it shows (strain/calories/steps, sleep
+  /// minutes) already has a date-parameterized getter below.
+  Future<Map<String, dynamic>> getDayOverview(String date) =>
+      throw UnimplementedError('re-layer: getDayOverview');
+
   /// TS-03/04/05 — the observed HR ceiling, the zone edges with the anchors
   /// they were built from, and (only when both anchors were measured) the
   /// 28-day session intensity distribution.

@@ -237,7 +237,14 @@ class PhonePedometer {
         // that is entirely uncovered still comes back "unknown" below.
         if (n == intervalNotCovered) continue;
         anyRead = true;
-        if (n <= 0) continue;
+        if (n < 0) continue;
+        // A CONFIRMED ZERO is banked too, not just a nonzero count: it is the
+        // one piece of evidence that can veto a wrist false-positive over the
+        // same hour (see resolveDaySteps's confirmed-still check) — a real
+        // trunk pedometer that saw nothing is stronger counter-evidence than
+        // the band's own gait-density guess. Dropping it here (as before)
+        // left the ladder with nothing to compete against a WHOOP 4's
+        // passive-wear arm motion — issue #366's whole-day-plus-phone total.
         windows.add((
           startTs: from.millisecondsSinceEpoch ~/ 1000,
           endTs: capped.millisecondsSinceEpoch ~/ 1000,

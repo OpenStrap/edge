@@ -1529,6 +1529,15 @@
       }
     }
   },
+  "welcomeLabResultsWritten": "{n, plural, one{1 lab result written} other{{n} lab results written}}",
+  "@welcomeLabResultsWritten": {
+    "description": "Import result headline/sub: N lab results.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "welcomeRowsRefused": "{n, plural, one{1 row was refused} other{{n} rows were refused}}",
   "@welcomeRowsRefused": {
     "description": "Status card title: N rows refused.",
@@ -9385,6 +9394,18 @@
   "@activitySetupPrivateLabel": {
     "description": "Label for the private-session toggle on the activity setup screen"
   },
+  "activitySetupWorkLabel": "Work",
+  "@activitySetupWorkLabel": {
+    "description": "Label for the work-interval stepper on the interval activity setup screen"
+  },
+  "activitySetupRestLabel": "Rest",
+  "@activitySetupRestLabel": {
+    "description": "Label for the rest-interval stepper on the interval activity setup screen"
+  },
+  "activitySetupRoundsLabel": "Rounds",
+  "@activitySetupRoundsLabel": {
+    "description": "Label for the round-count stepper on the interval activity setup screen"
+  },
   "activitySetupPrivateDetail": "Hidden from summaries and exports",
   "@activitySetupPrivateDetail": {
     "description": "Detail text under the private-session toggle"
@@ -9909,6 +9930,10 @@
   "activitySummaryChangeType": "Change activity type",
   "@activitySummaryChangeType": {
     "description": "Semantic label on the pencil icon that lets the user correct the activity type"
+  },
+  "activitySummaryShareToStrava": "Share to Strava",
+  "@activitySummaryShareToStrava": {
+    "description": "Label on the button that exports the recorded route as a GPX file to the OS share sheet for manual upload to Strava (or anywhere else that reads GPX) — no Strava account or API call involved"
   },
   "activitySummaryUnsavedTitle": "This session is not saved yet",
   "@activitySummaryUnsavedTitle": {
@@ -11130,6 +11155,27 @@
   "settingsAlarmRowSub": "Buzzes on your wrist, on the band’s own clock",
   "@settingsAlarmRowSub": {
     "description": "Settings row subtitle describing the band alarm"
+  },
+  "settingsZoneAlertRowTitle": "HR zone alert",
+  "@settingsZoneAlertRowTitle": {
+    "description": "Settings row title for the live-workout HR zone crossing haptic"
+  },
+  "settingsZoneAlertRowSub": "Buzz when your heart rate crosses into or out of the target zone during a live workout",
+  "@settingsZoneAlertRowSub": {
+    "description": "Settings row subtitle for the HR zone alert toggle"
+  },
+  "settingsZoneAlertTargetRowTitle": "Target zone",
+  "@settingsZoneAlertTargetRowTitle": {
+    "description": "Settings row title for picking which HR zone the alert watches"
+  },
+  "settingsZoneAlertTargetRowValue": "Zone {zone}",
+  "@settingsZoneAlertTargetRowValue": {
+    "description": "Value shown on the target-zone row, e.g. Zone 3",
+    "placeholders": {
+      "zone": {
+        "type": "int"
+      }
+    }
   },
   "settingsGroupThisPhone": "This phone",
   "@settingsGroupThisPhone": {

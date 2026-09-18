@@ -18,11 +18,18 @@
 // come from elsewhere (`workout_route`, `strength_set`) or not at all, and the
 // screen has to be honest about it without falling apart.
 
+import 'dart:convert' show utf8;
+import 'dart:typed_data' show Uint8List;
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../data/db.dart';
+import '../../gps/gpx_export.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_state.dart';
 import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../charts.dart';
@@ -878,6 +885,53 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (c.mounted && picked) Navigator.of(c).pop();
   }
 
+  /// Guards against a double tap firing two competing native share sheets —
+  /// `share_plus` completes the first pending share as `unavailable` the
+  /// moment a second one starts. A plain field, not `setState`: nothing on
+  /// screen needs to repaint over this, it only needs to stay clear through
+  /// every exit (including a thrown error) — see the `finally` below.
+  bool _exportingGpx = false;
+
+  /// Scoped export: the GPS route this phone already recorded, as a GPX file
+  /// handed to the OS share sheet — so it can be manually uploaded to Strava
+  /// or anywhere else that reads GPX. There is no Strava account involved:
+  /// no OAuth, no upload call, just a file.
+  Future<void> _exportGpx(BuildContext c) async {
+    final id = r.sessionId;
+    if (id == null || _exportingGpx) return;
+    _exportingGpx = true;
+    final l = AppLocalizations.of(c);
+    final origin = shareOrigin(c);
+    final messenger = ScaffoldMessenger.of(c);
+    try {
+      final route = await c.read<AppState>().repo?.getWorkoutRoute(id);
+      if (!c.mounted) return;
+      if (route == null || route.points.length < 2) {
+        messenger.showSnackBar(SnackBar(
+            content: Text(l?.activitySummaryNoRouteBody ??
+                'Location was off, or this activity was not recorded with '
+                    'GPS.')));
+        return;
+      }
+      final gpx = buildGpx(route, name: a.name);
+      await Share.shareXFiles(
+        [
+          XFile.fromData(Uint8List.fromList(utf8.encode(gpx)),
+              mimeType: 'application/gpx+xml', name: '${a.typeKey}.gpx'),
+        ],
+        sharePositionOrigin: origin,
+      );
+    } catch (e) {
+      if (!c.mounted) return;
+      messenger.showSnackBar(SnackBar(
+          content: Text(
+              l?.activityShareOpenFailed ?? 'Could not open the share sheet.')));
+      debugPrint('gpx export failed: $e');
+    } finally {
+      _exportingGpx = false;
+    }
+  }
+
   Future<void> _retrySave() async {
     if (_saving) return;
     setState(() => _saving = true);
@@ -904,7 +958,18 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     // for a row that only ever draws one icon would shove the title left on
     // every unsaved-session summary for no reason.
     final canChangeType = r.sessionId != null;
+    // GPX export only makes sense for a session with an actual recorded
+    // route — offering it on a lift or a match would be a button that can
+    // only ever fail. Gated on `geo` (raw lat/lng), not the normalised
+    // `route` used to draw the map: `_normalise` returns empty for a
+    // zero-span route (every fix at the same spot — a stationary GPS lock),
+    // which would hide the export for a session `getWorkoutRoute` can still
+    // export.
+    final canExportGpx = r.sessionId != null &&
+        (arch == Arch.route || arch == Arch.journey) &&
+        r.geo.length >= 2;
     final l = AppLocalizations.of(c);
+    final iconCount = 1 + (canChangeType ? 1 : 0);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -914,11 +979,13 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             child: NavBar(
               a.name,
               sub: _shortDate(r.start).toUpperCase(),
-              // Two icons, each a Pressable with S.tap's own 44 pt minimum
-              // hit box (grammar.dart's accessibility floor, not optional) —
-              // S.tap * 2 alone is 12 pt short of that plus the gap between
-              // them, which is exactly the RenderFlex overflow this fixed.
-              trailingWidth: canChangeType ? S.tap * 2 + S.x3 : S.tap,
+              // Each icon is a Pressable with S.tap's own 44 pt minimum hit
+              // box (grammar.dart's accessibility floor, not optional) —
+              // S.tap * n alone is short of that plus the gaps between them,
+              // which is exactly the RenderFlex overflow this avoids.
+              trailingWidth: iconCount == 1
+                  ? S.tap
+                  : S.tap * iconCount + S.x3 * (iconCount - 1),
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 if (canChangeType) ...[
                   Pressable(
@@ -940,6 +1007,28 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               ]),
             ),
           ),
+          // A dedicated, plainly-labeled button rather than a bare icon in the
+          // nav bar — this is the one export action worth naming outright.
+          // Text only: no Strava logo/imagery, per the no-brand-assets policy
+          // (the brand name as plain text is fine, brand marks are not).
+          if (canExportGpx)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, 0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Pressable(
+                  onTap: () => _exportGpx(c),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(LucideIcons.upload, size: 16, color: p.ink2),
+                    const SizedBox(width: S.x2),
+                    Text(
+                        l?.activitySummaryShareToStrava ?? 'Share to Strava',
+                        style: F.body.copyWith(
+                            color: p.ink2, fontWeight: FontWeight.w600)),
+                  ]),
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
             // Display labels are localized; `_tabs` itself stays the fixed
@@ -1144,8 +1233,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   'Nothing was logged with a load'
             )
           : (
-              grouped(r.strength.volumeKg!),
-              'kg',
+              grouped(_u?.weightValue(r.strength.volumeKg!) ??
+                  r.strength.volumeKg!),
+              _u?.weightUnit ?? 'kg',
               r.strength.hasUnloadedSets
                   ? (l?.activitySummaryVolumeLoadedSets ??
                       'Volume of the loaded sets')
@@ -1636,9 +1726,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                           Row(children: [
                             Flexible(
                                 child: Text(
-                                    l?.activitySummaryOneRepMax(
-                                            rm!.round()) ??
-                                        '1RM estimate ${rm!.round()} kg',
+                                    _u?.isImperial == true
+                                        ? '1RM estimate '
+                                            '${_u!.weightValue(rm!).round()} lb'
+                                        : (l?.activitySummaryOneRepMax(
+                                                rm!.round()) ??
+                                            '1RM estimate ${rm!.round()} kg'),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: F.over.copyWith(color: p.ink3))),
@@ -1730,8 +1823,15 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     return [for (final z in r.zoneMinutes) z / total];
   }
 
-  String _kg(double v) =>
-      v == v.roundToDouble() ? '${v.round()} kg' : '${v.toStringAsFixed(1)} kg';
+  /// [v] is always in kg (storage unit); [_u] converts + rounds for display
+  /// the same way its edit-field does.
+  String _kg(double v) {
+    final u = _u;
+    if (u == null) {
+      return v == v.roundToDouble() ? '${v.round()} kg' : '${v.toStringAsFixed(1)} kg';
+    }
+    return '${u.weightField(v)} ${u.weightUnit}';
+  }
 
   // ─────────────────── SPLITS ───────────────────
   // "Splits" is whatever this archetype breaks into: kilometres for a run,
@@ -2014,7 +2114,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               style: F.cap.copyWith(color: p.ink3)),
         if (s.volume != null) ...[
           const SizedBox(width: S.x3),
-          Text('${grouped(s.volume!)} kg',
+          Text('${grouped(_u?.weightValue(s.volume!) ?? s.volume!)} '
+                  '${_u?.weightUnit ?? 'kg'}',
               style: F.cap
                   .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
         ],
