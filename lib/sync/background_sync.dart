@@ -55,6 +55,7 @@ import '../notify/notification_event.dart';
 import '../state/alarm_schedule.dart';
 import 'band_ownership.dart';
 import 'high_freq_wake_window.dart';
+import 'reset_gate.dart';
 import 'paired_device.dart';
 import 'sync_policy.dart';
 
@@ -89,6 +90,16 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     '(${BandOwnership.debugState})',
   );
   try {
+    // "Delete everything" is running in this same process — see [ResetGate].
+    // Checked BEFORE PairedDevice.load(), which is the only thing standing
+    // between a reset and a fresh drain today, and only by accident: the reset
+    // calls `prefs.clear()`, so a LATER run reads no paired device and bails
+    // here. That is incidental protection for future runs and none at all for
+    // a drain already in flight.
+    if (ResetGate.active) {
+      debugPrint('[bgsync] a data reset is running — not starting a drain.');
+      return true;
+    }
     final paired = await PairedDevice.load();
     if (paired == null) {
       debugPrint('[bgsync] not paired — nothing to do.');
@@ -101,23 +112,53 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     // (whose facade adapter needs `engine` itself) is constructed.
     late final BandHost bandHost;
     final engine = BleEngine(
-      onRecord: (sample, raw) => LocalDb.insertRecord(raw, sample),
+      // EVERY write below is gated on [ResetGate]: a reset can begin at any
+      // point during a drain, and these callbacks are the reason it is not
+      // enough for AppState to guard only its own. Refusing loses nothing —
+      // none of it has been ACKed, so it is all still on the band.
+      onRecord: (sample, raw) async {
+        if (ResetGate.active) return;
+        await LocalDb.insertRecord(raw, sample);
+      },
       onState: (_) {},
       // This path drains exactly the one paired band (PairedDevice.load()),
       // so kPrimaryDeviceId is the correct value here, not a placeholder.
-      onEvent: (id, ts, hex) =>
-          LocalDb.insertEvent(id, ts, hex, deviceId: LocalDb.kPrimaryDeviceId),
+      onEvent: (id, ts, hex) async {
+        if (ResetGate.active) return;
+        await LocalDb.insertEvent(id, ts, hex,
+            deviceId: LocalDb.kPrimaryDeviceId);
+      },
       log: (l) => debugPrint('[bgsync] $l'),
-      onRecordsBatch: LocalDb.insertRecordsBatch,
+      onRecordsBatch: (raws, samples) async {
+        if (ResetGate.active) return;
+        await LocalDb.insertRecordsBatch(raws, samples);
+      },
       // Routed through BandHost (M1a) rather than calling
       // LocalDb.commitSyncBatch directly — same durable commit, same
       // arguments, one extra await frame, and the SAME failure contract:
       // `commitNativeBatch` rethrows so `DrainController.commit` still reads
       // durability from a throw and `TrimAckPolicy` still blocks the ACK.
-      onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
-          bandHost.commitNativeBatch(raws, samples, trimTokenHex,
-              archives: archives, deviceFamily: deviceFamily),
-      onArchiveRecord: LocalDb.archiveRawRecord,
+      onCommitBatch: (raws, samples, trimTokenHex,
+          {archives, deviceFamily}) async {
+        // THROWS, never silently succeeds. This is the ACK gate: only
+        // `onCommit` can bank raws + archives + trim cursor in one
+        // transaction, and DrainController reads durability FROM A THROW
+        // (see its safe-trim invariant). Returning quietly here would tell
+        // the drain the chunk was banked, it would ACK, and the band would
+        // trim flash that this reset refused to store — turning a race into
+        // real data loss on a band the user may not be deleting after all if
+        // the reset then fails. A throw blocks the ACK and the records stay
+        // on the strap.
+        if (ResetGate.active) {
+          throw StateError('data reset in progress — refusing to commit');
+        }
+        return bandHost.commitNativeBatch(raws, samples, trimTokenHex,
+            archives: archives, deviceFamily: deviceFamily);
+      },
+      onArchiveRecord: (raw) async {
+        if (ResetGate.active) return;
+        await LocalDb.archiveRawRecord(raw);
+      },
       cursorReader: (base) =>
           LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
       // Mark this as the background drainer: if the foreground app engine already

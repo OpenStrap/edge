@@ -136,7 +136,12 @@ class _CoachScreenState extends State<CoachScreen> {
   void dispose() {
     _input.dispose();
     _scroll.dispose();
-    _engine?.dispose();
+    // Not `_engine?.dispose()`: a `send` can still be in flight (a local
+    // model's first response can take minutes), and closing the shared HTTP
+    // client out from under it aborts the request instead of letting it land.
+    // `requestDispose` defers the actual close until `send`'s own `finally`
+    // sees it — see coach_engine.dart.
+    _engine?.requestDispose();
     super.dispose();
   }
 
@@ -775,6 +780,7 @@ class _CoachSetupState extends State<CoachSetup> {
   late final TextEditingController _base;
   late final TextEditingController _key;
   late final TextEditingController _search;
+  late final TextEditingController _timeout;
   String _model = '';
   List<String> _models = const [];
   bool _loading = false;
@@ -804,6 +810,7 @@ class _CoachSetupState extends State<CoachSetup> {
     _base = TextEditingController(text: cfg.baseUrl);
     _key = TextEditingController(text: cfg.apiKey ?? '');
     _search = TextEditingController();
+    _timeout = TextEditingController(text: cfg.timeoutSeconds.toString());
     _model = cfg.model;
     _keyOrigin = coachEndpointOrigin(cfg.baseUrl);
     // The base URL decides which preset is lit and whether a key is needed, and
@@ -845,13 +852,11 @@ class _CoachSetupState extends State<CoachSetup> {
     _base.dispose();
     _key.dispose();
     _search.dispose();
+    _timeout.dispose();
     super.dispose();
   }
 
-  bool get _isLocal {
-    final h = Uri.tryParse(_base.text.trim())?.host.toLowerCase() ?? '';
-    return h == 'localhost' || h == '127.0.0.1' || h == '::1';
-  }
+  bool get _isLocal => isLocalCoachHost(_base.text.trim());
 
   Future<void> _fetch() async {
     setState(() {
@@ -891,6 +896,12 @@ class _CoachSetupState extends State<CoachSetup> {
     }
     final cfg = context.read<CoachConfig>();
     final nav = Navigator.of(context);
+    // The field is hidden for a cloud endpoint (it has no effect there — see
+    // CoachConfig.requestTimeout), so its stale text must not overwrite the
+    // saved local timeout. Garbage or blank input for a local endpoint leaves
+    // the existing timeout untouched (CoachConfig also rejects <=0) rather
+    // than blocking the rest of the save over one bad field.
+    final timeoutSeconds = _isLocal ? int.tryParse(_timeout.text.trim()) : null;
     try {
       await cfg.save(
         baseUrl: _base.text,
@@ -900,6 +911,7 @@ class _CoachSetupState extends State<CoachSetup> {
           pendingKeyDelete: _pendingKeyDelete,
         ),
         model: chosen,
+        timeoutSeconds: timeoutSeconds,
       );
     } catch (e) {
       if (mounted) {
@@ -1088,6 +1100,22 @@ class _CoachSetupState extends State<CoachSetup> {
                       ),
                     ),
                   ),
+                  if (_isLocal) ...[
+                    const SizedBox(height: S.x4),
+                    OsTextField(
+                      controller: _timeout,
+                      label: 'Request timeout (seconds)',
+                      hint: '300',
+                      keyboard: TextInputType.number,
+                    ),
+                    const SizedBox(height: S.x3),
+                    Text(
+                      'A local model can take a while to load before its first '
+                      'reply. Default is 5 minutes (300s). Cloud providers use '
+                      'a fixed 2-minute timeout and are not affected by this.',
+                      style: F.cap.copyWith(color: p.ink3, height: 1.5),
+                    ),
+                  ],
                   const SizedBox(height: S.x4),
                   BigButton(
                     l?.actionSave ?? 'Save',

@@ -41,6 +41,7 @@ import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
+import '../profile/devices.dart' show formatDayTime;
 import '../profile/profile.dart';
 import '../ui2.dart';
 import 'coach.dart';
@@ -143,6 +144,64 @@ bool syncingNowOf(BuildContext c) {
 
 /// Whether a derive job is running or about to (the backlog just landed and
 /// today's numbers are being worked out), or false in a golden.
+/// How far the data we hold actually reaches — the band's OWN clock on the
+/// newest record BANKED, not when the BLE frame arrived and not when the app
+/// last talked to the strap. Null in a golden and before any record exists.
+///
+/// `select`, like its neighbours: this rebuilds when the data edge moves, not
+/// on AppState's ~1 Hz heartbeat.
+DateTime? lastDataAtOf(BuildContext c) {
+  try {
+    return c.select<AppState, DateTime?>((a) => a.lastRecordAt);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// "Synced through 11:06" — the one line that answers "how far are we?".
+///
+/// It reads the BAND's clock, so it says how far the DATA reaches. That is a
+/// different number from "last contact" and only this one is the question a
+/// sync status has to answer: a connection that transfers nothing is not
+/// progress, and a status built on contact time would report it as progress.
+///
+/// [todayId] is the `YYYY-MM-DD` the screen is ALREADY showing, not
+/// `DateTime.now()`. A clock read during `build` decides "is this today?" once
+/// and then goes stale — sitting on Home across midnight with no new record,
+/// last night's 23:50 would keep rendering as a bare "23:50" and read as
+/// tonight. Keying off the rendered day cannot contradict the date line
+/// directly above it, whatever the hour. Null (no day on screen yet) ⇒ always
+/// dated, which is the honest answer when we do not know what "today" is.
+///
+/// Bare `HH:mm` for the day on screen, the full "Fri 4 Sep, 07:12" otherwise —
+/// a lone "07:12" against a strap not worn since Friday is the most misleading
+/// thing this line could say.
+String syncedThroughLabel(DateTime? at, String? todayId,
+    [AppLocalizations? l]) {
+  if (at == null) return l?.homeSyncedNever ?? 'No band data yet';
+  final today = todayId == null ? null : DateTime.tryParse(todayId);
+  final isToday = today != null &&
+      at.year == today.year &&
+      at.month == today.month &&
+      at.day == today.day;
+  final when = isToday
+      ? '${at.hour.toString().padLeft(2, '0')}:'
+          '${at.minute.toString().padLeft(2, '0')}'
+      : formatDayTime(at, l);
+  return l?.homeSyncedThrough(when) ?? 'Synced through $when';
+}
+
+/// The status line as Home renders it, so the loading / failed / bare paths
+/// show it too. It answers "how far are we?", and the moment that question is
+/// loudest is the one where there is no day to show.
+Widget syncedThroughLine(BuildContext c, String? todayId,
+    [AppLocalizations? l]) {
+  return Text(
+    syncedThroughLabel(lastDataAtOf(c), todayId, l),
+    style: F.cap.copyWith(color: P.of(c).ink3),
+  );
+}
+
 bool derivingOf(BuildContext c) {
   try {
     return c.select<AppState, bool>((a) => a.deriving || a.derivePending);
@@ -1404,6 +1463,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
     if (d == null) {
       return _refreshable(ListView(padding: pad, children: [
         const SizedBox(height: S.x8),
+        // No day on screen ⇒ no `todayId`, so this renders the dated form.
+        // Shown here TOO: a first run, a failed read and a sync in flight are
+        // exactly when "how far are we?" is worth answering, and the header
+        // this line normally sits under does not exist on this path.
+        Align(alignment: Alignment.centerLeft, child: syncedThroughLine(c, null, l)),
+        const SizedBox(height: S.x3),
         if (_loading)
           const Center(child: CircularProgressIndicator())
         else if (_failed)
@@ -1491,6 +1556,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               ]),
               const SizedBox(height: 2),
               Text(prettyDay(d.dayId, l), style: F.cap.copyWith(color: p.ink3)),
+              // How far the band's data reaches, always — the question "am I
+              // looking at today, or at last night?" used to be answerable
+              // only by opening Profile > Devices.
+              syncedThroughLine(c, d.dayId, l),
             ]),
           ),
           const SizedBox(width: S.x3),
