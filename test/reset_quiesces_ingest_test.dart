@@ -64,6 +64,19 @@ void main() {
         reason: '_onLiveEvent must refuse before it writes');
   });
 
+  test('_onEngineState refuses while a reset is in flight', () {
+    // The engine's onState callback — fires ~1 Hz during any live connection
+    // and writes straight to LocalDb (device/battery rows) and PairedDevice's
+    // prefs namespace. Same bug class as _onLiveEvent above: a still-connected
+    // band's next tick during resetAllData's wipe/prefs.clear() window would
+    // resurrect rows or rewrite the pairing record right after they were wiped.
+    final onEngineState = RegExp(
+      r'void _onEngineState\([^)]*\) \{\s*\n(\s*//[^\n]*\n)*\s*if \(_resetting\) return;',
+    );
+    expect(onEngineState.hasMatch(src), isTrue,
+        reason: '_onEngineState must refuse before it writes');
+  });
+
   test('insertRecordsBatch is never handed over as a bare tear-off', () {
     // `onRecordsBatch: LocalDb.insertRecordsBatch` is the shape of the bug:
     // it hands the database straight to the engine with nothing in between.

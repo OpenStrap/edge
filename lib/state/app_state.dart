@@ -3814,6 +3814,13 @@ class AppState extends ChangeNotifier {
   }
 
   void _onEngineState(String deviceId, DeviceState s) {
+    // Same reason as every other engine callback wired in [_init] — the band
+    // stays connected and keeps ticking (~1 Hz) through resetAllData's
+    // `await LocalDb.wipeAll()`/`prefs.clear()`, and this handler writes
+    // straight to LocalDb (device/battery rows) and PairedDevice's prefs
+    // namespace. Without this, a mid-reset tick resurrects rows or re-writes
+    // the pairing record right after they were wiped. See [_resetting].
+    if (_resetting) return;
     _appendLiveHr(deviceId, s.liveHr, s.liveHrAt);
     // Bank the name the moment the band says it, so it survives the
     // disconnect. Written through `cleanDeviceLabel` for the same reason the
