@@ -1640,7 +1640,18 @@ import 'substrate.dart';
 // decision (and therefore `active_min`) for any day whose gap from the
 // frozen-on date spans a DST transition. Real output change, so the bump is
 // real. kAnalyticsPin/kProtocolPin are UNCHANGED: edge-only fix.
-const int kAlgoVersion = 89;
+//
+// 89 → 90 (`_resolveOwnership` drops newly-paired devices): once a signal's
+// `signal_priority` had ANY stored row, a device that started declaring that
+// signal afterward (paired later, no stored row) was never added to the
+// candidate list `resolveOwnership` reads — its real `device_coverage` was
+// silently excluded from ownership resolution forever. Now any coverage-only
+// device is unioned in below the stored ranking (sorted, in-memory only,
+// never persisted — same property as the empty-priority fallback). Real
+// output change for any user who customized priority for a signal and then
+// paired another device that also declares it. kAnalyticsPin/kProtocolPin
+// UNCHANGED: edge-only fix.
+const int kAlgoVersion = 90;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2775,12 +2786,27 @@ class DerivationEngine {
       // gives it a rank — the conservative default, and the one that keeps
       // today's single-device installs byte-identical.
       final rawPriority = await LocalDb.signalPriority(sig);
+      final coverage = await LocalDb.coverageIntervals(sig, from, to);
       final resolved = rawPriority.isEmpty
           ? const [LocalDb.kPrimaryDeviceId]
-          : rawPriority;
+          // A device with a coverage row here is definitionally declaring
+          // this signal (db.dart's own contract for `device_coverage`).
+          // Union it in below the stored ranking rather than dropping it —
+          // otherwise any device paired after the user last customized
+          // priority for this signal is silently excluded from ownership
+          // forever, with no automatic re-seed path. Never persisted (see
+          // note above): same in-memory-only property as the empty-priority
+          // fallback.
+          : [
+              ...rawPriority,
+              ...{for (final iv in coverage) iv.deviceId}
+                  .difference(rawPriority.toSet())
+                  .toList()
+                ..sort(),
+            ];
       priority[sig] = resolved;
       ownership[sig] = resolveOwnership(
-        coverage: await LocalDb.coverageIntervals(sig, from, to),
+        coverage: coverage,
         priority: resolved,
         from: from,
         to: to,

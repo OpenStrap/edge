@@ -298,4 +298,80 @@ void main() {
     LocalDb.dbName = 'multidevice_coverage_derive_test.db';
     await LocalDb.instance;
   });
+
+  test(
+      'a device paired AFTER signal_priority already has stored rows is not '
+      'excluded — its coverage is unioned in below the stored ranking, '
+      'ranked devices keep priority where they overlap it', () async {
+    await LocalDb.close();
+    LocalDb.dbName = 'multidevice_coverage_derive_late_pair_test.db';
+    final dir = await databaseFactory.getDatabasesPath();
+    await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+    final db = await LocalDb.instance;
+
+    const dayId = '2025-09-08';
+    const late = 'ring-TEST-LATE'; // paired after priority was customized
+    final t0 = _sec(2025, 9, 7, 22, 0);
+    final t1 = _sec(2025, 9, 8, 2, 0); // primary/ring handover, as above
+    final t2 = _sec(2025, 9, 8, 6, 0); // only `late` covers [t1, t2)
+    final t3 = _sec(2025, 9, 8, 7, 0);
+
+    await _insertOneHzRun(db, deviceId: _primary, fromSec: t0, toSec: t1, hr: 58);
+    await _insertOneHzRun(db, deviceId: _ring, fromSec: t2, toSec: t3, hr: 100);
+    await _insertOneHzRun(db, deviceId: late, fromSec: t1, toSec: t2, hr: 70);
+
+    Future<void> coverage(String deviceId, String signal, int from, int to) =>
+        db.insert('device_coverage', {
+          'device_id': deviceId,
+          'signal': signal,
+          'start_ts': from,
+          'end_ts': to,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+    for (final sig in const ['hr1Hz', 'rrIntervals']) {
+      await coverage(_primary, sig, t0, t1);
+      await coverage(_ring, sig, t2, t3);
+      // `late` declares real coverage but has no stored signal_priority row
+      // — the scenario the bug leaves unhandled.
+      await coverage(late, sig, t1, t2);
+    }
+    Future<void> priority(String signal, String deviceId, int rank) =>
+        db.insert('signal_priority', {
+          'signal': signal,
+          'device_id': deviceId,
+          'rank': rank,
+          'user_set': 1,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+    // Customized BEFORE `late` was ever paired — only these two rows exist.
+    for (final sig in const ['hr1Hz', 'rrIntervals']) {
+      await priority(sig, _primary, 0);
+      await priority(sig, _ring, 1);
+    }
+
+    await LocalDb.putSleepOverride(dayId: dayId, onsetTs: t0, offsetTs: t3, source: 'manual');
+
+    final done = await DerivationEngine().runDays(const Profile(), {dayId}, force: true);
+    expect(done, 1);
+
+    final row = await LocalDb.dayResult(dayId);
+    final bundle = jsonDecode(row!['payload_json'] as String) as Map;
+    final series = (bundle['series'] as Map).cast<String, dynamic>();
+    final coverageOut = (series['coverage'] as Map).cast<String, dynamic>();
+    final spans = coverageFromJson(coverageOut['hr1Hz']);
+
+    // The window only `late` ever covered must be owned by `late`, not
+    // dropped to null — this is the exact regression.
+    final atLateOnly = spanAt(spans, t1 + 3 * kOwnershipBucketSeconds);
+    expect(atLateOnly?.deviceId, late,
+        reason: 'a device declaring real coverage after priority was '
+            'customized must still be a candidate, not silently excluded');
+
+    // Ranked devices keep their resolved windows unaffected by the union.
+    expect(spanAt(spans, t0)?.deviceId, _primary);
+    expect(spanAt(spans, t3 - 1)?.deviceId, _ring);
+
+    await LocalDb.close();
+    await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+    LocalDb.dbName = 'multidevice_coverage_derive_test.db';
+    await LocalDb.instance;
+  });
 }
