@@ -27,6 +27,7 @@ import '../../health/health_workout_import.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
+import '../../state/units_controller.dart';
 import '../activity/catalogue.dart';
 import '../activity/day_strain.dart';
 import '../activity/live.dart';
@@ -1089,6 +1090,7 @@ class _HistoryRow extends StatelessWidget {
   /// sentence.
   List<(String, String, String?)> _stats(BuildContext c) {
     final loc = AppLocalizations.of(c);
+    final units = c.watch<UnitsController>();
     final timeLabel = loc?.workoutTimeStatLabel ?? 'Time';
     final caloriesLabel = loc?.workoutCaloriesStatLabel ?? 'Calories';
     return w.importedFrom != null
@@ -1103,7 +1105,8 @@ class _HistoryRow extends StatelessWidget {
           (timeLabel, hms(w.duration), null),
           if (w.distanceM != null && w.distanceM! > 0)
             (loc?.workoutDistanceStatLabel ?? 'Distance',
-                (w.distanceM! / 1000).toStringAsFixed(2), 'km'),
+                units.distanceValue(w.distanceM!).toStringAsFixed(2),
+                units.distanceUnit),
           if (w.calories != null)
             (caloriesLabel, grouped(w.calories!), 'kcal'),
         ]
