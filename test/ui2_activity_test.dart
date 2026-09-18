@@ -318,6 +318,23 @@ void main() {
           ['bench_press', 'triceps_pushdown', 'pull_up']);
     });
 
+    test('the share card converts strength volume to the reader\'s units, '
+        'never a bare kg number under imperial', () {
+      final r = ActivityResult(_first(Arch.strength),
+          start: _start,
+          duration: const Duration(minutes: 40),
+          strength: StrengthLog(_sets));
+      final u = UnitsController.seed(UnitSystem.imperial);
+      final volumeLb = u.weightValue(StrengthLog(_sets).volumeKg!).round();
+
+      final stat = shareStats(r, u).firstWhere((s) => s.$1 == 'Volume');
+      expect(stat.$2, '${grouped(volumeLb)} lb');
+
+      final hero = shareHero(r, u);
+      expect(hero.$2, 'lb');
+      expect(hero.$1, grouped(volumeLb));
+    });
+
     test('a bodyweight-only session has no volume, not zero volume', () {
       final log = StrengthLog([
         LoggedSet('pull_up', 8, at: _start),
