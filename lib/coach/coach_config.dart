@@ -8,6 +8,49 @@ import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// The origin (`scheme://host[:port]`) [url] resolves to, or the trimmed
+/// string itself when it doesn't parse as a URI with a host.
+///
+/// Used by the coach setup screen to tell whether an edit to the base URL
+/// actually changed WHERE requests go, as opposed to e.g. its path — an API
+/// key typed for one endpoint must not be silently carried over and sent to a
+/// different one just because the base-URL field still has text in it.
+String coachEndpointOrigin(String url) {
+  final u = Uri.tryParse(url.trim());
+  if (u == null || u.host.isEmpty) return url.trim();
+  return u.origin;
+}
+
+/// What the coach setup screen's Save should pass as [CoachConfig.save]'s
+/// `apiKey` argument.
+///
+/// [keyText] is the key field's current contents. [storedKeyReadable] is
+/// `CoachConfig.apiKey != null` — a key is stored AND this process could read
+/// it. [pendingKeyDelete] is true once the endpoint has changed since the
+/// stored key was last confirmed to belong to it (see
+/// `_CoachSetupState._onBaseChanged`).
+///
+/// [pendingKeyDelete] exists because an EMPTY field is not proof there is
+/// nothing to delete: a key that exists but could not be read
+/// (`CoachConfig.keyUnreadable`) also seeds the field empty, exactly like a
+/// key that was never set — without tracking the endpoint change separately,
+/// that unreadable-but-real key would survive Save untouched and later reach
+/// whatever new endpoint was configured.
+String? coachApiKeyToSave({
+  required String keyText,
+  required bool storedKeyReadable,
+  required bool pendingKeyDelete,
+}) {
+  final trimmed = keyText.trim();
+  if (trimmed.isNotEmpty) return keyText;
+  if (pendingKeyDelete) return ''; // force delete: no replacement was typed
+  // An empty field with a readable stored key means the user saw it and
+  // cleared it on purpose. An empty field with nothing readable (no key, or
+  // an unreadable one, and no endpoint change) must not be treated the same
+  // way — CoachConfig.save leaves a null apiKey untouched.
+  return storedKeyReadable ? '' : null;
+}
+
 /// True when [url]'s host is one that wants no API key and, once configured,
 /// gets the user-adjustable request timeout instead of the fixed cloud one —
 /// loopback, the Android emulator's host alias, `.local` mDNS names, and the

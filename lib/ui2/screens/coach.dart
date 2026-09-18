@@ -786,6 +786,23 @@ class _CoachSetupState extends State<CoachSetup> {
   bool _loading = false;
   String? _msg;
 
+  /// The origin whatever key is currently STORED (in the keychain, not just
+  /// visible in [_key]) belongs to. Set at init and only ever advanced by
+  /// [_onBaseChanged] or a successful [_save] — never by [_key] itself, so
+  /// that clearing the field programmatically doesn't erase the record of an
+  /// origin change still needing [_pendingKeyDelete] applied.
+  late String _keyOrigin;
+
+  /// True once the base URL has moved to a different origin than [_keyOrigin]
+  /// and no replacement key has been typed since. [_save] must force-delete
+  /// the stored key in this case rather than leaving it untouched — the
+  /// field reading empty is NOT proof there is nothing to delete: a key that
+  /// exists but could not be read (`CoachConfig.keyUnreadable`) also seeds
+  /// [_key] empty, and without this flag that "empty" was indistinguishable
+  /// from "no key ever existed", so the old, unreadable key survived the
+  /// origin change and was later sent to the new endpoint.
+  bool _pendingKeyDelete = false;
+
   @override
   void initState() {
     super.initState();
@@ -795,6 +812,7 @@ class _CoachSetupState extends State<CoachSetup> {
     _search = TextEditingController();
     _timeout = TextEditingController(text: cfg.timeoutSeconds.toString());
     _model = cfg.model;
+    _keyOrigin = coachEndpointOrigin(cfg.baseUrl);
     // The base URL decides which preset is lit and whether a key is needed, and
     // the search box filters the list — both are read during build, so both
     // have to rebuild it.
@@ -802,8 +820,31 @@ class _CoachSetupState extends State<CoachSetup> {
       if (mounted) setState(() {});
     }
 
-    _base.addListener(redraw);
+    _base.addListener(_onBaseChanged);
+    // Deliberately NOT tracked via a _key listener: an early attempt cleared
+    // _pendingKeyDelete as soon as the user typed a replacement, but typing
+    // one and then erasing it left the flag cleared with nothing to show for
+    // it — coachApiKeyToSave, called from _save with the CURRENT _key.text,
+    // already derives "is there a real replacement right now" correctly by
+    // checking the trimmed text itself; _pendingKeyDelete only needs to say
+    // whether the endpoint changed, not track the field's history.
     _search.addListener(redraw);
+  }
+
+  /// Clears a carried-over key rather than letting Save silently send it to a
+  /// DIFFERENT origin than the one it was typed for — switching presets, or
+  /// editing the base URL to point somewhere else, must not reuse a cloud key
+  /// against a new local/private endpoint (or vice versa) without the user
+  /// re-entering it.
+  void _onBaseChanged() {
+    final origin = coachEndpointOrigin(_base.text);
+    if (origin != _keyOrigin) {
+      _keyOrigin = origin;
+      _pendingKeyDelete = true;
+      if (_key.text.isNotEmpty) _key.clear();
+      _msg = 'The API key was cleared because the endpoint changed.';
+    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -855,10 +896,6 @@ class _CoachSetupState extends State<CoachSetup> {
     }
     final cfg = context.read<CoachConfig>();
     final nav = Navigator.of(context);
-    // An empty key field means "delete my key" ONLY when we could show the user
-    // what they are deleting. A key that could not be read seeds the field empty
-    // through no fault of theirs, and saving would delete it unseen.
-    final blindClear = _key.text.trim().isEmpty && cfg.apiKey == null;
     // The field is hidden for a cloud endpoint (it has no effect there — see
     // CoachConfig.requestTimeout), so its stale text must not overwrite the
     // saved local timeout. Garbage or blank input for a local endpoint leaves
@@ -868,7 +905,11 @@ class _CoachSetupState extends State<CoachSetup> {
     try {
       await cfg.save(
         baseUrl: _base.text,
-        apiKey: blindClear ? null : _key.text,
+        apiKey: coachApiKeyToSave(
+          keyText: _key.text,
+          storedKeyReadable: cfg.apiKey != null,
+          pendingKeyDelete: _pendingKeyDelete,
+        ),
         model: chosen,
         timeoutSeconds: timeoutSeconds,
       );
@@ -879,6 +920,7 @@ class _CoachSetupState extends State<CoachSetup> {
       }
       return;
     }
+    _pendingKeyDelete = false;
     if (mounted && nav.canPop()) nav.pop();
   }
 
@@ -922,10 +964,15 @@ class _CoachSetupState extends State<CoachSetup> {
                                     )
                                   : p.card2,
                               onTap: () => setState(() {
+                                // BEFORE assigning _base.text: that assignment
+                                // fires _onBaseChanged synchronously, which
+                                // may set _msg to explain a cleared key —
+                                // clearing _msg after it runs would silently
+                                // discard that explanation.
+                                _msg = null;
                                 _base.text = preset.baseUrl;
                                 _models = const [];
                                 _model = '';
-                                _msg = null;
                               }),
                               child: Row(
                                 children: [
