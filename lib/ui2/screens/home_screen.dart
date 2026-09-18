@@ -200,7 +200,11 @@ String syncedThroughLabel(DateTime? at, String? todayId,
   try {
     return c.select<AppState, (double, bool)?>((a) {
       final pct = a.device.batteryPct;
-      return pct == null ? null : (pct, a.device.charging ?? false);
+      final charging = a.device.charging;
+      // Both or neither — a known level with an unknown charging state must
+      // not fall back to `false`, which would draw a plain (or worse, red)
+      // icon over a charging state we simply haven't heard yet.
+      return (pct == null || charging == null) ? null : (pct, charging);
     });
   } catch (_) {
     return null;
@@ -212,7 +216,10 @@ String syncedThroughLabel(DateTime? at, String? todayId,
 /// shared constant rather than the user's live pref, since a color hint on
 /// Home is not worth an async prefs read on every build.
 bool lowBattery(double pct, bool charging) =>
-    !charging && pct <= NotificationPrefs.batteryPctDefault;
+    // Strict `<`, matching device_alerts.dart's own `fireLow` comparison —
+    // the color hint should agree with the alert at the boundary, not just
+    // near it.
+    !charging && pct < NotificationPrefs.batteryPctDefault;
 
 /// "78%" with a battery glyph, next to the sync line — the one place that
 /// already used a battery icon as an unrelated recovery-ring metaphor, but
@@ -1509,6 +1516,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         // exactly when "how far are we?" is worth answering, and the header
         // this line normally sits under does not exist on this path.
         Align(alignment: Alignment.centerLeft, child: syncedThroughLine(c, null, l)),
+        // The battery reading lives on AppState.device, independent of
+        // HomeData — a load failure or first run must not hide it too.
+        if (batteryLine(c) case final battery?) ...[
+          const SizedBox(height: 2),
+          Align(alignment: Alignment.centerLeft, child: battery),
+        ],
         const SizedBox(height: S.x3),
         if (_loading)
           const Center(child: CircularProgressIndicator())
@@ -1600,13 +1613,15 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               // How far the band's data reaches, always — the question "am I
               // looking at today, or at last night?" used to be answerable
               // only by opening Profile > Devices.
-              Row(children: [
-                Expanded(child: syncedThroughLine(c, d.dayId, l)),
-                if (batteryLine(c) case final battery?) ...[
-                  const SizedBox(width: S.x2),
-                  battery,
-                ],
-              ]),
+              syncedThroughLine(c, d.dayId, l),
+              // Its own line, not squeezed into the sync line's row: at
+              // accessibility text sizes that row has no slack left, and
+              // `Expanded` would only shrink the sync text into extra wrapped
+              // lines to make room rather than ever actually overflow.
+              if (batteryLine(c) case final battery?) ...[
+                const SizedBox(height: 2),
+                battery,
+              ],
             ]),
           ),
           const SizedBox(width: S.x3),

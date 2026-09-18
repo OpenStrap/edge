@@ -10,12 +10,12 @@ void main() {
     expect(lowBattery(10, false), isTrue);
   });
 
-  test('draining right at the threshold is low', () {
-    expect(lowBattery(15, false), isTrue);
+  test('draining right at the threshold is not low (strict <)', () {
+    expect(lowBattery(15, false), isFalse);
   });
 
-  test('draining above the threshold is not low', () {
-    expect(lowBattery(16, false), isFalse);
+  test('draining just under the threshold is low', () {
+    expect(lowBattery(14, false), isTrue);
   });
 
   test('charging never reads as low, however drained', () {
