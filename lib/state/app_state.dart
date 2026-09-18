@@ -1371,11 +1371,20 @@ class AppState extends ChangeNotifier {
     // Same wiring, second notify-class sensor: PMD readings otherwise never
     // reach liveHr/the live trace at all (arm/disarm alone don't feed it).
     PolarPmdLink.instance.reading.addListener(_onPmdReading);
-    _init();
+    final initDone = _init();
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
     unawaited(NotificationService.instance.consumeLaunchRoute());
-    unawaited(checkPendingSiriRoute());
+    // Cold launch only: `_init()` (unawaited — a constructor can't be async)
+    // is what loads `_schedule` from disk. Firing checkPendingSiriRoute
+    // alongside it with no ordering meant a Siri "enable tomorrow's alarm"
+    // landing before `_loadAlarmSchedule()` finished would read the
+    // still-default 07:00-disabled placeholder for that weekday and write
+    // THAT over whatever custom time the user actually had persisted.
+    // `_init()` never rethrows (it catches its own errors), so `.then` always
+    // runs once it settles either way. The resume-time call in app.dart calls
+    // checkPendingSiriRoute directly — by then `_init()` is long done.
+    unawaited(initDone.then((_) => checkPendingSiriRoute()));
   }
 
   /// Build the object graph WITHOUT running [_init] and without touching a
