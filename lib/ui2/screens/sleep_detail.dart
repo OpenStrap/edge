@@ -463,6 +463,10 @@ class _SleepDetailState extends State<SleepDetail> {
                 l?.sleepDetailUndoRejection ?? 'Undo — go back to automatic'),
           ),
         ],
+        // A day with no main-sleep window can still have naps — worn all
+        // day, off overnight, or a rejected night — so this door to the naps
+        // screen does not live inside the window card.
+        ..._napsButton(c, l, d.day),
       ]);
     }
 
@@ -487,6 +491,7 @@ class _SleepDetailState extends State<SleepDetail> {
 
       // ── 2b · WHOSE WINDOW IS THIS ──
       ...?_windowCard(c, p, d, n),
+      ..._napsButton(c, l, d.day),
 
       // ── 3 · WHAT IT WAS MADE OF ──
       Section(l?.sleepDetailStagesSection ?? 'Stages', _stages(c, p, n)),
@@ -601,6 +606,20 @@ class _SleepDetailState extends State<SleepDetail> {
   /// is one thing you either confirm or move, naps are a list you add to and
   /// remove from, and `_editWindow` below only ever asks two time pickers for
   /// one pair of times — the wrong shape for "how many, which ones".
+  /// The door to the naps screen, for [day] — not inside `_windowCard`, so it
+  /// still renders on a day with no scored main-sleep window (worn all day,
+  /// off overnight, or a night the user rejected outright).
+  List<Widget> _napsButton(BuildContext c, AppLocalizations? l, String? day) {
+    if (day == null) return const [];
+    return [
+      const SizedBox(height: S.x2),
+      TextButton(
+        onPressed: _saving ? null : () => go(c, NapsScreen(day: day)),
+        child: Text(l?.sleepDetailEditNaps ?? 'Naps'),
+      ),
+    ];
+  }
+
   List<Widget>? _windowCard(
       BuildContext c, P p, SleepData d, Map<String, dynamic> n) {
     final l = AppLocalizations.of(c);
@@ -684,12 +703,6 @@ class _SleepDetailState extends State<SleepDetail> {
             TextButton(
               onPressed: busy ? null : () => _rejectWindow(day),
               child: Text(l?.sleepDetailNotSleep ?? 'Not sleep'),
-            ),
-            // Naps live on their own screen with their own writer; this is
-            // the door to it from the night someone is already looking at.
-            TextButton(
-              onPressed: busy ? null : () => go(c, NapsScreen(day: day)),
-              child: Text(l?.sleepDetailEditNaps ?? 'Naps'),
             ),
           ]),
           if (busy) ...[
