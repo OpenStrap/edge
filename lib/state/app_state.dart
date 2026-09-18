@@ -1420,8 +1420,21 @@ class AppState extends ChangeNotifier {
   /// since `openAppWhenRun = true` may just foreground an already-running
   /// process rather than trigger a fresh launch.
   Future<void> checkPendingSiriRoute() async {
+    await _maybeEnableTomorrowAlarmFromSiri();
     final route = await WidgetService.consumePendingRoute();
     if (route != null) _handleTapRoute(route);
+  }
+
+  /// EnableTomorrowAlarmIntent (Siri/Shortcuts) latches
+  /// `enable_tomorrow_alarm` — the widget process has no BLE, so it cannot
+  /// arm the band itself. This is the actual write: flip tomorrow's weekday
+  /// slot on at whatever hour/minute it already has (same as tapping that
+  /// slot's toggle on the Alarm screen — never invents a time), then
+  /// [setScheduleDay] re-arms the band immediately when connected.
+  Future<void> _maybeEnableTomorrowAlarmFromSiri() async {
+    final asked = await WidgetService.consumeEnableTomorrowAlarmFlag();
+    if (!asked) return;
+    await setScheduleDay(weekday: tomorrowScheduleWeekday(), enabled: true);
   }
 
   /// Central disposal guard.

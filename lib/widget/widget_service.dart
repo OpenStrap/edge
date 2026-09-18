@@ -393,6 +393,7 @@ class WidgetService {
         'batt_charging',
         'end_session',
         'end_breathing_session',
+        'enable_tomorrow_alarm',
       ]) {
         await HomeWidget.saveWidgetData<bool>(k, false);
       }
@@ -494,6 +495,27 @@ class WidgetService {
       }
     } catch (_) {}
     return null;
+  }
+
+  /// True once (and clears) if EnableTomorrowAlarmIntent asked to turn on
+  /// tomorrow's weekday slot in the weekly alarm schedule. Same
+  /// App-Group-flag pattern as [consumeEndSessionFlag] — the widget process
+  /// cannot reach the band itself (no BLE), so it only latches the request;
+  /// AppState.checkPendingSiriRoute does the real `setScheduleDay` write on
+  /// launch/resume.
+  static Future<bool> consumeEnableTomorrowAlarmFlag() async {
+    try {
+      await init();
+      final v = await HomeWidget.getWidgetData<bool>(
+        'enable_tomorrow_alarm',
+        defaultValue: false,
+      );
+      if (v == true) {
+        await HomeWidget.saveWidgetData<bool>('enable_tomorrow_alarm', false);
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   /// True once (and clears) if the BREATHING Live Activity's stop button was
