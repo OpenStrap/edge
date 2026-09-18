@@ -21,6 +21,7 @@ import 'package:provider/provider.dart';
 import '../../import/backup_crypto.dart';
 import '../../import/import_container.dart';
 import '../../import/journal_csv_import.dart';
+import '../../import/lab_csv_import.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../ui2.dart';
@@ -60,9 +61,14 @@ class ImportOutcome {
   /// and folding them into [days] would hide that.
   final int journalRows;
 
-  /// Journal CSV lines that were REJECTED, never clamped — "line 12: note is
-  /// 40122 characters". Shown up to a cap, because a validation the user
-  /// cannot see is a silent drop.
+  /// Lab results written by the hand-entered CSV path — same csv-reimport
+  /// idea as [journalRows], one field over. Also replaces rather than adds:
+  /// re-importing corrects the (marker, date) rows it names.
+  final int labRows;
+
+  /// Journal or lab CSV lines that were REJECTED, never clamped — "line 12:
+  /// note is 40122 characters". Shown up to a cap, because a validation the
+  /// user cannot see is a silent drop.
   final List<String> rejectedRows;
 
   final String? error;
@@ -83,6 +89,7 @@ class ImportOutcome {
     this.strandedDays = 0,
     this.corruptTables = const {},
     this.journalRows = 0,
+    this.labRows = 0,
     this.rejectedRows = const [],
     this.error,
     this.rollupError,
@@ -95,7 +102,7 @@ class ImportOutcome {
   /// Nothing at all landed. A zero under a green tick is a no-op that reads as
   /// a success, which is the one thing an import report must never do.
   bool get nothingLanded =>
-      days == 0 && workouts == 0 && skippedDays == 0 && journalRows == 0;
+      days == 0 && workouts == 0 && skippedDays == 0 && journalRows == 0 && labRows == 0;
 }
 
 /// Raised when an encrypted backup was picked and the user closed the
@@ -301,6 +308,7 @@ Future<ImportOutcome> runImport(
   final sources = <String>[];
   var days = 0, workouts = 0, skipped = 0, late = 0, stranded = 0;
   var journalRows = 0;
+  var labRows = 0;
   final corruptTables = <String>{};
   final rejected = <String>[];
   String? rollupError;
@@ -415,11 +423,25 @@ Future<ImportOutcome> runImport(
       if (r.imported > 0) app.bumpInsights();
       rejected.addAll(r.rejected.map((x) => x.toString()));
       if (!sources.contains('Journal CSV')) sources.add('Journal CSV');
+      continue;
     } on JournalCsvFormatException {
-      vendor.add(p);
+      // Not a journal export — fall through and try the lab-results header
+      // before giving up to the vendor importer below.
     } on FormatException {
       // Text, but not UTF-8 — a latin1/cp1252 CSV out of a spreadsheet. The
       // sniff above cannot see that, and the vendor importer decodes leniently.
+      vendor.add(p);
+      continue;
+    }
+    try {
+      final r = await importLabCsvFile(p);
+      labRows += r.imported;
+      if (r.imported > 0) app.bumpInsights();
+      rejected.addAll(r.rejected.map((x) => x.toString()));
+      if (!sources.contains('Lab results CSV')) sources.add('Lab results CSV');
+    } on LabCsvFormatException {
+      vendor.add(p);
+    } on FormatException {
       vendor.add(p);
     }
   }
@@ -440,7 +462,7 @@ Future<ImportOutcome> runImport(
         skipped += r.skippedExistingDays;
       }
     } catch (e) {
-      if (db.isEmpty && raw.isEmpty && journalRows == 0) rethrow;
+      if (db.isEmpty && raw.isEmpty && journalRows == 0 && labRows == 0) rethrow;
       readError = '$e';
     }
   }
@@ -454,6 +476,7 @@ Future<ImportOutcome> runImport(
     strandedDays: stranded,
     corruptTables: corruptTables,
     journalRows: journalRows,
+    labRows: labRows,
     rejectedRows: rejected,
     rollupError: rollupError,
     // A file that would not decrypt is reported the same way a file that would
@@ -633,21 +656,39 @@ class ImportReport extends StatelessWidget {
         icon: LucideIcons.fileWarning,
       );
     }
-    final also = [
-      if (o.workouts > 0) l?.welcomeWorkoutsCount(o.workouts) ??
-          '${o.workouts} workout${o.workouts == 1 ? '' : 's'}',
-      if (o.skippedDays > 0) l?.welcomeDaysAlreadyMeasured(o.skippedDays) ??
-          '${o.skippedDays} day${o.skippedDays == 1 ? '' : 's'} already measured '
-              'here and left alone',
-    ];
-    // A journal CSV writes no days, so the old headline read "0 days imported"
-    // over a successful import of 300 notes.
-    final headline = o.days > 0
-        ? l?.welcomeDaysImported(o.days) ??
-            '${o.days} day${o.days == 1 ? '' : 's'} imported'
-        : l?.welcomeJournalDaysWritten(o.journalRows) ??
-            '${o.journalRows} journal '
-                'day${o.journalRows == 1 ? '' : 's'} written';
+    // A journal or lab CSV writes no days, so the old headline read "0 days
+    // imported" over a successful import of 300 notes / results.
+    // Whichever of these is the FIRST positive one becomes the headline;
+    // every other positive one folds into `also`. A vendor export with only
+    // a workouts.csv selected lands 0 days, 0 journal rows and 0 lab rows, so
+    // falling all the way through to "0 lab results written" used to be the
+    // answer for that case too (with "journal" in place of "lab", before labs
+    // existed) — `nothingLanded` already guarantees at least one is positive.
+    final days = o.days > 0
+        ? l?.welcomeDaysImported(o.days) ?? '${o.days} day${o.days == 1 ? '' : 's'} imported'
+        : null;
+    final journal = o.journalRows > 0
+        ? l?.welcomeJournalDaysWritten(o.journalRows) ??
+            '${o.journalRows} journal day${o.journalRows == 1 ? '' : 's'} written'
+        : null;
+    final labs = o.labRows > 0
+        ? l?.welcomeLabResultsWritten(o.labRows) ??
+            '${o.labRows} lab result${o.labRows == 1 ? '' : 's'} written'
+        : null;
+    final workouts = o.workouts > 0
+        ? l?.welcomeWorkoutsCount(o.workouts) ??
+            '${o.workouts} workout${o.workouts == 1 ? '' : 's'}'
+        : null;
+    final skipped = o.skippedDays > 0
+        ? l?.welcomeDaysAlreadyMeasured(o.skippedDays) ??
+            '${o.skippedDays} day${o.skippedDays == 1 ? '' : 's'} already measured '
+                'here and left alone'
+        : null;
+    final headline = [days, journal, labs, workouts, skipped].firstWhere((c) => c != null)!;
+    // journal is NEVER folded in here — when it isn't the headline, days > 0
+    // means it gets its own "N journal days REPLACED" line below instead (a
+    // different fact: a journal CSV always replaces, on any day it names).
+    final also = [labs, workouts, skipped].whereType<String>().where((c) => c != headline).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Surface(
         child: Row(children: [

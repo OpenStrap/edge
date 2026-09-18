@@ -202,6 +202,53 @@ void main() {
       expect(swallowed.spans.single.fromBand, isTrue);
     });
 
+    test('ISSUE #366: a confirmed-motionless phone hour vetoes a wrist '
+        'false-positive that never overlapped a real walk', () {
+      // WHOOP 4 has no on-chip counter — its only "band" contribution outside
+      // a tracked walk/run is this passive-wear arm-motion counter. 22 spm
+      // over an hour of chores (OxWalk's measured false-positive range) used
+      // to be credited in full and simply SUMMED onto the phone's real count,
+      // because a confirmed-zero hour was never persisted to compete with it.
+      final r = resolveDaySteps([
+        _phone(9 * _h, 10 * _h, 0), // phone: motionless that hour
+        _band(9 * _h, 10 * _h, 1320), // band: 1320/60min = 22 spm (chores)
+        _phone(14 * _h, 15 * _h, 3000), // the day's one real walk
+      ]);
+      expect(r.total, 3000, reason: 'the chores hour must not add anything');
+      expect(r.strap, 0);
+    });
+
+    test('a real gait-density band span survives even inside a confirmed-'
+        'still phone hour (phone left behind, band kept counting)', () {
+      final r = resolveDaySteps([
+        _phone(9 * _h, 10 * _h, 0),
+        _band(9 * _h + 600, 9 * _h + 720, 200), // 200 steps / 2 min = 100 spm
+      ]);
+      expect(r.total, 200, reason: 'gait-density steps are not chores noise');
+      expect(r.strap, 200);
+    });
+
+    test('a partial overlap with a confirmed-still hour only voids its own '
+        'share', () {
+      // Band span is half inside the still hour (0-3600) and half outside it,
+      // at a chores-range density (20 spm over 20 min = 400... use a small
+      // density instead so it doesn't clear the gait floor).
+      final r = resolveDaySteps([
+        _phone(0, _h, 0),
+        _band(_h - 600, _h + 600, 8), // 8 steps / 20 min = 24 spm
+      ]);
+      // Half the span (600s of 1200s) sits inside the still hour and is
+      // voided; the other half survives.
+      expect(r.strap, 4);
+    });
+
+    test('no confirmed-still hour anywhere leaves the ladder untouched', () {
+      final r = resolveDaySteps([
+        _band(9 * _h, 9 * _h + 600, 30), // 30/10min = 180 spm, real gait
+      ]);
+      expect(r.total, 30);
+    });
+
     test('nothing covered anything → nothing, and no dominant sensor', () {
       expect(resolveDaySteps(const []).total, 0);
       expect(resolveDaySteps(const []).dominant, isNull);

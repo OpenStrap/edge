@@ -1553,6 +1553,16 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
+  Future<Map<String, dynamic>> getDayOverview(String date) async {
+    final b = await _bundleForDate(date);
+    if (b == null) return const {};
+    return {
+      'readiness': _scalar(b, 'readiness'),
+      'resting_hr': _scalar(b, 'rhr')?.round(),
+    };
+  }
+
+  @override
   Future<Map<String, dynamic>> getDayTimeline(String date) async {
     final b = await _bundleForDate(date);
     if (b == null) return const {};

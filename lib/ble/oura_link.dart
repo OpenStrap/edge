@@ -503,13 +503,26 @@ class OuraLink {
   /// [reply] answers each write the way the ring would, exactly as
   /// `oura_adapter_test.dart` scripts it — a replay link records writes but
   /// cannot react to them.
+  ///
+  /// 50ms used to be the default here, and it was too tight: every scripted
+  /// [reply] answers inside the same zero-delay spin loop below, so nothing
+  /// in a passing run should EVER actually wait out this timeout — it's only
+  /// a backstop. But 50ms of real wall-clock is not free on a shared CI
+  /// runner deep into a long single-isolate suite (GC pauses, scheduler
+  /// jitter from ~1000+ prior tests), and when it fires early the adapter
+  /// gives up on the anchor batch mid-session, so a reading that should have
+  /// been stamped once the anchor arrived is left un-stamped instead — the
+  /// intermittent "written once it does" failure this file used to show only
+  /// in full-suite CI runs, never in isolation. 2s is still instant for every
+  /// test here (nothing waits on it on the happy path) and leaves real
+  /// margin against that jitter.
   @visibleForTesting
   Future<ReplayBandLink> ingestForTest(
     String deviceId,
     List<int> key,
     List<List<int>> Function(int writeIndex, List<int> value) reply, {
     int Function()? nowSeconds,
-    Duration timeouts = const Duration(milliseconds: 50),
+    Duration timeouts = const Duration(seconds: 2),
   }) async {
     _now = nowSeconds ?? _now;
     _deviceId = deviceId;

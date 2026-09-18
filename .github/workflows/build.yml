@@ -346,8 +346,22 @@ jobs:
           name: openstrap-edge-ipa
           path: ${{ steps.ipa.outputs.ipa }}
 
+      # AltStore source (apps.json) so sideload users get update notifications
+      # instead of manually re-checking Releases. Reads the bundle id/version
+      # straight out of the .ipa's Info.plist, so it can't drift from what
+      # was actually built. Published to the SAME release, and because
+      # GitHub aliases /releases/latest/download/<name> to whatever release
+      # is currently "latest", the subscribe URL in IOS_SIDELOAD.md never
+      # changes across releases.
+      - name: Generate AltStore source
+        run: |
+          python3 .github/scripts/gen_altstore_source.py \
+            "${{ steps.ipa.outputs.ipa }}" apps.json "${{ github.repository }}" "${{ github.ref_name }}"
+
       # Attach to the same Release the android job created/updates (upsert by tag).
-      - name: Attach IPA to release
+      - name: Attach IPA + AltStore source to release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.ipa.outputs.ipa }}
+          files: |
+            ${{ steps.ipa.outputs.ipa }}
+            apps.json

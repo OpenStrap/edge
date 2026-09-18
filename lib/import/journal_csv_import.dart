@@ -137,8 +137,8 @@ List<List<String>> parseCsv(String text) {
 
 /// True for a real calendar day in `YYYY-MM-DD` — `2026-02-30` is rejected,
 /// because `DateTime` would happily roll it to March and store a day the user
-/// never wrote.
-@visibleForTesting
+/// never wrote. Shared with `lab_csv_import.dart`, the other hand-entered CSV
+/// importer with the same date column.
 bool isValidDayLabel(String s) {
   if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s)) return false;
   final y = int.parse(s.substring(0, 4));

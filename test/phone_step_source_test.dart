@@ -100,17 +100,37 @@ void main() {
     expect(await LocalDb.liveStepsForDay(day), 0);
   });
 
-  test('zero/negative/inverted phone windows are dropped, not stored',
-      () async {
+  test('a zero phone window IS stored (confirmed-still evidence); inverted '
+      'ones are dropped', () async {
     await LocalDb.replacePhoneCoverageForDay(
       day,
       [
-        (startTs: 1000, endTs: 4600, steps: 0), // no steps that hour
+        (startTs: 1000, endTs: 4600, steps: 0), // confirmed motionless hour
         (startTs: 5000, endTs: 4000, steps: 50), // inverted
         (startTs: 6000, endTs: 9600, steps: 75), // the only real one
       ],
     );
     expect(await LocalDb.liveStepsForDay(day), 75);
+    // `resolvedStepsForDay` omits zero-credit spans on purpose, so checking
+    // it alone would pass just the same if the zero row had been dropped —
+    // query the table directly for what a regression here would actually
+    // break (the confirmed-still veto in live_coverage_policy_test.dart).
+    final db = await LocalDb.instance;
+    final rows = await db.query(
+      'live_coverage',
+      where: 'day = ? AND source = ? AND steps = 0',
+      whereArgs: [day, LocalDb.kStepSourcePhone],
+    );
+    expect(rows, hasLength(1));
+    expect(rows.single['start_ts'], 1000);
+    expect(rows.single['end_ts'], 4600);
+    // The inverted window never made it in at all.
+    final allPhoneRows = await db.query(
+      'live_coverage',
+      where: 'day = ? AND source = ?',
+      whereArgs: [day, LocalDb.kStepSourcePhone],
+    );
+    expect(allPhoneRows, hasLength(2));
   });
 
   test('clearing phone coverage falls back to the band, not to zero', () async {
