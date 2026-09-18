@@ -1629,6 +1629,12 @@ class LocalDb {
     required int bandSize,
     int maxProbes = 1024,
   }) async {
+    if (bandSize <= 0) throw ArgumentError('bandSize must be > 0');
+    // maxProbes beyond bandSize can only re-probe candidates already tried
+    // (the modulo wraps), so cap it — this also bounds the DB round-trips a
+    // single transaction can make.
+    final probes = maxProbes < bandSize ? maxProbes : bandSize;
+    final start = startAt % bandSize;
     final slot = await _guardedWrite<int>((db) async {
       return db.transaction<int>((txn) async {
         final existing = await txn.query(
@@ -1640,8 +1646,8 @@ class LocalDb {
         );
         if (existing.isNotEmpty) return existing.first['slot'] as int;
 
-        for (var i = 0; i < maxProbes; i++) {
-          final candidate = (startAt + i) % bandSize;
+        for (var i = 0; i < probes; i++) {
+          final candidate = (start + i) % bandSize;
           await txn.rawInsert(
             'INSERT OR IGNORE INTO notif_slots(category, dedupe_key, slot) '
             'VALUES(?, ?, ?)',
@@ -1651,7 +1657,7 @@ class LocalDb {
               Sqflite.firstIntValue(await txn.rawQuery('SELECT changes()'));
           if (n == 1) return candidate;
         }
-        throw StateError('notif_slots: no free slot within $maxProbes probes');
+        throw StateError('notif_slots: no free slot within $probes probes');
       });
     });
     if (slot == null) throw StateError('notif_slots: claim undecided');

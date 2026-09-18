@@ -152,7 +152,14 @@ class NotificationIds {
         } catch (_) {/* mirror is best-effort; the DB is the source of truth */}
       }
       return slot;
-    } catch (_) {/* degrade to the SharedPreferences scheme below */}
+    } catch (err) {
+      // Degrade to the SharedPreferences scheme below. Logged (not swallowed
+      // silently) because this path re-opens the exact cross-isolate race
+      // this file exists to close — worth knowing if it's hit for a reason
+      // other than "no DB in this process" (a plain unit test, a torn-down
+      // background isolate), e.g. a genuinely failing DB.
+      debugPrint('NotificationIds: DB slot claim failed, degrading: $err');
+    }
 
     var slot = start % bandSize;
     for (var i = 0; i < maxProbes; i++) {

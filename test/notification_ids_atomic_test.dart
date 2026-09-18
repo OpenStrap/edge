@@ -6,16 +6,21 @@
 // actually ships: NotificationIds._slotFor → LocalDb.claimNotifSlot → one
 // atomic INSERT OR IGNORE against a UNIQUE(category, slot) index.
 //
-// Why this can be tested in-process at all: the race being fixed is two
-// derivation isolates racing to FIRST-allocate a slot for two DIFFERENT
-// dedupeKeys in the same category band (e.g. derivation_engine.dart's
-// same-day plain/escalated exception pair, '$date:exception' and
-// '$date:exception:medical'). A unit test can't spawn the WorkManager
-// isolate, but it doesn't need to — both isolates reach the SAME sqlite
-// database, and the claim's correctness is a property of the UNIQUE index,
-// not of who calls it. Calling idFor() concurrently reproduces exactly the
-// interleaving a second isolate would produce. Under the old
-// read-then-write-to-SharedPreferences protocol both could win the same slot.
+// What this suite actually proves — and what it doesn't: the race being
+// fixed is two derivation isolates racing to FIRST-allocate a slot for two
+// DIFFERENT dedupeKeys in the same category band (e.g. derivation_engine
+// .dart's same-day plain/escalated exception pair, '$date:exception' and
+// '$date:exception:medical'). A unit test can't spawn a second real OS
+// isolate/process, and `Future.wait` here does NOT force the two
+// `claimNotifSlot` transactions to interleave at the SQLite level — one
+// transaction holds sqflite's write lock and runs to completion before the
+// other starts, same as it would running fully sequentially. What this DOES
+// verify: `claimNotifSlot`'s UNIQUE(category, slot) claim is the primitive
+// that makes the *sequential* case (any writer, from any isolate, arriving
+// after another has already committed a slot) collision-free — which is what
+// actually eliminates the bug, since the old SharedPreferences code could
+// misallocate even without true interleaving (a stale read is enough). The
+// true concurrent-isolate case is exercised on real devices, not here.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -62,7 +67,9 @@ void main() {
       'same category never collide on the same id — the derivation_engine.dart '
       'plain/escalated same-day exception shape', () async {
     // No NotificationCenter lock here — that lock only orders emits WITHIN
-    // one isolate, so this is exactly the cross-isolate interleaving.
+    // one isolate. `Future.wait` doesn't force true interleaving at the
+    // SQLite level (see file header), but it does prove the two claims,
+    // whatever order they actually run in, never land on the same slot.
     final results = await Future.wait([
       NotificationIds.instance.idFor(_ev('$kToday:exception')),
       NotificationIds.instance.idFor(_ev('$kToday:exception:medical')),
