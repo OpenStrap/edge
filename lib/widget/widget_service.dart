@@ -456,6 +456,7 @@ class WidgetService {
         iOSName: _batteryIOSName,
         androidName: _batteryAndroidName,
       );
+      await _syncWatch();
     } catch (_) {
       /* widgets unavailable — ignore */
     }

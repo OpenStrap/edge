@@ -24,9 +24,11 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Map<String, Object?> written;
+  late List<String> iosConfigCalls;
 
   setUp(() {
     written = {};
+    iosConfigCalls = [];
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(const MethodChannel('home_widget'),
@@ -38,8 +40,10 @@ void main() {
       return true;
     });
     messenger.setMockMethodCallHandler(
-        const MethodChannel('openstrap/ios_config'),
-        (call) async => call.method == 'appGroupIdentifier' ? 'group.test' : null);
+        const MethodChannel('openstrap/ios_config'), (call) async {
+      iosConfigCalls.add(call.method);
+      return call.method == 'appGroupIdentifier' ? 'group.test' : null;
+    });
   });
 
   tearDown(() {
@@ -197,6 +201,32 @@ void main() {
       await WidgetService.clear();
       expect(written['readiness_tier'], -1);
       expect(written['readiness_band'], '');
+    });
+  });
+
+  // Every mutator that writes to the App Group snapshot must also mirror it
+  // to the paired Apple Watch (`_syncWatch`) — otherwise the watch keeps
+  // rendering a stale value until some unrelated write happens to fire next.
+  // `setThemeDark` used to omit this call.
+  group('watch sync fires on every mutator', () {
+    test('setThemeDark syncs the watch', () async {
+      await WidgetService.setThemeDark(true);
+      expect(iosConfigCalls, contains('syncWatch'));
+    });
+
+    test('push syncs the watch', () async {
+      await WidgetService.push(TodayData.fromJson({'daily': const {}}));
+      expect(iosConfigCalls, contains('syncWatch'));
+    });
+
+    test('pushBattery syncs the watch', () async {
+      await WidgetService.pushBattery(80, false, 'Strap');
+      expect(iosConfigCalls, contains('syncWatch'));
+    });
+
+    test('clear syncs the watch', () async {
+      await WidgetService.clear();
+      expect(iosConfigCalls, contains('syncWatch'));
     });
   });
 
