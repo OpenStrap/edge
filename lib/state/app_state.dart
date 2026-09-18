@@ -1202,10 +1202,10 @@ class AppState extends ChangeNotifier {
   /// The zone (1..5) the crossing alert watches. Clamped on read so a stray
   /// value can never hand [ZoneCrossingAlert] a target outside the table.
   int get zoneAlertTargetZone =>
-      Prefs.getInt(Prefs.zoneAlertTargetZone, 3).clamp(1, 5);
+      Prefs.getInt(Prefs.zoneAlertTargetZone, 3).clamp(1, 5).toInt();
 
   Future<void> setZoneAlertTargetZone(int zone) async {
-    Prefs.setInt(Prefs.zoneAlertTargetZone, zone.clamp(1, 5));
+    Prefs.setInt(Prefs.zoneAlertTargetZone, zone.clamp(1, 5).toInt());
     notifyListeners();
   }
 
@@ -5998,6 +5998,17 @@ class AppState extends ChangeNotifier {
             hrMax: estimatedMaxHr(
               (user?['age'] as num?),
               engine.linkDeviceFamily,
+            ),
+            // Same TS-04 zone set `startWorkout` pins, missing here — without
+            // it `w.zoneSet` was null for every resumed session, `_zoneFor`
+            // then returns 0 for every reading regardless of HR, and the
+            // Time-in-Zones bar (and now the zone-crossing alert) silently
+            // tracked nothing for the rest of a resumed workout.
+            zoneSet: trainingZones(
+              age: (user?['age'] as num?),
+              deviceFamily: engine.linkDeviceFamily,
+              observedCeilingBpm: _observedCeilingBpm,
+              restingHrHistory: _rhr28,
             ),
             restingHr: _liveRestingHr,
           );
