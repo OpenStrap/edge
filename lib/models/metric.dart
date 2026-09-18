@@ -226,6 +226,9 @@ const _inputWhy = {
           'band sees a harder one.',
   'resting_hr_days':
       'Not enough nights of resting heart rate behind the reserve yet.',
+  'manual_zones':
+      'You have set your zones manually, so there is no measured reserve '
+          'anchor to plot a distribution against.',
   'sessions':
       'Too few recorded sessions to describe a pattern rather than noise.',
 };

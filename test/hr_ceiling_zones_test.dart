@@ -612,5 +612,26 @@ void main() {
       expect((z['zones'] as List).last['hi'], greaterThan(225));
       expect(z['max_hr'], greaterThan(225));
     });
+
+    test(
+      'manual zones with a FULL resting-HR history still name the manual '
+      'override, never a fabricated reserve-nights shortfall',
+      () async {
+        // 28 nights on file — well above reserveMinDays — so a regression
+        // back to the generic !measured branch would print "have 28, need
+        // 14", contradicting its own sentence.
+        await seedRhr(28);
+        final manualRepo = LocalRepositoryImpl(
+          getProfileMap: () =>
+              {'age': 30, 'hr_zone_bounds': [100, 120, 140, 160, 180]},
+        );
+        final z = await manualRepo.getZones();
+        expect(z['source'], 'manual');
+        expect(z['distribution'], isNull);
+        final note = (z['absent'] as Map)['distribution']['note'] as String;
+        expect(note, 'need_input:name=manual_zones');
+        expect(note, isNot(contains('resting_hr_days')));
+      },
+    );
   });
 }

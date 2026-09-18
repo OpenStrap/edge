@@ -4047,6 +4047,13 @@ class LocalRepositoryImpl extends LocalRepository {
                         needInputNote(
                           ceiling != null ? 'maximal_effort' : 'observed_ceiling',
                         )
+                  // A manual override has no measured anchor at all, ever —
+                  // regardless of how many resting-HR nights are on file.
+                  // Falling into the generic !measured branch below would
+                  // print "not enough nights" with a have/need pair that
+                  // contradicts itself the moment the user has a full history.
+                  : set.source == 'manual'
+                  ? needInputNote('manual_zones')
                   : !measured
                   ? needInputNote(
                       'resting_hr_days',
