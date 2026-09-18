@@ -158,20 +158,33 @@ ana.HeartRateZoneSet? trainingZones({
 /// Builds a zone set straight from five user-set bpm thresholds — no
 /// percentage-of-anything, so `lowerPct`/`upperPct` (display metadata no
 /// screen reads for a manual set) are left at 0.
-ana.HeartRateZoneSet _manualZones(List<int> lowerBpm) => ana.HeartRateZoneSet(
-      zones: [
-        for (var i = 0; i < 5; i++)
-          ana.HeartRateZone(
-            number: i + 1,
-            lower: lowerBpm[i].toDouble(),
-            upper: i < 4 ? lowerBpm[i + 1].toDouble() : double.infinity,
-            lowerPct: 0,
-            upperPct: 0,
-          ),
-      ],
-      maxHr: lowerBpm.last.toDouble(),
-      source: 'manual',
-    );
+///
+/// Zone 5's upper edge is open-ended for classification ([zoneNumber] never
+/// consults it there) but every caller of [trainingZones] still rounds it
+/// for display, so it cannot be `double.infinity` — `.round()` on that
+/// throws. [kHrHardCeilBpm] (no human sustains a heart rate above it) is the
+/// same hard ceiling already used to bound implausible samples elsewhere in
+/// this file, so it is not a new number being invented here.
+ana.HeartRateZoneSet _manualZones(List<int> lowerBpm) {
+  final z5Upper = math.max(
+    lowerBpm[4] + 1,
+    kHrHardCeilBpm,
+  ).toDouble();
+  return ana.HeartRateZoneSet(
+    zones: [
+      for (var i = 0; i < 5; i++)
+        ana.HeartRateZone(
+          number: i + 1,
+          lower: lowerBpm[i].toDouble(),
+          upper: i < 4 ? lowerBpm[i + 1].toDouble() : z5Upper,
+          lowerPct: 0,
+          upperPct: 0,
+        ),
+    ],
+    maxHr: z5Upper,
+    source: 'manual',
+  );
+}
 
 /// Reads the manual zone override off a profile map — five ascending BPM
 /// thresholds under `hr_zone_bounds`, or null when unset/malformed (wrong

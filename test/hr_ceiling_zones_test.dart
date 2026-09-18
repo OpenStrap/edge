@@ -167,9 +167,20 @@ void main() {
       expect(z.source, 'manual');
       expect(z.zones.map((zone) => zone.lower), [100, 120, 140, 160, 180]);
       expect(z.zones[0].upper, 120);
-      expect(z.zones.last.upper, double.infinity); // Z5 is open-ended
+      // Z5 is open-ended for classification (zoneNumber never consults its
+      // upper edge) but still finite: every getZones()/session-summary
+      // caller rounds it for display, and Infinity.round() throws.
+      expect(z.zones.last.upper.isFinite, isTrue);
+      expect(z.zones.last.upper.round(), isA<int>());
       expect(z.zoneNumber(190), 5);
       expect(z.zoneNumber(90), 0);
+    });
+
+    test("a manual top threshold above the hard ceiling still gets a real "
+        "upper edge above it", () {
+      final z = trainingZones(manualZoneLowerBpm: [180, 190, 200, 210, 225])!;
+      expect(z.zones.last.upper, greaterThan(225));
+      expect(z.zones.last.upper.isFinite, isTrue);
     });
 
     test('works with no age and no ceiling at all — the point of an override',
@@ -584,6 +595,22 @@ void main() {
         });
       }
       expect((await repo.getZones())['distribution'], isNull);
+    });
+
+    test(
+        'a manual override above the hard ceiling still serializes — '
+        'Infinity.round() throws, so this is the regression that matters',
+        () async {
+      final manualRepo = LocalRepositoryImpl(
+        getProfileMap: () =>
+            {'age': 30, 'hr_zone_bounds': [200, 205, 210, 215, 225]},
+      );
+      final z = await manualRepo.getZones();
+      expect(z['source'], 'manual');
+      expect(z['zones'], hasLength(5));
+      expect((z['zones'] as List).last['zone'], 5);
+      expect((z['zones'] as List).last['hi'], greaterThan(225));
+      expect(z['max_hr'], greaterThan(225));
     });
   });
 }
