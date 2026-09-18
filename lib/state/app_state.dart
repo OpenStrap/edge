@@ -110,6 +110,7 @@ import '../telemetry/health_uploader.dart';
 import '../widget/widget_service.dart';
 import '../sync/file_log.dart';
 import 'workout_idle.dart';
+import 'zone_alert.dart';
 import 'package:uuid/uuid.dart';
 
 /// The onboarding/app gate states, in order. See [AppState.route].
@@ -1185,6 +1186,27 @@ class AppState extends ChangeNotifier {
     }
     notifyListeners();
     if (on) await refreshAppStatus();
+  }
+
+  /// The live-workout HR-zone-crossing haptic (see [ZoneCrossingAlert]). Off
+  /// by default, and read fresh at [startWorkout] rather than watched mid-
+  /// session — flipping the switch while a session is already running takes
+  /// effect on the next one, same as every other session-start anchor.
+  bool get zoneAlertEnabled => Prefs.getBool(Prefs.zoneAlertEnabled, false);
+
+  Future<void> setZoneAlertEnabled(bool on) async {
+    Prefs.setBool(Prefs.zoneAlertEnabled, on);
+    notifyListeners();
+  }
+
+  /// The zone (1..5) the crossing alert watches. Clamped on read so a stray
+  /// value can never hand [ZoneCrossingAlert] a target outside the table.
+  int get zoneAlertTargetZone =>
+      Prefs.getInt(Prefs.zoneAlertTargetZone, 3).clamp(1, 5);
+
+  Future<void> setZoneAlertTargetZone(int zone) async {
+    Prefs.setInt(Prefs.zoneAlertTargetZone, zone.clamp(1, 5));
+    notifyListeners();
   }
 
   /// Re-poll the update pointer (best-effort; called on launch and on app resume).
@@ -3069,6 +3091,13 @@ class AppState extends ChangeNotifier {
   // Snapshot of the RAW session total at the moment a manual workout started, so
   // the live-session screen shows steps FOR THIS WORKOUT (not since connection).
   int? _workoutRawBase;
+
+  /// The debounced HR-zone-crossing watch for the active session, or null
+  /// when [zoneAlertEnabled] was off at start (or the session has none —
+  /// same "session-scoped, reset on both teardown paths" shape as
+  /// [_workoutRawBase] above, rather than living on [LiveWorkoutState] itself,
+  /// so arming it needs no change to that class's constructor.
+  ZoneCrossingAlert? _zoneAlert;
 
   /// Whether ANY gait-capable accel sample has reached us since the active
   /// workout began, so [workoutStepsMeasured] can tell "did not move" apart
@@ -5712,6 +5741,8 @@ class AppState extends ChangeNotifier {
     _workoutRawBase = _liveRaw;
     _workoutSawSamples = false;
     _workoutMinuteSteps.clear();
+    _zoneAlert =
+        zoneAlertEnabled ? ZoneCrossingAlert(targetZone: zoneAlertTargetZone) : null;
     // A first night may have been derived since init. This read finishes
     // after the session below is constructed, so it back-fills the anchor on
     // `activeWorkout` when it lands rather than blocking the start.
@@ -5980,6 +6011,9 @@ class AppState extends ChangeNotifier {
           _workoutRawBase = _liveRaw;
           _workoutSawSamples = false;
           _workoutMinuteSteps.clear();
+          _zoneAlert = zoneAlertEnabled
+              ? ZoneCrossingAlert(targetZone: zoneAlertTargetZone)
+              : null;
     // A first night may have been derived since init. This read finishes
     // after the session below is constructed, so it back-fills the anchor on
     // `activeWorkout` when it lands rather than blocking the start.
@@ -6131,6 +6165,7 @@ class AppState extends ChangeNotifier {
     _workoutRawBase = null;
     _workoutSawSamples = false;
     _workoutMinuteSteps.clear();
+    _zoneAlert = null;
     notifyListeners();
     _log(
       finalKcal == null
@@ -6178,6 +6213,7 @@ class AppState extends ChangeNotifier {
     _workoutRawBase = null;
     _workoutSawSamples = false;
     _workoutMinuteSteps.clear();
+    _zoneAlert = null;
     LiveActivity.end();
   }
 
@@ -6357,6 +6393,16 @@ class AppState extends ChangeNotifier {
       // Per-zone time: one tick ≈ one second in the current zone (persisted as
       // zone_min at stop — this is what feeds the Time-in-Zones bar).
       if (hr > 0) w.zoneSeconds[_zoneFor(hr)] += 1;
+    }
+
+    // HR-zone-crossing haptic (opt-in, see [zoneAlertEnabled]). Skipped
+    // entirely on a null [hr] — same "absent stays absent" rule the peak and
+    // zone-seconds tally above follow — rather than feeding it as zone 0: a
+    // few-second link blip would otherwise read as "left the target zone"
+    // and buzz twice for a connection hiccup that was never a real crossing.
+    final alert = _zoneAlert;
+    if (alert != null && hr != null && alert.onTick(DateTime.now(), _zoneFor(hr))) {
+      unawaited(engine.buzz());
     }
 
     // Forgotten-session watch: judged against the SAME gate calories bill

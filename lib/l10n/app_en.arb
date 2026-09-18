@@ -11131,6 +11131,27 @@
   "@settingsAlarmRowSub": {
     "description": "Settings row subtitle describing the band alarm"
   },
+  "settingsZoneAlertRowTitle": "HR zone alert",
+  "@settingsZoneAlertRowTitle": {
+    "description": "Settings row title for the live-workout HR zone crossing haptic"
+  },
+  "settingsZoneAlertRowSub": "Buzz when your heart rate crosses into or out of the target zone during a live workout",
+  "@settingsZoneAlertRowSub": {
+    "description": "Settings row subtitle for the HR zone alert toggle"
+  },
+  "settingsZoneAlertTargetRowTitle": "Target zone",
+  "@settingsZoneAlertTargetRowTitle": {
+    "description": "Settings row title for picking which HR zone the alert watches"
+  },
+  "settingsZoneAlertTargetRowValue": "Zone {zone}",
+  "@settingsZoneAlertTargetRowValue": {
+    "description": "Value shown on the target-zone row, e.g. Zone 3",
+    "placeholders": {
+      "zone": {
+        "type": "int"
+      }
+    }
+  },
   "settingsGroupThisPhone": "This phone",
   "@settingsGroupThisPhone": {
     "description": "Settings group heading for phone-side sensing rows"
