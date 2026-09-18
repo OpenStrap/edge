@@ -657,29 +657,38 @@ class ImportReport extends StatelessWidget {
       );
     }
     // A journal or lab CSV writes no days, so the old headline read "0 days
-    // imported" over a successful import of 300 notes / results. Whichever of
-    // days/journal/labs actually landed becomes the headline; the labs count
-    // folds into `also` whenever it isn't (mirrors how journal used to, before
-    // labs existed, only ever being the headline or nothing).
-    final headline = o.days > 0
-        ? l?.welcomeDaysImported(o.days) ??
-            '${o.days} day${o.days == 1 ? '' : 's'} imported'
-        : o.journalRows > 0
-            ? l?.welcomeJournalDaysWritten(o.journalRows) ??
-                '${o.journalRows} journal '
-                    'day${o.journalRows == 1 ? '' : 's'} written'
-            : l?.welcomeLabResultsWritten(o.labRows) ??
-                '${o.labRows} lab result${o.labRows == 1 ? '' : 's'} written';
-    final also = [
-      if (o.workouts > 0) l?.welcomeWorkoutsCount(o.workouts) ??
-          '${o.workouts} workout${o.workouts == 1 ? '' : 's'}',
-      if (o.skippedDays > 0) l?.welcomeDaysAlreadyMeasured(o.skippedDays) ??
-          '${o.skippedDays} day${o.skippedDays == 1 ? '' : 's'} already measured '
-              'here and left alone',
-      if (o.labRows > 0 && (o.days > 0 || o.journalRows > 0))
-        l?.welcomeLabResultsWritten(o.labRows) ??
-            '${o.labRows} lab result${o.labRows == 1 ? '' : 's'} written',
-    ];
+    // imported" over a successful import of 300 notes / results.
+    // Whichever of these is the FIRST positive one becomes the headline;
+    // every other positive one folds into `also`. A vendor export with only
+    // a workouts.csv selected lands 0 days, 0 journal rows and 0 lab rows, so
+    // falling all the way through to "0 lab results written" used to be the
+    // answer for that case too (with "journal" in place of "lab", before labs
+    // existed) — `nothingLanded` already guarantees at least one is positive.
+    final days = o.days > 0
+        ? l?.welcomeDaysImported(o.days) ?? '${o.days} day${o.days == 1 ? '' : 's'} imported'
+        : null;
+    final journal = o.journalRows > 0
+        ? l?.welcomeJournalDaysWritten(o.journalRows) ??
+            '${o.journalRows} journal day${o.journalRows == 1 ? '' : 's'} written'
+        : null;
+    final labs = o.labRows > 0
+        ? l?.welcomeLabResultsWritten(o.labRows) ??
+            '${o.labRows} lab result${o.labRows == 1 ? '' : 's'} written'
+        : null;
+    final workouts = o.workouts > 0
+        ? l?.welcomeWorkoutsCount(o.workouts) ??
+            '${o.workouts} workout${o.workouts == 1 ? '' : 's'}'
+        : null;
+    final skipped = o.skippedDays > 0
+        ? l?.welcomeDaysAlreadyMeasured(o.skippedDays) ??
+            '${o.skippedDays} day${o.skippedDays == 1 ? '' : 's'} already measured '
+                'here and left alone'
+        : null;
+    final headline = [days, journal, labs, workouts, skipped].firstWhere((c) => c != null)!;
+    // journal is NEVER folded in here — when it isn't the headline, days > 0
+    // means it gets its own "N journal days REPLACED" line below instead (a
+    // different fact: a journal CSV always replaces, on any day it names).
+    final also = [labs, workouts, skipped].whereType<String>().where((c) => c != headline).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Surface(
         child: Row(children: [
