@@ -30,6 +30,7 @@ import '../ui2.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'metric_detail.dart';
+import 'naps.dart';
 import 'rough_night.dart';
 
 /// Nights of history before a personal normal is claimed at all. Below this the
@@ -594,10 +595,12 @@ class _SleepDetailState extends State<SleepDetail> {
   /// anywhere in the app, so the derive engine's user-window restage path could
   /// never run and a mis-staged night was uncorrectable.
   ///
-  /// NAP EDITS ARE DELIBERATELY NOT HERE. `applyNapEdits` reads a `nap_edits`
-  /// table that nothing in the app writes either; a control that appeared to
-  /// edit naps while the edits went nowhere would be worse than the absence.
-  /// It needs a writer first.
+  /// Naps have their own screen and their own table (`sleep_nap`, with a real
+  /// writer — `LocalDb.putNapEdit`/`deleteNapEdit`), reached from the Health
+  /// screen's nap row. They are not folded into this card: a night's window
+  /// is one thing you either confirm or move, naps are a list you add to and
+  /// remove from, and `_editWindow` below only ever asks two time pickers for
+  /// one pair of times — the wrong shape for "how many, which ones".
   List<Widget>? _windowCard(
       BuildContext c, P p, SleepData d, Map<String, dynamic> n) {
     final l = AppLocalizations.of(c);
@@ -681,6 +684,12 @@ class _SleepDetailState extends State<SleepDetail> {
             TextButton(
               onPressed: busy ? null : () => _rejectWindow(day),
               child: Text(l?.sleepDetailNotSleep ?? 'Not sleep'),
+            ),
+            // Naps live on their own screen with their own writer; this is
+            // the door to it from the night someone is already looking at.
+            TextButton(
+              onPressed: busy ? null : () => go(c, NapsScreen(day: day)),
+              child: Text(l?.sleepDetailEditNaps ?? 'Naps'),
             ),
           ]),
           if (busy) ...[

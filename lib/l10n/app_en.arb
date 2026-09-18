@@ -8436,6 +8436,10 @@
   "@sleepDetailNotSleep": {
     "description": "Button: reject this window entirely — it was not sleep at all."
   },
+  "sleepDetailEditNaps": "Naps",
+  "@sleepDetailEditNaps": {
+    "description": "Button: go to the Naps screen for this day, to log or remove a nap."
+  },
   "sleepDetailRejectedTitle": "Marked as not sleep",
   "@sleepDetailRejectedTitle": {
     "description": "Status card title for a night the user rejected outright as not sleep."
