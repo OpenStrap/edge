@@ -2610,6 +2610,12 @@ class LocalDb {
   /// same day can be synced repeatedly as it fills in. So the phone sync is
   /// delete-then-insert scoped to `source = 'phone'`, which is idempotent by
   /// construction and needs no window-clipping. Band rows are untouched.
+  ///
+  /// A `steps == 0` window IS stored, deliberately — it is not "nothing to
+  /// say", it is the phone confirming it saw no motion over that hour, which
+  /// `resolveDaySteps`'s confirmed-still check uses to veto a wrist
+  /// false-positive over the same window. Only a negative count (never
+  /// produced by the reader) or an inverted window is dropped.
   static Future<void> replacePhoneCoverageForDay(
     String day,
     List<({int startTs, int endTs, int steps})> windows,
@@ -2622,7 +2628,7 @@ class LocalDb {
         whereArgs: [day, kStepSourcePhone],
       );
       for (final w in windows) {
-        if (w.steps <= 0 || w.endTs <= w.startTs) continue;
+        if (w.steps < 0 || w.endTs <= w.startTs) continue;
         await txn.insert('live_coverage', {
           'start_ts': w.startTs,
           'end_ts': w.endTs,

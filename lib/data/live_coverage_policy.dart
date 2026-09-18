@@ -179,6 +179,83 @@ LiveCoverageWindow? deriveLiveCoverageWindow({
 /// somewhere else on this axis.
 const double kBandSpanMinSpm = 10.0;
 
+/// Floor a BAND span must clear to survive overlapping an hour the PHONE
+/// confirms was motionless (a `steps == 0` phone row — see
+/// [LocalDb.replacePhoneCoverageForDay]).
+///
+/// [kBandSpanMinSpm] alone does not reject the exact failure this codebase's
+/// own OxWalk citation warns about: 22-27 FALSE steps/min at the wrist during
+/// dishes and driving — comfortably above 10. Nothing used to compete against
+/// that span at all, because a confirmed-zero hour was never persisted (see
+/// the phone sync's old `n <= 0` skip), so it was credited in full and summed
+/// straight onto the phone's real count — issue #366's "adding the phone's
+/// steps to the strap's steps" on a WHOOP 4, whose only step source outside a
+/// tracked walk/run IS this passive-wear arm-motion counter.
+///
+/// Set above the measured false-positive ceiling (27 spm) with margin, and
+/// comfortably below real walking cadence (60+ spm), so a genuine walk the
+/// phone missed for an unrelated reason (left at home, still in a bag) keeps
+/// its steps — the phone's zero only overrides density in the range that is
+/// itself evidence of arm work, not gait.
+const double kConfirmedStillMinSpm = 40.0;
+
+/// Drop the portion of any BAND span that overlaps an hour the phone
+/// confirms was motionless, unless that span's own density already looks
+/// like real gait ([kConfirmedStillMinSpm]). Phone rows are passed through
+/// unchanged — this only ever removes band credit, never adds any.
+///
+/// Pure pre-pass ahead of the ranking loop below, so the ladder itself (and
+/// every test pinned against it) is untouched for every day that has no
+/// confirmed-zero phone hour at all.
+List<CoverageSpan> _vetoAgainstConfirmedStill(List<CoverageSpan> rows) {
+  final stillWindows = [
+    for (final r in rows)
+      if (!r.fromBand && r.steps == 0 && r.endTs > r.startTs) r,
+  ];
+  if (stillWindows.isEmpty) return rows;
+  // ponytail: sums overlap against every still window rather than merging
+  // them first, so two OVERLAPPING zero-phone rows over the same band span
+  // would double-void it. Phone rows are hourly and non-overlapping by
+  // construction (`replacePhoneCoverageForDay` is delete-then-insert per
+  // day), so this cannot happen today; merge stillWindows first if that ever
+  // changes (e.g. sub-hour phone buckets).
+  final out = <CoverageSpan>[];
+  for (final r in rows) {
+    if (!r.fromBand || r.steps <= 0 || r.endTs <= r.startTs) {
+      out.add(r);
+      continue;
+    }
+    final dur = r.endTs - r.startTs;
+    final spm = r.steps * 60 / dur;
+    if (spm >= kConfirmedStillMinSpm) {
+      out.add(r); // looks like real gait — the phone's zero does not win
+      continue;
+    }
+    var voidedSec = 0;
+    for (final z in stillWindows) {
+      final int lo = math.max(r.startTs, z.startTs);
+      final int hi = math.min(r.endTs, z.endTs);
+      if (hi > lo) voidedSec += hi - lo;
+    }
+    if (voidedSec <= 0) {
+      out.add(r);
+      continue;
+    }
+    final keptSec = math.max(0, dur - voidedSec);
+    if (keptSec <= 0) continue; // fully inside a confirmed-still hour — drop
+    final keptSteps = (r.steps * keptSec / dur).round();
+    if (keptSteps <= 0) continue;
+    out.add(CoverageSpan(
+      startTs: r.startTs,
+      endTs: r.endTs,
+      steps: keptSteps,
+      fromBand: true,
+      deviceId: r.deviceId,
+    ));
+  }
+  return out;
+}
+
 /// One `live_coverage` row, as the resolver sees it.
 class CoverageSpan {
   const CoverageSpan({
@@ -266,7 +343,7 @@ class _Ranked {
 // ever carries thousands, sort by start and sweep instead.
 ResolvedDaySteps resolveDaySteps(Iterable<CoverageSpan> rows) {
   final spans = <_Ranked>[];
-  for (final r in rows) {
+  for (final r in _vetoAgainstConfirmedStill(rows.toList())) {
     // Legacy zero-width rows are real counts with a lost extent; repair them
     // the same way the writer does rather than dropping a measurement.
     final w = sanitizeCoverageWindow(r.startTs, r.endTs, r.steps);

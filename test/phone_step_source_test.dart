@@ -100,17 +100,22 @@ void main() {
     expect(await LocalDb.liveStepsForDay(day), 0);
   });
 
-  test('zero/negative/inverted phone windows are dropped, not stored',
-      () async {
+  test('a zero phone window IS stored (confirmed-still evidence); inverted '
+      'ones are dropped', () async {
     await LocalDb.replacePhoneCoverageForDay(
       day,
       [
-        (startTs: 1000, endTs: 4600, steps: 0), // no steps that hour
+        (startTs: 1000, endTs: 4600, steps: 0), // confirmed motionless hour
         (startTs: 5000, endTs: 4000, steps: 50), // inverted
         (startTs: 6000, endTs: 9600, steps: 75), // the only real one
       ],
     );
     expect(await LocalDb.liveStepsForDay(day), 75);
+    final r = await LocalDb.resolvedStepsForDay(day);
+    // The zero row itself never appears as a credited span (it carries no
+    // steps to show), but it must have reached the table — see
+    // live_coverage_policy_test.dart for what it does once there.
+    expect(r.spans.map((s) => s.steps), [75]);
   });
 
   test('clearing phone coverage falls back to the band, not to zero', () async {
