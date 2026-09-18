@@ -192,20 +192,21 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await PairedDevice.save(paired.remoteId, paired.serial, generation: gen);
     }
     try {
-      // Read the schedule + currently-armed epoch BEFORE planNow, not after
-      // (as it used to be arranged below) — HighFreqWakeWindow needs the
-      // window of the alarm that's imminent, not the one about to be armed
-      // next by the re-arm block further down. Nothing between this read and
-      // that re-arm block writes 'alarm_epoch', so reading it here is the
-      // same value the old code read there.
-      final schedule = fillDefaultAlarmSchedule([
+      // Read the schedule + currently-armed epoch for the HighFreq window
+      // check ONLY — HighFreqWakeWindow needs the window of the alarm that's
+      // imminent right now, before the (possibly long) sync below runs. This
+      // read is NOT reused for the re-arm block further down: `runSync()` can
+      // take a while, and re-reading fresh there (as the old code did) avoids
+      // arming a stale schedule if the user edits it mid-sync (see PR #403).
+      final preSyncSchedule = fillDefaultAlarmSchedule([
         for (final r in await LocalDb.alarmScheduleRows())
           AlarmScheduleEntry.fromRow(r),
       ]);
-      final prefs = await SharedPreferences.getInstance();
-      final armedEpoch = prefs.getInt('alarm_epoch');
-      final armedWindow =
-          armedSmartWakeWindow(epoch: armedEpoch, schedule: schedule);
+      final preSyncPrefs = await SharedPreferences.getInstance();
+      final armedWindow = armedSmartWakeWindow(
+        epoch: preSyncPrefs.getInt('alarm_epoch'),
+        schedule: preSyncSchedule,
+      );
       final plan = await HighFreqWakeWindow.planNow(
         scheduledWindowEnd: armedWindow?.windowEnd,
         scheduledWindowMinutes: armedWindow?.minutes ?? 0,
@@ -233,12 +234,19 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       // connect AND after each headless sync". No AppState here, so the
       // schedule read and the `alarm_epoch` persistence go straight through
       // LocalDb/SharedPreferences — the same store the foreground path uses,
-      // so whichever side runs next sees a consistent value.
+      // so whichever side runs next sees a consistent value. Re-read fresh
+      // here (not the pre-sync copies above) in case the user changed the
+      // schedule while `runSync()` was draining.
       try {
+        final schedule = fillDefaultAlarmSchedule([
+          for (final r in await LocalDb.alarmScheduleRows())
+            AlarmScheduleEntry.fromRow(r),
+        ]);
+        final prefs = await SharedPreferences.getInstance();
         final result = await armNextScheduledOccurrence(
           engine: engine,
           schedule: schedule,
-          currentArmedEpoch: armedEpoch,
+          currentArmedEpoch: prefs.getInt('alarm_epoch'),
         );
         if (result.disabled) {
           await prefs.remove('alarm_epoch');
