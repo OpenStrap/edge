@@ -3796,6 +3796,7 @@ class AppState extends ChangeNotifier {
   }
 
   void _onEngineState(String deviceId, DeviceState s) {
+    if (_resetting) return; // see [_resetting]
     _appendLiveHr(deviceId, s.liveHr, s.liveHrAt);
     // Bank the name the moment the band says it, so it survives the
     // disconnect. Written through `cleanDeviceLabel` for the same reason the

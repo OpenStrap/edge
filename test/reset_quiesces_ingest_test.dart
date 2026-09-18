@@ -64,6 +64,19 @@ void main() {
         reason: '_onLiveEvent must refuse before it writes');
   });
 
+  test('_onEngineState refuses while a reset is in flight', () {
+    // The device-state path — battery %, charging, wrist-on, generation —
+    // wired straight to LocalDb.upsertDevice/insertBandBatterySample just
+    // like _onLiveEvent above, and was missing this guard: a DeviceState
+    // notification landing after ResetGate.enter() but before the band
+    // disconnects would resurrect a deleted device/band_battery row.
+    final onEngineState = RegExp(
+      r'void _onEngineState\([^)]*\) \{\s*\n\s*if \(_resetting\) return;',
+    );
+    expect(onEngineState.hasMatch(src), isTrue,
+        reason: '_onEngineState must refuse before it writes');
+  });
+
   test('insertRecordsBatch is never handed over as a bare tear-off', () {
     // `onRecordsBatch: LocalDb.insertRecordsBatch` is the shape of the bug:
     // it hands the database straight to the engine with nothing in between.
