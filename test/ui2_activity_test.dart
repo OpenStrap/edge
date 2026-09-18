@@ -32,6 +32,7 @@ import 'package:openstrap_edge/ui2/activity/summary.dart';
 import 'package:openstrap_edge/ui2/activity/zones.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ── deterministic fixtures ─────────────────────────────────────────────────
@@ -1604,6 +1605,43 @@ void main() {
       expect(find.text('320'), findsOneWidget); // volume
       expect(find.text('40 kg × 8'), findsWidgets);
       expect(find.textContaining('RESTING'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'imperial: the stepper shows lb, steps by a clean 5 lb plate, and '
+        'volume totals in lb — never kg', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(_frame(
+          ChangeNotifierProvider<UnitsController>.value(
+              value: UnitsController.seed(UnitSystem.imperial),
+              child: liveFor(activityByName('weight_training')!,
+                  weightKg: 72.4)),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      // Default entry is 40 kg, shown as its lb rounding — never "40 kg".
+      expect(find.text('88'), findsOneWidget);
+      expect(find.text('kg'), findsNothing);
+      expect(find.text('lb'), findsWidgets);
+
+      // One tap steps a clean 5 lb (not a raw 2.5 kg → 5.5 lb conversion).
+      await tester.tap(find.bySemanticsLabel('WEIGHT up'));
+      await tester.pump();
+      expect(find.text('93'), findsOneWidget);
+
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      expect(find.text('93 lb × 8'), findsWidgets);
+      // Volume = (40 kg + one 5 lb step, in kg) × 8 reps, shown in lb.
+      final u = UnitsController.seed(UnitSystem.imperial);
+      final loggedKg = 40.0 + u.loadStepKg(2.5);
+      expect(find.text(u.weightValue(loggedKg * 8).round().toString()),
+          findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 

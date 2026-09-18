@@ -1325,13 +1325,20 @@ class _LiveStrengthState extends State<LiveStrength> {
   Widget build(BuildContext c) {
     final volume = log.volumeKg;
     final l = AppLocalizations.of(c);
+    final u = unitsOf(c);
+    // Localized template bakes "KG" in — safe for metric (correct unit), but
+    // imperial bypasses it rather than mislabel a pound figure as kilos; see
+    // the same call at [_body] below.
     return LiveShell(
       widget.a,
       subtitle: volume == null
           ? (l?.activityLiveSetsCountSubtitle(log.setCount) ??
               '${log.setCount} SETS')
-          : (l?.activityLiveVolumeSetsSubtitle(grouped(volume), log.setCount) ??
-              '${grouped(volume)} KG · ${log.setCount} SETS'),
+          : (u?.isImperial == true
+              ? '${grouped(u!.weightValue(volume))} ${u.weightUnit.toUpperCase()} · '
+                  '${log.setCount} SETS'
+              : (l?.activityLiveVolumeSetsSubtitle(grouped(volume), log.setCount) ??
+                  '${grouped(volume)} KG · ${log.setCount} SETS')),
       private: widget.private,
       weightKg: widget.weightKg,
       onFinish: widget.onFinish,
@@ -1376,6 +1383,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   Widget _body(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
+    final u = unitsOf(c);
     final volume = log.volumeKg;
     final hist = widget.history[key];
     return Column(children: [
@@ -1384,10 +1392,14 @@ class _LiveStrengthState extends State<LiveStrength> {
         Expanded(
             child: _total(
                 p,
-                volume == null ? (l?.activityLiveBwAbbrev ?? 'BW') : grouped(volume),
+                volume == null
+                    ? (l?.activityLiveBwAbbrev ?? 'BW')
+                    : grouped(u?.weightValue(volume) ?? volume),
                 volume == null
                     ? (l?.activityLiveBodyweightOnly ?? 'bodyweight only')
-                    : (l?.activityLiveKgVolumeUnit ?? 'kg volume'))),
+                    : (u?.isImperial == true
+                        ? '${u!.weightUnit} volume'
+                        : (l?.activityLiveKgVolumeUnit ?? 'kg volume')))),
         Container(width: 1, height: 26, color: p.line),
         Expanded(child: _total(p, '${log.setCount}', l?.activityLiveSetsUnit ?? 'sets')),
         Container(width: 1, height: 26, color: p.line),
@@ -1495,7 +1507,8 @@ class _LiveStrengthState extends State<LiveStrength> {
                             ? (l?.activityLiveRepsBodyweightRow(
                                     setsHere[i].reps) ??
                                 '${setsHere[i].reps} reps · bodyweight')
-                            : '${_fmt(setsHere[i].loadKg!)} kg × '
+                            : '${_fmt(setsHere[i].loadKg!, u)} '
+                                '${u?.weightUnit ?? 'kg'} × '
                                 '${setsHere[i].reps}',
                         style: F.body.copyWith(color: p.ink)),
                   ),
@@ -1504,7 +1517,8 @@ class _LiveStrengthState extends State<LiveStrength> {
                         style: F.cap.copyWith(color: p.ink3)),
                   if (setsHere[i].volume != null) ...[
                     const SizedBox(width: S.x3),
-                    Text('${grouped(setsHere[i].volume!)} kg',
+                    Text('${grouped(u?.weightValue(setsHere[i].volume!) ?? setsHere[i].volume!)} '
+                        '${u?.weightUnit ?? 'kg'}',
                         style: F.cap.copyWith(
                             color: p.ink2, fontWeight: FontWeight.w600)),
                   ],
@@ -1536,16 +1550,17 @@ class _LiveStrengthState extends State<LiveStrength> {
 
   List<Widget> _entry(P p, BuildContext c) {
     final l = AppLocalizations.of(c);
+    final u = unitsOf(c);
+    final stepKg = u?.loadStepKg(def?.step ?? 2.5) ?? (def?.step ?? 2.5);
     return [
         _stepper(
             c,
             p,
             l?.activityLiveWeightLabel ?? 'WEIGHT',
-            bodyweight ? (l?.activityLiveBwAbbrev ?? 'BW') : _fmt(kg),
-            bodyweight ? '' : 'kg',
-            () => setState(() =>
-                kg = (kg - (def?.step ?? 2.5)).clamp(0, 500).toDouble()),
-            () => setState(() => kg = kg + (def?.step ?? 2.5))),
+            bodyweight ? (l?.activityLiveBwAbbrev ?? 'BW') : _fmt(kg, u),
+            bodyweight ? '' : (u?.weightUnit ?? 'kg'),
+            () => setState(() => kg = (kg - stepKg).clamp(0, 500).toDouble()),
+            () => setState(() => kg = kg + stepKg)),
         const SizedBox(height: S.x3),
         Pressable(
           onTap: () => setState(() => bodyweight = !bodyweight),
@@ -1595,6 +1610,7 @@ class _LiveStrengthState extends State<LiveStrength> {
 
   Widget _rest_(P p, BuildContext c) {
     final l = AppLocalizations.of(c);
+    final u = unitsOf(c);
     return Column(children: [
         Text(l?.activityLiveRestingHeader ?? 'RESTING',
             style: F.over.copyWith(color: p.on(C.teal))),
@@ -1615,10 +1631,14 @@ class _LiveStrengthState extends State<LiveStrength> {
                         ? (l?.activityLiveRepsLoggedBodyweight(
                                 logged.last.reps) ??
                             '${logged.last.reps} reps logged')
-                        : (l?.activityLiveWeightRepsLogged(
-                                _fmt(logged.last.loadKg!), logged.last.reps) ??
-                            '${_fmt(logged.last.loadKg!)} kg × '
-                                '${logged.last.reps} logged'),
+                        : (u?.isImperial == true
+                            ? '${_fmt(logged.last.loadKg!, u)} '
+                                '${u!.weightUnit} × ${logged.last.reps} logged'
+                            : (l?.activityLiveWeightRepsLogged(
+                                    _fmt(logged.last.loadKg!),
+                                    logged.last.reps) ??
+                                '${_fmt(logged.last.loadKg!)} kg × '
+                                    '${logged.last.reps} logged')),
                     style: F.cap.copyWith(color: p.ink3)),
             ]),
           ]),
@@ -1652,6 +1672,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   Widget _ref(BuildContext c, P p, String label, LoggedSet? s,
       {bool gold = false}) {
     final l = AppLocalizations.of(c);
+    final u = unitsOf(c);
     return Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x3),
         child: Column(children: [
@@ -1670,15 +1691,19 @@ class _LiveStrengthState extends State<LiveStrength> {
                   ? (l?.activityLiveNoneYet ?? 'None yet')
                   : s.loadKg == null
                       ? (l?.activityLiveRepsOnly(s.reps) ?? '${s.reps} reps')
-                      : '${_fmt(s.loadKg!)} kg × ${s.reps}',
+                      : '${_fmt(s.loadKg!, u)} ${u?.weightUnit ?? 'kg'} × ${s.reps}',
               style: F.cap
                   .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
         ]),
       );
   }
 
-  String _fmt(double d) =>
-      d == d.roundToDouble() ? d.round().toString() : d.toStringAsFixed(1);
+  /// [d] is always in kg (storage unit); [u] converts + rounds for display
+  /// the same way its edit-field does. Null [u] (a golden, or no unit
+  /// context) shows metric untouched.
+  String _fmt(double d, [UnitsController? u]) =>
+      u?.weightField(d) ??
+      (d == d.roundToDouble() ? d.round().toString() : d.toStringAsFixed(1));
 }
 
 // ══════════════ SWIMMING — laps are counted, not measured ══════════════

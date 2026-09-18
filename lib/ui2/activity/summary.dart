@@ -1144,8 +1144,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   'Nothing was logged with a load'
             )
           : (
-              grouped(r.strength.volumeKg!),
-              'kg',
+              grouped(_u?.weightValue(r.strength.volumeKg!) ??
+                  r.strength.volumeKg!),
+              _u?.weightUnit ?? 'kg',
               r.strength.hasUnloadedSets
                   ? (l?.activitySummaryVolumeLoadedSets ??
                       'Volume of the loaded sets')
@@ -1636,9 +1637,12 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                           Row(children: [
                             Flexible(
                                 child: Text(
-                                    l?.activitySummaryOneRepMax(
-                                            rm!.round()) ??
-                                        '1RM estimate ${rm!.round()} kg',
+                                    _u?.isImperial == true
+                                        ? '1RM estimate '
+                                            '${_u!.weightValue(rm!).round()} lb'
+                                        : (l?.activitySummaryOneRepMax(
+                                                rm!.round()) ??
+                                            '1RM estimate ${rm!.round()} kg'),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: F.over.copyWith(color: p.ink3))),
@@ -1730,8 +1734,15 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     return [for (final z in r.zoneMinutes) z / total];
   }
 
-  String _kg(double v) =>
-      v == v.roundToDouble() ? '${v.round()} kg' : '${v.toStringAsFixed(1)} kg';
+  /// [v] is always in kg (storage unit); [_u] converts + rounds for display
+  /// the same way its edit-field does.
+  String _kg(double v) {
+    final u = _u;
+    if (u == null) {
+      return v == v.roundToDouble() ? '${v.round()} kg' : '${v.toStringAsFixed(1)} kg';
+    }
+    return '${u.weightField(v)} ${u.weightUnit}';
+  }
 
   // ─────────────────── SPLITS ───────────────────
   // "Splits" is whatever this archetype breaks into: kilometres for a run,
@@ -2014,7 +2025,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               style: F.cap.copyWith(color: p.ink3)),
         if (s.volume != null) ...[
           const SizedBox(width: S.x3),
-          Text('${grouped(s.volume!)} kg',
+          Text('${grouped(_u?.weightValue(s.volume!) ?? s.volume!)} '
+                  '${_u?.weightUnit ?? 'kg'}',
               style: F.cap
                   .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
         ],
