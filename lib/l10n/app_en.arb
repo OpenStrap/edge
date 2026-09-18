@@ -9771,6 +9771,34 @@
   "@activityZonesAnchorDefault": {
     "description": "Generic fallback explanation of what zone edges are"
   },
+  "activityZonesAnchorManual": "Set by you, not computed — these five thresholds override whatever your age or a measured ceiling would have given you.",
+  "@activityZonesAnchorManual": {
+    "description": "Explanation shown when the user's own manual zone boundaries are in effect"
+  },
+  "activityZonesSetYourOwnLink": "Set your own zones",
+  "@activityZonesSetYourOwnLink": {
+    "description": "Link opening the manual zone-boundary editor, shown when no manual override is set"
+  },
+  "activityZonesEditYourOwnLink": "Edit your own zones",
+  "@activityZonesEditYourOwnLink": {
+    "description": "Link opening the manual zone-boundary editor, shown when a manual override is already set"
+  },
+  "activityZonesEditYourOwnTitle": "Set your own zones",
+  "@activityZonesEditYourOwnTitle": {
+    "description": "Title of the manual zone-boundary editor sheet"
+  },
+  "activityZonesEditYourOwnBody": "Five bpm thresholds, lowest to highest — where each zone starts. Clear all five to go back to the zones we compute for you.",
+  "@activityZonesEditYourOwnBody": {
+    "description": "Explanation text in the manual zone-boundary editor sheet"
+  },
+  "activityZonesNeedAllFive": "All five thresholds are needed, lowest to highest. Nothing was saved.",
+  "@activityZonesNeedAllFive": {
+    "description": "Error shown when only some of the five manual zone fields were filled in"
+  },
+  "activityZonesMustAscend": "Each zone must start higher than the last. Nothing was saved.",
+  "@activityZonesMustAscend": {
+    "description": "Error shown when the five manual zone thresholds are not strictly ascending"
+  },
   "activityZonesNotShownTitle": "Not shown yet",
   "@activityZonesNotShownTitle": {
     "description": "Status card title when the 28-day intensity distribution is not yet shown"

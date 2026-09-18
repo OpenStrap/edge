@@ -153,6 +153,92 @@ void main() {
     });
   });
 
+  // ── manual zone override — wins outright, and only when well-formed ────────
+  group('manual zone override', () {
+    test('five ascending thresholds win outright, ignoring age and ceiling',
+        () {
+      final z = trainingZones(
+        age: 30,
+        deviceFamily: 'gen4',
+        observedCeilingBpm: 196,
+        restingHrHistory: List<double>.filled(28, 50),
+        manualZoneLowerBpm: [100, 120, 140, 160, 180],
+      )!;
+      expect(z.source, 'manual');
+      expect(z.zones.map((zone) => zone.lower), [100, 120, 140, 160, 180]);
+      expect(z.zones[0].upper, 120);
+      expect(z.zones.last.upper, double.infinity); // Z5 is open-ended
+      expect(z.zoneNumber(190), 5);
+      expect(z.zoneNumber(90), 0);
+    });
+
+    test('works with no age and no ceiling at all — the point of an override',
+        () {
+      final z = trainingZones(manualZoneLowerBpm: [90, 110, 130, 150, 170])!;
+      expect(z.source, 'manual');
+    });
+
+    test('null override falls through to the computed set', () {
+      final z = trainingZones(age: 30, deviceFamily: 'gen4')!;
+      expect(z.source, 'tanaka');
+    });
+
+    test('wrong length falls through rather than half-applying', () {
+      final z = trainingZones(
+        age: 30,
+        deviceFamily: 'gen4',
+        manualZoneLowerBpm: [100, 120, 140],
+      )!;
+      expect(z.source, 'tanaka');
+    });
+
+    group('manualZoneBoundsFromProfile', () {
+      test('reads five ascending bounds', () {
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [100, 120, 140, 160, 180],
+          }),
+          [100, 120, 140, 160, 180],
+        );
+      });
+
+      test('null profile, missing key, or wrong length ⇒ null', () {
+        expect(manualZoneBoundsFromProfile(null), isNull);
+        expect(manualZoneBoundsFromProfile({}), isNull);
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [100, 120, 140],
+          }),
+          isNull,
+        );
+      });
+
+      test('not strictly ascending ⇒ null, not clamped or sorted', () {
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [100, 120, 120, 160, 180],
+          }),
+          isNull,
+        );
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [180, 160, 140, 120, 100],
+          }),
+          isNull,
+        );
+      });
+
+      test('non-numeric entry ⇒ null', () {
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [100, 120, 'x', 160, 180],
+          }),
+          isNull,
+        );
+      });
+    });
+  });
+
   // ── TS-04 — the footnote a zone chart carries names the RIGHT anchors ─────
   //
   // The session summary hard-coded `kZonesWhy` while the day screen switched on

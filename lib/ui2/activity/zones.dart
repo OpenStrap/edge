@@ -23,11 +23,14 @@
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
 
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
+import '../../state/app_state.dart';
 import '../screens/home_screen.dart' show repoOf, monthName;
+import '../screens/journal_compose.dart' show OsTextField;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
 
@@ -190,6 +193,117 @@ class _ZonesDetailState extends State<ZonesDetail> {
     }
   }
 
+  /// Five ascending bpm thresholds, one per zone's lower edge — an override
+  /// that beats the computed karvonen/observed/tanaka set outright (see
+  /// [manualZoneBoundsFromProfile]). Leaving all five fields blank clears it
+  /// and falls straight back to the computed default; it is never discarded
+  /// silently, only when the user asks for the computed set back.
+  Future<void> _editManualZones(BuildContext c, ZonesData d) async {
+    final app = c.read<AppState>();
+    final current = (app.user?['hr_zone_bounds'] as List?)
+        ?.map((v) => (v as num).round())
+        .toList();
+    final names = d.zones.length == 5
+        ? [for (final z in d.zones) z.name]
+        : const ['Warm-up', 'Easy', 'Aerobic', 'Threshold', 'Max effort'];
+    final ctrls = [
+      for (var i = 0; i < 5; i++)
+        TextEditingController(
+            text: current != null && current.length == 5
+                ? '${current[i]}'
+                : ''),
+    ];
+    final l = AppLocalizations.of(c);
+    final saved = await showModalBottomSheet<bool>(
+      context: c,
+      isScrollControlled: true,
+      sheetAnimationStyle: sheetMotion(c),
+      backgroundColor: P.of(c).card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
+      ),
+      builder: (s) => Padding(
+        padding: EdgeInsets.only(
+            left: S.x5,
+            right: S.x5,
+            top: S.x5,
+            bottom: MediaQuery.of(s).viewInsets.bottom + S.x5),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(l?.activityZonesEditYourOwnTitle ?? 'Set your own zones',
+                style: F.head.copyWith(color: P.of(s).ink)),
+            const SizedBox(height: S.x2),
+            Text(
+              l?.activityZonesEditYourOwnBody ??
+                  'Five bpm thresholds, lowest to highest — where each zone '
+                      'starts. Clear all five to go back to the zones we '
+                      'compute for you.',
+              style: F.cap.copyWith(color: P.of(s).ink3, height: 1.4),
+            ),
+            const SizedBox(height: S.x4),
+            for (var i = 0; i < 5; i++) ...[
+              OsTextField(
+                controller: ctrls[i],
+                label: 'Z${i + 1} · ${names[i]} starts at',
+                hint: l?.activityZonesBpmUnit ?? 'bpm',
+                keyboard: TextInputType.number,
+              ),
+              const SizedBox(height: S.x3),
+            ],
+            const SizedBox(height: S.x2),
+            BigButton(l?.actionSave ?? 'Save',
+                color: C.red, onTap: () => Navigator.of(s).pop(true)),
+          ],
+        ),
+      ),
+    );
+    final typed = [for (final ctl in ctrls) Typed.of(ctl.text)];
+    for (final ctl in ctrls) {
+      ctl.dispose();
+    }
+    if (saved != true || !c.mounted) return;
+    final bad = [
+      for (var i = 0; i < 5; i++) if (typed[i].bad) 'Z${i + 1}',
+    ];
+    if (bad.isNotEmpty) {
+      sayUnreadable(c, bad);
+      return;
+    }
+    final allBlank = typed.every((t) => t.blank);
+    if (allBlank) {
+      await app.updateProfile({'hr_zone_bounds': null});
+      if (mounted) await _load();
+      return;
+    }
+    if (typed.any((t) => t.blank)) {
+      if (mounted) {
+        ScaffoldMessenger.of(c).showSnackBar(SnackBar(
+          content: Text(l?.activityZonesNeedAllFive ??
+              'All five thresholds are needed, lowest to highest. Nothing '
+                  'was saved.'),
+        ));
+      }
+      return;
+    }
+    final vals = [for (final t in typed) t.value!.round()];
+    for (var i = 1; i < vals.length; i++) {
+      if (vals[i] <= vals[i - 1]) {
+        if (mounted) {
+          ScaffoldMessenger.of(c).showSnackBar(SnackBar(
+            content: Text(l?.activityZonesMustAscend ??
+                'Each zone must start higher than the last. Nothing was '
+                    'saved.'),
+          ));
+        }
+        return;
+      }
+    }
+    await app.updateProfile({'hr_zone_bounds': vals});
+    if (mounted) await _load();
+  }
+
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
@@ -201,8 +315,21 @@ class _ZonesDetailState extends State<ZonesDetail> {
         const Center(child: CircularProgressIndicator()),
       ] else ...[
         _ceiling(p, l, d),
-        Section(l?.activityZonesYourZonesSection ?? 'Your zones',
-            _zones(p, l, d)),
+        Section(l?.activityZonesYourZonesSection ?? 'Your zones', _zones(p, l, d)),
+        const SizedBox(height: S.x2),
+        Pressable(
+          onTap: () => _editManualZones(context, d),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: S.x2),
+            child: Text(
+              d.source == 'manual'
+                  ? (l?.activityZonesEditYourOwnLink ?? 'Edit your own zones')
+                  : (l?.activityZonesSetYourOwnLink ?? 'Set your own zones'),
+              style: F.body.copyWith(
+                  color: p.on(C.red), fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
         ..._distribution(p, l, d),
       ],
     ]);
@@ -382,6 +509,10 @@ class _ZonesDetailState extends State<ZonesDetail> {
             'Built from $max bpm, estimated from your age rather than '
                 'measured on you — it can be 20 bpm out either way. The edges move '
                 'to a measured ceiling once the band sees a hard enough session.';
+      case 'manual':
+        return l?.activityZonesAnchorManual ??
+            'Set by you, not computed — these five thresholds override '
+                'whatever your age or a measured ceiling would have given you.';
       default:
         return l?.activityZonesAnchorDefault ??
             'Zone edges are percentages of a maximum heart rate.';

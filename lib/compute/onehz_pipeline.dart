@@ -31,7 +31,12 @@ import 'package:openstrap_analytics/onehz.dart';
 // normalisation has ONE definition across the pipeline and the coordinator
 // instead of two that can drift.
 import 'hr_max.dart'
-    show estimatedMaxHr, smoothedMaxHr, smoothedMinHr, trainingZones;
+    show
+        estimatedMaxHr,
+        manualZoneBoundsFromProfile,
+        smoothedMaxHr,
+        smoothedMinHr,
+        trainingZones;
 import 'profile.dart' show workoutSex;
 import 'step_cadence.dart' show cadenceSpmForMinutes;
 // Same argument: a pure `DateTime` lookup, no DB / IO / Flutter binding. It is
@@ -685,6 +690,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     deviceFamily: d.deviceFamily,
     observedCeilingBpm: d.observedHrCeilingBpm,
     restingHrHistory: d.rhrHistory,
+    manualZoneLowerBpm: manualZoneBoundsFromProfile(prof),
   );
   final rhrForTrimp = rhrToday ?? (prof['resting_hr'] as num?)?.toDouble();
   final weightKg = (prof['weight_kg'] as num?)?.toDouble();

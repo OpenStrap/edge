@@ -2383,6 +2383,7 @@ class LocalRepositoryImpl extends LocalRepository {
         deviceFamily: deviceFamily,
         observedCeilingBpm: a.observedCeilingBpm,
         restingHrHistory: a.restingHrHistory,
+        manualZoneLowerBpm: manualZoneBoundsFromProfile(getProfileMap()),
       );
 
   /// The two anchors [trainingZones] needs, read once per call chain.
@@ -3913,11 +3914,13 @@ class LocalRepositoryImpl extends LocalRepository {
             ana.calibrationFor(ana.hrCeilingMotionGateG, family) == null
         ? ana.unknownFamilyNote(family)
         : null;
+    final manualZoneBpm = manualZoneBoundsFromProfile(getProfileMap());
     final set = trainingZones(
       age: _profileAge(),
       deviceFamily: family,
       observedCeilingBpm: ceiling?.bpm,
       restingHrHistory: rhrHistory,
+      manualZoneLowerBpm: manualZoneBpm,
     );
     final measured = zonesAreMeasured(set?.source);
     // WHY there are no edges. This screen printed "Without your age or a strap
