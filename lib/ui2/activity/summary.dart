@@ -18,11 +18,18 @@
 // come from elsewhere (`workout_route`, `strength_set`) or not at all, and the
 // screen has to be honest about it without falling apart.
 
+import 'dart:convert' show utf8;
+import 'dart:typed_data' show Uint8List;
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../data/db.dart';
+import '../../gps/gpx_export.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_state.dart';
 import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../charts.dart';
@@ -878,6 +885,42 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (c.mounted && picked) Navigator.of(c).pop();
   }
 
+  /// Scoped export: the GPS route this phone already recorded, as a GPX file
+  /// handed to the OS share sheet — so it can be manually uploaded to Strava
+  /// or anywhere else that reads GPX. There is no Strava account involved:
+  /// no OAuth, no upload call, just a file.
+  Future<void> _exportGpx(BuildContext c) async {
+    final id = r.sessionId;
+    if (id == null) return;
+    final l = AppLocalizations.of(c);
+    final origin = shareOrigin(c);
+    final messenger = ScaffoldMessenger.of(c);
+    try {
+      final route = await c.read<AppState>().repo?.getWorkoutRoute(id);
+      if (route == null || route.points.length < 2) {
+        messenger.showSnackBar(SnackBar(
+            content: Text(l?.activitySummaryNoRouteBody ??
+                'Location was off, or this activity was not recorded with '
+                    'GPS.')));
+        return;
+      }
+      final gpx = buildGpx(route, name: a.name);
+      await Share.shareXFiles(
+        [
+          XFile.fromData(Uint8List.fromList(utf8.encode(gpx)),
+              mimeType: 'application/gpx+xml', name: '${a.typeKey}.gpx'),
+        ],
+        sharePositionOrigin: origin,
+      );
+    } catch (e) {
+      if (!c.mounted) return;
+      messenger.showSnackBar(SnackBar(
+          content: Text(
+              l?.activityShareOpenFailed ?? 'Could not open the share sheet.')));
+      debugPrint('gpx export failed: $e');
+    }
+  }
+
   Future<void> _retrySave() async {
     if (_saving) return;
     setState(() => _saving = true);
@@ -904,7 +947,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     // for a row that only ever draws one icon would shove the title left on
     // every unsaved-session summary for no reason.
     final canChangeType = r.sessionId != null;
+    // GPX export only makes sense for a session with an actual recorded
+    // route — offering it on a lift or a match would be a button that can
+    // only ever fail.
+    final canExportGpx = r.sessionId != null &&
+        (arch == Arch.route || arch == Arch.journey) &&
+        r.route.length >= 2;
     final l = AppLocalizations.of(c);
+    final iconCount = 1 + (canChangeType ? 1 : 0) + (canExportGpx ? 1 : 0);
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
@@ -914,11 +964,13 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             child: NavBar(
               a.name,
               sub: _shortDate(r.start).toUpperCase(),
-              // Two icons, each a Pressable with S.tap's own 44 pt minimum
-              // hit box (grammar.dart's accessibility floor, not optional) —
-              // S.tap * 2 alone is 12 pt short of that plus the gap between
-              // them, which is exactly the RenderFlex overflow this fixed.
-              trailingWidth: canChangeType ? S.tap * 2 + S.x3 : S.tap,
+              // Each icon is a Pressable with S.tap's own 44 pt minimum hit
+              // box (grammar.dart's accessibility floor, not optional) —
+              // S.tap * n alone is short of that plus the gaps between them,
+              // which is exactly the RenderFlex overflow this avoids.
+              trailingWidth: iconCount == 1
+                  ? S.tap
+                  : S.tap * iconCount + S.x3 * (iconCount - 1),
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 if (canChangeType) ...[
                   Pressable(
@@ -926,6 +978,15 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                         l?.activitySummaryChangeType ?? 'Change activity type',
                     onTap: () => _changeType(c),
                     child: Icon(LucideIcons.pencil, size: 18, color: p.ink2),
+                  ),
+                  const SizedBox(width: S.x3),
+                ],
+                if (canExportGpx) ...[
+                  Pressable(
+                    semanticLabel:
+                        l?.activitySummaryExportGpx ?? 'Export route as GPX',
+                    onTap: () => _exportGpx(c),
+                    child: Icon(LucideIcons.download, size: 18, color: p.ink2),
                   ),
                   const SizedBox(width: S.x3),
                 ],

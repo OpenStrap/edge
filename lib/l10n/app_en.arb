@@ -9910,6 +9910,10 @@
   "@activitySummaryChangeType": {
     "description": "Semantic label on the pencil icon that lets the user correct the activity type"
   },
+  "activitySummaryExportGpx": "Export route as GPX",
+  "@activitySummaryExportGpx": {
+    "description": "Semantic label on the download icon that exports the recorded route as a GPX file for manual upload elsewhere (e.g. Strava)"
+  },
   "activitySummaryUnsavedTitle": "This session is not saved yet",
   "@activitySummaryUnsavedTitle": {
     "description": "Title of the status card shown when a finished session failed to save"
