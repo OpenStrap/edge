@@ -15,6 +15,7 @@
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ble/adapters/_registry.dart' show kWhoopGen4;
@@ -58,6 +59,19 @@ import 'high_freq_wake_window.dart';
 import 'reset_gate.dart';
 import 'paired_device.dart';
 import 'sync_policy.dart';
+
+/// Headless mirror of the foreground `AlarmConfirmation` self-heal: an
+/// ALARM_SET event (56) means the strap has this arm latched, independent of
+/// whatever `armNextScheduledOccurrence` decided this cycle (its same-epoch
+/// dedupe returns `epoch: null` and skips the re-arm/poll block entirely, so
+/// this is the only place headless ever sees a live confirmation). Extracted
+/// so the write can be unit-tested without the full drain harness.
+@visibleForTesting
+Future<void> handleHeadlessAlarmEvent(int id) async {
+  if (id != proto.EventId.strapDrivenAlarmSet) return;
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool('alarm_epoch_confirmed', true);
+}
 
 /// Load the local profile (no Provider in the headless isolate).
 Future<Profile> _loadProfile() async {
@@ -127,6 +141,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
         if (ResetGate.active) return;
         await LocalDb.insertEvent(id, ts, hex,
             deviceId: LocalDb.kPrimaryDeviceId);
+        await handleHeadlessAlarmEvent(id);
       },
       log: (l) => debugPrint('[bgsync] $l'),
       onRecordsBatch: (raws, samples) async {
