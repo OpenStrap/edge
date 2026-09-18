@@ -148,6 +148,15 @@ PairedDevice? healedPairing(PairedDevice? current, String? reportedSerial) {
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
 
+  /// The real constructor's [_init] future, so [checkPendingSiriRoute] can
+  /// gate itself on it regardless of which call site reaches it first — a
+  /// cold launch's very first `resumed` lifecycle callback (app.dart) can
+  /// land before [_init] settles just as easily as the constructor's own
+  /// unawaited call can, so the guard belongs HERE, once, not duplicated at
+  /// every caller. Null under [AppState.forTesting], which never calls
+  /// [_init] at all.
+  Future<void>? _initDone;
+
   /// The primary band's route through [BandHost.commitNativeBatch] — see
   /// `WhoopFramedAdapter`'s own header for why `run()` stays unwired this
   /// wave. Constructed right after [engine] since [WhoopFramedAdapter]
@@ -1371,7 +1380,7 @@ class AppState extends ChangeNotifier {
     // Same wiring, second notify-class sensor: PMD readings otherwise never
     // reach liveHr/the live trace at all (arm/disarm alone don't feed it).
     PolarPmdLink.instance.reading.addListener(_onPmdReading);
-    _init();
+    _initDone = _init();
     // Notification taps → request a tab switch (the shell listens to navRequest).
     _tapSub = NotificationService.instance.taps.listen(_handleTapRoute);
     unawaited(NotificationService.instance.consumeLaunchRoute());
@@ -1419,7 +1428,16 @@ class AppState extends ChangeNotifier {
   /// on every foreground resume (app.dart's didChangeAppLifecycleState),
   /// since `openAppWhenRun = true` may just foreground an already-running
   /// process rather than trigger a fresh launch.
+  ///
+  /// Waits for [_initDone] FIRST — a launch's very first `resumed` lifecycle
+  /// callback can fire before [_init] has loaded `_schedule` from disk just
+  /// as easily as the constructor's own unawaited call can, and
+  /// [_maybeEnableTomorrowAlarmFromSiri] must never run
+  /// [setScheduleDay] against the still-default placeholder schedule. Both
+  /// call sites route through here, so the guard lives once, here, rather
+  /// than duplicated at each of them.
   Future<void> checkPendingSiriRoute() async {
+    if (_initDone != null) await _initDone;
     await _maybeEnableTomorrowAlarmFromSiri();
     final route = await WidgetService.consumePendingRoute();
     if (route != null) _handleTapRoute(route);
