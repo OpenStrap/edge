@@ -900,7 +900,17 @@ class BleEngine {
     this.deriveDataStaleness = _defaultDeriveDataStaleness,
     this.isForegroundActive = _defaultIsForegroundActive,
     this.gen5DeepBuffersEnabled = _defaultGen5DeepBuffersDisabled,
+    this.onKeepAlive,
   });
+
+  /// Fired at the tail of every keep-alive tick (~[kKeepAliveIntervalSeconds]
+  /// while connected). A thin hook so app-level periodic checks (Smart Wake
+  /// Window — see state/smart_wake.dart) reuse this engine's own liveness
+  /// timer instead of running a second one; this engine does not know or
+  /// care what the callback does with the tick. Best-effort: a throw here
+  /// must never affect the keep-alive tick's own liveness/battery/reassert
+  /// work above it, so it is caught and logged, not rethrown.
+  final Future<void> Function()? onKeepAlive;
 
   static bool _defaultGen5DeepBuffersDisabled() => false;
 
@@ -3512,6 +3522,12 @@ class BleEngine {
     // Cheap retry hook for a priority request that failed earlier: a no-op
     // whenever the link already sits at the wanted interval.
     unawaited(_applyLinkPriority());
+    final onTick = onKeepAlive;
+    if (onTick != null) {
+      unawaited(onTick().catchError((e) {
+        _log('[keepalive] onKeepAlive hook failed: $e');
+      }));
+    }
   }
 
   DateTime? _lastBatteryPollAt;

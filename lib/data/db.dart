@@ -343,7 +343,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 51;
+  static const int schemaVersion = 52;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -1031,6 +1031,16 @@ class LocalDb {
           // of it is a second source of truth that goes stale against the
           // adapter.
         }
+        if (oldV < 52) {
+          // Smart Wake Window: one additive column, default 0 (off), on an
+          // existing per-weekday row — every existing alarm keeps firing at
+          // exactly its configured time, unchanged. No kAlgoVersion bump:
+          // this is not a health metric.
+          await _addColumnIfMissing(
+            db, 'alarm_schedule', 'smart_window_minutes',
+            'INTEGER NOT NULL DEFAULT 0',
+          );
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1115,6 +1125,10 @@ class LocalDb {
     // version bump needed — additive, no backfill (see _createImportedWorkout
     // just above for the same reasoning).
     await _createLiveWorkoutTally(db);
+    await _addColumnIfMissing(
+      db, 'alarm_schedule', 'smart_window_minutes',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
@@ -1605,6 +1619,7 @@ class LocalDb {
         hour    INTEGER NOT NULL,
         minute  INTEGER NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
+        smart_window_minutes INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (weekday)
       )
     ''');
@@ -1629,6 +1644,7 @@ class LocalDb {
     required int hour,
     required int minute,
     required bool enabled,
+    int smartWindowMinutes = 0,
   }) async {
     final db = await instance;
     await db.insert(
@@ -1638,6 +1654,7 @@ class LocalDb {
         'hour': hour,
         'minute': minute,
         'enabled': enabled ? 1 : 0,
+        'smart_window_minutes': smartWindowMinutes,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -1649,6 +1666,26 @@ class LocalDb {
   static Future<void> clearAlarmSchedule() async {
     final db = await instance;
     await db.delete('alarm_schedule');
+  }
+
+  /// `decoded_onehz` rows with `rec_ts` (unix seconds) in
+  /// `[sinceEpochSec, untilEpochSec]`, oldest first — hr + accel only. Used by
+  /// the Smart Wake Window check (state/smart_wake.dart) to read a short
+  /// recent slice and the resting baseline that precedes it. No LIMIT: every
+  /// call site passes a window measured in single-digit minutes to ~90
+  /// minutes, at 1 row/sec that is at most a few thousand rows.
+  static Future<List<Map<String, Object?>>> onehzHrAccelBetween(
+    int sinceEpochSec,
+    int untilEpochSec,
+  ) async {
+    final db = await instance;
+    return db.query(
+      'decoded_onehz',
+      columns: const ['rec_ts', 'hr', 'ax', 'ay', 'az'],
+      where: 'rec_ts >= ? AND rec_ts <= ?',
+      whereArgs: [sinceEpochSec, untilEpochSec],
+      orderBy: 'rec_ts ASC',
+    );
   }
 
   /// sleep_nap — the user's edits to a day's naps.

@@ -75,6 +75,8 @@ class AlarmScreen extends StatelessWidget {
           app.setScheduleDay(weekday: weekday, enabled: enabled),
       onSetDayTime: (weekday, hour, minute) =>
           app.setScheduleDay(weekday: weekday, hour: hour, minute: minute),
+      onSetSmartWindow: (weekday, minutes) =>
+          app.setScheduleDay(weekday: weekday, smartWindowMinutes: minutes),
       onTest: app.testAlarmBuzz,
       onCancel: app.disableAlarm,
     );
@@ -101,6 +103,7 @@ class AlarmScreenView extends StatelessWidget {
   final Future<void> Function(int weekday, bool enabled)? onToggleDay;
   final Future<void> Function(int weekday, int hour, int minute)?
       onSetDayTime;
+  final Future<void> Function(int weekday, int minutes)? onSetSmartWindow;
   final Future<void> Function()? onTest, onCancel;
 
   const AlarmScreenView({
@@ -112,6 +115,7 @@ class AlarmScreenView extends StatelessWidget {
     this.schedule = const [],
     this.onToggleDay,
     this.onSetDayTime,
+    this.onSetSmartWindow,
     this.onTest,
     this.onCancel,
   });
@@ -182,12 +186,19 @@ class AlarmScreenView extends StatelessWidget {
                           chevron: false,
                           onTap: () =>
                               onToggleDay?.call(day.weekday, !day.enabled)),
-                      if (day.enabled)
+                      if (day.enabled) ...[
                         SetRow(LucideIcons.clock, C.blue,
                             l?.alarmWakeTimeRowTitle ?? 'Wake time',
                             value: _hhmmOf(day.hour, day.minute),
                             chevron: false,
                             onTap: () => _pickDayTime(c, day)),
+                        SetRow(LucideIcons.moon, C.purple, 'Smart wake',
+                            value: day.smartWindowMinutes == 0
+                                ? (l?.stateOff ?? 'Off')
+                                : '${day.smartWindowMinutes} min early',
+                            chevron: false,
+                            onTap: () => _pickSmartWindow(c, day)),
+                      ],
                     ],
                   ]),
                   const SizedBox(height: S.x3),
@@ -226,6 +237,34 @@ class AlarmScreenView extends StatelessWidget {
         c,
         () => onSetDayTime!(day.weekday, picked.hour, picked.minute),
         AppLocalizations.of(c)?.alarmSentToBand ?? 'Alarm sent to the band');
+  }
+
+  /// Off, or how many minutes before [day]'s wake time the band may buzz
+  /// early once light sleep is detected. Capped at 45 min — the standard
+  /// window size other wearables with this feature use — and [day]'s
+  /// hour:minute NEVER changes: it stays the hard fallback, armed on the
+  /// band exactly as before.
+  Future<void> _pickSmartWindow(BuildContext c, AlarmScheduleEntry day) async {
+    final picked = await showDialog<int>(
+      context: c,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Smart wake window'),
+        children: [0, 15, 30, 45]
+            .map((m) => SimpleDialogOption(
+                  onPressed: () => Navigator.pop(ctx, m),
+                  child: Text(m == 0 ? 'Off' : '$m min before wake time'),
+                ))
+            .toList(),
+      ),
+    );
+    if (picked == null || !c.mounted) return;
+    await _run(
+        c,
+        () => onSetSmartWindow!(day.weekday, picked),
+        picked == 0
+            ? 'Smart wake off'
+            : 'Smart wake on — the band still buzzes at the wake time '
+                'either way');
   }
 
   /// Run a band/schedule write and report what happened. Every one of these
