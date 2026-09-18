@@ -774,20 +774,22 @@ class CoachEngine {
 
         // actions (confirmed)
         case 'log_journal':
+          final journalDate = CoachActions.day(args['date']);
           return await _action(confirm, ActionRequest(
             tool: name, title: 'Log journal',
-            summary: 'Add journal for ${args['date']}: tags ${args['tags'] ?? []}, note "${args['note'] ?? ''}".',
+            summary: 'Add journal for $journalDate: tags ${args['tags'] ?? []}, note "${args['note'] ?? ''}".',
             args: args,
           ), () async {
-            await api.postJournal('${args['date']}',
+            await api.postJournal(journalDate,
                 ((args['tags'] as List?) ?? const []).map((e) => '$e').toList(), '${args['note'] ?? ''}');
             return 'Journal saved.';
           });
         case 'log_period':
+          final periodDate = CoachActions.day(args['date']);
           return await _action(confirm, ActionRequest(
             tool: name, title: 'Log period',
-            summary: 'Log a period start on ${args['date']}.', args: args,
-          ), () async { await api.postCycleLog('${args['date']}', kind: 'start'); return 'Period logged.'; });
+            summary: 'Log a period start on $periodDate.', args: args,
+          ), () async { await api.postCycleLog(periodDate, kind: 'start'); return 'Period logged.'; });
         case 'start_workout':
           return await _action(confirm, ActionRequest(
             tool: name, title: 'Start workout',
@@ -1060,9 +1062,11 @@ class CoachEngine {
           'state': {'type': 'string', 'enum': ['taken', 'skipped', 'not_taken']},
         }, ['name', 'state']),
     _fn('log_journal', 'Log a journal entry (asks the user to confirm).', {
-      'date': {'type': 'string'}, 'tags': {'type': 'array', 'items': {'type': 'string'}}, 'note': {'type': 'string'},
-    }, ['date']),
-    _fn('log_period', 'Log a period start (asks the user to confirm).', {'date': {'type': 'string'}}, ['date']),
+      'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'},
+      'tags': {'type': 'array', 'items': {'type': 'string'}}, 'note': {'type': 'string'},
+    }),
+    _fn('log_period', 'Log a period start (asks the user to confirm).',
+        {'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'}}),
     _fn('start_workout', 'Start a live workout (asks the user to confirm).', {'type': {'type': 'string'}}),
     _fn('end_workout', 'End the active workout (asks the user to confirm).', {'workout_id': {'type': 'string'}}, ['workout_id']),
     _fn('set_step_goal', 'Set the daily step goal (asks the user to confirm).', {'goal': {'type': 'integer'}}, ['goal']),
