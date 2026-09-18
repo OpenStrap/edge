@@ -122,9 +122,13 @@ double? estimatedMaxHr(num? age, String? deviceFamily) {
 /// the claim `karvonen` makes here and not worth moving every existing user's
 /// zone boundaries for.
 /// [manualZoneLowerBpm] is the user's own override — five ascending BPM
-/// thresholds, one per zone's LOWER edge (zone 5 has no upper edge, same as
-/// every computed set). When present and well-formed it wins outright: no
-/// age, no ceiling, no resting history is consulted. When absent or
+/// thresholds, one per zone's LOWER edge. Zone 5 has no upper edge for
+/// CLASSIFICATION ([zoneNumber] never checks it — same as every computed
+/// set), but [_manualZones] still gives it a finite display value, because
+/// `.round()` on `double.infinity` throws and every payload builder rounds
+/// it unconditionally. When present and well-formed the override wins
+/// outright: no age, no ceiling, no resting history is consulted. When
+/// absent or
 /// malformed it falls straight through to the computed set below — an
 /// override that failed to save is not license to fabricate one, but nor is
 /// it license to erase the honest default underneath it.
