@@ -111,11 +111,26 @@ void main() {
       ],
     );
     expect(await LocalDb.liveStepsForDay(day), 75);
-    final r = await LocalDb.resolvedStepsForDay(day);
-    // The zero row itself never appears as a credited span (it carries no
-    // steps to show), but it must have reached the table — see
-    // live_coverage_policy_test.dart for what it does once there.
-    expect(r.spans.map((s) => s.steps), [75]);
+    // `resolvedStepsForDay` omits zero-credit spans on purpose, so checking
+    // it alone would pass just the same if the zero row had been dropped —
+    // query the table directly for what a regression here would actually
+    // break (the confirmed-still veto in live_coverage_policy_test.dart).
+    final db = await LocalDb.instance;
+    final rows = await db.query(
+      'live_coverage',
+      where: 'day = ? AND source = ? AND steps = 0',
+      whereArgs: [day, LocalDb.kStepSourcePhone],
+    );
+    expect(rows, hasLength(1));
+    expect(rows.single['start_ts'], 1000);
+    expect(rows.single['end_ts'], 4600);
+    // The inverted window never made it in at all.
+    final allPhoneRows = await db.query(
+      'live_coverage',
+      where: 'day = ? AND source = ?',
+      whereArgs: [day, LocalDb.kStepSourcePhone],
+    );
+    expect(allPhoneRows, hasLength(2));
   });
 
   test('clearing phone coverage falls back to the band, not to zero', () async {
