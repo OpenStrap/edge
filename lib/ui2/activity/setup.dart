@@ -74,11 +74,11 @@ class _ActivitySetupState extends State<ActivitySetup> {
       _refused = !ok;
     });
     if (!ok) return;
+    final interval = widget.a.track == Track.interval;
     // The draft opens with the session, not with the screen: everything the
     // user types from here belongs to the session, and has to survive the
     // screen being minimised or the process being killed.
     if (start != null) {
-      final interval = widget.a.track == Track.interval;
       LiveDraft.begin(widget.a,
           private: private,
           weightKg: widget.weightKg,
@@ -87,8 +87,17 @@ class _ActivitySetupState extends State<ActivitySetup> {
           rounds: interval ? _rounds : null);
     }
     await Navigator.of(context).pushReplacement(MaterialPageRoute(
+      // Passed straight through too, not just via the draft above: a caller
+      // with no `host.onStart` (the design gallery preview) skips the draft
+      // entirely, and without this the interval picked here would be
+      // silently discarded in favour of 45/30/8.
       builder: (_) => liveFor(widget.a,
-          private: private, weightKg: widget.weightKg, host: widget.host),
+          private: private,
+          weightKg: widget.weightKg,
+          host: widget.host,
+          intervalWorkSec: interval ? _workSec : null,
+          intervalRestSec: interval ? _restSec : null,
+          intervalRounds: interval ? _rounds : null),
     ));
   }
 
@@ -194,7 +203,8 @@ class _ActivitySetupState extends State<ActivitySetup> {
                           '${_workSec}s',
                           () => setState(
                               () => _workSec = (_workSec - 5).clamp(5, 999)),
-                          () => setState(() => _workSec += 5)),
+                          () => setState(
+                              () => _workSec = (_workSec + 5).clamp(5, 999))),
                       Divider(color: p.line, height: 1),
                       _stepper(
                           p,
@@ -203,7 +213,8 @@ class _ActivitySetupState extends State<ActivitySetup> {
                           '${_restSec}s',
                           () => setState(
                               () => _restSec = (_restSec - 5).clamp(5, 999)),
-                          () => setState(() => _restSec += 5)),
+                          () => setState(
+                              () => _restSec = (_restSec + 5).clamp(5, 999))),
                       Divider(color: p.line, height: 1),
                       _stepper(
                           p,
@@ -212,7 +223,8 @@ class _ActivitySetupState extends State<ActivitySetup> {
                           '$_rounds',
                           () => setState(
                               () => _rounds = (_rounds - 1).clamp(1, 99)),
-                          () => setState(() => _rounds += 1)),
+                          () => setState(
+                              () => _rounds = (_rounds + 1).clamp(1, 99))),
                     ]),
                   ),
                 ],

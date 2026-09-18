@@ -378,6 +378,14 @@ Widget liveFor(
   bool private = false,
   double? weightKg,
   ActivityHost host = ActivityHost.none,
+
+  /// Explicit interval config, from the setup screen that just chose it.
+  /// Null falls back to [LiveDraft.current] (a resume/minimise, where the
+  /// screen that reopens the session never chose anything itself) and then
+  /// to the old 45/30/8 defaults.
+  int? intervalWorkSec,
+  int? intervalRestSec,
+  int? intervalRounds,
 }) {
   final p = private || a.private;
   final feed = host.feed;
@@ -402,9 +410,9 @@ Widget liveFor(
         weightKg: weightKg,
         private: p,
         onFinish: onFinish,
-        workSec: LiveDraft.current?.workSec ?? 45,
-        restSec: LiveDraft.current?.restSec ?? 30,
-        rounds: LiveDraft.current?.rounds ?? 8),
+        workSec: intervalWorkSec ?? LiveDraft.current?.workSec ?? 45,
+        restSec: intervalRestSec ?? LiveDraft.current?.restSec ?? 30,
+        rounds: intervalRounds ?? LiveDraft.current?.rounds ?? 8),
     _ => LiveMeasured(a,
         feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
   };

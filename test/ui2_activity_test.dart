@@ -1399,6 +1399,33 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets(
+        'a chosen interval survives starting with no host — not just a '
+        'draft the host would have opened',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      // ActivityHost.none (the default): `start` stays null, so the block
+      // that writes the choice into LiveDraft never runs. Without passing
+      // the config straight to `liveFor` too, this is exactly the path
+      // that silently fell back to 45/30/8.
+      final a = activityByName('crossfit')!;
+      await tester.pumpWidget(
+          _frame(ActivitySetup(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(LucideIcons.plus).first); // work + 5
+      await tester.pump();
+      await tester.tap(find.text('Start'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('50 S WORK'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a collapsed group builds none of its rows', (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
       tester.view.devicePixelRatio = 3;
