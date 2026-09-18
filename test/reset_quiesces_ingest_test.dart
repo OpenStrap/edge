@@ -51,6 +51,19 @@ void main() {
         reason: 'onRecordsBatch must refuse before it writes');
   });
 
+  test('_onLiveEvent refuses while a reset is in flight', () {
+    // The live/foreground event path — wristOn/wristOff, battery, alarm
+    // fired, etc. It is wired straight to LocalDb.insertEvent just like
+    // onRecordsBatch/onArchiveRecord above, and was missing this guard: an
+    // event notification landing after ResetGate.enter() but before the
+    // band disconnects would resurrect deleted data.
+    final onLiveEvent = RegExp(
+      r'void _onLiveEvent\([^)]*\) \{\s*\n\s*if \(_resetting\) return;',
+    );
+    expect(onLiveEvent.hasMatch(src), isTrue,
+        reason: '_onLiveEvent must refuse before it writes');
+  });
+
   test('insertRecordsBatch is never handed over as a bare tear-off', () {
     // `onRecordsBatch: LocalDb.insertRecordsBatch` is the shape of the bug:
     // it hands the database straight to the engine with nothing in between.

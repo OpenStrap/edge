@@ -2191,6 +2191,7 @@ class AppState extends ChangeNotifier {
   // gesture dispatcher act on it. Headless drain (background_sync) persists only —
   // it must never replay an old tap as a live action.
   void _onLiveEvent(int id, int ts, String hex, String deviceId) {
+    if (_resetting) return; // see [_resetting]
     LocalDb.insertEvent(id, ts, hex, deviceId: deviceId);
     // M3: gesture dispatch and the alarm handler stay unscoped — neither is
     // device-scoped in M3's scope, and a double-tap on either band should
