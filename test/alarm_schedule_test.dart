@@ -241,16 +241,4 @@ void main() {
       expect(seed.enabled, isTrue);
     });
   });
-
-  group('tomorrowScheduleWeekday', () {
-    test('Wednesday → Thursday is column 3', () {
-      // 2026-08-19 is a Wednesday (DateTime.weekday 3, column 2).
-      expect(tomorrowScheduleWeekday(DateTime(2026, 8, 19, 8, 0)), 3);
-    });
-
-    test('wraps Sunday → Monday, column 6 to column 0', () {
-      // 2026-08-23 is a Sunday (DateTime.weekday 7, column 6).
-      expect(tomorrowScheduleWeekday(DateTime(2026, 8, 23, 8, 0)), 0);
-    });
-  });
 }

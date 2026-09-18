@@ -362,6 +362,9 @@ class WidgetService {
         'sleep_efficiency',
         'rhr',
         'batt_pct',
+        // A Siri "enable tomorrow's alarm" request pending before the wipe
+        // is not one we still owe anybody either.
+        'enable_tomorrow_alarm_weekday',
       ]) {
         await HomeWidget.saveWidgetData<int>(k, -1);
       }
@@ -393,7 +396,6 @@ class WidgetService {
         'batt_charging',
         'end_session',
         'end_breathing_session',
-        'enable_tomorrow_alarm',
       ]) {
         await HomeWidget.saveWidgetData<bool>(k, false);
       }
@@ -497,25 +499,43 @@ class WidgetService {
     return null;
   }
 
-  /// True once (and clears) if EnableTomorrowAlarmIntent asked to turn on
-  /// tomorrow's weekday slot in the weekly alarm schedule. Same
+  /// A weekday column (0=Mon..6=Sun), once and clearing, if
+  /// EnableTomorrowAlarmIntent asked to turn on that slot in the weekly
+  /// alarm schedule — or null if nothing is pending. The weekday is
+  /// COMPUTED ON THE SWIFT SIDE, at the moment Siri actually ran the intent,
+  /// not here: consuming this after a launch/resume that crossed local
+  /// midnight must still mean the day the user asked for. Same
   /// App-Group-flag pattern as [consumeEndSessionFlag] — the widget process
   /// cannot reach the band itself (no BLE), so it only latches the request;
   /// AppState.checkPendingSiriRoute does the real `setScheduleDay` write on
-  /// launch/resume.
-  static Future<bool> consumeEnableTomorrowAlarmFlag() async {
+  /// launch/resume, and calls [relatchEnableTomorrowAlarm] if that write
+  /// throws so a failure doesn't silently drop the request.
+  static Future<int?> consumeEnableTomorrowAlarmWeekday() async {
     try {
       await init();
-      final v = await HomeWidget.getWidgetData<bool>(
-        'enable_tomorrow_alarm',
-        defaultValue: false,
+      final v = await HomeWidget.getWidgetData<int>(
+        'enable_tomorrow_alarm_weekday',
+        defaultValue: -1,
       );
-      if (v == true) {
-        await HomeWidget.saveWidgetData<bool>('enable_tomorrow_alarm', false);
-        return true;
+      if (v != null && v >= 0 && v <= 6) {
+        await HomeWidget.saveWidgetData<int>(
+            'enable_tomorrow_alarm_weekday', -1);
+        return v;
       }
     } catch (_) {}
-    return false;
+    return null;
+  }
+
+  /// Re-latches [weekday] after [consumeEnableTomorrowAlarmWeekday] consumed
+  /// it but the `setScheduleDay` write it was for threw — so the Siri
+  /// request survives to retry on the next launch/resume instead of being
+  /// silently dropped on a transient DB/BLE failure.
+  static Future<void> relatchEnableTomorrowAlarm(int weekday) async {
+    try {
+      await init();
+      await HomeWidget.saveWidgetData<int>(
+          'enable_tomorrow_alarm_weekday', weekday);
+    } catch (_) {}
   }
 
   /// True once (and clears) if the BREATHING Live Activity's stop button was

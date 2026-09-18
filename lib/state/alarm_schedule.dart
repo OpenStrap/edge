@@ -204,14 +204,6 @@ AlarmScheduleEntry seedEntryFromLegacyEpoch(int epoch) {
   );
 }
 
-/// Tomorrow's slot in the 0=Mon..6=Sun schedule, as measured from [now]
-/// (defaults to `DateTime.now()`). Used by AppState's Siri "enable tomorrow's
-/// alarm" handler — the same `DateTime.weekday` → column mapping
-/// [seedEntryFromLegacyEpoch] uses, pulled out here so the off-by-one is
-/// covered by a test instead of only being eyeballed at the call site.
-int tomorrowScheduleWeekday([DateTime? now]) =>
-    (now ?? DateTime.now()).add(const Duration(days: 1)).weekday - 1;
-
 /// Whether the alarm armed for [armedEpochSec] fires during tonight's
 /// upcoming overnight sleep, as measured from [now]. TRUE iff the epoch is
 /// non-null, strictly after [now], AND strictly before noon of the day after
