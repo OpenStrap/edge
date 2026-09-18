@@ -1640,7 +1640,20 @@ import 'substrate.dart';
 // decision (and therefore `active_min`) for any day whose gap from the
 // frozen-on date spans a DST transition. Real output change, so the bump is
 // real. kAnalyticsPin/kProtocolPin are UNCHANGED: edge-only fix.
-const int kAlgoVersion = 89;
+//
+// 89 → 90 (skin_temp_z quantum guard): onehz_pipeline.dart's `skinTempZ` was
+// gated only on `sd > 0` against the raw-ADC baseline history, with no floor
+// for the ADC channel's own quantization step. analytics already guards this
+// exact channel (`tempInput(..., quantum: 1)` in readiness_composite.dart),
+// refusing when the baseline SD sits below 1 ADC count even though a nonzero
+// SD passed the naive check. `skinTempZ` now requires `sd >= 1` too, so a
+// baseline oscillating between two adjacent ADC counts abstains instead of
+// reporting an inflated z. Feeds `tempIllnessFlag`/`multivariateAnomaly` and
+// the raw health_screen display value (readiness's own temp driver already
+// went through the guarded `tempInput` path and is unaffected). Real output
+// change on the affected sub-quantum-dispersion nights, so the bump is real.
+// kAnalyticsPin/kProtocolPin are UNCHANGED: edge-only fix.
+const int kAlgoVersion = 90;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
