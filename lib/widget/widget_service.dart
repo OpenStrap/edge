@@ -165,9 +165,24 @@ class WidgetService {
     // new data moves at least one fingerprinted value.
   ];
 
+  /// Serializes overlapping [push] calls (app resume, post-derive, background
+  /// wake all fire it unawaited with no lock of their own) so their ~20
+  /// sequential per-key platform-channel writes never interleave into a
+  /// snapshot that mixes fields from two different TodayData instances.
+  /// ponytail: a single static future chain, not per-key locking — fine
+  /// since every call writes the same key set and the last call's data
+  /// should win outright, not merge with an in-flight one.
+  static Future<void> _pushChain = Future.value();
+
   /// Push the latest snapshot and trigger a widget reload. Best-effort; never
   /// throws into the caller. Sentinels: ints use -1 / strings use '' for "no data".
-  static Future<void> push(TodayData t) async {
+  static Future<void> push(TodayData t) {
+    final next = _pushChain.then((_) => _pushInternal(t));
+    _pushChain = next;
+    return next;
+  }
+
+  static Future<void> _pushInternal(TodayData t) async {
     try {
       await init();
       // WHICH NIGHT IS THIS. `getToday` holds the last night that scored over
