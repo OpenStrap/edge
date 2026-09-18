@@ -5619,6 +5619,15 @@ class AppState extends ChangeNotifier {
   /// for the whole workout for no benefit over one every 30s.
   DateTime _lastTallyPersist = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// The most recently DISPATCHED (possibly still in-flight) tally save.
+  /// stopWorkout/_cancelActiveWorkoutTeardown await this before deleting the
+  /// row: a save dispatched by one tick and a delete issued moments later by
+  /// a stop/cancel race independently, and without this a save that was
+  /// still in flight when the delete ran could land AFTER it and resurrect a
+  /// row for a workout that has already finished — leaking a stale tally
+  /// onto a future session that reuses the id (CodeRabbit/Sourcery-flagged).
+  Future<void>? _pendingTallyPersist;
+
   // `_maxHr` (220 − age, silently substituting age 30 → a flat 190 for every
   // user who skipped the field) and the public `maxHr` that wrapped it are
   // GONE (TS-03a). The live session now carries its own ceiling, resolved once
@@ -6160,7 +6169,10 @@ class AppState extends ChangeNotifier {
       bumpInsights();
       // The session is durable now; its scratch tally snapshot (if any) is
       // no longer needed and would otherwise be restored onto a FUTURE
-      // workout that happens to reuse this id.
+      // workout that happens to reuse this id. AWAIT any save the last tick
+      // already dispatched before deleting — otherwise that save can land
+      // AFTER this delete and resurrect the row (Sourcery-flagged race).
+      await _awaitPendingTallyPersist();
       unawaited(LocalDb.deleteLiveWorkoutTally(id));
     } catch (e) {
       _log('[workout] could not save session $id: $e — keeping it live');
@@ -6204,9 +6216,12 @@ class AppState extends ChangeNotifier {
   /// against a workout id that no longer has a backing DB row.
   Future<void> _cancelActiveWorkoutTeardown() async {
     final tallyId = activeWorkout?.workoutId;
-    if (tallyId != null) unawaited(LocalDb.deleteLiveWorkoutTally(tallyId));
     _workoutTimer?.cancel();
     _workoutTimer = null;
+    // AWAIT any save the last tick already dispatched before deleting — see
+    // the matching comment in stopWorkout.
+    await _awaitPendingTallyPersist();
+    if (tallyId != null) unawaited(LocalDb.deleteLiveWorkoutTally(tallyId));
     final rt = _routeTracker;
     _routeTracker = null;
     routeLocationIssue = null;
@@ -6458,9 +6473,25 @@ class AppState extends ChangeNotifier {
     // — see _reconcileOrphanedLiveWorkout and _persistLiveWorkoutTally.
     if (DateTime.now().difference(_lastTallyPersist).inSeconds >= 30) {
       _lastTallyPersist = DateTime.now();
-      unawaited(_persistLiveWorkoutTally(w));
+      _pendingTallyPersist = _persistLiveWorkoutTally(w);
     }
     notifyListeners();
+  }
+
+  /// Waits out a save [_tickWorkout] already dispatched, if one is still in
+  /// flight, so a caller about to DELETE the tally row (stop/cancel) never
+  /// races a pending write — see [_pendingTallyPersist]'s doc. A no-op when
+  /// nothing is pending; swallows a save failure, which the delete that
+  /// follows renders moot either way.
+  Future<void> _awaitPendingTallyPersist() async {
+    final pending = _pendingTallyPersist;
+    _pendingTallyPersist = null;
+    if (pending == null) return;
+    try {
+      await pending;
+    } catch (_) {
+      /* the row is about to be deleted regardless */
+    }
   }
 
   /// Best-effort snapshot of [w]'s per-second tallies to `live_workout_tally`.
@@ -6473,7 +6504,12 @@ class AppState extends ChangeNotifier {
       await LocalDb.saveLiveWorkoutTally({
         'workout_id': id,
         'updated_ts': DateTime.now().millisecondsSinceEpoch,
-        'per_minute_hr': jsonEncode(w.perMinuteHrDense()),
+        // COMPLETED minutes only (`_perMinute`, not `perMinuteHrDense()`):
+        // the dense getter folds in the minute still in progress, and
+        // restoring that as if it were a finished 60s minute would let a
+        // partial pre-kill minute outweigh a real one once strain
+        // recomputes off it (Sourcery-flagged).
+        'per_minute_hr': jsonEncode(w._perMinute),
         'zone_seconds': jsonEncode(w.zoneSeconds),
         'seconds_by_bpm': jsonEncode(
           w._secondsByBpm.map((k, v) => MapEntry(k.toString(), v)),
@@ -6830,6 +6866,12 @@ class LiveWorkoutState {
   /// Restore per-second tallies persisted mid-session by a PREVIOUS process,
   /// called once from `_reconcileOrphanedLiveWorkout` right after a hard-kill
   /// relaunch rehydrates this session, before any new HR sample arrives.
+  ///
+  /// [minuteHr] must be ONLY completed minutes (`_perMinute`, never
+  /// `perMinuteHrDense()` — the dense getter folds in the minute still in
+  /// progress, which this would otherwise restore as if it were a full 60s
+  /// minute; see `_persistLiveWorkoutTally`, the only writer of the snapshot
+  /// this reads).
   ///
   /// Restores the finished-minute HR series, the zone-second tally, the
   /// calorie bpm histogram and the peak exactly — [_scoreCalories] and the
