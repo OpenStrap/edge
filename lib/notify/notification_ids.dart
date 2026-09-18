@@ -114,28 +114,21 @@ class NotificationIds {
     } catch (_) {
       p = null; // no platform prefs — the in-memory maps carry the process
     }
-    if (p != null) {
-      try {
-        await p.reload(); // the OTHER isolate may have allocated since
-      } catch (_) {/* freshness is best-effort */}
-      final existing = p.getInt(slotKey);
-      if (existing != null) {
-        _slots[slotKey] = existing;
-        return existing;
-      }
-    }
-
     final nextKey = '$_kNext$cat';
     final start = p?.getInt(nextKey) ?? _next[nextKey] ?? 0;
 
-    // Preferred path: one atomic DB claim (INSERT OR IGNORE against a
-    // UNIQUE(category, slot) index), the same primitive claimNotifFired uses
-    // for the fire-once guard. This is what actually closes the cross-isolate
-    // race described in the file header — `start` above is only a probe hint,
-    // the UNIQUE index is what makes the claim correct even if the hint is
-    // stale. Falls through to the SharedPreferences probe below on any
-    // failure (no DB in this process — a plain unit test, a torn-down
-    // background isolate — or the DB throwing).
+    // Preferred path: one atomic DB claim (get-existing-or-INSERT OR IGNORE
+    // against a UNIQUE(category, slot) index), the same primitive
+    // claimNotifFired uses for the fire-once guard. This is checked BEFORE
+    // the SharedPreferences mirror below — on every call, not just the first
+    // allocation — so a prefs value that has gone stale or diverged from the
+    // DB (a partial write, a pre-migration leftover) can never win over the
+    // DB; the DB is the actual source of truth on every read, not only on
+    // first write. `start` above is only a probe hint for a first-time
+    // allocation, the UNIQUE index is what makes the claim correct even if
+    // the hint is stale. Falls through to the SharedPreferences scheme below
+    // on any failure (no DB in this process — a plain unit test, a
+    // torn-down background isolate — or the DB throwing).
     try {
       final slot = await LocalDb.claimNotifSlot(
         cat,
@@ -159,6 +152,17 @@ class NotificationIds {
       // other than "no DB in this process" (a plain unit test, a torn-down
       // background isolate), e.g. a genuinely failing DB.
       debugPrint('NotificationIds: DB slot claim failed, degrading: $err');
+    }
+
+    if (p != null) {
+      try {
+        await p.reload(); // the OTHER isolate may have allocated since
+      } catch (_) {/* freshness is best-effort */}
+      final existing = p.getInt(slotKey);
+      if (existing != null) {
+        _slots[slotKey] = existing;
+        return existing;
+      }
     }
 
     var slot = start % bandSize;

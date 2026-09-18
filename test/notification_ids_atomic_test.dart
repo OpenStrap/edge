@@ -106,4 +106,19 @@ void main() {
     final again = await NotificationIds.instance.idFor(_ev('$kToday:illness'));
     expect(again, equals(first));
   });
+
+  test('a diverged SharedPreferences mirror never wins over the DB', () async {
+    final real = await NotificationIds.instance.idFor(_ev('$kToday:drift'));
+    NotificationIds.instance.resetForTest();
+    // Corrupt the mirror to point at a DIFFERENT slot than the DB actually
+    // owns for this key — the exact shape a partial/failed prefs write, or a
+    // pre-migration leftover, would leave behind.
+    final cat = NotifCategory.health.name;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('notif_osid:$cat:$kToday:drift', real + 1);
+    final resolved = await NotificationIds.instance.idFor(_ev('$kToday:drift'));
+    expect(resolved, equals(real),
+        reason: 'the DB is the source of truth on every read, not only on '
+            'first allocation — a stale prefs value must never override it');
+  });
 }
