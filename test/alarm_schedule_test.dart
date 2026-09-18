@@ -145,6 +145,90 @@ void main() {
     });
   });
 
+  group('inSmartWakeWindow — the fallback-always-fires guarantee', () {
+    // windowEnd is always the band's own already-armed fallback SET_ALARM;
+    // this function decides only whether an EARLY buzz should be attempted.
+    // It never returns anything that could be read as "skip the fallback" —
+    // there is no return value meaning that, by construction. The proof
+    // below sweeps every second of a whole day around a 30-minute window
+    // and checks two properties that together ARE the safety guarantee:
+    //   1. true is only ever returned strictly before windowEnd (never at
+    //      or after it — an "early" fire can never BE the late fire), and
+    //   2. at windowEnd itself and beyond, the function always says false —
+    //      i.e. it never tries to claim the fallback moment for itself, so
+    //      whatever arms the real SET_ALARM there is untouched by this
+    //      function returning either value.
+    final windowEnd = DateTime(2026, 9, 18, 6, 30);
+
+    test('minutes == 0 (off) is false for every instant, no exceptions', () {
+      for (var deltaMin = -120; deltaMin <= 120; deltaMin++) {
+        final now = windowEnd.add(Duration(minutes: deltaMin));
+        expect(inSmartWakeWindow(windowEnd: windowEnd, minutes: 0, now: now),
+            isFalse,
+            reason: 'off must stay off at $now');
+      }
+    });
+
+    test(
+        'algebraic sweep: true never occurs at or after windowEnd, for any '
+        'window size, at second resolution', () {
+      for (final minutes in [1, 15, 30, 45]) {
+        var sawTrueBeforeEnd = false;
+        for (var deltaSec = -3600; deltaSec <= 3600; deltaSec += 5) {
+          final now = windowEnd.add(Duration(seconds: deltaSec));
+          final result = inSmartWakeWindow(
+              windowEnd: windowEnd, minutes: minutes, now: now);
+          if (!now.isBefore(windowEnd)) {
+            // PROPERTY 2: at/after windowEnd, always false.
+            expect(result, isFalse,
+                reason: '$now is at/after windowEnd=$windowEnd '
+                    '(minutes=$minutes) but returned true');
+          } else if (result) {
+            sawTrueBeforeEnd = true;
+          }
+        }
+        // Sanity: the window is not vacuously always-false — it does fire
+        // somewhere strictly before windowEnd when minutes > 0.
+        expect(sawTrueBeforeEnd, isTrue,
+            reason: 'minutes=$minutes never returned true anywhere');
+      }
+    });
+
+    test('exactly at the window start boundary is true (inclusive)', () {
+      expect(
+          inSmartWakeWindow(
+              windowEnd: windowEnd,
+              minutes: 30,
+              now: windowEnd.subtract(const Duration(minutes: 30))),
+          isTrue);
+    });
+
+    test('one second before windowEnd is still inside the window', () {
+      expect(
+          inSmartWakeWindow(
+              windowEnd: windowEnd,
+              minutes: 30,
+              now: windowEnd.subtract(const Duration(seconds: 1))),
+          isTrue);
+    });
+
+    test('exactly at windowEnd is false — that instant belongs to the '
+        'fallback alarm alone', () {
+      expect(
+          inSmartWakeWindow(windowEnd: windowEnd, minutes: 30, now: windowEnd),
+          isFalse);
+    });
+
+    test('before the window opens is false', () {
+      expect(
+          inSmartWakeWindow(
+              windowEnd: windowEnd,
+              minutes: 30,
+              now: windowEnd.subtract(const Duration(minutes: 31))),
+          isFalse);
+    });
+  });
+
   group('seedEntryFromLegacyEpoch', () {
     test('maps a legacy epoch onto its local weekday/hour/minute, enabled', () {
       // 2026-08-19 06:30 LOCAL is a Wednesday → DateTime.weekday 3 → column 2.

@@ -59,6 +59,7 @@ import '../stress/breath_phases.dart';
 // scheduler is imported under an alias rather than shadowed by it.
 import '../data/auto_backup.dart' as backup show runBackupIfDue;
 import 'alarm_schedule.dart';
+import 'smart_wake.dart';
 import 'prefs.dart';
 import '../ble/adapters/signals.dart' show InputSignal;
 import '../ui2/profile/devices.dart' show liveSources, rankSources;
@@ -1311,6 +1312,12 @@ class AppState extends ChangeNotifier {
       // still runs in openSession after the backlog fully drains.
       onDataStored: _onDataStored,
       onOffloadState: (active) => _deriveScheduler.setOffloadActive(active),
+      // Smart Wake Window: piggyback on the engine's own 30 s keep-alive
+      // tick rather than a second timer. See _checkSmartWake's doc for the
+      // safety argument (short version: this can only ever ADD an early
+      // buzz — the band's already-armed SET_ALARM fallback is never touched
+      // here, in any branch).
+      onKeepAlive: _checkSmartWake,
       // LIVE high-rate frames (0x28/0x2B/0x33) are ephemeral — routed here for the
       // live UI / breathing session, never persisted.
       onLiveFrame: _onLiveFrame,
@@ -4408,6 +4415,7 @@ class AppState extends ChangeNotifier {
     int? hour,
     int? minute,
     bool? enabled,
+    int? smartWindowMinutes,
   }) async {
     final current = _schedule.firstWhere(
       (e) => e.weekday == weekday,
@@ -4417,13 +4425,18 @@ class AppState extends ChangeNotifier {
           minute: defaultAlarmMinute,
           enabled: false),
     );
-    final next =
-        current.copyWith(hour: hour, minute: minute, enabled: enabled);
+    final next = current.copyWith(
+      hour: hour,
+      minute: minute,
+      enabled: enabled,
+      smartWindowMinutes: smartWindowMinutes,
+    );
     await LocalDb.setAlarmScheduleDay(
       weekday: next.weekday,
       hour: next.hour,
       minute: next.minute,
       enabled: next.enabled,
+      smartWindowMinutes: next.smartWindowMinutes,
     );
     await _loadAlarmSchedule();
     notifyListeners();
@@ -4474,6 +4487,66 @@ class AppState extends ChangeNotifier {
       await _onArmed(DateTime.fromMillisecondsSinceEpoch(epoch * 1000), epoch);
     } catch (e) {
       _log('[alarm] weekly-schedule arm failed: $e');
+    }
+  }
+
+  /// The armed epoch (unix sec) a Smart Wake Window early-fire already ran
+  /// for, so a re-arm of the SAME occurrence on every 30 s tick does not buzz
+  /// the band again on every tick once light sleep is first seen.
+  int? _smartWakeFiredForEpoch;
+
+  /// Smart Wake Window's periodic check, run from [BleEngine.onKeepAlive] —
+  /// the engine's existing 30 s keep-alive tick, not a new timer.
+  ///
+  /// SAFETY: this method can only ever cause an EARLY extra buzz
+  /// (`engine.runAlarm()`, RUN_ALARM — haptics only, it does not touch
+  /// SET_ALARM). It never calls `setAlarm`, `disableAlarm`, or anything else
+  /// that could change or clear the armed fallback epoch, in any branch,
+  /// including every early `return` below and the catch clause. The band's
+  /// own already-armed SET_ALARM is what actually guarantees the wake — it
+  /// keeps firing at [alarmEpoch] exactly as scheduled, on the band's own
+  /// clock, whether this method ever runs, throws, or finds nothing at all.
+  Future<void> _checkSmartWake() async {
+    try {
+      if (!isConnected) return;
+      final epoch = alarmEpoch;
+      if (epoch == null || epoch == _smartWakeFiredForEpoch) return;
+      final windowEnd = DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
+      final entry = _schedule.firstWhere(
+        (e) => e.weekday == windowEnd.weekday - 1,
+        orElse: () => AlarmScheduleEntry(
+            weekday: 0, hour: 0, minute: 0, enabled: false),
+      );
+      final now = DateTime.now();
+      if (!inSmartWakeWindow(
+          windowEnd: windowEnd, minutes: entry.smartWindowMinutes, now: now)) {
+        return;
+      }
+      final recentRows = await LocalDb.onehzHrAccelBetween(
+        now.subtract(const Duration(minutes: 3)).millisecondsSinceEpoch ~/
+            1000,
+        now.millisecondsSinceEpoch ~/ 1000,
+      );
+      final baselineRows = await LocalDb.onehzHrAccelBetween(
+        now.subtract(const Duration(minutes: 93)).millisecondsSinceEpoch ~/
+            1000,
+        now.subtract(const Duration(minutes: 3)).millisecondsSinceEpoch ~/
+            1000,
+      );
+      final detected = likelyLightSleep(
+        baseline: [for (final r in baselineRows) SmartWakeSample.fromRow(r)],
+        recent: [for (final r in recentRows) SmartWakeSample.fromRow(r)],
+      );
+      if (!detected) return;
+      _smartWakeFiredForEpoch = epoch; // set BEFORE the write — see below
+      // Marked fired before the write goes out on purpose: a write that
+      // throws must not retry every 30 s for the rest of the window (that
+      // would just be repeated buzzing), and the untouched fallback arm
+      // still covers a write that genuinely failed.
+      await engine.runAlarm();
+      _log('[smart-wake] light sleep detected inside the window — early buzz.');
+    } catch (e) {
+      _log('[smart-wake] check failed (fallback alarm is unaffected): $e');
     }
   }
 
