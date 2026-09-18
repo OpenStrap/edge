@@ -1722,6 +1722,11 @@ class _PastWorkout {
   /// from the list row because that is where the repository already serves it.
   final int? hrr60;
 
+  /// `sessions.vo2max_estimate` — submax estimate from one completed km route
+  /// split. Carried for the same reason [hrr60] is: opening the detail screen
+  /// converts this row straight to an `ActivityResult`.
+  final double? vo2max;
+
   /// `sessions.steps` — banked at finish from the live 100 Hz pedometer and
   /// never recomputed. It is a COLUMN, so unlike the trace it does not depend
   /// on the 1 Hz substrate and does not go blank when that is pruned; a session
@@ -1756,6 +1761,7 @@ class _PastWorkout {
       this.avgHr,
       this.maxHr,
       this.hrr60,
+      this.vo2max,
       this.steps,
       this.zoneMinutes = const [],
       this.private = false,
@@ -1802,6 +1808,7 @@ class _PastWorkout {
         avgHr: avgHr,
         maxHr: maxHr,
         hrr60: hrr60,
+        vo2max: vo2max,
         steps: steps,
         zoneMinutes: zoneMinutes,
       );
@@ -1976,6 +1983,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
             avgHr: (r['avg_hr'] as num?)?.round(),
             maxHr: (r['max_hr'] as num?)?.toInt(),
             hrr60: (r['hrr60'] as num?)?.round(),
+            vo2max: (r['vo2max_estimate'] as num?)?.toDouble(),
             steps: (r['steps'] as num?)?.toInt(),
             zoneMinutes: _decodeZoneMinutes(r['zone_min']),
             private: r['private'] == true,

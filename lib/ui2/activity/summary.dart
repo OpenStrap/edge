@@ -237,6 +237,13 @@ class ActivityResult {
   /// read it. Null is UNMEASURED (no trace over the minute after, or a session
   /// that ended into another one), never a zero drop.
   final int? hrr60;
+
+  /// Submax VO2max estimate (ml/kg/min) — backfilled from ONE completed km
+  /// route split (real pace + real HR held together for the bout, extrapolated
+  /// via %HRR — see `sessions.vo2max_estimate`). Not the old age/RHR-ratio
+  /// number: null on almost every session, including every indoor one, and
+  /// that absence is the honest answer, not a gap to fill with a guess.
+  final double? vo2max;
   final double? strain;
   // Per-MINUTE mean heart rate, live (`LiveWorkoutState.perMinuteHr`) and
   // stored (`getWorkout()['hr']`) alike. Nothing on this screen has ever been
@@ -320,6 +327,7 @@ class ActivityResult {
     this.avgHr,
     this.maxHr,
     this.hrr60,
+    this.vo2max,
     this.calories,
     this.strain,
     this.hr = const [],
@@ -355,6 +363,7 @@ class ActivityResult {
     int? avgHr,
     int? maxHr,
     int? hrr60,
+    double? vo2max,
     List<double?>? hr,
     List<double>? zoneMinutes,
     String? zoneSource,
@@ -380,6 +389,7 @@ class ActivityResult {
         avgHr: avgHr ?? this.avgHr,
         maxHr: maxHr ?? this.maxHr,
         hrr60: hrr60 ?? this.hrr60,
+        vo2max: vo2max ?? this.vo2max,
         calories: calories,
         strain: strain,
         hr: hr ?? this.hr,
@@ -587,6 +597,10 @@ List<(String, String)> sessionStats(ActivityResult r, UnitsController? u) {
   // rather than the label because 'HR recovery 24 bpm' is not a claim anybody
   // can check — recovery over WHAT is the whole measurement.
   add('HR recovery', r.hrr60 == null ? null : '${r.hrr60} bpm in 60 s');
+  // ESTIMATE from one completed km split of THIS session's own route + HR —
+  // absent on almost every session (indoor, no GPS, no full km) by design.
+  add('VO2max (est.)',
+      r.vo2max == null ? null : '${r.vo2max!.toStringAsFixed(1)} ml/kg/min');
   add('Calories', r.calories == null ? null : '${grouped(r.calories!)} kcal');
   add('Strain', r.strain?.toStringAsFixed(1));
   // TS-09 — last, under the measurements, and named 'Your rating' rather than

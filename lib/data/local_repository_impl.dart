@@ -2062,6 +2062,10 @@ class LocalRepositoryImpl extends LocalRepository {
       'avg_hr': (r['avg_hr'] as num?)?.toInt(),
       // Heart-rate recovery (bpm drop in 60 s) backfilled during derivation.
       'hrr60': (r['hrr_bpm'] as num?)?.round(),
+      // Submax VO2max estimate (ml/kg/min), backfilled from one completed km
+      // route split — see `_submaxVo2maxFromSplits`. ESTIMATE tier; null on
+      // any session without a qualifying steady bout, never fabricated.
+      'vo2max_estimate': (r['vo2max_estimate'] as num?)?.toDouble(),
       'zone_min': zoneMin,
       // manual / auto — the detail screen shows the AUTO tag + correct-type CTA.
       'source': r['source'],
@@ -2813,13 +2817,20 @@ class LocalRepositoryImpl extends LocalRepository {
 
       final profile = Profile.fromMap(getProfileMap());
       final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
+      // Hoisted (not just passed inline) so the submax VO2max estimate below
+      // can reuse the SAME hrMax/restingHr this session's own zones/TRIMP
+      // were scored against, instead of resolving its own answer that could
+      // silently disagree with the strain the rest of this pass just wrote.
+      final hrMaxForSession =
+          _profileMaxHr(row['device_family'] as String?)?.toDouble();
+      final restingHrForSession =
+          await _recentRestingHr() ?? profile.restingHrManual?.toDouble();
       final stats = computeManualSessionStats(
         hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
         hrBpm: hrBpm,
         profile: profile,
-        hrMax: _profileMaxHr(row['device_family'] as String?)?.toDouble(),
-        restingHr:
-            await _recentRestingHr() ?? profile.restingHrManual?.toDouble(),
+        hrMax: hrMaxForSession,
+        restingHr: restingHrForSession,
         zoneSet: _zoneSetFor(
             row['device_family'] as String?, await _zoneAnchors()),
       );
@@ -2928,6 +2939,22 @@ class LocalRepositoryImpl extends LocalRepository {
       // against `decoded_onehz`, which is gone at ~3 days, so a split not
       // written inside that window can never be written at all. Forward-only.
       if (needsTrace) await _persistKmSplits(id, hrRows);
+      // VO2max — backfill-only, like `avg_hr`: computed once from a completed
+      // km split (a real known distance held over a real known duration) and
+      // never recomputed once banked, because the raw substrate it needs ages
+      // out in days while the split it was computed from does not change.
+      double? vo2max;
+      if ((row['vo2max_estimate'] as num?) == null &&
+          hrMaxForSession != null &&
+          restingHrForSession != null) {
+        vo2max = await _submaxVo2maxFromSplits(
+          id,
+          hrRows: hrRows,
+          hrMaxBpm: hrMaxForSession,
+          restingHrBpm: restingHrForSession,
+        );
+        if (vo2max != null) await LocalDb.setSessionVo2max(id, vo2max);
+      }
       final updated = {
         ...current,
         'strain': merged.strain,
@@ -2937,6 +2964,7 @@ class LocalRepositoryImpl extends LocalRepository {
         if (stats.avgHr != null) 'avg_hr': stats.avgHr,
         'trace_json': ?traceJson,
         if (traceJson != null) 'trace_samples': stats.hrSampleCount,
+        'vo2max_estimate': ?vo2max,
       };
       return (row: updated, hrRows: hrRows, zoneMinutesRebinned: rebinned);
     } catch (_) {
@@ -3103,6 +3131,69 @@ class LocalRepositoryImpl extends LocalRepository {
       await LocalDb.putWorkoutSplits(id, out);
     } catch (_) {
       /* best-effort: a missing route or a malformed row costs the splits only */
+    }
+  }
+
+  /// Submax VO2max (see `ana.vo2maxSubmaxEstimate`) from ONE completed km
+  /// split of this session's route — a real known distance held over a real
+  /// known duration, with the split's own average HR.
+  ///
+  /// ponytail: picks the LONGEST full (1000 m) split rather than detecting a
+  /// genuinely steady-pace segment within it (warm-up/surge/fade all still
+  /// land inside the chosen km and blur its average). The %HRR gate in
+  /// `vo2maxSubmaxEstimate` is what actually catches most of the damage that
+  /// causes; upgrade to a pace-variance-gated sub-window if the %HRR band
+  /// keeps admitting bouts that don't look steady on the recorded curve.
+  /// Best-effort — a bad/missing route costs only this estimate, never the
+  /// scores this pass already wrote.
+  Future<double?> _submaxVo2maxFromSplits(
+    String id, {
+    required List<Map<String, dynamic>> hrRows,
+    required double hrMaxBpm,
+    required double restingHrBpm,
+  }) async {
+    try {
+      if (!await LocalDb.sessionHasRoute(id)) return null;
+      final rows = await LocalDb.routePoints(id);
+      if (rows.length < 2) return null;
+      final points = [for (final r in rows) RoutePoint.fromRow(r)];
+      final hr = [
+        for (final r in hrRows)
+          HrSample(
+            tsMs: (r['rec_ts'] as num).toInt() * 1000,
+            hr: (r['hr'] as num).toInt(),
+          ),
+      ];
+      final splits = rmath.computeSplits(points, hr,
+          unitMeters: rmath.kMetersPerKm);
+      // Full splits only — a trailing partial km has no fixed distance to
+      // divide a duration by, so its "speed" is just noise.
+      final full = [for (final s in splits) if (s.meters >= 999) s];
+      if (full.isEmpty) return null;
+      full.sort((a, b) => b.durationSec.compareTo(a.durationSec));
+      final best = full.first;
+      if (best.avgHr == null || best.durationSec <= 0) return null;
+
+      var edgeMs = points.first.tsMs;
+      for (final s in splits) {
+        final startMs = edgeMs;
+        edgeMs += s.durationSec * 1000;
+        if (s.index != best.index) continue;
+        final net = _netElevation(points, startMs, edgeMs);
+        final grade = net == null ? null : net / best.meters * 100;
+        final m = ana.vo2maxSubmaxEstimate(
+          speedMps: best.meters / best.durationSec,
+          avgHrBpm: best.avgHr!,
+          boutDurationSec: best.durationSec,
+          restingHrBpm: restingHrBpm,
+          hrMaxBpm: hrMaxBpm,
+          gradePercent: grade,
+        );
+        return m.present ? m.value : null;
+      }
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 

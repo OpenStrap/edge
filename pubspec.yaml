@@ -424,7 +424,15 @@ dependencies:
       # `irregularBeatScreen` feeds the stored 24 h and sleep irregular-rhythm
       # screens (onehz_pipeline.dart) — both are real, if narrow, output
       # changes, not NaN/±inf-only rejections.
-      ref: 1fa8144a5e3b728ce91eeed6ecbc15d482933b44
+      #
+      # analytics main @ #61 merge (2a0bea1) + this branch's own #62
+      # (f334a06): adds `vo2maxSubmaxEstimate`, additive-only, nothing
+      # existing reads it yet on the analytics side.
+      #
+      # Verified against the SHA:
+      #   `git show f334a06:lib/src/onehz/clinical/vo2max.dart |
+      #      grep vo2maxSubmaxEstimate`
+      ref: f334a068ed2d9aa4ac75e1247cab2071a095a90f
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

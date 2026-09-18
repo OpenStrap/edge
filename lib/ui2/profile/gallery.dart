@@ -1288,6 +1288,7 @@ final _sessions = <String, ActivityResult>{
     // The drop in the minute after. Stored on every scored session and read by
     // nothing until now.
     hrr60: 27,
+    vo2max: 47.2,
     calories: 604,
     hr: [for (var i = 0; i < 45; i++) 140 + (i * 23 % 37) * 1.0],
     zoneMinutes: const [2, 8, 19, 13, 3],

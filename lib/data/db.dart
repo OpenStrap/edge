@@ -3971,6 +3971,10 @@ class LocalDb {
     // read NULL — the truth for them — and the read path still recomputes from
     // the substrate while it is there.
     await _addColumnIfMissing(db, 'sessions', 'avg_hr', 'INTEGER');
+    // Submax VO2max estimate (ml/kg/min), backfilled from a completed km
+    // route split — see `_submaxVo2maxFromSplits` in local_repository_impl.
+    // ESTIMATE tier always; absent (NULL) is the honest default, not 0.
+    await _addColumnIfMissing(db, 'sessions', 'vo2max_estimate', 'REAL');
     // v43 (TS-09) — SESSION RPE. A SELF-REPORT, and labelled as one everywhere
     // it is ever shown. It exists to score the sessions heart rate cannot see
     // (lifting, climbing, anything intermittent) and its real value is the
@@ -10385,6 +10389,20 @@ class LocalDb {
     await db.update(
       'sessions',
       {'hrr_bpm': hrrBpm},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Backfill a session's submax VO2max estimate, computed once from a
+  /// completed route km split (see `_submaxVo2maxFromSplits`). Never called
+  /// with null — a session that didn't qualify simply never writes here and
+  /// stays NULL, the honest "no estimate" state.
+  static Future<void> setSessionVo2max(String id, double vo2max) async {
+    final db = await instance;
+    await db.update(
+      'sessions',
+      {'vo2max_estimate': vo2max},
       where: 'id = ?',
       whereArgs: [id],
     );
