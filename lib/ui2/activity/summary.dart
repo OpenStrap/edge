@@ -885,13 +885,21 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (c.mounted && picked) Navigator.of(c).pop();
   }
 
+  /// Guards against a double tap firing two competing native share sheets —
+  /// `share_plus` completes the first pending share as `unavailable` the
+  /// moment a second one starts. A plain field, not `setState`: nothing on
+  /// screen needs to repaint over this, it only needs to stay clear through
+  /// every exit (including a thrown error) — see the `finally` below.
+  bool _exportingGpx = false;
+
   /// Scoped export: the GPS route this phone already recorded, as a GPX file
   /// handed to the OS share sheet — so it can be manually uploaded to Strava
   /// or anywhere else that reads GPX. There is no Strava account involved:
   /// no OAuth, no upload call, just a file.
   Future<void> _exportGpx(BuildContext c) async {
     final id = r.sessionId;
-    if (id == null) return;
+    if (id == null || _exportingGpx) return;
+    _exportingGpx = true;
     final l = AppLocalizations.of(c);
     final origin = shareOrigin(c);
     final messenger = ScaffoldMessenger.of(c);
@@ -919,6 +927,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
           content: Text(
               l?.activityShareOpenFailed ?? 'Could not open the share sheet.')));
       debugPrint('gpx export failed: $e');
+    } finally {
+      _exportingGpx = false;
     }
   }
 
