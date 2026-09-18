@@ -815,9 +815,10 @@ class _CoachSetupState extends State<CoachSetup> {
 
     _base.addListener(_onBaseChanged);
     // A non-empty key is a real replacement for the current origin — but
-    // _key.clear() (used by _onBaseChanged itself) must NOT be read as one.
+    // _key.clear() (used by _onBaseChanged itself) must NOT be read as one,
+    // and neither must whitespace-only input (see coachKeyFieldHasReplacement).
     _key.addListener(() {
-      if (_key.text.isNotEmpty) _pendingKeyDelete = false;
+      if (coachKeyFieldHasReplacement(_key.text)) _pendingKeyDelete = false;
     });
     _search.addListener(redraw);
   }

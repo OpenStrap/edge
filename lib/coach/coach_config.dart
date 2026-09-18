@@ -50,6 +50,17 @@ String? coachApiKeyToSave({
   return storedKeyReadable ? '' : null;
 }
 
+/// True when [keyText] should be treated as a real replacement key that
+/// cancels a pending deletion from an endpoint change (see
+/// `_CoachSetupState._onBaseChanged` and [coachApiKeyToSave]).
+///
+/// Whitespace-only text does NOT count: [coachApiKeyToSave] trims [keyText]
+/// before deciding what to save, so accepting untrimmed text here could clear
+/// the pending flag while Save still sees nothing to treat as a replacement —
+/// leaving a stale, unreadable key undeleted after the very endpoint change
+/// this exists to catch.
+bool coachKeyFieldHasReplacement(String keyText) => keyText.trim().isNotEmpty;
+
 class CoachConfig extends ChangeNotifier {
   static const _kBaseUrl = 'coach_base_url';
   static const _kModel = 'coach_model';
