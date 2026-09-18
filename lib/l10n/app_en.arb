@@ -1529,6 +1529,15 @@
       }
     }
   },
+  "welcomeLabResultsWritten": "{n, plural, one{1 lab result written} other{{n} lab results written}}",
+  "@welcomeLabResultsWritten": {
+    "description": "Import result headline/sub: N lab results.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "welcomeRowsRefused": "{n, plural, one{1 row was refused} other{{n} rows were refused}}",
   "@welcomeRowsRefused": {
     "description": "Status card title: N rows refused.",
