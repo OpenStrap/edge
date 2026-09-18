@@ -897,6 +897,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     final messenger = ScaffoldMessenger.of(c);
     try {
       final route = await c.read<AppState>().repo?.getWorkoutRoute(id);
+      if (!c.mounted) return;
       if (route == null || route.points.length < 2) {
         messenger.showSnackBar(SnackBar(
             content: Text(l?.activitySummaryNoRouteBody ??
@@ -949,10 +950,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     final canChangeType = r.sessionId != null;
     // GPX export only makes sense for a session with an actual recorded
     // route — offering it on a lift or a match would be a button that can
-    // only ever fail.
+    // only ever fail. Gated on `geo` (raw lat/lng), not the normalised
+    // `route` used to draw the map: `_normalise` returns empty for a
+    // zero-span route (every fix at the same spot — a stationary GPS lock),
+    // which would hide the export for a session `getWorkoutRoute` can still
+    // export.
     final canExportGpx = r.sessionId != null &&
         (arch == Arch.route || arch == Arch.journey) &&
-        r.route.length >= 2;
+        r.geo.length >= 2;
     final l = AppLocalizations.of(c);
     final iconCount = 1 + (canChangeType ? 1 : 0) + (canExportGpx ? 1 : 0);
     return Scaffold(

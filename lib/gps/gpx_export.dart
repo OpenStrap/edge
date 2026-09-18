@@ -26,11 +26,11 @@ String buildGpx(WorkoutRoute route, {required String name}) {
   // since both are already time-ordered. Anything fancier (binary search per
   // point) buys nothing a route capped at a few hours of 1 Hz fixes needs.
   int? hrNear(int tsMs) {
+    if (hr.isEmpty) return null;
     while (hrIdx + 1 < hr.length &&
         (hr[hrIdx + 1].tsMs - tsMs).abs() <= (hr[hrIdx].tsMs - tsMs).abs()) {
       hrIdx++;
     }
-    if (hrIdx >= hr.length) return null;
     return (hr[hrIdx].tsMs - tsMs).abs() <= hrToleranceMs ? hr[hrIdx].hr : null;
   }
 

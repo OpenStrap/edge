@@ -77,6 +77,25 @@ void main() {
       expect(RegExp('<gpxtpx:hr>').allMatches(xml).length, 1);
     });
 
+    test('a stationary route (identical lat/lng, e.g. a treadmill run with '
+        'GPS still locked) still exports every point', () {
+      final route = WorkoutRoute(
+        sessionId: 's3',
+        points: const [
+          RoutePoint(seq: 0, tsMs: 0, lat: 51.5, lng: -0.12),
+          RoutePoint(seq: 1, tsMs: 1000, lat: 51.5, lng: -0.12),
+          RoutePoint(seq: 2, tsMs: 2000, lat: 51.5, lng: -0.12),
+        ],
+        hr: const [],
+        distanceMeters: 0,
+        movingSec: 2,
+        splitsKm: const [],
+        splitsMi: const [],
+      );
+      final xml = buildGpx(route, name: 'Run');
+      expect(_trkptCount(xml), 3);
+    });
+
     test('balanced tags for the minimum 2-point route', () {
       final route = WorkoutRoute(
         sessionId: 's2',
