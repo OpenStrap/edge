@@ -5613,6 +5613,12 @@ class AppState extends ChangeNotifier {
 
   DateTime _lastLaPush = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Last time this session's tallies were snapshotted to
+  /// `live_workout_tally` — see [_persistLiveWorkoutTally]. Throttled the same
+  /// way [_lastLaPush] is; a snapshot every tick would be a write per second
+  /// for the whole workout for no benefit over one every 30s.
+  DateTime _lastTallyPersist = DateTime.fromMillisecondsSinceEpoch(0);
+
   // `_maxHr` (220 − age, silently substituting age 30 → a flat 190 for every
   // user who skipped the field) and the public `maxHr` that wrapped it are
   // GONE (TS-03a). The live session now carries its own ceiling, resolved once
@@ -5970,6 +5976,41 @@ class AppState extends ChangeNotifier {
             ),
             restingHr: _liveRestingHr,
           );
+          // Restore the per-second tallies a PREVIOUS process snapshotted
+          // before it was killed — without this, strain/calories/zone
+          // minutes silently restarted from zero on every resumed session
+          // (the reported bug). Best-effort: a missing/corrupt row just
+          // means the tallies genuinely start from zero, same as before.
+          try {
+            final tally = await LocalDb.liveWorkoutTally(id);
+            if (tally != null) {
+              final minuteHr = (jsonDecode(tally['per_minute_hr'] as String)
+                      as List)
+                  .map((v) => (v as num?)?.toDouble())
+                  .toList();
+              final zoneSecondsIn = (jsonDecode(
+                tally['zone_seconds'] as String,
+              ) as List)
+                  .map((v) => (v as num).toDouble())
+                  .toList();
+              final secondsByBpm = (jsonDecode(
+                tally['seconds_by_bpm'] as String,
+              ) as Map)
+                  .map(
+                    (k, v) =>
+                        MapEntry(int.parse(k as String), (v as num).toDouble()),
+                  );
+              activeWorkout!.restoreTally(
+                minuteHr: minuteHr,
+                zoneSecondsIn: zoneSecondsIn,
+                secondsByBpm: secondsByBpm,
+                maxHrSeenIn: (tally['max_hr_seen'] as num?)?.toInt() ?? 0,
+              );
+              _log('[workout] restored live tallies from before the relaunch (id=$id).');
+            }
+          } catch (e) {
+            _log('[workout] could not restore live tally for $id: $e — tallies resume from zero.');
+          }
           // Without this, `workoutStepsMeasured` (gated on _workoutRawBase
           // != null) stays null for the rest of this resumed session, and
           // stopWorkout()
@@ -6023,6 +6064,8 @@ class AppState extends ChangeNotifier {
             'end_ts': row['end_ts'] ?? reconciledEndTs,
             'end_ts_fabricated': hadRealEnd ? (row['end_ts_fabricated'] ?? 0) : 1,
           });
+          // Never resumed, so its tally snapshot (if any) is now orphaned.
+          unawaited(LocalDb.deleteLiveWorkoutTally(row['id'] as String? ?? ''));
           _log('[workout] finalized a stale live-session row from a previous run (id=${row['id']}).');
         }
       }
@@ -6115,6 +6158,10 @@ class AppState extends ChangeNotifier {
       // the workout you had just finished in History, "This week", "Tracked"
       // or the weekly load until the app was restarted.
       bumpInsights();
+      // The session is durable now; its scratch tally snapshot (if any) is
+      // no longer needed and would otherwise be restored onto a FUTURE
+      // workout that happens to reuse this id.
+      unawaited(LocalDb.deleteLiveWorkoutTally(id));
     } catch (e) {
       _log('[workout] could not save session $id: $e — keeping it live');
       notifyListeners();
@@ -6156,6 +6203,8 @@ class AppState extends ChangeNotifier {
   /// still appending GPS points, and the Live Activity still showing, all
   /// against a workout id that no longer has a backing DB row.
   Future<void> _cancelActiveWorkoutTeardown() async {
+    final tallyId = activeWorkout?.workoutId;
+    if (tallyId != null) unawaited(LocalDb.deleteLiveWorkoutTally(tallyId));
     _workoutTimer?.cancel();
     _workoutTimer = null;
     final rt = _routeTracker;
@@ -6404,7 +6453,36 @@ class AppState extends ChangeNotifier {
         rhr: _restingHr,
       );
     }
+    // Snapshot the tallies so a hard-kill relaunch mid-workout can resume
+    // near where it left off instead of zeroing strain/calories/zone minutes
+    // — see _reconcileOrphanedLiveWorkout and _persistLiveWorkoutTally.
+    if (DateTime.now().difference(_lastTallyPersist).inSeconds >= 30) {
+      _lastTallyPersist = DateTime.now();
+      unawaited(_persistLiveWorkoutTally(w));
+    }
     notifyListeners();
+  }
+
+  /// Best-effort snapshot of [w]'s per-second tallies to `live_workout_tally`.
+  /// Never throws into the tick loop — a failed write just means the next
+  /// periodic tick tries again.
+  Future<void> _persistLiveWorkoutTally(LiveWorkoutState w) async {
+    final id = w.workoutId;
+    if (id == null) return;
+    try {
+      await LocalDb.saveLiveWorkoutTally({
+        'workout_id': id,
+        'updated_ts': DateTime.now().millisecondsSinceEpoch,
+        'per_minute_hr': jsonEncode(w.perMinuteHrDense()),
+        'zone_seconds': jsonEncode(w.zoneSeconds),
+        'seconds_by_bpm': jsonEncode(
+          w._secondsByBpm.map((k, v) => MapEntry(k.toString(), v)),
+        ),
+        'max_hr_seen': w.maxHrSeen,
+      });
+    } catch (_) {
+      /* best effort — next tick retries */
+    }
   }
 }
 
@@ -6746,6 +6824,48 @@ class LiveWorkoutState {
     // Calories re-score off the same series, through the same estimator the
     // substrate re-score uses, so both live figures on the gauge mean the same
     // thing the finished session will.
+    _scoreCalories();
+  }
+
+  /// Restore per-second tallies persisted mid-session by a PREVIOUS process,
+  /// called once from `_reconcileOrphanedLiveWorkout` right after a hard-kill
+  /// relaunch rehydrates this session, before any new HR sample arrives.
+  ///
+  /// Restores the finished-minute HR series, the zone-second tally, the
+  /// calorie bpm histogram and the peak exactly — [_scoreCalories] and the
+  /// strain recompute below then reproduce whatever the gauge showed at the
+  /// last snapshot (up to ~30s of gap, the persist throttle). Deliberately
+  /// does NOT restore [_lastSampleHr]/[_lastSampleSec] or the in-progress
+  /// minute bucket: those describe a sample that is not still arriving, and
+  /// resuming them would bill the entire offline gap (background, or the
+  /// time the app was dead) as active minutes at the last known heart rate.
+  /// The first new sample after this simply starts a fresh minute/gap, same
+  /// as a real pause in the stream.
+  void restoreTally({
+    required List<double?> minuteHr,
+    required List<double> zoneSecondsIn,
+    required Map<int, double> secondsByBpm,
+    required int maxHrSeenIn,
+  }) {
+    _perMinute
+      ..clear()
+      ..addAll(minuteHr);
+    _minuteBucket = -1;
+    _minuteSum = 0;
+    _minuteCount = 0;
+    for (var z = 0; z < zoneSeconds.length && z < zoneSecondsIn.length; z++) {
+      zoneSeconds[z] = zoneSecondsIn[z];
+    }
+    _secondsByBpm
+      ..clear()
+      ..addAll(secondsByBpm);
+    maxHrSeen = maxHrSeenIn;
+    strain = strainFromPerMinuteHr(
+      perMinuteHr(),
+      profile: profile,
+      restingHr: restingHr,
+      hrMax: hrMax,
+    );
     _scoreCalories();
   }
 }

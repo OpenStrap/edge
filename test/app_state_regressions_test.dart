@@ -4,6 +4,8 @@
 // without touching a single platform plugin, so the logic below can be driven
 // directly. Each group names the bug it guards.
 
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -445,6 +447,120 @@ void main() {
       active.debugTickWorkout();
       expect(w2.idleWatch.lastAskAt, isNull,
           reason: 'a real reading (no gate → any reading) is activity');
+    });
+  });
+
+  // ── a hard-kill relaunch mid-workout must not reset strain/calories/zone
+  // minutes to 0.0 — the tally is snapshotted periodically and restored on
+  // reconcile instead of being zeroed. ─────────────────────────────────────
+  group('live workout tally survives a hard-kill relaunch', () {
+    test('a resumed session restores strain/calories/zone minutes near '
+        'where the killed process left them, not zero', () async {
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      const id = 'killed-mid-workout';
+      // The row a genuinely live session left behind (never finalized —
+      // the process died before stopWorkout() could run). Started 5s ago:
+      // the reconcile resumes the SINGLE most-recent live row and finalizes
+      // any others as stale, and this file's DB is shared across the whole
+      // suite, so this must outrank every row an earlier test left live.
+      await LocalDb.putSession({
+        'id': id,
+        'start_ts': nowSec - 5,
+        'end_ts': null,
+        'type': 'run',
+        'status': 'live',
+        'source': 'manual',
+        'created_at': (nowSec - 5) * 1000,
+      });
+      // The periodic snapshot the OLD process wrote ~30s before it died:
+      // 15 finished minutes at 140 bpm, 5 minutes (300s) already billed at
+      // 140 bpm for calories, all of it in zone 3, peak 150.
+      await LocalDb.saveLiveWorkoutTally({
+        'workout_id': id,
+        'updated_ts': DateTime.now().millisecondsSinceEpoch,
+        'per_minute_hr': jsonEncode(List<double>.filled(15, 140.0)),
+        'zone_seconds': jsonEncode([0.0, 0.0, 0.0, 900.0, 0.0, 0.0]),
+        'seconds_by_bpm': jsonEncode({'140': 900.0}),
+        'max_hr_seen': 150,
+      });
+
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      // Full calorie anchors, so a genuine restore (not just an abstain) is
+      // being asserted.
+      app.user = {
+        'age': 30,
+        'weight_kg': 70.0,
+        'height_cm': 175.0,
+        'sex': 'male',
+        'resting_hr': 55,
+      };
+
+      await app.debugReconcileOrphanedLiveWorkout();
+
+      final w = app.activeWorkout;
+      expect(w?.workoutId, id);
+      expect(w?.maxHrSeen, 150,
+          reason: 'the pre-kill peak must survive, not restart at 0');
+      expect(w?.zoneMinutes()[2], closeTo(15.0, 1e-9),
+          reason: 'zone 3 (index 2 of the Z1..Z5 payload) had 900s banked '
+              'before the kill — resuming at 0.0 would be the reported bug');
+      expect(w?.strain, isNotNull,
+          reason: 'strain must recompute off the restored per-minute series, '
+              'not abstain as if no sample had ever arrived');
+      expect(w!.strain! > 0, isTrue);
+      expect(w.caloriesOrNull, isNotNull,
+          reason: 'calories must recompute off the restored bpm histogram');
+      expect(w.caloriesOrNull! > 0, isTrue);
+
+      // The DB snapshot is exhausted at reconcile time; a genuinely killed
+      // process could still not resume it a second time from the same row.
+    });
+
+    test('a fresh workout (no prior snapshot) still starts clean', () async {
+      final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      const id = 'no-snapshot-yet';
+      // Must outrank the previous test's still-live row the same way.
+      await LocalDb.putSession({
+        'id': id,
+        'start_ts': nowSec - 2,
+        'end_ts': null,
+        'type': 'run',
+        'status': 'live',
+        'source': 'manual',
+        'created_at': (nowSec - 2) * 1000,
+      });
+
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      await app.debugReconcileOrphanedLiveWorkout();
+
+      final w = app.activeWorkout;
+      expect(w?.workoutId, id);
+      expect(w?.maxHrSeen, 0);
+      expect(w?.zoneMinutes().every((v) => v == 0), isTrue,
+          reason: 'no snapshot ever existed for this id — zero is honest '
+              'here, not a bug');
+    });
+
+    test('stopWorkout deletes the tally so it cannot leak onto a future '
+        'session that reuses the id', () async {
+      const id = 'finished-then-reused';
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      app.startWorkout(workoutId: id, type: 'run');
+      await LocalDb.saveLiveWorkoutTally({
+        'workout_id': id,
+        'updated_ts': DateTime.now().millisecondsSinceEpoch,
+        'per_minute_hr': jsonEncode([120.0]),
+        'zone_seconds': jsonEncode([0.0, 60.0, 0.0, 0.0, 0.0, 0.0]),
+        'seconds_by_bpm': jsonEncode({'120': 60.0}),
+        'max_hr_seen': 120,
+      });
+
+      await app.stopWorkout();
+
+      expect(await LocalDb.liveWorkoutTally(id), isNull);
     });
   });
 }

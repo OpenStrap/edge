@@ -1111,10 +1111,77 @@ class LocalDb {
     await _ensureDayResultPartialColumn(db);
     await _createNotifFired(db);
     await _createAlarmSchedule(db);
+    // CREATE TABLE IF NOT EXISTS on the every-open repair path, no schema
+    // version bump needed — additive, no backfill (see _createImportedWorkout
+    // just above for the same reasoning).
+    await _createLiveWorkoutTally(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
+  }
+
+  /// Periodic snapshot of a LIVE workout's per-second tallies (per-minute HR
+  /// series, zone-seconds, the calorie bpm histogram, the spike-suppressed
+  /// peak) — written every ~30s by `AppState._tickWorkout` while a session is
+  /// live. On a hard-kill relaunch mid-workout, `_reconcileOrphanedLiveWorkout`
+  /// restores from the newest row instead of zeroing strain/calories/zone
+  /// minutes back to nothing. Deleted once the workout finishes or is
+  /// cancelled — this is scratch state for one in-progress session, never a
+  /// historical record.
+  static Future<void> _createLiveWorkoutTally(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS live_workout_tally (
+        workout_id     TEXT PRIMARY KEY,
+        updated_ts     INTEGER NOT NULL,
+        per_minute_hr  TEXT NOT NULL,
+        zone_seconds   TEXT NOT NULL,
+        seconds_by_bpm TEXT NOT NULL,
+        max_hr_seen    INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+  }
+
+  /// Upsert the latest tally snapshot for [workoutId]. Best-effort — a failed
+  /// write just means the NEXT periodic tick tries again; it must never take
+  /// down the live tick loop itself.
+  static Future<void> saveLiveWorkoutTally(Map<String, Object?> row) async {
+    final db = await instance;
+    await db.insert(
+      'live_workout_tally',
+      row,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// The persisted tally row for [workoutId], or null if this session was
+  /// never ticked long enough to be snapshotted (or predates this feature).
+  static Future<Map<String, Object?>?> liveWorkoutTally(
+    String workoutId,
+  ) async {
+    final db = await instance;
+    final rows = await db.query(
+      'live_workout_tally',
+      where: 'workout_id = ?',
+      whereArgs: [workoutId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// Drop the tally row for [workoutId] once it is no longer live (finished,
+  /// cancelled, or reconciled as stale). Best-effort.
+  static Future<void> deleteLiveWorkoutTally(String workoutId) async {
+    try {
+      final db = await instance;
+      await db.delete(
+        'live_workout_tally',
+        where: 'workout_id = ?',
+        whereArgs: [workoutId],
+      );
+    } catch (_) {
+      /* scratch state — a failed cleanup is not worth surfacing */
+    }
   }
 
   /// The column names [table] currently has (empty if the table is absent).
