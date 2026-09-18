@@ -10,7 +10,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 // -> 0 by the end of M2 (§18 gate).
-const _kWhoopGen4Defaults = 13;
+const _kWhoopGen4Defaults = 9;
 const _bandProfileGen4Defaults = 8;
 
 final _pureComment = RegExp(r'^\s*(///|//|\*|/\*)');
