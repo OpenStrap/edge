@@ -9385,6 +9385,18 @@
   "@activitySetupPrivateLabel": {
     "description": "Label for the private-session toggle on the activity setup screen"
   },
+  "activitySetupWorkLabel": "Work",
+  "@activitySetupWorkLabel": {
+    "description": "Label for the work-interval stepper on the interval activity setup screen"
+  },
+  "activitySetupRestLabel": "Rest",
+  "@activitySetupRestLabel": {
+    "description": "Label for the rest-interval stepper on the interval activity setup screen"
+  },
+  "activitySetupRoundsLabel": "Rounds",
+  "@activitySetupRoundsLabel": {
+    "description": "Label for the round-count stepper on the interval activity setup screen"
+  },
   "activitySetupPrivateDetail": "Hidden from summaries and exports",
   "@activitySetupPrivateDetail": {
     "description": "Detail text under the private-session toggle"

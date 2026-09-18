@@ -49,6 +49,14 @@ class ActivitySetup extends StatefulWidget {
 class _ActivitySetupState extends State<ActivitySetup> {
   late bool private = widget.a.private;
 
+  // Interval config — only read for Track.interval. Defaults match the old
+  // hardcoded 45/30/8 CrossFit assumption, which every interval activity
+  // (Jump rope, Kettlebell, HIIT, Circuit training too) used to be stuck
+  // with regardless of what it actually was.
+  int _workSec = 45;
+  int _restSec = 30;
+  int _rounds = 8;
+
   bool _starting = false;
   bool _refused = false;
 
@@ -70,7 +78,13 @@ class _ActivitySetupState extends State<ActivitySetup> {
     // user types from here belongs to the session, and has to survive the
     // screen being minimised or the process being killed.
     if (start != null) {
-      LiveDraft.begin(widget.a, private: private, weightKg: widget.weightKg);
+      final interval = widget.a.track == Track.interval;
+      LiveDraft.begin(widget.a,
+          private: private,
+          weightKg: widget.weightKg,
+          workSec: interval ? _workSec : null,
+          restSec: interval ? _restSec : null,
+          rounds: interval ? _rounds : null);
     }
     await Navigator.of(context).pushReplacement(MaterialPageRoute(
       builder: (_) => liveFor(widget.a,
@@ -167,6 +181,41 @@ class _ActivitySetupState extends State<ActivitySetup> {
                         l),
                   ]),
                 ),
+                if (a.track == Track.interval) ...[
+                  const SizedBox(height: S.x4),
+                  Surface(
+                    pad: const EdgeInsets.symmetric(
+                        horizontal: S.x4, vertical: S.x2),
+                    child: Column(children: [
+                      _stepper(
+                          p,
+                          l,
+                          l?.activitySetupWorkLabel ?? 'Work',
+                          '${_workSec}s',
+                          () => setState(
+                              () => _workSec = (_workSec - 5).clamp(5, 999)),
+                          () => setState(() => _workSec += 5)),
+                      Divider(color: p.line, height: 1),
+                      _stepper(
+                          p,
+                          l,
+                          l?.activitySetupRestLabel ?? 'Rest',
+                          '${_restSec}s',
+                          () => setState(
+                              () => _restSec = (_restSec - 5).clamp(5, 999)),
+                          () => setState(() => _restSec += 5)),
+                      Divider(color: p.line, height: 1),
+                      _stepper(
+                          p,
+                          l,
+                          l?.activitySetupRoundsLabel ?? 'Rounds',
+                          '$_rounds',
+                          () => setState(
+                              () => _rounds = (_rounds - 1).clamp(1, 99)),
+                          () => setState(() => _rounds += 1)),
+                    ]),
+                  ),
+                ],
                 const SizedBox(height: S.x4),
                 Surface(
                   elevation: 0,
@@ -259,6 +308,26 @@ class _ActivitySetupState extends State<ActivitySetup> {
           if (on != null)
             Icon(on ? LucideIcons.circleCheck : LucideIcons.circleSlash,
                 size: 20, color: on ? p.on(C.green) : p.line),
+        ]),
+      );
+
+  Widget _stepper(P p, AppLocalizations? l, String label, String value,
+          VoidCallback down, VoidCallback up) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: S.x3),
+        child: Row(children: [
+          Expanded(child: Text(label, style: F.body.copyWith(color: p.ink))),
+          counterButton(p, LucideIcons.minus, p.ink2,
+              l?.activityLiveDecrease(label) ?? '$label down', down,
+              size: 32),
+          SizedBox(
+              width: 56,
+              child: Text(value,
+                  textAlign: TextAlign.center,
+                  style: F.body.copyWith(color: p.ink))),
+          counterButton(p, LucideIcons.plus, p.ink,
+              l?.activityLiveIncrease(label) ?? '$label up', up,
+              size: 32),
         ]),
       );
 

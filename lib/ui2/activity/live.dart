@@ -220,6 +220,13 @@ class LiveDraft {
   final double? weightKg;
   final DateTime startedAt;
 
+  /// Interval config chosen on the setup screen — null for every archetype
+  /// but [Track.interval], where 45/30/8 used to be a constant nothing let
+  /// the user change.
+  final int? workSec;
+  final int? restSec;
+  final int? rounds;
+
   /// Seconds banked in earlier pauses, and when the current pause began. The
   /// clock is wall time minus these, so it stays true across a long
   /// background spell or a relaunch instead of counting screen-on seconds.
@@ -234,6 +241,9 @@ class LiveDraft {
       {required this.startedAt,
       this.private = false,
       this.weightKg,
+      this.workSec,
+      this.restSec,
+      this.rounds,
       this.pausedSec = 0,
       this.pausedAt,
       Map<String, Object?>? data})
@@ -253,10 +263,20 @@ class LiveDraft {
   }
 
   /// Open a draft for a session the app has just accepted.
-  static LiveDraft begin(Activity a, {bool private = false, double? weightKg}) {
+  static LiveDraft begin(Activity a,
+      {bool private = false,
+      double? weightKg,
+      int? workSec,
+      int? restSec,
+      int? rounds}) {
     _loaded = true;
     _current = LiveDraft._(a.typeKey,
-        startedAt: DateTime.now(), private: private, weightKg: weightKg);
+        startedAt: DateTime.now(),
+        private: private,
+        weightKg: weightKg,
+        workSec: workSec,
+        restSec: restSec,
+        rounds: rounds);
     _save();
     return _current!;
   }
@@ -311,6 +331,9 @@ class LiveDraft {
           'a': d.activityKey,
           'private': d.private,
           'weight': d.weightKg,
+          'work_sec': d.workSec,
+          'rest_sec': d.restSec,
+          'rounds': d.rounds,
           'start': d.startedAt.millisecondsSinceEpoch,
           'paused_sec': d.pausedSec,
           'paused_at': d.pausedAt?.millisecondsSinceEpoch,
@@ -331,6 +354,9 @@ class LiveDraft {
         startedAt: DateTime.fromMillisecondsSinceEpoch(start.toInt()),
         private: m['private'] == true,
         weightKg: (m['weight'] as num?)?.toDouble(),
+        workSec: (m['work_sec'] as num?)?.toInt(),
+        restSec: (m['rest_sec'] as num?)?.toInt(),
+        rounds: (m['rounds'] as num?)?.toInt(),
         pausedSec: (m['paused_sec'] as num?)?.toInt() ?? 0,
         pausedAt: (m['paused_at'] as num?) == null
             ? null
@@ -372,7 +398,13 @@ Widget liveFor(
     Arch.match => LiveMatch(a,
         feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
     Arch.interval => LiveInterval(a,
-        feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
+        feed: feed,
+        weightKg: weightKg,
+        private: p,
+        onFinish: onFinish,
+        workSec: LiveDraft.current?.workSec ?? 45,
+        restSec: LiveDraft.current?.restSec ?? 30,
+        rounds: LiveDraft.current?.rounds ?? 8),
     _ => LiveMeasured(a,
         feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
   };
@@ -2246,12 +2278,21 @@ class LiveInterval extends StatefulWidget {
   final double? weightKg;
   final bool private;
   final SessionFinish? onFinish;
+
+  /// Chosen on the setup screen (defaults match the old hardcoded values —
+  /// nothing to migrate for a draft that predates this).
+  final int workSec;
+  final int restSec;
+  final int rounds;
   const LiveInterval(this.a,
       {super.key,
       this.feed,
       this.weightKg,
       this.private = false,
-      this.onFinish});
+      this.onFinish,
+      this.workSec = 45,
+      this.restSec = 30,
+      this.rounds = 8});
 
   @override
   State<LiveInterval> createState() => _LiveIntervalState();
@@ -2263,13 +2304,11 @@ class _LiveIntervalState extends State<LiveInterval> {
   // LOST; it is a timer, and a timer that keeps running while the screen is
   // gone needs the countdown to live on the draft's clock. Do that if anyone
   // actually minimises intervals.
-  /// [rounds] is how many pips the row starts with, NOT a plan the session
-  /// runs to: nothing stops this timer at the eighth round, so a session that
-  /// keeps going simply grows the row.
-  static const workSec = 45, restSec = 30, rounds = 8;
-
+  /// [widget.rounds] is how many pips the row starts with, NOT a plan the
+  /// session runs to: nothing stops this timer at that round, so a session
+  /// that keeps going simply grows the row.
   int round = 1;
-  int left = workSec;
+  late int left;
   bool work = true;
   final done = <IntervalRound>[];
   Timer? _t;
@@ -2282,6 +2321,7 @@ class _LiveIntervalState extends State<LiveInterval> {
   @override
   void initState() {
     super.initState();
+    left = widget.workSec;
     _t = Timer.periodic(Motion.tick, (_) {
       if (!mounted) return;
       // PAUSE STOPS THE INTERVAL ENGINE. Without this the countdown kept
@@ -2311,21 +2351,21 @@ class _LiveIntervalState extends State<LiveInterval> {
                 : (l?.activityLiveWorkWord ?? 'Work'));
         if (work) {
           work = false;
-          left = restSec;
+          left = widget.restSec;
         } else {
-          done.add(IntervalRound(workSec, restSec,
+          done.add(IntervalRound(widget.workSec, widget.restSec,
               avgHr: _roundHr.isEmpty
                   ? null
                   : (_roundHr.reduce((x, y) => x + y) / _roundHr.length)
                       .round()));
           _roundHr.clear();
           work = true;
-          left = workSec;
+          left = widget.workSec;
           // UNCAPPED. `done` is unconditional and the timer never stops at the
-          // eighth round, so `if (round < rounds) round++` froze the live
-          // counter at 8 while the summary counted 11 — two screens, one
-          // session, two round counts. [rounds] is the pip row's floor now,
-          // not a limit the session has.
+          // configured round count, so `if (round < widget.rounds) round++`
+          // froze the live counter while the summary counted more — two
+          // screens, one session, two round counts. [widget.rounds] is the
+          // pip row's floor now, not a limit the session has.
           round++;
         }
       });
@@ -2343,8 +2383,8 @@ class _LiveIntervalState extends State<LiveInterval> {
     final l = AppLocalizations.of(c);
     return LiveShell(
       widget.a,
-      subtitle: l?.activityLiveIntervalSubtitle(workSec, restSec) ??
-          '$workSec S WORK · $restSec S REST',
+      subtitle: l?.activityLiveIntervalSubtitle(widget.workSec, widget.restSec) ??
+          '${widget.workSec} S WORK · ${widget.restSec} S REST',
       private: widget.private,
       weightKg: widget.weightKg,
       onFinish: widget.onFinish,
@@ -2357,9 +2397,9 @@ class _LiveIntervalState extends State<LiveInterval> {
         final l = AppLocalizations.of(ctx);
         final f = widget.feed?.call() ?? LiveFeed.none;
         final col = work ? C.red : C.teal;
-        // At least the eight the row is drawn for, and more once the session
-        // has done more. '/ 8' was a denominator nothing enforced.
-        final pips = round > rounds ? round : rounds;
+        // At least [widget.rounds] the row is drawn for, and more once the
+        // session has done more. '/ 8' was a denominator nothing enforced.
+        final pips = round > widget.rounds ? round : widget.rounds;
         return Column(children: [
           const SizedBox(height: S.x5),
           Text(l?.activityLiveRoundLabel(round) ?? 'ROUND $round',
@@ -2377,7 +2417,7 @@ class _LiveIntervalState extends State<LiveInterval> {
           ClipRRect(
             borderRadius: R.rPill,
             child: LinearProgressIndicator(
-                value: left / (work ? workSec : restSec),
+                value: left / (work ? widget.workSec : widget.restSec),
                 minHeight: 10,
                 backgroundColor: p.track,
                 valueColor: AlwaysStoppedAnimation(p.on(col))),
@@ -2390,10 +2430,10 @@ class _LiveIntervalState extends State<LiveInterval> {
               const Spacer(),
               Text(
                   work
-                      ? (l?.activityLiveNextRest(clock(restSec)) ??
-                          'Rest · ${clock(restSec)}')
-                      : (l?.activityLiveNextWork(clock(workSec)) ??
-                          'Work · ${clock(workSec)}'),
+                      ? (l?.activityLiveNextRest(clock(widget.restSec)) ??
+                          'Rest · ${clock(widget.restSec)}')
+                      : (l?.activityLiveNextWork(clock(widget.workSec)) ??
+                          'Work · ${clock(widget.workSec)}'),
                   style: F.body
                       .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
             ]),

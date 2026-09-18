@@ -17,6 +17,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/gps/gps_source.dart';
 import 'package:openstrap_edge/state/prefs.dart';
@@ -1306,6 +1307,95 @@ void main() {
       expect(find.text('40 kg × 8'), findsWidgets,
           reason: 'a typed set is the one thing nothing can recompute');
       expect(find.text('320'), findsOneWidget, reason: 'volume, restored');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'interval work/rest/rounds are configurable, not the old 45/30/8',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('crossfit')!;
+      expect(archOf(a), Arch.interval);
+
+      // The setup screen defaults to the old values, but they are typed in,
+      // not baked into the live screen — bumping work to 50 s here has to
+      // reach the countdown, the subtitle AND the progress bar.
+      LiveDraft.begin(a, workSec: 50, restSec: 20, rounds: 4);
+
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('50 S WORK'), findsOneWidget);
+      expect(find.textContaining('20 S REST'), findsOneWidget);
+      expect(find.text('00:50'), findsOneWidget,
+          reason: 'the countdown starts from the chosen work length');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('an interval draft with no chosen config falls back to 45/30/8',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('crossfit')!;
+      LiveDraft.begin(a); // a draft written before this feature existed
+
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('45 S WORK'), findsOneWidget);
+      expect(find.textContaining('30 S REST'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'the interval setup screen lets you change work, rest and rounds',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('crossfit')!;
+      await tester.pumpWidget(
+          _frame(ActivitySetup(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('45s'), findsOneWidget);
+      expect(find.text('30s'), findsOneWidget);
+      expect(find.text('8'), findsOneWidget);
+
+      // Bump work up twice (5 s per tap) — the first '+' on the screen is
+      // the work stepper's (crossfit has no GPS row ahead of it).
+      await tester.tap(find.byIcon(LucideIcons.plus).first);
+      await tester.pump();
+      await tester.tap(find.byIcon(LucideIcons.plus).first);
+      await tester.pump();
+      expect(find.text('55s'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a non-interval activity gets no interval steppers',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(_frame(
+          ActivitySetup(activityByName('running')!, weightKg: 72.4),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Rounds'), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
