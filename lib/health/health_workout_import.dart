@@ -159,7 +159,7 @@ List<Map<String, Object?>> routeRowsFrom(Object? payload) {
     final lng = (raw[1] as num?)?.toDouble();
     final ts = (raw[3] as num?)?.toInt();
     if (lat == null || lng == null || ts == null) continue;
-    if (lat.abs() > 90 || lng.abs() > 180) continue;
+    if (lat.isNaN || lng.isNaN || lat.abs() > 90 || lng.abs() > 180) continue;
     out.add({
       'session_id': uuid,
       'seq': seq++,

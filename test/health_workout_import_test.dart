@@ -115,6 +115,17 @@ void main() {
       expect(rows.map((r) => r['ts_ms']), [1000, 3000]);
     });
 
+    test('a NaN coordinate is skipped — NaN comparisons are always false', () {
+      // lat.abs() > 90 is false for NaN, so the range guard alone lets it
+      // through; this needs its own isNaN check.
+      expect(routeRowsFrom(payload([
+        [double.nan, -0.12, 12.0, 1000],
+      ])), isEmpty);
+      expect(routeRowsFrom(payload([
+        [51.5, double.nan, 12.0, 1000],
+      ])), isEmpty);
+    });
+
     test('a null coordinate is skipped, never defaulted to zero', () {
       // (0, 0) is a real place and would draw a line to it.
       expect(routeRowsFrom(payload([
