@@ -574,7 +574,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   if (skinTempAdc != null && d.skinTempAdcHistory.length >= 3) {
     final base = _mean(d.skinTempAdcHistory)!;
     final sd = _stddev(d.skinTempAdcHistory);
-    if (sd != null && sd > 0) skinTempZ = (skinTempAdc - base) / sd;
+    // Quantum floor matches analytics' tempInput(quantum: 1) guard
+    // (readiness_composite.dart) for this same raw-ADC channel: a baseline
+    // oscillating between two adjacent ADC counts has a nonzero but
+    // sub-quantum SD, which standardizes ordinary quantization noise into
+    // an inflated z. Below 1 ADC count of dispersion, abstain instead.
+    if (sd != null && sd >= 1) skinTempZ = (skinTempAdc - base) / sd;
   }
 
   // ── READINESS (the canonical composite, baseline-dependent) ───────────────

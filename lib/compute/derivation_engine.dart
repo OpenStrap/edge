@@ -1641,7 +1641,20 @@ import 'substrate.dart';
 // frozen-on date spans a DST transition. Real output change, so the bump is
 // real. kAnalyticsPin/kProtocolPin are UNCHANGED: edge-only fix.
 //
-// 89 → 90 (`_resolveOwnership` drops newly-paired devices): once a signal's
+// 89 → 90 (skin_temp_z quantum guard): onehz_pipeline.dart's `skinTempZ` was
+// gated only on `sd > 0` against the raw-ADC baseline history, with no floor
+// for the ADC channel's own quantization step. analytics already guards this
+// exact channel (`tempInput(..., quantum: 1)` in readiness_composite.dart),
+// refusing when the baseline SD sits below 1 ADC count even though a nonzero
+// SD passed the naive check. `skinTempZ` now requires `sd >= 1` too, so a
+// baseline oscillating between two adjacent ADC counts abstains instead of
+// reporting an inflated z. Feeds `tempIllnessFlag`/`multivariateAnomaly` and
+// the raw health_screen display value (readiness's own temp driver already
+// went through the guarded `tempInput` path and is unaffected). Real output
+// change on the affected sub-quantum-dispersion nights, so the bump is real.
+// kAnalyticsPin/kProtocolPin are UNCHANGED: edge-only fix.
+//
+// 90 → 91 (`_resolveOwnership` drops newly-paired devices): once a signal's
 // `signal_priority` had ANY stored row, a device that started declaring that
 // signal afterward (paired later, no stored row) was never added to the
 // candidate list `resolveOwnership` reads — its real `device_coverage` was
@@ -1651,7 +1664,7 @@ import 'substrate.dart';
 // output change for any user who customized priority for a signal and then
 // paired another device that also declares it. kAnalyticsPin/kProtocolPin
 // UNCHANGED: edge-only fix.
-const int kAlgoVersion = 90;
+const int kAlgoVersion = 91;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///

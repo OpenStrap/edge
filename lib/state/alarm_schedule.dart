@@ -95,6 +95,29 @@ bool inSmartWakeWindow({
   return !now.isBefore(start) && now.isBefore(windowEnd);
 }
 
+/// The currently-armed alarm's smart-wake window, or null when there's no
+/// armed [epoch] or that weekday's slot has smart wake off
+/// (`smartWindowMinutes <= 0`) — both cases mean "no window" to every caller,
+/// same as [inSmartWakeWindow] returning false for `minutes <= 0`.
+///
+/// Extracted so `AppState._checkSmartWake` and
+/// `HighFreqWakeWindow`'s callers share one lookup instead of each doing
+/// their own weekday-entry matching.
+({DateTime windowEnd, int minutes})? armedSmartWakeWindow({
+  required int? epoch,
+  required List<AlarmScheduleEntry> schedule,
+}) {
+  if (epoch == null) return null;
+  final windowEnd = DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
+  final entry = schedule.firstWhere(
+    (e) => e.weekday == windowEnd.weekday - 1,
+    orElse: () =>
+        AlarmScheduleEntry(weekday: 0, hour: 0, minute: 0, enabled: false),
+  );
+  if (entry.smartWindowMinutes <= 0) return null;
+  return (windowEnd: windowEnd, minutes: entry.smartWindowMinutes);
+}
+
 /// The default slot for a weekday nobody has configured yet: 07:00, off. A
 /// made-up ON default would arm a wake alarm nobody asked for; the honest
 /// default is silence with a sensible time already dialled in.

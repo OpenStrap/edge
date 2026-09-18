@@ -241,4 +241,37 @@ void main() {
       expect(seed.enabled, isTrue);
     });
   });
+
+  group('armedSmartWakeWindow', () {
+    test('null epoch → null', () {
+      expect(
+        armedSmartWakeWindow(epoch: null, schedule: fillDefaultAlarmSchedule(const [])),
+        isNull,
+      );
+    });
+
+    test('weekday entry with smartWindowMinutes 0 (the default) → null', () {
+      // 2026-08-19 is a Wednesday → DateTime.weekday 3 → column 2.
+      final at = DateTime(2026, 8, 19, 6, 30);
+      final epoch = at.millisecondsSinceEpoch ~/ 1000;
+      expect(
+        armedSmartWakeWindow(
+            epoch: epoch, schedule: fillDefaultAlarmSchedule(const [])),
+        isNull,
+      );
+    });
+
+    test('configured weekday returns its windowEnd + smartWindowMinutes', () {
+      final at = DateTime(2026, 8, 19, 6, 30);
+      final epoch = at.millisecondsSinceEpoch ~/ 1000;
+      final schedule = fillDefaultAlarmSchedule(const [
+        AlarmScheduleEntry(
+            weekday: 2, hour: 6, minute: 30, enabled: true, smartWindowMinutes: 20),
+      ]);
+      final result = armedSmartWakeWindow(epoch: epoch, schedule: schedule);
+      expect(result, isNotNull);
+      expect(result!.windowEnd, at);
+      expect(result.minutes, 20);
+    });
+  });
 }

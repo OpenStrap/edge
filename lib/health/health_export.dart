@@ -17,6 +17,7 @@
 // Nothing here throws — a missing/locked health store yields a HealthLinkState or
 // a 0 count, never an exception.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
 
@@ -251,8 +252,33 @@ class HealthExportSingleFlight {
   }
 }
 
+/// Serializes calls through a chained tail Future so overlapping ops run one
+/// at a time instead of interleaving. Unlike [HealthExportSingleFlight]
+/// (which coalesces concurrent IDENTICAL calls into one shared result), every
+/// call here still runs — just never concurrently with another.
+///
+/// [HealthExporter] uses one of these to close the exportAll-vs-exportWorkout
+/// race on `HealthDataType.WORKOUT`: both do their own delete-then-write on
+/// the same singleton, and `healthDeleteClearedRange`'s Apple semantics can't
+/// tell "delete found nothing yet" apart from "delete cleared a survivor", so
+/// two interleaved passes can both proceed to write and double the workout.
+// ponytail: one global lock, not a per-day/per-session keyed lock map — each
+// guarded op is a short bounded delete+write. Upgrade to keyed locks only if
+// profiling shows real contention (e.g. many sessions exporting at once).
+class _AsyncMutex {
+  Future<void> _tail = Future<void>.value();
+
+  Future<T> run<T>(Future<T> Function() op) {
+    final previous = _tail;
+    final completer = Completer<void>();
+    _tail = completer.future;
+    return previous.then((_) => op()).whenComplete(completer.complete);
+  }
+}
+
 class HealthExporter {
   final _health = Health();
+  final _workoutLock = _AsyncMutex();
   final _androidSleep = HealthConnectSleepSessionExporter(
     writer: MethodChannelHealthConnectSleepSessionWriter(),
   );
@@ -311,10 +337,12 @@ class HealthExporter {
       if (prefs.getBool(kHealthSyncPref) != true) return;
       await shared._ensureConfigured();
       if (await shared._androidUnavailable() != null) return;
-      await shared._deleteOwnSamples(
-        HealthDataType.WORKOUT,
-        DateTime.fromMillisecondsSinceEpoch(startTs * 1000),
-        DateTime.fromMillisecondsSinceEpoch(endTs * 1000),
+      await shared._workoutLock.run(
+        () => shared._deleteOwnSamples(
+          HealthDataType.WORKOUT,
+          DateTime.fromMillisecondsSinceEpoch(startTs * 1000),
+          DateTime.fromMillisecondsSinceEpoch(endTs * 1000),
+        ),
       );
     } catch (e) {
       debugPrint('[health] deleteWorkoutWindow: $e');
@@ -599,6 +627,7 @@ class HealthExporter {
   }) async {
     await _ensureConfigured();
     if (await _androidUnavailable() != null) return 0; // HC missing/outdated
+    return _workoutLock.run(() async {
     try {
       await ensureHealthSleepExportEpoch(
         getCursor: LocalDb.getCursor,
@@ -867,6 +896,7 @@ class HealthExporter {
       debugPrint('[health] exportAll: $e');
       return 0;
     }
+    });
   }
 
   /// Write one day's metrics. DELETES our prior samples for the day window first
@@ -1284,6 +1314,7 @@ class HealthExporter {
     final st = (session['start_ts'] as num?)?.toInt();
     final en = (session['end_ts'] as num?)?.toInt();
     if (st == null || en == null || en <= st) return false;
+    return _workoutLock.run(() async {
     try {
       await _ensureConfigured();
       if (await _androidUnavailable() != null) return false;
@@ -1303,6 +1334,7 @@ class HealthExporter {
       debugPrint('[health] exportWorkout: $e');
       return false;
     }
+    });
   }
 
   // `isApple`, not `Platform.isIOS`: every other platform decision in this file

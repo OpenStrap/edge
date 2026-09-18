@@ -15,6 +15,7 @@
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ble/adapters/_registry.dart' show kWhoopGen4;
@@ -58,6 +59,19 @@ import 'high_freq_wake_window.dart';
 import 'reset_gate.dart';
 import 'paired_device.dart';
 import 'sync_policy.dart';
+
+/// Headless mirror of the foreground `AlarmConfirmation` self-heal: an
+/// ALARM_SET event (56) means the strap has this arm latched, independent of
+/// whatever `armNextScheduledOccurrence` decided this cycle (its same-epoch
+/// dedupe returns `epoch: null` and skips the re-arm/poll block entirely, so
+/// this is the only place headless ever sees a live confirmation). Extracted
+/// so the write can be unit-tested without the full drain harness.
+@visibleForTesting
+Future<void> handleHeadlessAlarmEvent(int id) async {
+  if (id != proto.EventId.strapDrivenAlarmSet) return;
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool('alarm_epoch_confirmed', true);
+}
 
 /// Load the local profile (no Provider in the headless isolate).
 Future<Profile> _loadProfile() async {
@@ -127,6 +141,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
         if (ResetGate.active) return;
         await LocalDb.insertEvent(id, ts, hex,
             deviceId: LocalDb.kPrimaryDeviceId);
+        await handleHeadlessAlarmEvent(id);
       },
       log: (l) => debugPrint('[bgsync] $l'),
       onRecordsBatch: (raws, samples) async {
@@ -192,7 +207,25 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await PairedDevice.save(paired.remoteId, paired.serial, generation: gen);
     }
     try {
-      final plan = await HighFreqWakeWindow.planNow();
+      // Read the schedule + currently-armed epoch for the HighFreq window
+      // check ONLY — HighFreqWakeWindow needs the window of the alarm that's
+      // imminent right now, before the (possibly long) sync below runs. This
+      // read is NOT reused for the re-arm block further down: `runSync()` can
+      // take a while, and re-reading fresh there (as the old code did) avoids
+      // arming a stale schedule if the user edits it mid-sync (see PR #403).
+      final preSyncSchedule = fillDefaultAlarmSchedule([
+        for (final r in await LocalDb.alarmScheduleRows())
+          AlarmScheduleEntry.fromRow(r),
+      ]);
+      final preSyncPrefs = await SharedPreferences.getInstance();
+      final armedWindow = armedSmartWakeWindow(
+        epoch: preSyncPrefs.getInt('alarm_epoch'),
+        schedule: preSyncSchedule,
+      );
+      final plan = await HighFreqWakeWindow.planNow(
+        scheduledWindowEnd: armedWindow?.windowEnd,
+        scheduledWindowMinutes: armedWindow?.minutes ?? 0,
+      );
       await engine.applyHighFreqWakeWindow(
         enabled: plan.shouldEnable,
         targetWake: plan.targetWake,
@@ -216,7 +249,9 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       // connect AND after each headless sync". No AppState here, so the
       // schedule read and the `alarm_epoch` persistence go straight through
       // LocalDb/SharedPreferences — the same store the foreground path uses,
-      // so whichever side runs next sees a consistent value.
+      // so whichever side runs next sees a consistent value. Re-read fresh
+      // here (not the pre-sync copies above) in case the user changed the
+      // schedule while `runSync()` was draining.
       try {
         final schedule = fillDefaultAlarmSchedule([
           for (final r in await LocalDb.alarmScheduleRows())
