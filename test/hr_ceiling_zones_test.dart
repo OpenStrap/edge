@@ -247,6 +247,30 @@ void main() {
           isNull,
         );
       });
+
+      test('Z1 below the sensor-dropout floor ⇒ null, even if ascending', () {
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [-50, -20, 0, 40, 80],
+          }),
+          isNull,
+        );
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [0, 1, 2, 3, 4],
+          }),
+          isNull,
+        );
+      });
+
+      test('Z1 exactly at the floor still passes', () {
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [kHrFloorBpm, 60, 90, 120, 150],
+          }),
+          [kHrFloorBpm, 60, 90, 120, 150],
+        );
+      });
     });
   });
 

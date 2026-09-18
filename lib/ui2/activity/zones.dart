@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../compute/hr_max.dart' show validManualZoneBounds;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
@@ -288,17 +289,15 @@ class _ZonesDetailState extends State<ZonesDetail> {
       return;
     }
     final vals = [for (final t in typed) t.value!.round()];
-    for (var i = 1; i < vals.length; i++) {
-      if (vals[i] <= vals[i - 1]) {
-        if (mounted) {
-          ScaffoldMessenger.of(c).showSnackBar(SnackBar(
-            content: Text(l?.activityZonesMustAscend ??
-                'Each zone must start higher than the last. Nothing was '
-                    'saved.'),
-          ));
-        }
-        return;
+    if (!validManualZoneBounds(vals)) {
+      if (mounted) {
+        ScaffoldMessenger.of(c).showSnackBar(SnackBar(
+          content: Text(l?.activityZonesMustAscend ??
+              'Each zone must start higher than the last, at 30 bpm or '
+                  'above. Nothing was saved.'),
+        ));
       }
+      return;
     }
     await app.updateProfile({'hr_zone_bounds': vals});
     if (mounted) await _load();

@@ -190,11 +190,26 @@ ana.HeartRateZoneSet _manualZones(List<int> lowerBpm) {
   );
 }
 
+/// Whether five manual zone thresholds are strictly ascending AND above the
+/// sensor-dropout floor ([kHrFloorBpm]) — the one check both the profile
+/// reader below and the zones-screen editor route through, so a fat-fingered
+/// negative/zero/single-digit override (still "ascending") can never be
+/// accepted on either path.
+bool validManualZoneBounds(List<int> vals) {
+  if (vals.length != 5) return false;
+  if (vals[0] < kHrFloorBpm) return false;
+  for (var i = 1; i < vals.length; i++) {
+    if (vals[i] <= vals[i - 1]) return false;
+  }
+  return true;
+}
+
 /// Reads the manual zone override off a profile map — five ascending BPM
 /// thresholds under `hr_zone_bounds`, or null when unset/malformed (wrong
-/// length, non-numeric, or not strictly ascending). Every [trainingZones]
-/// caller routes through this so the override and its validation cannot
-/// drift between the day pipeline, the live tick and the zones screen.
+/// length, non-numeric, below the floor, or not strictly ascending). Every
+/// [trainingZones] caller routes through this so the override and its
+/// validation cannot drift between the day pipeline, the live tick and the
+/// zones screen.
 List<int>? manualZoneBoundsFromProfile(Map<String, dynamic>? profile) {
   final raw = profile?['hr_zone_bounds'];
   if (raw is! List || raw.length != 5) return null;
@@ -203,10 +218,7 @@ List<int>? manualZoneBoundsFromProfile(Map<String, dynamic>? profile) {
     if (v is! num) return null;
     vals.add(v.round());
   }
-  for (var i = 1; i < vals.length; i++) {
-    if (vals[i] <= vals[i - 1]) return null;
-  }
-  return vals;
+  return validManualZoneBounds(vals) ? vals : null;
 }
 
 /// Whether [source] means BOTH zone anchors were measured on this user.
