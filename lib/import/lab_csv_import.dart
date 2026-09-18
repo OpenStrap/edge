@@ -123,12 +123,17 @@ LabCsvParse parseLabCsv(String text, {DateTime? today}) {
       continue;
     }
 
-    final unit = r[3].trim();
-    if (unit.isEmpty) {
+    // Validated on a trimmed copy, but STORED as written — "ng/mL " is a
+    // spreadsheet artefact worth ignoring for emptiness/length checks, not a
+    // value worth silently rewriting on the one column this file promises to
+    // keep exact.
+    final unit = r[3];
+    final trimmedUnit = unit.trim();
+    if (trimmedUnit.isEmpty) {
       rejected.add(RejectedRow(line, 'no unit'));
       continue;
     }
-    if (unit.length > kMaxLabUnitChars) {
+    if (trimmedUnit.length > kMaxLabUnitChars) {
       rejected.add(RejectedRow(line, 'unit is longer than $kMaxLabUnitChars characters'));
       continue;
     }

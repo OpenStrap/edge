@@ -53,6 +53,12 @@ void main() {
       expect(p.rejected.single.reason, contains('not a number'));
     });
 
+    test('unit whitespace is validated trimmed but stored exactly as written', () {
+      final p = parse('taken_on,marker,value,unit,note\n2026-01-01,ferritin,42," ng/mL ",\n');
+      expect(p.rejected, isEmpty);
+      expect(p.rows.single.unit, ' ng/mL ');
+    });
+
     test('a missing unit is rejected', () {
       final p = parse('taken_on,marker,value,unit,note\n2026-01-01,ferritin,42,,\n');
       expect(p.rows, isEmpty);
