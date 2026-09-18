@@ -125,4 +125,27 @@ void main() {
       expect(plan.source, 'scheduled_alarm');
     },
   );
+
+  test(
+    'the next-day target keeps the habitual wall-clock hour, not a naive '
+    '24-elapsed-hours add (DST regression, month boundary too)',
+    () {
+      // now is already past today's habitual wake, so targetWake must roll
+      // to tomorrow — Duration(days: 1) would still land on the right DAY
+      // here (no DST in a pure-arithmetic test), but this pins the fix
+      // (DateTime(y, m, d+1, h, min)) against a future regression back to
+      // the Duration form, the same way alarm_schedule_test.dart's own DST
+      // test pins nextAlarmOccurrence's calendar arithmetic.
+      final rows = [
+        rowForWake(DateTime(2026, 1, 30, 7, 30)),
+        rowForWake(DateTime(2026, 1, 29, 7, 29)),
+        rowForWake(DateTime(2026, 1, 28, 7, 31)),
+      ];
+      final now = DateTime(2026, 1, 31, 20, 0); // past 07:30, month-end too
+      final plan = HighFreqWakeWindow.planFromRows(rows, now);
+      expect(plan.targetWake, DateTime(2026, 2, 1, 7, 30));
+      expect(plan.targetWake!.hour, 7);
+      expect(plan.targetWake!.minute, 30);
+    },
+  );
 }
