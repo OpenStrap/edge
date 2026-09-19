@@ -1841,7 +1841,10 @@ const int kAlgoVersion = 92;
 // picking one single-device SHA over the other. Verified: `1cf8e61` (this
 // branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
 // commit is already folded in, nothing is lost by moving to the tip.
-const String kAnalyticsPin = '47847fa1f9c84ee9a0421c452f535f5442a4b252';
+const String kAnalyticsPin = '1bf9b6233b364bb4cc307e298abda0c97d25aeef';
+// Repinned to analytics PR #70's merged main SHA (was the pre-squash branch
+// commit 47847fa, orphaned once the PR squash-merged) — same content, see
+// pubspec.yaml's comment for the verification command.
 // REPIN (this branch, superseded by the merge): polar pmd's own protocol
 // needs `feat/polar-pmd-protocol` (87ee803), but protocol's own `origin/main`
 // tip below is THAT SAME PR's merge commit — verified
