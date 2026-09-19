@@ -648,9 +648,12 @@ Future<Map<InputSignal, String?>> signalWinners(
   String? fallback,
 }) async {
   final now = DateTime.now();
-  // `Duration(days:)`, not `* 86400` — a day is not always 86400s across a
-  // DST transition, and AGENTS.md §3.7 bans that literal for day-length math.
-  final from = now.subtract(const Duration(days: kSignalWinnersLookbackDays));
+  // Calendar subtraction on the DateTime constructor, not `* 86400` or
+  // `Duration(days:)` — a day is not always 86400s across a DST transition
+  // (AGENTS.md §3.7), and this file is under lib/ui2's token boundary, where
+  // a raw `Duration(` is reserved for animation timing gated through
+  // `motion(context, …)` (ui2_tokens_test.dart).
+  final from = DateTime(now.year, now.month, now.day - kSignalWinnersLookbackDays);
   final nowSec = now.millisecondsSinceEpoch ~/ 1000;
   final fromSec = from.millisecondsSinceEpoch ~/ 1000;
   // Only a signal with a customized (non-empty) stored order needs real
