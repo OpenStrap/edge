@@ -879,7 +879,7 @@ List<DateTime> startDates(CycleData d) => <DateTime>[
 
 /// Consecutive gaps between logged starts, in days, oldest first.
 List<int> cycleGaps(List<DateTime> s) => [
-  for (var i = 1; i < s.length; i++) s[i].difference(s[i - 1]).inDays,
+  for (var i = 1; i < s.length; i++) calendarDaysBetween(s[i - 1], s[i]),
 ];
 
 /// WH-02 — `cycleDay -> {cycleIndex: value}` for one overlay key.
@@ -899,7 +899,7 @@ Map<int, Map<int, double>> byCycleDay(CycleData d, String key) {
     if (day == null) continue;
     final i = starts.lastIndexWhere((s) => !s.isAfter(day));
     if (i < 0) continue; // before she ever logged a start
-    final cd = day.difference(starts[i]).inDays + 1;
+    final cd = calendarDaysBetween(starts[i], day) + 1;
     if (cd < 1) continue;
     (out[cd] ??= {})[i] = v.toDouble();
   }
@@ -1192,19 +1192,20 @@ class _CycleHistoryState extends State<_CycleHistory> {
     if (dated.isEmpty) return null;
     dated.sort((a, b) => a.$1.compareTo(b.$1));
     final (latest, cycleIndex, value) = dated.last;
-    final cycleDay = latest.difference(starts[cycleIndex]).inDays + 1;
+    final cycleDay = calendarDaysBetween(starts[cycleIndex], latest) + 1;
 
     // Baseline one: her trailing three weeks, ending the day before this one.
     // Straddles the follicular/luteal boundary by construction, which is the
     // whole reason the second baseline exists.
     final trailing = [
       for (final (day, _, v) in dated)
-        if (day.isBefore(latest) && latest.difference(day).inDays <= 21) v,
+        if (day.isBefore(latest) && calendarDaysBetween(day, latest) <= 21) v,
     ];
     // Baseline two: the SAME cycle day, in her own earlier cycles.
     final sameDay = [
       for (final (day, i, v) in dated)
-        if (i != cycleIndex && day.difference(starts[i]).inDays + 1 == cycleDay)
+        if (i != cycleIndex &&
+            calendarDaysBetween(starts[i], day) + 1 == cycleDay)
           v,
     ];
     if (sameDay.length < 3) return null;

@@ -53,4 +53,41 @@ void main() {
     // LocalDb file the day under (localDayLabelNow delegates to todayLabel).
     expect(LocalDb.localDayLabelNow(), todayLabel());
   });
+
+  test('calendarDaysBetween counts calendar days, not floored elapsed hours',
+      () {
+    // DST-free control: 8 calendar days apart, no transition possible to
+    // interfere, regardless of the host's timezone.
+    expect(
+      calendarDaysBetween(DateTime(2026, 1, 1), DateTime(2026, 1, 9)),
+      8,
+    );
+    // Order and sign.
+    expect(
+      calendarDaysBetween(DateTime(2026, 1, 9), DateTime(2026, 1, 1)),
+      -8,
+    );
+    expect(calendarDaysBetween(DateTime(2026, 1, 1), DateTime(2026, 1, 1)), 0);
+
+    // The bug this guards: on a host observing DST, a naive
+    // `b.difference(a).inDays` between two local midnights straddling a
+    // spring-forward transition floors the short 23h day and undercounts by
+    // 1 — confirmed via `TZ=America/New_York dart` on this exact pair
+    // (2026-03-01 to 2026-03-09, straddling that zone's March transition):
+    // .inHours=191, .inDays=7 instead of the correct 8. Only assert the
+    // reproduction on a host whose local zone actually has a DST transition
+    // between these two dates — a UTC-only CI runner has nothing to prove.
+    final springForward = DateTime(2026, 3, 1);
+    final afterTransition = DateTime(2026, 3, 9);
+    final hasTransition =
+        springForward.timeZoneOffset != afterTransition.timeZoneOffset;
+    if (hasTransition) {
+      expect(
+        afterTransition.difference(springForward).inDays,
+        isNot(8),
+        reason: 'host zone has no DST transition here; nothing to prove',
+      );
+    }
+    expect(calendarDaysBetween(springForward, afterTransition), 8);
+  });
 }

@@ -40,7 +40,7 @@ import '../profile/profile.dart' show openProfile;
 import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
-import 'home_screen.dart' show calendarDaysBetween;
+import '../../data/day_label.dart' show calendarDaysBetween;
 import 'log_workout.dart';
 import 'start_card.dart';
 

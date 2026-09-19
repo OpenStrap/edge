@@ -32,7 +32,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../data/day_label.dart' show todayLabel;
+import '../../data/day_label.dart' show todayLabel, calendarDaysBetween;
 import '../../data/db.dart' show DbRebuild;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../data/local_repository.dart';
@@ -453,20 +453,6 @@ int? daysBehind(int? epochSec) {
   return calendarDaysBetween(
       DateTime.fromMillisecondsSinceEpoch(epochSec * 1000), DateTime.now());
 }
-
-/// Whole calendar days from [from] to [to], reading both as LOCAL wall-clock
-/// dates and subtracting them in UTC — the same shape as
-/// `LocalRepositoryImpl._dayGap`, which is where this rule already lived.
-///
-/// Subtracting two local midnights across a DST boundary is 23 or 25 hours and
-/// `inDays` truncates the short one, so on 10 March in New York both 9 March
-/// and 8 March came back as 1 day behind: [denseDays] wrote them into the same
-/// slot, lost the older one, and every dated axis before the spring-forward
-/// shifted by a position.
-int calendarDaysBetween(DateTime from, DateTime to) =>
-    DateTime.utc(to.year, to.month, to.day)
-        .difference(DateTime.utc(from.year, from.month, from.day))
-        .inDays;
 
 /// The withheld-rollup reason inside a `getInsights()` result, or null when the
 /// result is real (or simply empty).

@@ -574,11 +574,7 @@ class LocalRepositoryImpl extends LocalRepository {
   static int? _dayGap(String from, String to) {
     final a = DateTime.tryParse(from), b = DateTime.tryParse(to);
     if (a == null || b == null) return null;
-    return DateTime.utc(
-      b.year,
-      b.month,
-      b.day,
-    ).difference(DateTime.utc(a.year, a.month, a.day)).inDays;
+    return calendarDaysBetween(a, b);
   }
 
   @override
@@ -3732,7 +3728,7 @@ class LocalRepositoryImpl extends LocalRepository {
         final a = DateTime.tryParse(startDates[i - 1]);
         final b = DateTime.tryParse(startDates[i]);
         if (a != null && b != null) {
-          gaps.add(b.difference(a).inDays.toDouble());
+          gaps.add(calendarDaysBetween(a, b).toDouble());
         }
       }
       if (gaps.isNotEmpty) {
@@ -3749,9 +3745,7 @@ class LocalRepositoryImpl extends LocalRepository {
     final today = DateTime.now();
     int? cycleDay;
     if (lastStart != null) {
-      final d0 = DateTime(lastStart.year, lastStart.month, lastStart.day);
-      final t0 = DateTime(today.year, today.month, today.day);
-      cycleDay = t0.difference(d0).inDays + 1; // day 1 = start day
+      cycleDay = calendarDaysBetween(lastStart, today) + 1; // day 1 = start day
     }
 
     String? predictedNext, predictedFrom, predictedTo;
@@ -3759,12 +3753,7 @@ class LocalRepositoryImpl extends LocalRepository {
     if (predictOk && lastStart != null && medianLength != null) {
       final next = lastStart.add(Duration(days: medianLength.round()));
       predictedNext = dayLabelOf(next);
-      final t0 = DateTime(today.year, today.month, today.day);
-      daysUntilNext = DateTime(
-        next.year,
-        next.month,
-        next.day,
-      ).difference(t0).inDays;
+      daysUntilNext = calendarDaysBetween(today, next);
       if (gapSpread != null) {
         final w = gapSpread.round();
         predictedFrom = dayLabelOf(next.subtract(Duration(days: w)));
@@ -3851,7 +3840,7 @@ class LocalRepositoryImpl extends LocalRepository {
           final i = cycleStarts.lastIndexWhere((s) => !s.isAfter(day));
           if (i >= 0) {
             ci = i;
-            cd = day.difference(cycleStarts[i]).inDays + 1;
+            cd = calendarDaysBetween(cycleStarts[i], day) + 1;
           }
         }
         overlay.add({
