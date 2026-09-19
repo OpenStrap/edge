@@ -2032,12 +2032,13 @@ List<Map<String, dynamic>> composeOneHzFrames(
       }
     }
     if (ownerRow == null) return base;
-    Map<String, dynamic>? spliced;
-    for (final c in cols) {
-      final v = ownerRow[c];
-      if (v != null) (spliced ??= Map<String, dynamic>.from(base))[c] = v;
-    }
-    return spliced ?? base;
+    // COPY THE WHOLE GROUP, including a null column — `device_coverage`
+    // declares `ppgRedIr` when EITHER raw PPG channel is present (db.dart),
+    // so the owner's row can carry one channel and not the other, and both
+    // skin-temp columns are independently nullable. Copying only the
+    // non-null columns left the base (wrong device's) value sitting in the
+    // other column, combining fields from two devices in one frame.
+    return {...base, for (final c in cols) c: ownerRow[c]};
   }
 
   return [
@@ -2060,6 +2061,26 @@ bool _ownedBy(List<OwnedSpan> spans, Map<String, dynamic> r) {
   final owner = spanAt(spans, (r['rec_ts'] as num).toInt())?.deviceId;
   if (owner == null) return true;
   return owner == (r['device_id'] as String? ?? LocalDb.kPrimaryDeviceId);
+}
+
+/// The index where [rows]' trailing `rec_ts` group starts — 0 when every row
+/// shares one second, `rows.length - 1` when the last row's second is alone.
+///
+/// `rows` must already be rec_ts-ascending (`decodedOneHzBatchByRecTsRange`'s
+/// own order, and the substrate loader's `carry ++ page` concatenation
+/// preserves it — carry only ever holds rows from an EARLIER page). Used to
+/// hold a contended second's trailing rows back to the next page rather than
+/// splicing `composeOneHzFrames` against a group `decodedOneHzBatchByRecTsRange`'s
+/// LIMIT happened to cut in half. `@visibleForTesting` so the boundary walk
+/// is checkable without staging a 2000-row page through the DB.
+@visibleForTesting
+int trailingRecTsGroupStart(List<Map<String, dynamic>> rows) {
+  final boundaryTs = (rows.last['rec_ts'] as num).toInt();
+  var i = rows.length - 1;
+  while (i > 0 && (rows[i - 1]['rec_ts'] as num).toInt() == boundaryTs) {
+    i--;
+  }
+  return i;
 }
 
 /// Test seam: the rolling baseline window the readiness computation actually
@@ -3444,6 +3465,17 @@ class DerivationEngine {
       // beats from wherever the previous page stopped, and the tail is swept
       // after the loop — so the day's beat window is covered exactly once.
       var rrFrom = fromRecTs;
+      // A contended second's OTHER row can land on the far side of a page
+      // boundary — `decodedOneHzBatchByRecTsRange`'s LIMIT is applied after
+      // ordering by rec_ts, not aligned to rec_ts groups. Composing a page
+      // whose trailing rec_ts group is only half-present would keep the
+      // hr1Hz-owner's own accel/ppg/skin-temp value for that ONE boundary
+      // second instead of splicing in the other device's, so the group's
+      // rows that arrived this round are held here until the rest of the
+      // group is seen (or the range ends). Rare in practice — it takes a
+      // page-sized batch of rows to land exactly mid-group — but the fix is
+      // cheap and the alternative is a silent one-second attribution miss.
+      var carry = const <Map<String, dynamic>>[];
       while (true) {
         final decodedRows = await LocalDb.decodedOneHzBatchByRecTsRange(
           limit: _rawDecodeBatchSize,
@@ -3467,40 +3499,64 @@ class DerivationEngine {
             rangePages: rangePages,
             rangeRows: rangeRows,
           );
-          // The page is ordered rec_ts ASC, so last = max second. decoded_rr
-          // shares the rec_ts key, so [rrFrom, lastRecTs] is a PK range read —
-          // no counter span (which broke across the strap's reboot reset).
-          //
           // THE CURSOR ADVANCES OFF THE UNFILTERED PAGE, ALWAYS. `afterRecTs`/
-          // `afterCursor`, the `decodedRows.length < _rawDecodeBatchSize`
-          // break, and `rrFrom` below are all driven by `decodedRows`/
-          // `lastRecTs` — never by the filtered `frames`/`rrRows` sent to the
-          // worker. Filtering first would stall the keyset cursor on a page
-          // whose surviving rows are fewer than the batch size and silently
-          // truncate the day; a fully-filtered page still advances the
-          // cursor and still `send`s (an empty list is harmless — the
-          // worker's page handler iterates it).
-          final lastRecTs = (decodedRows.last['rec_ts'] as num?)?.toInt();
-          final rawRrRows = lastRecTs == null
+          // `afterCursor` and the `decodedRows.length < _rawDecodeBatchSize`
+          // break are driven by `decodedRows` alone — never by `carry` or the
+          // filtered `frames`/`rrRows` sent to the worker. Filtering first
+          // would stall the keyset cursor on a page whose surviving rows are
+          // fewer than the batch size and silently truncate the day.
+          final isFinalPage = decodedRows.length < _rawDecodeBatchSize;
+          final combined =
+              carry.isEmpty ? decodedRows : [...carry, ...decodedRows];
+          final splitIdx = trailingRecTsGroupStart(combined);
+          // splitIdx == 0 means the WHOLE page-sized batch shares one
+          // rec_ts — a pathological amount of contention no real pairing
+          // produces. Send it as-is rather than risk carrying forever.
+          final toSend =
+              (isFinalPage || splitIdx == 0) ? combined : combined.sublist(0, splitIdx);
+          carry = (isFinalPage || splitIdx == 0)
               ? const <Map<String, dynamic>>[]
-              : await LocalDb.decodedRrByRecTsRange(
-                  fromRecTs: rrFrom,
-                  toRecTs: lastRecTs,
-                );
-          if (lastRecTs != null) rrFrom = lastRecTs + 1;
-          final frames = composeOneHzFrames(decodedRows, ownership);
-          final rrRows = [
-            for (final r in rawRrRows)
-              if (owned(rrOwnedSpans, r)) r,
-          ];
-          worker.send({'type': 'page', 'frames': frames, 'rr': rrRows});
+              : combined.sublist(splitIdx);
+          if (toSend.isNotEmpty) {
+            // decoded_rr shares the rec_ts key with decoded_onehz, so
+            // [rrFrom, lastSentRecTs] is a PK range read — no counter span
+            // (which broke across the strap's reboot reset).
+            final lastSentRecTs = (toSend.last['rec_ts'] as num).toInt();
+            final rawRrRows = await LocalDb.decodedRrByRecTsRange(
+              fromRecTs: rrFrom,
+              toRecTs: lastSentRecTs,
+            );
+            rrFrom = lastSentRecTs + 1;
+            final frames = composeOneHzFrames(toSend, ownership);
+            final rrRows = [
+              for (final r in rawRrRows)
+                if (owned(rrOwnedSpans, r)) r,
+            ];
+            worker.send({'type': 'page', 'frames': frames, 'rr': rrRows});
+          }
           final last = decodedRows.last;
           afterRecTs = (last['rec_ts'] as num?)?.toInt() ?? afterRecTs;
           afterCursor = (last['counter'] as num?)?.toInt() ?? afterCursor;
-          if (decodedRows.length < _rawDecodeBatchSize) break;
+          if (isFinalPage) break;
           continue;
         }
         break;
+      }
+      // A page landed EXACTLY on `_rawDecodeBatchSize` as the true last page
+      // (the next fetch came back empty) — its trailing group is still held.
+      if (carry.isNotEmpty) {
+        final lastRecTs = (carry.last['rec_ts'] as num).toInt();
+        final rawRrRows = await LocalDb.decodedRrByRecTsRange(
+          fromRecTs: rrFrom,
+          toRecTs: lastRecTs,
+        );
+        rrFrom = lastRecTs + 1;
+        final frames = composeOneHzFrames(carry, ownership);
+        final rrRows = [
+          for (final r in rawRrRows)
+            if (owned(rrOwnedSpans, r)) r,
+        ];
+        worker.send({'type': 'page', 'frames': frames, 'rr': rrRows});
       }
       // The tail: beats after the last frame second (or, on a range with no
       // frames at all, the whole range). Usually zero rows and one indexed

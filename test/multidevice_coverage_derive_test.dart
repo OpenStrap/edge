@@ -432,6 +432,38 @@ void main() {
               '— no splice needed, base value passes through');
     });
 
+    test('a null column in the owner\'s field group is copied too, not left '
+        'as the base row\'s stale value (CodeRabbit #444)', () {
+      // Ring owns ppgRedIr and has ONLY the red channel this second — its
+      // own IR reading is genuinely absent, not merely unset by the fixture.
+      final rows = [
+        {
+          'rec_ts': 100,
+          'device_id': _primary,
+          'hr': 58,
+          'spo2_red_raw': 111,
+          'spo2_ir_raw': 222,
+        },
+        {
+          'rec_ts': 100,
+          'device_id': _ring,
+          'hr': 100,
+          'spo2_red_raw': 333,
+          'spo2_ir_raw': null,
+        },
+      ];
+      final ownership = <InputSignal, List<OwnedSpan>>{
+        InputSignal.hr1Hz: [(start: 0, end: 200, deviceId: _primary)],
+        InputSignal.ppgRedIr: [(start: 0, end: 200, deviceId: _ring)],
+      };
+      final frames = composeOneHzFrames(rows, ownership);
+      expect(frames.single['spo2_red_raw'], 333, reason: 'ring\'s red channel');
+      expect(frames.single['spo2_ir_raw'], null,
+          reason: 'the ring owns ppgRedIr and genuinely has no IR reading '
+              'this second — before the fix this stayed at the primary\'s '
+              '222, silently mixing two devices\' PPG channels in one frame');
+    });
+
     test('a single contributing device never enters the splice path '
         '(byte-identical to a plain single-device day)', () {
       final rows = [row(_primary, 100, hr: 58, skinTempRaw: 500)];
@@ -454,6 +486,28 @@ void main() {
       expect(frames.length, 1);
       expect(frames.single['device_id'], _ring);
       expect(frames.single['skin_temp_raw'], 900);
+    });
+  });
+
+  group('trailingRecTsGroupStart — a contended second must never be split '
+      'across a decoded_onehz page boundary', () {
+    Map<String, dynamic> r(int recTs) => {'rec_ts': recTs};
+
+    test('the last row is alone: nothing to hold back', () {
+      expect(trailingRecTsGroupStart([r(1), r(2), r(3)]), 2);
+    });
+
+    test('the trailing group spans several rows (one per contending device)',
+        () {
+      expect(trailingRecTsGroupStart([r(1), r(2), r(2), r(2)]), 1);
+    });
+
+    test('the whole batch shares one rec_ts — pathological, index 0', () {
+      expect(trailingRecTsGroupStart([r(9), r(9), r(9)]), 0);
+    });
+
+    test('a single row is trivially its own group', () {
+      expect(trailingRecTsGroupStart([r(5)]), 0);
     });
   });
 }
