@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/ai/ai_prefs.dart';
 import 'package:openstrap_edge/ai/reminder_plan.dart';
+import 'package:openstrap_edge/notify/notification_prefs.dart';
 import 'package:openstrap_edge/notify/notification_service.dart';
 import 'package:openstrap_edge/notify/tap_router.dart';
 
@@ -140,12 +141,47 @@ void main() {
         const AiPrefs(), // eveningMin default 20:00 — the fallback, not the time
         remindersEnabled: true,
         aiConfigured: true,
-        bedtimeMinOfDay: 23 * 60 + 15, // 23:15
+        bedtimeMinOfDay: 21 * 60 + 15, // 21:15 — well clear of quiet hours
         journalDoneToday: false,
         sweepHeadline: 'x',
       ).firstWhere((s) => s.id == NotificationService.idEveningBrief);
-      expect(slot.hour, 22);
+      expect(slot.hour, 20);
       expect(slot.minute, 15);
+    });
+
+    test('evening slot is capped ahead of quiet hours, never inside them', () {
+      // Learned bedtime 23:30 -> resolvedEveningMin = 22:30, which is inside
+      // the default 22:00-07:00 quiet window. Regression for the bug where
+      // scheduleAiReminders armed an OS notification inside quiet hours.
+      final slot = aiReminderPlan(
+        const AiPrefs(),
+        remindersEnabled: true,
+        aiConfigured: true,
+        bedtimeMinOfDay: 23 * 60 + 30,
+        journalDoneToday: false,
+        sweepHeadline: 'x',
+      ).firstWhere((s) => s.id == NotificationService.idEveningBrief);
+      expect(slot.hour, 21);
+      expect(slot.minute, 30);
+      expect(
+          const NotificationPrefs()
+              .inQuietHours(slot.hour * 60 + slot.minute),
+          isFalse);
+    });
+
+    test('evening slot is dropped entirely when quiet hours swallow it', () {
+      final plan = aiReminderPlan(
+        const AiPrefs(),
+        remindersEnabled: true,
+        aiConfigured: true,
+        bedtimeMinOfDay: 23 * 60 + 30,
+        journalDoneToday: false,
+        sweepHeadline: 'x',
+        quiet: const NotificationPrefs(
+            quietEnabled: true, quietStartMin: 0, quietEndMin: 23 * 60 + 59),
+      );
+      expect(plan.map((s) => s.id),
+          isNot(contains(NotificationService.idEveningBrief)));
     });
 
     test('a new install has no learned bedtime and gets the fallback', () {

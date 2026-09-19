@@ -816,6 +816,7 @@ class NotificationCenter {
       bedtimeMinOfDay: bedtimeMinOfDay,
       journalDoneToday: journalDoneToday,
       sweepHeadline: sweepHeadline,
+      quiet: prefs,
     ).where((s) => NotificationService.maySchedule(s.id)).toList();
     if (plan.isEmpty) return;
     await svc.ensureTimezone();
