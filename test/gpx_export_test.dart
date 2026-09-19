@@ -96,6 +96,27 @@ void main() {
       expect(_trkptCount(xml), 3);
     });
 
+    test('a NaN or out-of-range point is dropped, not exported as literal '
+        '"NaN"', () {
+      final route = WorkoutRoute(
+        sessionId: 's4',
+        points: const [
+          RoutePoint(seq: 0, tsMs: 0, lat: 51.5, lng: -0.12),
+          RoutePoint(seq: 1, tsMs: 1000, lat: double.nan, lng: -0.121),
+          RoutePoint(seq: 2, tsMs: 2000, lat: 91, lng: 0),
+          RoutePoint(seq: 3, tsMs: 3000, lat: 51.502, lng: -0.122),
+        ],
+        hr: const [],
+        distanceMeters: 200,
+        movingSec: 3,
+        splitsKm: const [],
+        splitsMi: const [],
+      );
+      final xml = buildGpx(route, name: 'Run');
+      expect(_trkptCount(xml), 2);
+      expect(xml.toLowerCase(), isNot(contains('nan')));
+    });
+
     test('balanced tags for the minimum 2-point route', () {
       final route = WorkoutRoute(
         sessionId: 's2',

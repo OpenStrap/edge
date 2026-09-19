@@ -42,6 +42,12 @@ String buildGpx(WorkoutRoute route, {required String name}) {
     ..writeln('<trk><name>${_xmlEscape(name)}</name><trkseg>');
 
   for (final p in route.points) {
+    // NaN.abs() > 90 is false, so a plain range check lets NaN through —
+    // same bug class fixed in the HealthKit import path (#409). A point this
+    // bad is dropped rather than failing the whole export.
+    if (p.lat.isNaN || p.lng.isNaN || p.lat.abs() > 90 || p.lng.abs() > 180) {
+      continue;
+    }
     final t = DateTime.fromMillisecondsSinceEpoch(p.tsMs, isUtc: true)
         .toIso8601String();
     buf.writeln('<trkpt lat="${p.lat}" lon="${p.lng}">');
