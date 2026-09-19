@@ -1766,6 +1766,11 @@ class LocalDb {
   /// recent slice and the resting baseline that precedes it. No LIMIT: every
   /// call site passes a window measured in single-digit minutes to ~90
   /// minutes, at 1 row/sec that is at most a few thousand rows.
+  ///
+  /// Rows with a null hr/ax/ay/az are excluded: those columns are legitimately
+  /// nullable (a v25 record with no usable gravity vector, see the
+  /// v25-exclusion note near `FirmwareAwareR24Decoder().decode`'s call site),
+  /// and `SmartWakeSample.fromRow` requires all four non-null.
   static Future<List<Map<String, Object?>>> onehzHrAccelBetween(
     int sinceEpochSec,
     int untilEpochSec,
@@ -1774,7 +1779,8 @@ class LocalDb {
     return db.query(
       'decoded_onehz',
       columns: const ['rec_ts', 'hr', 'ax', 'ay', 'az'],
-      where: 'rec_ts >= ? AND rec_ts <= ?',
+      where: 'rec_ts >= ? AND rec_ts <= ? '
+          'AND hr IS NOT NULL AND ax IS NOT NULL AND ay IS NOT NULL AND az IS NOT NULL',
       whereArgs: [sinceEpochSec, untilEpochSec],
       orderBy: 'rec_ts ASC',
     );
