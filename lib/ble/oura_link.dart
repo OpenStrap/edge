@@ -504,25 +504,33 @@ class OuraLink {
   /// `oura_adapter_test.dart` scripts it — a replay link records writes but
   /// cannot react to them.
   ///
-  /// 50ms used to be the default here, and it was too tight: every scripted
-  /// [reply] answers inside the same zero-delay spin loop below, so nothing
-  /// in a passing run should EVER actually wait out this timeout — it's only
-  /// a backstop. But 50ms of real wall-clock is not free on a shared CI
-  /// runner deep into a long single-isolate suite (GC pauses, scheduler
-  /// jitter from ~1000+ prior tests), and when it fires early the adapter
-  /// gives up on the anchor batch mid-session, so a reading that should have
-  /// been stamped once the anchor arrived is left un-stamped instead — the
-  /// intermittent "written once it does" failure this file used to show only
-  /// in full-suite CI runs, never in isolation. 2s is still instant for every
-  /// test here (nothing waits on it on the happy path) and leaves real
-  /// margin against that jitter.
+  /// PR #389 bumped this from 50ms to 2s to chase the same flake this comment
+  /// now documents properly — it wasn't enough, because it was diagnosing the
+  /// wrong wait. Bisected with `print()`s at every `return` in
+  /// `OuraAdapter.run`/`_authenticate`/`_collectBatch`, sweeping this value
+  /// from 1us to 10ms: below ~1ms the auth-challenge round trip (pure
+  /// microtask hops, no I/O) times out first; between roughly 1ms and 10ms
+  /// the failure is ALWAYS `confirmTimeout` firing on `BandHost
+  /// ._commitThenConfirm`'s `await done.future`, which does not complete
+  /// until `LocalDb`'s REAL sqflite commit for the batch lands — genuine disk
+  /// I/O this file's own header deliberately keeps real (`raw_archive` /
+  /// `decoded_onehz`, not a mock). That commit is not driven by a fake clock
+  /// or a Timer this test controls, so no amount of `FakeAsync`/virtual-time
+  /// plumbing here can make its completion deterministic — only a real
+  /// wall-clock bound can, and CI wedges that bound with GC pauses and
+  /// scheduler jitter ~1000+ tests deep into one isolate. So this cannot be
+  /// made deterministic; the honest fix is a bound generous enough that a
+  /// small local sqlite commit could never legitimately approach it. 2s
+  /// already wasn't that bound (10ms was enough on an idle laptop above);
+  /// 30s is — nothing on the happy path here waits anywhere near it, it only
+  /// still exists to bound a genuinely wedged production ring.
   @visibleForTesting
   Future<ReplayBandLink> ingestForTest(
     String deviceId,
     List<int> key,
     List<List<int>> Function(int writeIndex, List<int> value) reply, {
     int Function()? nowSeconds,
-    Duration timeouts = const Duration(seconds: 2),
+    Duration timeouts = const Duration(seconds: 30),
   }) async {
     _now = nowSeconds ?? _now;
     _deviceId = deviceId;
@@ -557,7 +565,9 @@ class OuraLink {
       }
     }
     await link.close();
-    await done.timeout(const Duration(seconds: 2), onTimeout: () {});
+    // Same real-commit hazard as `timeouts` above (`BandHost.stop`'s own
+    // final flush is the same sqflite write), so the same generous bound.
+    await done.timeout(const Duration(seconds: 30), onTimeout: () {});
     await host.stop();
     _host = null;
     _anchor = null;
