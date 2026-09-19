@@ -1673,15 +1673,24 @@ import 'substrate.dart';
 // paired another device that also declares it. kAnalyticsPin/kProtocolPin
 // UNCHANGED: edge-only fix.
 //
-// 92 → 93 (`overreachingConjunction` rhr quantum guard, analytics PR #73):
+// 92 → 93 (HRV frequency-domain Welch gap guard, analytics PR #72): the
+// Welch segmenter in hrv_freq.dart only rejected a segment by beat count,
+// never by time-completeness, so a mid-window gap (BLE reconnect, off-wrist
+// moment) could still publish a bogus LF/HF/VLF/ULF/lf_hf/nu_lf/nu_hf/total
+// reading at Tier.high. Now gated on both an endpoint-span check and a
+// largest-single-gap check. Real output change for any night with an
+// internal HRV-frequency-window gap. kAnalyticsPin bumped alongside this.
+// Verified: `git show 82857106e41c346b4edf9ad617829a5ddd1cc5c1:lib/src/onehz/clinical/hrv_freq.dart |
+//   grep -n 'segSec \* 0.8\|segSec \* 0.2'`
+//
+// 93 → 94 (`overreachingConjunction` rhr quantum guard, analytics PR #73):
 // an alternating whole-bpm rhr baseline (58/59) has a small nonzero MAD that
 // is unresolvable rounding noise, not real dispersion — the guard
 // `dispersionBelowQuantum` already applies on this same rhr channel in
 // illness_cusum/readiness_composite/event_detection. Without it, a 1bpm rise
 // could clear the gate and fire the "both facts point the same way" card on
-// nothing. kAnalyticsPin repinned to analytics PR #73 (1acdd4b) — re-pin to
-// main once it merges.
-const int kAlgoVersion = 93;
+// nothing. kAnalyticsPin repinned to analytics PR #73's merged main SHA.
+const int kAlgoVersion = 94;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1850,8 +1859,16 @@ const int kAlgoVersion = 93;
 // picking one single-device SHA over the other. Verified: `1cf8e61` (this
 // branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
 // commit is already folded in, nothing is lost by moving to the tip.
-const String kAnalyticsPin = '1acdd4beee989ed4a4051b97b2d496ad74e74dd7';
-// Repinned to analytics PR #70's merged main SHA (was the pre-squash branch
+const String kAnalyticsPin = 'eed6dc92375ce1336fc4e31d13a0718f45e163cf';
+// Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
+// Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
+// the two independent kAlgoVersion bumps above (93 and 94). Verified both
+// fixes are present at this SHA:
+//   `git show eed6dc9:lib/src/onehz/human/overreaching_conjunction.dart |
+//      grep -n dispersionBelowQuantum`
+//   `git show eed6dc9:lib/src/onehz/clinical/hrv_freq.dart |
+//      grep -n 'segSec \* 0.8\|segSec \* 0.2'`
+// Previously repinned to analytics PR #70's merged main SHA (was the pre-squash branch
 // commit 47847fa, orphaned once the PR squash-merged) — same content, see
 // pubspec.yaml's comment for the verification command.
 // REPIN (this branch, superseded by the merge): polar pmd's own protocol
