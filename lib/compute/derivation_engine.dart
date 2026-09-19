@@ -1654,6 +1654,16 @@ import 'substrate.dart';
 // change on the affected sub-quantum-dispersion nights, so the bump is real.
 // kAnalyticsPin/kProtocolPin are UNCHANGED: edge-only fix.
 //
+// 92 → 93 (`_welchBandPower` rejects gapped Welch segments): a segment that
+// still cleared the 16-point minimum by clustering beats near both edges
+// (mid-window BLE dropout: charging pickup, off-wrist blip) was fed to
+// Lomb-Scargle as if it were a complete window, publishing a fabricated
+// LF/HF/lf_hf/nu at full confidence. Now rejected via an endpoint-span check
+// (`< segSec*0.8`) plus a max-inter-beat-gap check (`> segSec*0.2`), the same
+// guard `resp_rate.dart` already had. Real output change for any HRV window
+// with an internal dropout that survives at both edges. kAnalyticsPin bumped
+// alongside this (analytics PR #72).
+//
 // 91 → 92 (baevskyStressIndex is now gap-aware): passes `nnTimesMs` at the
 // one call site (onehz_pipeline.dart) so a charging/off-wrist hole inside a
 // sleep window segments the 256-beat sliding window instead of one window
@@ -1672,7 +1682,7 @@ import 'substrate.dart';
 // output change for any user who customized priority for a signal and then
 // paired another device that also declares it. kAnalyticsPin/kProtocolPin
 // UNCHANGED: edge-only fix.
-const int kAlgoVersion = 92;
+const int kAlgoVersion = 93;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1841,7 +1851,7 @@ const int kAlgoVersion = 92;
 // picking one single-device SHA over the other. Verified: `1cf8e61` (this
 // branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
 // commit is already folded in, nothing is lost by moving to the tip.
-const String kAnalyticsPin = '1bf9b6233b364bb4cc307e298abda0c97d25aeef';
+const String kAnalyticsPin = '82857106e41c346b4edf9ad617829a5ddd1cc5c1';
 // Repinned to analytics PR #70's merged main SHA (was the pre-squash branch
 // commit 47847fa, orphaned once the PR squash-merged) — same content, see
 // pubspec.yaml's comment for the verification command.

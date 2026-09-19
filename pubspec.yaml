@@ -444,7 +444,17 @@ dependencies:
       # byte-identical. Verified:
       #   `git show 1bf9b62:lib/src/onehz/clinical/stress_si.dart |
       #      grep -n 'nnTimesMs\|maxGapSec'`
-      ref: 1bf9b6233b364bb4cc307e298abda0c97d25aeef
+      #
+      # analytics PR #72 (merged to main @ 8285710): `_welchBandPower` now
+      # rejects a segment whose endpoint span is < segSec*0.8 or whose max
+      # inter-beat gap is > segSec*0.2 — a mid-window dropout (charging
+      # pickup, off-wrist blip) could otherwise clear the 16-point minimum by
+      # clustering beats near both edges and get Lomb-Scargle'd as a complete
+      # window, publishing a fabricated LF/HF/lf_hf/nu at full confidence.
+      # Same guard `resp_rate.dart` already had. Verified:
+      #   `git show 8285710:lib/src/onehz/clinical/hrv_freq.dart |
+      #      grep -n 'segSec \* 0.8\|segSec \* 0.2\|maxGap'`
+      ref: 82857106e41c346b4edf9ad617829a5ddd1cc5c1
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
