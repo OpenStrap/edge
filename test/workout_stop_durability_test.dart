@@ -77,4 +77,35 @@ void main() {
       reason: 'the retry banked the real 42-minute window',
     );
   });
+
+  test(
+      'stopWorkout retires an auto-detected suggestion its window covers',
+      () async {
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    final start = DateTime.now().subtract(const Duration(minutes: 20));
+    app.activeWorkout = LiveWorkoutState(
+      startTime: start,
+      targetKcal: 200,
+      workoutId: 'w-supersede',
+      type: 'run',
+    );
+
+    // A detector-flagged fragment overlapping the live session's window.
+    await LocalDb.putWorkoutSuggestion({
+      'id': 'sug-1',
+      'date': '2026-01-01',
+      'start_ts': start.millisecondsSinceEpoch ~/ 1000 + 60,
+      'end_ts': start.millisecondsSinceEpoch ~/ 1000 + 300,
+      'dismissed': 0,
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    await app.stopWorkout();
+
+    final active = await LocalDb.activeWorkoutSuggestions();
+    expect(active.where((s) => s['id'] == 'sug-1'), isEmpty,
+        reason: 'the just-logged workout should retire the overlapping '
+            'suggestion instead of leaving a stale "did you work out?" prompt');
+  });
 }

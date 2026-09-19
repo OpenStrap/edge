@@ -45,7 +45,8 @@ import '../ble/ios_ble_restore.dart';
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
-import '../compute/manual_session.dart' show strainFromPerMinuteHr;
+import '../compute/manual_session.dart'
+    show strainFromPerMinuteHr, supersededSuggestionIds;
 import '../compute/hr_max.dart';
 import '../compute/profile.dart';
 import '../data/day_label.dart';
@@ -6231,20 +6232,48 @@ class AppState extends ChangeNotifier {
           // gets exported on the next drain/derive cycle regardless.
           final reconciledEndTs = nowMs ~/ 1000;
           final hadRealEnd = row['end_ts'] != null;
+          final finalEndTs = (row['end_ts'] as int?) ?? reconciledEndTs;
           await LocalDb.putSession({
             ...row,
             'status': 'done',
-            'end_ts': row['end_ts'] ?? reconciledEndTs,
+            'end_ts': finalEndTs,
             'end_ts_fabricated': hadRealEnd ? (row['end_ts_fabricated'] ?? 0) : 1,
           });
           // Never resumed, so its tally snapshot (if any) is now orphaned.
           unawaited(LocalDb.deleteLiveWorkoutTally(row['id'] as String? ?? ''));
+          await _dismissSupersededSuggestions(
+            startSec: row['start_ts'] as int,
+            endSec: finalEndTs,
+          );
           _log('[workout] finalized a stale live-session row from a previous run (id=${row['id']}).');
         }
       }
       if (resumed) notifyListeners();
     } catch (e) {
       _log('[workout] reconcile orphaned live session failed: $e');
+    }
+  }
+
+  /// Retire the auto-detected suggestion(s) a just-finalized session covers,
+  /// mirroring `_writeManualSession`'s cleanup so a live-tracked "Start
+  /// Workout" finish (or an orphaned-session reconcile) doesn't leave a
+  /// "did you work out?" prompt for something already logged. Best-effort —
+  /// a cleanup failure never undoes the already-saved session.
+  Future<void> _dismissSupersededSuggestions({
+    required int startSec,
+    required int endSec,
+  }) async {
+    try {
+      final sug = await LocalDb.activeWorkoutSuggestions();
+      for (final id in supersededSuggestionIds(
+        sug,
+        startSec: startSec,
+        endSec: endSec,
+      )) {
+        await LocalDb.dismissWorkoutSuggestion(id);
+      }
+    } catch (_) {
+      /* suggestion cleanup is best-effort — the session is already saved */
     }
   }
 
@@ -6338,6 +6367,12 @@ class AppState extends ChangeNotifier {
       // AFTER this delete and resurrect the row (Sourcery-flagged race).
       await _awaitPendingTallyPersist();
       unawaited(LocalDb.deleteLiveWorkoutTally(id));
+      // Retire any auto-detected suggestion this live session covers, so it
+      // doesn't keep asking "did you work out?" about a workout already saved.
+      await _dismissSupersededSuggestions(
+        startSec: sessionRow['start_ts'] as int,
+        endSec: endTs,
+      );
     } catch (e) {
       _log('[workout] could not save session $id: $e — keeping it live');
       notifyListeners();
