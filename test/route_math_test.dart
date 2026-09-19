@@ -2,11 +2,18 @@
 // HR → zone colouring join. No DB / no geolocator — pure functions only.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:openstrap_edge/gps/route_math.dart';
 import 'package:openstrap_edge/gps/route_models.dart';
 
 // ~metres per degree of longitude at the equator (haversine, lat 0).
 const double _mPerDegLngAtEq = 111319.49;
+
+/// A plain %HRmax zone set for a given ceiling, matching the pre-fix test
+/// fixtures' `maxHr` — routed through the real shared type instead of a
+/// route-local percent ladder.
+ana.HeartRateZoneSet _zones(double maxHr) =>
+    ana.HeartRateZones.zonesFromMaxHr(maxHr, source: 'tanaka');
 
 /// A straight eastbound route at the equator: `count` points spaced
 /// [stepMeters] apart, [stepSec] seconds between fixes, HR constant [hr].
@@ -108,7 +115,7 @@ void main() {
         RoutePoint(
             seq: 2, tsMs: 2000, lat: 0, lng: (5000 + 20) / _mPerDegLngAtEq),
       ];
-      final v = buildVertices(pts, const [], 190);
+      final v = buildVertices(pts, const [], _zones(190));
       expect(v[0].gapBefore, isFalse);
       expect(v[1].gapBefore, isFalse);
       expect(v[2].gapBefore, isTrue);
@@ -116,19 +123,25 @@ void main() {
   });
 
   group('zoneForHr', () {
-    test('maps the 50/60/70/80/90% bands', () {
-      const maxHr = 200;
-      expect(zoneForHr(80, maxHr), 0); // 40%
-      expect(zoneForHr(100, maxHr), 1); // 50%
-      expect(zoneForHr(120, maxHr), 2); // 60%
-      expect(zoneForHr(140, maxHr), 3); // 70%
-      expect(zoneForHr(160, maxHr), 4); // 80%
-      expect(zoneForHr(180, maxHr), 5); // 90%
+    test('maps via the shared HeartRateZoneSet (tanaka-style 200 maxHr)', () {
+      final zoneSet = _zones(200);
+      expect(zoneForHr(80, zoneSet), 0); // 40%
+      expect(zoneForHr(100, zoneSet), 1); // 50%
+      expect(zoneForHr(120, zoneSet), 2); // 60%
+      expect(zoneForHr(140, zoneSet), 3); // 70%
+      expect(zoneForHr(160, zoneSet), 4); // 80%
+      expect(zoneForHr(180, zoneSet), 5); // 90%
     });
 
     test('degenerate inputs → zone 0', () {
-      expect(zoneForHr(0, 200), 0);
-      expect(zoneForHr(150, 0), 0);
+      expect(zoneForHr(0, _zones(200)), 0);
+    });
+
+    test('honours a manual zone override the same as every other surface',
+        () {
+      final manual = ana.HeartRateZones.zonesFromMaxHr(200, source: 'manual');
+      // Sanity: same shared type used by trainingZones' manual path.
+      expect(zoneForHr(150, manual), manual.zoneNumber(150));
     });
   });
 
@@ -159,7 +172,7 @@ void main() {
         const HrSample(tsMs: 10000, hr: 160), // 80% → z4
         const HrSample(tsMs: 20000, hr: 180), // 90% → z5
       ];
-      final v = buildVertices(pts, hr, 200);
+      final v = buildVertices(pts, hr, _zones(200));
       expect(v.length, 3);
       expect(v[0].zone, 1);
       expect(v[1].zone, 4);
@@ -171,7 +184,7 @@ void main() {
       // Point 1 is 60 s after the only HR sample — beyond the 15 s join gap.
       final pts = _line(count: 2, stepMeters: 100, stepSec: 60);
       final hr = [const HrSample(tsMs: 0, hr: 120)];
-      final v = buildVertices(pts, hr, 200);
+      final v = buildVertices(pts, hr, _zones(200));
       expect(v[0].zone, 2); // 120/200 = 60%
       expect(v[1].zone, isNull); // 60 s away → no colour
     });
