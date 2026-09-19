@@ -405,8 +405,16 @@ class TelemetryService {
         events: events,
       );
       if (ok) {
-        // Drop exactly what we sent (records added meanwhile are kept).
-        _outbox.removeRange(0, events.length.clamp(0, _outbox.length));
+        // Drop exactly what we sent, by identity — not by index range. record()
+        // can append + head-trim to _maxOutbox while this POST is in flight, so
+        // the sent objects may no longer sit at [0, events.length). Map has no
+        // == override, so List.remove matches by reference: a record already
+        // trimmed by record() is simply not found (no-op), and a record that
+        // shifted position is still removed correctly. Anything genuinely new
+        // that arrived meanwhile is untouched either way.
+        for (final e in events) {
+          _outbox.remove(e);
+        }
         await _persist();
       }
     } catch (_) {/* best-effort */} finally {
