@@ -658,7 +658,7 @@ class CoachEngine {
           .post(
             Uri.parse('${config.apiBase}/chat/completions'),
             headers: {
-              'Authorization': 'Bearer ${config.apiKey}',
+              if (config.hasKey) 'Authorization': 'Bearer ${config.apiKey}',
               'content-type': 'application/json',
             },
             body: payload,

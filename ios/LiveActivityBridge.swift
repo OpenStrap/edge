@@ -40,9 +40,9 @@ enum LiveActivityBridge {
       guard #available(iOS 16.2, *) else { result(nil); return }
       let args = call.arguments as? [String: Any] ?? [:]
       switch call.method {
-      case "start":  start(args);  result(nil)
-      case "update": update(args); result(nil)
-      case "end":    end();        result(nil)
+      case "start":  Task { await start(args);  result(nil) }
+      case "update": Task { await update(args); result(nil) }
+      case "end":    Task { await end();        result(nil) }
       default:       result(FlutterMethodNotImplemented)
       }
     }
@@ -70,11 +70,13 @@ enum LiveActivityBridge {
   }
 
   @available(iOS 16.2, *)
-  private static func start(_ a: [String: Any]) {
+  private static func start(_ a: [String: Any]) async {
     guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-    // One at a time — end any stragglers first.
+    // One at a time — end any stragglers first, and actually wait for them:
+    // an unawaited Task here used to race Activity.request below, sometimes
+    // leaving a stale activity alongside the new one.
     for act in Activity<OpenStrapWidgetAttributes>.activities {
-      Task { await act.end(nil, dismissalPolicy: .immediate) }
+      await act.end(nil, dismissalPolicy: .immediate)
     }
     let attrs = OpenStrapWidgetAttributes(
       sessionName: a["name"] as? String ?? "Live session",
@@ -90,17 +92,17 @@ enum LiveActivityBridge {
   }
 
   @available(iOS 16.2, *)
-  private static func update(_ a: [String: Any]) {
+  private static func update(_ a: [String: Any]) async {
     let content = ActivityContent(state: state(a), staleDate: nil)
     for act in Activity<OpenStrapWidgetAttributes>.activities {
-      Task { await act.update(content) }
+      await act.update(content)
     }
   }
 
   @available(iOS 16.2, *)
-  private static func end() {
+  private static func end() async {
     for act in Activity<OpenStrapWidgetAttributes>.activities {
-      Task { await act.end(nil, dismissalPolicy: .immediate) }
+      await act.end(nil, dismissalPolicy: .immediate)
     }
   }
 }

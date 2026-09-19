@@ -174,5 +174,27 @@ void main() {
       expect(CoachEngine.kMaxHistoryChars,
           lessThan(CoachEngine.kMaxRequestBytes));
     });
+
+    test('a keyless config (local Ollama/LM Studio) sends no Authorization '
+        'header at all — never the literal "Bearer null"', () async {
+      expect(cfg.hasKey, isFalse, reason: 'default cfg carries no API key');
+      Map<String, String>? sentHeaders;
+      final client = MockClient((req) async {
+        sentHeaders = req.headers;
+        return http.Response(
+          jsonEncode({
+            'choices': [
+              {
+                'message': {'content': 'ok'}
+              }
+            ]
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      });
+      await _post(cfg, client);
+      expect(sentHeaders!.containsKey('Authorization'), isFalse);
+    });
   });
 }

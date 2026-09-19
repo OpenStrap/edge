@@ -15,7 +15,8 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
-import '../../ai/journal_ai.dart' show kJournalPresetTags;
+import '../../ai/journal_ai.dart';
+import '../../coach/coach_config.dart';
 import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
@@ -23,6 +24,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../ui2.dart';
+import 'coach.dart' show coachReady;
 import 'home_screen.dart' show unitsOf;
 import 'custom_journal_field_sheet.dart';
 import 'metric_detail.dart' show detailScaffold;
@@ -167,6 +169,30 @@ class _JournalComposeState extends State<JournalCompose> {
     });
   }
 
+  /// Opens the AI chat and, on accept, merges its proposal into whatever the
+  /// day already holds — the merge is [mergeJournalEntry], never a plain
+  /// overwrite of `_tags`/`_note`.
+  Future<void> _openAiChat() async {
+    final cfg = context.read<CoachConfig>();
+    final result = await showModalBottomSheet<({List<String> tags, String note})>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _JournalAiSheet(config: cfg),
+    );
+    if (result == null || !mounted) return;
+    final merged = mergeJournalEntry(
+      existingTags: _tags.toList(),
+      existingNote: _note.text,
+      newTags: result.tags,
+      newNote: result.note,
+    );
+    setState(() {
+      _tags = merged.tags.toSet();
+      _note.text = merged.note;
+    });
+  }
+
   Future<void> _save() async {
     final repo = context.read<AppState>().repo;
     if (repo == null) return;
@@ -282,6 +308,28 @@ class _JournalComposeState extends State<JournalCompose> {
                           ),
                         ),
                         const SizedBox(height: S.x5),
+                        if (coachReady(c))
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: S.x2),
+                            child: Pressable(
+                              onTap: () => unawaited(_openAiChat()),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(LucideIcons.sparkles,
+                                      size: 16, color: p.on(C.domMind)),
+                                  const SizedBox(width: S.x1),
+                                  Text(
+                                    // Not localized yet — a new entry point,
+                                    // not a copy pass over the whole screen.
+                                    'Talk it through with AI',
+                                    style: F.over
+                                        .copyWith(color: p.on(C.domMind)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         OsTextField(
                           controller: _note,
                           label: l?.journalComposeAnythingElseLabel ?? 'Anything else',
@@ -905,5 +953,219 @@ class _WeightTrendState extends State<_WeightTrend> {
     final day = DateTime(first.year, first.month, first.day + offset);
     final v = trend[dayLabelOf(day)];
     return v == null ? null : show(v);
+  }
+}
+
+// ══════════════════════════ AI JOURNAL CHAT ══════════════════════════
+//
+// The pre-sleep "tell me about your day" chat over [JournalAiEngine]. The
+// model never writes anything: it proposes tags + a note, this sheet shows
+// exactly that proposal, and only a tap on "Add to journal" hands it back to
+// [_JournalComposeState._openAiChat], which merges it with whatever the day
+// already holds via [mergeJournalEntry] — never a plain overwrite.
+class _JournalAiSheet extends StatefulWidget {
+  const _JournalAiSheet({required this.config});
+
+  final CoachConfig config;
+
+  @override
+  State<_JournalAiSheet> createState() => _JournalAiSheetState();
+}
+
+class _JournalAiSheetState extends State<_JournalAiSheet> {
+  late final JournalAiEngine _engine = JournalAiEngine(config: widget.config);
+  final _input = TextEditingController();
+  final _scroll = ScrollController();
+  final _turns = <({bool fromUser, String text})>[];
+  JournalAiTurn? _last;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _input.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final text = _input.text.trim();
+    if (text.isEmpty || _busy) return;
+    setState(() {
+      _turns.add((fromUser: true, text: text));
+      _input.clear();
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final turn = await _engine.send(text);
+      if (!mounted) return;
+      setState(() {
+        _turns.add((fromUser: false, text: turn.reply));
+        _last = turn;
+        _busy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      // Not fabricated: a failed turn shows the real error, not a canned
+      // reply pretending the model answered.
+      setState(() {
+        _error = e.toString();
+        _busy = false;
+      });
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients && mounted) {
+        unawaited(_scroll.animateTo(
+          _scroll.position.maxScrollExtent,
+          duration: motion(context, Motion.base),
+          curve: Curves.easeOut,
+        ));
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final p = P.of(c);
+    final last = _last;
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(c).viewInsets.bottom),
+      child: SafeArea(
+        top: false,
+        child: Container(
+          height: MediaQuery.of(c).size.height * 0.75,
+          decoration: BoxDecoration(
+            color: p.bg,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(R.lg)),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: S.x2),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(color: p.line, borderRadius: R.rSm),
+              ),
+              const SizedBox(height: S.x3),
+              Text('Talk it through',
+                  style: F.head.copyWith(color: p.ink)),
+              const SizedBox(height: S.x2),
+              Expanded(
+                child: _turns.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(S.x4),
+                          child: Text(
+                            'Tell it about your day — it proposes tags and a '
+                            'note, you decide what to keep.',
+                            textAlign: TextAlign.center,
+                            style: F.body.copyWith(color: p.ink3),
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: _scroll,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: S.x4, vertical: S.x2),
+                        itemCount: _turns.length,
+                        itemBuilder: (_, i) {
+                          final t = _turns[i];
+                          return Align(
+                            alignment: t.fromUser
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: S.x1),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: S.x3, vertical: S.x2),
+                              constraints: BoxConstraints(
+                                  maxWidth: MediaQuery.of(c).size.width * 0.75),
+                              decoration: BoxDecoration(
+                                color: t.fromUser ? p.fill(C.domMind) : p.card2,
+                                borderRadius: R.rMd,
+                              ),
+                              child: Text(
+                                t.text,
+                                style: F.body.copyWith(
+                                  color: t.fromUser ? p.inkOnFill : p.ink,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+              if (last != null && last.tags.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x2),
+                  child: Wrap(
+                    spacing: S.x2,
+                    runSpacing: S.x2,
+                    children: [for (final t in last.tags) Pill(t, C.domMind)],
+                  ),
+                ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x2),
+                  child: Text(_error!, style: F.over.copyWith(color: C.red)),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x2),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _input,
+                        enabled: !_busy,
+                        onSubmitted: (_) => unawaited(_send()),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          hintText: 'Tell it about your day…',
+                          border: OutlineInputBorder(borderRadius: R.rMd),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: S.x2),
+                    Pressable(
+                      onTap: _busy ? null : () => unawaited(_send()),
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: p.fill(C.domMind),
+                          borderRadius: R.rMd,
+                        ),
+                        child: _busy
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: p.inkOnFill),
+                              )
+                            : Icon(LucideIcons.arrowUp, color: p.inkOnFill),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x4),
+                child: BigButton(
+                  'Add to journal',
+                  icon: LucideIcons.check,
+                  color: C.domMind,
+                  onTap: last == null
+                      ? null
+                      : () => Navigator.of(c)
+                          .pop((tags: last.tags, note: last.note)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

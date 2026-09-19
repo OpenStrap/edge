@@ -246,6 +246,54 @@ void main() {
     await ctrl.close();
   });
 
+  test(
+      'stop() waits for an in-flight auto-flush so a late requeue is not '
+      'orphaned', () async {
+    final completer = Completer<void>();
+    var calls = 0;
+    final persisted = <RoutePoint>[];
+    final ctrl = StreamController<GpsSample>();
+    final t = RouteTracker(
+      sink: (b) async {
+        calls++;
+        if (calls == 1) {
+          // The auto-triggered flush (call 1) blocks here until the test
+          // resolves it, simulating a DB write still in flight when stop()
+          // runs.
+          await completer.future;
+          throw Exception('disk busy');
+        }
+        persisted.addAll(b);
+      },
+      batchSize: 2,
+    );
+    t.start(ctrl.stream);
+
+    // Crosses batchSize → auto-flush (call 1) fires and suspends on the
+    // completer above.
+    ctrl.add(_fix(0));
+    ctrl.add(_fix(1));
+    await pumpEventQueue();
+    expect(calls, 1);
+
+    // stop() is invoked while call 1 is still in flight.
+    final stopFuture = t.stop();
+    await pumpEventQueue();
+    // stop() must be blocked awaiting the flush chain, not already disposed.
+    expect(calls, 1);
+
+    // Now let call 1 fail and requeue its batch into `_buffer`.
+    completer.complete();
+    await stopFuture;
+
+    // stop() picked up the requeued batch in its own flush instead of
+    // orphaning it after dispose().
+    expect(calls, 2);
+    expect(persisted.length, 2);
+
+    await ctrl.close();
+  });
+
   test('surfaces a stream error instead of waiting forever', () async {
     final ctrl = StreamController<GpsSample>();
     final t = RouteTracker(sink: (_) async {}, batchSize: 100);

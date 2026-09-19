@@ -533,8 +533,9 @@ object NativeChannels {
             cm.getCameraCharacteristics(it)
                 .get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
         } ?: return
-        torchOn = !torchOn
-        cm.setTorchMode(camId, torchOn)
+        val desired = !torchOn
+        cm.setTorchMode(camId, desired)
+        torchOn = desired
     }
 
     @Suppress("DEPRECATION")
