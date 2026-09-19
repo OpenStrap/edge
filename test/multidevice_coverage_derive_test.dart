@@ -386,9 +386,9 @@ void main() {
         {
           'rec_ts': recTs,
           'device_id': deviceId,
-          if (hr != null) 'hr': hr,
+          'hr': ?hr,
           if (ax != null) ...{'ax': ax, 'ay': 0.0, 'az': 1.0},
-          if (skinTempRaw != null) 'skin_temp_raw': skinTempRaw,
+          'skin_temp_raw': ?skinTempRaw,
         };
 
     test('skinTempRaw priority is honored independently of the hr1Hz owner',
