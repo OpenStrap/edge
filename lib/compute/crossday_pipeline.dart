@@ -187,13 +187,17 @@ Map<String, dynamic> buildCrossDayBundle(
   if (gbRhr != null) gbInputs.add(gbRhr);
   final gbResp = _glassInput('resp', respList, ana.wResp, lowerIsBetter: true);
   if (gbResp != null) gbInputs.add(gbResp);
-  // temp: use absolute z so "further from your baseline" is worse.
+  // temp: use absolute z so "further from your baseline" is worse. `tempList`
+  // here is `skin_temp_z` — already a z-score against the raw-ADC baseline
+  // (onehz_pipeline.dart's `skinTempZ`, which has its OWN quantum:1 guard on
+  // the raw-ADC dispersion before the z is computed at all). It's continuous,
+  // not integer-quantized, so no quantum here (unlike readiness_composite's
+  // `tempInput`, which is fed the raw ADC mean and genuinely needs quantum:1).
   final gbTemp = _glassInput(
     'temp',
     _absList(tempList),
     ana.wTemp,
     lowerIsBetter: true,
-    quantum: 1,
   );
   if (gbTemp != null) gbInputs.add(gbTemp);
   // NOT the headline score — `readinessComposite` is, and it is computed
