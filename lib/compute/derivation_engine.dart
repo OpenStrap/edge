@@ -1654,6 +1654,14 @@ import 'substrate.dart';
 // change on the affected sub-quantum-dispersion nights, so the bump is real.
 // kAnalyticsPin/kProtocolPin are UNCHANGED: edge-only fix.
 //
+// 91 → 92 (baevskyStressIndex is now gap-aware): passes `nnTimesMs` at the
+// one call site (onehz_pipeline.dart) so a charging/off-wrist hole inside a
+// sleep window segments the 256-beat sliding window instead of one window
+// straddling the gap and reading the pre/post-gap RR jump as MxDMn — the
+// same bug class `cvhrApneaScreen` already had a fix for. Real output change
+// for any night that had an internal gap. kAnalyticsPin bumped alongside
+// this (analytics PR #70).
+//
 // 90 → 91 (`_resolveOwnership` drops newly-paired devices): once a signal's
 // `signal_priority` had ANY stored row, a device that started declaring that
 // signal afterward (paired later, no stored row) was never added to the
@@ -1664,7 +1672,7 @@ import 'substrate.dart';
 // output change for any user who customized priority for a signal and then
 // paired another device that also declares it. kAnalyticsPin/kProtocolPin
 // UNCHANGED: edge-only fix.
-const int kAlgoVersion = 91;
+const int kAlgoVersion = 92;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1833,7 +1841,7 @@ const int kAlgoVersion = 91;
 // picking one single-device SHA over the other. Verified: `1cf8e61` (this
 // branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
 // commit is already folded in, nothing is lost by moving to the tip.
-const String kAnalyticsPin = '41ac641a94852abec29c287e3d9668f33f7f56c9';
+const String kAnalyticsPin = '47847fa1f9c84ee9a0421c452f535f5442a4b252';
 // REPIN (this branch, superseded by the merge): polar pmd's own protocol
 // needs `feat/polar-pmd-protocol` (87ee803), but protocol's own `origin/main`
 // tip below is THAT SAME PR's merge commit — verified

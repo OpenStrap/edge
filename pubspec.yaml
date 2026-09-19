@@ -434,7 +434,17 @@ dependencies:
       # Verified against the SHA:
       #   `git show 41ac641:lib/src/onehz/clinical/vo2max.dart |
       #      grep -E 'vo2maxSubmaxEstimate|workout_grade'`
-      ref: 41ac641a94852abec29c287e3d9668f33f7f56c9
+      #
+      # analytics `fix/stress-si-gap-aware` @ 47847fa (PR #70, open — repin to
+      # the main merge SHA once it lands): adds optional `nnTimesMs` +
+      # `maxGapSec` to `baevskyStressIndex`, so a charging/off-wrist hole
+      # spliced into one sleep-night NN array segments before the 256-beat
+      # sliding window instead of a straddling window reading the pre/post-gap
+      # RR jump as MxDMn (same gap-aware pattern `cvhrApneaScreen` already
+      # has). No-times callers are byte-identical. Verified:
+      #   `git show 47847fa:lib/src/onehz/clinical/stress_si.dart |
+      #      grep -n 'nnTimesMs\|maxGapSec'`
+      ref: 47847fa1f9c84ee9a0421c452f535f5442a4b252
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

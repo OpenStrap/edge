@@ -456,7 +456,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final ac = accelerationCapacity(nn);
   // Baevsky Stress Index over the sleep NN — resting autonomic tension (a
   // transparent RR-histogram metric; no ML). Daily resting-stress indicator.
-  final stress = baevskyStressIndex(nn);
+  // nnTimesMs lets it segment at a charging/off-wrist gap instead of letting
+  // a sliding window straddle it (same gap-aware pattern as cvhrApneaScreen
+  // below).
+  final stress = baevskyStressIndex(nn, nnTimesMs: nnTimes);
 
   // ── RESPIRATION (sleep-windowed) ───────────────────────────────────────────
   final resp = nn.length >= 30
