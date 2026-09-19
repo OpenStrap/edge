@@ -74,7 +74,9 @@ class CoachActions {
     final y = int.parse(m.group(1)!);
     final mo = int.parse(m.group(2)!);
     final da = int.parse(m.group(3)!);
-    final d = DateTime(y, mo, da);
+    // UTC, not local: this is a pure calendar-validity check and a
+    // DST spring-forward that skips local midnight must not affect it.
+    final d = DateTime.utc(y, mo, da);
     if (d.year != y || d.month != mo || d.day != da) {
       throw CoachActionError('Date "$s" is not a real calendar day.');
     }
