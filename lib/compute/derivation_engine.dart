@@ -2038,6 +2038,21 @@ List<Map<String, dynamic>> composeOneHzFrames(
     // skin-temp columns are independently nullable. Copying only the
     // non-null columns left the base (wrong device's) value sitting in the
     // other column, combining fields from two devices in one frame.
+    //
+    // ponytail: `device_family`/`device_id` are deliberately NOT re-stamped
+    // here — the returned frame still carries the hr1Hz owner's. `_families`
+    // (derive_prepare.dart)'s day-wide family singleton, which
+    // `calibrationFor`/`estimatedMaxHr` read for ENMO-cut and HR-max
+    // constants, is therefore keyed off whichever device won hr1Hz, not off
+    // whoever actually supplied a spliced accel1Hz reading. A gen4+gen5
+    // pairing where the user ranks a DIFFERENT device for accel1Hz than for
+    // hr1Hz can apply the hr-owner's family calibration to the other
+    // family's accel — narrower than the row-level bug this fix closes (it
+    // needs both a cross-family pairing AND divergent per-signal priority),
+    // but real. Upgrade path: thread a per-signal device/family map through
+    // `Substrate` (a new field per anchor signal, not the single
+    // `deviceFamily`) to the ENMO/HR-max call sites — real scope, deferred
+    // rather than rushed into this fix.
     return {...base, for (final c in cols) c: ownerRow[c]};
   }
 
