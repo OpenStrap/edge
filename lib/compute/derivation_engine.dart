@@ -7917,10 +7917,16 @@ class DerivationEngine {
       }
       final motion = ana.AutoWorkoutDetector.motionPoints(mTs, mAx, mAy, mAz);
       // Exclude windows the user has already logged (manual/live wins).
+      // A still-running session (status='live') has a null end_ts — treat it
+      // as open through "now" rather than dropping it, or its own live
+      // minutes get mistaken for an undiscovered bout.
       final savedSpans = <ana.SavedWorkoutSpan>[
         for (final r in saved)
-          if (r['start_ts'] is int && r['end_ts'] is int)
-            ana.SavedWorkoutSpan(r['start_ts'] as int, r['end_ts'] as int),
+          if (r['start_ts'] is int)
+            ana.SavedWorkoutSpan(
+              r['start_ts'] as int,
+              r['end_ts'] is int ? r['end_ts'] as int : dataNowSec,
+            ),
       ];
       final rhr = rhrScalar?.round();
       // Auto-detection needs a real resting-HR baseline. Without one the detector

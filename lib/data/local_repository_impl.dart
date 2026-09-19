@@ -2599,13 +2599,17 @@ class LocalRepositoryImpl extends LocalRepository {
     // Everything ever logged — the overlap check has to see a session from any
     // date the athlete might be back-filling into, not just a recent window.
     final rows = await LocalDb.sessionsInRange(0, 1 << 40);
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     return [
       for (final r in rows)
-        if (r['id'] is String && r['start_ts'] is num && r['end_ts'] is num)
+        if (r['id'] is String && r['start_ts'] is num)
           SessionSpan(
             r['id'] as String,
             (r['start_ts'] as num).toInt(),
-            (r['end_ts'] as num).toInt(),
+            // A still-running session (status='live') has a null end_ts —
+            // treat it as open through "now" so it stays in the overlap
+            // check instead of vanishing from `existing` entirely.
+            r['end_ts'] is num ? (r['end_ts'] as num).toInt() : nowSec,
           ),
     ];
   }

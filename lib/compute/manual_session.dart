@@ -101,8 +101,10 @@ class SessionSpan {
 /// [editingId] is the row being retimed, if any — its own span is excluded
 /// from the overlap check so a session never collides with itself.
 ///
-/// A saved row with a null/absent `end_ts` (a stranded `status='live'` row)
-/// cannot be overlap-checked and is skipped rather than guessed at.
+/// A saved row with a null/absent `end_ts` (a still-running or stranded
+/// `status='live'` row) is passed in by the caller with its end synthesized
+/// as "now" so it still overlap-checks; a literal `endSec <= startSec` span
+/// is treated as unusable and skipped.
 ManualWindowError? validateManualWindow({
   required int startSec,
   required int endSec,
