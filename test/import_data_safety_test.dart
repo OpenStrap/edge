@@ -302,6 +302,34 @@ void main() {
     });
   });
 
+  group('CloudImporter._writeDay return value (dayCount accuracy)', () {
+    test('returns false and does not write when the band already measured '
+        'this date', () async {
+      const day = '2026-06-01';
+      await LocalDb.putDayResult(
+        dayId: day,
+        algoVersion: kAlgoVersion,
+        payloadJson: jsonEncode({'date': day, 'source': 'onehz', 'real': true}),
+        windowJson: '{}',
+        rhr: 50.0,
+        series: {'rhr': 50.0},
+      );
+      final wrote =
+          await CloudImporter.debugWriteDay(day, {'resting_hr': 99}, null);
+      expect(wrote, isFalse,
+          reason: 'a measured day must not be overwritten or counted');
+      expect(await _metric(day, 'rhr'), 50.0);
+    });
+
+    test('returns true when it actually writes an unmeasured date', () async {
+      const day = '2026-06-02';
+      final wrote =
+          await CloudImporter.debugWriteDay(day, {'resting_hr': 55}, null);
+      expect(wrote, isTrue);
+      expect(await _metric(day, 'rhr'), 55.0);
+    });
+  });
+
   group('raw-CSV importer row ordering (high-water date)', () {
     test('the first row starts the window', () {
       expect(NoopImporter.decideRow('2026-01-02', null, {}), RowOrder.advance);
