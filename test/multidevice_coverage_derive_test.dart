@@ -374,4 +374,86 @@ void main() {
     LocalDb.dbName = 'multidevice_coverage_derive_test.db';
     await LocalDb.instance;
   });
+
+  group('composeOneHzFrames — field-level splice for accel1Hz/ppgRedIr/'
+      'skinTempRaw (edge#441-class bug: those three rode on hr1Hz ownership '
+      'and a user\'s priority for them had no effect)', () {
+    Map<String, dynamic> row(String deviceId, int recTs, {
+      int? hr,
+      double? ax,
+      int? skinTempRaw,
+    }) =>
+        {
+          'rec_ts': recTs,
+          'device_id': deviceId,
+          if (hr != null) 'hr': hr,
+          if (ax != null) ...{'ax': ax, 'ay': 0.0, 'az': 1.0},
+          if (skinTempRaw != null) 'skin_temp_raw': skinTempRaw,
+        };
+
+    test('skinTempRaw priority is honored independently of the hr1Hz owner',
+        () {
+      // Ring owns hr1Hz for this second; primary owns skinTempRaw — the
+      // opposite order, exactly the multi-device pairing the bug describes.
+      final rows = [
+        row(_primary, 100, hr: 58, skinTempRaw: 500),
+        row(_ring, 100, hr: 100, skinTempRaw: 900),
+      ];
+      final ownership = <InputSignal, List<OwnedSpan>>{
+        InputSignal.hr1Hz: [(start: 0, end: 200, deviceId: _ring)],
+        InputSignal.skinTempRaw: [(start: 0, end: 200, deviceId: _primary)],
+      };
+      final frames = composeOneHzFrames(rows, ownership);
+      // Exactly one frame survives for the second — the hr1Hz owner's row —
+      // with skin_temp_raw re-attributed from the skinTempRaw owner.
+      expect(frames.length, 1);
+      expect(frames.single['device_id'], _ring);
+      expect(frames.single['hr'], 100, reason: 'hr always follows hr1Hz');
+      expect(frames.single['skin_temp_raw'], 500,
+          reason: 'skinTempRaw priority names the primary — before the fix '
+              'this read 900 (the hr1Hz owner\'s own value), because the '
+              'whole row was gated on hr1Hz alone');
+    });
+
+    test('accel1Hz splices independently of hr1Hz and skinTempRaw', () {
+      final rows = [
+        row(_primary, 100, hr: 58, ax: 0.1, skinTempRaw: 500),
+        row(_ring, 100, hr: 100, ax: 0.9, skinTempRaw: 900),
+      ];
+      final ownership = <InputSignal, List<OwnedSpan>>{
+        InputSignal.hr1Hz: [(start: 0, end: 200, deviceId: _ring)],
+        InputSignal.accel1Hz: [(start: 0, end: 200, deviceId: _primary)],
+        InputSignal.skinTempRaw: [(start: 0, end: 200, deviceId: _ring)],
+      };
+      final frames = composeOneHzFrames(rows, ownership);
+      expect(frames.single['ax'], 0.1, reason: 'accel1Hz names the primary');
+      expect(frames.single['skin_temp_raw'], 900,
+          reason: 'skinTempRaw names the ring, same as the hr1Hz owner here '
+              '— no splice needed, base value passes through');
+    });
+
+    test('a single contributing device never enters the splice path '
+        '(byte-identical to a plain single-device day)', () {
+      final rows = [row(_primary, 100, hr: 58, skinTempRaw: 500)];
+      final ownership = <InputSignal, List<OwnedSpan>>{
+        InputSignal.hr1Hz: [(start: 0, end: 200, deviceId: null)],
+      };
+      expect(composeOneHzFrames(rows, ownership), rows);
+    });
+
+    test('no ownership resolved for any spliced signal falls back to the '
+        'plain hr1Hz row filter unchanged', () {
+      final rows = [
+        row(_primary, 100, hr: 58, skinTempRaw: 500),
+        row(_ring, 100, hr: 100, skinTempRaw: 900),
+      ];
+      final ownership = <InputSignal, List<OwnedSpan>>{
+        InputSignal.hr1Hz: [(start: 0, end: 200, deviceId: _ring)],
+      };
+      final frames = composeOneHzFrames(rows, ownership);
+      expect(frames.length, 1);
+      expect(frames.single['device_id'], _ring);
+      expect(frames.single['skin_temp_raw'], 900);
+    });
+  });
 }

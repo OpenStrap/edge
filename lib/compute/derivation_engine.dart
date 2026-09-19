@@ -1700,7 +1700,19 @@ import 'substrate.dart';
 // both channels. kAnalyticsPin repinned to analytics PR #75's merged main
 // SHA. This changes the stored drivers list for real users, so it gets a
 // version bump despite being narrative-only, not a headline-score change.
-const int kAlgoVersion = 95;
+// 95 → 96 (`_resolveOwnership`/substrate splice, accel1Hz/ppgRedIr/
+// skinTempRaw priority): `signal_priority` and the device-priority screen are
+// generic over every InputSignal a paired device declares, but the substrate
+// loader admitted a whole `decoded_onehz` row (accel + ppg + skin-temp
+// bundled with hr in one row) purely on the hr1Hz ownership winner for that
+// second — a user's explicit accel1Hz/ppgRedIr/skinTempRaw priority order had
+// no effect at all. `_resolveOwnership` now resolves those three signals too,
+// and a contended second splices each field group in from its OWN owner's row
+// when that device has one, instead of following hr1Hz. No output change for
+// any single-device install or any pairing where those three signals are not
+// actually contended (`group.length < 2` short-circuits to the unchanged row).
+// kAnalyticsPin/kProtocolPin UNCHANGED: edge-only fix.
+const int kAlgoVersion = 96;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1955,6 +1967,99 @@ const int _headlineFreezeMarginSec = 60 * 60;
     return (day: today, value: liveReadiness); // first complete settle → pin
   }
   return null; // nothing to pin yet for today
+}
+
+/// Composes one substrate-loader page's `decoded_onehz` rows into the frames
+/// the derive worker actually decodes — SIGNAL-LEVEL ownership, not row-level.
+///
+/// `decoded_onehz`'s key is `(device_id, ts_ms)`, so a contended second can
+/// have one row per paired device, each carrying hr AND accel AND ppg AND
+/// skin-temp together. A row is admitted by its hr1Hz ownership (hr/rr live
+/// nowhere else), but accel1Hz/ppgRedIr/skinTempRaw ride along in that same
+/// row — and a user can rank a DIFFERENT device for those via
+/// `signal_priority` (the device-priority screen, `LocalDb.setSignalPriority`)
+/// without that ranking ever taking effect, because the whole row followed
+/// whichever device won hr1Hz. This splices each field group in from
+/// whichever row that signal's OWN ownership actually names, when that
+/// device has a row at this second — never fabricated, just re-attributed.
+///
+/// A single-device day, or a signal never actually contended for a given
+/// second, never enters the splice path (`group.length < 2` / same owner
+/// short-circuits to the row unchanged) — byte-identical to before this
+/// existed. `@visibleForTesting` so the splice logic is checkable directly,
+/// without staging a whole night through the derive/DB machinery.
+@visibleForTesting
+List<Map<String, dynamic>> composeOneHzFrames(
+  List<Map<String, dynamic>> decodedRows,
+  Map<InputSignal, List<OwnedSpan>> ownership,
+) {
+  final oneHzSpans = ownership[InputSignal.hr1Hz] ?? const <OwnedSpan>[];
+  final accelSpans = ownership[InputSignal.accel1Hz] ?? const <OwnedSpan>[];
+  final ppgSpans = ownership[InputSignal.ppgRedIr] ?? const <OwnedSpan>[];
+  final skinTempSpans = ownership[InputSignal.skinTempRaw] ?? const <OwnedSpan>[];
+  if (accelSpans.isEmpty && ppgSpans.isEmpty && skinTempSpans.isEmpty) {
+    // No secondary ownership resolved for any spliced signal (the single-
+    // device/import case oneHzSpans itself already covers) — skip the
+    // grouping allocation entirely and fall back to the plain row filter.
+    if (oneHzSpans.isEmpty) return decodedRows;
+    return [
+      for (final r in decodedRows)
+        if (_ownedBy(oneHzSpans, r)) r,
+    ];
+  }
+
+  final byRecTs = <int, List<Map<String, dynamic>>>{};
+  for (final r in decodedRows) {
+    final ts = (r['rec_ts'] as num?)?.toInt();
+    if (ts != null) byRecTs.putIfAbsent(ts, () => []).add(r);
+  }
+
+  Map<String, dynamic> splice(
+    Map<String, dynamic> base,
+    List<OwnedSpan> spans,
+    List<String> cols,
+  ) {
+    final group = byRecTs[(base['rec_ts'] as num).toInt()]!;
+    if (spans.isEmpty || group.length < 2) return base;
+    final baseDeviceId = base['device_id'] as String? ?? LocalDb.kPrimaryDeviceId;
+    final owner = spanAt(spans, (base['rec_ts'] as num).toInt())?.deviceId;
+    if (owner == null || owner == baseDeviceId) return base;
+    Map<String, dynamic>? ownerRow;
+    for (final r in group) {
+      if ((r['device_id'] as String? ?? LocalDb.kPrimaryDeviceId) == owner) {
+        ownerRow = r;
+        break;
+      }
+    }
+    if (ownerRow == null) return base;
+    Map<String, dynamic>? spliced;
+    for (final c in cols) {
+      final v = ownerRow[c];
+      if (v != null) (spliced ??= Map<String, dynamic>.from(base))[c] = v;
+    }
+    return spliced ?? base;
+  }
+
+  return [
+    for (final r in decodedRows)
+      if (_ownedBy(oneHzSpans, r))
+        splice(
+          splice(
+            splice(r, accelSpans, const ['ax', 'ay', 'az']),
+            ppgSpans,
+            const ['spo2_red_raw', 'spo2_ir_raw'],
+          ),
+          skinTempSpans,
+          const ['skin_temp_raw', 'skin_temp_c'],
+        ),
+  ];
+}
+
+bool _ownedBy(List<OwnedSpan> spans, Map<String, dynamic> r) {
+  if (spans.isEmpty) return true;
+  final owner = spanAt(spans, (r['rec_ts'] as num).toInt())?.deviceId;
+  if (owner == null) return true;
+  return owner == (r['device_id'] as String? ?? LocalDb.kPrimaryDeviceId);
 }
 
 /// Test seam: the rolling baseline window the readiness computation actually
@@ -2834,7 +2939,17 @@ class DerivationEngine {
     // `signal_priority` after the day computed (which could stamp an order
     // the user changed mid-derive, and cost a query per signal per day).
     final priority = <InputSignal, List<String>>{};
-    for (final sig in const [InputSignal.hr1Hz, InputSignal.rrIntervals]) {
+    for (final sig in const [
+      InputSignal.hr1Hz,
+      InputSignal.rrIntervals,
+      // These three ride bundled inside the same `decoded_onehz` row as hr —
+      // resolved here so a contended second can be spliced field-by-field
+      // (see `composeOneHzFrames`) instead of the whole row silently
+      // following whichever device won hr1Hz.
+      InputSignal.accel1Hz,
+      InputSignal.ppgRedIr,
+      InputSignal.skinTempRaw,
+    ]) {
       // BINDING: `signal_priority` ships EMPTY by design (M3 deliberately did
       // not seed a physics ladder). "No priority row" means "the primary
       // device owns this window", never "skip masking" and never "let every
@@ -3305,22 +3420,7 @@ class DerivationEngine {
     // M5: the resolved spans for this call's window, one list per anchor
     // signal. Read once, outside the loop — `ownership` never changes while
     // this range loads.
-    final oneHzSpans = ownership[InputSignal.hr1Hz] ?? const <OwnedSpan>[];
     final rrOwnedSpans = ownership[InputSignal.rrIntervals] ?? const <OwnedSpan>[];
-    // OWNER IDENTITY, NOT SPAN COUNT.
-    //
-    // The filter used to run only when a list held more than one span, on the
-    // reasoning that one span means one owner means nothing to arbitrate.
-    // `resolveOwnership` treats `priority` as the CANDIDATE list, and
-    // `signal_priority` ships empty, so a second device with real coverage is
-    // not a candidate: the resolver reports ONE span owned by the primary and
-    // that gate then waved the second device's rows straight into the
-    // substrate — the exact opposite of the binding `_prepareTargetDay`
-    // documents.
-    //
-    // A null owner is "no coverage claim for this second", never "excluded",
-    // so it is admitted. With no spans at all (the import path) every row is
-    // admitted, which keeps a day that resolved nothing byte-identical.
     bool owned(List<OwnedSpan> spans, Map<String, dynamic> r) {
       if (spans.isEmpty) return true;
       final owner = spanAt(spans, (r['rec_ts'] as num).toInt())?.deviceId;
@@ -3388,10 +3488,7 @@ class DerivationEngine {
                   toRecTs: lastRecTs,
                 );
           if (lastRecTs != null) rrFrom = lastRecTs + 1;
-          final frames = [
-            for (final r in decodedRows)
-              if (owned(oneHzSpans, r)) r,
-          ];
+          final frames = composeOneHzFrames(decodedRows, ownership);
           final rrRows = [
             for (final r in rawRrRows)
               if (owned(rrOwnedSpans, r)) r,
