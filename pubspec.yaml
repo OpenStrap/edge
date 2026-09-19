@@ -463,17 +463,20 @@ dependencies:
       #   `git show eed6dc9:lib/src/onehz/human/overreaching_conjunction.dart |
       #      grep dispersionBelowQuantum`
       #
-      # analytics PR #75 (branch fix/glassbox-swc-quantum @ 2a624b9):
-      # readiness_glassbox's SWC gate had the same gap #73 fixed on
-      # overreaching_conjunction -- glassBoxReadiness does the identical
-      # 0.5*scale standardization on the same rhr/temp channels edge wires in
-      # below (`_glassInput('rhr', ...)` / `_glassInput('temp', ...)`), never
-      # gated by dispersionBelowQuantum. Adds `GlassBoxInput.quantum`. PR open,
-      # not yet merged to main -- pinned to its branch head SHA directly
-      # (fixed commit, not a floating ref) since edge's `_glassInput` calls
-      # below need the new field to pass `quantum: 1`. Re-pin to main once #75
-      # merges. Narrative-only change, no kAlgoVersion bump needed.
-      ref: 2a624b97303f38877841df9068c72a52b67e5dc9
+      # analytics PR #75 (MERGED to main @ 01e8b6e): readiness_glassbox's SWC
+      # gate had the same gap #73 fixed on overreaching_conjunction --
+      # glassBoxReadiness does the identical 0.5*scale standardization on the
+      # same rhr/temp channels edge wires in below (`_glassInput('rhr', ...)`
+      # / `_glassInput('temp', ...)`), never gated by dispersionBelowQuantum.
+      # Adds `GlassBoxInput.quantum`. Re-pinned from #75's branch head to main
+      # now that it's merged. Verified:
+      #   `git show 01e8b6e:lib/src/onehz/human/readiness_glassbox.dart |
+      #      grep dispersionBelowQuantum`
+      # Changes the stored "readiness_glassbox" drivers list for real users
+      # (see derivation_engine.dart's 94 -> 95 changelog entry), so this got
+      # a kAlgoVersion bump despite being narrative-only, not a headline-score
+      # change.
+      ref: 01e8b6e02b2370ae42490a678e6a0a4e3569104c
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

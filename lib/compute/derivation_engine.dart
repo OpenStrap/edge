@@ -1690,7 +1690,17 @@ import 'substrate.dart';
 // illness_cusum/readiness_composite/event_detection. Without it, a 1bpm rise
 // could clear the gate and fire the "both facts point the same way" card on
 // nothing. kAnalyticsPin repinned to analytics PR #73's merged main SHA.
-const int kAlgoVersion = 94;
+//
+// 94 → 95 (`glassBoxReadiness` rhr/temp quantum guard, analytics PR #75):
+// same gap as #73, but on the stored "readiness_glassbox" narrative/drivers
+// key crossday_pipeline still writes — glassBoxReadiness never gated its
+// 0.5*scale rhr/temp standardization with dispersionBelowQuantum, so a
+// quantized baseline (e.g. alternating 58/59 bpm) could get named a driver
+// off rounding noise. edge's `_glassInput` calls now pass `quantum: 1` on
+// both channels. kAnalyticsPin repinned to analytics PR #75's merged main
+// SHA. This changes the stored drivers list for real users, so it gets a
+// version bump despite being narrative-only, not a headline-score change.
+const int kAlgoVersion = 95;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1859,7 +1869,7 @@ const int kAlgoVersion = 94;
 // picking one single-device SHA over the other. Verified: `1cf8e61` (this
 // branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
 // commit is already folded in, nothing is lost by moving to the tip.
-const String kAnalyticsPin = 'eed6dc92375ce1336fc4e31d13a0718f45e163cf';
+const String kAnalyticsPin = '01e8b6e02b2370ae42490a678e6a0a4e3569104c';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both
