@@ -624,17 +624,35 @@ List<String> declaringDeviceIds(List<HealthSource> sources, InputSignal sig) => 
 /// the resolver passes over it too (it has no coverage to own). [fallback]
 /// answers a signal with no usable row — the ladder's choice, which the
 /// caller already has in hand.
-Map<InputSignal, String?> signalWinners(
+///
+/// A device with real `device_coverage` rows for [sig] but no stored priority
+/// row (paired after the user last customized ranking for this signal) is
+/// unioned in below the stored order, sorted — the same fix
+/// `_resolveOwnership` got in derivation_engine.dart (kAlgoVersion 91):
+/// otherwise this caption disagrees with the engine's actual answer for the
+/// exact population that bump was written for. Coverage is read over all
+/// time, since this is a device-picture caption, not a windowed compute.
+Future<Map<InputSignal, String?>> signalWinners(
   List<HealthSource> sources, {
   required Set<InputSignal> requires,
   required Map<String, List<String>> stored,
   String? fallback,
-}) {
+}) async {
   final out = <InputSignal, String?>{};
+  final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
   for (final sig in requires) {
     final declaring = declaringDeviceIds(sources, sig);
+    final rawPriority = stored[sig.name] ?? const <String>[];
+    final coverage = await LocalDb.coverageIntervals(sig, 0, now);
+    final order = [
+      ...rawPriority,
+      ...{for (final iv in coverage) iv.deviceId}
+          .difference(rawPriority.toSet())
+          .toList()
+        ..sort(),
+    ];
     String? winner;
-    for (final id in stored[sig.name] ?? const <String>[]) {
+    for (final id in order) {
       if (declaring.contains(id)) {
         winner = id;
         break;

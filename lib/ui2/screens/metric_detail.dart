@@ -795,7 +795,7 @@ class _MetricDetailState extends State<MetricDetail> {
         // One query for every signal, not one per signal — `_prefer` writes
         // all of `spec.requires`, so this reads all of them back.
         final stored = await LocalDb.signalPriorities();
-        winners = signalWinners(
+        winners = await signalWinners(
           sources,
           requires: spec.requires,
           stored: stored,
