@@ -120,10 +120,24 @@ void main() {
       'recursive CTE, mixed case':
           'With Recursive x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x) '
           'SELECT * FROM x',
-      'recursive keyword after a comma in a multi-CTE list':
-          'WITH a AS (SELECT 1 x), RECURSIVE b(n) AS (SELECT 1 UNION ALL '
+      // SQLite only accepts RECURSIVE once, right after WITH, but it applies
+      // to every CTE in the list — this confirms the ban isn't fooled by a
+      // non-recursive CTE sharing the statement with a recursive one.
+      'recursive statement with a non-recursive sibling CTE':
+          'WITH RECURSIVE a AS (SELECT 1 x), b(n) AS (SELECT 1 UNION ALL '
           'SELECT n+1 FROM b) SELECT * FROM a, b',
     };
+
+    test('DELIBERATE TRADE-OFF: "recursive" is unusable as a CTE/alias name', () {
+      // The RECURSIVE ban is a blanket token match, not position-sensitive —
+      // it also rejects the (legal, non-recursive) use of "recursive" as an
+      // identifier. Documented here so this isn't mistaken for a bug later:
+      // the coach only ever needs the 7 allowed views, never this name.
+      expect(
+          () => CoachDb.guardAndPrepare(
+              'WITH recursive AS (SELECT 1 x) SELECT * FROM recursive'),
+          throwsA(isA<SqlGuardError>()));
+    });
 
     attempts.forEach((label, sql) {
       test('rejects: $label', () {

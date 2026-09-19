@@ -488,16 +488,23 @@ class CoachDb {
       await _assertAllowedBtrees(db, sql);
       // ponytail: sqflite exposes no sqlite3_progress_handler, so a slow
       // query (e.g. a giant cross-join of allowed views) can't be cancelled
-      // in-flight — the abandoned native call keeps burning CPU until SQLite
-      // itself finishes. This backstop bounds the WAIT, not the execution:
-      // it drops the cached handle so the app/coach isn't permanently wedged
-      // behind it. Upgrade path: a platform channel calling
-      // sqlite3_progress_handler on the underlying connection.
+      // in-flight — the abandoned native call keeps burning CPU on sqflite's
+      // worker until SQLite itself finishes, and repeated slow queries could
+      // still saturate that worker. This backstop bounds the WAIT, not the
+      // execution: it drops the cached handle so the app/coach isn't
+      // permanently wedged behind one bad query. Upgrade path: a platform
+      // channel calling sqlite3_progress_handler on the underlying
+      // connection (or the `sqlite3` FFI package) for a real hard cancel.
       List<Map<String, Object?>> rows;
       try {
         rows = await db.rawQuery(sql).timeout(const Duration(seconds: 10));
       } on TimeoutException {
-        await close(); // drop the wedged handle; next query opens a fresh one
+        try {
+          await close(); // drop the wedged handle; next query opens a fresh one
+        } catch (_) {
+          // teardown failing must not stop the timeout error below from
+          // reaching the model.
+        }
         return jsonEncode({'error': 'Query took too long and was abandoned. '
             'Add a tighter WHERE, aggregate instead of selecting all rows, '
             'or simplify the query.'});
