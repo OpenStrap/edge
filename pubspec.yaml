@@ -444,7 +444,17 @@ dependencies:
       # byte-identical. Verified:
       #   `git show 1bf9b62:lib/src/onehz/clinical/stress_si.dart |
       #      grep -n 'nnTimesMs\|maxGapSec'`
-      ref: 1bf9b6233b364bb4cc307e298abda0c97d25aeef
+      #
+      # analytics PR #73 (fix/overreaching-rhr-quantum-guard @ 1acdd4b, not yet
+      # merged): overreachingConjunction() never called dispersionBelowQuantum
+      # on rhrBaselineWindow, unlike illness_cusum/readiness_composite/
+      # event_detection on this same rhr channel. An alternating whole-bpm
+      # baseline (58/59) has a small nonzero MAD that isn't real dispersion,
+      # so a 1bpm rise could clear the gate and fire the conjunction card on
+      # rounding noise. Re-pin to main once #73 merges. Verified:
+      #   `git show 1acdd4b:lib/src/onehz/human/overreaching_conjunction.dart |
+      #      grep dispersionBelowQuantum`
+      ref: 1acdd4beee989ed4a4051b97b2d496ad74e74dd7
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

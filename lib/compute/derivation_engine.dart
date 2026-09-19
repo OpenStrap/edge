@@ -1672,7 +1672,16 @@ import 'substrate.dart';
 // output change for any user who customized priority for a signal and then
 // paired another device that also declares it. kAnalyticsPin/kProtocolPin
 // UNCHANGED: edge-only fix.
-const int kAlgoVersion = 92;
+//
+// 92 → 93 (`overreachingConjunction` rhr quantum guard, analytics PR #73):
+// an alternating whole-bpm rhr baseline (58/59) has a small nonzero MAD that
+// is unresolvable rounding noise, not real dispersion — the guard
+// `dispersionBelowQuantum` already applies on this same rhr channel in
+// illness_cusum/readiness_composite/event_detection. Without it, a 1bpm rise
+// could clear the gate and fire the "both facts point the same way" card on
+// nothing. kAnalyticsPin repinned to analytics PR #73 (1acdd4b) — re-pin to
+// main once it merges.
+const int kAlgoVersion = 93;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1841,7 +1850,7 @@ const int kAlgoVersion = 92;
 // picking one single-device SHA over the other. Verified: `1cf8e61` (this
 // branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
 // commit is already folded in, nothing is lost by moving to the tip.
-const String kAnalyticsPin = '1bf9b6233b364bb4cc307e298abda0c97d25aeef';
+const String kAnalyticsPin = '1acdd4beee989ed4a4051b97b2d496ad74e74dd7';
 // Repinned to analytics PR #70's merged main SHA (was the pre-squash branch
 // commit 47847fa, orphaned once the PR squash-merged) — same content, see
 // pubspec.yaml's comment for the verification command.
