@@ -1672,7 +1672,17 @@ import 'substrate.dart';
 // output change for any user who customized priority for a signal and then
 // paired another device that also declares it. kAnalyticsPin/kProtocolPin
 // UNCHANGED: edge-only fix.
-const int kAlgoVersion = 92;
+//
+// 92 → 93 (HRV frequency-domain Welch gap guard, analytics PR #72): the
+// Welch segmenter in hrv_freq.dart only rejected a segment by beat count,
+// never by time-completeness, so a mid-window gap (BLE reconnect, off-wrist
+// moment) could still publish a bogus LF/HF/VLF/ULF/lf_hf/nu_lf/nu_hf/total
+// reading at Tier.high. Now gated on both an endpoint-span check and a
+// largest-single-gap check. Real output change for any night with an
+// internal HRV-frequency-window gap. kAnalyticsPin bumped alongside this.
+// Verified: `git show 82857106e41c346b4edf9ad617829a5ddd1cc5c1:lib/src/onehz/clinical/hrv_freq.dart |
+//   grep -n 'segSec \* 0.8\|segSec \* 0.2'`
+const int kAlgoVersion = 93;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1841,8 +1851,10 @@ const int kAlgoVersion = 92;
 // picking one single-device SHA over the other. Verified: `1cf8e61` (this
 // branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
 // commit is already folded in, nothing is lost by moving to the tip.
-const String kAnalyticsPin = '1bf9b6233b364bb4cc307e298abda0c97d25aeef';
-// Repinned to analytics PR #70's merged main SHA (was the pre-squash branch
+const String kAnalyticsPin = '82857106e41c346b4edf9ad617829a5ddd1cc5c1';
+// Repinned to analytics PR #72's merged main SHA (hrv_freq Welch gap guard,
+// kAlgoVersion 92->93 above).
+// Previously repinned to analytics PR #70's merged main SHA (was the pre-squash branch
 // commit 47847fa, orphaned once the PR squash-merged) — same content, see
 // pubspec.yaml's comment for the verification command.
 // REPIN (this branch, superseded by the merge): polar pmd's own protocol
