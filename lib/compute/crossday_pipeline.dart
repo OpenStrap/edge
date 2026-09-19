@@ -182,7 +182,8 @@ Map<String, dynamic> buildCrossDayBundle(
   final gbInputs = <ana.GlassBoxInput>[];
   final gbRmssd = _glassInput('hrv', rmssdList, ana.wHrv, lowerIsBetter: false);
   if (gbRmssd != null) gbInputs.add(gbRmssd);
-  final gbRhr = _glassInput('rhr', rhrList, ana.wRhr, lowerIsBetter: true);
+  final gbRhr =
+      _glassInput('rhr', rhrList, ana.wRhr, lowerIsBetter: true, quantum: 1);
   if (gbRhr != null) gbInputs.add(gbRhr);
   final gbResp = _glassInput('resp', respList, ana.wResp, lowerIsBetter: true);
   if (gbResp != null) gbInputs.add(gbResp);
@@ -192,6 +193,7 @@ Map<String, dynamic> buildCrossDayBundle(
     _absList(tempList),
     ana.wTemp,
     lowerIsBetter: true,
+    quantum: 1,
   );
   if (gbTemp != null) gbInputs.add(gbTemp);
   // NOT the headline score — `readinessComposite` is, and it is computed
@@ -795,6 +797,7 @@ ana.GlassBoxInput? _glassInput(
   List<double?> series,
   double weight, {
   required bool lowerIsBetter,
+  double quantum = 0,
 }) {
   if (series.isEmpty || series.last == null) return null;
   final history = <double>[
@@ -807,6 +810,7 @@ ana.GlassBoxInput? _glassInput(
     history: history,
     weight: weight,
     lowerIsBetter: lowerIsBetter,
+    quantum: quantum,
   );
 }
 
