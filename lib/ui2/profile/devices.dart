@@ -618,6 +618,11 @@ List<String> declaringDeviceIds(List<HealthSource> sources, InputSignal sig) => 
 /// agreement that may not exist — see [unanimousWinner], which is the test
 /// for whether it does.
 ///
+/// [signalWinners]' coverage lookback — long enough to catch a device paired
+/// months ago and left unranked, short enough that the query it drives stays
+/// bounded regardless of how old the install is.
+const kSignalWinnersLookbackDays = 400;
+
 /// A stored id is skipped unless the device still DECLARES that signal, the
 /// same filter [SignalPriorityScreen] applies when it renders an order: a row
 /// left behind by a forgotten device has no adapter to serve the window, and
@@ -630,8 +635,12 @@ List<String> declaringDeviceIds(List<HealthSource> sources, InputSignal sig) => 
 /// unioned in below the stored order, sorted — the same fix
 /// `_resolveOwnership` got in derivation_engine.dart (kAlgoVersion 91):
 /// otherwise this caption disagrees with the engine's actual answer for the
-/// exact population that bump was written for. Coverage is read over all
-/// time, since this is a device-picture caption, not a windowed compute.
+/// exact population that bump was written for. Coverage is read over the
+/// last [kSignalWinnersLookbackDays] days, not all of history — a `from: 0`
+/// scan over `device_coverage` (never pruned) grows unbounded with an
+/// install's age, and this runs on the UI isolate on every metric-detail
+/// load; a device that stopped covering this signal a year ago is also a
+/// worse answer for "who is CURRENTLY feeding this metric" than "absent".
 Future<Map<InputSignal, String?>> signalWinners(
   List<HealthSource> sources, {
   required Set<InputSignal> requires,
@@ -640,17 +649,24 @@ Future<Map<InputSignal, String?>> signalWinners(
 }) async {
   final out = <InputSignal, String?>{};
   final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+  final from = now - kSignalWinnersLookbackDays * 86400;
   for (final sig in requires) {
     final declaring = declaringDeviceIds(sources, sig);
     final rawPriority = stored[sig.name] ?? const <String>[];
-    final coverage = await LocalDb.coverageIntervals(sig, 0, now);
-    final order = [
-      ...rawPriority,
-      ...{for (final iv in coverage) iv.deviceId}
-          .difference(rawPriority.toSet())
-          .toList()
-        ..sort(),
-    ];
+    // Mirrors `_resolveOwnership`'s empty-priority rule: no stored row means
+    // the primary device owns this window, never "let every covering device
+    // in unranked" — a customized-but-narrower order still gets the coverage
+    // union below, only a NEVER-customized one gets this fixed default.
+    final order = rawPriority.isEmpty
+        ? const [LocalDb.kPrimaryDeviceId]
+        : [
+            ...rawPriority,
+            ...{
+              for (final iv in await LocalDb.coverageIntervals(sig, from, now))
+                iv.deviceId,
+            }.difference(rawPriority.toSet()).toList()
+              ..sort(),
+          ];
     String? winner;
     for (final id in order) {
       if (declaring.contains(id)) {

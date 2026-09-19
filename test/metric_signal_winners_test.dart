@@ -153,7 +153,8 @@ void main() {
       deviceId: 'gen5-abcd',
       family: 'gen5',
     );
-    await _insertCoverage('gen5-abcd', InputSignal.hr1Hz.name, 100, 200);
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await _insertCoverage('gen5-abcd', InputSignal.hr1Hz.name, now - 200, now - 100);
 
     final winners = await signalWinners(
       const [_band, secondBand],
@@ -164,5 +165,34 @@ void main() {
       fallback: LocalDb.kPrimaryDeviceId,
     );
     expect(winners[InputSignal.hr1Hz], 'gen5-abcd');
+  });
+
+  test(
+      'a signal never customized stays primary-only, even with a covering '
+      'secondary device', () async {
+    // `_resolveOwnership`'s empty-priority rule: no stored row at all means
+    // the primary device owns the window, never "let every covering device
+    // in unranked" — that fallback default is a DELIBERATE narrower answer
+    // than the coverage union above, which only applies once the user has
+    // customized this signal's order at all.
+    const secondBand = HealthSource(
+      name: 'WHOOP 5',
+      kind: 'Band',
+      tier: SourceTier.wristOptical,
+      icon: Icons.watch,
+      isBand: false,
+      deviceId: 'gen5-abcd',
+      family: 'gen5',
+    );
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await _insertCoverage('gen5-abcd', InputSignal.hr1Hz.name, now - 200, now - 100);
+
+    final winners = await signalWinners(
+      const [_band, secondBand],
+      requires: const {InputSignal.hr1Hz},
+      stored: const {}, // hr1Hz never customized
+      fallback: LocalDb.kPrimaryDeviceId,
+    );
+    expect(winners[InputSignal.hr1Hz], LocalDb.kPrimaryDeviceId);
   });
 }
