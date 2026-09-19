@@ -43,6 +43,22 @@ void main() {
       expect(CoachActions.day('2026-08-14'), '2026-08-14');
     });
 
+    test('a calendar-invalid date is rejected, not silently normalized', () {
+      // DateTime(2026, 2, 30) silently rolls forward to 2026-03-02 instead of
+      // throwing — day() must catch that before it desyncs from epochOf().
+      expect(
+        () => CoachActions.day('2026-02-30'),
+        throwsA(isA<CoachActionError>()),
+      );
+      expect(
+        () => CoachActions.day('2026-13-01'),
+        throwsA(isA<CoachActionError>()),
+      );
+      // Valid dates, including a leap day, still pass through unchanged.
+      expect(CoachActions.day('2026-02-28'), '2026-02-28');
+      expect(CoachActions.day('2024-02-29'), '2024-02-29');
+    });
+
     test('an empty date means today, in LOCAL time', () {
       final now = DateTime(2026, 8, 14, 23, 30);
       expect(CoachActions.day(null, now: now), '2026-08-14');

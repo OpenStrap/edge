@@ -57,15 +57,26 @@ class CoachActions {
 
   /// A local day label, defaulting to today. Rejects anything that is not
   /// `YYYY-MM-DD` — a relative word ("yesterday") stored verbatim would key a
-  /// row nothing can ever read back.
+  /// row nothing can ever read back. Also rejects a calendar-invalid date
+  /// (e.g. "2026-02-30"): `DateTime` silently normalizes out-of-range
+  /// components instead of throwing, so `epochOf` would land on a different
+  /// real day than the string stored here.
   static String day(Object? v, {DateTime? now}) {
     final s = str(v);
     if (s.isEmpty) return todayLabel(now ?? DateTime.now());
-    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(s)) {
+    final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(s);
+    if (m == null) {
       throw CoachActionError(
         'Date "$s" is not a day. Use YYYY-MM-DD (today is '
         '${todayLabel(now ?? DateTime.now())}).',
       );
+    }
+    final y = int.parse(m.group(1)!);
+    final mo = int.parse(m.group(2)!);
+    final da = int.parse(m.group(3)!);
+    final d = DateTime(y, mo, da);
+    if (d.year != y || d.month != mo || d.day != da) {
+      throw CoachActionError('Date "$s" is not a real calendar day.');
     }
     return s;
   }
