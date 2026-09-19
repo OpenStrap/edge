@@ -647,9 +647,29 @@ Future<Map<InputSignal, String?>> signalWinners(
   required Map<String, List<String>> stored,
   String? fallback,
 }) async {
+  final now = DateTime.now();
+  // `Duration(days:)`, not `* 86400` — a day is not always 86400s across a
+  // DST transition, and AGENTS.md §3.7 bans that literal for day-length math.
+  final from = now.subtract(const Duration(days: kSignalWinnersLookbackDays));
+  final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+  final fromSec = from.millisecondsSinceEpoch ~/ 1000;
+  // Only a signal with a customized (non-empty) stored order needs real
+  // coverage — an empty one resolves to the primary device with no query at
+  // all. Fetched together, not one per signal inside the loop below: a
+  // four-signal metric like readiness would otherwise fire four sequential
+  // DB round trips on the UI isolate on every metric-detail load.
+  final needsCoverage = [
+    for (final sig in requires)
+      if ((stored[sig.name] ?? const <String>[]).isNotEmpty) sig,
+  ];
+  final coverageBySig = Map.fromIterables(
+    needsCoverage,
+    await Future.wait([
+      for (final sig in needsCoverage) LocalDb.coverageIntervals(sig, fromSec, nowSec),
+    ]),
+  );
+
   final out = <InputSignal, String?>{};
-  final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-  final from = now - kSignalWinnersLookbackDays * 86400;
   for (final sig in requires) {
     final declaring = declaringDeviceIds(sources, sig);
     final rawPriority = stored[sig.name] ?? const <String>[];
@@ -661,10 +681,9 @@ Future<Map<InputSignal, String?>> signalWinners(
         ? const [LocalDb.kPrimaryDeviceId]
         : [
             ...rawPriority,
-            ...{
-              for (final iv in await LocalDb.coverageIntervals(sig, from, now))
-                iv.deviceId,
-            }.difference(rawPriority.toSet()).toList()
+            ...{for (final iv in coverageBySig[sig] ?? const []) iv.deviceId}
+                .difference(rawPriority.toSet())
+                .toList()
               ..sort(),
           ];
     String? winner;

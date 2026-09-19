@@ -795,12 +795,18 @@ class _MetricDetailState extends State<MetricDetail> {
         // One query for every signal, not one per signal — `_prefer` writes
         // all of `spec.requires`, so this reads all of them back.
         final stored = await LocalDb.signalPriorities();
-        winners = await signalWinners(
+        final resolved = await signalWinners(
           sources,
           requires: spec.requires,
           stored: stored,
           fallback: d.sources.firstWhereOrNull((o) => o.selectable)?.deviceId,
         );
+        // `signalWinners` now awaits its own DB queries, a second gap after
+        // the one above — nothing reads `context` past this point, but the
+        // guard is unconditional for every await here, not just the ones
+        // that happen to touch it.
+        if (!mounted) return;
+        winners = resolved;
       }
       if (mounted) {
         setState(() => (_d = d, _winners = winners, _loading = false));
