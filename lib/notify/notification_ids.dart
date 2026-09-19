@@ -140,8 +140,14 @@ class NotificationIds {
       _slots[slotKey] = slot;
       if (p != null) {
         try {
+          final isFresh = p.getInt(slotKey) == null;
           await p.setInt(slotKey, slot);
           await p.setInt(nextKey, (slot + 1) % bandSize);
+          // Same "prune only after a fresh allocation" rule as the fallback
+          // path below — keeps this cheap and rare rather than a per-call
+          // sweep, while still actually running on the healthy-DB path (the
+          // common case) instead of only the DB-failure path.
+          if (isFresh) await _prune(p, keep: slotKey);
         } catch (_) {/* mirror is best-effort; the DB is the source of truth */}
       }
       return slot;

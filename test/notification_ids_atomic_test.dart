@@ -107,6 +107,49 @@ void main() {
     expect(again, equals(first));
   });
 
+  test(
+      'a stale dated allocation is pruned from the prefs mirror on the '
+      'DB-success path, not only the DB-failure fallback', () async {
+    final cat = NotifCategory.health.name;
+    final oldDay = dayLabelOf(
+        DateTime.now().subtract(Duration(days: NotificationIds.retentionDays + 5)));
+    final staleKey = 'notif_osid:$cat:$oldDay:old';
+
+    // Seed a stale dated allocation directly into the prefs mirror, as if it
+    // had been written by a real allocation long ago.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(staleKey, 42);
+
+    // A brand-new allocation via the healthy DB path (never touches the
+    // catch(err) fallback) should still sweep the stale entry.
+    await NotificationIds.instance.idFor(_ev('$kToday:fresh'));
+
+    expect(prefs.getInt(staleKey), isNull,
+        reason: '_prune must run on the DB-success path too, not only when '
+            'LocalDb.claimNotifSlot throws');
+  });
+
+  test('re-allocating an already-mirrored, unchanged dedupeKey does not '
+      're-trigger a prune sweep', () async {
+    final cat = NotifCategory.health.name;
+    final oldDay = dayLabelOf(
+        DateTime.now().subtract(Duration(days: NotificationIds.retentionDays + 5)));
+    final staleKey = 'notif_osid:$cat:$oldDay:old2';
+
+    await NotificationIds.instance.idFor(_ev('$kToday:repeat'));
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(staleKey, 7);
+
+    // Repeat call for the SAME dedupeKey: slotKey is already mirrored, so
+    // isFresh is false and no prune should run.
+    await NotificationIds.instance.idFor(_ev('$kToday:repeat'));
+
+    expect(prefs.getInt(staleKey), equals(7),
+        reason: 'an unchanged dedupeKey must not turn every claim into a '
+            'per-call sweep');
+  });
+
   test('a diverged SharedPreferences mirror never wins over the DB', () async {
     final real = await NotificationIds.instance.idFor(_ev('$kToday:drift'));
     NotificationIds.instance.resetForTest();
