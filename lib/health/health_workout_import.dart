@@ -308,7 +308,7 @@ class HealthWorkoutImporter {
     await LocalDb.putImportedWorkouts([for (final r in alive) r.toRow()]);
     final withRoutes = await _importRoutes(start, end, skip: tombstones);
     return WorkoutImportResult(
-      workouts: rows.length,
+      workouts: alive.length,
       withRoutes: withRoutes,
       routesSupported: routesSupported,
     );
