@@ -113,6 +113,16 @@ void main() {
       'PRAGMA': 'PRAGMA table_info(sessions)',
       'ATTACH': 'ATTACH DATABASE x AS y',
       'EXPLAIN prefix': 'EXPLAIN SELECT * FROM v_metric',
+      // ── recursive CTE DoS: an ephemeral working table layer 2 can't see ──
+      'recursive CTE touching zero real tables':
+          'WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x) '
+          'SELECT count(*) FROM x',
+      'recursive CTE, mixed case':
+          'With Recursive x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x) '
+          'SELECT * FROM x',
+      'recursive keyword after a comma in a multi-CTE list':
+          'WITH a AS (SELECT 1 x), RECURSIVE b(n) AS (SELECT 1 UNION ALL '
+          'SELECT n+1 FROM b) SELECT * FROM a, b',
     };
 
     attempts.forEach((label, sql) {
