@@ -1666,88 +1666,93 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             '${now.month.toString().padLeft(2, '0')}-'
             '${now.day.toString().padLeft(2, '0')}');
 
-    final ok = await showDialog<bool>(
-      context: c,
-      builder: (dc) => StatefulBuilder(
-        builder: (dc, setLocal) => AlertDialog(
-          title: Text(loc?.healthAddAResult ?? 'Add a result'),
-          content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              // Unlabelled it announces only its current value — a marker
-              // name, with no statement of what the field is.
-              Semantics(
-                label: loc?.healthMarkerLabel ?? 'Marker',
-                child: DropdownButton<LabMarker>(
-                  isExpanded: true,
-                  value: marker,
-                  items: [
-                    for (final m in l.markers)
-                      DropdownMenuItem(value: m, child: Text(m.label)),
-                  ],
-                  onChanged: (m) => setLocal(() => marker = m ?? marker),
-                ),
-              ),
-              TextField(
-                controller: value,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: InputDecoration(
-                    labelText:
-                        loc?.healthValueUnit(marker.unit) ?? 'Value (${marker.unit})'),
-              ),
-              TextField(
-                controller: takenOn,
-                decoration: InputDecoration(
-                    labelText: loc?.healthDateDrawn ?? 'Date drawn (YYYY-MM-DD)'),
-              ),
-            ]),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.of(dc).pop(false),
-                child: Text(loc?.actionCancel ?? 'Cancel')),
-            TextButton(
-                onPressed: () => Navigator.of(dc).pop(true),
-                child: Text(loc?.actionSave ?? 'Save')),
-          ],
-        ),
-      ),
-    );
-
-    if (ok != true || !mounted) return;
-    // Blood work typed by hand is exactly the input nobody notices is missing,
-    // so nothing here fails quietly: the dialog used to close on Save and the
-    // result was dropped whenever the value carried its unit ("78 ng/mL") or
-    // the date was written the other way round.
-    final v = Typed.of(value.text);
-    final date = takenOn.text.trim();
-    if (v.value == null || DateTime.tryParse(date) == null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(v.value == null
-            ? (loc?.healthValueMustBeNumber ??
-                'The value needs to be a number on its own, without the unit. '
-                    'Nothing was saved.')
-            : (loc?.healthDateFormatError ??
-                'The date needs to be YYYY-MM-DD. Nothing was saved.')),
-      ));
-      return;
-    }
     try {
-      await LocalDb.putLabResult(
-        marker: marker.key,
-        takenOn: date,
-        value: v.value!,
-        unit: marker.unit,
+      final ok = await showDialog<bool>(
+        context: c,
+        builder: (dc) => StatefulBuilder(
+          builder: (dc, setLocal) => AlertDialog(
+            title: Text(loc?.healthAddAResult ?? 'Add a result'),
+            content: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                // Unlabelled it announces only its current value — a marker
+                // name, with no statement of what the field is.
+                Semantics(
+                  label: loc?.healthMarkerLabel ?? 'Marker',
+                  child: DropdownButton<LabMarker>(
+                    isExpanded: true,
+                    value: marker,
+                    items: [
+                      for (final m in l.markers)
+                        DropdownMenuItem(value: m, child: Text(m.label)),
+                    ],
+                    onChanged: (m) => setLocal(() => marker = m ?? marker),
+                  ),
+                ),
+                TextField(
+                  controller: value,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                      labelText: loc?.healthValueUnit(marker.unit) ??
+                          'Value (${marker.unit})'),
+                ),
+                TextField(
+                  controller: takenOn,
+                  decoration: InputDecoration(
+                      labelText: loc?.healthDateDrawn ?? 'Date drawn (YYYY-MM-DD)'),
+                ),
+              ]),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.of(dc).pop(false),
+                  child: Text(loc?.actionCancel ?? 'Cancel')),
+              TextButton(
+                  onPressed: () => Navigator.of(dc).pop(true),
+                  child: Text(loc?.actionSave ?? 'Save')),
+            ],
+          ),
+        ),
       );
-    } catch (e) {
-      if (mounted) {
+
+      if (ok != true || !mounted) return;
+      // Blood work typed by hand is exactly the input nobody notices is missing,
+      // so nothing here fails quietly: the dialog used to close on Save and the
+      // result was dropped whenever the value carried its unit ("78 ng/mL") or
+      // the date was written the other way round.
+      final v = Typed.of(value.text);
+      final date = takenOn.text.trim();
+      if (v.value == null || DateTime.tryParse(date) == null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                loc?.healthCouldNotSaveIt(e.toString()) ?? 'Could not save it: $e')));
+          content: Text(v.value == null
+              ? (loc?.healthValueMustBeNumber ??
+                  'The value needs to be a number on its own, without the unit. '
+                      'Nothing was saved.')
+              : (loc?.healthDateFormatError ??
+                  'The date needs to be YYYY-MM-DD. Nothing was saved.')),
+        ));
+        return;
       }
-      return;
+      try {
+        await LocalDb.putLabResult(
+          marker: marker.key,
+          takenOn: date,
+          value: v.value!,
+          unit: marker.unit,
+        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(loc?.healthCouldNotSaveIt(e.toString()) ??
+                  'Could not save it: $e')));
+        }
+        return;
+      }
+      _l = null;
+      await _loadLabs();
+    } finally {
+      value.dispose();
+      takenOn.dispose();
     }
-    _l = null;
-    await _loadLabs();
   }
 }
