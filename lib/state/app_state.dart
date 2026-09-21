@@ -5346,7 +5346,37 @@ class AppState extends ChangeNotifier {
   /// wakes a suspended process. Called on connect, after the backlog drains,
   /// on every background (re)connect, from the 25-min background tick (lease
   /// renewal), on backgrounding and on foreground reclaim.
-  Future<void> _refreshHighFreqWakeWindow() async {
+  ///
+  /// SERIALIZED and COALESCING, same shape as the engine's live reconciler:
+  /// a call that lands while a pass is running marks it stale and shares its
+  /// future; the pass loops until a run sees no newer request. Without this,
+  /// a background pass whose ENTER write was still in flight when the user
+  /// foregrounded could outlive the foreground pass's EXIT (which, seeing
+  /// nothing requested yet, would not even be written), leaving the band
+  /// prompting in the foreground with the engine believing it asked for it.
+  Future<void> _refreshHighFreqWakeWindow() {
+    final running = _bandPromptRun;
+    if (running != null) {
+      _bandPromptRestale = true;
+      return running;
+    }
+    final run = _bandPromptRun = () async {
+      try {
+        do {
+          _bandPromptRestale = false;
+          await _refreshHighFreqWakeWindowOnce();
+        } while (_bandPromptRestale);
+      } finally {
+        _bandPromptRun = null;
+      }
+    }();
+    return run;
+  }
+
+  Future<void>? _bandPromptRun;
+  bool _bandPromptRestale = false;
+
+  Future<void> _refreshHighFreqWakeWindowOnce() async {
     if (!engine.isConnected) return;
     try {
       final armed = armedSmartWakeWindow(epoch: alarmEpoch, schedule: _schedule);

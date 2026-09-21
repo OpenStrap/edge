@@ -80,20 +80,25 @@ New value type and policy in `lib/sync/sync_policy.dart`:
 ```dart
 class BandPromptRequest {
   final int intervalSeconds;
-  final Duration lease;
+  final Duration duration;  // the ENTER_HIGH_FREQ_SYNC lease length
   final DateTime until;     // what the engine stores as _highFreqUntil
-  final String reason;      // 'wake_window:<source>' | 'ios_background'
+  final String reason;      // the smart-wake plan's source | 'ios_background'
+
+  BandPromptRequest.smartWake({required DateTime target, required Duration lease, required String source});
+  BandPromptRequest.iosBackground(DateTime now);
 }
 
 class BandPromptPolicy {
   /// Highest-priority requester wins. Smart wake (61 s / 90 min) beats the
   /// iOS background keep-alive (900 s / 2 h). Neither → null (exit the mode).
+  /// The caller reduces the smart-wake plan to a request (or null) itself,
+  /// and passes what the engine currently has applied; `currentReason` is
+  /// what lets the policy tell its own background lease from a smart-wake one.
   static BandPromptRequest? plan({
-    required bool smartWakeEnabled,
-    required DateTime? smartWakeTarget,
-    required String smartWakeSource,
+    required BandPromptRequest? smartWake,
     required bool iosBackgrounded,
-    required DateTime? currentUntil,   // what is armed right now, if anything
+    required String? currentReason,    // engine.highFreqReason
+    required DateTime? currentUntil,   // engine.highFreqUntil
     required DateTime now,
   });
 }

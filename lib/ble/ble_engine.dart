@@ -7698,6 +7698,13 @@ class BleEngine {
     _liveApplied = LiveStreamIntent.off;
     _liveReady = false;
     _imuFresh = true;
+    // The band's prompt mode is per-link as well: whatever was programmed
+    // died with the link, and a reader that saw the old reason/until on an
+    // UNINTENTIONAL drop would think a lease is still running. Cleared here
+    // on every teardown, not only in the next connect's setup.
+    _highFreqModeRequested = false;
+    _highFreqReason = null;
+    _highFreqUntil = null;
     _imuDirty = false;
     _hrDirty = false;
     // Per-link state: Android resets the connection interval on every new GATT
