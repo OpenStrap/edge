@@ -91,13 +91,10 @@ void main() {
     test('passive strap-step opt-in: IMU only', () {
       expect(_gen5(const LiveStreamOwners(passiveStrapSteps: true)), _imuOnly);
     });
-    test('iOS background with no physiological owner: HR only', () {
-      expect(
-        _gen5(const LiveStreamOwners(iosBackgroundKeepalive: true)),
-        _hrOnly,
-      );
-    });
-    test('Android background with no owner: off', () {
+    test('background with no owner: off on both platforms', () {
+      // iOS used to hold HR here purely to keep the suspended process
+      // schedulable (~86,400 wakes/day). The band's HIGH_FREQ_SYNC prompt is
+      // the wake source now (BandPromptPolicy), so background owns nothing.
       expect(_gen5(LiveStreamOwners.none), _off);
     });
     test('marginal-radio fallback masks IMU only', () {
@@ -126,12 +123,8 @@ void main() {
     test('foreground connection alone arms HR + the bundle', () {
       expect(_gen4(const LiveStreamOwners(foreground: true)), _both);
     });
-    test('background with no owner: off (Android) / HR-only (iOS keepalive)', () {
+    test('background with no owner: off', () {
       expect(_gen4(LiveStreamOwners.none), _off);
-      expect(
-        _gen4(const LiveStreamOwners(iosBackgroundKeepalive: true)),
-        _hrOnly,
-      );
     });
     test('background workout keeps HR and drops the bundle', () {
       expect(_gen4(const LiveStreamOwners(activeWorkout: true)), _hrOnly);

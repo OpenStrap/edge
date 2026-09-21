@@ -103,8 +103,12 @@ import '../sync/reset_gate.dart';
 import '../sync/paired_device.dart';
 import '../sync/sync_policy.dart'
     show
-        isLinkStale,
+        BandPromptPolicy,
+        BandPromptRequest,
+        kIosBackgroundPromptIntervalSeconds,
         ReconnectSupervisorAction,
+        ResumeLinkAction,
+        resumeLinkAction,
         superviseReconnect;
 import '../sync/update_service.dart';
 import '../telemetry/telemetry_service.dart';
@@ -2774,9 +2778,13 @@ class AppState extends ChangeNotifier {
   ///
   /// iOS keeps an app alive in the background ONLY while it holds an active BLE
   /// connection with a subscribed characteristic (UIBackgroundModes: bluetooth-central).
-  /// So we DELIBERATELY keep the live connection + streams up here instead of
-  /// disconnecting — the band keeps pushing notifications, iOS resumes us per
-  /// notification, and the local drain continues continuously.
+  /// So we DELIBERATELY keep the live CONNECTION up here instead of
+  /// disconnecting — but not the live STREAMS. The 1 Hz realtime-HR stream
+  /// used to be held purely so iOS would resume us once a second; that was
+  /// ~86,400 wakes a day and most of a day's battery. Now the band is asked
+  /// to prompt us every [kIosBackgroundPromptIntervalSeconds] (its
+  /// HIGH_FREQ_SYNC mode); each prompt event resumes the process, the engine
+  /// drains the flash, and the process suspends again.
   ///
   /// We still own the band, so the restore central must NOT arm a competing connect.
   /// `BleRestoreManager` is armed only as a RECOVERY path if the connection actually
@@ -2807,8 +2815,14 @@ class AppState extends ChangeNotifier {
       IosBleRestore.foregroundActive =
           true; // "app owns the band" — don't let restore compete
       await IosBleRestore.setOwnsBand(true);
+      // The live stream is off now (see _liveOwners); ask the band to prompt
+      // us instead. Each prompt is one BLE notification → one wake → one
+      // flash offload → suspend again. This is what keeps continuous capture
+      // going without the 1 Hz stream.
+      await _refreshHighFreqWakeWindow();
       _log(
-        'Backgrounded — holding live connection for continuous background capture',
+        'Backgrounded — live stream off; band prompts every '
+        '${kIosBackgroundPromptIntervalSeconds}s keep the offload going.',
       );
     } else {
       // No live connection to hold — fall back to the restore path so iOS relaunches us
@@ -2829,17 +2843,19 @@ class AppState extends ChangeNotifier {
   //
   // Policy (gen5; `desiredLiveStreams` in ble_state.dart):
   //   HR  ← a mounted live-HR view, any workout, a breathing session or
-  //         window, or iOS backgrounded (the inbound 1 Hz notification is what
-  //         keeps the suspended process schedulable — with zero inbound
-  //         traffic the Dart timers may never run and continuous capture
-  //         stalls; the stream is load-bearing there, not waste).
+  //         window. iOS background is NOT an owner any more: the 1 Hz stream
+  //         was held there purely to keep the suspended process schedulable
+  //         (~86,400 wakes/day, most of a day's battery). The band's own
+  //         HIGH_FREQ_SYNC prompt is the wake source now — see
+  //         BandPromptPolicy and _refreshHighFreqWakeWindow.
   //   IMU ← a gait workout in the FOREGROUND, a bounded movement-sampling
   //         window, or the passive strap-step opt-in (off).
   //   An ordinary foreground connection owns nothing on gen5: the on-chip daily
   //   counter is the step fallback and the phone can supply windowed steps.
-  //   Android backgrounded with no owner is fully OFF — the EdgeTracking
-  //   foreground service keeps the process alive without any inbound stream,
-  //   and the 1 Hz stream with no consumer was ~86,400 wakes a day; liveness
+  //   Backgrounded with no owner is fully OFF on both platforms — on Android
+  //   the EdgeTracking foreground service keeps the process alive without any
+  //   inbound stream, on iOS the band's prompt wakes it; the 1 Hz stream with
+  //   no consumer was ~86,400 wakes a day either way. Liveness
   //   is covered by the keep-alive's forced battery poll
   //   (kNoStreamPollSilenceSeconds) and the resume paths judge freshness by
   //   the no-stream bar. `state.wristOn`/`liveHr` simply stop updating while
@@ -2896,7 +2912,6 @@ class AppState extends ChangeNotifier {
       activeWorkout: w != null,
       foregroundGaitWorkout: w != null && !_background && isGaitStepType(w.type),
       breathing: breathingActive || breathingWindowOpen,
-      iosBackgroundKeepalive: _background && Platform.isIOS,
       movementSampling: _movementSampling,
       passiveStrapSteps: _passiveStrapSteps,
       foreground: !_background,
@@ -4893,6 +4908,35 @@ class AppState extends ChangeNotifier {
   }
 
   // ── session: drain history, go live, stay connected ──────────────────────────
+  /// Whether a link that still reports connected may be reused after the
+  /// process was not watching it (foreground resume, BG-task wake).
+  /// Fresh → yes. Quiet with a live stream armed → no: a stream that stopped
+  /// is a dead link. Quiet with NO stream armed → ask the band
+  /// (`probeLink`) rather than guess — an iOS process suspended between band
+  /// prompts sees minutes of silence on a perfectly healthy link, and
+  /// tearing it down on every foreground open would cost a reconnect and a
+  /// full re-drain each time. ONE helper for both resume sites so the two
+  /// cannot drift (AGENTS §4.7).
+  Future<bool> _linkUsableAfterResume(String where) async {
+    final quiet = engine.sinceLastRx.inSeconds;
+    switch (resumeLinkAction(
+      engine.sinceLastRx,
+      liveStreamArmed: engine.liveEnabled,
+    )) {
+      case ResumeLinkAction.trust:
+        return true;
+      case ResumeLinkAction.reconnect:
+        _log('$where: no BLE data for ${quiet}s with a live stream armed — '
+            'stale link, reconnecting.');
+        return false;
+      case ResumeLinkAction.probe:
+        final ok = await engine.probeLink();
+        _log('$where: quiet link (${quiet}s, no stream armed) — probe '
+            '${ok ? 'answered, reusing the link' : 'unanswered, reconnecting'}.');
+        return ok;
+    }
+  }
+
   Future<void> openSession() async {
     if (busy || paired == null) return;
     BandOwnership.markForegroundIntent(true);
@@ -4916,14 +4960,13 @@ class AppState extends ChangeNotifier {
       EdgeTracking.start(); // Android: keep the foreground service up (idempotent)
       // iOS can resume with the peripheral still flagged "connected" while its GATT
       // notifications died during suspension — UI shows connected but NO events arrive,
-      // and only a kill+reopen (full reconnect) recovers. Trust DATA, not the flag: if a
-      // notification arrived recently the link is genuinely live → keep the fast reclaim.
-      // Otherwise it's stale → tear it down and fall through to a clean reconnect, which
-      // re-subscribes (the only place setNotifyValue runs) and drains the gap.
-      if (!isLinkStale(
-        engine.sinceLastRx,
-        liveStreamArmed: engine.liveEnabled,
-      )) {
+      // and only a kill+reopen (full reconnect) recovers. Trust DATA, not the flag: a
+      // recent notification proves the link; a quiet link with no stream armed is
+      // ASKED (probeLink — quiet is what a suspended process expects); a quiet link
+      // that should have been streaming is torn down and falls through to a clean
+      // reconnect, which re-subscribes (the only place setNotifyValue runs) and
+      // drains the gap.
+      if (await _linkUsableAfterResume('Resume')) {
         // Healthy link → fast reclaim. But the fast path skips the band polls the full
         // connect path runs, so the cached battery %/charging/strap-name go stale.
         // Re-poll them in the background so the UI stays current. Non-blocking.
@@ -4938,6 +4981,9 @@ class AppState extends ChangeNotifier {
         // `_background` flipped: the foreground owners (gen4 bundle, a gait
         // workout's IMU) apply again.
         _nudgeLive();
+        // …and the background band prompt is dropped (the smart-wake window,
+        // if open, keeps its own).
+        unawaited(_refreshHighFreqWakeWindow());
         // FOREGROUND CATCH-UP: R24 drains on a ~15-min timer while backgrounded,
         // so "last data" can lag up to 15 min behind a healthy link. The user
         // just opened the app — pull the flash backlog now. Floored at 90 s
@@ -4947,9 +4993,6 @@ class AppState extends ChangeNotifier {
         _startBackfillTimer();
         return;
       }
-      _log(
-        'Resume: no BLE data for ${engine.sinceLastRx.inSeconds}s — stale link, reconnecting.',
-      );
       await engine.disconnect();
       // fall through to the full connect → subscribe → drain path below
     }
@@ -5146,7 +5189,7 @@ class AppState extends ChangeNotifier {
           // successful (re)connect — see _armNextAlarmOccurrence.
           await _armNextAlarmOccurrence();
           // Live streams come up per the current owners (see _liveOwners:
-          // backgrounded with no owner is OFF on Android and HR-only on iOS);
+          // backgrounded with no owner is OFF on both platforms);
           // the FULL drain (no short timeout — the ENTIRE offline backlog the
           // band flashed while out of range) runs concurrently, single-flight,
           // exactly as in openSession.
@@ -5270,14 +5313,7 @@ class AppState extends ChangeNotifier {
   /// tries to reconnect").
   Future<void> foregroundCatchUp() async {
     if (!engine.isConnected) return;
-    if (isLinkStale(
-      engine.sinceLastRx,
-      liveStreamArmed: engine.liveEnabled,
-    )) {
-      _log(
-        'Foreground catch-up: no BLE data for ${engine.sinceLastRx.inSeconds}s '
-        '— zombie link, forcing reconnect instead of a stale-link pull.',
-      );
+    if (!await _linkUsableAfterResume('Foreground catch-up')) {
       await engine.disconnect();
       return;
     }
@@ -5300,6 +5336,13 @@ class AppState extends ChangeNotifier {
 
   Future<void> syncNow() => openSession();
 
+  /// The ONE place the band's HIGH_FREQ_SYNC prompt is programmed. Two
+  /// requesters, one decision (`BandPromptPolicy`): the smart-wake window
+  /// (61 s, ahead of an alarm) and, on iOS while backgrounded, the 15-min
+  /// keep-alive prompt that replaced the 1 Hz HR stream as the thing that
+  /// wakes a suspended process. Called on connect, after the backlog drains,
+  /// on every background (re)connect, from the 25-min background tick (lease
+  /// renewal), on backgrounding and on foreground reclaim.
   Future<void> _refreshHighFreqWakeWindow() async {
     if (!engine.isConnected) return;
     try {
@@ -5308,21 +5351,43 @@ class AppState extends ChangeNotifier {
         scheduledWindowEnd: armed?.windowEnd,
         scheduledWindowMinutes: armed?.minutes ?? 0,
       );
-      await engine.applyHighFreqWakeWindow(
-        enabled: plan.shouldEnable,
-        targetWake: plan.targetWake,
-        duration: HighFreqWakeWindow.lease,
-        intervalSeconds: 61, // gen5 rejects <= 60
-
-        reason: plan.source,
+      final target = plan.targetWake;
+      final iosBackgrounded = _background && Platform.isIOS;
+      final req = BandPromptPolicy.plan(
+        smartWake: plan.shouldEnable && target != null
+            ? BandPromptRequest.smartWake(
+                target: target,
+                lease: HighFreqWakeWindow.lease,
+                source: plan.source,
+              )
+            : null,
+        iosBackgrounded: iosBackgrounded,
+        currentReason: engine.highFreqReason,
+        currentUntil: engine.highFreqUntil,
+        now: DateTime.now(),
       );
+      if (req == null) {
+        await engine.applyHighFreqWakeWindow(
+          enabled: false,
+          targetWake: null,
+          reason: plan.source,
+        );
+      } else {
+        await engine.applyHighFreqWakeWindow(
+          enabled: true,
+          targetWake: req.until,
+          duration: req.duration,
+          intervalSeconds: req.intervalSeconds,
+          reason: req.reason,
+        );
+      }
       _log(
-        '[SYNC] HighFreq wake window: source=${plan.source} '
-        'samples=${plan.sampleCount} enabled=${plan.shouldEnable} '
-        'target=${plan.targetWake?.toIso8601String()}',
+        '[SYNC] Band prompt: smartWake=${plan.shouldEnable} '
+        '(source=${plan.source} samples=${plan.sampleCount}) '
+        'iosBackground=$iosBackgrounded → ${req ?? 'off'}',
       );
     } catch (e) {
-      _log('[SYNC] HighFreq wake window skipped: $e');
+      _log('[SYNC] Band prompt refresh skipped: $e');
     }
   }
 
