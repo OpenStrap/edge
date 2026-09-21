@@ -1525,6 +1525,21 @@ class BleEngine {
   @visibleForTesting
   void debugProcessImmediateFrame(Frame frame) => _processImmediateFrame(frame);
 
+  /// Test seam: back-date the liveness stamps so a keep-alive tick can be
+  /// judged as "on cadence" or "overdue after a suspension".
+  @visibleForTesting
+  void debugSetLiveness({DateTime? lastRx, DateTime? lastKeepAliveTick}) {
+    if (lastRx != null) _lastRx = lastRx;
+    _lastKeepAliveTickAt = lastKeepAliveTick;
+  }
+
+  /// Test seam: run one keep-alive tick against the installed fake link.
+  @visibleForTesting
+  void debugFireKeepAlive() {
+    final s = _session;
+    if (s != null) _keepAliveFire(s);
+  }
+
   /// Feed one inbound frame through the REAL receive path, including
   /// [FrameRoutePolicy] and the serialized offload queue — i.e. the thing that
   /// decides which burst window a frame's count lands in.
@@ -1708,6 +1723,12 @@ class BleEngine {
   DateTime? _highFreqUntil;
   String? _highFreqReason;
   bool _highFreqModeRequested = false;
+
+  /// What the band is currently asked to prompt (ENTER_HIGH_FREQ_SYNC), as
+  /// last applied on this link. Null when the mode is off or the link is
+  /// gone — a reconnect resets both, so a caller re-applies after it.
+  String? get highFreqReason => _highFreqReason;
+  DateTime? get highFreqUntil => _highFreqUntil;
   final Map<int, int> _lastSequenceByRevision = <int, int>{};
   int? _strapHistoryOldestTs;
   int? _strapHistoryNewestTs;
@@ -1965,6 +1986,12 @@ class BleEngine {
   // genuinely live link (recent data) from a stale one. Also drives the UI's
   // "last data: Xs ago" readout.
   DateTime _lastRx = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Wall-clock of the previous keep-alive tick. A tick that arrives more
+  /// than two periods after this one means the process was suspended in
+  /// between (iOS, between band prompts): silence accumulated then is not
+  /// evidence — see `livenessSilence`. Null until the first tick of a session.
+  DateTime? _lastKeepAliveTickAt;
   Duration get sinceLastRx => DateTime.now().difference(_lastRx);
 
   /// Wall-clock of the last received BLE notification (any characteristic), for the
@@ -2604,6 +2631,7 @@ class BleEngine {
       );
 
       _lastRx = DateTime.now(); // fresh link — never treat as stale on resume
+      _lastKeepAliveTickAt = null; // first tick of this link judges raw silence
 
       // SINGLE LISTENING MODE. Arm the offload controller, enter `listening`, then
       // fire INIT — which triggers the historical flood. Historical + live records
@@ -3452,10 +3480,29 @@ class BleEngine {
   // ── keep-alive + periodic backfill ──────────────────────────────────────────
   void _keepAliveFire(_Session session) {
     if (_session != session || !session.connected) return;
+    final now = DateTime.now();
+    final lastTick = _lastKeepAliveTickAt;
+    _lastKeepAliveTickAt = now;
+    final sinceLastTick =
+        lastTick == null ? Duration.zero : now.difference(lastTick);
     // Liveness watchdog: iOS can resume us with the peripheral flagged connected
     // while its GATT notifications silently died. If no frame has arrived for
     // longer than the fuse, bounce the link so the caller's reconnect loop runs.
-    if (sinceLastRx.inSeconds > kLivenessFuseSeconds) {
+    // Silence that built up while the process was SUSPENDED (this tick is
+    // overdue by more than two periods — an iOS band-prompt wake) is not
+    // evidence: the clock restarts here, the forced battery poll below still
+    // fires off the raw gap, and the next tick judges the reply normally.
+    final silence = livenessSilence(
+      sinceLastRx: sinceLastRx,
+      sinceLastTick: sinceLastTick,
+      tickPeriod: const Duration(seconds: kKeepAliveIntervalSeconds),
+    );
+    if (silence == Duration.zero &&
+        sinceLastRx.inSeconds > kLivenessFuseSeconds) {
+      _log('[keepalive] resumed after ${sinceLastTick.inSeconds}s without a '
+          'tick — liveness clock restarted, probing the band.');
+    }
+    if (silence.inSeconds > kLivenessFuseSeconds) {
       _log('No data for >${kLivenessFuseSeconds}s — bouncing the link.');
       unawaited(
         _teardownSession(intentional: false).then((_) {
@@ -7261,6 +7308,29 @@ class BleEngine {
   // main's throttled poll (a raw send here was 2,880 round-trips a day), and
   // the branch's gen5 HELLO, which is a different opcode on Maverick.
   Future<void> getBattery() => _pollBatteryIfDue(force: true);
+
+  /// Ask the band something cheap and wait for the answer. True iff a reply
+  /// correlated within [timeout]. For resume paths that find a link quiet
+  /// after the process was not listening (iOS, suspended between band
+  /// prompts): silence then is not evidence, so they ask instead of guessing
+  /// — see `resumeLinkAction`. GET_BATTERY_LEVEL is the probe because it is
+  /// the one poll this link already relies on for liveness.
+  Future<bool> probeLink({
+    Duration timeout = CommandAwaiter.defaultTimeout,
+  }) async {
+    if (_session?.connected != true) return false;
+    final out = await _sendAwaited(
+      Cmd.getBatteryLevel,
+      const <int>[],
+      timeout: timeout,
+    );
+    if (!out.written) return false;
+    final reply = await out.response;
+    final alive = reply != null;
+    _log('[probe] battery poll ${alive ? 'answered' : 'unanswered'} '
+        '(${timeout.inMilliseconds} ms) — link ${alive ? 'live' : 'dead'}.');
+    return alive;
+  }
   Future<void> getHello() {
     final c = (_session?.entry ?? kWhoopGen4).commands;
     return _send(c.hello, c.helloBody);
