@@ -2421,11 +2421,14 @@ class AppState extends ChangeNotifier {
             // cold launch, so there is nothing to double-count.
             await _recoverOrphanedLiveSession();
             _resetLivePedometer();
-            // Apply the owners' intent to the fresh link: iOS backgrounded
-            // owns HR (the 1 Hz notification keeps the suspended process
-            // schedulable); Android backgrounded owns nothing and stays
-            // stream-less. See [_liveOwners].
+            // Apply the owners' intent to the fresh link: backgrounded owns
+            // no live stream on either platform (see [_liveOwners]). On iOS
+            // the band's HIGH_FREQ_SYNC prompt is what wakes the suspended
+            // process, so it must be armed HERE too — this path is the
+            // relaunch after a process kill, and with no stream and no
+            // prompt nothing would ever schedule this process again.
             await engine.reconcileLiveStreams();
+            await _refreshHighFreqWakeWindow();
             _startBackfillTimer();
           } else {
             // Connect attempt didn't succeed on this background cold-launch —
