@@ -33,7 +33,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ai/briefing.dart'
-    show BriefingPeriod, BriefingStore, currentBriefingPeriod, resolveBriefingToShow;
+    show Briefing, BriefingPeriod, BriefingStore, currentBriefingPeriod, resolveBriefingToShow;
 import '../../data/day_label.dart' show todayLabel, calendarDaysBetween;
 import '../../data/db.dart' show DbRebuild;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
@@ -2085,29 +2085,41 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// being configured: the screen itself already has a graceful
   /// "no model set up" state with its own way to fix that, so gating here
   /// would just duplicate that door rather than simplify anything.
-  Widget _briefingDoor(BuildContext c, HomeData d) {
-    final l = AppLocalizations.of(c);
+  /// Re-run on every call rather than cached by the caller: Home is kept
+  /// alive by the shell's `IndexedStack` (see revision.dart), so a build can
+  /// sit for hours without rerunning. Resolving once at build time and
+  /// capturing the result in the row's `onTap` closure would let a stale
+  /// morning/evening decision — or a briefing written in the background
+  /// after that build — survive across the 17:00 boundary until Home
+  /// happens to rebuild for an unrelated reason.
+  ({BriefingPeriod period, Briefing? briefing}) _resolveBriefingNow(HomeData d) {
     final period = currentBriefingPeriod(DateTime.now());
-    final resolved = resolveBriefingToShow(
+    return resolveBriefingToShow(
       period,
       BriefingStore.read(period, day: d.dayId),
       BriefingStore.read(BriefingPeriod.morning, day: d.dayId),
     );
-    final foundPeriod = resolved.period;
-    final cached = resolved.briefing;
+  }
+
+  Widget _briefingDoor(BuildContext c, HomeData d) {
+    final l = AppLocalizations.of(c);
+    final cached = _resolveBriefingNow(d).briefing;
     return detailLinkRow(
       c,
       LucideIcons.sparkles,
       l?.homeBriefingTitle ?? 'Briefing',
       cached?.oneLiner ?? (l?.homeBriefingSubtitleEmpty ?? 'Tap to write today\'s summary'),
       () async {
+        // Resolved fresh at tap time via _resolveBriefingNow, not read from
+        // the value above — see that method's doc for why.
+        //
         // Writing a briefing (BriefingStore.write, in briefing_engine.dart)
         // does not bump AppState.insightsRevision, so RevisionReload's
         // automatic reload never fires for it — awaiting the route and
         // reloading on return is the only way this row picks up a briefing
         // written during the visit instead of showing stale/empty text until
         // some UNRELATED revision bump happens to refresh Home.
-        final screen = AiBriefingScreen(period: foundPeriod);
+        final screen = AiBriefingScreen(period: _resolveBriefingNow(d).period);
         await Navigator.of(c).push(
             themedRoute<void>((_) => screen, name: screen.runtimeType.toString()));
         if (mounted) reload();
