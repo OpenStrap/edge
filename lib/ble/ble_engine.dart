@@ -4382,15 +4382,23 @@ class BleEngine {
     // Frame for the SESSION'S band. Built gen4-only, a gen5 strap got a header
     // length and checksum it cannot parse, so high-frequency sync never
     // engaged — while the flags below claimed it had. Only claim the mode when
-    // the write actually landed.
+    // the write actually landed — and only on the link it was written to: the
+    // write is pinned to THIS session, and a continuation that resumes after
+    // the link was replaced must not claim the mode on the successor, which
+    // never received the ENTER (teardown already cleared the dead link's
+    // state, and the successor's own post-connect refresh re-applies).
+    final session = _session!;
+    final generation = _linkGeneration;
     final ok = await _write(
       cmdEnterHighFreqSync(
         _seq.nextLive(),
         intervalSeconds: intervalSeconds,
         durationSeconds: duration.inSeconds,
-        profile: _session?.band ?? BandProfile.gen4,
+        profile: session.band,
       ),
+      owner: session,
     );
+    if (_liveStale(session, generation)) return;
     if (!ok) {
       _log('[SYNC] HighFreq enter ($reason) write FAILED — mode NOT claimed.');
       return;
@@ -4408,8 +4416,16 @@ class BleEngine {
       return;
     }
     _log('[SYNC] HighFreq exit ($reason).');
-    await _write(cmdExitHighFreqSync(_seq.nextLive(),
-        profile: _session?.band ?? BandProfile.gen4));
+    // Same pinning as the ENTER above: an EXIT written to a link that is gone
+    // by the time the write returns must not clear what the SUCCESSOR link
+    // has since programmed.
+    final session = _session!;
+    final generation = _linkGeneration;
+    await _write(
+      cmdExitHighFreqSync(_seq.nextLive(), profile: session.band),
+      owner: session,
+    );
+    if (_liveStale(session, generation)) return;
     _highFreqModeRequested = false;
     _highFreqReason = null;
     _highFreqUntil = null;
