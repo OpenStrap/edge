@@ -33,7 +33,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ai/briefing.dart'
-    show BriefingStore, currentBriefingPeriod;
+    show BriefingPeriod, BriefingStore, currentBriefingPeriod, resolveBriefingToShow;
 import '../../data/day_label.dart' show todayLabel, calendarDaysBetween;
 import '../../data/db.dart' show DbRebuild;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
@@ -2088,13 +2088,30 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   Widget _briefingDoor(BuildContext c, HomeData d) {
     final l = AppLocalizations.of(c);
     final period = currentBriefingPeriod(DateTime.now());
-    final cached = BriefingStore.read(period, day: d.dayId);
+    final resolved = resolveBriefingToShow(
+      period,
+      BriefingStore.read(period, day: d.dayId),
+      BriefingStore.read(BriefingPeriod.morning, day: d.dayId),
+    );
+    final foundPeriod = resolved.period;
+    final cached = resolved.briefing;
     return detailLinkRow(
       c,
       LucideIcons.sparkles,
       l?.homeBriefingTitle ?? 'Briefing',
       cached?.oneLiner ?? (l?.homeBriefingSubtitleEmpty ?? 'Tap to write today\'s summary'),
-      () => go(c, AiBriefingScreen(period: period)),
+      () async {
+        // Writing a briefing (BriefingStore.write, in briefing_engine.dart)
+        // does not bump AppState.insightsRevision, so RevisionReload's
+        // automatic reload never fires for it — awaiting the route and
+        // reloading on return is the only way this row picks up a briefing
+        // written during the visit instead of showing stale/empty text until
+        // some UNRELATED revision bump happens to refresh Home.
+        final screen = AiBriefingScreen(period: foundPeriod);
+        await Navigator.of(c).push(
+            themedRoute<void>((_) => screen, name: screen.runtimeType.toString()));
+        if (mounted) reload();
+      },
     );
   }
 
