@@ -1223,6 +1223,29 @@ void main() {
   );
 
   test(
+    'upgrade from v50 creates the three ECG tables and the coach view, and a '
+    'second open is a no-op',
+    () async {
+      const name = 'migrate_v50_ecg_test.db';
+      created.add(name);
+      await _seedOldDb(name, 50, [_preDeviceLiveCoverageDdl, ..._v5DerivedDdl]);
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final names = await LocalDb.tableNames();
+      expect(names,
+          containsAll(['ecg_reading', 'ecg_reading_packet', 'ecg_raw_packet']));
+      final db = await LocalDb.instance;
+      final views = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='view' AND name='v_ecg_readings'");
+      expect(views, hasLength(1));
+      // Idempotent: the repair pass re-runs every creator on the next open.
+      await LocalDb.close();
+      expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
+      final health = await LocalDb.schemaHealth();
+      expect(health['ok'], isTrue, reason: '$health');
+    },
+  );
+
+  test(
     'the paired band survives the upgrade: the prefs pair migrates into the '
     'device table on first load',
     () async {

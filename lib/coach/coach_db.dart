@@ -65,6 +65,7 @@ class CoachDb {
     'v_sessions',
     'v_baselines',
     'v_insights',
+    'v_ecg_readings',
   };
 
   // Keywords that must never appear as standalone tokens (anything mutating or
@@ -98,6 +99,11 @@ class CoachDb {
     'raw_records', 'raw_archive', 'decoded_onehz', 'decoded_rr', 'samples',
     'events', 'band_events', 'band_battery',
     'device_coverage', 'signal_priority',
+    // WHOOP MG ECG. `ecg_reading` is a base table of an allowed view, so the
+    // structural gate would admit its btree — this token-level block is what
+    // keeps `device_id`/`notes` (never in the view) out of run_sql. The two
+    // packet tables are unreachable at both layers.
+    'ecg_reading', 'ecg_reading_packet', 'ecg_raw_packet',
     // sync / compute bookkeeping
     'sync_ledger', 'sync_quarantine', 'sync_cursor', 'sync_ledger_legacy',
     'sync_quarantine_legacy', 'sync_cursor_legacy', 'compute_jobs',

@@ -1910,7 +1910,12 @@ const String kAnalyticsPin = '01e8b6e02b2370ae42490a678e6a0a4e3569104c';
 // below is THAT SAME PR's merge commit — verified — so main's pin already
 // carries that wire format too. NO kAlgoVersion bump: ring11m declares no
 // signal either.
-const String kProtocolPin = 'fe1464db98b84ac4d3ce6175d54ada11356d6c62';
+// REPIN (main, superseded further): protocol main @ bc7d8d0 — PR#54 lands
+// the Labrador (WHOOP MG ECG) parser this branch's ECG capture pipeline
+// calls. NO kAlgoVersion bump: ECG is not a derived `day_result`/
+// `metric_series` output, it is its own store (`ecg_reading` etc., schema
+// v54) with nothing feeding the existing metrics.
+const String kProtocolPin = 'bc7d8d0df706e40a2546ffde4545263f09d0fecb';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

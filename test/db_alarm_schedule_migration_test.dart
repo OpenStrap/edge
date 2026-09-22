@@ -65,10 +65,10 @@ void main() {
     created.add(name);
     await _seedEmptyV49Db(name);
     final version = await _openThroughLocalDb(name);
-    // schemaVersion moved 50->51 for M3 (multi-device attribution) after this
-    // test was written for the alarm_schedule table's own v50 rung — the
-    // literal below tracks whatever the ladder currently ends on, not a
-    // number this test owns.
+    // The v50 rung is what this file isolates; later rungs (v51 multi-device
+    // attribution, v52 the WHOOP MG ECG store) ride the same open, so the
+    // ladder's top is a floor here, not a number this test owns.
+    expect(LocalDb.schemaVersion, greaterThanOrEqualTo(50));
     expect(version, LocalDb.schemaVersion);
 
     final db = await LocalDb.instance;

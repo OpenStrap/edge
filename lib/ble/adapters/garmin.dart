@@ -157,8 +157,9 @@ class GarminAdapter extends BandAdapter {
         }
         final handle = gfdiHandle;
         if (decoded is GarminMlrData && handle != null && decoded.handle == handle) {
-          // Byte 0 is the routing byte; the COBS/GFDI stream starts after it.
-          for (final frame in cobs.feed(decoded.payload.sublist(1))) {
+          // protocol's garminDecodeMlr already strips the routing byte
+          // (protocol#70) — decoded.payload IS the COBS/GFDI stream.
+          for (final frame in cobs.feed(decoded.payload)) {
             archived.add(frame);
             final gfdi = garminParseGfdiFrame(frame);
             if (gfdi != null) unawaited(ackAndDispatch(gfdi));
