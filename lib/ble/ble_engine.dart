@@ -1805,6 +1805,21 @@ class BleEngine {
   @visibleForTesting
   void debugProcessImmediateFrame(Frame frame) => _processImmediateFrame(frame);
 
+  /// Test seam: back-date the liveness stamps so a keep-alive tick can be
+  /// judged as "on cadence" or "overdue after a suspension".
+  @visibleForTesting
+  void debugSetLiveness({DateTime? lastRx, DateTime? lastKeepAliveTick}) {
+    if (lastRx != null) _lastRx = lastRx;
+    _lastKeepAliveTickAt = lastKeepAliveTick;
+  }
+
+  /// Test seam: run one keep-alive tick against the installed fake link.
+  @visibleForTesting
+  void debugFireKeepAlive() {
+    final s = _session;
+    if (s != null) _keepAliveFire(s);
+  }
+
   /// Feed one inbound frame through the REAL receive path, including
   /// [FrameRoutePolicy] and the serialized offload queue — i.e. the thing that
   /// decides which burst window a frame's count lands in.
@@ -1988,6 +2003,12 @@ class BleEngine {
   DateTime? _highFreqUntil;
   String? _highFreqReason;
   bool _highFreqModeRequested = false;
+
+  /// What the band is currently asked to prompt (ENTER_HIGH_FREQ_SYNC), as
+  /// last applied on this link. Null when the mode is off or the link is
+  /// gone — a reconnect resets both, so a caller re-applies after it.
+  String? get highFreqReason => _highFreqReason;
+  DateTime? get highFreqUntil => _highFreqUntil;
   final Map<int, int> _lastSequenceByRevision = <int, int>{};
   int? _strapHistoryOldestTs;
   int? _strapHistoryNewestTs;
@@ -2245,6 +2266,12 @@ class BleEngine {
   // genuinely live link (recent data) from a stale one. Also drives the UI's
   // "last data: Xs ago" readout.
   DateTime _lastRx = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Wall-clock of the previous keep-alive tick. A tick that arrives more
+  /// than two periods after this one means the process was suspended in
+  /// between (iOS, between band prompts): silence accumulated then is not
+  /// evidence — see `livenessSilence`. Null until the first tick of a session.
+  DateTime? _lastKeepAliveTickAt;
   Duration get sinceLastRx => DateTime.now().difference(_lastRx);
 
   /// Wall-clock of the last received BLE notification (any characteristic), for the
@@ -2887,6 +2914,7 @@ class BleEngine {
       );
 
       _lastRx = DateTime.now(); // fresh link — never treat as stale on resume
+      _lastKeepAliveTickAt = null; // first tick of this link judges raw silence
 
       // SINGLE LISTENING MODE. Arm the offload controller, enter `listening`, then
       // fire INIT — which triggers the historical flood. Historical + live records
@@ -3742,10 +3770,29 @@ class BleEngine {
   // ── keep-alive + periodic backfill ──────────────────────────────────────────
   void _keepAliveFire(_Session session) {
     if (_session != session || !session.connected) return;
+    final now = DateTime.now();
+    final lastTick = _lastKeepAliveTickAt;
+    _lastKeepAliveTickAt = now;
+    final sinceLastTick =
+        lastTick == null ? Duration.zero : now.difference(lastTick);
     // Liveness watchdog: iOS can resume us with the peripheral flagged connected
     // while its GATT notifications silently died. If no frame has arrived for
     // longer than the fuse, bounce the link so the caller's reconnect loop runs.
-    if (sinceLastRx.inSeconds > kLivenessFuseSeconds) {
+    // Silence that built up while the process was SUSPENDED (this tick is
+    // overdue by more than two periods — an iOS band-prompt wake) is not
+    // evidence: the clock restarts here, the forced battery poll below still
+    // fires off the raw gap, and the next tick judges the reply normally.
+    final silence = livenessSilence(
+      sinceLastRx: sinceLastRx,
+      sinceLastTick: sinceLastTick,
+      tickPeriod: const Duration(seconds: kKeepAliveIntervalSeconds),
+    );
+    if (silence == Duration.zero &&
+        sinceLastRx.inSeconds > kLivenessFuseSeconds) {
+      _log('[keepalive] resumed after ${sinceLastTick.inSeconds}s without a '
+          'tick — liveness clock restarted, probing the band.');
+    }
+    if (silence.inSeconds > kLivenessFuseSeconds) {
       _log('No data for >${kLivenessFuseSeconds}s — bouncing the link.');
       unawaited(
         _teardownSession(intentional: false).then((_) {
@@ -4646,15 +4693,23 @@ class BleEngine {
     // Frame for the SESSION'S band. Built gen4-only, a gen5 strap got a header
     // length and checksum it cannot parse, so high-frequency sync never
     // engaged — while the flags below claimed it had. Only claim the mode when
-    // the write actually landed.
+    // the write actually landed — and only on the link it was written to: the
+    // write is pinned to THIS session, and a continuation that resumes after
+    // the link was replaced must not claim the mode on the successor, which
+    // never received the ENTER (teardown already cleared the dead link's
+    // state, and the successor's own post-connect refresh re-applies).
+    final session = _session!;
+    final generation = _linkGeneration;
     final ok = await _write(
       cmdEnterHighFreqSync(
         _seq.nextLive(),
         intervalSeconds: intervalSeconds,
         durationSeconds: duration.inSeconds,
-        profile: _session?.band ?? BandProfile.gen4,
+        profile: session.band,
       ),
+      owner: session,
     );
+    if (_liveStale(session, generation)) return;
     if (!ok) {
       _log('[SYNC] HighFreq enter ($reason) write FAILED — mode NOT claimed.');
       return;
@@ -4672,8 +4727,16 @@ class BleEngine {
       return;
     }
     _log('[SYNC] HighFreq exit ($reason).');
-    await _write(cmdExitHighFreqSync(_seq.nextLive(),
-        profile: _session?.band ?? BandProfile.gen4));
+    // Same pinning as the ENTER above: an EXIT written to a link that is gone
+    // by the time the write returns must not clear what the SUCCESSOR link
+    // has since programmed.
+    final session = _session!;
+    final generation = _linkGeneration;
+    await _write(
+      cmdExitHighFreqSync(_seq.nextLive(), profile: session.band),
+      owner: session,
+    );
+    if (_liveStale(session, generation)) return;
     _highFreqModeRequested = false;
     _highFreqReason = null;
     _highFreqUntil = null;
@@ -7636,6 +7699,29 @@ class BleEngine {
   // main's throttled poll (a raw send here was 2,880 round-trips a day), and
   // the branch's gen5 HELLO, which is a different opcode on Maverick.
   Future<void> getBattery() => _pollBatteryIfDue(force: true);
+
+  /// Ask the band something cheap and wait for the answer. True iff a reply
+  /// correlated within [timeout]. For resume paths that find a link quiet
+  /// after the process was not listening (iOS, suspended between band
+  /// prompts): silence then is not evidence, so they ask instead of guessing
+  /// — see `resumeLinkAction`. GET_BATTERY_LEVEL is the probe because it is
+  /// the one poll this link already relies on for liveness.
+  Future<bool> probeLink({
+    Duration timeout = CommandAwaiter.defaultTimeout,
+  }) async {
+    if (_session?.connected != true) return false;
+    final out = await _sendAwaited(
+      Cmd.getBatteryLevel,
+      const <int>[],
+      timeout: timeout,
+    );
+    if (!out.written) return false;
+    final reply = await out.response;
+    final alive = reply != null;
+    _log('[probe] battery poll ${alive ? 'answered' : 'unanswered'} '
+        '(${timeout.inMilliseconds} ms) — link ${alive ? 'live' : 'dead'}.');
+    return alive;
+  }
   Future<void> getHello() {
     final c = (_session?.entry ?? kWhoopGen4).commands;
     return _send(c.hello, c.helloBody);
@@ -8003,6 +8089,13 @@ class BleEngine {
     _liveApplied = LiveStreamIntent.off;
     _liveReady = false;
     _imuFresh = true;
+    // The band's prompt mode is per-link as well: whatever was programmed
+    // died with the link, and a reader that saw the old reason/until on an
+    // UNINTENTIONAL drop would think a lease is still running. Cleared here
+    // on every teardown, not only in the next connect's setup.
+    _highFreqModeRequested = false;
+    _highFreqReason = null;
+    _highFreqUntil = null;
     _imuDirty = false;
     _hrDirty = false;
     // Per-link state: Android resets the connection interval on every new GATT

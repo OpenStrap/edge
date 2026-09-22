@@ -1908,11 +1908,6 @@ class LiveStreamOwners {
   /// R-R for coherence and RMSSD).
   final bool breathing;
 
-  /// iOS, backgrounded: the inbound 1 Hz notification is what keeps the
-  /// suspended process schedulable, so HR stays on there with no other owner.
-  /// An Edge platform policy, not a measured guarantee.
-  final bool iosBackgroundKeepalive;
-
   /// A bounded movement-reminder sampling window is open (IMU-only). There is
   /// no scheduler yet: enabling the reminder preference must NOT hold IMU, and
   /// sampling only inside windows cannot prove stillness between them.
@@ -1935,7 +1930,6 @@ class LiveStreamOwners {
     this.activeWorkout = false,
     this.foregroundGaitWorkout = false,
     this.breathing = false,
-    this.iosBackgroundKeepalive = false,
     this.movementSampling = false,
     this.passiveStrapSteps = false,
     this.foreground = false,
@@ -1947,14 +1941,13 @@ class LiveStreamOwners {
   String toString() => 'LiveStreamOwners('
       'hrView: $visibleLiveHrView, workout: $activeWorkout, '
       'fgGait: $foregroundGaitWorkout, breathing: $breathing, '
-      'iosBg: $iosBackgroundKeepalive, movement: $movementSampling, '
+      'movement: $movementSampling, '
       'passiveSteps: $passiveStrapSteps, foreground: $foreground)';
 }
 
 /// The streams the current owners call for.
 ///
 ///   wantHr  = visibleLiveHrView || activeWorkout || breathing
-///           || iosBackgroundKeepalive
 ///   wantImu = foregroundGaitWorkout || movementSampling || passiveStrapSteps
 ///
 /// plus, on gen4 only, `foreground` as an owner of both (see
@@ -1973,7 +1966,6 @@ LiveStreamIntent desiredLiveStreams(
   final hr = o.visibleLiveHrView ||
       o.activeWorkout ||
       o.breathing ||
-      o.iosBackgroundKeepalive ||
       legacy;
   final imu = (o.foregroundGaitWorkout ||
           o.movementSampling ||

@@ -186,12 +186,6 @@ void main() {
       expect(rig.ops, [(_hr, 1)]);
     });
 
-    test('iOS background with no other owner: HR only', () async {
-      final rig = _Rig();
-      await rig.setOwners(const LiveStreamOwners(iosBackgroundKeepalive: true));
-      expect(rig.ops, [(_hr, 1)]);
-    });
-
     test('Android background with no owner: everything off, bundle before HR', () async {
       final rig = _Rig();
       await rig.setOwners(_fgGait);
@@ -564,7 +558,9 @@ void main() {
 
   group('gen4 — byte sequences unchanged', () {
     const fg = LiveStreamOwners(foreground: true);
-    const iosBg = LiveStreamOwners(iosBackgroundKeepalive: true);
+    // A background workout is the surviving HR-only owner on gen4 (the iOS
+    // background keep-alive owner is gone); it pins the same wire order.
+    const bgWorkout = LiveStreamOwners(activeWorkout: true);
 
     test('foreground on a fresh link: HR, R10/R11, IMU, optical ON', () async {
       final rig = _Rig(band: BandProfile.gen4);
@@ -582,18 +578,18 @@ void main() {
       expect(rig.link[4].body.sublist(0, 2), [revision1, 0x00]);
     });
 
-    test('full → HR-only (backgrounding on iOS): the old HR-only sequence', () async {
+    test('full → HR-only (backgrounding with a workout running): the old HR-only sequence', () async {
       final rig = _Rig(band: BandProfile.gen4);
       await rig.setOwners(fg);
-      await rig.setOwners(iosBg);
+      await rig.setOwners(bgWorkout);
       expect(rig.ops.sublist(4), [(_hr, 1), (_optMode, 0), (_optSave, 0), (_r10, 0), (_imu, 0)]);
       expect(rig.engine.debugLiveApplied, const LiveStreamIntent(hr: true, imu: false));
     });
 
-    test('fresh link, HR-only wanted (iOS background cold launch): HR ON then '
+    test('fresh link, HR-only wanted (background workout on a cold launch): HR ON then '
         'the defensive OFF tail — R10/R11 OFF persists on the strap', () async {
       final rig = _Rig(band: BandProfile.gen4);
-      await rig.setOwners(iosBg);
+      await rig.setOwners(bgWorkout);
       expect(rig.ops, [(_hr, 1), (_optMode, 0), (_optSave, 0), (_r10, 0), (_imu, 0)]);
       // Once known, a second pass is silent.
       await rig.reconcile();
