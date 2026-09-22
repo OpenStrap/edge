@@ -32,6 +32,8 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ai/briefing.dart'
+    show Briefing, BriefingPeriod, BriefingStore, currentBriefingPeriod, resolveBriefingToShow;
 import '../../data/day_label.dart' show todayLabel, calendarDaysBetween;
 import '../../data/db.dart' show DbRebuild;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
@@ -46,6 +48,7 @@ import '../activity/day_strain.dart' show DayStrainDetail;
 import '../profile/devices.dart' show formatDayTime;
 import '../profile/profile.dart';
 import '../ui2.dart';
+import 'ai_briefing.dart' show AiBriefingScreen;
 import 'coach.dart';
 import 'day_timeline.dart' show DayTimelineScreen;
 import 'metric_detail.dart';
@@ -2049,24 +2052,78 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
           false));
     }
 
-    if (rows.isEmpty) {
-      return StatusCard.forMetric(l?.homeNoPlanTitle ?? 'No plan for today yet', d.sleepNeedMin,
-              // "none are established yet" is the COLD-START reason, and it is
-              // a wrong answer when the baselines exist and are being withheld.
-              why: d.insightsStale != null
-                  ? (l?.homeNoPlanWhyStale ?? 'The cross-day rollup they come from is being rebuilt.')
-                  : (l?.homeNoPlanWhyNone ?? 'None are established yet.')) ??
-          const SizedBox.shrink();
-    }
+    final planBody = rows.isEmpty
+        ? StatusCard.forMetric(l?.homeNoPlanTitle ?? 'No plan for today yet', d.sleepNeedMin,
+                // "none are established yet" is the COLD-START reason, and it
+                // is a wrong answer when the baselines exist and are being
+                // withheld.
+                why: d.insightsStale != null
+                    ? (l?.homeNoPlanWhyStale ?? 'The cross-day rollup they come from is being rebuilt.')
+                    : (l?.homeNoPlanWhyNone ?? 'None are established yet.')) ??
+            const SizedBox.shrink()
+        : Surface(
+            pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x2),
+            child: Column(children: [
+              for (var i = 0; i < rows.length; i++) ...[
+                if (i > 0) Divider(color: p.line, height: 1),
+                rows[i],
+              ],
+            ]),
+          );
 
-    return Surface(
-      pad: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x2),
-      child: Column(children: [
-        for (var i = 0; i < rows.length; i++) ...[
-          if (i > 0) Divider(color: p.line, height: 1),
-          rows[i],
-        ],
-      ]),
+    return Column(children: [
+      planBody,
+      const SizedBox(height: S.x3),
+      _briefingDoor(c, d),
+    ]);
+  }
+
+  /// The only quick way into [AiBriefingScreen] used to be the notification
+  /// that fires when a briefing is ready — dismiss or miss it, and the
+  /// screen was two non-obvious taps deep behind Coach's overflow menu
+  /// instead (see EDGE-14). Shown unconditionally, not gated on AI/BYOK
+  /// being configured: the screen itself already has a graceful
+  /// "no model set up" state with its own way to fix that, so gating here
+  /// would just duplicate that door rather than simplify anything.
+  /// Re-run on every call rather than cached by the caller: Home is kept
+  /// alive by the shell's `IndexedStack` (see revision.dart), so a build can
+  /// sit for hours without rerunning. Resolving once at build time and
+  /// capturing the result in the row's `onTap` closure would let a stale
+  /// morning/evening decision — or a briefing written in the background
+  /// after that build — survive across the 17:00 boundary until Home
+  /// happens to rebuild for an unrelated reason.
+  ({BriefingPeriod period, Briefing? briefing}) _resolveBriefingNow(HomeData d) {
+    final period = currentBriefingPeriod(DateTime.now());
+    return resolveBriefingToShow(
+      period,
+      BriefingStore.read(period, day: d.dayId),
+      BriefingStore.read(BriefingPeriod.morning, day: d.dayId),
+    );
+  }
+
+  Widget _briefingDoor(BuildContext c, HomeData d) {
+    final l = AppLocalizations.of(c);
+    final cached = _resolveBriefingNow(d).briefing;
+    return detailLinkRow(
+      c,
+      LucideIcons.sparkles,
+      l?.homeBriefingTitle ?? 'Briefing',
+      cached?.oneLiner ?? (l?.homeBriefingSubtitleEmpty ?? 'Tap to write today\'s summary'),
+      () async {
+        // Resolved fresh at tap time via _resolveBriefingNow, not read from
+        // the value above — see that method's doc for why.
+        //
+        // Writing a briefing (BriefingStore.write, in briefing_engine.dart)
+        // does not bump AppState.insightsRevision, so RevisionReload's
+        // automatic reload never fires for it — awaiting the route and
+        // reloading on return is the only way this row picks up a briefing
+        // written during the visit instead of showing stale/empty text until
+        // some UNRELATED revision bump happens to refresh Home.
+        final screen = AiBriefingScreen(period: _resolveBriefingNow(d).period);
+        await Navigator.of(c).push(
+            themedRoute<void>((_) => screen, name: screen.runtimeType.toString()));
+        if (mounted) reload();
+      },
     );
   }
 

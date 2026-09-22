@@ -97,6 +97,27 @@ class Briefing {
   }
 }
 
+/// Resolves which period's briefing an entry point meaning "today's
+/// briefing" (Home's link row, a generic notification tap) should actually
+/// show, per [currentBriefingPeriod]'s own documented fallback: past 17:00 it
+/// returns [BriefingPeriod.evening] even when nothing has been written there
+/// yet, "falling back to the cached morning one until [it] exists."
+///
+/// [current] is [BriefingStore.read] for [period]; [morningFallback] is the
+/// same for [BriefingPeriod.morning] — passed in rather than read here so
+/// this stays a pure function, testable without touching SharedPreferences.
+({BriefingPeriod period, Briefing? briefing}) resolveBriefingToShow(
+  BriefingPeriod period,
+  Briefing? current,
+  Briefing? morningFallback,
+) {
+  if (current != null) return (period: period, briefing: current);
+  if (morningFallback != null) {
+    return (period: BriefingPeriod.morning, briefing: morningFallback);
+  }
+  return (period: period, briefing: null);
+}
+
 /// Per-day+period briefing cache + the journal "done for today" flag.
 class BriefingStore {
   BriefingStore._();

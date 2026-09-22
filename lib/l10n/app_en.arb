@@ -7445,6 +7445,14 @@
   "@homeBreakdownSubtitle": {
     "description": "Link row subtitle under the breakdown-of-your-day title."
   },
+  "homeBriefingTitle": "Briefing",
+  "@homeBriefingTitle": {
+    "description": "Link row title under Today's plan: opens the AI briefing screen. Constant regardless of morning/evening period."
+  },
+  "homeBriefingSubtitleEmpty": "Tap to write today's summary",
+  "@homeBriefingSubtitleEmpty": {
+    "description": "Link row subtitle under the briefing title when nothing has been generated for today yet."
+  },
   "homeIllnessRedTitle": "Several nights in a row are away from your normal",
   "@homeIllnessRedTitle": {
     "description": "Illness watch headline when several nights in a row are away from baseline (red state)."
