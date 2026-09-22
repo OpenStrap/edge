@@ -65,6 +65,11 @@ import 'prefs.dart';
 import '../ble/adapters/signals.dart' show InputSignal;
 import '../ui2/profile/devices.dart' show liveSources, rankSources;
 import '../data/db.dart';
+import '../ecg/ble_ecg_transport.dart';
+import '../ecg/ecg_controller.dart';
+import '../ecg/ecg_guard_store.dart';
+import '../ecg/ecg_models.dart';
+import '../ecg/ecg_recovery.dart';
 import '../data/live_coverage_policy.dart';
 import '../data/local_repository.dart';
 import '../gps/gps_source.dart';
@@ -168,6 +173,65 @@ class AppState extends ChangeNotifier {
   /// delegates to it.
   late final BandHost _bandHost;
   PairedDevice? paired;
+
+  // ── WHOOP MG ECG ──────────────────────────────────────────────────────────
+  // The controller owns one reading's lifecycle (lib/ecg/); this object only
+  // hosts it, hands it the engine through the transport adapter, and folds
+  // its "capturing" into the live-consumer and pause paths.
+  final EcgGuardStore _ecgGuard = PrefsEcgGuardStore();
+  BleEngineEcgTransport? _ecgTransport;
+  EcgController? _ecg;
+
+  /// The ECG owner. Built on first use in the real app; injectable (or
+  /// absent) under [AppState.forTesting].
+  EcgController get ecg => _ecg ??= _buildEcg();
+
+  /// Whether the paired band was ever positively identified as a WHOOP MG
+  /// (a revision-1 HELLO in the MAVERICK interval). Loaded at startup from
+  /// the per-serial flag and set the moment an MG identifies itself; the
+  /// Health ECG entry is gated on exactly this, so saved readings stay
+  /// reachable while the band is away.
+  bool pairedIsMaverick = false;
+
+  EcgController _buildEcg() {
+    final t = _ecgTransport ??= BleEngineEcgTransport(
+      engine: engine,
+      serialOf: () => paired?.serial ?? engine.state.serial,
+      onRequestSync: () => engine.requestHistorySync(),
+    );
+    return EcgController(
+      transport: t,
+      guard: _ecgGuard,
+      save: (r, p) => LocalDb.insertEcgReading(
+        r.toRow(),
+        [for (final x in p) EcgPacketCodec.toRow(x)],
+      ),
+      busyReason: () => activeWorkout != null
+          ? 'workout'
+          : (breathingActive || breathingWindowOpen)
+              ? 'breathing'
+              : null,
+      holdScreen: ScreenWake.hold,
+      releaseScreen: ScreenWake.releaseOwner,
+      log: _log,
+    );
+  }
+
+  /// READY-time recovery of a retained ECG guard — controller-free, before
+  /// the engine publishes READY or claims history (see BleEngine.onReadyEcgRecovery).
+  Future<void> _recoverEcgGuardOnReady(BleEngine e) async {
+    final t = _ecgTransport ??= BleEngineEcgTransport(
+      engine: e,
+      serialOf: () => paired?.serial ?? e.state.serial,
+      onRequestSync: () => engine.requestHistorySync(),
+    );
+    await ecgRecoverRetainedGuard(
+      guard: _ecgGuard,
+      serial: paired?.serial ?? e.state.serial,
+      cleanup: t.recoveryCleanup,
+      log: _log,
+    );
+  }
   BandLease? _foregroundLease;
 
   /// SEAM: the screen data layer. Wired to [LocalRepositoryImpl] in the ctor —
@@ -1282,6 +1346,8 @@ class AppState extends ChangeNotifier {
       // engine's callback shape for a value it does not have.
       onEvent: (id, ts, hex) =>
           _onLiveEvent(id, ts, hex, LocalDb.kPrimaryDeviceId),
+      onEcgEvent: (e) => _ecgTransport?.onEngineEvent(e),
+      onReadyEcgRecovery: _recoverEcgGuardOnReady,
       // Gated for the same reason as [_onRecord] — this one is wired straight
       // to LocalDb, so it bypasses every check AppState makes.
       onRecordsBatch: (raws, samples) async {
@@ -1296,7 +1362,7 @@ class AppState extends ChangeNotifier {
       // failure contract: `commitNativeBatch` rethrows so
       // `DrainController.commit` still reads durability from a throw.
       onCommitBatch: (raws, samples, trimTokenHex,
-          {archives, deviceFamily}) async {
+          {archives, ecgRawPackets, deviceFamily}) async {
         // THROWS, never silently succeeds. This is the ACK gate: only
         // `onCommit` can bank raws + archives + trim cursor in one
         // transaction, and DrainController reads durability FROM A THROW
@@ -1310,7 +1376,9 @@ class AppState extends ChangeNotifier {
           throw StateError('data reset in progress — refusing to commit');
         }
         return _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
-            archives: archives, deviceFamily: deviceFamily);
+            archives: archives,
+            ecgRawPackets: ecgRawPackets,
+            deviceFamily: deviceFamily);
       },
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: (raw) async {
@@ -1401,8 +1469,9 @@ class AppState extends ChangeNotifier {
   /// stream arming throws). When supplied it is used AS GIVEN — its callbacks
   /// are the test's responsibility, not wired back into this AppState.
   @visibleForTesting
-  AppState.forTesting({BleEngine? engine}) {
+  AppState.forTesting({BleEngine? engine, EcgController? ecg}) {
     _background = false;
+    _ecg = ecg;
     _gestureDispatcher = GestureDispatcher(
       settings: gestureSettings,
       log: _log,
@@ -1491,6 +1560,8 @@ class AppState extends ChangeNotifier {
     _syncQuietTimer?.cancel();
     _syncQuietTimer = null;
     _disposed = true;
+    _ecg?.dispose();
+    _ecgTransport?.dispose();
     // EVERY timer this object owns, not just three of them.
     // _breathingRecomputeTimer and _workoutTimer used to survive dispose, and
     // each of their callbacks ends in notifyListeners() on a disposed
@@ -2334,6 +2405,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> _initSteps() async {
     paired = await PairedDevice.load();
+    final pairedSerial = paired?.serial;
+    pairedIsMaverick = pairedSerial != null &&
+        await _ecgGuard.isRememberedMaverick(pairedSerial);
     await refreshSensors();
     await _loadProfile();
     await _refreshNightlyRhr();
@@ -2796,6 +2870,10 @@ class AppState extends ChangeNotifier {
   /// On Android the Edge Tracking foreground service keeps the process + connection alive.
   Future<void> pauseForBackground() async {
     _background = true;
+    // A WHOOP MG ECG reading stops on pause (the official screen does the
+    // same on ON_PAUSE) — BEFORE the live-stream downgrade below, so its
+    // cleanup triplet is on the wire first.
+    await _ecg?.onAppPaused();
     // Step the Android link down to a power-saving connection interval — see
     // `desiredLinkPriority` (issue #200).
     engine.setBackground(true);
@@ -2866,10 +2944,16 @@ class AppState extends ChangeNotifier {
   // gen4 keeps its previous behaviour: a foreground connection owns HR plus
   // the R10/R11 + IMU + optical bundle (see `LiveStreamOwners.foreground`).
 
-  /// A feature session (workout, breathing) is running — the "nothing else in
-  /// flight" bar the one-off VACUUM waits for.
+  /// A feature session (workout, breathing, ECG capture) is running — the
+  /// "nothing else in flight" bar the one-off VACUUM waits for. ECG matters
+  /// here specifically: a VACUUM takes an exclusive DB lock and rewrites the
+  /// whole file, and an ECG capture in progress is actively writing captured
+  /// packets — the two must never overlap.
   bool get _liveSessionActive =>
-      activeWorkout != null || breathingActive || breathingWindowOpen;
+      activeWorkout != null ||
+      breathingActive ||
+      breathingWindowOpen ||
+      (_ecg?.isCapturing ?? false);
 
   /// Screens showing the live BPM that are mounted right now.
   int _liveHrViewers = 0;
@@ -3912,6 +3996,14 @@ class AppState extends ChangeNotifier {
       unawaited(
           PairedDevice.save(p.remoteId, p.serial, generation: s.generation));
     }
+    // WHOOP MG identity, remembered per serial so the ECG entry survives a
+    // disconnect. Set only from a positive revision-1 MAVERICK hello — never
+    // from the family, the name or a command's acceptance.
+    final mgSerial = paired?.serial;
+    if (!pairedIsMaverick && engine.isMaverick && mgSerial != null) {
+      pairedIsMaverick = true;
+      unawaited(_ecgGuard.rememberMaverick(mgSerial));
+    }
     // Keep the lock-screen Band Battery widget current — only when it changed.
     final battPct = roundedPct ?? -1;
     if (battPct != _widgetBattPct ||
@@ -4338,6 +4430,7 @@ class AppState extends ChangeNotifier {
     await engine.disconnect();
     _releaseForegroundLease();
     await PairedDevice.clear();
+    pairedIsMaverick = false;
     // Everything the old band told us about itself. The engine's DeviceState
     // lives as long as the process and the persisted strap name outlives even
     // that, so without both of these a re-pair — with a DIFFERENT band —
@@ -5986,7 +6079,7 @@ class AppState extends ChangeNotifier {
     // Arming this from _maybeStartRouteTracking meant an indoor workout, a
     // location-denied run, and a resumed non-route session all watched the
     // screen sleep mid-set. Released unconditionally on both teardown paths.
-    ScreenWake.enable();
+    ScreenWake.hold('workout');
     activeWorkout = LiveWorkoutState(
       startTime: start,
       targetKcal: targetKcal,
@@ -6400,7 +6493,7 @@ class AppState extends ChangeNotifier {
     // and the last buffered batch of sensor beats never reaches the database.
     await HrsLink.instance.disarm();
     await PolarPmdLink.instance.disarm();
-    ScreenWake.release();
+    ScreenWake.releaseOwner('workout');
     _deriveScheduler.setWorkoutActive(false);
     final w = activeWorkout!;
     // Nullable for the same reason `steps` below is: an unanchored profile
@@ -6533,7 +6626,7 @@ class AppState extends ChangeNotifier {
     // and the last buffered batch of sensor beats never reaches the database.
     await HrsLink.instance.disarm();
     await PolarPmdLink.instance.disarm();
-    ScreenWake.release();
+    ScreenWake.releaseOwner('workout');
     _deriveScheduler.setWorkoutActive(false);
     activeWorkout = null;
     _nudgeLive(); // the workout's stream ownership ends with it

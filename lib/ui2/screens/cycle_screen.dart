@@ -234,6 +234,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
 
   Future<void> _setEnabled(bool on) async {
     await context.read<AppState>().updateProfile({'track_cycle': on});
+    if (!mounted) return;
     await _load();
   }
 
@@ -241,6 +242,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
     final repo = context.read<AppState>().repo;
     if (repo == null) return;
     await repo.postCycleLog(_date);
+    if (!mounted) return;
     await _load();
   }
 
@@ -960,7 +962,7 @@ class _CycleHistoryState extends State<_CycleHistory> {
   /// the gallery.
   AppState? get _app {
     try {
-      return context.watch<AppState>();
+      return context.read<AppState>();
     } catch (_) {
       return null;
     }
@@ -969,7 +971,18 @@ class _CycleHistoryState extends State<_CycleHistory> {
   /// WH-08 is OPT IN. It is never turned on by an age read off the profile —
   /// that would be the app deciding what stage of life she is in, which is the
   /// one thing this screen must never do.
-  bool get _lengthReview => _app?.user?['cycle_length_review'] == true;
+  ///
+  /// Narrowed via `select` (not `_app`'s plain `read`) so this subtree only
+  /// rebuilds when this one profile field flips — not on every AppState
+  /// change (live HR/sync ticks fire far more often than this toggles).
+  bool get _lengthReview {
+    try {
+      return context.select<AppState, bool>(
+          (a) => a.user?['cycle_length_review'] == true);
+    } catch (_) {
+      return false;
+    }
+  }
 
   @override
   Widget build(BuildContext c) {

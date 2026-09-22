@@ -7445,6 +7445,14 @@
   "@homeBreakdownSubtitle": {
     "description": "Link row subtitle under the breakdown-of-your-day title."
   },
+  "homeBriefingTitle": "Briefing",
+  "@homeBriefingTitle": {
+    "description": "Link row title under Today's plan: opens the AI briefing screen. Constant regardless of morning/evening period."
+  },
+  "homeBriefingSubtitleEmpty": "Tap to write today's summary",
+  "@homeBriefingSubtitleEmpty": {
+    "description": "Link row subtitle under the briefing title when nothing has been generated for today yet."
+  },
   "homeIllnessRedTitle": "Several nights in a row are away from your normal",
   "@homeIllnessRedTitle": {
     "description": "Illness watch headline when several nights in a row are away from baseline (red state)."
@@ -12119,5 +12127,319 @@
   "devicesRequestNotSaved": "That request could not be saved. Please try again.",
   "@devicesRequestNotSaved": {
     "description": "Shown when the add-a-band restart request could not be persisted."
+  },
+  "ecgTitle": "ECG",
+  "@ecgTitle": {
+    "description": "WHOOP MG ECG: ECG"
+  },
+  "ecgHeartScreener": "Heart Screener",
+  "@ecgHeartScreener": {
+    "description": "WHOOP MG ECG: Heart Screener"
+  },
+  "ecgEntryMeta": "WHOOP MG · band-reported",
+  "@ecgEntryMeta": {
+    "description": "WHOOP MG ECG: WHOOP MG · band-reported"
+  },
+  "ecgOpen": "Open",
+  "@ecgOpen": {
+    "description": "WHOOP MG ECG: Open"
+  },
+  "ecgTakeEcg": "Take ECG",
+  "@ecgTakeEcg": {
+    "description": "WHOOP MG ECG: Take ECG"
+  },
+  "ecgNeedsMg": "Take ECG needs a connected WHOOP MG.",
+  "@ecgNeedsMg": {
+    "description": "WHOOP MG ECG: Take ECG needs a connected WHOOP MG."
+  },
+  "ecgHistoryEmpty": "No readings yet.",
+  "@ecgHistoryEmpty": {
+    "description": "WHOOP MG ECG: No readings yet."
+  },
+  "ecgHistoryEmptyWhy": "Readings you take are saved here and stay readable while the band is away.",
+  "@ecgHistoryEmptyWhy": {
+    "description": "WHOOP MG ECG: Readings you take are saved here and stay readable while the band is away."
+  },
+  "ecgWristPrompt": "Which wrist is the band on?",
+  "@ecgWristPrompt": {
+    "description": "WHOOP MG ECG: Which wrist is the band on?"
+  },
+  "ecgWristLeft": "Left wrist",
+  "@ecgWristLeft": {
+    "description": "WHOOP MG ECG: Left wrist"
+  },
+  "ecgWristRight": "Right wrist",
+  "@ecgWristRight": {
+    "description": "WHOOP MG ECG: Right wrist"
+  },
+  "ecgInstruction": "Rest your arm. Touch both metal sides with your opposite thumb and index finger. Keep still.",
+  "@ecgInstruction": {
+    "description": "WHOOP MG ECG: Rest your arm. Touch both metal sides with your opposite thumb and index finger. Keep still."
+  },
+  "ecgIllustration": "Illustration: the band on your wrist, and the thumb and index finger of your other hand touching its two metal sides.",
+  "@ecgIllustration": {
+    "description": "WHOOP MG ECG: Illustration: the band on your wrist, and the thumb and index finger of your other hand touching its two metal sides."
+  },
+  "ecgContactLost": "Adjust your fingers and keep still",
+  "@ecgContactLost": {
+    "description": "WHOOP MG ECG: Adjust your fingers and keep still"
+  },
+  "ecgPreparing": "Preparing the band…",
+  "@ecgPreparing": {
+    "description": "WHOOP MG ECG: Preparing the band…"
+  },
+  "ecgRecovering": "Stopping a previous reading first…",
+  "@ecgRecovering": {
+    "description": "WHOOP MG ECG: Stopping a previous reading first…"
+  },
+  "ecgWaiting": "Waiting for contact",
+  "@ecgWaiting": {
+    "description": "WHOOP MG ECG: Waiting for contact"
+  },
+  "ecgMeasuring": "Measuring",
+  "@ecgMeasuring": {
+    "description": "WHOOP MG ECG: Measuring"
+  },
+  "ecgRestarting": "Restarting…",
+  "@ecgRestarting": {
+    "description": "WHOOP MG ECG: Restarting…"
+  },
+  "ecgSaving": "Saving…",
+  "@ecgSaving": {
+    "description": "WHOOP MG ECG: Saving…"
+  },
+  "ecgCleaningUp": "Stopping the band…",
+  "@ecgCleaningUp": {
+    "description": "WHOOP MG ECG: Stopping the band…"
+  },
+  "ecgCompleted": "Reading saved",
+  "@ecgCompleted": {
+    "description": "WHOOP MG ECG: Reading saved"
+  },
+  "ecgUnreadableTitle": "The band could not read this",
+  "@ecgUnreadableTitle": {
+    "description": "WHOOP MG ECG: The band could not read this"
+  },
+  "ecgInconclusiveTitle": "Inconclusive",
+  "@ecgInconclusiveTitle": {
+    "description": "WHOOP MG ECG: Inconclusive"
+  },
+  "ecgInconclusiveRetryHint": "The band could not decide. You can try once more.",
+  "@ecgInconclusiveRetryHint": {
+    "description": "WHOOP MG ECG: The band could not decide. You can try once more."
+  },
+  "ecgTryOnceMore": "Try once more",
+  "@ecgTryOnceMore": {
+    "description": "WHOOP MG ECG: Try once more"
+  },
+  "ecgTakeAnother": "Take another",
+  "@ecgTakeAnother": {
+    "description": "WHOOP MG ECG: Take another"
+  },
+  "ecgDone": "Done",
+  "@ecgDone": {
+    "description": "WHOOP MG ECG: Done"
+  },
+  "ecgViewReading": "View reading",
+  "@ecgViewReading": {
+    "description": "WHOOP MG ECG: View reading"
+  },
+  "ecgCancelledTitle": "Reading cancelled",
+  "@ecgCancelledTitle": {
+    "description": "WHOOP MG ECG: Reading cancelled"
+  },
+  "ecgFailedTitle": "Reading failed",
+  "@ecgFailedTitle": {
+    "description": "WHOOP MG ECG: Reading failed"
+  },
+  "ecgFailedDisconnected": "The band disconnected.",
+  "@ecgFailedDisconnected": {
+    "description": "WHOOP MG ECG: The band disconnected."
+  },
+  "ecgFailedTimeout": "No result within two minutes.",
+  "@ecgFailedTimeout": {
+    "description": "WHOOP MG ECG: No result within two minutes."
+  },
+  "ecgFailedGeneric": "The band did not accept the reading ({reason}).",
+  "@ecgFailedGeneric": {
+    "description": "WHOOP MG ECG: The band did not accept the reading ({reason}).",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "ecgBusy": "Finish the other live session first.",
+  "@ecgBusy": {
+    "description": "WHOOP MG ECG: Finish the other live session first."
+  },
+  "ecgIncompatible": "This band is not a WHOOP MG.",
+  "@ecgIncompatible": {
+    "description": "WHOOP MG ECG: This band is not a WHOOP MG."
+  },
+  "ecgDisconnected": "Connect your WHOOP MG first.",
+  "@ecgDisconnected": {
+    "description": "WHOOP MG ECG: Connect your WHOOP MG first."
+  },
+  "ecgCleanupIncomplete": "The band may still be generating. It will be stopped on the next connection.",
+  "@ecgCleanupIncomplete": {
+    "description": "WHOOP MG ECG: The band may still be generating. It will be stopped on the next connection."
+  },
+  "ecgLivePreview": "Live signal preview",
+  "@ecgLivePreview": {
+    "description": "WHOOP MG ECG: Live signal preview"
+  },
+  "ecgBandReported": "Band-reported result",
+  "@ecgBandReported": {
+    "description": "WHOOP MG ECG: Band-reported result"
+  },
+  "ecgNotDiagnosis": "The category comes from the band. This is not a diagnosis.",
+  "@ecgNotDiagnosis": {
+    "description": "WHOOP MG ECG: The category comes from the band. This is not a diagnosis."
+  },
+  "ecgCategorySinus": "Sinus rhythm",
+  "@ecgCategorySinus": {
+    "description": "WHOOP MG ECG: Sinus rhythm"
+  },
+  "ecgCategoryLowHr": "Low heart rate",
+  "@ecgCategoryLowHr": {
+    "description": "WHOOP MG ECG: Low heart rate"
+  },
+  "ecgCategoryPossibleAfib": "Possible AFib",
+  "@ecgCategoryPossibleAfib": {
+    "description": "WHOOP MG ECG: Possible AFib"
+  },
+  "ecgCategoryAfibHighHr": "AFib with high heart rate",
+  "@ecgCategoryAfibHighHr": {
+    "description": "WHOOP MG ECG: AFib with high heart rate"
+  },
+  "ecgCategoryHighHr": "High heart rate",
+  "@ecgCategoryHighHr": {
+    "description": "WHOOP MG ECG: High heart rate"
+  },
+  "ecgCategoryHighHrNoAfib": "High heart rate, no AFib detected",
+  "@ecgCategoryHighHrNoAfib": {
+    "description": "WHOOP MG ECG: High heart rate, no AFib detected"
+  },
+  "ecgCategoryInconclusive": "Inconclusive",
+  "@ecgCategoryInconclusive": {
+    "description": "WHOOP MG ECG: Inconclusive"
+  },
+  "ecgCategoryUnreadable": "Unreadable",
+  "@ecgCategoryUnreadable": {
+    "description": "WHOOP MG ECG: Unreadable"
+  },
+  "ecgReasonLowAmplitude": "Low amplitude",
+  "@ecgReasonLowAmplitude": {
+    "description": "WHOOP MG ECG: Low amplitude"
+  },
+  "ecgReasonNoise": "Significant noise",
+  "@ecgReasonNoise": {
+    "description": "WHOOP MG ECG: Significant noise"
+  },
+  "ecgReasonUnstable": "Unstable signal",
+  "@ecgReasonUnstable": {
+    "description": "WHOOP MG ECG: Unstable signal"
+  },
+  "ecgReasonNotEnoughData": "Not enough data",
+  "@ecgReasonNotEnoughData": {
+    "description": "WHOOP MG ECG: Not enough data"
+  },
+  "ecgAnalyzeNow": "Analyze now",
+  "@ecgAnalyzeNow": {
+    "description": "WHOOP MG ECG: Analyze now"
+  },
+  "ecgAnalyzeCloudTitle": "Send this reading to your model?",
+  "@ecgAnalyzeCloudTitle": {
+    "description": "WHOOP MG ECG: Send this reading to your model?"
+  },
+  "ecgAnalyzeCloudBody": "The reading summary and the full waveform (every sample the band recorded, 100 per second) will be sent to {host} as {model}. No raw frames, no band serial.",
+  "@ecgAnalyzeCloudBody": {
+    "description": "WHOOP MG ECG: The reading summary and a bounded waveform envelope will be sent to {host} as {model}. No raw frames, no band serial.",
+    "placeholders": {
+      "host": {
+        "type": "String"
+      },
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "ecgContinue": "Continue",
+  "@ecgContinue": {
+    "description": "WHOOP MG ECG: Continue"
+  },
+  "ecgCancel": "Cancel",
+  "@ecgCancel": {
+    "description": "WHOOP MG ECG: Cancel"
+  },
+  "ecgDelete": "Delete reading",
+  "@ecgDelete": {
+    "description": "WHOOP MG ECG: Delete reading"
+  },
+  "ecgAvgHr": "Average heart rate",
+  "@ecgAvgHr": {
+    "description": "WHOOP MG ECG: Average heart rate"
+  },
+  "ecgQuality": "Signal quality",
+  "@ecgQuality": {
+    "description": "WHOOP MG ECG: Signal quality"
+  },
+  "ecgInterruptions": "Interruptions",
+  "@ecgInterruptions": {
+    "description": "WHOOP MG ECG: Interruptions"
+  },
+  "ecgDuration": "Duration",
+  "@ecgDuration": {
+    "description": "WHOOP MG ECG: Duration"
+  },
+  "ecgMissingSegments": "Missing segments",
+  "@ecgMissingSegments": {
+    "description": "WHOOP MG ECG: Missing segments"
+  },
+  "ecgWristLabel": "Wrist",
+  "@ecgWristLabel": {
+    "description": "WHOOP MG ECG: Wrist"
+  },
+  "ecgZoomIn": "Zoom in",
+  "@ecgZoomIn": {
+    "description": "WHOOP MG ECG: Zoom in"
+  },
+  "ecgZoomOut": "Zoom out",
+  "@ecgZoomOut": {
+    "description": "WHOOP MG ECG: Zoom out"
+  },
+  "ecgClose": "Close ECG",
+  "@ecgClose": {
+    "description": "WHOOP MG ECG: Close ECG"
+  },
+  "ecgProgress": "{pct}% complete",
+  "@ecgProgress": {
+    "description": "WHOOP MG ECG: {pct}% complete",
+    "placeholders": {
+      "pct": {
+        "type": "int"
+      }
+    }
+  },
+  "ecgWaveformEmpty": "No waveform was saved with this reading.",
+  "@ecgWaveformEmpty": {
+    "description": "WHOOP MG ECG: No waveform was saved with this reading."
+  },
+  "ecgWaveformLabel": "Accepted waveform, microvolts as the band sent them. Gaps are missing seconds.",
+  "@ecgWaveformLabel": {
+    "description": "WHOOP MG ECG: Accepted waveform, microvolts as the band sent them. Gaps are missing seconds."
+  },
+  "ecgSampleNote": "{count} samples at {rate} Hz, filtered, input-referred µV. No lead or polarity is claimed.",
+  "@ecgSampleNote": {
+    "description": "WHOOP MG ECG: {count} samples at {rate} Hz, filtered, input-referred µV. No lead or polarity is claimed.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "rate": {
+        "type": "int"
+      }
+    }
   }
 }

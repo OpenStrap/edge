@@ -399,6 +399,14 @@ class Motion {
   /// the screen (see `BreathRing.t`); this is only how long a cycle lasts, and
   /// the screen must not start it at all when [enabled] is false.
   static const breath = Duration(seconds: 5);
+
+  /// One pulse of the ECG capture screen's contact rings. Phase is owned by
+  /// the screen (like [breath]); nothing runs when [enabled] is false.
+  static const ecgPulse = Duration(seconds: 2);
+
+  /// The ECG live-preview repaint cadence: incoming packets only mark the
+  /// ring dirty, and the screen's clock repaints at most this often.
+  static const ecgPreviewTick = Duration(milliseconds: 100);
 }
 
 /// Collapse [d] to zero when the user has asked for reduced motion. Every
