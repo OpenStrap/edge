@@ -20,6 +20,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../l10n/app_localizations.dart';
 import '../theme.dart';
 
+part 'wger_exercises.g.dart';
+
 /// How a session is tracked — which decides which live screen it opens, and
 /// therefore which parameters the user is asked for.
 enum Track {
@@ -332,60 +334,229 @@ Activity? activityByName(String? type) =>
     type == null ? null : _byKey[type.toLowerCase().replaceAll(' ', '_')];
 
 // ── EXERCISES ──────────────────────────────────────────────────────────────
-// The strength catalogue. `muscles` is the fraction of the set's work each
-// group takes, and it is what the muscle map is drawn from — so it is a claim
-// about anatomy, not decoration. Values are the conventional prime-mover /
-// synergist split; they are approximate and the map is labelled relative.
+// The strength catalogue. The short hand-written list stays first as the
+// familiar quick list and, more importantly, keeps the storage keys already
+// present in strength_set stable. The generated tail comes from wger at build
+// time; the app never contacts wger while it is running.
+//
+// wger says which muscles are primary and secondary. It does NOT attach a
+// percentage of a set's work to either list, so this model does not manufacture
+// one. Likewise, its equipment and category are vocabulary for finding an
+// exercise, not inputs to a load or calorie calculation.
+
+class ExerciseCredit {
+  final String licenseName;
+  final String licenseUrl;
+  final String author;
+
+  const ExerciseCredit(this.licenseName, this.licenseUrl, this.author);
+}
 
 class ExerciseDef {
   final String key;
   final String label;
+  final List<String> primaryMuscles;
+  final List<String> secondaryMuscles;
+  final String category;
+  final List<String> equipment;
+  final List<String> aliases;
 
-  /// group → 0…1 share of the work. Only the primary mover is shown, as the
-  /// category label in the exercise picker — nothing paints these any more.
-  final Map<String, double> muscles;
+  /// Labels supplied by the upstream record for locales Edge already ships.
+  /// Missing means the English [label], not a guessed translation.
+  final Map<String, String> localizedLabels;
 
   /// The plate/dumbbell increment this lift is normally loaded in, kg. A
   /// barbell moves in 2.5, a dumbbell in 2 — a single global step is what
   /// makes every strength app feel like a spreadsheet.
   final double step;
 
-  const ExerciseDef(this.key, this.label, this.muscles, {this.step = 2.5});
+  /// Present only for generated wger rows. The base exercise and each
+  /// translation are separately licensed upstream, so one row can have more
+  /// than one credit. Keeping all distinct author/license pairs prevents a
+  /// translated name from being falsely attributed to the base-data author.
+  final String? sourceId;
+  final String? sourceUpdatedAt;
+  final List<ExerciseCredit> sourceCredits;
+
+  const ExerciseDef(
+    this.key,
+    this.label,
+    this.primaryMuscles, {
+    this.secondaryMuscles = const [],
+    this.category = '',
+    this.equipment = const [],
+    this.aliases = const [],
+    this.localizedLabels = const {},
+    this.step = 2.5,
+    this.sourceId,
+    this.sourceUpdatedAt,
+    this.sourceCredits = const [],
+  });
+
+  bool get fromWger => sourceId != null;
+
+  /// A public record containing the exact title, authors and licenses used by
+  /// this snapshot. Opened only when the user asks to inspect attribution; the
+  /// app itself never fetches exercise content.
+  String? get sourceUrl => sourceId == null
+      ? null
+      : 'https://wger.de/api/v2/exerciseinfo/?uuid=$sourceId';
+
+  String labelFor(String languageCode) =>
+      localizedLabels[languageCode] ?? label;
+
+  /// Local, deliberately small search: even the full generated catalogue is
+  /// under a thousand rows, and this runs only as the picker query changes.
+  bool matches(String query, String languageCode) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    return <String>{
+      labelFor(languageCode),
+      label,
+      ...localizedLabels.values,
+      ...aliases,
+      ...primaryMuscles,
+      ...secondaryMuscles,
+      ...equipment,
+      category,
+    }.any((v) => v.toLowerCase().contains(q));
+  }
 }
 
-const exerciseLibrary = <ExerciseDef>[
-  ExerciseDef('bench_press', 'Bench press',
-      {'chest': .6, 'triceps': .25, 'shoulders': .15}),
-  ExerciseDef('incline_db_press', 'Incline DB press',
-      {'chest': .5, 'shoulders': .3, 'triceps': .2},
-      step: 2),
-  ExerciseDef('cable_fly', 'Cable fly', {'chest': .8, 'shoulders': .2}),
-  ExerciseDef('overhead_press', 'Overhead press',
-      {'shoulders': .6, 'triceps': .3, 'core': .1}),
-  ExerciseDef('triceps_pushdown', 'Triceps pushdown', {'triceps': 1.0}),
-  ExerciseDef('overhead_extension', 'Overhead extension', {'triceps': 1.0}),
-  ExerciseDef('barbell_row', 'Barbell row',
-      {'back': .65, 'biceps': .25, 'core': .1}),
-  ExerciseDef('lat_pulldown', 'Lat pulldown', {'back': .7, 'biceps': .3}),
-  ExerciseDef('pull_up', 'Pull-up', {'back': .65, 'biceps': .25, 'core': .1}),
-  ExerciseDef('barbell_curl', 'Barbell curl', {'biceps': 1.0}),
-  ExerciseDef('back_squat', 'Back squat',
-      {'legs': .65, 'glutes': .25, 'core': .1}),
-  ExerciseDef('front_squat', 'Front squat',
-      {'legs': .6, 'glutes': .2, 'core': .2}),
-  ExerciseDef('deadlift', 'Deadlift',
-      {'back': .35, 'legs': .3, 'glutes': .3, 'core': .05}),
-  ExerciseDef('romanian_deadlift', 'Romanian deadlift',
-      {'glutes': .45, 'legs': .35, 'back': .2}),
-  ExerciseDef('hip_thrust', 'Hip thrust', {'glutes': .8, 'legs': .2}),
-  ExerciseDef('leg_press', 'Leg press', {'legs': .75, 'glutes': .25}),
-  ExerciseDef('plank', 'Plank', {'core': 1.0}, step: 0),
-  ExerciseDef('hanging_leg_raise', 'Hanging leg raise', {'core': 1.0}, step: 0),
+const _edgeExerciseLibrary = <ExerciseDef>[
+  ExerciseDef(
+    'bench_press',
+    'Bench press',
+    ['chest', 'triceps', 'shoulders'],
+    category: 'Chest',
+    equipment: ['Barbell', 'Bench'],
+  ),
+  ExerciseDef(
+    'incline_db_press',
+    'Incline DB press',
+    ['chest', 'shoulders', 'triceps'],
+    category: 'Chest',
+    equipment: ['Dumbbell', 'Incline bench'],
+    aliases: ['incline dumbbell press'],
+    step: 2,
+  ),
+  ExerciseDef(
+    'cable_fly',
+    'Cable fly',
+    ['chest', 'shoulders'],
+    category: 'Chest',
+    equipment: ['Cable machine'],
+  ),
+  ExerciseDef(
+    'overhead_press',
+    'Overhead press',
+    ['shoulders', 'triceps', 'core'],
+    category: 'Shoulders',
+    equipment: ['Barbell'],
+    aliases: ['OHP'],
+  ),
+  ExerciseDef(
+    'triceps_pushdown',
+    'Triceps pushdown',
+    ['triceps'],
+    category: 'Arms',
+    equipment: ['Cable machine'],
+  ),
+  ExerciseDef(
+    'overhead_extension',
+    'Overhead extension',
+    ['triceps'],
+    category: 'Arms',
+    aliases: ['overhead triceps extension'],
+  ),
+  ExerciseDef(
+    'barbell_row',
+    'Barbell row',
+    ['back', 'biceps', 'core'],
+    category: 'Back',
+    equipment: ['Barbell'],
+  ),
+  ExerciseDef(
+    'lat_pulldown',
+    'Lat pulldown',
+    ['back', 'biceps'],
+    category: 'Back',
+    equipment: ['Cable machine'],
+  ),
+  ExerciseDef(
+    'pull_up',
+    'Pull-up',
+    ['back', 'biceps', 'core'],
+    category: 'Back',
+    equipment: ['Pull-up bar'],
+    aliases: ['pull up', 'pull-ups'],
+  ),
+  ExerciseDef(
+    'barbell_curl',
+    'Barbell curl',
+    ['biceps'],
+    category: 'Arms',
+    equipment: ['Barbell'],
+  ),
+  ExerciseDef(
+    'back_squat',
+    'Back squat',
+    ['legs', 'glutes', 'core'],
+    category: 'Legs',
+    equipment: ['Barbell'],
+  ),
+  ExerciseDef(
+    'front_squat',
+    'Front squat',
+    ['legs', 'glutes', 'core'],
+    category: 'Legs',
+    equipment: ['Barbell'],
+  ),
+  ExerciseDef(
+    'deadlift',
+    'Deadlift',
+    ['back', 'legs', 'glutes', 'core'],
+    category: 'Back',
+    equipment: ['Barbell'],
+  ),
+  ExerciseDef(
+    'romanian_deadlift',
+    'Romanian deadlift',
+    ['glutes', 'legs', 'back'],
+    category: 'Legs',
+    equipment: ['Barbell'],
+    aliases: ['RDL'],
+  ),
+  ExerciseDef('hip_thrust', 'Hip thrust', ['glutes', 'legs'], category: 'Legs'),
+  ExerciseDef('leg_press', 'Leg press', ['legs', 'glutes'], category: 'Legs'),
+  ExerciseDef(
+    'plank',
+    'Plank',
+    ['core'],
+    category: 'Abs',
+    equipment: ['none (bodyweight exercise)'],
+    step: 0,
+  ),
+  ExerciseDef(
+    'hanging_leg_raise',
+    'Hanging leg raise',
+    ['core'],
+    category: 'Abs',
+    equipment: ['Pull-up bar'],
+    step: 0,
+  ),
 ];
+
+const exerciseLibrary = <ExerciseDef>[
+  ..._edgeExerciseLibrary,
+  ..._wgerExerciseLibrary,
+];
+
+final coreExerciseCount = _edgeExerciseLibrary.length;
+final wgerExerciseCount = _wgerExerciseLibrary.length;
 
 final Map<String, ExerciseDef> _exercisesByKey = {
   for (final e in exerciseLibrary) e.key: e,
 };
 
 ExerciseDef? exerciseByKey(String key) => _exercisesByKey[key];
-

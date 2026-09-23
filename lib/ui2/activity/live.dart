@@ -39,6 +39,7 @@ import '../grammar.dart';
 import '../paint_activity.dart';
 import '../theme.dart';
 import 'catalogue.dart';
+import 'exercise_picker.dart';
 import 'summary.dart';
 
 /// What the band and the phone know right now. Read once per tick.
@@ -1137,7 +1138,7 @@ class LiveStrength extends StatefulWidget {
 
 class _LiveStrengthState extends State<LiveStrength> {
   /// The exercises this session has touched, in the order they were added.
-  final plan = <String>['bench_press'];
+  final plan = <String>[];
   int index = 0;
 
   double kg = 40;
@@ -1165,7 +1166,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   void initState() {
     super.initState();
     _restore();
-    _seedFromHistory();
+    if (plan.isNotEmpty) _seedFromHistory();
   }
 
   @override
@@ -1175,27 +1176,47 @@ class _LiveStrengthState extends State<LiveStrength> {
     super.dispose();
   }
 
-  /// Sets logged before this screen was rebuilt — the session was minimised,
-  /// or the process was killed and relaunched. Nothing measures a bench press,
-  /// so these bytes cannot be recovered from anywhere else.
+  /// Plan and sets written before this screen was rebuilt — the session was
+  /// minimised, or the process was killed and relaunched. Exercises with zero
+  /// sets matter too: without the plan they disappeared on resume.
   void _restore() {
-    final saved = LiveDraft.current?.data['sets'];
-    if (saved is! List) return;
-    for (final e in saved) {
-      if (e is! Map) continue;
-      final k = e['k'];
-      if (k is! String) continue;
-      logged.add(LoggedSet(
-        k,
-        (e['reps'] as num?)?.toInt() ?? 0,
-        loadKg: (e['kg'] as num?)?.toDouble(),
-        rpe: (e['rpe'] as num?)?.toInt(),
-        restSec: (e['rest'] as num?)?.toInt(),
-        at: DateTime.fromMillisecondsSinceEpoch((e['at'] as num?)?.toInt() ?? 0),
-      ));
-      if (!plan.contains(k)) plan.add(k);
+    final draft = LiveDraft.current;
+    // A crash-rehydrated or gesture-started real session can have no draft,
+    // just like a preview can. Neither is evidence that the user bench-pressed.
+    if (draft == null) return;
+    final savedPlan = draft.data['exercise_plan'];
+    if (savedPlan is List) {
+      for (final value in savedPlan) {
+        if (value is String && value.isNotEmpty && !plan.contains(value)) {
+          plan.add(value);
+        }
+      }
     }
-    if (logged.isNotEmpty) index = plan.indexOf(logged.last.exerciseKey);
+    final saved = draft.data['sets'];
+    if (saved is List) {
+      for (final e in saved) {
+        if (e is! Map) continue;
+        final k = e['k'];
+        if (k is! String) continue;
+        logged.add(LoggedSet(
+          k,
+          (e['reps'] as num?)?.toInt() ?? 0,
+          loadKg: (e['kg'] as num?)?.toDouble(),
+          rpe: (e['rpe'] as num?)?.toInt(),
+          restSec: (e['rest'] as num?)?.toInt(),
+          at: DateTime.fromMillisecondsSinceEpoch(
+              (e['at'] as num?)?.toInt() ?? 0),
+        ));
+        if (!plan.contains(k)) plan.add(k);
+      }
+    }
+    if (plan.isEmpty) return;
+    final savedIndex = (draft.data['exercise_index'] as num?)?.toInt();
+    if (savedIndex != null && savedIndex >= 0 && savedIndex < plan.length) {
+      index = savedIndex;
+    } else if (logged.isNotEmpty) {
+      index = plan.indexOf(logged.last.exerciseKey);
+    }
   }
 
   /// Write the log through — to the draft, so minimising cannot lose it, and
@@ -1214,7 +1235,13 @@ class _LiveStrengthState extends State<LiveStrength> {
           'at': s.at.millisecondsSinceEpoch,
         },
     ]);
+    _persistPlan();
     widget.onSets?.call(List.of(logged));
+  }
+
+  void _persistPlan() {
+    LiveDraft.current?.put('exercise_plan', List<String>.of(plan));
+    LiveDraft.current?.put('exercise_index', index);
   }
 
   String get key => plan[index];
@@ -1226,6 +1253,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   /// Open each exercise at what the user did last time. Nothing to go on →
   /// leave the stepper where it is rather than guessing a load.
   void _seedFromHistory() {
+    if (plan.isEmpty) return;
     final prev = widget.history[key]?.previous;
     if (prev == null) return;
     setState(() {
@@ -1236,6 +1264,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   }
 
   void logSet() {
+    if (plan.isEmpty) return;
     HapticFeedback.mediumImpact();
     final now = DateTime.now();
     // The rest ACTUALLY taken before this set, not the 90 s target — the
@@ -1273,52 +1302,71 @@ class _LiveStrengthState extends State<LiveStrength> {
     _rest?.cancel();
     restLeft.value = 0;
     setState(() => index = i);
+    _persistPlan();
     _seedFromHistory();
   }
 
   Future<void> addExercise() async {
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      // A sheet does not consult `pageTransitionsTheme`, so reduced motion has
-      // to be handed to it here or the panel slides up at full duration.
-      sheetAnimationStyle: sheetMotion(context),
-      backgroundColor: P.of(context).card,
-      shape: const RoundedRectangleBorder(borderRadius: R.rXl),
-      builder: (c) {
-        final p = P.of(c);
-        final l = AppLocalizations.of(c);
-        return SafeArea(
-          child: ListView(shrinkWrap: true, children: [
-            Padding(
-              padding: const EdgeInsets.all(S.x4),
-              child: Text(l?.activityLiveAddExerciseTitle ?? 'Add exercise',
-                  style: F.head.copyWith(color: p.ink)),
-            ),
-            for (final e in exerciseLibrary)
-              Pressable(
-                onTap: () => Navigator.pop(c, e.key),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: S.x4, vertical: S.x3),
-                  child: Row(children: [
-                    Expanded(
-                        child: Text(e.label,
-                            style: F.body.copyWith(color: p.ink))),
-                    Text(e.muscles.keys.first,
-                        style: F.over.copyWith(color: p.ink3)),
-                  ]),
-                ),
-              ),
-          ]),
-        );
-      },
+    final picked = await showExercisePicker(
+      context,
+      mode: plan.isEmpty ? ExercisePickMode.choose : ExercisePickMode.add,
+      selectedKeys: plan.toSet(),
+      recentKeys: _recentKeys,
     );
-    if (picked == null) return;
+    if (!mounted || picked == null) return;
+    _rest?.cancel();
+    restLeft.value = 0;
     setState(() {
       if (!plan.contains(picked)) plan.add(picked);
       index = plan.indexOf(picked);
     });
+    _persistPlan();
     _seedFromHistory();
+  }
+
+  /// Change an empty slot in place. Once it owns logged sets, "change" means
+  /// switch/add: silently relabelling completed sets would rewrite what the
+  /// user said they performed.
+  Future<void> changeExercise() async {
+    if (plan.isEmpty) return addExercise();
+    final oldIndex = index;
+    final mayReplace = setsHere.isEmpty;
+    final picked = await showExercisePicker(
+      context,
+      mode: ExercisePickMode.change,
+      selectedKeys: plan.toSet(),
+      recentKeys: _recentKeys,
+    );
+    if (!mounted || picked == null || picked == plan[oldIndex]) return;
+    _rest?.cancel();
+    restLeft.value = 0;
+    setState(() {
+      final existing = plan.indexOf(picked);
+      if (mayReplace) {
+        if (existing < 0) {
+          plan[oldIndex] = picked;
+          index = oldIndex;
+        } else {
+          plan.removeAt(oldIndex);
+          index = plan.indexOf(picked);
+        }
+      } else {
+        if (existing < 0) plan.add(picked);
+        index = plan.indexOf(picked);
+      }
+    });
+    _persistPlan();
+    _seedFromHistory();
+  }
+
+  List<String> get _recentKeys {
+    final entries = widget.history.entries.toList()
+      ..sort((a, b) {
+        final aa = a.value.previous?.at.millisecondsSinceEpoch ?? 0;
+        final bb = b.value.previous?.at.millisecondsSinceEpoch ?? 0;
+        return bb.compareTo(aa);
+      });
+    return [for (final entry in entries) entry.key];
   }
 
   @override
@@ -1339,7 +1387,15 @@ class _LiveStrengthState extends State<LiveStrength> {
           widget.feed?.call() ?? LiveFeed.none, widget.weightKg, elapsed,
           widget.private,
           strength: log),
-      footer: (ctx) => restLeft.value > 0
+      footer: (ctx) => plan.isEmpty
+          ? BigButton(
+              AppLocalizations.of(ctx)?.activityExercisePickerChooseTitle ??
+                  'Choose exercise',
+              icon: LucideIcons.search,
+              color: C.purple,
+              onTap: addExercise,
+            )
+          : restLeft.value > 0
           ? Row(children: [
               Expanded(
                 child: BigButton('+30s',
@@ -1376,6 +1432,18 @@ class _LiveStrengthState extends State<LiveStrength> {
   Widget _body(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
+    if (plan.isEmpty) {
+      return Column(children: [
+        StatusCard(
+          l?.activityExercisePickerChooseTitle ?? 'Choose exercise',
+          l?.activityLiveChooseExerciseBody ??
+              'Pick the first exercise before logging a set.',
+          icon: LucideIcons.dumbbell,
+        ),
+        const SizedBox(height: S.x5),
+        LiveTick((_, _) => LiveHeart(widget.feed?.call() ?? LiveFeed.none)),
+      ]);
+    }
     final volume = log.volumeKg;
     final hist = widget.history[key];
     return Column(children: [
@@ -1399,35 +1467,54 @@ class _LiveStrengthState extends State<LiveStrength> {
       Row(children: [
         Pressable(
           semanticLabel: l?.activityLivePreviousExercise ?? 'Previous exercise',
-          onTap: () => goExercise(index - 1),
+          onTap: index == 0 ? null : () => goExercise(index - 1),
           child: Icon(LucideIcons.chevronLeft,
               size: 20, color: index == 0 ? p.line : p.ink3),
         ),
         Expanded(
-          child: Column(children: [
-            Text(
-                l?.activityLiveExerciseOf(index + 1, plan.length) ??
-                    'EXERCISE ${index + 1} OF ${plan.length}',
-                style: F.over.copyWith(color: p.ink3)),
-            const SizedBox(height: S.x1),
-            Text(def?.label ?? key,
-                textAlign: TextAlign.center,
-                style: F.t2.copyWith(color: p.ink)),
-          ]),
+          child: Pressable(
+            semanticLabel:
+                l?.activityLiveChangeExercise ?? 'Change exercise',
+            onTap: changeExercise,
+            child: Column(children: [
+              Text(
+                  l?.activityLiveExerciseOf(index + 1, plan.length) ??
+                      'EXERCISE ${index + 1} OF ${plan.length}',
+                  style: F.over.copyWith(color: p.ink3)),
+              const SizedBox(height: S.x1),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                Flexible(
+                  child: Text(
+                      def?.labelFor(
+                              Localizations.localeOf(c).languageCode) ??
+                          key,
+                      textAlign: TextAlign.center,
+                      style: F.t2.copyWith(color: p.ink)),
+                ),
+                const SizedBox(width: S.x2),
+                Icon(LucideIcons.chevronsUpDown, size: 15, color: p.ink3),
+              ]),
+            ]),
+          ),
         ),
         Pressable(
           semanticLabel: l?.activityLiveNextExercise ?? 'Next exercise',
-          onTap: () => index == plan.length - 1
-              ? addExercise()
-              : goExercise(index + 1),
-          child: Icon(
-              index == plan.length - 1
-                  ? LucideIcons.plus
-                  : LucideIcons.chevronRight,
-              size: 20,
-              color: p.ink3),
+          onTap:
+              index == plan.length - 1 ? null : () => goExercise(index + 1),
+          child: Icon(LucideIcons.chevronRight,
+              size: 20, color: index == plan.length - 1 ? p.line : p.ink3),
         ),
       ]),
+      Pressable(
+        onTap: addExercise,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(LucideIcons.plus, size: 15, color: p.on(C.purple)),
+          const SizedBox(width: S.x1),
+          Text(l?.activityLiveAddExerciseTitle ?? 'Add exercise',
+              style: F.cap.copyWith(
+                  color: p.on(C.purple), fontWeight: FontWeight.w600)),
+        ]),
+      ),
       const SizedBox(height: S.x4),
 
       // set dots — one per set logged for this exercise, plus the one in hand

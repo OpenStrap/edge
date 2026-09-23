@@ -1363,22 +1363,28 @@ Future<ActivityResult> _finishSession(
   return draft;
 }
 
-/// Previous and best per lift, from this user's own log. One indexed query
-/// per exercise, fired in parallel.
+/// Previous and best per lift, from this user's own log. The store returns two
+/// candidate sets over exercises actually used; catalogue size does not turn
+/// into one SQL query per definition.
 Future<Map<String, SetHistory>> loadSetHistory() async {
   final history = <String, SetHistory>{};
   try {
-    await Future.wait([
-      for (final e in exerciseLibrary)
-        LocalDb.recentSetsFor(e.key, limit: 40).then((rows) {
-          if (rows.isEmpty) return;
-          final sets = _logFrom(rows).sets;
-          history[e.key] = SetHistory(
-            previous: sets.first, // recentSetsFor orders newest first
-            best: StrengthLog(sets).topSet,
-          );
-        }),
-    ]);
+    final candidates = await LocalDb.strengthHistoryCandidates();
+    final previous = <String, LoggedSet>{};
+    final best = <String, LoggedSet>{};
+    for (final row in candidates.previous) {
+      final key = row['exercise_key'] as String?;
+      if (key == null || previous.containsKey(key)) continue;
+      previous[key] = _logFrom([row]).sets.single;
+    }
+    for (final row in candidates.best) {
+      final key = row['exercise_key'] as String?;
+      if (key == null || best.containsKey(key)) continue;
+      best[key] = _logFrom([row]).sets.single;
+    }
+    for (final key in {...previous.keys, ...best.keys}) {
+      history[key] = SetHistory(previous: previous[key], best: best[key]);
+    }
   } catch (_) {
     // No history is the normal state on day one.
   }

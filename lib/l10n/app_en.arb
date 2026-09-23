@@ -10384,6 +10384,52 @@
   "@activitySummaryTabGraphs": {
     "description": "Sub-tab label for the Graphs tab on the activity summary screen"
   },
+  "activityExercisePickerChooseTitle": "Choose exercise",
+  "@activityExercisePickerChooseTitle": {
+    "description": "Title of the strength exercise picker when selecting a new exercise."
+  },
+  "activityExercisePickerChangeTitle": "Change exercise",
+  "@activityExercisePickerChangeTitle": {
+    "description": "Title of the strength exercise picker when replacing or switching from the current exercise."
+  },
+  "activityExercisePickerSearchLabel": "Search exercises",
+  "@activityExercisePickerSearchLabel": {
+    "description": "Accessibility label for the strength exercise search field."
+  },
+  "activityExercisePickerSearchHint": "Search {count} exercises",
+  "@activityExercisePickerSearchHint": {
+    "description": "Placeholder in the strength exercise search field.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "activityExercisePickerCommonFilter": "Common",
+  "@activityExercisePickerCommonFilter": {
+    "description": "Filter showing Edge's short common-exercise list."
+  },
+  "activityExercisePickerAllFilter": "All",
+  "@activityExercisePickerAllFilter": {
+    "description": "Filter showing the whole strength exercise catalogue."
+  },
+  "activityExercisePickerNoMatch": "No exercises match that",
+  "@activityExercisePickerNoMatch": {
+    "description": "Empty result shown for an exercise search or category filter."
+  },
+  "activityExercisePickerWgerCredit": "Exercise catalogue from wger · available offline",
+  "@activityExercisePickerWgerCredit": {
+    "description": "Attribution under the strength exercise picker."
+  },
+  "activityExercisePickerSourceLabel": "View source and credits for {exercise}",
+  "@activityExercisePickerSourceLabel": {
+    "description": "Accessibility label and tooltip for a wger exercise's exact source record.",
+    "placeholders": {
+      "exercise": {
+        "type": "String"
+      }
+    }
+  },
   "activityLiveAddALap": "Add a lap",
   "@activityLiveAddALap": {
     "description": "Live swim screen: accessibility label for the tap-a-lap button."
@@ -10391,6 +10437,14 @@
   "activityLiveAddExerciseTitle": "Add exercise",
   "@activityLiveAddExerciseTitle": {
     "description": "Live strength screen: title of the sheet for adding another exercise."
+  },
+  "activityLiveChooseExerciseBody": "Pick the first exercise before logging a set.",
+  "@activityLiveChooseExerciseBody": {
+    "description": "Empty live-strength state before an exercise has been selected."
+  },
+  "activityLiveChangeExercise": "Change exercise",
+  "@activityLiveChangeExercise": {
+    "description": "Accessibility label for changing the current strength exercise."
   },
   "activityLiveAllowLocation": "Allow location",
   "@activityLiveAllowLocation": {

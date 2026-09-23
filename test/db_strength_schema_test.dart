@@ -172,6 +172,62 @@ void main() {
     expect(await LocalDb.recentSetsFor('bench_press'), isEmpty);
   });
 
+  test('strength history candidates are newest and heaviest without N queries',
+      () async {
+    created.add('strength_history.db');
+    await databaseFactory.deleteDatabase(await _dbPath('strength_history.db'));
+    await _openThroughLocalDb('strength_history.db');
+
+    await LocalDb.saveStrengthSets('older', [
+      {
+        'exercise_key': 'bench_press',
+        'set_index': 1,
+        'reps': 8,
+        'load_kg': 80.0,
+        'at_ts': 100,
+      },
+      {
+        'exercise_key': 'bench_press',
+        'set_index': 2,
+        'reps': 10,
+        'load_kg': 80.0,
+        'at_ts': 200,
+      },
+      {
+        'exercise_key': 'pull_up',
+        'set_index': 1,
+        'reps': 9,
+        'at_ts': 250,
+      },
+    ]);
+    await LocalDb.saveStrengthSets('newer', [
+      {
+        'exercise_key': 'bench_press',
+        'set_index': 1,
+        'reps': 12,
+        'load_kg': 70.0,
+        'at_ts': 300,
+      },
+    ]);
+
+    final candidates = await LocalDb.strengthHistoryCandidates();
+    final previousBench = candidates.previous
+        .firstWhere((row) => row['exercise_key'] == 'bench_press');
+    expect(previousBench['at_ts'], 300);
+    expect(previousBench['load_kg'], 70.0);
+
+    final bestBench = candidates.best
+        .firstWhere((row) => row['exercise_key'] == 'bench_press');
+    expect(bestBench['load_kg'], 80.0);
+    expect(bestBench['reps'], 10,
+        reason: 'more reps wins a tied best-load candidate');
+    expect(candidates.previous.any((row) => row['exercise_key'] == 'pull_up'),
+        isTrue);
+    expect(candidates.best.any((row) => row['exercise_key'] == 'pull_up'),
+        isFalse,
+        reason: 'bodyweight history has no fabricated zero-kilo best');
+  });
+
   test('sessions carries the private flag, defaulting to not-private',
       () async {
     final db = await upgradeFrom(39, 'sessions_private_from_39.db');
