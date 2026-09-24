@@ -191,6 +191,12 @@ const activityLibrary = <ActGroup>[
         gps: true),
     Activity('Skating', LucideIcons.circleDashed, C.purple, Track.distance, 7.0,
         gps: true),
+    // 2011 Compendium code 15580: "skateboarding, general, moderate effort"
+    // (5.0 MET; https://pacompendium.com/ and the 2011 source table).
+    // This is a population estimate, not measured energy; keep the activity
+    // manually selected and cardiovascular strain HR-derived.
+    Activity('Skateboarding', LucideIcons.footprints, C.orange,
+        Track.distance, 5.0, gps: true),
     Activity('Horse riding', LucideIcons.rabbit, C.orange, Track.duration, 5.5),
   ]),
   ActGroup('Mind & body', LucideIcons.leaf, [

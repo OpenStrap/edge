@@ -231,6 +231,15 @@ void main() {
       expect(activityByName(null), isNull);
     });
 
+    test('skateboarding is manually selectable and route-enabled', () {
+      final skateboard = activityByName('skateboarding')!;
+      expect(skateboard.typeKey, 'skateboarding');
+      expect(skateboard.track, Track.distance);
+      expect(skateboard.gps, isTrue);
+      expect(skateboard.met, 5.0);
+      expect(skateboard.kcal(70, 30), 184);
+    });
+
     test('kcal is MET × 3.5 × kg / 200 × min, and null without a weight', () {
       final run = activityByName('running')!;
       // 9.8 × 3.5 × 70 / 200 × 30 = 360.15

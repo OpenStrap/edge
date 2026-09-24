@@ -105,5 +105,13 @@ void main() {
       }
     });
 
+    test('skateboarding keeps its title and uses the safe shared fallback', () {
+      for (final ios in [true, false]) {
+        expect(healthActivityForType('skateboarding', ios: ios),
+            HealthWorkoutActivityType.OTHER);
+      }
+      expect(healthWorkoutTitleForType('skateboarding'), 'Skateboarding');
+    });
+
   });
 }

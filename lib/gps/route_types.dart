@@ -28,6 +28,7 @@ const Set<String> kRouteTypeKeys = {
   'skiing',
   'snowboarding',
   'skating',
+  'skateboarding',
 };
 
 /// True when a session of [type] should record a route.
