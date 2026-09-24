@@ -10,9 +10,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../scan/barcode_reader.dart';
 import '../ui2.dart';
 
 /// Read one barcode. Resolves the digits, or null if the sheet was closed,
@@ -38,35 +38,23 @@ class _ScanSheet extends StatefulWidget {
 class _ScanSheetState extends State<_ScanSheet> {
   /// The formats printed on packaged food. `all` would also read QR codes,
   /// which are not products.
-  final _controller = MobileScannerController(
-    formats: const [
-      BarcodeFormat.ean13,
-      BarcodeFormat.ean8,
-      BarcodeFormat.upcA,
-      BarcodeFormat.upcE,
-      BarcodeFormat.dataBar,
-      BarcodeFormat.dataBarExpanded,
-    ],
-  );
+  static const _formats = [
+    BarcodeFormat.ean13,
+    BarcodeFormat.ean8,
+    BarcodeFormat.upcA,
+    BarcodeFormat.upcE,
+    BarcodeFormat.dataBar,
+    BarcodeFormat.dataBarExpanded,
+  ];
 
   /// One code per sheet. The detector fires repeatedly on the same packet, and
   /// without this each repeat would be another pop and another lookup.
   bool _done = false;
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _onDetect(BarcodeCapture capture) {
+  void _onDetect(String code) {
     if (_done) return;
-    final code = capture.barcodes
-        .map((b) => b.rawValue)
-        .firstWhere((v) => v != null && v.trim().isNotEmpty, orElse: () => null);
-    if (code == null) return;
     _done = true;
-    Navigator.of(context).pop(code.trim());
+    Navigator.of(context).pop(code);
   }
 
   @override
@@ -98,8 +86,8 @@ class _ScanSheetState extends State<_ScanSheet> {
               borderRadius: R.rLg,
               child: AspectRatio(
                 aspectRatio: 1,
-                child: MobileScanner(
-                  controller: _controller,
+                child: BarcodeReaderWidget(
+                  formats: _formats,
                   onDetect: _onDetect,
                   errorBuilder: (_, e) => _CameraProblem(e),
                 ),
@@ -123,12 +111,12 @@ class _ScanSheetState extends State<_ScanSheet> {
 /// so the card says which one happened and stops there.
 class _CameraProblem extends StatelessWidget {
   const _CameraProblem(this.error);
-  final MobileScannerException error;
+  final BarcodeReaderError error;
 
   @override
   Widget build(BuildContext c) {
     final l = AppLocalizations.of(c);
-    final denied = error.errorCode == MobileScannerErrorCode.permissionDenied;
+    final denied = error.permissionDenied;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(S.x4),
