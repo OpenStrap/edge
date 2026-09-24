@@ -1146,6 +1146,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   bool bodyweight = false;
 
   final logged = <LoggedSet>[];
+  String? _draftInputKey;
 
   static const restTarget = 90;
 
@@ -1197,9 +1198,14 @@ class _LiveStrengthState extends State<LiveStrength> {
     }
     if (logged.isNotEmpty) {
       index = plan.indexOf(logged.last.exerciseKey);
-      // The draft restores the selected exercise and sets, but not the input
-      // mode. Restore a bodyweight default before history can override it.
-      bodyweight = def?.step == 0;
+      // The latest restored set is the session's saved input state; preserve
+      // its bodyweight/load choice and keep history seeding from replacing it.
+      final last = logged.last;
+      _draftInputKey = last.exerciseKey;
+      bodyweight = last.loadKg == null;
+      kg = last.loadKg ?? kg;
+      reps = last.reps;
+      rpe = last.rpe ?? rpe;
     }
   }
 
@@ -1231,6 +1237,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   /// Open each exercise at what the user did last time. Nothing to go on →
   /// leave the stepper where it is rather than guessing a load.
   void _seedFromHistory() {
+    if (_draftInputKey == key) return;
     final prev = widget.history[key]?.previous;
     if (prev == null) return;
     setState(() {

@@ -1329,12 +1329,20 @@ void main() {
         },
       ]);
 
+      List<LoggedSet> banked = [];
       await tester.pumpWidget(_frame(
-          LiveStrength(a), Brightness.light, 1.0));
+          LiveStrength(a, onSets: (sets) => banked = sets),
+          Brightness.light,
+          1.0));
       await tester.pumpAndSettle();
 
       expect(find.text('Bodyweight — left out of volume'), findsOneWidget,
-          reason: 'a restored zero-increment exercise must not default to 40 kg');
+          reason: 'a restored zero-load set must keep bodyweight mode');
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      expect(banked.last.exerciseKey, 'push_up');
+      expect(banked.last.loadKg, isNull,
+          reason: 'the next set must not inherit the 40 kg default');
       expect(tester.takeException(), isNull);
     });
 
