@@ -1712,7 +1712,14 @@ import 'substrate.dart';
 // any single-device install or any pairing where those three signals are not
 // actually contended (`group.length < 2` short-circuits to the unchanged row).
 // kAnalyticsPin/kProtocolPin UNCHANGED: edge-only fix.
-const int kAlgoVersion = 96;
+// 96 → 97 (temp_circadian zero-variance guard, analytics main @ 0441ef9):
+// `_nonparam` divided by `varTot/diffN` with no zero-variance guard, so a
+// flat or heavily-quantized skin-temp window reported
+// interdailyStability=0.0 / intradailyVariability=0.0 as measured instead of
+// withheld — a fabricated-metric bug on `circadian_lifestyle`'s stored
+// output. kAnalyticsPin repinned to analytics main's tip (one commit past
+// PR #75's merge SHA).
+const int kAlgoVersion = 97;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1881,7 +1888,14 @@ const int kAlgoVersion = 96;
 // picking one single-device SHA over the other. Verified: `1cf8e61` (this
 // branch's own pin) IS an ancestor of `fe1464d` — the wearfit protocol
 // commit is already folded in, nothing is lost by moving to the tip.
-const String kAnalyticsPin = '01e8b6e02b2370ae42490a678e6a0a4e3569104c';
+//
+// REPIN (main) @ 0441ef9 — analytics main, one commit past #75 above. Fixes
+// temp_circadian.dart's zero-variance division producing fabricated
+// interdailyStability/intradailyVariability=0.0 instead of null on a flat
+// skin-temp window (see pubspec.yaml's comment beside the `ref:` for the
+// verification command). kAlgoVersion bumped 96 -> 97, see the changelog
+// entry above.
+const String kAnalyticsPin = '0441ef9e6fc6d5681c309ce6341911285e829f20';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both

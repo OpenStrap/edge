@@ -483,7 +483,18 @@ dependencies:
       # (see derivation_engine.dart's 94 -> 95 changelog entry), so this got
       # a kAlgoVersion bump despite being narrative-only, not a headline-score
       # change.
-      ref: 01e8b6e02b2370ae42490a678e6a0a4e3569104c
+      #
+      # analytics main @ 0441ef9 (MERGED, one hop past #75 above): fixes
+      # temp_circadian.dart's `_nonparam` dividing by varTot/diffN with no
+      # zero-variance guard, so a flat/heavily-quantized skin-temp window
+      # reported interdailyStability=0.0 / intradailyVariability=0.0 as
+      # measured instead of withheld -- a fabricated-metric bug (matches the
+      # zero-variance discipline circadian_np.dart already had). Changes
+      # stored circadian_lifestyle output for any user with a flat temp
+      # window, so kAlgoVersion bumped (96 -> 97). Verified:
+      #   `git show 0441ef9:lib/src/onehz/wellness/temp_circadian.dart |
+      #      grep -n 'varTot == 0\|diffN == 0'`
+      ref: 0441ef9e6fc6d5681c309ce6341911285e829f20
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8
