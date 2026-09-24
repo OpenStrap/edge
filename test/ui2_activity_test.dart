@@ -1309,6 +1309,35 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('a restored push-up draft keeps bodyweight mode',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('weight_training')!;
+      LiveDraft.begin(a, weightKg: 72.4);
+      LiveDraft.current!.put('sets', [
+        {
+          'k': 'push_up',
+          'reps': 12,
+          'kg': null,
+          'rpe': 7,
+          'rest': null,
+          'at': DateTime(2026, 9, 24).millisecondsSinceEpoch,
+        },
+      ]);
+
+      await tester.pumpWidget(_frame(
+          LiveStrength(a), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bodyweight — left out of volume'), findsOneWidget,
+          reason: 'a restored zero-increment exercise must not default to 40 kg');
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a collapsed group builds none of its rows', (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
       tester.view.devicePixelRatio = 3;

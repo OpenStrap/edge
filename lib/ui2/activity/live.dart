@@ -1195,7 +1195,12 @@ class _LiveStrengthState extends State<LiveStrength> {
       ));
       if (!plan.contains(k)) plan.add(k);
     }
-    if (logged.isNotEmpty) index = plan.indexOf(logged.last.exerciseKey);
+    if (logged.isNotEmpty) {
+      index = plan.indexOf(logged.last.exerciseKey);
+      // The draft restores the selected exercise and sets, but not the input
+      // mode. Restore a bodyweight default before history can override it.
+      bodyweight = def?.step == 0;
+    }
   }
 
   /// Write the log through — to the draft, so minimising cannot lose it, and
