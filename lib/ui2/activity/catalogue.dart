@@ -381,6 +381,14 @@ const exerciseLibrary = <ExerciseDef>[
   ExerciseDef('leg_press', 'Leg press', {'legs': .75, 'glutes': .25}),
   ExerciseDef('plank', 'Plank', {'core': 1.0}, step: 0),
   ExerciseDef('hanging_leg_raise', 'Hanging leg raise', {'core': 1.0}, step: 0),
+  // Bodyweight movement: repetitions are user-entered; this is not inferred
+  // from wearable motion and carries no external load estimate.
+  ExerciseDef(
+    'push_up',
+    'Push-ups',
+    {'chest': .6, 'triceps': .25, 'shoulders': .15},
+    step: 0,
+  ),
 ];
 
 final Map<String, ExerciseDef> _exercisesByKey = {

@@ -1462,6 +1462,45 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('push-ups start as bodyweight and repeated sets are banked',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2600 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      List<LoggedSet> banked = const [];
+      await tester.pumpWidget(_frame(
+          LiveStrength(
+            activityByName('weight_training')!,
+            onSets: (sets) => banked = List.of(sets),
+          ),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Next exercise'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Push-ups'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Push-ups'), findsOneWidget);
+      expect(find.text('Bodyweight — left out of volume'), findsOneWidget);
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      expect(banked, hasLength(1));
+      expect(banked.single.exerciseKey, 'push_up');
+      expect(banked.single.reps, 8);
+      expect(banked.single.loadKg, isNull);
+
+      await tester.tap(find.text('Skip rest'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      expect(banked, hasLength(2));
+      expect(StrengthLog(banked).repCount, 16);
+      expect(banked.every((set) => set.exerciseKey == 'push_up'), isTrue);
+    });
+
     testWidgets('the picker lists every activity and searches by name',
         (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 1400 * 3);

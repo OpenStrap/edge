@@ -111,10 +111,22 @@ void main() {
         'rpe': 8,
         'at_ts': 1770000600,
       },
+      {
+        'exercise_key': 'push_up',
+        'set_index': 1,
+        'reps': 10,
+        'at_ts': 1770000900,
+      },
+      {
+        'exercise_key': 'push_up',
+        'set_index': 2,
+        'reps': 8,
+        'at_ts': 1770001200,
+      },
     ]);
 
     final sets = await LocalDb.strengthSets('sess-1');
-    expect(sets, hasLength(2));
+    expect(sets, hasLength(4));
     expect(sets[0]['seq'], 0);
     expect(sets[0]['load_kg'], 80.0);
     expect(sets[1]['load_kg'], isNull,
@@ -137,6 +149,8 @@ void main() {
     final recent = await LocalDb.recentSetsFor('pull_up');
     expect(recent, hasLength(1));
     expect(recent.first['reps'], 9);
+    final pushUpHistory = await LocalDb.recentSetsFor('push_up');
+    expect(pushUpHistory.map((s) => s['reps']), unorderedEquals([10, 8]));
     expect(await LocalDb.recentSetsFor('nothing_here'), isEmpty);
   });
 

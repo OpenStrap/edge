@@ -1317,6 +1317,9 @@ class _LiveStrengthState extends State<LiveStrength> {
     setState(() {
       if (!plan.contains(picked)) plan.add(picked);
       index = plan.indexOf(picked);
+      // A zero increment marks bodyweight-only exercises. Start there unless
+      // the user's saved history below has a more specific previous choice.
+      bodyweight = exerciseByKey(picked)?.step == 0;
     });
     _seedFromHistory();
   }
