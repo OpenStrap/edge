@@ -20,16 +20,21 @@
 		534897A72FDC2B310033A4D9 /* LiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 534897A62FDC2B310033A4D9 /* LiveActivityBridge.swift */; };
 		53962E962FF6EE120061A61B /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53962E952FF6EE120061A61B /* WatchBridge.swift */; };
 		53962E972FF6EE120061A61B /* OpenStrapIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53962E942FF6EE120061A61B /* OpenStrapIntents.swift */; };
+		584C82D4C91D63C59A9B68ED /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A8259C983D095EF84D51BCF /* Foundation.framework */; };
+		5A0C00000000000000000001 /* ShortcutSyncBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C00000000000000000002 /* ShortcutSyncBridge.swift */; };
+		5A0C00000000000000000003 /* LongSyncDataIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C00000000000000000004 /* LongSyncDataIntent.swift */; };
+		5A0C00000000000000000005 /* LongSyncDataIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A0C00000000000000000006 /* LongSyncDataIntentTests.swift */; };
 		60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46A2B400A52A2CA90242C195 /* HealthRoutes.swift */; };
-		B9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */; };
 		630172CC9317145AD5F8F3B7 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2C721EA0C8D31A3834E66203 /* Pods_RunnerTests.framework */; };
 		74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74858FAE1ED2DC5600515810 /* AppDelegate.swift */; };
 		7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */; };
 		78A318202AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage in Frameworks */ = {isa = PBXBuildFile; productRef = 78A3181F2AECB46A00862997 /* FlutterGeneratedPluginSwiftPackage */; };
+		7A75696EB0AB2F0DFBECE037 /* ShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BB57590968BB44C5559E37A /* ShortcutUITests.swift */; };
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		ACCE55E7000000000000B11D /* AccessorySetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACCE55E7000000000000F11E /* AccessorySetup.swift */; };
+		B9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */; };
 		BEEF00000000000000000002 /* BreathingLiveActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEF00000000000000000001 /* BreathingLiveActivityBridge.swift */; };
 		FADE0001FADE0001FADE0001 /* OpenStrapWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 53962EBE2FF6EF790061A61B /* OpenStrapWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -48,6 +53,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 5348973A2FDC19C80033A4D9;
 			remoteInfo = OpenStrapWidgetExtension;
+		};
+		99D9F39CEDD34D72655792B9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97C146E61CF9000F007C117D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 97C146ED1CF9000F007C117D;
+			remoteInfo = Runner;
 		};
 		FADE0003FADE0003FADE0003 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -97,13 +109,15 @@
 		0BGTASK00000000000000002 /* BgSyncScheduler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BgSyncScheduler.swift; sourceTree = "<group>"; };
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
+		1A8259C983D095EF84D51BCF /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		1BB57590968BB44C5559E37A /* ShortcutUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShortcutUITests.swift; sourceTree = "<group>"; };
 		2C721EA0C8D31A3834E66203 /* Pods_RunnerTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_RunnerTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		3238201D56A4B5F97DB8D416 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		331C807B294A618700263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		331C8081294A63A400263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = AppFrameworkInfo.plist; path = Flutter/AppFrameworkInfo.plist; sourceTree = "<group>"; };
 		46A2B400A52A2CA90242C195 /* HealthRoutes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthRoutes.swift; sourceTree = "<group>"; };
-		A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthKitSleepWriter.swift; sourceTree = "<group>"; };
+		4A03AF838C04AE2BCB84D0B1 /* Signing.defaults.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = Signing.defaults.xcconfig; path = Config/Signing.defaults.xcconfig; sourceTree = "<group>"; };
 		5348973B2FDC19C80033A4D9 /* OpenStrapWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = OpenStrapWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5348973C2FDC19C80033A4D9 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		5348973E2FDC19C80033A4D9 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -113,6 +127,9 @@
 		53962E942FF6EE120061A61B /* OpenStrapIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenStrapIntents.swift; sourceTree = "<group>"; };
 		53962E952FF6EE120061A61B /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
 		53962EBE2FF6EF790061A61B /* OpenStrapWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "OpenStrapWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5A0C00000000000000000002 /* ShortcutSyncBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutSyncBridge.swift; sourceTree = "<group>"; };
+		5A0C00000000000000000004 /* LongSyncDataIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongSyncDataIntent.swift; sourceTree = "<group>"; };
+		5A0C00000000000000000006 /* LongSyncDataIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LongSyncDataIntentTests.swift; sourceTree = "<group>"; };
 		606824C7302BC5108CEC40DF /* BleRestoreManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BleRestoreManager.swift; sourceTree = "<group>"; };
 		62B87A5BFE3C75EF3DA30015 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "Runner/GoogleService-Info.plist"; sourceTree = "<group>"; };
 		6A2B37C42FDD000100000001 /* Signing.defaults.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.defaults.xcconfig; sourceTree = "<group>"; };
@@ -131,6 +148,8 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		9AB0D2B3B0A362AED6D7BFB0 /* ShortcutUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShortcutUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HealthKitSleepWriter.swift; sourceTree = "<group>"; };
 		ACCE55E7000000000000F11E /* AccessorySetup.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AccessorySetup.swift; sourceTree = "<group>"; };
 		B0B95B9F07C8083A2DB92078 /* Pods-RunnerTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.debug.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.debug.xcconfig"; sourceTree = "<group>"; };
 		BEEF00000000000000000001 /* BreathingLiveActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreathingLiveActivityBridge.swift; sourceTree = "<group>"; };
@@ -209,6 +228,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F5BCA3444885F1EC6DE66F02 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				584C82D4C91D63C59A9B68ED /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -216,8 +243,17 @@
 			isa = PBXGroup;
 			children = (
 				331C807B294A618700263BE5 /* RunnerTests.swift */,
+				5A0C00000000000000000006 /* LongSyncDataIntentTests.swift */,
 			);
 			path = RunnerTests;
+			sourceTree = "<group>";
+		};
+		4CE453DC14416DB9F3395C14 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				1A8259C983D095EF84D51BCF /* Foundation.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 		6A2B37C32FDD000100000001 /* Config */ = {
@@ -236,6 +272,7 @@
 				2C721EA0C8D31A3834E66203 /* Pods_RunnerTests.framework */,
 				5348973C2FDC19C80033A4D9 /* WidgetKit.framework */,
 				5348973E2FDC19C80033A4D9 /* SwiftUI.framework */,
+				4CE453DC14416DB9F3395C14 /* iOS */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -270,6 +307,8 @@
 				AF81963B4F996986D8D5C105 /* Pods */,
 				7AE58D6D3A9D5791559034B2 /* Frameworks */,
 				62B87A5BFE3C75EF3DA30015 /* GoogleService-Info.plist */,
+				D4347D747D013F5BEE68EE80 /* ShortcutUITests */,
+				4A03AF838C04AE2BCB84D0B1 /* Signing.defaults.xcconfig */,
 			);
 			sourceTree = "<group>";
 		};
@@ -280,6 +319,7 @@
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
 				5348973B2FDC19C80033A4D9 /* OpenStrapWidgetExtension.appex */,
 				53962EBE2FF6EF790061A61B /* OpenStrapWatch Watch App.app */,
+				9AB0D2B3B0A362AED6D7BFB0 /* ShortcutUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -300,6 +340,8 @@
 				606824C7302BC5108CEC40DF /* BleRestoreManager.swift */,
 				ACCE55E7000000000000F11E /* AccessorySetup.swift */,
 				0BGTASK00000000000000002 /* BgSyncScheduler.swift */,
+				5A0C00000000000000000002 /* ShortcutSyncBridge.swift */,
+				5A0C00000000000000000004 /* LongSyncDataIntent.swift */,
 				46A2B400A52A2CA90242C195 /* HealthRoutes.swift */,
 				A8C1E3F507294B6D81A0C2E4 /* HealthKitSleepWriter.swift */,
 			);
@@ -317,6 +359,15 @@
 				EC2DC396945E3B2DAA52EB3F /* Pods-RunnerTests.profile.xcconfig */,
 			);
 			path = Pods;
+			sourceTree = "<group>";
+		};
+		D4347D747D013F5BEE68EE80 /* ShortcutUITests */ = {
+			isa = PBXGroup;
+			children = (
+				1BB57590968BB44C5559E37A /* ShortcutUITests.swift */,
+			);
+			name = ShortcutUITests;
+			path = ShortcutUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -413,6 +464,24 @@
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A7883417CA432F4099968E48 /* ShortcutUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6E1CB66ACEA4368C94A0B7DE /* Build configuration list for PBXNativeTarget "ShortcutUITests" */;
+			buildPhases = (
+				8D8D0870FF2A8AFF5F8333AD /* Sources */,
+				F5BCA3444885F1EC6DE66F02 /* Frameworks */,
+				33BEE06C1A24DD3177BF613B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				ED3603C44AC0D2B2B09121D8 /* PBXTargetDependency */,
+			);
+			name = ShortcutUITests;
+			productName = ShortcutUITests;
+			productReference = 9AB0D2B3B0A362AED6D7BFB0 /* ShortcutUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -439,6 +508,10 @@
 						CreatedOnToolsVersion = 7.3.1;
 						LastSwiftMigration = 1100;
 					};
+					A7883417CA432F4099968E48 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 97C146ED1CF9000F007C117D;
+					};
 				};
 			};
 			buildConfigurationList = 97C146E91CF9000F007C117D /* Build configuration list for PBXProject "Runner" */;
@@ -461,12 +534,20 @@
 				331C8080294A63A400263BE5 /* RunnerTests */,
 				5348973A2FDC19C80033A4D9 /* OpenStrapWidgetExtension */,
 				53962EBD2FF6EF790061A61B /* OpenStrapWatch Watch App */,
+				A7883417CA432F4099968E48 /* ShortcutUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		331C807F294A63A400263BE5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		33BEE06C1A24DD3177BF613B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -651,6 +732,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */,
+				5A0C00000000000000000005 /* LongSyncDataIntentTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -668,6 +750,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8D8D0870FF2A8AFF5F8333AD /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7A75696EB0AB2F0DFBECE037 /* ShortcutUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		97C146EA1CF9000F007C117D /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -682,6 +772,8 @@
 				46AF580757DC25648B6B0C95 /* BleRestoreManager.swift in Sources */,
 				ACCE55E7000000000000B11D /* AccessorySetup.swift in Sources */,
 				0BGTASK00000000000000001 /* BgSyncScheduler.swift in Sources */,
+				5A0C00000000000000000001 /* ShortcutSyncBridge.swift in Sources */,
+				5A0C00000000000000000003 /* LongSyncDataIntent.swift in Sources */,
 				60DE9D949573401269D6DF2E /* HealthRoutes.swift in Sources */,
 				B9D2F406183A5C7E92B1D3F5 /* HealthKitSleepWriter.swift in Sources */,
 			);
@@ -699,6 +791,12 @@
 			isa = PBXTargetDependency;
 			target = 5348973A2FDC19C80033A4D9 /* OpenStrapWidgetExtension */;
 			targetProxy = 5348974C2FDC19C90033A4D9 /* PBXContainerItemProxy */;
+		};
+		ED3603C44AC0D2B2B09121D8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = Runner;
+			target = 97C146ED1CF9000F007C117D /* Runner */;
+			targetProxy = 99D9F39CEDD34D72655792B9 /* PBXContainerItemProxy */;
 		};
 		FADE0004FADE0004FADE0004 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -784,8 +882,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = AppIconBW;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
@@ -1153,6 +1251,68 @@
 			};
 			name = Profile;
 		};
+		73AC66811EC71FB6D7F6FC1D /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4A03AF838C04AE2BCB84D0B1 /* Signing.defaults.xcconfig */;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "$(APPLE_DEVELOPMENT_TEAM)";
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ShortcutUITests/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).ShortcutUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Runner;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		81FCB2BD13A4A8092AEB0B45 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4A03AF838C04AE2BCB84D0B1 /* Signing.defaults.xcconfig */;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "$(APPLE_DEVELOPMENT_TEAM)";
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ShortcutUITests/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).ShortcutUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Runner;
+			};
+			name = Debug;
+		};
+		8E4ADCACD0F39BFB1CCE95F8 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 4A03AF838C04AE2BCB84D0B1 /* Signing.defaults.xcconfig */;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "$(APPLE_DEVELOPMENT_TEAM)";
+				ENABLE_TESTING_SEARCH_PATHS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ShortcutUITests/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_IDENTIFIER).ShortcutUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Runner;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Profile;
+		};
 		97C147031CF9000F007C117D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 6A2B37C42FDD000100000001 /* Signing.defaults.xcconfig */;
@@ -1270,8 +1430,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 9740EEB21CF90195004384FC /* Debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = AppIconBW;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
@@ -1301,8 +1461,8 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = AppIconBW;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
@@ -1356,6 +1516,16 @@
 				53962EC62FF6EF7A0061A61B /* Debug */,
 				53962EC72FF6EF7A0061A61B /* Release */,
 				53962EC82FF6EF7A0061A61B /* Profile */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6E1CB66ACEA4368C94A0B7DE /* Build configuration list for PBXNativeTarget "ShortcutUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				73AC66811EC71FB6D7F6FC1D /* Release */,
+				81FCB2BD13A4A8092AEB0B45 /* Debug */,
+				8E4ADCACD0F39BFB1CCE95F8 /* Profile */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

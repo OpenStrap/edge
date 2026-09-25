@@ -6,7 +6,15 @@ import BackgroundTasks
 import CoreMotion
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
+@objc class AppDelegate: FlutterAppDelegate {
+  // One isolate keeps the UI, background wakes, and Shortcuts under the same BLE ownership gate.
+  lazy var sharedEngine: FlutterEngine = {
+    let engine = FlutterEngine(name: "openstrap", project: nil, allowHeadlessExecution: true)
+    engine.run()
+    registerEngine(engine)
+    return engine
+  }()
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -16,7 +24,7 @@ import CoreMotion
     BleRestoreManager.shared.start(launchOptions: launchOptions)
 
     // BGTaskScheduler registration MUST happen before didFinishLaunching returns.
-    // The channel wiring (messenger) happens in didInitializeImplicitFlutterEngine below;
+    // The channel wiring (messenger) happens in registerEngine below;
     // here we only register the identifier with the OS so it survives to that point.
     // schedule() is called after the channel is wired so Dart is ready to handle the task.
     BGTaskScheduler.shared.register(
@@ -47,6 +55,7 @@ import CoreMotion
     // paired watch. See WatchBridge.swift.
     WatchBridge.shared.activate()
 
+    _ = sharedEngine
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -63,56 +72,59 @@ import CoreMotion
     WatchBridge.shared.pushCurrentState()
   }
 
-  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+  private func registerEngine(_ registry: FlutterPluginRegistry) {
+    GeneratedPluginRegistrant.register(with: registry)
     // Live Activity MethodChannel (start/update/end the workout activity).
     // LiveActivityBridge lives in LiveActivityBridge.swift (Runner target).
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "LiveActivityBridge") {
+    if let registrar = registry.registrar(forPlugin: "LiveActivityBridge") {
       LiveActivityBridge.register(messenger: registrar.messenger())
     }
     // Breathing-session Live Activity — separate channel/attributes type from
     // the workout one (BreathingLiveActivityBridge.swift, Runner target).
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BreathingLiveActivityBridge") {
+    if let registrar = registry.registrar(forPlugin: "BreathingLiveActivityBridge") {
       BreathingLiveActivityBridge.register(messenger: registrar.messenger())
     }
     // BLE-restore channel: native wake (band reconnected) → Dart headless sync.
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BleRestoreManager") {
+    if let registrar = registry.registrar(forPlugin: "BleRestoreManager") {
       BleRestoreManager.shared.attach(messenger: registrar.messenger())
     }
     // Band-gesture actions channel (double-tap → play/pause, skip, ring phone).
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ActionBridge") {
+    if let registrar = registry.registrar(forPlugin: "ActionBridge") {
       ActionBridge.register(messenger: registrar.messenger())
     }
     // AccessorySetupKit pairing bridge (iOS 18+). The ASK picker provisions the WHOOP so
     // iOS 26 keeps the app eligible for background relaunch (TN3115). No-op pre-iOS 18.
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AccessorySetup") {
+    if let registrar = registry.registrar(forPlugin: "AccessorySetup") {
       AccessorySetup.register(messenger: registrar.messenger())
     }
     // Home-screen icon switching (setAlternateIconName). iOS only — see the
     // bridge below for the system-alert cost it carries.
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "AppIconBridge") {
+    if let registrar = registry.registrar(forPlugin: "AppIconBridge") {
       AppIconBridge.register(messenger: registrar.messenger())
     }
     // Build-time iOS configuration exposed to Dart without requiring --dart-define.
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ConfigBridge") {
+    if let registrar = registry.registrar(forPlugin: "ConfigBridge") {
       ConfigBridge.register(messenger: registrar.messenger())
     }
     // The phone's OWN step count (CMPedometer), not HealthKit's multi-writer
     // aggregate. See lib/health/phone_pedometer.dart.
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PedometerBridge") {
+    if let registrar = registry.registrar(forPlugin: "PedometerBridge") {
       PedometerBridge.register(messenger: registrar.messenger())
     }
     // HKWorkoutRoute → Dart. Coordinates only; the `health` plugin still reads
     // the workouts themselves. See lib/health/health_workout_import.dart.
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HealthRouteBridge") {
+    if let registrar = registry.registrar(forPlugin: "HealthRouteBridge") {
       HealthRouteBridge.register(messenger: registrar.messenger())
     }
     // HealthKit sleep replace (inBed + Core/Deep/REM). See HealthKitSleepWriter.swift.
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "HealthKitSleepWriter") {
+    if let registrar = registry.registrar(forPlugin: "HealthKitSleepWriter") {
       HealthKitSleepWriter.register(messenger: registrar.messenger())
     }
+    if let registrar = registry.registrar(forPlugin: "ShortcutSyncBridge") {
+      ShortcutSyncBridge.shared.attach(messenger: registrar.messenger())
+    }
     // BGTask channel: Dart handler for opportunistic headless sync + heavy derivation.
-    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BackgroundTaskManager") {
+    if let registrar = registry.registrar(forPlugin: "BackgroundTaskManager") {
       BackgroundTaskManager.wireChannel(messenger: registrar.messenger())
       // Now that the channel is wired, submit the first task requests
       // (heavy processing + light sync-only refresh).
