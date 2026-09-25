@@ -105,6 +105,8 @@ import '../sync/band_ownership.dart';
 import '../sync/high_freq_wake_window.dart';
 import '../sync/ios_bg_task.dart';
 import '../sync/reset_gate.dart';
+import '../sync/ios_shortcut_sync.dart';
+import '../sync/shortcut_sync_task.dart';
 import '../sync/paired_device.dart';
 import '../sync/sync_policy.dart'
     show
@@ -1363,22 +1365,27 @@ class AppState extends ChangeNotifier {
       // `DrainController.commit` still reads durability from a throw.
       onCommitBatch: (raws, samples, trimTokenHex,
           {archives, ecgRawPackets, deviceFamily}) async {
-        // THROWS, never silently succeeds. This is the ACK gate: only
-        // `onCommit` can bank raws + archives + trim cursor in one
-        // transaction, and DrainController reads durability FROM A THROW
-        // (see its safe-trim invariant). Returning quietly here would tell
-        // the drain the chunk was banked, it would ACK, and the band would
-        // trim flash that this reset refused to store — turning a race into
-        // real data loss on a band the user may not be deleting after all if
-        // the reset then fails. A throw blocks the ACK and the records stay
-        // on the strap.
-        if (ResetGate.active) {
-          throw StateError('data reset in progress — refusing to commit');
+        try {
+          // THROWS, never silently succeeds. This is the ACK gate: only
+          // `onCommit` can bank raws + archives + trim cursor in one
+          // transaction, and DrainController reads durability FROM A THROW
+          // (see its safe-trim invariant). Returning quietly here would tell
+          // the drain the chunk was banked, it would ACK, and the band would
+          // trim flash that this reset refused to store — turning a race into
+          // real data loss on a band the user may not be deleting after all if
+          // the reset then fails. A throw blocks the ACK and the records stay
+          // on the strap.
+          if (ResetGate.active) {
+            throw StateError('data reset in progress — refusing to commit');
+          }
+          await _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
+              archives: archives,
+              ecgRawPackets: ecgRawPackets,
+              deviceFamily: deviceFamily);
+        } catch (_) {
+          IosShortcutSync.foregroundCommitFailed();
+          rethrow;
         }
-        return _bandHost.commitNativeBatch(raws, samples, trimTokenHex,
-            archives: archives,
-            ecgRawPackets: ecgRawPackets,
-            deviceFamily: deviceFamily);
       },
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: (raw) async {
@@ -1445,6 +1452,8 @@ class AppState extends ChangeNotifier {
     // skip the headless BLE path (it would fight FBP for the peripheral) — route
     // them to a catch-up pull over the existing live connection instead.
     IosBgTask.foregroundPull = foregroundCatchUp;
+    IosShortcutSync.foregroundSync = syncForShortcut;
+    IosShortcutSync.foregroundEngine = () => engine;
     taskerBridge; // force init: register the method channel handler
     // A paired sensor's live beats, into the same trace as the band's. Touches
     // no radio — `HrsLink.reading` is a plain notifier whose identity survives
@@ -1557,6 +1566,10 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (IosShortcutSync.foregroundSync == syncForShortcut) {
+      IosShortcutSync.foregroundSync = null;
+      IosShortcutSync.foregroundEngine = null;
+    }
     _syncQuietTimer?.cancel();
     _syncQuietTimer = null;
     _disposed = true;
@@ -5033,24 +5046,26 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> openSession() async {
+  Future<void> openSession({bool foreground = true}) async {
     if (busy || paired == null) return;
     BandOwnership.markForegroundIntent(true);
     _log('[OWNERSHIP] foreground intent on (${BandOwnership.debugState})');
     // Returning to the foreground with the connection still alive (kept during
     // background): don't tear it down and reconnect — just reclaim ownership.
     final wasBackground = _background;
-    _background = false;
-    engine.setBackground(false);
+    if (foreground) {
+      _background = false;
+      engine.setBackground(false);
+    }
     // Coming back after hours (or days) suspended: re-read the phone's steps
     // for whatever day it is NOW.
-    if (phoneStepsEnabled) {
+    if (foreground && phoneStepsEnabled) {
       unawaited(syncPhoneSteps());
     }
     // Back in the foreground with an OS CPU/memory budget again — let the
     // scheduler drain any derive jobs that queued (durably) while backgrounded.
-    _deriveScheduler.setBackground(false);
-    if (wasBackground && engine.isConnected) {
+    if (foreground) _deriveScheduler.setBackground(false);
+    if (foreground && wasBackground && engine.isConnected) {
       IosBleRestore.foregroundActive = true;
       await IosBleRestore.setOwnsBand(true);
       EdgeTracking.start(); // Android: keep the foreground service up (idempotent)
@@ -5431,6 +5446,37 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> syncNow() => openSession();
+
+  Future<SyncReport> syncForShortcut(ShortcutSyncTask task) async {
+    if (ResetGate.active) throw StateError('data reset in progress');
+    if (!initialized) task.update('starting');
+    while (!initialized && initError == null && !_disposed && !task.stopped) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    if (initError != null || _disposed) throw StateError('Edge is not ready');
+    if (busy) task.update('waiting');
+    while (busy && !task.stopped) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    if (task.stopped) return SyncReport(0, 0, false);
+    if (ResetGate.active || _disposed) throw StateError('Edge is not ready');
+    if (engine.isConnected) {
+      final usable = await _linkUsableAfterResume('Shortcut');
+      if (task.stopped) return SyncReport(0, 0, false);
+      if (ResetGate.active || _disposed) throw StateError('Edge is not ready');
+      if (!usable) await engine.disconnect();
+    }
+    if (!engine.isConnected) {
+      task.update('connecting');
+      // A background Shortcut must not enable the UI's high-rate live streams.
+      await openSession(foreground: !_background);
+    }
+    if (task.stopped || !engine.isConnected) return SyncReport(0, 0, false);
+    final report = await _kickSyncBurst(kickFirst: _syncBurst == null);
+    if (report.records > 0) _deriveScheduler.markStoredData();
+    if (!_disposed) notifyListeners();
+    return report;
+  }
 
   /// The ONE place the band's HIGH_FREQ_SYNC prompt is programmed. Two
   /// requesters, one decision (`BandPromptPolicy`): the smart-wake window

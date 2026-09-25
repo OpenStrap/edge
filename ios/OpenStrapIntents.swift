@@ -114,14 +114,53 @@ struct SleepIntent: AppIntent {
 
 // MARK: - Action intents (these actually DO something, not just answer)
 
-/// "Start breathing" — unlike the query intents above, this needs the live
-/// Flutter engine + BLE stack (a guided session reads live RR from the band),
-/// so it must open the app rather than answer standalone. Writes the target
-/// route into the App Group; the Dart side picks it up via
-/// WidgetService.consumePendingRoute() on launch AND on every foreground
-/// resume (see AppState.checkPendingSiriRoute — openAppWhenRun doesn't
-/// guarantee a fresh launch, it may just foreground an already-running
-/// process, so both call sites matter).
+@available(iOS 16.0, *)
+struct SyncDataIntent: AppIntent {
+  static var title: LocalizedStringResource = "Sync Data"
+  static var description = IntentDescription(
+    "Sync your paired band into Edge without opening the app. Large backlogs may need more than one run.")
+  static var openAppWhenRun = false
+  static var authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
+
+  @Parameter(title: "Ignore Connectivity Errors", description:
+    "Skip quietly when Bluetooth is unavailable or the band cannot be reached. Pairing, permission, and other errors are still reported.", default: false)
+  var ignoreConnectivityErrors: Bool
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Sync band data") { \.$ignoreConnectivityErrors }
+  }
+
+  @MainActor
+  func perform() async throws -> some IntentResult & ReturnsValue<String> {
+    .result(value: try await syncMessage(using: .shared))
+  }
+
+  @MainActor
+  func syncMessage(using bridge: ShortcutSyncBridge) async throws -> String {
+    do {
+      return try await bridge.sync().message
+    } catch let error as ShortcutSyncFailure where ignoreConnectivityErrors && error.canIgnore {
+      return "Skipped: \(error.localizedDescription)"
+    }
+  }
+}
+
+@available(iOS 16.0, *)
+struct OpenEdgeAndSyncIntent: AppIntent {
+  static var title: LocalizedStringResource = "Open Edge and Sync"
+  static var description = IntentDescription(
+    "Open Edge and sync your paired band. Use this interactive action for catch-up that needs the app in front.")
+  static var openAppWhenRun = true
+
+  @MainActor
+  func perform() async throws -> some IntentResult & ReturnsValue<String> {
+    let reply = try await ShortcutSyncBridge.shared.sync()
+    return .result(value: reply.message)
+  }
+}
+
+/// Flutter consumes the breathing route on launch and resume because opening
+/// the app does not guarantee a fresh process.
 @available(iOS 16.0, *)
 struct StartBreathingIntent: AppIntent {
   static var title: LocalizedStringResource = "Start Breathing Session"
@@ -176,6 +215,12 @@ struct EnableTomorrowAlarmIntent: AppIntent {
 @available(iOS 16.0, *)
 struct OpenStrapShortcuts: AppShortcutsProvider {
   static var appShortcuts: [AppShortcut] {
+    AppShortcut(
+      intent: SyncDataIntent(),
+      phrases: ["Sync data in \(.applicationName)", "Sync my band with \(.applicationName)"],
+      shortTitle: "Sync Data",
+      systemImageName: "arrow.triangle.2.circlepath")
+
     AppShortcut(
       intent: RecoveryIntent(),
       phrases: [
