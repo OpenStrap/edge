@@ -1890,12 +1890,16 @@ void main() {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final activity = activityByName('weight_training')!;
+      LiveDraft.begin(activity, weightKg: 72.4);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
 
       await tester.pumpWidget(_frame(
           ChangeNotifierProvider<UnitsController>.value(
               value: UnitsController.seed(UnitSystem.imperial),
-              child: liveFor(activityByName('weight_training')!,
-                  weightKg: 72.4)),
+              child: liveFor(activity, weightKg: 72.4)),
           Brightness.light,
           1.0));
       await tester.pumpAndSettle();
