@@ -4071,7 +4071,7 @@ class LocalDb {
   /// which the UI states in as many words.
   ///
   /// Derived on read, never stored: total volume, set/rep counts, 1RM
-  /// estimates, per-muscle volume, "vs last session", PR detection.
+  /// estimates, "vs last session", PR detection.
   static Future<void> _createStrengthTables(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS strength_set (
@@ -4152,6 +4152,53 @@ class LocalDb {
       orderBy: 'at_ts DESC',
       limit: limit,
     );
+  }
+
+  /// One previous-set candidate and one best-set candidate per exercise.
+  ///
+  /// The live strength screen used to call [recentSetsFor] once for every
+  /// catalogue row. That was tolerable for eighteen built-ins and becomes an
+  /// app-starting thundering herd for a real exercise library. These two
+  /// queries scale with exercises the USER HAS LOGGED, not definitions the app
+  /// happens to ship.
+  ///
+  /// Deliberately no ROW_NUMBER(): Android minSdk 26 can provide SQLite 3.18,
+  /// while window functions arrived in 3.25. GROUP BY finds the newest time and
+  /// heaviest load; the ORDER BY makes ties deterministic for the Dart caller,
+  /// which keeps the first row for each key (most reps wins a best-set tie).
+  static Future<({
+    List<Map<String, Object?>> previous,
+    List<Map<String, Object?>> best,
+  })> strengthHistoryCandidates() async {
+    final db = await instance;
+    final previous = await db.rawQuery('''
+      SELECT s.*
+      FROM strength_set s
+      JOIN (
+        SELECT exercise_key, MAX(COALESCE(at_ts, 0)) AS newest_at
+        FROM strength_set
+        GROUP BY exercise_key
+      ) newest
+        ON newest.exercise_key = s.exercise_key
+       AND newest.newest_at = COALESCE(s.at_ts, 0)
+      ORDER BY s.exercise_key ASC, COALESCE(s.at_ts, 0) DESC,
+               s.session_id DESC, s.seq DESC
+    ''');
+    final best = await db.rawQuery('''
+      SELECT s.*
+      FROM strength_set s
+      JOIN (
+        SELECT exercise_key, MAX(load_kg) AS best_load
+        FROM strength_set
+        WHERE load_kg IS NOT NULL
+        GROUP BY exercise_key
+      ) heaviest
+        ON heaviest.exercise_key = s.exercise_key
+       AND heaviest.best_load = s.load_kg
+      ORDER BY s.exercise_key ASC, COALESCE(s.reps, 0) DESC,
+               COALESCE(s.at_ts, 0) DESC, s.session_id DESC, s.seq DESC
+    ''');
+    return (previous: previous, best: best);
   }
 
   // ── USER-DATA STORE (journal / cycle / workouts / notifications) ────────────

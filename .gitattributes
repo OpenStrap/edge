@@ -9,3 +9,8 @@
 # Dart file in the repo, which is a working-tree-wide change with nothing to do
 # with reviewable diffs.
 *.dart diff
+
+# Rebuilt from wger by tool/update_wger_exercises.dart. GitHub keeps generated
+# data available but collapses its 20k+ lines so the importer remains the review
+# surface.
+lib/ui2/activity/wger_exercises.g.dart linguist-generated=true
