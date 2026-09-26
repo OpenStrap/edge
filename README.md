@@ -120,10 +120,10 @@ Every screenshot above is real output from a WHOOP 4.0.
 ## What works
 
 **Health** — heart rate, HRV, sleep staging, recovery/readiness, strain, stress, an HRV
-spot-check, real-time breathing coherence.
+spot-check, VO2max estimate, real-time breathing coherence.
 
 **Activity** — auto-detected workouts, live workout tracking with GPS routes, heart-rate
-zones.
+zones you can edit manually, GPX export.
 
 **Your data, elsewhere** — writes to **Apple Health** (HealthKit) and **Google Health
 Connect**: sleep stages, resting HR, HRV, respiratory rate, active energy and workouts.
@@ -139,9 +139,10 @@ and a separate restore Bluetooth central that relaunches the app when the band
 reconnects.
 
 **Everything else** — trends/history, a journal with on-device correlation insights
-("what actually moves your numbers"), cycle tracking, a deterministic coach, a shareable
-weekly recap, a BYOK AI assistant, home-screen widgets, iOS Live Activities, Siri
-shortcuts, a smart alarm that buzzes the band.
+("what actually moves your numbers"), lab-result CSV import, cycle tracking, a
+deterministic coach, a shareable weekly recap, a BYOK AI assistant, home-screen widgets,
+iOS Live Activities, Siri shortcuts, a smart alarm that buzzes the band with a weekly
+repeating schedule and a smart wake window that catches you in light sleep.
 
 ## What doesn't work (yet, or maybe ever)
 

@@ -133,6 +133,16 @@ class RouteTracker {
   int _movingMs = 0;
   bool _stopped = false;
   DateTime _lastFixAt = clock.now();
+  // Serializes every _flush() call (auto-triggered from _onSample AND the
+  // ones stop() runs itself) through one chain, instead of firing auto
+  // flushes unawaited. Two things this buys for free: stop() can `await` it
+  // to know an in-flight auto-flush (and its requeue-on-failure) has fully
+  // settled before stop() does its own tail flush and disposes — otherwise a
+  // batch re-queued by a flush that resolves AFTER stop()'s own flushes ran
+  // sits in `_buffer` forever (the tracker is terminal, nothing ever flushes
+  // it again); and overlapping flushes can no longer race each other's
+  // independent snapshot/clear/await of `_buffer`.
+  Future<void> _flushChain = Future<void>.value();
   // Wall-ms of the last `path` emission (see the ~1/s throttle in the fix
   // handler). 0 ⇒ the first accepted fix always emits.
   int _lastPathEmitMs = 0;
@@ -253,7 +263,7 @@ class RouteTracker {
     current.value = p.latLng;
 
     if (_buffer.length >= batchSize) {
-      unawaited(_flush());
+      _flushChain = _flushChain.then((_) => _flush());
     }
   }
 
@@ -295,6 +305,11 @@ class RouteTracker {
     _watchdog = null;
     await _sub?.cancel();
     _sub = null;
+    // Wait for any auto-triggered flush from _onSample to fully settle
+    // (including its requeue-on-failure) BEFORE our own flush below — see
+    // _flushChain's doc. Without this, a batch that flush re-queues after our
+    // own flushes and dispose() have already run is orphaned forever.
+    await _flushChain;
     // Final emit: the ~1/s throttle can be holding up to a second of tail
     // vertices — the caller reads the notifiers right after stop().
     path.value = List<RouteVertex>.unmodifiable(_vertices);

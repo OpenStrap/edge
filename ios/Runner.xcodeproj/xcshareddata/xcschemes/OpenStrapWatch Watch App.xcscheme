@@ -47,7 +47,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "53962EBD2FF6EF790061A61B"
             BuildableName = "OpenStrapWatch Watch App.app"
-            BlueprintName = "OpenStrapWatch Watch App"
             ReferencedContainer = "container:Runner.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -64,7 +63,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "53962EBD2FF6EF790061A61B"
             BuildableName = "OpenStrapWatch Watch App.app"
-            BlueprintName = "OpenStrapWatch Watch App"
             ReferencedContainer = "container:Runner.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

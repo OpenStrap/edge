@@ -502,12 +502,18 @@ extension BleRestoreManager: CBCentralManagerDelegate {
     // Take ALL of them, not just the first — the count was already being logged, so the
     // code always knew there could be more. Each carries a pending/active connect
     // bluetoothd preserved for us; didConnect fires per peripheral if one lands.
-    // Keep retaining a restored peripheral whose UUID is not in `arms` (band we have
-    // since forgotten): bluetoothd preserved a connect for it and dropping the retain
-    // loses the ability to cancel it. Insert a default entry so the retain has a home;
-    // didConnect below still refuses to wake Dart for it.
+    // A restored peripheral whose UUID is NOT already a provisioned band (forgotten via
+    // disarm) must never gain an `arms` entry — inserting a default ArmState() here is
+    // exactly what used to make didConnect's `arms[uuid] != nil` guard pass, re-arming
+    // and waking Dart for a band the user removed. Cancel it directly instead; we still
+    // hold the peripheral reference from `dict`, so no retain is lost.
     for p in restored {
-      arms[p.identifier, default: ArmState()].peripheral = p
+      if arms[p.identifier] != nil {
+        arms[p.identifier]?.peripheral = p
+      } else {
+        central.cancelPeripheralConnection(p)
+        NSLog("[ble-restore] willRestoreState: forgotten band \(p.identifier.uuidString) — cancelling restored connection")
+      }
     }
     NSLog("[ble-restore] willRestoreState restored \(restored.count) peripheral(s)")
   }

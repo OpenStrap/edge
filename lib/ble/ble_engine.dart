@@ -79,6 +79,7 @@ typedef CommitSyncBatchSink =
       List<Sample?> samples,
       String? trimTokenHex, {
       List<ArchiveRecord>? archives,
+      List<EcgRawPacket>? ecgRawPackets,
       String? deviceFamily,
     });
 
@@ -87,6 +88,84 @@ typedef CommitSyncBatchSink =
 /// drain path archives inside the SAME transaction as the batch commit so the
 /// safe-trim invariant holds (see [CommitSyncBatchSink]).
 typedef ArchiveSink = Future<void> Function(ArchiveRecord archive);
+
+// ── WHOOP MG ECG (Labrador) ─────────────────────────────────────────────────
+// The engine owns the transport half of an ECG reading: the exact command
+// lists, response correlation, history quiescence, the parsed live-R17
+// delivery and the link-generation guards. The reducer, the durable guard,
+// persistence and the UI live in lib/ecg/ behind `EcgTransport`.
+
+/// What the engine tells the ECG owner. Every event carries the link
+/// generation it belongs to, so a controller can drop anything from a link
+/// it did not start on.
+sealed class EcgEngineEvent {
+  final int linkGeneration;
+  const EcgEngineEvent(this.linkGeneration);
+}
+
+/// A CRC-valid live type-43 revision-17 packet, parsed.
+class EcgFrameEvent extends EcgEngineEvent {
+  final LabradorR17 r17;
+  const EcgFrameEvent(this.r17, super.linkGeneration);
+}
+
+/// A CRC-valid type-43 frame that CLAIMS revision 17 but does not parse
+/// (declared sample count past the packet, count above 100, …). During an
+/// armed capture this is a parse failure the owner must finish on.
+class EcgMalformedR17Event extends EcgEngineEvent {
+  final String reason;
+  const EcgMalformedR17Event(super.linkGeneration, this.reason);
+}
+
+/// The link the generation belonged to is gone (teardown ran).
+class EcgLinkDownEvent extends EcgEngineEvent {
+  const EcgLinkDownEvent(super.linkGeneration);
+}
+
+typedef EcgEventSink = void Function(EcgEngineEvent event);
+
+/// Runs once per connection AFTER bootstrap and BEFORE `listening` is
+/// published or the INIT drain claims history — the ECG recovery seam. The
+/// engine holds a recovery [EcgLease] for the duration, so the hook may call
+/// [BleEngine.ecgRecoveryCleanup]; nothing else can claim the transport and
+/// no history task can start until it returns.
+typedef EcgReadyHook = Future<void> Function(BleEngine engine);
+
+/// Exclusive ECG ownership of the command transport for ONE link. Issued by
+/// [BleEngine.ecgAcquire] (or held internally during READY recovery), bound
+/// to the session and link generation it was issued under; every ECG command
+/// validates it, and a stale lease (link replaced) is refused everywhere.
+class EcgLease {
+  final Object _owner; // the _Session this lease was issued for
+  final int linkGeneration;
+  final bool recovery;
+  const EcgLease._(this._owner, this.linkGeneration, {this.recovery = false});
+}
+
+/// One member of a Labrador command list: whether the write left the phone
+/// and whether a matching SUCCESS response came back within the timeout.
+class EcgCommandOutcome {
+  final String label;
+  final int opcode;
+  final bool written;
+  final bool succeeded;
+  const EcgCommandOutcome(
+    this.label,
+    this.opcode, {
+    required this.written,
+    required this.succeeded,
+  });
+
+  @override
+  String toString() =>
+      '$label(0x${opcode.toRadixString(16)}) written=$written ok=$succeeded';
+}
+
+typedef _EcgMember = (
+  String label,
+  int opcode,
+  Uint8List Function(int seq, BandProfile band) build,
+);
 
 /// Fired (debounced) after records are persisted so the caller can schedule a
 /// DerivationEngine pass. Replaces the old "runSync() → SyncReport → derive"
@@ -290,8 +369,11 @@ bool isBurstCountMemberType(int packetType) =>
     packetType == PacketType.relativeBatteryPackConsoleLogs;
 
 @visibleForTesting
-bool shouldPauseMaintenanceTraffic({required bool offloadActive}) =>
-    offloadActive;
+bool shouldPauseMaintenanceTraffic({
+  required bool offloadActive,
+  bool ecgLeased = false,
+}) =>
+    offloadActive || ecgLeased;
 
 /// Whether a HISTORY_END burst's packet accounting matches what the band
 /// reported sending (`expectedPacketCount`, from the metadata frame).
@@ -424,6 +506,11 @@ enum _HpsTerminalKind {
   /// the wire the task cannot make progress — it ends through the one abort
   /// boundary ([BleEngine._endHistoryTaskWithAbort]).
   resultWriteFailed,
+
+  /// The ECG owner took the transport ([BleEngine.ecgCancelHistory]): the
+  /// task ends through the one abort boundary and the band keeps its
+  /// checkpoint for the ordinary sync that follows the reading.
+  preempted,
 }
 
 class _HpsTerminal {
@@ -515,9 +602,20 @@ class _SessionGapSummary {
 /// All per-connection resources. A fresh one is built on every connect and torn
 /// down (every subscription + timer cancelled, characteristics nulled) on every
 /// disconnect — so nothing bleeds across reconnects.
+/// How one live-stream transition ended on the wire.
+enum _LiveWrite { ok, failed, stale }
+
 class _Session {
   final BluetoothDevice device;
   BluetoothCharacteristic? cmdTo;
+
+  /// Set synchronously at the top of `_teardownSession`, before any await.
+  /// The generation bump happens there too, but `_session` is nulled only
+  /// after the subscription cancels have been awaited — so for that window
+  /// the dying session is still the current one and still `connected`, and a
+  /// live-stream pass that just discarded a stale completion would otherwise
+  /// capture the NEW generation and write to the link being closed.
+  bool closing = false;
 
   /// Which registered band this link speaks. Defaults to gen4 (WHOOP 4) and is
   /// pinned once during service discovery via [applyBand] — everything that
@@ -837,6 +935,19 @@ class BleEngine {
   final LiveFrameSink? onLiveFrame;
   final OffloadStateSink? onOffloadState;
 
+  /// WHOOP MG ECG events (parsed live R17, malformed R17, link down). RAM
+  /// only — never persisted here. See [EcgEngineEvent].
+  final EcgEventSink? onEcgEvent;
+
+  /// The READY-time ECG recovery seam — see [EcgReadyHook].
+  final EcgReadyHook? onReadyEcgRecovery;
+
+  /// The current live-stream owner set (#287). Read INSIDE the reconcile loop,
+  /// never cached, so a nudge that was missed is healed by the next keep-alive
+  /// tick rather than persisting until the next owner change. Null means no
+  /// owners (a headless drainer).
+  final LiveStreamOwners Function()? liveOwners;
+
   /// If provided, sync chunks are persisted via this ATOMIC commit (raw + samples
   /// + continuation cursor in one transaction) before the HISTORY_END ACK. This is
   /// what makes the offload resumable across restarts (durable cursor).
@@ -874,6 +985,9 @@ class BleEngine {
     this.onDataStored,
     this.onLiveFrame,
     this.onOffloadState,
+    this.onEcgEvent,
+    this.onReadyEcgRecovery,
+    this.liveOwners,
     this.onCommitBatch,
     this.onArchiveRecord,
     this.cursorReader,
@@ -882,7 +996,17 @@ class BleEngine {
     this.deriveDataStaleness = _defaultDeriveDataStaleness,
     this.isForegroundActive = _defaultIsForegroundActive,
     this.gen5DeepBuffersEnabled = _defaultGen5DeepBuffersDisabled,
+    this.onKeepAlive,
   });
+
+  /// Fired at the tail of every keep-alive tick (~[kKeepAliveIntervalSeconds]
+  /// while connected). A thin hook so app-level periodic checks (Smart Wake
+  /// Window — see state/smart_wake.dart) reuse this engine's own liveness
+  /// timer instead of running a second one; this engine does not know or
+  /// care what the callback does with the tick. Best-effort: a throw here
+  /// must never affect the keep-alive tick's own liveness/battery/reassert
+  /// work above it, so it is caught and logged, not rethrown.
+  final Future<void> Function()? onKeepAlive;
 
   static bool _defaultGen5DeepBuffersDisabled() => false;
 
@@ -932,6 +1056,185 @@ class BleEngine {
   /// the service UUID matched) rather than `_session.band`, which DEFAULTS to
   /// gen4 before discovery has run.
   String? get linkDeviceFamily => state.generation;
+
+  // ── WHOOP MG ECG (Labrador) transport ───────────────────────────────────────
+
+  /// The current ECG lease, if any (capture or READY recovery).
+  EcgLease? _ecgLease;
+
+  /// Positively identified WHOOP MG: a revision-1 gen5 HELLO whose optical
+  /// discriminator is in the MAVERICK interval. False for gen4, for the
+  /// ordinary WHOOP 5.0 and before hello. Never inferred from the UUID, the
+  /// name or command acceptance.
+  bool get isMaverick => _gen5Hello?.isMaverick ?? false;
+
+  /// The link generation — bumped once per teardown. ECG work captures it
+  /// and ignores anything from an older link.
+  int get linkGeneration => _linkGeneration;
+
+  bool get ecgLeaseHeld => _ecgLease != null;
+
+  /// Claim the transport for an ECG reading. Synchronous, so a caller can
+  /// claim BEFORE awaiting history cancellation. Null when the link is not
+  /// connected or the transport is already leased (another capture, or READY
+  /// recovery still running).
+  EcgLease? ecgAcquire() {
+    final session = _session;
+    if (session == null || !session.connected) return null;
+    if (_ecgLease != null) return null;
+    final lease = EcgLease._(session, _linkGeneration);
+    _ecgLease = lease;
+    return lease;
+  }
+
+  /// True while [lease] is the live lease of the live link.
+  bool ecgLeaseValid(EcgLease lease) {
+    final session = _session;
+    return identical(_ecgLease, lease) &&
+        session != null &&
+        session.connected &&
+        identical(lease._owner, session) &&
+        lease.linkGeneration == _linkGeneration;
+  }
+
+  /// Release [lease]. A stale lease (not the current one) is ignored, so an
+  /// old controller cannot release a replacement link's lease.
+  void ecgRelease(EcgLease lease) {
+    if (identical(_ecgLease, lease)) _ecgLease = null;
+  }
+
+  /// End the phone-side history owner and wait for its lifecycle to go
+  /// quiescent (abort delivered or given up, marker handler out of any
+  /// parked commit). The canonical ECG START list still sends its own
+  /// opcode 20 afterwards — this is ownership, not the abort itself.
+  Future<void> ecgCancelHistory(EcgLease lease) async {
+    if (!ecgLeaseValid(lease)) return;
+    final session = lease._owner as _Session;
+    if (_offloadActive && !session.historyTaskEnded) {
+      await _endHistoryTaskWithAbort(
+        session: session,
+        kind: _HpsTerminalKind.preempted,
+        reason: 'ecg_preempted',
+      );
+    }
+    await _awaitHistoryLifecycleQuiescence();
+  }
+
+  static List<_EcgMember> _ecgPrepareMembers(WristSelection wrist) => [
+        ('selectWrist', Cmd.selectWrist,
+            (seq, band) => cmdSelectWrist(seq, wrist, profile: band)),
+        ('filteredOn', Cmd.toggleLabradorFiltered,
+            (seq, band) => cmdLabradorFiltered(seq, true, profile: band)),
+        ('rawSaveOn', Cmd.toggleLabradorRawSave,
+            (seq, band) => cmdLabradorRawSave(seq, true, profile: band)),
+      ];
+
+  static List<_EcgMember> _ecgStartMembers(LabradorOperation op) => [
+        ('abortHistorical', Cmd.abortHistoricalTransmits,
+            (seq, band) => cmdAbortHistorical(seq, profile: band)),
+        (
+          op == LabradorOperation.restart
+              ? 'generationRestart'
+              : 'generationStart',
+          Cmd.toggleLabradorDataGeneration,
+          (seq, band) => cmdLabradorDataGeneration(seq, op, profile: band),
+        ),
+      ];
+
+  static final List<_EcgMember> _ecgCleanupMembers = [
+    ('generationStop', Cmd.toggleLabradorDataGeneration,
+        (seq, band) =>
+            cmdLabradorDataGeneration(seq, LabradorOperation.stop, profile: band)),
+    ('filteredOff', Cmd.toggleLabradorFiltered,
+        (seq, band) => cmdLabradorFiltered(seq, false, profile: band)),
+    ('rawSaveOff', Cmd.toggleLabradorRawSave,
+        (seq, band) => cmdLabradorRawSave(seq, false, profile: band)),
+  ];
+
+  /// PREPARE: 123 wrist, 139 filtered ON, 125 raw-save ON. Attempt-all; the
+  /// caller accepts only when every member succeeded.
+  Future<List<EcgCommandOutcome>> ecgPrepare(
+    EcgLease lease,
+    WristSelection wrist,
+  ) =>
+      _runEcgList(lease, _ecgPrepareMembers(wrist));
+
+  /// START: 20 abort-history (unconditional), 124 generation START.
+  Future<List<EcgCommandOutcome>> ecgStart(EcgLease lease) =>
+      _runEcgList(lease, _ecgStartMembers(LabradorOperation.start));
+
+  /// RESTART: 20, 124 generation RESTART — only for the reducer's exact
+  /// explicit-restart predicate, never for ordinary contact loss.
+  Future<List<EcgCommandOutcome>> ecgRestart(EcgLease lease) =>
+      _runEcgList(lease, _ecgStartMembers(LabradorOperation.restart));
+
+  /// CLEANUP: 124 STOP, 139 OFF, 125 OFF — every member attempted, in order,
+  /// whatever an earlier one answered. The caller clears its durable guard
+  /// only when all three succeeded.
+  Future<List<EcgCommandOutcome>> ecgCleanup(EcgLease lease) =>
+      _runEcgList(lease, _ecgCleanupMembers);
+
+  /// The cleanup triplet under the READY recovery lease — callable only from
+  /// inside [onReadyEcgRecovery]. Empty (nothing written) otherwise.
+  Future<List<EcgCommandOutcome>> ecgRecoveryCleanup() {
+    final lease = _ecgLease;
+    if (lease == null || !lease.recovery) return Future.value(const []);
+    return _runEcgList(lease, _ecgCleanupMembers);
+  }
+
+  /// Attempt every member in order, one correlated await each (observer
+  /// before write, seq+opcode match, the common five-second timeout, no
+  /// retry). A member whose lease is no longer valid is recorded unwritten
+  /// and the rest are still walked, so the outcome list is always complete.
+  Future<List<EcgCommandOutcome>> _runEcgList(
+    EcgLease lease,
+    List<_EcgMember> members,
+  ) async {
+    final out = <EcgCommandOutcome>[];
+    for (final (label, opcode, build) in members) {
+      if (!ecgLeaseValid(lease)) {
+        out.add(EcgCommandOutcome(label, opcode,
+            written: false, succeeded: false));
+        continue;
+      }
+      final session = lease._owner as _Session;
+      final sent = await _sendAwaited(
+        opcode,
+        const [],
+        frameBuilder: (seq) => build(seq, session.band),
+        owner: session,
+      );
+      if (!sent.written) {
+        out.add(EcgCommandOutcome(label, opcode,
+            written: false, succeeded: false));
+        continue;
+      }
+      final r = await sent.response;
+      final ok = r != null && r.success;
+      _log('[ECG] $label opcode=$opcode → '
+          '${r == null ? 'no response' : 'status=${r.status}'}');
+      out.add(EcgCommandOutcome(label, opcode, written: true, succeeded: ok));
+    }
+    return out;
+  }
+
+  /// READY recovery: hold a recovery lease around [onReadyEcgRecovery] so
+  /// the hook can run the cleanup triplet before `listening` is published
+  /// and before the INIT drain. Returns false when the link died under it.
+  Future<bool> _runEcgReadyRecovery(_Session session) async {
+    final hook = onReadyEcgRecovery;
+    if (hook == null) return true;
+    final lease = EcgLease._(session, _linkGeneration, recovery: true);
+    _ecgLease = lease;
+    try {
+      await hook(this);
+    } catch (e) {
+      _log('[ECG] READY recovery hook threw: $e — continuing.');
+    } finally {
+      if (identical(_ecgLease, lease)) _ecgLease = null;
+    }
+    return !_sessionIsStale(session);
+  }
 
   // ── PROCESS-WIDE SINGLE-OWNER GUARD ─────────────────────────────────────────
   // The strap streams its historical offload to EVERY subscribed central. If two
@@ -1229,18 +1532,64 @@ class BleEngine {
   // (we keep ACKing HISTORY_END markers as they arrive, even after the first
   // HISTORY_COMPLETE — a later strap-triggered offload reuses it).
   DrainController? _drain;
-  bool _liveEnabled = false;
-  // Background live downgrade: only the compact realtime-HR stream is armed
-  // (no high-rate R10/R11 + IMU + optical flood). Set by [enableHrOnlyLive].
-  bool _liveHrOnly = false;
 
-  /// Whether any live stream is currently armed (full or HR-only). Lets a live
-  /// consumer (spot check / step calibration) know if it must arm streams itself
-  /// — and therefore whether IT owns turning them back off.
-  bool get liveEnabled => _liveEnabled;
+  // ── live HR / IMU ownership (#287) ──────────────────────────────────────────
+  // Desired state comes from the app's owner set through [liveOwners] and is
+  // recomputed inside the reconcile loop; applied state is what this LINK has
+  // been told and acknowledged. They are deliberately separate: the old flags
+  // flipped before the writes went out and doubled as both, which is how a
+  // stale OFF could defeat a new owner. See `desiredLiveStreams` /
+  // `nextLiveStreamStep` in ble_state.dart for the policy.
+  LiveStreamIntent _liveApplied = LiveStreamIntent.off;
 
-  /// True while live is in the background HR-only downgrade.
-  bool get liveHrOnly => _liveEnabled && _liveHrOnly;
+  /// The strap's high-rate bundle state is unknown on a fresh link. Consulted
+  /// on gen4 only (R10/R11 OFF persists across reconnects there); reset by
+  /// teardown.
+  bool _imuFresh = true;
+
+  /// A write for that bit failed or went stale, so the strap may be in either
+  /// state; the policy replays the newest desired direction before it declares
+  /// convergence. Reset by teardown.
+  bool _imuDirty = false;
+  bool _hrDirty = false;
+
+  /// The in-flight reconcile pass. Shared so that `await reconcileLiveStreams()`
+  /// is a real barrier for a caller that coalesced behind a running pass —
+  /// `disconnect()` relies on that to know its OFF intent has been processed.
+  Completer<void>? _liveRun;
+
+  /// Owners changed (or a disconnect arrived) while a pass was in flight:
+  /// recompute once more before the pass ends.
+  bool _liveRestale = false;
+
+  /// The keep-alive asked for the applied streams to be re-asserted on the
+  /// next converged pass (the band's live toggles can silently die).
+  bool _liveReassert = false;
+
+  /// The link has finished its INIT sequence and may carry live toggles.
+  /// `listening` is set BEFORE `_startInitDrain` sends the INIT packets (with
+  /// delays, possibly behind a history-lifecycle wait), so the phase alone
+  /// would let an owner nudge slip a live toggle in between them. Set at the
+  /// end of `_finishConnect`; cleared on a new session and at teardown.
+  bool _liveReady = false;
+
+  /// `disconnect()` in progress: desired is forced to OFF for the whole of the
+  /// shutdown reconcile AND the teardown, so nothing can re-arm the closing
+  /// link. Cleared in a `finally`.
+  bool _liveShutdown = false;
+
+  /// Whether any live stream is currently applied on this link. Read by the
+  /// resume-time staleness bar, the keep-alive's liveness poll and the
+  /// marginal-radio detector.
+  bool get liveEnabled => _liveApplied.any;
+
+  /// What this link has been told and acknowledged. Tests only.
+  @visibleForTesting
+  LiveStreamIntent get debugLiveApplied => _liveApplied;
+
+  /// What the current owners call for on this link. Tests only.
+  @visibleForTesting
+  LiveStreamIntent get debugLiveDesired => _desiredLive();
 
   // ── link power (issue #200) ─────────────────────────────────────────────────
   // Android's connection priority was requested ONCE at connect setup and never
@@ -1276,7 +1625,7 @@ class BleEngine {
   LinkPriority linkPriorityForCurrentState() => desiredLinkPriority(
         offloadActive: _offloadActive || _connectSetup,
         background: _backgrounded,
-        hasLiveConsumer: _liveEnabled && !_liveHrOnly,
+        hasLiveConsumer: _liveApplied.imu || _desiredLive().imu,
       );
 
   /// The last hop: the policy's [LinkPriority] as the radio's own enum.
@@ -1328,11 +1677,18 @@ class BleEngine {
   /// non-trimmable, so the commit-before-ACK ordering and the result-write
   /// failure paths are unreachable.
   @visibleForTesting
+  ///
+  /// [listening] marks the link READY (the post-bootstrap `listening` phase);
+  /// [liveReady] (defaults to [listening]) marks its INIT sequence finished,
+  /// which is what the live-stream reconciler requires before it writes. The
+  /// defaults leave both alone so bootstrap tests can drive them themselves.
   void debugInstallFakeLink({
     required Future<bool> Function(Uint8List frame) onWrite,
     BandProfile band = BandProfile.gen4,
     ArchiveSink? onArchive,
     CommitSyncBatchSink? onCommit,
+    bool listening = false,
+    bool? liveReady,
   }) {
     final session = _Session(
       BluetoothDevice(remoteId: const DeviceIdentifier('AA:BB:CC:DD:EE:FF')),
@@ -1341,6 +1697,8 @@ class BleEngine {
     session.sawConnected = true;
     session.applyBand(bandEntryFor(band));
     _session = session;
+    if (listening) _phase = BleConnState.listening;
+    _liveReady = liveReady ?? listening;
     debugWriteHook = onWrite;
     _drain = DrainController(
       onRecord: _storeRecord,
@@ -1350,6 +1708,11 @@ class BleEngine {
       log: _log,
     );
   }
+
+  /// The armed drain controller (null before a link is set up) — so a test
+  /// can see what an ingested frame buffered without driving a HISTORY_END.
+  @visibleForTesting
+  DrainController? get debugDrain => _drain;
 
   /// Test seam onto the LOWEST-level write, so the dangerous-opcode block that
   /// lives there can be exercised on a pre-framed frame — which is exactly the
@@ -1442,6 +1805,21 @@ class BleEngine {
   @visibleForTesting
   void debugProcessImmediateFrame(Frame frame) => _processImmediateFrame(frame);
 
+  /// Test seam: back-date the liveness stamps so a keep-alive tick can be
+  /// judged as "on cadence" or "overdue after a suspension".
+  @visibleForTesting
+  void debugSetLiveness({DateTime? lastRx, DateTime? lastKeepAliveTick}) {
+    if (lastRx != null) _lastRx = lastRx;
+    _lastKeepAliveTickAt = lastKeepAliveTick;
+  }
+
+  /// Test seam: run one keep-alive tick against the installed fake link.
+  @visibleForTesting
+  void debugFireKeepAlive() {
+    final s = _session;
+    if (s != null) _keepAliveFire(s);
+  }
+
   /// Feed one inbound frame through the REAL receive path, including
   /// [FrameRoutePolicy] and the serialized offload queue — i.e. the thing that
   /// decides which burst window a frame's count lands in.
@@ -1531,7 +1909,9 @@ class BleEngine {
         final want = desiredLinkPriority(
           offloadActive: _offloadActive || _connectSetup,
           background: _backgrounded,
-          hasLiveConsumer: _liveEnabled && !_liveHrOnly,
+          // Desired OR applied: the fast interval is requested before the
+          // flood starts and held until the OFF has landed.
+          hasLiveConsumer: _liveApplied.imu || _desiredLive().imu,
         );
         if (want == _appliedPriority) continue;
         final generation = _linkGeneration;
@@ -1623,6 +2003,12 @@ class BleEngine {
   DateTime? _highFreqUntil;
   String? _highFreqReason;
   bool _highFreqModeRequested = false;
+
+  /// What the band is currently asked to prompt (ENTER_HIGH_FREQ_SYNC), as
+  /// last applied on this link. Null when the mode is off or the link is
+  /// gone — a reconnect resets both, so a caller re-applies after it.
+  String? get highFreqReason => _highFreqReason;
+  DateTime? get highFreqUntil => _highFreqUntil;
   final Map<int, int> _lastSequenceByRevision = <int, int>{};
   int? _strapHistoryOldestTs;
   int? _strapHistoryNewestTs;
@@ -1880,6 +2266,12 @@ class BleEngine {
   // genuinely live link (recent data) from a stale one. Also drives the UI's
   // "last data: Xs ago" readout.
   DateTime _lastRx = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Wall-clock of the previous keep-alive tick. A tick that arrives more
+  /// than two periods after this one means the process was suspended in
+  /// between (iOS, between band prompts): silence accumulated then is not
+  /// evidence — see `livenessSilence`. Null until the first tick of a session.
+  DateTime? _lastKeepAliveTickAt;
   Duration get sinceLastRx => DateTime.now().difference(_lastRx);
 
   /// Wall-clock of the last received BLE notification (any characteristic), for the
@@ -2248,6 +2640,7 @@ class BleEngine {
     _setPhase(BleConnState.connecting);
     final session = _Session(device);
     _session = session;
+    _liveReady = false;
     _seq.reset();
 
     // SOURCE OF TRUTH: listen to the OS connection-state stream FIRST so we never
@@ -2485,7 +2878,10 @@ class BleEngine {
       // disconnect cancels it — no zombie timer firing into a dead characteristic.
       session.heartbeat = Timer.periodic(const Duration(seconds: 10), (_) {
         if (!session.connected ||
-            shouldPauseMaintenanceTraffic(offloadActive: _offloadActive)) {
+            shouldPauseMaintenanceTraffic(
+              offloadActive: _offloadActive,
+              ecgLeased: _ecgLease != null,
+            )) {
           return;
         }
         // Backgrounded: 60 s cadence. LINK_VALID is an app-level write, not
@@ -2518,6 +2914,7 @@ class BleEngine {
       );
 
       _lastRx = DateTime.now(); // fresh link — never treat as stale on resume
+      _lastKeepAliveTickAt = null; // first tick of this link judges raw silence
 
       // SINGLE LISTENING MODE. Arm the offload controller, enter `listening`, then
       // fire INIT — which triggers the historical flood. Historical + live records
@@ -2543,6 +2940,13 @@ class BleEngine {
             '$_helloFailures accumulated hello failure(s) at READY.');
         _helloFailures = 0;
       }
+      // WHOOP MG ECG recovery runs BEFORE READY is visible: a retained
+      // may-be-active guard gets the transport first, so no capture and no
+      // history task can start until the cleanup triplet has been attempted.
+      if (!await _runEcgReadyRecovery(session)) {
+        _log('[ECG] link died under READY recovery — not reporting ready.');
+        return false;
+      }
       _setPhase(BleConnState.listening);
       // The charging-only battery-pack lookup launches strictly AFTER
       // READY, asynchronously; it never blocks or gates anything.
@@ -2550,7 +2954,11 @@ class BleEngine {
       // The INIT drain claim rides the same task-lifecycle rules as every
       // other history task ([_startInitDrain]) — quiescence barrier, task
       // generation, staleness re-checks, arm/rollback.
-      return await _startInitDrain(session);
+      final ok = await _startInitDrain(session);
+      // Live toggles only AFTER the INIT sequence: the caller reconciles the
+      // owners' intent once this returns (see `_liveReady`).
+      if (ok && identical(_session, session)) _liveReady = true;
+      return ok;
     } catch (e) {
       _log('connect setup failed: $e');
       await _failConnect();
@@ -3362,10 +3770,29 @@ class BleEngine {
   // ── keep-alive + periodic backfill ──────────────────────────────────────────
   void _keepAliveFire(_Session session) {
     if (_session != session || !session.connected) return;
+    final now = DateTime.now();
+    final lastTick = _lastKeepAliveTickAt;
+    _lastKeepAliveTickAt = now;
+    final sinceLastTick =
+        lastTick == null ? Duration.zero : now.difference(lastTick);
     // Liveness watchdog: iOS can resume us with the peripheral flagged connected
     // while its GATT notifications silently died. If no frame has arrived for
     // longer than the fuse, bounce the link so the caller's reconnect loop runs.
-    if (sinceLastRx.inSeconds > kLivenessFuseSeconds) {
+    // Silence that built up while the process was SUSPENDED (this tick is
+    // overdue by more than two periods — an iOS band-prompt wake) is not
+    // evidence: the clock restarts here, the forced battery poll below still
+    // fires off the raw gap, and the next tick judges the reply normally.
+    final silence = livenessSilence(
+      sinceLastRx: sinceLastRx,
+      sinceLastTick: sinceLastTick,
+      tickPeriod: const Duration(seconds: kKeepAliveIntervalSeconds),
+    );
+    if (silence == Duration.zero &&
+        sinceLastRx.inSeconds > kLivenessFuseSeconds) {
+      _log('[keepalive] resumed after ${sinceLastTick.inSeconds}s without a '
+          'tick — liveness clock restarted, probing the band.');
+    }
+    if (silence.inSeconds > kLivenessFuseSeconds) {
       _log('No data for >${kLivenessFuseSeconds}s — bouncing the link.');
       unawaited(
         _teardownSession(intentional: false).then((_) {
@@ -3376,7 +3803,10 @@ class BleEngine {
       );
       return;
     }
-    if (shouldPauseMaintenanceTraffic(offloadActive: _offloadActive)) {
+    if (shouldPauseMaintenanceTraffic(
+              offloadActive: _offloadActive,
+              ecgLeased: _ecgLease != null,
+            )) {
       return;
     }
     // Proactive RTC recheck: every other clock verification is symptom-driven
@@ -3392,35 +3822,18 @@ class BleEngine {
       _log('[SYNC] Periodic RTC re-verify (long-lived connection).');
       unawaited(getClock());
     }
-    if (_liveEnabled) {
-      // Re-arm ONLY what the current live mode wants: re-sending the high-rate
-      // R10/R11 toggle while in HR-only mode (background downgrade) or under the
-      // marginal-radio fallback would silently undo the downgrade every 30 s.
-      // A band with no SEND_R10_R11 opcode (WHOOP 5: Unknown/Unhandled) carries
-      // its high-rate live stream on the IMU toggle, so that is what re-arms.
-      final r10 = (_session?.entry ?? kWhoopGen4).commands.r10R11Realtime;
-      if (!_liveHrOnly && !state.standardHrFallback) {
-        if (r10 == null) {
-          _sendToggleImu(true);
-        } else {
-          _send(r10, const [0x01]);
-        }
-      }
-      // Evidence-gated: the HR re-arm exists to recover a stream that silently
-      // died, so send it only when the stream is demonstrably NOT delivering
-      // (no valid reading for >60 s — off-wrist stamps nothing, which
-      // correctly degrades to the old blind re-arm there). Blindly re-sending
-      // every 30 s was ~2,880 write-with-response round trips/day whose
-      // payload was a no-op. The IMU re-arm above stays unconditional: it runs
-      // only in foreground full-live (bounded by screen-on time), and a
-      // flowing HR stream is no proof the IMU stream is alive.
-      final hrAtMs = state.liveHrAt;
-      final hrDelivering = hrAtMs != null &&
-          DateTime.now().millisecondsSinceEpoch - hrAtMs < 60 * 1000;
-      if (!hrDelivering) {
-        _send(Cmd.toggleRealtimeHr, const [0x01]);
-      }
-    }
+    // Re-arm what is APPLIED (the band's live toggles can silently die) and,
+    // as a side effect, retry any transition that failed earlier — a no-op
+    // when applied already equals desired. Serialised through the same pass as
+    // every other live write; see [_reassertLive] for what is re-sent.
+    // Only START a pass; never restale one in flight. A coalesced call marks
+    // the running pass restale, and a failed transition retries while that
+    // flag is set — a gen4 OFF bundle whose four writes each time out (8 s)
+    // outlasts this 30 s tick, so a tick that restaled it would retry it
+    // forever. The reassert flag alone is picked up by the next converged
+    // pass, whoever starts it.
+    _liveReassert = true;
+    if (_liveRun == null) unawaited(_reconcileLive());
     // Battery is a DISPLAY value that moves over hours. Polling it on every
     // 30 s keep-alive tick was 2,880 radio round-trips a day for a handful of
     // real changes (issue #200).
@@ -3441,7 +3854,7 @@ class BleEngine {
         // bar (~every other 30 s tick ⇒ sinceLastRx stays ≤ ~65 s). With a
         // stream armed, the original fuse/2 threshold stands.
         force: sinceLastRx.inSeconds >
-            (_liveEnabled
+            (liveEnabled
                 ? kLivenessFuseSeconds ~/ 2
                 : kNoStreamPollSilenceSeconds),
       ),
@@ -3449,6 +3862,12 @@ class BleEngine {
     // Cheap retry hook for a priority request that failed earlier: a no-op
     // whenever the link already sits at the wanted interval.
     unawaited(_applyLinkPriority());
+    final onTick = onKeepAlive;
+    if (onTick != null) {
+      unawaited(onTick().catchError((e) {
+        _log('[keepalive] onKeepAlive hook failed: $e');
+      }));
+    }
   }
 
   DateTime? _lastBatteryPollAt;
@@ -3621,6 +4040,11 @@ class BleEngine {
       }
       return false;
     }
+    if (_ecgLeaseHeldFor(session)) {
+      _log('[SYNC] refresh($reason) refused — the ECG owner holds the '
+          'transport; history resumes after the reading.');
+      return false;
+    }
     if (_offloadActive && !d._complete) {
       _log(
         '[SYNC] refresh($reason) dropped — strap is already transmitting history.',
@@ -3640,10 +4064,13 @@ class BleEngine {
     // HistoryComplete tail-commit handling) — those rows re-attempt on the
     // next commit, exactly as documented there.
     if (session.historyTaskEnded &&
-        (d.bufferedRecords > 0 || d.bufferedArchives > 0)) {
+        (d.bufferedRecords > 0 ||
+            d.bufferedArchives > 0 ||
+            d.bufferedEcgRaw > 0)) {
       _log(
         '[SYNC] refresh($reason) — discarding the aborted previous task\'s '
         '${d.bufferedRecords} record(s) + ${d.bufferedArchives} archive(s) '
+        '+ ${d.bufferedEcgRaw} raw ECG '
         'of leftover un-ACKed buffer before starting a new task; the band '
         're-delivers them.',
       );
@@ -3754,6 +4181,12 @@ class BleEngine {
         // Ignore notifications from a session we've already torn down.
         if (_session != session || !session.connected) return;
         _lastRx = DateTime.now();
+        // A malformed/corrupt chunk (framer bug on an unusual firmware
+        // revision) must not become an uncaught async error that silently
+        // stops this characteristic's whole notification stream — degrade
+        // by dropping this chunk and logging, same discipline as every other
+        // failure path in this file.
+        try {
         for (final frame in session.asm[role]!.feed(chunk)) {
           if (frame.decodable) {
             _onFrame(role, frame, session);
@@ -3799,7 +4232,14 @@ class BleEngine {
               '($_crcFailuresThisSession CRC failures this session) — '
               'standard-HR fallback enabled.',
             );
+            // The fallback is an input to the desired live state: drop an
+            // applied IMU bundle now rather than on a keep-alive tick that
+            // returns early for the whole of an offload.
+            unawaited(_reconcileLive());
           }
+        }
+        } catch (e, st) {
+          _log('[BLE] notify handler threw on role=$role: $e\n$st');
         }
       }),
     );
@@ -3914,7 +4354,7 @@ class BleEngine {
         ? null
         : now.difference(_bondTime!).inMilliseconds / 1000.0;
     if (_marginalRadio.connectionEnded(
-      wasArmed: _liveEnabled,
+      wasArmed: liveEnabled,
       secondsSinceArm: sinceArm,
       timedOut: timedOut,
     )) {
@@ -4035,7 +4475,7 @@ class BleEngine {
         // so a hooked write rejects a stale-session ACK exactly like the real
         // one. A seam that skips the guards it is meant to be standing in for
         // makes every test that relies on it prove the wrong thing.
-        if (session == null || !session.connected) {
+        if (session == null || !session.connected || session.closing) {
           _log('write skipped: link not ready.');
           return false;
         }
@@ -4173,6 +4613,7 @@ class BleEngine {
     List<int> payload, {
     Duration timeout = CommandAwaiter.defaultTimeout,
     Uint8List Function(int seq)? frameBuilder,
+    _Session? owner,
   }) async {
     if (_refuseDangerousOpcode(opcode)) {
       return (written: false, response: Future<CorrelatedResponse?>.value());
@@ -4181,7 +4622,7 @@ class BleEngine {
     final pending = _awaiter.register(seq, opcode, timeout: timeout);
     final frame = frameBuilder?.call(seq) ??
         buildCommand(seq, opcode, payload, _session?.band ?? BandProfile.gen4);
-    if (!await _write(frame)) {
+    if (!await _write(frame, owner: owner)) {
       pending.cancel();
       _log('WRITE FAILED for opcode 0x${opcode.toRadixString(16)} — '
           'command not delivered.');
@@ -4201,9 +4642,14 @@ class BleEngine {
   /// byte where gen4 sends a bare on/off byte; protocol's `cmdToggleImu` owns
   /// that split. Sent the gen4 body, a gen5 strap reads the state from past the
   /// end of the body, the stream never arms, and step calibration stays at 0.
-  Future<bool> _sendToggleImu(bool on) => _write(
+  ///
+  /// [owner] pins the write to one session exactly as [_send] does: the live
+  /// reconciler issues this from a multi-write bundle that can straddle a
+  /// teardown, and the gen4 tail must not land on a replacement gen5 link.
+  Future<bool> _sendToggleImu(bool on, {_Session? owner}) => _write(
         cmdToggleImu(_seq.nextLive(), on,
-            profile: _session?.band ?? BandProfile.gen4),
+            profile: (owner ?? _session)?.band ?? BandProfile.gen4),
+        owner: owner,
       );
 
   Future<bool> _sendGetDataRange({_Session? owner}) =>
@@ -4247,15 +4693,23 @@ class BleEngine {
     // Frame for the SESSION'S band. Built gen4-only, a gen5 strap got a header
     // length and checksum it cannot parse, so high-frequency sync never
     // engaged — while the flags below claimed it had. Only claim the mode when
-    // the write actually landed.
+    // the write actually landed — and only on the link it was written to: the
+    // write is pinned to THIS session, and a continuation that resumes after
+    // the link was replaced must not claim the mode on the successor, which
+    // never received the ENTER (teardown already cleared the dead link's
+    // state, and the successor's own post-connect refresh re-applies).
+    final session = _session!;
+    final generation = _linkGeneration;
     final ok = await _write(
       cmdEnterHighFreqSync(
         _seq.nextLive(),
         intervalSeconds: intervalSeconds,
         durationSeconds: duration.inSeconds,
-        profile: _session?.band ?? BandProfile.gen4,
+        profile: session.band,
       ),
+      owner: session,
     );
+    if (_liveStale(session, generation)) return;
     if (!ok) {
       _log('[SYNC] HighFreq enter ($reason) write FAILED — mode NOT claimed.');
       return;
@@ -4273,8 +4727,16 @@ class BleEngine {
       return;
     }
     _log('[SYNC] HighFreq exit ($reason).');
-    await _write(cmdExitHighFreqSync(_seq.nextLive(),
-        profile: _session?.band ?? BandProfile.gen4));
+    // Same pinning as the ENTER above: an EXIT written to a link that is gone
+    // by the time the write returns must not clear what the SUCCESSOR link
+    // has since programmed.
+    final session = _session!;
+    final generation = _linkGeneration;
+    await _write(
+      cmdExitHighFreqSync(_seq.nextLive(), profile: session.band),
+      owner: session,
+    );
+    if (_liveStale(session, generation)) return;
     _highFreqModeRequested = false;
     _highFreqReason = null;
     _highFreqUntil = null;
@@ -4306,48 +4768,64 @@ class BleEngine {
     List<Sample?> samples,
     String? trimTokenHex, {
     List<ArchiveRecord>? archives,
+    List<EcgRawPacket>? ecgRawPackets,
     String? deviceFamily,
   }) async {
     final hasArchives = archives != null && archives.isNotEmpty;
-    if (raws.isEmpty && trimTokenHex == null && !hasArchives) return;
+    final hasEcgRaw = ecgRawPackets != null && ecgRawPackets.isNotEmpty;
+    if (raws.isEmpty && trimTokenHex == null && !hasArchives && !hasEcgRaw) {
+      return;
+    }
     // Stamp the family HERE, from the link that produced the chunk: this is the
     // last point that knows it. Callers may override (tests / a replay that
     // knows better); null falls back to the live link, which is itself null
     // before discovery has pinned one.
     await onCommitBatch!(raws, samples, trimTokenHex,
-        archives: archives, deviceFamily: deviceFamily ?? linkDeviceFamily);
-    if (raws.isNotEmpty || hasArchives) _noteStored();
+        archives: archives,
+        ecgRawPackets: ecgRawPackets,
+        deviceFamily: deviceFamily ?? linkDeviceFamily);
+    if (raws.isNotEmpty || hasArchives || hasEcgRaw) _noteStored();
   }
 
   // ── frame handling ─────────────────────────────────────────────────────────────
   void _onFrame(String role, Frame frame, _Session session) {
-    final pt = frame.packetType;
-    // Metadata ALWAYS takes the serialized queue, whatever characteristic it
-    // was reassembled on. It used to take the queue only on the `data` role;
-    // metadata off `cmd_from`/`events` was fired unawaited on the immediate
-    // path — the one route that could run a HISTORY_END handler CONCURRENTLY
-    // with the queued drain, i.e. two handlers on the same DrainController,
-    // where one snapshots an empty buffer and writes its ACK before the
-    // other's commit is durable. See [FrameRoutePolicy].
-    final route = FrameRoutePolicy.route(
-      isMetadata: pt == PacketType.metadata,
-      isHistorical: pt == PacketType.historicalData,
-      isDataRole: role == 'data',
-      isBurstCountMember: isBurstCountMemberType(pt),
-      offloadActive: _offloadActive,
-    );
-    switch (route) {
-      case FrameRoute.serializedQueue:
-        _enqueueOffloadFrame(frame, session);
-      case FrameRoute.immediateAndCount:
-        // Process inline first (unchanged behaviour: wrist/battery/alarm and
-        // console text must not wait behind an offload commit), then enqueue
-        // the SAME frame so only its burst COUNT is applied in arrival order,
-        // in the burst window the band sent it in. See [FrameRoute].
-        _processImmediateFrame(frame);
-        _enqueueOffloadFrame(frame, session);
-      case FrameRoute.immediate:
-        _processImmediateFrame(frame);
+    // Both callers (the notify hot path and the immediate-processing path)
+    // route through here, so one guard covers both: a decode/dispatch
+    // exception on ONE frame must degrade (log + drop that frame) rather
+    // than propagate uncaught out of a BLE notify callback and silently
+    // stop this characteristic's whole notification stream.
+    try {
+      final pt = frame.packetType;
+      // Metadata ALWAYS takes the serialized queue, whatever characteristic
+      // it was reassembled on. It used to take the queue only on the `data`
+      // role; metadata off `cmd_from`/`events` was fired unawaited on the
+      // immediate path — the one route that could run a HISTORY_END handler
+      // CONCURRENTLY with the queued drain, i.e. two handlers on the same
+      // DrainController, where one snapshots an empty buffer and writes its
+      // ACK before the other's commit is durable. See [FrameRoutePolicy].
+      final route = FrameRoutePolicy.route(
+        isMetadata: pt == PacketType.metadata,
+        isHistorical: pt == PacketType.historicalData,
+        isDataRole: role == 'data',
+        isBurstCountMember: isBurstCountMemberType(pt),
+        offloadActive: _offloadActive,
+      );
+      switch (route) {
+        case FrameRoute.serializedQueue:
+          _enqueueOffloadFrame(frame, session);
+        case FrameRoute.immediateAndCount:
+          // Process inline first (unchanged behaviour: wrist/battery/alarm
+          // and console text must not wait behind an offload commit), then
+          // enqueue the SAME frame so only its burst COUNT is applied in
+          // arrival order, in the burst window the band sent it in. See
+          // [FrameRoute].
+          _processImmediateFrame(frame);
+          _enqueueOffloadFrame(frame, session);
+        case FrameRoute.immediate:
+          _processImmediateFrame(frame);
+      }
+    } catch (e, st) {
+      _log('[BLE] _onFrame threw on role=$role pt=${frame.packetType}: $e\n$st');
     }
   }
 
@@ -4374,6 +4852,19 @@ class BleEngine {
         liveHex,
         (liveTs != null && liveTs > 0) ? liveTs : null,
       );
+      // WHOOP MG live filtered ECG (type 43, data revision 17). Parsed here,
+      // delivered synchronously, never persisted by the engine — the ECG
+      // owner keeps only the accepted window (RAM otherwise). A frame that
+      // claims revision 17 but does not parse is reported, not dropped.
+      if (pt == PacketType.realtimeRawData &&
+          (_session?.band.isGen5 ?? false) &&
+          frame.inner.length > 1 &&
+          frame.inner[1] == LabradorR17.revision) {
+        final r17 = LabradorR17.parse(frame.inner);
+        onEcgEvent?.call(r17 != null
+            ? EcgFrameEvent(r17, _linkGeneration)
+            : EcgMalformedR17Event(_linkGeneration, 'r17_parse'));
+      }
       // Fall through to decodeFrame so the UI gets live telemetry (state.liveHr).
     }
     if (pt == PacketType.historicalData) {
@@ -4576,6 +5067,13 @@ class BleEngine {
 
   /// True once [session] is no longer the engine's live session — the guard
   /// every long-parked offload callback shares.
+  bool _ecgLeaseHeldFor(_Session session) {
+    final l = _ecgLease;
+    return l != null &&
+        identical(l._owner, session) &&
+        l.linkGeneration == _linkGeneration;
+  }
+
   bool _sessionIsStale(_Session session) =>
       _session != session || !session.connected;
 
@@ -4636,6 +5134,30 @@ class BleEngine {
     Sample? sample;
     final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final isGen5 = _session?.band.isGen5 ?? false;
+    // WHOOP MG raw ECG (type 47, revision 16): the band saved it under
+    // raw-save ON and ordinary history delivers it. Not a Sample — it has no
+    // 1 Hz meaning and skips the plausibility gate — but it IS a burst count
+    // member and it rides the safe-trim commit into ecg_raw_packet, its only
+    // durable store. Without a buffered drain it falls through to the
+    // archive path below, which keeps the bytes.
+    if (isGen5 && recType == Record.r16) {
+      final r16 = LabradorR16Raw.tryParse(frame.inner);
+      final d = _drain;
+      if (r16 != null && d != null && d.supportsSafeTrim) {
+        d.onEcgRawPacket(
+          EcgRawPacket(
+            hex: _innerHex(frame.inner),
+            deviceId: LocalDb.kPrimaryDeviceId,
+            sequence: r16.sequence,
+            strapSeconds: r16.strapSeconds,
+            strapSubsec: r16.subseconds,
+            capturedAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+          counter: counter,
+        );
+        return;
+      }
+    }
     if (isGen5) {
       // gen5 (WHOOP 5): `parseGen5Historical` dispatches across all four real
       // gen5 historical-record kinds (v18 per-second summary, v20 optical/
@@ -5743,7 +6265,9 @@ class BleEngine {
     );
     if (m.sub == SyncMeta.historyStart) {
       final d = _drain;
-      if (_offloadActive && d != null && d.bufferedRecords > 0) {
+      if (_offloadActive &&
+          d != null &&
+          (d.bufferedRecords > 0 || d.bufferedEcgRaw > 0)) {
         _log(
           '[SYNC] HistoryStart received during active burst — discarding '
           'partial open chunk and restarting burst state.',
@@ -5973,15 +6497,17 @@ class BleEngine {
       // This only decides whether the band may TRIM. Archives are committed in
       // the same transaction regardless — except on the no-progress path, which
       // returns before commit precisely because there is nothing to bank.
-      final hadDurableRows =
-          d.bufferedRecords > 0 || d.bufferedProgressArchives > 0;
+      final hadDurableRows = d.bufferedRecords > 0 ||
+          d.bufferedProgressArchives > 0 ||
+          d.bufferedEcgRaw > 0;
       _log(
         '[SYNC] HistoryEnd batch=${m.batchId} records=${d.records} '
         'expected=${m.expectedPacketCount} '
         'historical=${d.currentBurstHistoricalPacketCount} '
         'traffic=${d.currentBurstTrafficCount} token=$tokenHex '
         'dropped_this_burst=$droppedThisBurstForLog '
-        'durable_buffered=${d.bufferedRecords}+${d.bufferedArchives} '
+        'durable_buffered=${d.bufferedRecords}+${d.bufferedArchives}'
+        '+${d.bufferedEcgRaw} '
         'recTs=${r == null ? "none" : "${r.$1}..${r.$2}"}',
       );
       // Non-trimmable wiring (no onCommit): unbuffered fire-and-forget cannot
@@ -7173,6 +7699,29 @@ class BleEngine {
   // main's throttled poll (a raw send here was 2,880 round-trips a day), and
   // the branch's gen5 HELLO, which is a different opcode on Maverick.
   Future<void> getBattery() => _pollBatteryIfDue(force: true);
+
+  /// Ask the band something cheap and wait for the answer. True iff a reply
+  /// correlated within [timeout]. For resume paths that find a link quiet
+  /// after the process was not listening (iOS, suspended between band
+  /// prompts): silence then is not evidence, so they ask instead of guessing
+  /// — see `resumeLinkAction`. GET_BATTERY_LEVEL is the probe because it is
+  /// the one poll this link already relies on for liveness.
+  Future<bool> probeLink({
+    Duration timeout = CommandAwaiter.defaultTimeout,
+  }) async {
+    if (_session?.connected != true) return false;
+    final out = await _sendAwaited(
+      Cmd.getBatteryLevel,
+      const <int>[],
+      timeout: timeout,
+    );
+    if (!out.written) return false;
+    final reply = await out.response;
+    final alive = reply != null;
+    _log('[probe] battery poll ${alive ? 'answered' : 'unanswered'} '
+        '(${timeout.inMilliseconds} ms) — link ${alive ? 'live' : 'dead'}.');
+    return alive;
+  }
   Future<void> getHello() {
     final c = (_session?.entry ?? kWhoopGen4).commands;
     return _send(c.hello, c.helloBody);
@@ -7194,60 +7743,23 @@ class BleEngine {
     return _send(Cmd.runHapticsPattern, [pattern, 0, 0, 0, 0]);
   }
 
-  /// Enable live foreground streams (makes the band emit live R10/R11 + optical).
-  /// Optical stays WRIST-GATED (0x6B only). This sends the toggle commands but
-  /// DOES NOT change the displayed state — we stay in the single `listening` phase;
-  /// live records simply start arriving on the same subscription history uses.
-  Future<void> enableLiveStreams() async {
-    _liveEnabled = true;
-    _liveHrOnly = false;
-    unawaited(_applyLinkPriority()); // a live consumer earns the fast interval
-    _armTime =
-        DateTime.now(); // marginal-radio detector measures arm→drop latency
-    final c = (_session?.entry ?? kWhoopGen4).commands;
-    await _send(Cmd.toggleRealtimeHr, const [0x01]);
-    // MARGINAL-RADIO FALLBACK: a weak radio can't sustain the high-rate R10/R11 +
-    // IMU + optical flood, so once the detector trips we arm HR only.
-    if (state.standardHrFallback) {
-      _log('Live streams: standard-HR only (marginal-radio fallback).');
-      return;
-    }
-    await Future.delayed(const Duration(milliseconds: 100));
-    // A band with no SEND_R10_R11 opcode (gen5 console: 0x3F is
-    // Unknown/Unhandled) skips it. Live steps ride toggleImuMode there
-    // (gen5: 0x2B rec 0x15; gen4: 0x33).
-    final r10 = c.r10R11Realtime;
-    if (r10 != null) {
-      await _send(r10, const [0x01]);
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
-    await _sendToggleImu(true);
-    await Future.delayed(const Duration(milliseconds: 100));
-    // Only where ENABLE_OPTICAL_DATA is the LIVE toggle. On gen5 it is the
-    // SAVE-to-history toggle — the realtime one is the next opcode up — so
-    // arming it here would write a save enable on every live-stream start, next
-    // door to the persistent-optical footgun that leaves the LEDs on and drains
-    // the battery. gen5's own 1 Hz stream already carries per-second HR, so
-    // there is nothing to gain until the roles are confirmed on hardware. The
-    // OFF writes in disableLiveStreams stay unconditional.
-    if (c.opticalDataIsLiveToggle) {
-      await _send(Cmd.enableOpticalData, const [revision1, 0x01]);
-    }
-    _log(
-      'Live streams enabled ('
-      '${c.opticalDataIsLiveToggle ? "optical: wrist-gated" : "gen5 IMU rev1; optical skipped"}).',
-    );
-  }
+  // ── live HR / IMU ownership reconciler (#287) ───────────────────────────────
 
-  /// Clear the sticky standard-HR fallback and give the full live set another
-  /// chance. The fallback protects a struggling radio from the high-rate
-  /// flood, but it never resets and [enableLiveStreams] honours it silently —
-  /// so once tripped, every later step calibration / workout counted 0 steps
-  /// for the rest of the process lifetime (the IMU toggles were never sent).
-  /// Call this from EXPLICIT foreground user actions whose feature needs the
-  /// 100 Hz stream: there the flood is the point, and if the radio genuinely
-  /// can't sustain it the detectors re-trip (and re-downgrade) within seconds.
-  Future<void> retryFullLiveStreams() async {
+  /// Recompute the owners' intent and walk this link's applied streams towards
+  /// it. Safe to call at any time from any state transition; a no-op when not
+  /// connected. The returned future completes when the pass that will observe
+  /// the caller's change has finished (a caller that coalesces behind a
+  /// running pass awaits that pass — it re-reads the owners before it ends).
+  Future<void> reconcileLiveStreams() => _reconcileLive();
+
+  /// An explicit foreground user action whose feature needs the 100 Hz stream
+  /// (a workout start): clear the sticky marginal-radio fallback and reconcile.
+  /// The fallback protects a struggling radio from the high-rate flood but
+  /// never resets on its own, so once tripped every later workout counted 0
+  /// steps for the rest of the process lifetime. Here the flood is the point,
+  /// and if the radio genuinely cannot sustain it the detectors re-trip (and
+  /// re-downgrade) within seconds.
+  Future<void> clearRadioFallbackAndReconcile() {
     if (state.standardHrFallback) {
       _log('Radio fallback: cleared by explicit user action — retrying the '
           'full live set.');
@@ -7256,71 +7768,302 @@ class BleEngine {
       _frameCorruption.reset();
       onState(state);
     }
-    await enableLiveStreams();
+    return _reconcileLive();
   }
 
-  /// Background live downgrade: keep ONLY the compact realtime-HR stream (0x28)
-  /// armed and turn the high-rate R10/R11 + IMU + optical flood OFF. Used while
-  /// backgrounded with no live consumer, so the radio isn't saturated by a raw
-  /// flood nobody is reading — which can starve the periodic R24 offloads.
-  /// [enableLiveStreams] restores the full set on foreground return. Idempotent.
-  Future<void> enableHrOnlyLive() async {
-    if (_session?.connected != true) return;
-    _liveEnabled = true;
-    _liveHrOnly = true;
-    final r10 = (_session?.entry ?? kWhoopGen4).commands.r10R11Realtime;
-    unawaited(_applyLinkPriority()); // downgraded to HR-only ⇒ step the link down
-    await _send(Cmd.toggleRealtimeHr, const [0x01]);
-    final offOps = <Future<bool> Function()>[
-      () => _send(Cmd.toggleOpticalMode, const [revision1, 0x00]),
-      () => _send(Cmd.enableOpticalData, const [revision1, 0x00]),
-      if (r10 != null) () => _send(r10, const [0x00]),
-      () => _sendToggleImu(false),
-    ];
-    for (final op in offOps) {
-      await op();
-      await Future.delayed(const Duration(milliseconds: 60));
+  /// Tests only: the keep-alive's re-arm request, without the rest of the
+  /// tick (its liveness fuse would bounce a fake link with no inbound traffic).
+  @visibleForTesting
+  Future<void> debugReassertLiveStreams() {
+    _liveReassert = true;
+    return _liveRun?.future ?? _reconcileLive();
+  }
+
+  /// Tests only: an OS-style link drop — the non-intentional teardown plus
+  /// the `idle` phase [_onLinkDown] surfaces afterwards.
+  @visibleForTesting
+  Future<void> debugDropLink() async {
+    await _teardownSession(intentional: false);
+    _setPhase(BleConnState.idle);
+  }
+
+  LiveStreamIntent _desiredLive() {
+    if (_liveShutdown) return LiveStreamIntent.off;
+    return desiredLiveStreams(
+      liveOwners?.call() ?? LiveStreamOwners.none,
+      gen5: _session?.band.isGen5 ?? false,
+      standardHrFallback: state.standardHrFallback,
+    );
+  }
+
+  /// True once [session] is no longer the link we started a write on.
+  bool _liveStale(_Session session, int generation) =>
+      generation != _linkGeneration ||
+      !identical(_session, session) ||
+      !session.connected ||
+      session.closing;
+
+  /// The ONLY writer of the realtime-HR toggle (opcode 3) and the high-rate
+  /// bundle (gen5: IMU opcode 106; gen4: R10/R11 + IMU + optical).
+  ///
+  /// SERIALIZED and COALESCING, same shape as [_applyLinkPriority]: desired is
+  /// recomputed inside the loop after every await, one transition is written
+  /// per iteration, applied moves only after that write succeeded and only if
+  /// the link it was written to is still the live one, and the loop runs until
+  /// applied equals the NEWEST desired. A failed write marks its bit dirty
+  /// (the strap may be in either state) and ends the pass — the keep-alive
+  /// tick retries; spinning here against a refusing radio would hammer it.
+  Future<void> _reconcileLive() {
+    final running = _liveRun;
+    if (running != null) {
+      _liveRestale = true;
+      return running.future;
     }
-    _log('Live streams: HR-only (background downgrade — raw flood off).');
+    final run = _liveRun = Completer<void>();
+    () async {
+      // gen4's OFF-tail head (`03(1)`) belongs to the old HR-only downgrade,
+      // i.e. to a bundle OFF on a link whose HR was ALREADY on; a pass that
+      // armed HR itself moments ago must not send it twice.
+      var hrArmedThisPass = false;
+      try {
+        do {
+          _liveRestale = false;
+          final session = _session;
+          // Physically connected is not enough: `connected` is true from the
+          // moment the link is up, before discovery, bonding, the subscribes
+          // and INIT. A stale pass that loops onto a replacement session — or
+          // an owner nudge landing mid-bootstrap — must not put live toggles
+          // into that sequence. Only a LISTENING (post-READY) link is written
+          // to; the app's post-connect reconcile applies the intent after.
+          if (session == null ||
+              !session.connected ||
+              session.closing ||
+              _phase != BleConnState.listening ||
+              !_liveReady) {
+            return;
+          }
+          final want = _desiredLive();
+          final gen5 = session.band.isGen5;
+          final step = nextLiveStreamStep(
+            applied: _liveApplied,
+            desired: want,
+            imuFresh: _imuFresh && !gen5,
+            imuDirty: _imuDirty,
+            hrDirty: _hrDirty,
+          );
+          final generation = _linkGeneration;
+          if (step == null) {
+            if (_liveReassert) {
+              _liveReassert = false;
+              await _reassertLive(session, generation);
+            }
+            continue;
+          }
+          // The fast interval is earned by the flood: ask BEFORE it starts.
+          if (step == LiveStreamStep.imuOn) unawaited(_applyLinkPriority());
+          final r = await _writeLiveStep(
+            step,
+            session,
+            generation,
+            hrHead: want.hr && !hrArmedThisPass,
+          );
+          if (r == _LiveWrite.stale || _liveStale(session, generation)) {
+            // Do not record it against the dead link (teardown already reset
+            // its state); loop once more so a replacement session, if there is
+            // one, gets its own pass.
+            _log('Live stream step ${step.name} completed after teardown — '
+                'discarded.');
+            _liveRestale = true;
+            continue;
+          }
+          if (r == _LiveWrite.failed) {
+            if (step.isImu) {
+              _imuDirty = true;
+            } else {
+              _hrDirty = true;
+            }
+            _log('Live stream step ${step.name} failed — will retry on the '
+                'next keep-alive tick.');
+            // A nudge that arrived during the failed write (a new owner, or
+            // disconnect()'s shutdown intent) is still honoured: recompute
+            // once more. Only a quiet failure exits. Bounded, because restale
+            // is only ever set by an external nudge, never by this loop.
+            if (!_liveRestale) break;
+            continue;
+          }
+          _liveApplied = applyLiveStreamStep(_liveApplied, step);
+          if (step == LiveStreamStep.hrOn) hrArmedThisPass = true;
+          if (step.isImu) {
+            _imuFresh = false;
+            _imuDirty = false;
+          } else {
+            _hrDirty = false;
+          }
+          if (step == LiveStreamStep.imuOff) _armTime = null;
+          if (step == LiveStreamStep.hrOff) {
+            state.liveHr = null;
+            onState(state);
+          }
+          _log('Live streams: ${step.name} applied → '
+              'hr=${_liveApplied.hr} imu=${_liveApplied.imu}.');
+          unawaited(_applyLinkPriority()); // the live consumer set changed
+          _liveRestale = true; // recompute until applied == newest desired
+        } while (_liveRestale);
+      } catch (e) {
+        // Never poison the shared future: nudges are fired unawaited from
+        // state transitions, so an error here would surface as an uncaught
+        // zone error in whoever happened to be awaiting. Log; the next nudge
+        // or keep-alive tick converges.
+        _log('Live stream reconcile failed: $e');
+      } finally {
+        _liveRun = null;
+        run.complete();
+      }
+    }();
+    return run.future;
   }
 
-  /// Turn everything off. Safe + idempotent. Clears flags back to wrist-gated.
-  Future<void> disableLiveStreams() async {
-    final r10 = (_session?.entry ?? kWhoopGen4).commands.r10R11Realtime;
-    final ops = <Future<bool> Function()>[
-      () => _send(Cmd.toggleOpticalMode, const [revision1, 0x00]),
-      () => _send(Cmd.enableOpticalData, const [revision1, 0x00]),
-      if (r10 != null) () => _send(r10, const [0x00]),
-      () => _sendToggleImu(false),
-      () => _send(Cmd.toggleRealtimeHr, const [0x00]),
-    ];
+  /// One transition on the wire. Every write is pinned to [session] and the
+  /// link is re-checked after every await (writes AND delays), so a gen4
+  /// bundle interrupted by a teardown can never continue onto a replacement
+  /// link. `ok` only when every sub-write succeeded.
+  ///
+  /// gen5 sequences: HR `03(1)` / `03(0)`; IMU `6A(rev1,1)` / `6A(rev1,0)`.
+  /// Optical opcodes 107/108 are never written on gen5 — 0x6B is the
+  /// SAVE-to-history toggle there and 0x6C's role is unconfirmed on hardware.
+  ///
+  /// gen4 sequences are byte-for-byte what the old enable / HR-only / disable
+  /// methods wrote, including the spacing, so nothing changes for gen4 users:
+  ///   ON   `03(1)` · 100 ms · `3F(1)` · 100 ms · `6A(1)` · 100 ms · `6B(rev1,1)`
+  ///   OFF  [`03(1)` when HR stays on and was not just armed by this pass —
+  ///        the old HR-only downgrade's head, see [hrHead]] ·
+  ///        `6C(rev1,0)` · 60 · `6B(rev1,0)` · 60 · `3F(0)` · 60 · `6A(0)` · 60
+  ///   then `03(0)` · 60 when HR goes off too.
+  /// R10/R11 OFF persists across reconnects on gen4, which is why a fresh
+  /// gen4 link replays the OFF tail defensively (see `nextLiveStreamStep`).
+  Future<_LiveWrite> _writeLiveStep(
+    LiveStreamStep step,
+    _Session session,
+    int generation, {
+    required bool hrHead,
+  }) async {
+    final c = session.entry.commands;
+    // A band with the R10/R11 opcode carries the legacy high-rate bundle
+    // (gen4); a band without it (gen5) rides the IMU toggle alone.
+    final r10 = c.r10R11Realtime;
+    Future<bool> gap(int ms) async {
+      await Future<void>.delayed(Duration(milliseconds: ms));
+      return true;
+    }
+
+    Future<bool> Function() send(int opcode, List<int> body) =>
+        () => _send(opcode, body, owner: session);
+    final ops = <Future<bool> Function()>[];
+    switch (step) {
+      case LiveStreamStep.hrOn:
+        ops.add(send(Cmd.toggleRealtimeHr, const [0x01]));
+      case LiveStreamStep.hrOff:
+        ops
+          ..add(send(Cmd.toggleRealtimeHr, const [0x00]))
+          ..add(() => gap(60));
+      case LiveStreamStep.imuOn:
+        // marginal-radio detector measures arm→drop latency of the flood
+        _armTime = DateTime.now();
+        ops.add(() => gap(100));
+        if (r10 != null) {
+          ops
+            ..add(send(r10, const [0x01]))
+            ..add(() => gap(100));
+        }
+        ops
+          ..add(() => _sendToggleImu(true, owner: session))
+          ..add(() => gap(100));
+        // Only where ENABLE_OPTICAL_DATA is the LIVE toggle (gen4). On gen5 it
+        // is the SAVE-to-history toggle, next door to the persistent-optical
+        // footgun that leaves the LEDs on and drains the battery.
+        if (c.opticalDataIsLiveToggle) {
+          ops.add(send(Cmd.enableOpticalData, const [revision1, 0x01]));
+        }
+      case LiveStreamStep.imuOff:
+        if (r10 != null) {
+          if (hrHead) {
+            ops
+              ..add(send(Cmd.toggleRealtimeHr, const [0x01]))
+              ..add(() => gap(60));
+          }
+          ops
+            ..add(send(Cmd.toggleOpticalMode, const [revision1, 0x00]))
+            ..add(() => gap(60))
+            ..add(send(Cmd.enableOpticalData, const [revision1, 0x00]))
+            ..add(() => gap(60))
+            ..add(send(r10, const [0x00]))
+            ..add(() => gap(60));
+        }
+        ops
+          ..add(() => _sendToggleImu(false, owner: session))
+          ..add(() => gap(60));
+    }
+    // ponytail: "ok" means the GATT write-with-response was delivered, as the
+    // old methods judged it; a toggle's own correlated reply is not awaited.
+    // Correlating 0x03/0x6A replies (`_sendAwaited`) is the upgrade once the
+    // strap's reply behaviour for these toggles is confirmed on hardware.
+    var ok = true;
     for (final op in ops) {
-      await op();
-      await Future.delayed(const Duration(milliseconds: 60));
+      if (!await op()) ok = false;
+      if (_liveStale(session, generation)) return _LiveWrite.stale;
     }
-    _liveEnabled = false;
-    _liveHrOnly = false;
-    unawaited(_applyLinkPriority()); // no live consumer left
-    _armTime = null;
-    state.liveHr = null;
-    // No phase change — we stay `listening`; only the live R10/R11/optical streams
-    // stop. Historical records + the heartbeat keep flowing on the same link.
-    onState(state);
+    return ok ? _LiveWrite.ok : _LiveWrite.failed;
+  }
+
+  /// The keep-alive's re-arm, run only from a CONVERGED pass: the band's live
+  /// toggles can silently die, so what is applied is re-sent. The high-rate
+  /// re-arm is unconditional (a flowing HR stream is no proof the IMU stream
+  /// is alive; it runs only while something owns the flood); the HR re-arm is
+  /// evidence-gated — sent only when no valid reading has arrived for 60 s,
+  /// because blindly re-sending it every 30 s was ~2,880 write-with-response
+  /// round trips a day whose payload was a no-op. Results are ignored: this is
+  /// a re-assert, not a transition, so applied and dirty are untouched.
+  Future<void> _reassertLive(_Session session, int generation) async {
+    if (_liveApplied.imu) {
+      final r10 = session.entry.commands.r10R11Realtime;
+      if (r10 == null) {
+        await _sendToggleImu(true, owner: session);
+      } else {
+        await _send(r10, const [0x01], owner: session);
+      }
+      if (_liveStale(session, generation)) return;
+    }
+    if (_liveApplied.hr) {
+      final hrAtMs = state.liveHrAt;
+      final hrDelivering = hrAtMs != null &&
+          DateTime.now().millisecondsSinceEpoch - hrAtMs < 60 * 1000;
+      if (!hrDelivering) {
+        await _send(Cmd.toggleRealtimeHr, const [0x01], owner: session);
+      }
+    }
   }
 
   /// Idempotent, intentional teardown. Safe to call repeatedly.
   Future<void> disconnect() => _locked(() async {
-    if (_liveEnabled && _session?.connected == true) {
-      try {
-        await disableLiveStreams();
-      } catch (_) {}
+    // Desired is forced to OFF for the shutdown reconcile AND the teardown, so
+    // an owner change cannot re-arm the closing link in either await window.
+    // Not gated on `liveEnabled`: an ON may be in flight with applied still
+    // off. Cleared in `finally` — a throwing subscription cancel must not
+    // leave the latch stuck and every later connection silent.
+    _liveShutdown = true;
+    try {
+      if (_session?.connected == true) {
+        await _reconcileLive(); // a real barrier: awaits the in-flight pass
+      }
+      if (_session?.connected == true && _highFreqModeRequested) {
+        try {
+          await _disableHighFreqSync(reason: 'intentional_disconnect');
+        } catch (_) {}
+      }
+      await _teardownSession(intentional: true);
+    } finally {
+      _liveShutdown = false;
     }
-    if (_session?.connected == true && _highFreqModeRequested) {
-      try {
-        await _disableHighFreqSync(reason: 'intentional_disconnect');
-      } catch (_) {}
-    }
-    await _teardownSession(intentional: true);
     // Release the single-owner claim ONLY on an intentional disconnect (not on a
     // link-down we intend to reconnect from) so the band is free for a background
     // drain once we've genuinely let go. If we were already preempted by another
@@ -7337,6 +8080,24 @@ class BleEngine {
     final session = _session;
     if (session == null) return;
     session.intentionalClose = intentional;
+    // SYNCHRONOUSLY, before any await: see `_Session.closing`.
+    session.closing = true;
+    // Live arming is per-connection: applied clears now, the owners' intent
+    // survives and is re-applied on the next link's first reconcile. A fresh
+    // link's high-rate bundle is unknown again (gen4's R10/R11 OFF persists on
+    // the strap), and nothing is dirty on a link that no longer exists.
+    _liveApplied = LiveStreamIntent.off;
+    _liveReady = false;
+    _imuFresh = true;
+    // The band's prompt mode is per-link as well: whatever was programmed
+    // died with the link, and a reader that saw the old reason/until on an
+    // UNINTENTIONAL drop would think a lease is still running. Cleared here
+    // on every teardown, not only in the next connect's setup.
+    _highFreqModeRequested = false;
+    _highFreqReason = null;
+    _highFreqUntil = null;
+    _imuDirty = false;
+    _hrDirty = false;
     // Per-link state: Android resets the connection interval on every new GATT
     // connection, so a remembered priority would make the next link skip its
     // request. The battery stamp resets too — a fresh session should read the
@@ -7352,7 +8113,11 @@ class BleEngine {
     // caller parked on a 5 s await through a teardown delays whatever the
     // reconnect wants to do next. Resolve them all as unanswered now.
     _awaiter.failAll();
+    final endedGeneration = _linkGeneration;
     _linkGeneration++;
+    // The ECG lease died with its link; tell the owner which generation.
+    _ecgLease = null;
+    onEcgEvent?.call(EcgLinkDownEvent(endedGeneration));
     _drain?.onLinkDown();
     _drain = null;
     // Fire a final derive for anything stored-but-not-yet-derived, then disarm the
@@ -7374,13 +8139,10 @@ class BleEngine {
     _offloadFrames.clear();
     _drainingOffloadFrames = false;
     _setOffloadActive(false);
-    // Live arming is per-connection. `_armTime` used to survive teardown, and
-    // enableHrOnlyLive sets `_liveEnabled` without touching it — so the
-    // marginal-radio detector measured the NEXT session's drop against the
-    // PREVIOUS session's arm and permanently downgraded live streams on the
-    // evidence of a session that never armed the raw flood.
-    _liveEnabled = false;
-    _liveHrOnly = false;
+    // `_armTime` used to survive teardown, so the marginal-radio detector
+    // measured the NEXT session's drop against the PREVIOUS session's arm and
+    // permanently downgraded live streams on the evidence of a session that
+    // never armed the raw flood.
     _armTime = null;
     // ALWAYS drop the radio link, not just on an intentional disconnect. Every
     // self-initiated bounce (liveness fuse, ACK-exhausted, commit-failed) tears
@@ -7400,7 +8162,18 @@ class BleEngine {
     // An offload is the one thing that genuinely needs the fast interval; as
     // soon as it ends the link steps back down (issue #200).
     unawaited(_applyLinkPriority());
-    onOffloadState?.call(active);
+    // This is a CALLER-SUPPLIED hook (UI state plumbing), called synchronously
+    // from _enqueueOffloadFrame BEFORE it kicks off _drainOffloadFrames — a
+    // throw here must never abort the frame from reaching the drain queue.
+    // The frame is already in _offloadFrames by the time this runs; letting
+    // an exception here propagate up would skip the
+    // `unawaited(_drainOffloadFrames(session))` call for this frame (self-
+    // heals on the next enqueue, but there is no reason to depend on that).
+    try {
+      onOffloadState?.call(active);
+    } catch (e, st) {
+      _log('[BLE] onOffloadState threw: $e\n$st');
+    }
   }
 
   void _setHpsTerminal(
@@ -7580,6 +8353,10 @@ class DrainController {
   // transaction as [_raws]/[_samples]/the trim cursor (see [commit]) so a future
   // firmware's records are durably set aside BEFORE the band is told to trim.
   final List<ArchiveRecord> _archives = [];
+  // WHOOP MG raw ECG (R16) records buffered for THIS chunk — same lifecycle
+  // as [_archives]: committed in the one pre-ACK transaction, restored on a
+  // failed commit, dropped with a discarded chunk.
+  final List<EcgRawPacket> _ecgRaw = [];
   // Per-burst packet accounting (per-revision counts + sequence gap detection),
   // merged into the session totals when a burst validates.
   final BurstStats burstStats = BurstStats();
@@ -7593,6 +8370,31 @@ class DrainController {
 
   int get bufferedRecords => _raws.length;
   int get bufferedArchives => _archives.length;
+  int get bufferedEcgRaw => _ecgRaw.length;
+
+  /// A raw ECG record for this chunk. Genuine, ACKable progress and a burst
+  /// count member (the band counts every type-47 frame it sent). Only the
+  /// buffered path exists for it: without [onCommit] there is no transaction
+  /// to ride, and R16 must never be persisted outside the pre-ACK commit.
+  void onEcgRawPacket(EcgRawPacket p, {required int counter}) {
+    if (!_buffering) {
+      throw StateError(
+        'DrainController.onEcgRawPacket needs the atomic commit sink — raw '
+        'ECG is persisted only inside the pre-ACK transaction',
+      );
+    }
+    records++;
+    recordsThisOffload++;
+    if (!_burstTallyClosed) {
+      burstStats.onHistoricalData(
+        PacketType.historicalData,
+        counter,
+        LabradorR16Raw.revision,
+      );
+    }
+    _lastProgressAt = DateTime.now();
+    _ecgRaw.add(p);
+  }
 
   /// Archives that represent real forward progress, i.e. everything EXCEPT the
   /// plausibility drops. A burst of records we simply cannot decode has still
@@ -7906,13 +8708,15 @@ class DrainController {
   /// is cleared only by [beginBurst] — a fresh HISTORY_START from the band.
   void discardOpenChunk() {
     _trimGuard.discardOpenChunk();
-    if (_raws.isEmpty && _archives.isEmpty) return;
+    if (_raws.isEmpty && _archives.isEmpty && _ecgRaw.isEmpty) return;
     log('discarding ${_raws.length} un-ACKed buffered records + '
-        '${_archives.length} archived (idle). This burst\'s HISTORY_END token '
-        'is now un-ACKable — the band keeps the chunk.');
+        '${_archives.length} archived + ${_ecgRaw.length} raw ECG (idle). '
+        'This burst\'s HISTORY_END token is now un-ACKable — the band keeps '
+        'the chunk.');
     _raws.clear();
     _samples.clear();
     _archives.clear();
+    _ecgRaw.clear();
   }
 
   /// SAFE-TRIM commit: persist the buffered chunk + the continuation [token]
@@ -7940,7 +8744,9 @@ class DrainController {
     final raws = List<RawRecord>.from(_raws);
     final samples = List<Sample?>.from(_samples);
     final archives = List<ArchiveRecord>.from(_archives);
-    final hadDurable = raws.isNotEmpty || archives.isNotEmpty;
+    final ecgRaw = List<EcgRawPacket>.from(_ecgRaw);
+    final hadDurable =
+        raws.isNotEmpty || archives.isNotEmpty || ecgRaw.isNotEmpty;
     // Token changed AND we actually banked something — empty ACKs must not
     // look like cursor progress to auto-continue / stuck-strap.
     lastTrimAdvanced =
@@ -7949,10 +8755,14 @@ class DrainController {
     _raws.clear();
     _samples.clear();
     _archives.clear();
+    _ecgRaw.clear();
     try {
       // Defense in depth (constructor already rejects onRecordsBatch-only):
       // never report durable success for buffered content without onCommit.
-      if (raws.isNotEmpty || archives.isNotEmpty || tokenHex != null) {
+      if (raws.isNotEmpty ||
+          archives.isNotEmpty ||
+          ecgRaw.isNotEmpty ||
+          tokenHex != null) {
         final commit = onCommit;
         if (commit == null) {
           throw StateError(
@@ -7961,7 +8771,8 @@ class DrainController {
             'archives=${archives.length}, token=${tokenHex != null})',
           );
         }
-        await commit(raws, samples, tokenHex, archives: archives);
+        await commit(raws, samples, tokenHex,
+            archives: archives, ecgRawPackets: ecgRaw);
       }
       return true;
     } catch (e) {
@@ -7970,11 +8781,13 @@ class DrainController {
       _raws.insertAll(0, raws);
       _samples.insertAll(0, samples);
       _archives.insertAll(0, archives);
+      _ecgRaw.insertAll(0, ecgRaw);
       // Roll back the trim bookkeeping too — nothing advanced.
       _lastAckedToken = previousAckedToken;
       lastTrimAdvanced = previousTrimAdvanced;
       log('offload commit FAILED ($e) — ${raws.length} records + '
-          '${archives.length} archived re-buffered; the caller MUST NOT ACK '
+          '${archives.length} archived + ${ecgRaw.length} raw ECG '
+          're-buffered; the caller MUST NOT ACK '
           'this chunk (the band still holds it).');
       return false;
     }

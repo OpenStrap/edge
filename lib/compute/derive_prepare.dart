@@ -689,6 +689,11 @@ class _PrepareAccumulator {
   }
 
   Substrate buildSubstrate() {
+    // The page seam, which neither page loader can see: `addDecodedPage` and
+    // `addRawPage` each place their own beats correctly and then APPEND, so an
+    // overlap between the last record of one page and the first of the next is
+    // only visible once every page is in. See [monotonizeBeatAxis].
+    monotonizeBeatAxis(rrTsMs);
     // `_skinTempUnitDrops` (see [_skinTempFor]) is structurally 0 today —
     // `derivableSourceSql()` renders `source IS NULL` (db.dart:116), so a
     // day's admitted rows are all one family and never trip the guard.

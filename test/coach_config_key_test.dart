@@ -25,6 +25,10 @@ class _FakeKeychain {
   bool throwOnWrite = false;
   bool hangReads = false;
   bool hangWrites = false;
+
+  /// Number of upcoming `write` calls that should fail with the real iOS
+  /// errSecDuplicateItem shape, before writes start succeeding again.
+  int throwDuplicateOnWriteCount = 0;
   final List<Completer<void>> _hungReads = [];
   final List<Completer<void>> _hungWrites = [];
 
@@ -56,6 +60,20 @@ class _FakeKeychain {
         return items[args['key'] as String];
       case 'write':
         if (throwOnWrite) throw PlatformException(code: 'keychain');
+        if (throwDuplicateOnWriteCount > 0) {
+          throwDuplicateOnWriteCount--;
+          // The real shape iOS/the plugin surfaces for errSecDuplicateItem —
+          // matched by earlier field name in the raw string reported by users:
+          // "PlatformException(Unexpected security result code, Code: -25299,
+          // Message: The specified item already exists in the keychain.,
+          // -25299, null)".
+          throw PlatformException(
+            code: 'Unexpected security result code',
+            message: 'Code: -25299, Message: The specified item already '
+                'exists in the keychain.',
+            details: -25299,
+          );
+        }
         if (hangWrites) {
           final c = Completer<void>();
           _hungWrites.add(c);
@@ -361,6 +379,38 @@ void main() {
     final cfg = CoachConfig();
     keychain.throwOnWrite = true;
     await expectLater(cfg.save(apiKey: 'sk-test'), throwsA(anything));
+    expect(cfg.hasKey, isFalse,
+        reason: 'memory must not hold a key that was never persisted');
+  });
+
+  // A leftover item from a prior install can collide with a fresh Save even
+  // though nothing in this Dart process raced itself — Keychain items often
+  // outlive an app uninstall, unlike everything else the app stores. Reported
+  // live: Save on a fresh install threw exactly this shape and never
+  // recovered on retry, because retrying just replayed the same add-over-an-
+  // existing-item call.
+  test('a stale item colliding with Save is cleared and the write recovers',
+      () async {
+    keychain.items['coach_api_key'] = 'sk-orphaned-from-a-prior-install';
+    keychain.throwDuplicateOnWriteCount = 1;
+
+    final cfg = CoachConfig();
+    await cfg.save(apiKey: 'sk-new', model: 'gpt-4o');
+
+    expect(cfg.apiKey, 'sk-new',
+        reason: 'the duplicate-item error must not surface as a failed save');
+    expect(keychain.items['coach_api_key'], 'sk-new');
+  });
+
+  test('a write that keeps refusing as duplicate still reports failure',
+      () async {
+    keychain.items['coach_api_key'] = 'sk-orphaned';
+    // Every write refuses, even the retry after the delete — the recovery
+    // must not paper over a keychain that is genuinely stuck.
+    keychain.throwDuplicateOnWriteCount = 999;
+
+    final cfg = CoachConfig();
+    await expectLater(cfg.save(apiKey: 'sk-new'), throwsA(anything));
     expect(cfg.hasKey, isFalse,
         reason: 'memory must not hold a key that was never persisted');
   });

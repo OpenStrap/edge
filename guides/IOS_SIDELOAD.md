@@ -48,6 +48,18 @@ while. Install AltServer on your computer, install AltStore on your phone throug
 open the `.ipa` from AltStore's "My Apps" tab. Their own install walkthrough (linked above)
 covers the exact clicks for Windows and Mac.
 
+Once it's installed this way, add this repo as an AltStore **source** and AltStore will
+tell you when a new build is out instead of you having to check Releases yourself:
+
+```
+https://github.com/OpenStrap/edge/releases/latest/download/apps.json
+```
+
+In AltStore, go to **Browse → sources (the "+" / list icon) → add source**, paste that
+URL, and OpenStrap Edge will show up with an "Update" button whenever a new release ships.
+This only tracks version numbers — it still can't fix the free-account 7-day resign limit
+below, and updating still re-signs the app the same way a fresh install does.
+
 ## Trust the app on your phone
 
 Whichever tool you used, the first time you open the app you'll get a screen saying its

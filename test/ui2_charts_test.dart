@@ -331,6 +331,26 @@ void main() {
     const size = Size(100, 100);
     const axis = AxisSpec(min: 0, max: 100, format: axisInt);
 
+    test('a selected slot draws a vertical cursor at its x position', () {
+      final rec = _Rec();
+      LineChart([0.0, 100.0, 50.0], Colors.red,
+              fill: false, axis: axis, selectedX: .25)
+          .paint(rec, size);
+      expect(rec.lines, hasLength(1));
+      expect(rec.lines.single.$1.dx, closeTo(25, .001));
+      expect(rec.lines.single.$2.dx, closeTo(25, .001));
+      expect(rec.lines.single.$1.dy, 0);
+      expect(rec.lines.single.$2.dy, 100);
+    });
+
+    test('an unselected chart draws no cursor', () {
+      final rec = _Rec();
+      LineChart([0.0, 100.0, 50.0], Colors.red,
+              fill: false, axis: axis)
+          .paint(rec, size);
+      expect(rec.lines, isEmpty);
+    });
+
     test('a line touches the top at max and the bottom at min — no padding', () {
       final rec = _Rec();
       LineChart([0.0, 100.0, 50.0], Colors.red, fill: false, axis: axis)

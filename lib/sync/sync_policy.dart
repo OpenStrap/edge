@@ -90,9 +90,10 @@ const int kHistoricalAbortRetryDelaySeconds =
 /// wake, a headless entry point.
 const int kLinkFreshnessSeconds = 30;
 
-/// The freshness bar when NO live stream is armed (Android background, where
-/// live is fully off and the only inbound traffic is the keep-alive's forced
-/// battery poll — see `BleEngine._keepAliveFire`). The poll lands roughly once
+/// The freshness bar when NO live stream is armed (Android background, and iOS
+/// background since the band-prompt change, where live is fully off and the
+/// only inbound traffic is the keep-alive's forced battery poll — see
+/// `BleEngine._keepAliveFire`). The poll lands roughly once
 /// per minute (forced past [kNoStreamPollSilenceSeconds] of silence, checked on
 /// 30 s ticks), so a healthy quiet link legitimately shows up to ~65 s of
 /// silence; judging it by the 30 s streaming bar would tear down a live link on
@@ -104,6 +105,127 @@ const int kLinkFreshnessNoStreamSeconds = 90;
 /// [kLinkFreshnessNoStreamSeconds] on a healthy link.
 const int kNoStreamPollSilenceSeconds = 45;
 
+// ── band prompt (ENTER_HIGH_FREQ_SYNC) ───────────────────────────────────────
+/// Prompt interval the smart-wake window asks for. gen5 rejects <= 60.
+const int kSmartWakePromptIntervalSeconds = 61;
+
+/// How often a backgrounded iOS app asks the band to prompt it. Each
+/// HIGH_FREQ_SYNC_PROMPT event is one BLE notification → one process wake →
+/// one flash offload (`BleEngine._handleEventInfo`, `BackfillTrigger.strap`).
+/// This replaces the 1 Hz realtime-HR stream that used to be held in
+/// background purely to keep the process schedulable (~86,400 wakes/day).
+/// Equal to [BackfillPolicy.periodicFloorSeconds] so the engine's periodic
+/// timer and the prompt coalesce on `_lastBackfillAt` instead of doubling up.
+///
+/// ASSUMES: the band keeps the link up through this much phone-side silence
+/// (no LINK_VALID is written while the process is suspended), and honours a
+/// 900 s interval on gen4 (gen5 bounds are > 60 s and < 28800 s duration;
+/// gen4 bounds are unknown — protocol `cmdEnterHighFreqSync`).
+/// FALSIFIED BY: a band idle policy shorter than the interval, or a band
+/// that rejects the interval.
+/// WHEN WRONG: a dropped link is re-armed by the restore central and
+/// reconnects on the next reachability event (still orders of magnitude
+/// cheaper than 1 Hz); a rejected interval means no prompts, and background
+/// sync falls back to BG tasks, restore wakes and foreground opens.
+/// HOW TO CHECK: `HighFreq prompt received` roughly every 15 min in the
+/// sync log with no `Connection dropped` between them.
+const int kIosBackgroundPromptIntervalSeconds = 900;
+
+/// Lease requested per ENTER_HIGH_FREQ_SYNC for the background prompt. Under
+/// gen5's 28800 s ceiling. Renewed once past half-way by [BandPromptPolicy],
+/// driven from the 25-min background tick in `AppState._runPeriodicBackfill`,
+/// which fires on the first prompt wake after it falls due.
+const Duration kIosBackgroundPromptLease = Duration(hours: 2);
+
+/// Reason string the engine stores for a background lease; the policy uses
+/// it to tell its own lease apart from a smart-wake one.
+const String kIosBackgroundPromptReason = 'ios_background';
+
+/// One requester's ask: program the band to prompt every [intervalSeconds]
+/// for [duration]. [until] is what the engine keeps as `_highFreqUntil` and
+/// compares to decide whether a re-apply is a no-op.
+class BandPromptRequest {
+  final int intervalSeconds;
+  final Duration duration;
+  final DateTime until;
+  final String reason;
+
+  const BandPromptRequest({
+    required this.intervalSeconds,
+    required this.duration,
+    required this.until,
+    required this.reason,
+  });
+
+  /// The smart-wake window's ask — the values `applyHighFreqWakeWindow` has
+  /// always been called with.
+  BandPromptRequest.smartWake({
+    required DateTime target,
+    required Duration lease,
+    required String source,
+  }) : this(
+          intervalSeconds: kSmartWakePromptIntervalSeconds,
+          duration: lease,
+          until: target,
+          reason: source,
+        );
+
+  /// The iOS background keep-alive's ask, leased from [now].
+  BandPromptRequest.iosBackground(DateTime now)
+      : this(
+          intervalSeconds: kIosBackgroundPromptIntervalSeconds,
+          duration: kIosBackgroundPromptLease,
+          until: now.add(kIosBackgroundPromptLease),
+          reason: kIosBackgroundPromptReason,
+        );
+
+  @override
+  bool operator ==(Object other) =>
+      other is BandPromptRequest &&
+      other.intervalSeconds == intervalSeconds &&
+      other.duration == duration &&
+      other.until == until &&
+      other.reason == reason;
+
+  @override
+  int get hashCode => Object.hash(intervalSeconds, duration, until, reason);
+
+  @override
+  String toString() =>
+      'BandPromptRequest($reason every ${intervalSeconds}s until $until)';
+}
+
+/// Decides what the band is asked to prompt. Pure; the caller supplies the
+/// smart-wake plan (already reduced to a request or null), whether the app
+/// is backgrounded on iOS, and what the engine currently has applied.
+class BandPromptPolicy {
+  /// Priority: smart wake (61 s, its own lease) > iOS background keep-alive
+  /// (900 s, 2 h) > nothing. A running background lease with more than half
+  /// of it left is returned unchanged so the engine's "same reason + same
+  /// until" guard skips the write; past half-way it is renewed from [now].
+  static BandPromptRequest? plan({
+    required BandPromptRequest? smartWake,
+    required bool iosBackgrounded,
+    required String? currentReason,
+    required DateTime? currentUntil,
+    required DateTime now,
+  }) {
+    if (smartWake != null) return smartWake;
+    if (!iosBackgrounded) return null;
+    if (currentReason == kIosBackgroundPromptReason &&
+        currentUntil != null &&
+        currentUntil.difference(now) > kIosBackgroundPromptLease ~/ 2) {
+      return BandPromptRequest(
+        intervalSeconds: kIosBackgroundPromptIntervalSeconds,
+        duration: kIosBackgroundPromptLease,
+        until: currentUntil,
+        reason: kIosBackgroundPromptReason,
+      );
+    }
+    return BandPromptRequest.iosBackground(now);
+  }
+}
+
 /// True when a connection reporting "connected" should NOT be trusted because
 /// no data has actually arrived recently. The bar depends on what inbound
 /// traffic a healthy link actually produces: [kLinkFreshnessSeconds] while a
@@ -113,6 +235,48 @@ const int kNoStreamPollSilenceSeconds = 45;
 bool isLinkStale(Duration sinceLastRx, {bool liveStreamArmed = true}) =>
     sinceLastRx.inSeconds >=
     (liveStreamArmed ? kLinkFreshnessSeconds : kLinkFreshnessNoStreamSeconds);
+
+/// Silence that counts as evidence the link is dead, for the keep-alive
+/// fuse (`BleEngine._keepAliveFire`).
+///
+/// Silence that accumulated while the process could not run proves nothing:
+/// an iOS app suspended between band prompts was not listening. A tick that
+/// arrives more than two periods after the previous one is such a resume,
+/// and the clock restarts at it — the caller must still probe (it does: the
+/// forced battery poll keys off the RAW rx gap), and the NEXT tick judges
+/// the reply on the normal bar.
+Duration livenessSilence({
+  required Duration sinceLastRx,
+  required Duration sinceLastTick,
+  required Duration tickPeriod,
+}) =>
+    sinceLastTick > tickPeriod * 2 ? Duration.zero : sinceLastRx;
+
+/// What a resume path (foreground open, BG-task wake) may do with a link
+/// that still reports connected.
+enum ResumeLinkAction {
+  /// Data arrived recently: reuse the link (fast reclaim).
+  trust,
+
+  /// Quiet, but no stream was armed so quiet is expected: ask the band
+  /// (`BleEngine.probeLink`) and decide on the reply.
+  probe,
+
+  /// Quiet with a live stream armed: a stream that stopped is a dead link.
+  reconnect,
+}
+
+/// [isLinkStale]'s bar, plus the one refinement a suspended process needs:
+/// a stale-looking link with NO stream armed is probed rather than torn down.
+ResumeLinkAction resumeLinkAction(
+  Duration sinceLastRx, {
+  required bool liveStreamArmed,
+}) {
+  if (!isLinkStale(sinceLastRx, liveStreamArmed: liveStreamArmed)) {
+    return ResumeLinkAction.trust;
+  }
+  return liveStreamArmed ? ResumeLinkAction.reconnect : ResumeLinkAction.probe;
+}
 
 // ── plausibility gates (unix seconds) ────────────────────────────────────────
 /// ASSUMES: every source stamps records with an ABSOLUTE wall-clock epoch, so a

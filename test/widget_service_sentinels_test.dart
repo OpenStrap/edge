@@ -24,9 +24,11 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Map<String, Object?> written;
+  late List<String> iosConfigCalls;
 
   setUp(() {
     written = {};
+    iosConfigCalls = [];
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(const MethodChannel('home_widget'),
@@ -38,8 +40,10 @@ void main() {
       return true;
     });
     messenger.setMockMethodCallHandler(
-        const MethodChannel('openstrap/ios_config'),
-        (call) async => call.method == 'appGroupIdentifier' ? 'group.test' : null);
+        const MethodChannel('openstrap/ios_config'), (call) async {
+      iosConfigCalls.add(call.method);
+      return call.method == 'appGroupIdentifier' ? 'group.test' : null;
+    });
   });
 
   tearDown(() {
@@ -197,6 +201,32 @@ void main() {
       await WidgetService.clear();
       expect(written['readiness_tier'], -1);
       expect(written['readiness_band'], '');
+    });
+  });
+
+  // Every mutator that writes to the App Group snapshot must also mirror it
+  // to the paired Apple Watch (`_syncWatch`) — otherwise the watch keeps
+  // rendering a stale value until some unrelated write happens to fire next.
+  // `setThemeDark` used to omit this call.
+  group('watch sync fires on every mutator', () {
+    test('setThemeDark syncs the watch', () async {
+      await WidgetService.setThemeDark(true);
+      expect(iosConfigCalls, contains('syncWatch'));
+    });
+
+    test('push syncs the watch', () async {
+      await WidgetService.push(TodayData.fromJson({'daily': const {}}));
+      expect(iosConfigCalls, contains('syncWatch'));
+    });
+
+    test('pushBattery syncs the watch', () async {
+      await WidgetService.pushBattery(80, false, 'Strap');
+      expect(iosConfigCalls, contains('syncWatch'));
+    });
+
+    test('clear syncs the watch', () async {
+      await WidgetService.clear();
+      expect(iosConfigCalls, contains('syncWatch'));
     });
   });
 
@@ -370,6 +400,94 @@ void main() {
       // The numbers are still written — the native readers just don't show
       // them — so nothing has to be invented when the app catches up.
       expect(written['sleep_min'], 437);
+    });
+  });
+
+  // app.dart's resume path, app_state.dart's post-derive path and the iOS
+  // background wake path all call WidgetService.refresh->push() unawaited,
+  // with nothing serializing overlapping calls. push() writes ~20 keys with
+  // an `await` between each, so without a lock two concurrent calls with
+  // different snapshots can interleave their writes field-by-field.
+  group('concurrent push() calls never interleave', () {
+    late List<Object?> order;
+
+    setUp(() {
+      order = [];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      // Force a task-queue hop on every write so two overlapping push() calls
+      // are guaranteed to interleave (if nothing serializes them) instead of
+      // one call's ~20 writes happening to run back-to-back by luck.
+      messenger.setMockMethodCallHandler(const MethodChannel('home_widget'),
+          (call) async {
+        await Future.delayed(Duration.zero);
+        if (call.method == 'saveWidgetData') {
+          final args = (call.arguments as Map).cast<String, Object?>();
+          written[args['id'] as String] = args['data'];
+          order.add(args['data']);
+        }
+        return true;
+      });
+    });
+
+    // Distinct in nearly every field push() writes, so almost every value on
+    // the wire is attributable to exactly one call.
+    TodayData snapshot(double readiness, int sleepMin, String coachTitle) =>
+        TodayData.fromJson({
+          'daily': {
+            'readiness': readiness,
+            'strain': readiness / 10,
+            'resting_hr': readiness + 10,
+          },
+          'sleep': {
+            'duration_min': sleepMin,
+            'need_min': sleepMin + 60,
+            'efficiency': readiness,
+          },
+          'coach': {
+            'plan': [
+              {'title': coachTitle},
+            ],
+          },
+        });
+
+    test('two overlapping calls write as two contiguous blocks, never mixed',
+        () async {
+      final valuesA = snapshot(40, 300, 'snapshot A plan');
+      final valuesB = snapshot(90, 500, 'snapshot B plan');
+      final aTokens = {40, 40.0, 4.0, 50, 300, 360, 'snapshot A plan'};
+      final bTokens = {90, 90.0, 9.0, 100, 500, 560, 'snapshot B plan'};
+
+      final a = WidgetService.push(valuesA);
+      final b = WidgetService.push(valuesB);
+      await Future.wait([a, b]);
+
+      // Reduce the recorded wire order to which call each attributable value
+      // came from (dropping shared/ambiguous values like -1 sentinels or
+      // booleans), then assert the result is at most two contiguous runs —
+      // i.e. call A's writes and call B's writes never take turns.
+      final attributed = order
+          .where((v) => aTokens.contains(v) || bTokens.contains(v))
+          .map((v) => aTokens.contains(v) ? 'A' : 'B')
+          .toList();
+      expect(attributed, isNotEmpty,
+          reason: 'the mock recorded no attributable writes at all');
+      var runs = 1;
+      for (var i = 1; i < attributed.length; i++) {
+        if (attributed[i] != attributed[i - 1]) runs++;
+      }
+      expect(runs, lessThanOrEqualTo(2),
+          reason: 'writes from the two push() calls interleaved: $attributed');
+
+      // And the two headline fields agree with each other (same call).
+      final finalReadiness = written['readiness'];
+      final finalCoach = written['coach_line'];
+      if (finalReadiness == 40) {
+        expect(finalCoach, 'snapshot A plan');
+      } else {
+        expect(finalReadiness, 90);
+        expect(finalCoach, 'snapshot B plan');
+      }
     });
   });
 }

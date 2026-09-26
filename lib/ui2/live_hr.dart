@@ -1,9 +1,11 @@
 // The heart rate arriving RIGHT NOW.
 //
-// Live HR is not a workout-only quantity: `openSession()` calls
-// `enableLiveStreams()` whenever the app is foregrounded with the band
-// connected, so a beat is usually a second old while someone is looking at the
-// app. It was simply never surfaced outside the workout screen.
+// Live HR is not a workout-only quantity, but the stream is not free either:
+// the screen hosting this card owns the realtime-HR stream while it is mounted
+// (`AppState.retainLiveHrView` / `releaseLiveHrView`, discussion #287), so a
+// beat is a second old while someone is looking at it and the band goes quiet
+// again when they leave. It was simply never surfaced outside the workout
+// screen.
 //
 // THE RULES THIS FILE HOLDS:
 //

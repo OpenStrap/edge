@@ -18,19 +18,34 @@ class AlarmScheduleEntry {
   final int minute;
   final bool enabled;
 
+  /// Smart Wake Window, minutes. 0 = off (the default — plain fixed-time
+  /// alarm, unchanged behaviour). When > 0, `hour`:`minute` stays exactly what
+  /// it always was — the band's own armed SET_ALARM, the hard fallback — and
+  /// this is how much EARLIER than that the app may try an early buzz once it
+  /// detects light sleep. It never moves, shortens, or cancels the fallback
+  /// arm; see smart_wake.dart.
+  final int smartWindowMinutes;
+
   const AlarmScheduleEntry({
     required this.weekday,
     required this.hour,
     required this.minute,
     this.enabled = true,
+    this.smartWindowMinutes = 0,
   });
 
-  AlarmScheduleEntry copyWith({int? hour, int? minute, bool? enabled}) =>
+  AlarmScheduleEntry copyWith({
+    int? hour,
+    int? minute,
+    bool? enabled,
+    int? smartWindowMinutes,
+  }) =>
       AlarmScheduleEntry(
         weekday: weekday,
         hour: hour ?? this.hour,
         minute: minute ?? this.minute,
         enabled: enabled ?? this.enabled,
+        smartWindowMinutes: smartWindowMinutes ?? this.smartWindowMinutes,
       );
 
   factory AlarmScheduleEntry.fromRow(Map<String, Object?> row) =>
@@ -39,6 +54,7 @@ class AlarmScheduleEntry {
         hour: row['hour'] as int,
         minute: row['minute'] as int,
         enabled: (row['enabled'] as int) != 0,
+        smartWindowMinutes: (row['smart_window_minutes'] as int?) ?? 0,
       );
 
   @override
@@ -47,15 +63,59 @@ class AlarmScheduleEntry {
       other.weekday == weekday &&
       other.hour == hour &&
       other.minute == minute &&
-      other.enabled == enabled;
+      other.enabled == enabled &&
+      other.smartWindowMinutes == smartWindowMinutes;
 
   @override
-  int get hashCode => Object.hash(weekday, hour, minute, enabled);
+  int get hashCode =>
+      Object.hash(weekday, hour, minute, enabled, smartWindowMinutes);
 
   @override
   String toString() =>
       'AlarmScheduleEntry(weekday: $weekday, hour: $hour, minute: $minute, '
-      'enabled: $enabled)';
+      'enabled: $enabled, smartWindowMinutes: $smartWindowMinutes)';
+}
+
+/// Whether a smart-wake early-fire attempt should happen right now.
+///
+/// [windowEnd] is always the strap's own already-armed fallback alarm epoch —
+/// this function only ever decides whether to TRY an early buzz inside
+/// `[windowEnd - minutes, windowEnd)`. The fallback arm itself is never
+/// touched by this decision, in either branch: true means "try now", false
+/// means "not yet / already past / smart wake is off", and in every case the
+/// band fires the real SET_ALARM at [windowEnd] regardless. That is the whole
+/// safety guarantee — it is a property of what this function does NOT do.
+bool inSmartWakeWindow({
+  required DateTime windowEnd,
+  required int minutes,
+  required DateTime now,
+}) {
+  if (minutes <= 0) return false;
+  final start = windowEnd.subtract(Duration(minutes: minutes));
+  return !now.isBefore(start) && now.isBefore(windowEnd);
+}
+
+/// The currently-armed alarm's smart-wake window, or null when there's no
+/// armed [epoch] or that weekday's slot has smart wake off
+/// (`smartWindowMinutes <= 0`) — both cases mean "no window" to every caller,
+/// same as [inSmartWakeWindow] returning false for `minutes <= 0`.
+///
+/// Extracted so `AppState._checkSmartWake` and
+/// `HighFreqWakeWindow`'s callers share one lookup instead of each doing
+/// their own weekday-entry matching.
+({DateTime windowEnd, int minutes})? armedSmartWakeWindow({
+  required int? epoch,
+  required List<AlarmScheduleEntry> schedule,
+}) {
+  if (epoch == null) return null;
+  final windowEnd = DateTime.fromMillisecondsSinceEpoch(epoch * 1000);
+  final entry = schedule.firstWhere(
+    (e) => e.weekday == windowEnd.weekday - 1,
+    orElse: () =>
+        AlarmScheduleEntry(weekday: 0, hour: 0, minute: 0, enabled: false),
+  );
+  if (entry.smartWindowMinutes <= 0) return null;
+  return (windowEnd: windowEnd, minutes: entry.smartWindowMinutes);
 }
 
 /// The default slot for a weekday nobody has configured yet: 07:00, off. A

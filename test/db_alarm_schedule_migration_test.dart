@@ -65,16 +65,17 @@ void main() {
     created.add(name);
     await _seedEmptyV49Db(name);
     final version = await _openThroughLocalDb(name);
-    // schemaVersion moved 50->51 for M3 (multi-device attribution) after this
-    // test was written for the alarm_schedule table's own v50 rung — the
-    // literal below tracks whatever the ladder currently ends on, not a
-    // number this test owns.
+    // The v50 rung is what this file isolates; later rungs (v51 multi-device
+    // attribution, v52 the WHOOP MG ECG store) ride the same open, so the
+    // ladder's top is a floor here, not a number this test owns.
+    expect(LocalDb.schemaVersion, greaterThanOrEqualTo(50));
     expect(version, LocalDb.schemaVersion);
 
     final db = await LocalDb.instance;
     final cols = await db.rawQuery('PRAGMA table_info(alarm_schedule)');
     final names = cols.map((c) => c['name'] as String).toSet();
-    expect(names, {'weekday', 'hour', 'minute', 'enabled'});
+    expect(names,
+        {'weekday', 'hour', 'minute', 'enabled', 'smart_window_minutes'});
     final weekdayCol = cols.firstWhere((c) => c['name'] == 'weekday');
     expect((weekdayCol['pk'] as num).toInt(), 1,
         reason: 'weekday must be the PRIMARY KEY');
@@ -127,5 +128,53 @@ void main() {
 
     await LocalDb.clearAlarmSchedule();
     expect(await LocalDb.alarmScheduleRows(), isEmpty);
+  });
+
+  test(
+      'v52 rung: an existing row from before smart_window_minutes existed '
+      'defaults to 0 (off) — existing fixed-time alarms are unaffected',
+      () async {
+    const name = 'openstrap_alarm_schedule_v51_upgrade_test.db';
+    created.add(name);
+    final path = await _dbPath(name);
+    await databaseFactory.deleteDatabase(path);
+    // Seed a v51 database with a row in the OLD (pre-smart-wake) shape.
+    final seed = await databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 51,
+        onCreate: (db, _) async {
+          await db.execute('''
+            CREATE TABLE alarm_schedule (
+              weekday INTEGER NOT NULL,
+              hour    INTEGER NOT NULL,
+              minute  INTEGER NOT NULL,
+              enabled INTEGER NOT NULL DEFAULT 1,
+              PRIMARY KEY (weekday)
+            )
+          ''');
+          await db.insert('alarm_schedule',
+              {'weekday': 0, 'hour': 7, 'minute': 0, 'enabled': 1});
+        },
+      ),
+    );
+    await seed.close();
+
+    await LocalDb.close();
+    LocalDb.lastRebuild = null;
+    LocalDb.dbName = name;
+    await LocalDb.instance;
+    expect(LocalDb.lastRebuild, isNull,
+        reason: 'the upgrade bricked and fell back to quarantine-and-rebuild: '
+            '${LocalDb.lastRebuild?.cause}');
+
+    final rows = await LocalDb.alarmScheduleRows();
+    final mon = rows.firstWhere((r) => r['weekday'] == 0);
+    expect(mon['hour'], 7, reason: 'the existing fixed wake time is untouched');
+    expect(mon['minute'], 0);
+    expect(mon['enabled'], 1);
+    expect(mon['smart_window_minutes'], 0,
+        reason: 'smart wake defaults OFF on an upgraded row — existing '
+            'alarms keep firing exactly as before');
   });
 }

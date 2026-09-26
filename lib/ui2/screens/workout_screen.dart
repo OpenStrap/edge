@@ -27,6 +27,7 @@ import '../../health/health_workout_import.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
+import '../../state/units_controller.dart';
 import '../activity/catalogue.dart';
 import '../activity/day_strain.dart';
 import '../activity/live.dart';
@@ -39,7 +40,7 @@ import '../profile/profile.dart' show openProfile;
 import '../grammar.dart';
 import '../revision.dart';
 import '../theme.dart';
-import 'home_screen.dart' show calendarDaysBetween;
+import '../../data/day_label.dart' show calendarDaysBetween;
 import 'log_workout.dart';
 import 'start_card.dart';
 
@@ -1089,6 +1090,7 @@ class _HistoryRow extends StatelessWidget {
   /// sentence.
   List<(String, String, String?)> _stats(BuildContext c) {
     final loc = AppLocalizations.of(c);
+    final units = c.watch<UnitsController>();
     final timeLabel = loc?.workoutTimeStatLabel ?? 'Time';
     final caloriesLabel = loc?.workoutCaloriesStatLabel ?? 'Calories';
     return w.importedFrom != null
@@ -1103,7 +1105,8 @@ class _HistoryRow extends StatelessWidget {
           (timeLabel, hms(w.duration), null),
           if (w.distanceM != null && w.distanceM! > 0)
             (loc?.workoutDistanceStatLabel ?? 'Distance',
-                (w.distanceM! / 1000).toStringAsFixed(2), 'km'),
+                units.distanceValue(w.distanceM!).toStringAsFixed(2),
+                units.distanceUnit),
           if (w.calories != null)
             (caloriesLabel, grouped(w.calories!), 'kcal'),
         ]
@@ -1728,6 +1731,11 @@ class _PastWorkout {
   /// from the list row because that is where the repository already serves it.
   final int? hrr60;
 
+  /// `sessions.vo2max_estimate` — submax estimate from one completed km route
+  /// split. Carried for the same reason [hrr60] is: opening the detail screen
+  /// converts this row straight to an `ActivityResult`.
+  final double? vo2max;
+
   /// `sessions.steps` — banked at finish from the live 100 Hz pedometer and
   /// never recomputed. It is a COLUMN, so unlike the trace it does not depend
   /// on the 1 Hz substrate and does not go blank when that is pruned; a session
@@ -1762,6 +1770,7 @@ class _PastWorkout {
       this.avgHr,
       this.maxHr,
       this.hrr60,
+      this.vo2max,
       this.steps,
       this.zoneMinutes = const [],
       this.private = false,
@@ -1808,6 +1817,7 @@ class _PastWorkout {
         avgHr: avgHr,
         maxHr: maxHr,
         hrr60: hrr60,
+        vo2max: vo2max,
         steps: steps,
         zoneMinutes: zoneMinutes,
       );
@@ -1982,6 +1992,7 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
             avgHr: (r['avg_hr'] as num?)?.round(),
             maxHr: (r['max_hr'] as num?)?.toInt(),
             hrr60: (r['hrr60'] as num?)?.round(),
+            vo2max: (r['vo2max_estimate'] as num?)?.toDouble(),
             steps: (r['steps'] as num?)?.toInt(),
             zoneMinutes: _decodeZoneMinutes(r['zone_min']),
             private: r['private'] == true,

@@ -21,47 +21,95 @@ class HighFreqWakeWindow {
   static const int historyDays = 14;
   static const int minSamples = 3;
 
-  static Future<HighFreqWakePlan> planNow([DateTime? now]) async {
+  /// [scheduledWindowEnd]/[scheduledWindowMinutes] are the currently-armed
+  /// alarm's smart-wake window (see `alarm_schedule.armedSmartWakeWindow`),
+  /// when known. They widen the lease to also cover an alarm set well before
+  /// the habitual wake — e.g. a 05:30 alarm on a 07:30-habitual-wake person —
+  /// which the habitual-only window used to miss entirely, starving
+  /// `_checkSmartWake`'s "last 3 minutes" query of fresh `decoded_onehz` rows
+  /// for the whole real window. Omitting them (every existing call site that
+  /// hasn't been updated) keeps today's habitual-only behaviour byte-for-byte.
+  static Future<HighFreqWakePlan> planNow({
+    DateTime? now,
+    DateTime? scheduledWindowEnd,
+    int scheduledWindowMinutes = 0,
+  }) async {
     final rows = await LocalDb.recentDayResults(historyDays);
-    return planFromRows(rows, now ?? DateTime.now());
+    return planFromRows(
+      rows,
+      now ?? DateTime.now(),
+      scheduledWindowEnd: scheduledWindowEnd,
+      scheduledWindowMinutes: scheduledWindowMinutes,
+    );
   }
 
   static HighFreqWakePlan planFromRows(
     List<Map<String, dynamic>> rows,
-    DateTime now,
-  ) {
+    DateTime now, {
+    DateTime? scheduledWindowEnd,
+    int scheduledWindowMinutes = 0,
+  }) {
     final wakeMinutes = <int>[];
     for (final row in rows) {
       final minute = _wakeMinuteOfDay(row);
       if (minute != null) wakeMinutes.add(minute);
     }
-    if (wakeMinutes.length < minSamples) {
-      return const HighFreqWakePlan(
-        shouldEnable: false,
-        targetWake: null,
-        source: 'insufficient_sleep_history',
-        sampleCount: 0,
+
+    HighFreqWakePlan? habitualPlan;
+    if (wakeMinutes.length >= minSamples) {
+      wakeMinutes.sort();
+      final habitualWakeMinute = wakeMinutes[wakeMinutes.length ~/ 2];
+      final todayTarget = DateTime(
+        now.year,
+        now.month,
+        now.day,
+        habitualWakeMinute ~/ 60,
+        habitualWakeMinute % 60,
+      );
+      // Calendar arithmetic, not a Duration(days: 1) add — that's exactly 24
+      // elapsed hours, which lands an hour off across a DST transition.
+      final targetWake = now.isAfter(todayTarget)
+          ? DateTime(
+              now.year,
+              now.month,
+              now.day + 1,
+              habitualWakeMinute ~/ 60,
+              habitualWakeMinute % 60,
+            )
+          : todayTarget;
+      final windowStart = targetWake.subtract(lease);
+      habitualPlan = HighFreqWakePlan(
+        shouldEnable: !now.isBefore(windowStart) && now.isBefore(targetWake),
+        targetWake: targetWake,
+        source: 'habitual_wake',
+        sampleCount: wakeMinutes.length,
       );
     }
-    wakeMinutes.sort();
-    final habitualWakeMinute = wakeMinutes[wakeMinutes.length ~/ 2];
-    final todayTarget = DateTime(
-      now.year,
-      now.month,
-      now.day,
-      habitualWakeMinute ~/ 60,
-      habitualWakeMinute % 60,
-    );
-    final targetWake = now.isAfter(todayTarget)
-        ? todayTarget.add(const Duration(days: 1))
-        : todayTarget;
-    final windowStart = targetWake.subtract(lease);
-    return HighFreqWakePlan(
-      shouldEnable: !now.isBefore(windowStart) && now.isBefore(targetWake),
-      targetWake: targetWake,
-      source: 'habitual_wake',
-      sampleCount: wakeMinutes.length,
-    );
+
+    // The scheduled-alarm window only takes over when the habitual window
+    // isn't already covering `now` — habitual stays the reported source
+    // whenever it alone would enable, matching pre-existing behaviour.
+    if (scheduledWindowEnd != null &&
+        scheduledWindowMinutes > 0 &&
+        habitualPlan?.shouldEnable != true) {
+      final scheduledStart = scheduledWindowEnd.subtract(lease);
+      if (!now.isBefore(scheduledStart) && now.isBefore(scheduledWindowEnd)) {
+        return HighFreqWakePlan(
+          shouldEnable: true,
+          targetWake: scheduledWindowEnd,
+          source: 'scheduled_alarm',
+          sampleCount: wakeMinutes.length,
+        );
+      }
+    }
+
+    return habitualPlan ??
+        const HighFreqWakePlan(
+          shouldEnable: false,
+          targetWake: null,
+          source: 'insufficient_sleep_history',
+          sampleCount: 0,
+        );
   }
 
   static int? _wakeMinuteOfDay(Map<String, dynamic> row) {

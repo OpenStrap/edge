@@ -17,6 +17,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/gps/gps_source.dart';
 import 'package:openstrap_edge/state/prefs.dart';
@@ -32,6 +33,7 @@ import 'package:openstrap_edge/ui2/activity/summary.dart';
 import 'package:openstrap_edge/ui2/activity/zones.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ── deterministic fixtures ─────────────────────────────────────────────────
@@ -356,6 +358,23 @@ void main() {
       expect(full.repCount, 36);
       expect(full.exercises,
           ['bench_press', 'triceps_pushdown', 'pull_up']);
+    });
+
+    test('the share card converts strength volume to the reader\'s units, '
+        'never a bare kg number under imperial', () {
+      final r = ActivityResult(_first(Arch.strength),
+          start: _start,
+          duration: const Duration(minutes: 40),
+          strength: StrengthLog(_sets));
+      final u = UnitsController.seed(UnitSystem.imperial);
+      final volumeLb = u.weightValue(StrengthLog(_sets).volumeKg!).round();
+
+      final stat = shareStats(r, u).firstWhere((s) => s.$1 == 'Volume');
+      expect(stat.$2, '${grouped(volumeLb)} lb');
+
+      final hero = shareHero(r, u);
+      expect(hero.$2, 'lb');
+      expect(hero.$1, grouped(volumeLb));
     });
 
     test('a bodyweight-only session has no volume, not zero volume', () {
@@ -1438,6 +1457,122 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets(
+        'interval work/rest/rounds are configurable, not the old 45/30/8',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('crossfit')!;
+      expect(archOf(a), Arch.interval);
+
+      // The setup screen defaults to the old values, but they are typed in,
+      // not baked into the live screen — bumping work to 50 s here has to
+      // reach the countdown, the subtitle AND the progress bar.
+      LiveDraft.begin(a, workSec: 50, restSec: 20, rounds: 4);
+
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('50 S WORK'), findsOneWidget);
+      expect(find.textContaining('20 S REST'), findsOneWidget);
+      expect(find.text('00:50'), findsOneWidget,
+          reason: 'the countdown starts from the chosen work length');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('an interval draft with no chosen config falls back to 45/30/8',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('crossfit')!;
+      LiveDraft.begin(a); // a draft written before this feature existed
+
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('45 S WORK'), findsOneWidget);
+      expect(find.textContaining('30 S REST'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'the interval setup screen lets you change work, rest and rounds',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('crossfit')!;
+      await tester.pumpWidget(
+          _frame(ActivitySetup(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('45s'), findsOneWidget);
+      expect(find.text('30s'), findsOneWidget);
+      expect(find.text('8'), findsOneWidget);
+
+      // Bump work up twice (5 s per tap) — the first '+' on the screen is
+      // the work stepper's (crossfit has no GPS row ahead of it).
+      await tester.tap(find.byIcon(LucideIcons.plus).first);
+      await tester.pump();
+      await tester.tap(find.byIcon(LucideIcons.plus).first);
+      await tester.pump();
+      expect(find.text('55s'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a non-interval activity gets no interval steppers',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(_frame(
+          ActivitySetup(activityByName('running')!, weightKg: 72.4),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Rounds'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'a chosen interval survives starting with no host — not just a '
+        'draft the host would have opened',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2200 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      // ActivityHost.none (the default): `start` stays null, so the block
+      // that writes the choice into LiveDraft never runs. Without passing
+      // the config straight to `liveFor` too, this is exactly the path
+      // that silently fell back to 45/30/8.
+      final a = activityByName('crossfit')!;
+      await tester.pumpWidget(
+          _frame(ActivitySetup(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(LucideIcons.plus).first); // work + 5
+      await tester.pump();
+      await tester.tap(find.text('Start'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('50 S WORK'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a collapsed group builds none of its rows', (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
       tester.view.devicePixelRatio = 3;
@@ -1746,6 +1881,43 @@ void main() {
       expect(find.text('320'), findsOneWidget); // volume
       expect(find.text('40 kg × 8'), findsWidgets);
       expect(find.textContaining('RESTING'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+        'imperial: the stepper shows lb, steps by a clean 5 lb plate, and '
+        'volume totals in lb — never kg', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(_frame(
+          ChangeNotifierProvider<UnitsController>.value(
+              value: UnitsController.seed(UnitSystem.imperial),
+              child: liveFor(activityByName('weight_training')!,
+                  weightKg: 72.4)),
+          Brightness.light,
+          1.0));
+      await tester.pumpAndSettle();
+
+      // Default entry is 40 kg, shown as its lb rounding — never "40 kg".
+      expect(find.text('88'), findsOneWidget);
+      expect(find.text('kg'), findsNothing);
+      expect(find.text('lb'), findsWidgets);
+
+      // One tap steps a clean 5 lb (not a raw 2.5 kg → 5.5 lb conversion).
+      await tester.tap(find.bySemanticsLabel('WEIGHT up'));
+      await tester.pump();
+      expect(find.text('93'), findsOneWidget);
+
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      expect(find.text('93 lb × 8'), findsWidgets);
+      // Volume = (40 kg + one 5 lb step, in kg) × 8 reps, shown in lb.
+      final u = UnitsController.seed(UnitSystem.imperial);
+      final loggedKg = 40.0 + u.loadStepKg(2.5);
+      expect(find.text(u.weightValue(loggedKg * 8).round().toString()),
+          findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 

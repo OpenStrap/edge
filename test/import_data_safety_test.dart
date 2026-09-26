@@ -177,6 +177,61 @@ void main() {
     });
   });
 
+  group('WhoopImporter merges same-day _Kind.day files across the export', () {
+    // physiological_cycles.csv (recovery/RHR/RMSSD/strain) and sleeps.csv
+    // (sleep-only columns) both classify as _Kind.day and both carry a row
+    // for the same date. Neither file has the other's columns, so a naive
+    // per-row write would null out whichever file wrote second.
+    String cyclesCsv(Directory dir, String wake) {
+      final f = File(p.join(dir.path, 'physiological_cycles.csv'));
+      f.writeAsStringSync(
+        'Cycle start time,Recovery score %,Resting heart rate (bpm),'
+        'Heart rate variability (ms),Day Strain\n'
+        '$wake,66,52,80,12.3\n',
+      );
+      return f.path;
+    }
+
+    String sleepsCsv(Directory dir, String wake) {
+      final f = File(p.join(dir.path, 'sleeps.csv'));
+      f.writeAsStringSync(
+        'Sleep onset,Wake onset,Asleep duration (min),Light sleep duration (min)\n'
+        '$wake,$wake,410,250\n',
+      );
+      return f.path;
+    }
+
+    Future<void> assertMerged(String day) async {
+      expect(await _metric(day, 'rhr'), 52.0,
+          reason: 'recovery-file field must survive the sleep file\'s write');
+      expect(await _metric(day, 'strain'), 12.3,
+          reason: 'recovery-file field must survive the sleep file\'s write');
+      expect(await _metric(day, 'tst_min'), 410.0,
+          reason: 'sleep-file field must survive the recovery file\'s write');
+    }
+
+    test('cycles-then-sleep does not lose either file\'s fields', () async {
+      const wake = '2026-06-01 07:00:00';
+      final day =
+          localDateLabel(DateTime.parse(wake).millisecondsSinceEpoch ~/ 1000);
+      final res = await WhoopImporter.importFiles(
+          [cyclesCsv(tmp, wake), sleepsCsv(tmp, wake)]);
+      expect(res.days, 1, reason: 'one date, one write, not one per file');
+      await assertMerged(day);
+    });
+
+    test('sleep-then-cycles (reversed order) gives the same merged result',
+        () async {
+      const wake = '2026-06-02 07:00:00';
+      final day =
+          localDateLabel(DateTime.parse(wake).millisecondsSinceEpoch ~/ 1000);
+      final res = await WhoopImporter.importFiles(
+          [sleepsCsv(tmp, wake), cyclesCsv(tmp, wake)]);
+      expect(res.days, 1);
+      await assertMerged(day);
+    });
+  });
+
   group('WhoopImporter energy units come from the header, not the value', () {
     Future<double?> importEnergy(
         String wake, String header, String value) async {
@@ -244,6 +299,34 @@ void main() {
       expect(rows.length, 1);
       expect((rows.first['start_ts'] as num).toInt(), 1780000000);
       expect((rows.first['duration_min'] as num).toInt(), 60);
+    });
+  });
+
+  group('CloudImporter._writeDay return value (dayCount accuracy)', () {
+    test('returns false and does not write when the band already measured '
+        'this date', () async {
+      const day = '2026-06-01';
+      await LocalDb.putDayResult(
+        dayId: day,
+        algoVersion: kAlgoVersion,
+        payloadJson: jsonEncode({'date': day, 'source': 'onehz', 'real': true}),
+        windowJson: '{}',
+        rhr: 50.0,
+        series: {'rhr': 50.0},
+      );
+      final wrote =
+          await CloudImporter.debugWriteDay(day, {'resting_hr': 99}, null);
+      expect(wrote, isFalse,
+          reason: 'a measured day must not be overwritten or counted');
+      expect(await _metric(day, 'rhr'), 50.0);
+    });
+
+    test('returns true when it actually writes an unmeasured date', () async {
+      const day = '2026-06-02';
+      final wrote =
+          await CloudImporter.debugWriteDay(day, {'resting_hr': 55}, null);
+      expect(wrote, isTrue);
+      expect(await _metric(day, 'rhr'), 55.0);
     });
   });
 

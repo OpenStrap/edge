@@ -494,12 +494,40 @@ void main() {
         'source': 'manual',
         'created_at': start * 1000,
       });
+      // A live row with no end_ts now overlap-checks through "now" — clean
+      // it up so it doesn't shadow every later test's window.
+      addTearDown(() => LocalDb.deleteSession('w-live'));
       await expectLater(
         repo.setWorkoutWindow('w-live', startTs: start, endTs: start + 3600),
         throwsA(isA<StateError>()),
       );
       final row = await LocalDb.session('w-live');
       expect(row!['status'], 'live', reason: 'must not have been ended');
+    });
+
+    test(
+        'confirming a manual window that overlaps a still-live session is '
+        'refused, not double-booked', () async {
+      // Regression: a live row's null end_ts used to drop it out of
+      // savedSessionSpans entirely, so a manual confirm overlapping the
+      // still-running session would go through and double-count the effort.
+      final start = sessionStart - 44 * 86400;
+      await LocalDb.putSession({
+        'id': 'w-live-overlap',
+        'start_ts': start,
+        'end_ts': null,
+        'type': 'run',
+        'status': 'live',
+        'source': 'manual',
+        'created_at': start * 1000,
+      });
+      addTearDown(() => LocalDb.deleteSession('w-live-overlap'));
+      await expectLater(
+        () => repo.logManualWorkout(
+            startTs: start + 60, endTs: start + 3660, type: 'run'),
+        throwsA(isA<ManualWindowException>().having(
+            (e) => e.error, 'error', ManualWindowError.overlapsExisting)),
+      );
     });
   });
 

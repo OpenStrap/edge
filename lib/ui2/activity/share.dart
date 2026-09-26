@@ -435,7 +435,11 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
   if (r.calories != null) ('Calories', '${grouped(r.calories!)} kcal'),
   if (r.gainM != null) ('Elevation', '+${r.gainM!.round()} m'),
   if (r.strength.volumeKg != null)
-    ('Volume', '${grouped(r.strength.volumeKg!)} kg'),
+    (
+      'Volume',
+      '${grouped(u == null ? r.strength.volumeKg! : u.weightValue(r.strength.volumeKg!))} '
+          '${u?.weightUnit ?? 'kg'}',
+    ),
   if (!r.strength.isEmpty) ('Sets', '${r.strength.setCount}'),
   if (r.lapCount != null) ('Laps', '${r.lapCount}'),
 ];
@@ -460,8 +464,10 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
       r.strength.volumeKg == null
           ? fallback
           : (
-              grouped(r.strength.volumeKg!),
-              'kg',
+              grouped(u == null
+                  ? r.strength.volumeKg!
+                  : u.weightValue(r.strength.volumeKg!)),
+              u?.weightUnit ?? 'kg',
               // The same caption the summary picks, off the same fact.
               // `volumeKg` is Σ over the sets that HAVE a load, so calling it
               // a total on a session with bodyweight sets in it asserts a

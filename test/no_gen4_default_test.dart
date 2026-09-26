@@ -10,8 +10,11 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 // -> 0 by the end of M2 (§18 gate).
-const _kWhoopGen4Defaults = 13;
-const _bandProfileGen4Defaults = 8;
+const _kWhoopGen4Defaults = 9;
+// 8 -> 6: PR#445 retired the last two `?? BandProfile.gen4` sites in
+// ble_engine.dart's ENTER/EXIT_HIGH_FREQ_SYNC builders (session.band is
+// always known at those call sites now).
+const _bandProfileGen4Defaults = 6;
 
 final _pureComment = RegExp(r'^\s*(///|//|\*|/\*)');
 

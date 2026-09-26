@@ -215,6 +215,37 @@ void main() {
     expect(find.text('Add a result'), findsOneWidget);
   });
 
+  group('adding a result', () {
+    testWidgets('Save writes the row and Cancel writes nothing', (t) async {
+      final labs = await _seed(t, const []);
+      await _pumpLabs(t, labs);
+
+      // Cancel: the dialog closes, nothing is written, and — this is the
+      // regression this test guards — no TextEditingController it created
+      // survives the method (they were plain locals with no dispose(), so
+      // every open of this dialog used to leak two of them for the life of
+      // the process).
+      await t.tap(find.text('Add a result'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Cancel'));
+      await t.pumpAndSettle();
+      expect((await t.runAsync(LocalDb.labMarkerDefs))!, isEmpty);
+      expect(
+        (await t.runAsync(() => LocalDb.labResults(marker: 'ferritin')))!,
+        isEmpty,
+      );
+
+      // Save: the row lands, through the same controllers, torn down the
+      // same way.
+      await t.tap(find.text('Add a result'));
+      await t.pumpAndSettle();
+      await t.enterText(find.byType(TextField).first, '42');
+      await t.tap(find.text('Save'));
+      await _until(t, find.text('42'));
+      expect(find.text('42'), findsOneWidget);
+    });
+  });
+
   group('a marker you named yourself', () {
     const lpa = <Map<String, Object?>>[
       {

@@ -234,6 +234,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
 
   Future<void> _setEnabled(bool on) async {
     await context.read<AppState>().updateProfile({'track_cycle': on});
+    if (!mounted) return;
     await _load();
   }
 
@@ -241,6 +242,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
     final repo = context.read<AppState>().repo;
     if (repo == null) return;
     await repo.postCycleLog(_date);
+    if (!mounted) return;
     await _load();
   }
 
@@ -879,7 +881,7 @@ List<DateTime> startDates(CycleData d) => <DateTime>[
 
 /// Consecutive gaps between logged starts, in days, oldest first.
 List<int> cycleGaps(List<DateTime> s) => [
-  for (var i = 1; i < s.length; i++) s[i].difference(s[i - 1]).inDays,
+  for (var i = 1; i < s.length; i++) calendarDaysBetween(s[i - 1], s[i]),
 ];
 
 /// WH-02 — `cycleDay -> {cycleIndex: value}` for one overlay key.
@@ -899,7 +901,7 @@ Map<int, Map<int, double>> byCycleDay(CycleData d, String key) {
     if (day == null) continue;
     final i = starts.lastIndexWhere((s) => !s.isAfter(day));
     if (i < 0) continue; // before she ever logged a start
-    final cd = day.difference(starts[i]).inDays + 1;
+    final cd = calendarDaysBetween(starts[i], day) + 1;
     if (cd < 1) continue;
     (out[cd] ??= {})[i] = v.toDouble();
   }
@@ -960,7 +962,7 @@ class _CycleHistoryState extends State<_CycleHistory> {
   /// the gallery.
   AppState? get _app {
     try {
-      return context.watch<AppState>();
+      return context.read<AppState>();
     } catch (_) {
       return null;
     }
@@ -969,7 +971,18 @@ class _CycleHistoryState extends State<_CycleHistory> {
   /// WH-08 is OPT IN. It is never turned on by an age read off the profile —
   /// that would be the app deciding what stage of life she is in, which is the
   /// one thing this screen must never do.
-  bool get _lengthReview => _app?.user?['cycle_length_review'] == true;
+  ///
+  /// Narrowed via `select` (not `_app`'s plain `read`) so this subtree only
+  /// rebuilds when this one profile field flips — not on every AppState
+  /// change (live HR/sync ticks fire far more often than this toggles).
+  bool get _lengthReview {
+    try {
+      return context.select<AppState, bool>(
+          (a) => a.user?['cycle_length_review'] == true);
+    } catch (_) {
+      return false;
+    }
+  }
 
   @override
   Widget build(BuildContext c) {
@@ -1192,19 +1205,20 @@ class _CycleHistoryState extends State<_CycleHistory> {
     if (dated.isEmpty) return null;
     dated.sort((a, b) => a.$1.compareTo(b.$1));
     final (latest, cycleIndex, value) = dated.last;
-    final cycleDay = latest.difference(starts[cycleIndex]).inDays + 1;
+    final cycleDay = calendarDaysBetween(starts[cycleIndex], latest) + 1;
 
     // Baseline one: her trailing three weeks, ending the day before this one.
     // Straddles the follicular/luteal boundary by construction, which is the
     // whole reason the second baseline exists.
     final trailing = [
       for (final (day, _, v) in dated)
-        if (day.isBefore(latest) && latest.difference(day).inDays <= 21) v,
+        if (day.isBefore(latest) && calendarDaysBetween(day, latest) <= 21) v,
     ];
     // Baseline two: the SAME cycle day, in her own earlier cycles.
     final sameDay = [
       for (final (day, i, v) in dated)
-        if (i != cycleIndex && day.difference(starts[i]).inDays + 1 == cycleDay)
+        if (i != cycleIndex &&
+            calendarDaysBetween(starts[i], day) + 1 == cycleDay)
           v,
     ];
     if (sameDay.length < 3) return null;

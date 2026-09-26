@@ -34,6 +34,7 @@
 //   3. A read-only Database handle (openDatabase readOnly:true) — even if
 //      both layers above were bypassed, SQLite physically refuses writes/DDL.
 
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
@@ -64,6 +65,7 @@ class CoachDb {
     'v_sessions',
     'v_baselines',
     'v_insights',
+    'v_ecg_readings',
   };
 
   // Keywords that must never appear as standalone tokens (anything mutating or
@@ -73,6 +75,13 @@ class CoachDb {
     'truncate', 'attach', 'detach', 'pragma', 'vacuum', 'reindex', 'analyze',
     'begin', 'commit', 'rollback', 'savepoint', 'grant', 'revoke', 'trigger',
     'into', 'load_extension', 'explain',
+    // A recursive CTE's working table is an ephemeral btree (OpenEphemeral/
+    // OpenPseudo), which layer 2 deliberately doesn't track — so a query like
+    // `WITH RECURSIVE x(n) AS (...) SELECT count(*) FROM x` can touch zero
+    // real views and sail through both layers while spinning unboundedly.
+    // The coach has no legitimate use for one over 7 small derived views, so
+    // it's rejected outright here instead of trusted to layer 2.
+    'recursive',
   };
 
   /// Real on-disk relations. This is NOT the security boundary any more (the
@@ -90,6 +99,11 @@ class CoachDb {
     'raw_records', 'raw_archive', 'decoded_onehz', 'decoded_rr', 'samples',
     'events', 'band_events', 'band_battery',
     'device_coverage', 'signal_priority',
+    // WHOOP MG ECG. `ecg_reading` is a base table of an allowed view, so the
+    // structural gate would admit its btree — this token-level block is what
+    // keeps `device_id`/`notes` (never in the view) out of run_sql. The two
+    // packet tables are unreachable at both layers.
+    'ecg_reading', 'ecg_reading_packet', 'ecg_raw_packet',
     // sync / compute bookkeeping
     'sync_ledger', 'sync_quarantine', 'sync_cursor', 'sync_ledger_legacy',
     'sync_quarantine_legacy', 'sync_cursor_legacy', 'compute_jobs',
@@ -279,7 +293,10 @@ class CoachDb {
   }
 
   /// CTE names: an identifier preceded by `with`/`recursive`/`,` and followed
-  /// (past an optional parenthesised column list) by `as (`.
+  /// (past an optional parenthesised column list) by `as (`. `recursive` is
+  /// recognized here only so a recursive CTE's name still resolves as a valid
+  /// alias target for the diagnostics above — the keyword itself is banned by
+  /// [_banned], so this path never actually runs for one.
   static Set<String> _cteNames(List<_Tok> toks) {
     final names = <String>{};
     for (var i = 1; i < toks.length; i++) {
@@ -421,7 +438,9 @@ class CoachDb {
   /// Root pages of every btree a prepared [sql] opens, per SQLite's own
   /// bytecode. Only cursor-opening opcodes carry a root page in P2 —
   /// OpenEphemeral/SorterOpen/OpenPseudo reuse P2 for a column count and are
-  /// deliberately ignored.
+  /// deliberately ignored. NOTE: a recursive CTE's working table is exactly
+  /// one of those ignored ephemeral btrees, so this layer can't see it at
+  /// all — `RECURSIVE` is rejected at layer 1 (`_banned`) instead.
   static Future<Set<int>> _btreeRoots(Database db, String sql) async {
     const opening = {'OpenRead', 'OpenWrite', 'ReopenIdx'};
     final rows = await db.rawQuery('EXPLAIN $sql');
@@ -473,7 +492,29 @@ class CoachDb {
     try {
       final db = await _readonly();
       await _assertAllowedBtrees(db, sql);
-      final rows = await db.rawQuery(sql);
+      // ponytail: sqflite exposes no sqlite3_progress_handler, so a slow
+      // query (e.g. a giant cross-join of allowed views) can't be cancelled
+      // in-flight — the abandoned native call keeps burning CPU on sqflite's
+      // worker until SQLite itself finishes, and repeated slow queries could
+      // still saturate that worker. This backstop bounds the WAIT, not the
+      // execution: it drops the cached handle so the app/coach isn't
+      // permanently wedged behind one bad query. Upgrade path: a platform
+      // channel calling sqlite3_progress_handler on the underlying
+      // connection (or the `sqlite3` FFI package) for a real hard cancel.
+      List<Map<String, Object?>> rows;
+      try {
+        rows = await db.rawQuery(sql).timeout(const Duration(seconds: 10));
+      } on TimeoutException {
+        try {
+          await close(); // drop the wedged handle; next query opens a fresh one
+        } catch (_) {
+          // teardown failing must not stop the timeout error below from
+          // reaching the model.
+        }
+        return jsonEncode({'error': 'Query took too long and was abandoned. '
+            'Add a tighter WHERE, aggregate instead of selecting all rows, '
+            'or simplify the query.'});
+      }
       final shown = rows.take(rowCap).toList();
       final out = <String, dynamic>{
         'columns': shown.isEmpty ? <String>[] : shown.first.keys.toList(),

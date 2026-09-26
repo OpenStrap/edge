@@ -164,7 +164,24 @@ class CoachEngine {
   final CoachConfig config;
   final LocalRepository api;
   final String storageKey; // per-user, so accounts don't share a transcript
-  final http.Client _http = http.Client();
+  final http.Client _http;
+
+  /// Count of [send] calls currently inside their provider call(s). A local
+  /// model can take minutes to answer, and the screen that started the call
+  /// is routinely gone before it finishes — navigated away, or the app
+  /// backgrounded and the route rebuilt. [dispose] must not close [_http]
+  /// while this is above zero: doing so aborts whichever request(s) are still
+  /// in flight out from under them, and the failure lands in a screen state
+  /// (the caller's `mounted` checks) that no longer exists to show it — total
+  /// silence instead of an answer or a real error. A plain bool here would
+  /// under-count: if two `send` calls overlap, the first to finish would flip
+  /// it false and let a requested dispose close the client on the second.
+  int _sending = 0;
+
+  /// Set by [requestDispose] when it is called while [_sending] is above
+  /// zero. The actual close happens once the last overlapping [send]'s
+  /// `finally` sees the count reach zero, not before.
+  bool _disposeRequested = false;
 
   // OpenAI-format running history (system is added per-request) — the context we
   // resend every turn so the model remembers the conversation.
@@ -201,7 +218,12 @@ class CoachEngine {
     'Pulling the thread…',
   ];
 
-  CoachEngine({required this.config, required this.api, this.storageKey = 'anon'});
+  CoachEngine({
+    required this.config,
+    required this.api,
+    this.storageKey = 'anon',
+    http.Client? client,
+  }) : _http = client ?? http.Client();
 
   // ── prompt size ceilings ────────────────────────────────────────────────────
   //
@@ -218,15 +240,31 @@ class CoachEngine {
   /// Max characters of any single tool result kept in the resent history.
   static const int kMaxToolResultChars = 16000;
 
+  /// The ceiling for `get_ecg_reading` alone.
+  ///
+  /// The bound above exists because the MODEL widens its own queries — it can
+  /// keep asking `run_sql` for more until one result dominates the window.
+  /// `get_ecg_reading` is not that shape: it is a bound lookup of ONE reading
+  /// by id, and its size is decided by the band (a completed reading is 30 s
+  /// at 100 Hz), not by the model. Clipping it would not restrain a model, it
+  /// would only decimate a waveform to make room for the prose describing it.
+  static const int kMaxEcgToolResultChars = 24000;
+
   /// Max characters of running history resent on each turn.
   static const int kMaxHistoryChars = 120000;
 
   /// Hard ceiling on one serialized provider request body.
   static const int kMaxRequestBytes = 400 * 1024;
 
-  static String _clipToolResult(String s) => s.length <= kMaxToolResultChars
-      ? s
-      : '${s.substring(0, kMaxToolResultChars)}…(truncated — narrow the query)';
+  static int _capFor(String tool) =>
+      tool == 'get_ecg_reading' ? kMaxEcgToolResultChars : kMaxToolResultChars;
+
+  static String _clipToolResult(String s, String tool) {
+    final cap = _capFor(tool);
+    return s.length <= cap
+        ? s
+        : '${s.substring(0, cap)}…(truncated — narrow the query)';
+  }
 
   int _historyChars() {
     var n = 0;
@@ -373,10 +411,10 @@ class CoachEngine {
 
   String _deriveTitle() {
     for (final it in transcript) {
-      if (it.kind == CoachItemKind.user && (it.text ?? '').trim().isNotEmpty) {
-        final t = it.text!.trim();
-        return t.length > 40 ? '${t.substring(0, 40)}…' : t;
-      }
+      if (it.kind != CoachItemKind.user) continue;
+      final t = (it.text ?? '').trim();
+      if (t.isEmpty) continue;
+      return t.length > 40 ? '${t.substring(0, 40)}…' : t;
     }
     return 'New chat';
   }
@@ -451,6 +489,21 @@ class CoachEngine {
     required void Function(String?) onStatus,
     required Future<bool> Function(ActionRequest) confirm,
   }) async {
+    _sending++;
+    try {
+      await _send(userText, onItem: onItem, onStatus: onStatus, confirm: confirm);
+    } finally {
+      _sending--;
+      if (_sending == 0 && _disposeRequested) dispose();
+    }
+  }
+
+  Future<void> _send(
+    String userText, {
+    required void Function(CoachItem) onItem,
+    required void Function(String?) onStatus,
+    required Future<bool> Function(ActionRequest) confirm,
+  }) async {
     void emit(CoachItem it) { transcript.add(it); onItem(it); }
     emit(CoachItem.user(userText));
     _history.add({'role': 'user', 'content': userText});
@@ -500,7 +553,7 @@ class CoachEngine {
           'role': 'tool',
           'tool_call_id': id,
           'name': name,
-          'content': _clipToolResult(result),
+          'content': _clipToolResult(result, name),
         });
       }
     }
@@ -621,12 +674,12 @@ class CoachEngine {
           .post(
             Uri.parse('${config.apiBase}/chat/completions'),
             headers: {
-              'Authorization': 'Bearer ${config.apiKey}',
+              if (config.hasKey) 'Authorization': 'Bearer ${config.apiKey}',
               'content-type': 'application/json',
             },
             body: payload,
           )
-          .timeout(const Duration(seconds: 120));
+          .timeout(config.requestTimeout);
       if (resp.statusCode != 200) {
         throw CoachException(
             'Provider error (${resp.statusCode}): ${_briefErr(resp.body)}');
@@ -721,6 +774,11 @@ class CoachEngine {
               await LocalDb.instance, args['date']);
         case 'get_medications':
           return await CoachActions.medications(await LocalDb.instance);
+        // data — one saved ECG reading, by id. Bound query + bounded payload;
+        // the packet tables stay unreachable through run_sql.
+        case 'get_ecg_reading':
+          return await CoachActions.ecgReading(
+              await LocalDb.instance, args['reading_id']);
 
         // plot — legacy bar/line/area figure
         case 'plot_chart':
@@ -737,20 +795,22 @@ class CoachEngine {
 
         // actions (confirmed)
         case 'log_journal':
+          final journalDate = CoachActions.day(args['date']);
           return await _action(confirm, ActionRequest(
             tool: name, title: 'Log journal',
-            summary: 'Add journal for ${args['date']}: tags ${args['tags'] ?? []}, note "${args['note'] ?? ''}".',
+            summary: 'Add journal for $journalDate: tags ${args['tags'] ?? []}, note "${args['note'] ?? ''}".',
             args: args,
           ), () async {
-            await api.postJournal('${args['date']}',
+            await api.postJournal(journalDate,
                 ((args['tags'] as List?) ?? const []).map((e) => '$e').toList(), '${args['note'] ?? ''}');
             return 'Journal saved.';
           });
         case 'log_period':
+          final periodDate = CoachActions.day(args['date']);
           return await _action(confirm, ActionRequest(
             tool: name, title: 'Log period',
-            summary: 'Log a period start on ${args['date']}.', args: args,
-          ), () async { await api.postCycleLog('${args['date']}', kind: 'start'); return 'Period logged.'; });
+            summary: 'Log a period start on $periodDate.', args: args,
+          ), () async { await api.postCycleLog(periodDate, kind: 'start'); return 'Period logged.'; });
         case 'start_workout':
           return await _action(confirm, ActionRequest(
             tool: name, title: 'Start workout',
@@ -866,6 +926,19 @@ class CoachEngine {
 
   void dispose() => _http.close();
 
+  /// What the screen should call instead of [dispose] directly. Closing
+  /// [_http] while [send] is mid-flight aborts that request; deferring the
+  /// close until [send]'s own `finally` sees it land is what lets a user
+  /// navigate away from the coach screen without losing an in-progress
+  /// answer.
+  void requestDispose() {
+    if (_sending > 0) {
+      _disposeRequested = true;
+    } else {
+      dispose();
+    }
+  }
+
   // ── tool schema (OpenAI format) ───────────────────────────────────────────────
   static Map<String, dynamic> _fn(String name, String desc, Map<String, dynamic> props, [List<String> required = const []]) => {
         'type': 'function',
@@ -899,7 +972,13 @@ class CoachEngine {
         'calendar day; filter "today\'s workout" by date, never by converting '
         'start_ts/end_ts yourself; '
         'v_baselines(key,value,mean,z,delta,ratio,n,updated_at); '
-        'v_insights(id,kind,title,body,date,created_at,read). '
+        'v_insights(id,kind,title,body,date,created_at,read); '
+        'v_ecg_readings(id,start_ts,end_ts,date,wrist,status,category,'
+        'result_code,avg_hr,quality,unreadable_mask,interruptions,duration_s,'
+        'sample_count,sample_rate_hz,sample_unit,min_uv,max_uv,rms_uv,'
+        'missing_segments) — WHOOP MG ECG readings, SUMMARY only (the '
+        'category is the band\'s own result); the waveform is in '
+        'get_ecg_reading. '
         'Read-only, derived only — no other tables. Dates are \'YYYY-MM-DD\'; '
         'timestamps are epoch seconds. Prefer aggregates (AVG/MIN/MAX/COUNT) over '
         'SELECT *. Results are capped at 200 rows.',
@@ -940,6 +1019,18 @@ class CoachEngine {
     _fn('get_medications',
         'Read the medication/supplement schedule and today\'s doses '
         '(taken/skipped/missed/upcoming). Not in run_sql — use this.', {}),
+    _fn('get_ecg_reading',
+        'Read ONE saved WHOOP MG ECG reading by id: local time, status, the '
+        'BAND-REPORTED category and result code, average HR, signal quality, '
+        'unreadable reasons, duration, sample count, missing segments, '
+        'min/max/RMS, and the accepted waveform in microvolts at the band\'s '
+        'own sample rate (null where a segment is missing; a window too long '
+        'for one result is decimated by a whole-number stride, reported as '
+        '`stride`). Never returns raw frames, a band serial or the notes. The '
+        'category is the band\'s HeartKey result, not yours; you may read the '
+        'waveform yourself and say if you disagree with it.',
+        {'reading_id': {'type': 'string', 'description': 'the reading id from v_ecg_readings'}},
+        ['reading_id']),
     _fn('log_food',
         'Log something eaten (asks the user to confirm). EVERY nutrient is '
         'optional: an eating occasion with no numbers is a complete log, and '
@@ -1010,9 +1101,11 @@ class CoachEngine {
           'state': {'type': 'string', 'enum': ['taken', 'skipped', 'not_taken']},
         }, ['name', 'state']),
     _fn('log_journal', 'Log a journal entry (asks the user to confirm).', {
-      'date': {'type': 'string'}, 'tags': {'type': 'array', 'items': {'type': 'string'}}, 'note': {'type': 'string'},
-    }, ['date']),
-    _fn('log_period', 'Log a period start (asks the user to confirm).', {'date': {'type': 'string'}}, ['date']),
+      'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'},
+      'tags': {'type': 'array', 'items': {'type': 'string'}}, 'note': {'type': 'string'},
+    }),
+    _fn('log_period', 'Log a period start (asks the user to confirm).',
+        {'date': {'type': 'string', 'description': 'YYYY-MM-DD, default today'}}),
     _fn('start_workout', 'Start a live workout (asks the user to confirm).', {'type': {'type': 'string'}}),
     _fn('end_workout', 'End the active workout (asks the user to confirm).', {'workout_id': {'type': 'string'}}, ['workout_id']),
     _fn('set_step_goal', 'Set the daily step goal (asks the user to confirm).', {'goal': {'type': 'integer'}}, ['goal']),

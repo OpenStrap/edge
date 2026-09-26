@@ -29,7 +29,7 @@ class WhoopImportResult {
 
   /// Days present in the export that were NOT written because the device
   /// already holds a REAL (1 Hz-derived) day for that date. Vendor snapshots
-  /// never replace measured data — see [WhoopImporter._writeDay].
+  /// never replace measured data — see [WhoopImporter._buildAndWriteDay].
   final int skippedExistingDays;
   WhoopImportResult(this.days, this.workouts, [this.skippedExistingDays = 0]);
 }
@@ -122,6 +122,16 @@ class WhoopImporter {
   }) async {
     var recognisedFiles = 0;
     final headersSeen = <String>[];
+    // A WHOOP export splits one day across multiple _Kind.day files
+    // (physiological_cycles.csv → recovery/RHR/RMSSD/strain, sleeps.csv →
+    // sleep fields) — accumulate per date across ALL files first, so a later
+    // file's row (whose columns don't include the earlier file's fields)
+    // can't null out what the earlier file already contributed. Writing per
+    // row instead of per date used to whole-row-replace day_result / REPLACE
+    // every metric_series key including nulls, silently erasing the first
+    // file's data. Merge is "new non-null value wins, else keep prior" so the
+    // outcome doesn't depend on file order.
+    final pendingDays = <String, Map<String, dynamic>>{};
     for (final path in csvPaths) {
       final rows = await _readCsv(path);
       if (rows.isEmpty) continue;
@@ -150,16 +160,25 @@ class WhoopImporter {
         if (kind == _Kind.workout) {
           if (await _writeWorkout(row)) workouts++;
         } else if (kind == _Kind.day) {
-          switch (await _writeDay(row, rawDays)) {
-            case _DayWrite.written:
-              days++;
-              onProgress?.call(days);
-            case _DayWrite.keptExisting:
-              skipped++;
-            case _DayWrite.unusable:
-              break;
+          final extracted = _extractDayFields(row);
+          if (extracted == null) continue;
+          final (date, fields) = extracted;
+          final merged = pendingDays.putIfAbsent(date, () => {});
+          for (final e in fields.entries) {
+            merged.update(e.key, (old) => e.value ?? old, ifAbsent: () => e.value);
           }
         }
+      }
+    }
+    for (final entry in pendingDays.entries) {
+      switch (await _buildAndWriteDay(entry.key, entry.value, rawDays)) {
+        case _DayWrite.written:
+          days++;
+          onProgress?.call(days);
+        case _DayWrite.keptExisting:
+          skipped++;
+        case _DayWrite.unusable:
+          break;
       }
     }
     // Nothing recognised is a failure, not a "0 days" success. The columns are
@@ -187,14 +206,46 @@ class WhoopImporter {
 
   // ── per-row writers ──────────────────────────────────────────────────────────
 
-  static Future<_DayWrite> _writeDay(_Row row, Set<String> rawDays) async {
+  /// Pure extraction: (date, raw field map) from one CSV row, or null when
+  /// the row has no parseable anchor timestamp. No DB access — callers
+  /// accumulate these across every file in the import before writing, so a
+  /// later file's row (missing the earlier file's columns) can't null out
+  /// what the earlier file already contributed for the same date.
+  static (String, Map<String, dynamic>)? _extractDayFields(_Row row) {
     String get(List<String> names) => row.get(names);
     final wakeTs = _parseTs(get(['wake onset', 'sleep onset', 'cycle start time']));
     final cycleStart = _parseTs(get(['cycle start time', 'sleep onset']));
     final anchor = wakeTs ?? cycleStart;
-    if (anchor == null) return _DayWrite.unusable;
+    if (anchor == null) return null;
     final date = localDateLabel(anchor);
 
+    num? n(List<String> names) => double.tryParse(get(names));
+    return (date, {
+      'recovery': n(['recovery score %', 'recovery score']),
+      'rhr': n(['resting heart rate (bpm)', 'resting heart rate']),
+      'rmssd': n(['heart rate variability (ms)', 'heart rate variability (rmssd) (ms)']),
+      'strain': n(['day strain', 'strain']),
+      'calories': _kcal(get(_energyCols), row.header(_energyCols)),
+      'resp': n(['respiratory rate (rpm)', 'respiratory rate']),
+      'spo2': n(['blood oxygen %', 'blood oxygen']),
+      'skinTempC': n(['skin temp (celsius)', 'skin temperature (celsius)']),
+      'asleepMin': n(['asleep duration (min)', 'asleep duration (minutes)']),
+      'inBedMin': n(['in bed duration (min)', 'in bed duration (minutes)']),
+      'lightMin': n(['light sleep duration (min)', 'light sleep duration (minutes)']),
+      'deepMin': n(['deep (sws) duration (min)', 'deep sleep duration (min)', 'deep (sws) duration (minutes)']),
+      'remMin': n(['rem duration (min)', 'rem duration (minutes)']),
+      'awakeMin': n(['awake duration (min)', 'awake duration (minutes)']),
+      'effPct': n(['sleep performance %', 'sleep efficiency %', 'sleep performance']),
+      'sleepOnset': _parseTs(get(['sleep onset'])),
+      'sleepWake': _parseTs(get(['wake onset'])),
+    });
+  }
+
+  static Future<_DayWrite> _buildAndWriteDay(
+    String date,
+    Map<String, dynamic> f,
+    Set<String> rawDays,
+  ) async {
     // NEVER clobber a real derived day: a returning user with months of band
     // data importing their WHOOP export used to have every overlapping day's
     // payload and scalars replaced by the vendor's numbers — and
@@ -203,24 +254,23 @@ class WhoopImporter {
     // import paths share it rather than each forgetting it.
     if (await LocalDb.isMeasuredDay(date)) return _DayWrite.keptExisting;
 
-    num? n(List<String> names) => double.tryParse(get(names));
-    final recovery = n(['recovery score %', 'recovery score']);
-    final rhr = n(['resting heart rate (bpm)', 'resting heart rate']);
-    final rmssd = n(['heart rate variability (ms)', 'heart rate variability (rmssd) (ms)']);
-    final strain = n(['day strain', 'strain']);
-    final calories = _kcal(get(_energyCols), row.header(_energyCols));
-    final resp = n(['respiratory rate (rpm)', 'respiratory rate']);
-    final spo2 = n(['blood oxygen %', 'blood oxygen']);
-    final skinTempC = n(['skin temp (celsius)', 'skin temperature (celsius)']);
-    final asleepMin = n(['asleep duration (min)', 'asleep duration (minutes)']);
-    final inBedMin = n(['in bed duration (min)', 'in bed duration (minutes)']);
-    final lightMin = n(['light sleep duration (min)', 'light sleep duration (minutes)']);
-    final deepMin = n(['deep (sws) duration (min)', 'deep sleep duration (min)', 'deep (sws) duration (minutes)']);
-    final remMin = n(['rem duration (min)', 'rem duration (minutes)']);
-    final awakeMin = n(['awake duration (min)', 'awake duration (minutes)']);
-    final effPct = n(['sleep performance %', 'sleep efficiency %', 'sleep performance']);
-    final sleepOnset = _parseTs(get(['sleep onset']));
-    final sleepWake = _parseTs(get(['wake onset']));
+    final recovery = f['recovery'] as num?;
+    final rhr = f['rhr'] as num?;
+    final rmssd = f['rmssd'] as num?;
+    final strain = f['strain'] as num?;
+    final calories = f['calories'] as num?;
+    final resp = f['resp'] as num?;
+    final spo2 = f['spo2'] as num?;
+    final skinTempC = f['skinTempC'] as num?;
+    final asleepMin = f['asleepMin'] as num?;
+    final inBedMin = f['inBedMin'] as num?;
+    final lightMin = f['lightMin'] as num?;
+    final deepMin = f['deepMin'] as num?;
+    final remMin = f['remMin'] as num?;
+    final awakeMin = f['awakeMin'] as num?;
+    final effPct = f['effPct'] as num?;
+    final sleepOnset = f['sleepOnset'] as int?;
+    final sleepWake = f['sleepWake'] as int?;
 
     final hasSleep = asleepMin != null && asleepMin > 0;
     Map<String, dynamic>? acct, win;

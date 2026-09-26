@@ -1639,7 +1639,11 @@ class Typed {
     final s = text.trim();
     if (s.isEmpty) return const Typed._(null, false);
     final v = double.tryParse(s);
-    return v == null ? const Typed._(null, true) : Typed._(v, false);
+    // tryParse accepts "Infinity"/"-Infinity"/"NaN" and overflows huge
+    // literals ("1e400") to infinity — none of those are a real number.
+    return v == null || !v.isFinite
+        ? const Typed._(null, true)
+        : Typed._(v, false);
   }
 }
 

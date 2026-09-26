@@ -298,4 +298,216 @@ void main() {
     LocalDb.dbName = 'multidevice_coverage_derive_test.db';
     await LocalDb.instance;
   });
+
+  test(
+      'a device paired AFTER signal_priority already has stored rows is not '
+      'excluded — its coverage is unioned in below the stored ranking, '
+      'ranked devices keep priority where they overlap it', () async {
+    await LocalDb.close();
+    LocalDb.dbName = 'multidevice_coverage_derive_late_pair_test.db';
+    final dir = await databaseFactory.getDatabasesPath();
+    await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+    final db = await LocalDb.instance;
+
+    const dayId = '2025-09-08';
+    const late = 'ring-TEST-LATE'; // paired after priority was customized
+    final t0 = _sec(2025, 9, 7, 22, 0);
+    final t1 = _sec(2025, 9, 8, 2, 0); // primary/ring handover, as above
+    final t2 = _sec(2025, 9, 8, 6, 0); // only `late` covers [t1, t2)
+    final t3 = _sec(2025, 9, 8, 7, 0);
+
+    await _insertOneHzRun(db, deviceId: _primary, fromSec: t0, toSec: t1, hr: 58);
+    await _insertOneHzRun(db, deviceId: _ring, fromSec: t2, toSec: t3, hr: 100);
+    await _insertOneHzRun(db, deviceId: late, fromSec: t1, toSec: t2, hr: 70);
+
+    Future<void> coverage(String deviceId, String signal, int from, int to) =>
+        db.insert('device_coverage', {
+          'device_id': deviceId,
+          'signal': signal,
+          'start_ts': from,
+          'end_ts': to,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+    for (final sig in const ['hr1Hz', 'rrIntervals']) {
+      await coverage(_primary, sig, t0, t1);
+      await coverage(_ring, sig, t2, t3);
+      // `late` declares real coverage but has no stored signal_priority row
+      // — the scenario the bug leaves unhandled.
+      await coverage(late, sig, t1, t2);
+    }
+    Future<void> priority(String signal, String deviceId, int rank) =>
+        db.insert('signal_priority', {
+          'signal': signal,
+          'device_id': deviceId,
+          'rank': rank,
+          'user_set': 1,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+    // Customized BEFORE `late` was ever paired — only these two rows exist.
+    for (final sig in const ['hr1Hz', 'rrIntervals']) {
+      await priority(sig, _primary, 0);
+      await priority(sig, _ring, 1);
+    }
+
+    await LocalDb.putSleepOverride(dayId: dayId, onsetTs: t0, offsetTs: t3, source: 'manual');
+
+    final done = await DerivationEngine().runDays(const Profile(), {dayId}, force: true);
+    expect(done, 1);
+
+    final row = await LocalDb.dayResult(dayId);
+    final bundle = jsonDecode(row!['payload_json'] as String) as Map;
+    final series = (bundle['series'] as Map).cast<String, dynamic>();
+    final coverageOut = (series['coverage'] as Map).cast<String, dynamic>();
+    final spans = coverageFromJson(coverageOut['hr1Hz']);
+
+    // The window only `late` ever covered must be owned by `late`, not
+    // dropped to null — this is the exact regression.
+    final atLateOnly = spanAt(spans, t1 + 3 * kOwnershipBucketSeconds);
+    expect(atLateOnly?.deviceId, late,
+        reason: 'a device declaring real coverage after priority was '
+            'customized must still be a candidate, not silently excluded');
+
+    // Ranked devices keep their resolved windows unaffected by the union.
+    expect(spanAt(spans, t0)?.deviceId, _primary);
+    expect(spanAt(spans, t3 - 1)?.deviceId, _ring);
+
+    await LocalDb.close();
+    await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+    LocalDb.dbName = 'multidevice_coverage_derive_test.db';
+    await LocalDb.instance;
+  });
+
+  group('composeOneHzFrames — field-level splice for accel1Hz/ppgRedIr/'
+      'skinTempRaw (edge#441-class bug: those three rode on hr1Hz ownership '
+      'and a user\'s priority for them had no effect)', () {
+    Map<String, dynamic> row(String deviceId, int recTs, {
+      int? hr,
+      double? ax,
+      int? skinTempRaw,
+    }) =>
+        {
+          'rec_ts': recTs,
+          'device_id': deviceId,
+          'hr': ?hr,
+          if (ax != null) ...{'ax': ax, 'ay': 0.0, 'az': 1.0},
+          'skin_temp_raw': ?skinTempRaw,
+        };
+
+    test('skinTempRaw priority is honored independently of the hr1Hz owner',
+        () {
+      // Ring owns hr1Hz for this second; primary owns skinTempRaw — the
+      // opposite order, exactly the multi-device pairing the bug describes.
+      final rows = [
+        row(_primary, 100, hr: 58, skinTempRaw: 500),
+        row(_ring, 100, hr: 100, skinTempRaw: 900),
+      ];
+      final ownership = <InputSignal, List<OwnedSpan>>{
+        InputSignal.hr1Hz: [(start: 0, end: 200, deviceId: _ring)],
+        InputSignal.skinTempRaw: [(start: 0, end: 200, deviceId: _primary)],
+      };
+      final frames = composeOneHzFrames(rows, ownership);
+      // Exactly one frame survives for the second — the hr1Hz owner's row —
+      // with skin_temp_raw re-attributed from the skinTempRaw owner.
+      expect(frames.length, 1);
+      expect(frames.single['device_id'], _ring);
+      expect(frames.single['hr'], 100, reason: 'hr always follows hr1Hz');
+      expect(frames.single['skin_temp_raw'], 500,
+          reason: 'skinTempRaw priority names the primary — before the fix '
+              'this read 900 (the hr1Hz owner\'s own value), because the '
+              'whole row was gated on hr1Hz alone');
+    });
+
+    test('accel1Hz splices independently of hr1Hz and skinTempRaw', () {
+      final rows = [
+        row(_primary, 100, hr: 58, ax: 0.1, skinTempRaw: 500),
+        row(_ring, 100, hr: 100, ax: 0.9, skinTempRaw: 900),
+      ];
+      final ownership = <InputSignal, List<OwnedSpan>>{
+        InputSignal.hr1Hz: [(start: 0, end: 200, deviceId: _ring)],
+        InputSignal.accel1Hz: [(start: 0, end: 200, deviceId: _primary)],
+        InputSignal.skinTempRaw: [(start: 0, end: 200, deviceId: _ring)],
+      };
+      final frames = composeOneHzFrames(rows, ownership);
+      expect(frames.single['ax'], 0.1, reason: 'accel1Hz names the primary');
+      expect(frames.single['skin_temp_raw'], 900,
+          reason: 'skinTempRaw names the ring, same as the hr1Hz owner here '
+              '— no splice needed, base value passes through');
+    });
+
+    test('a null column in the owner\'s field group is copied too, not left '
+        'as the base row\'s stale value (CodeRabbit #444)', () {
+      // Ring owns ppgRedIr and has ONLY the red channel this second — its
+      // own IR reading is genuinely absent, not merely unset by the fixture.
+      final rows = [
+        {
+          'rec_ts': 100,
+          'device_id': _primary,
+          'hr': 58,
+          'spo2_red_raw': 111,
+          'spo2_ir_raw': 222,
+        },
+        {
+          'rec_ts': 100,
+          'device_id': _ring,
+          'hr': 100,
+          'spo2_red_raw': 333,
+          'spo2_ir_raw': null,
+        },
+      ];
+      final ownership = <InputSignal, List<OwnedSpan>>{
+        InputSignal.hr1Hz: [(start: 0, end: 200, deviceId: _primary)],
+        InputSignal.ppgRedIr: [(start: 0, end: 200, deviceId: _ring)],
+      };
+      final frames = composeOneHzFrames(rows, ownership);
+      expect(frames.single['spo2_red_raw'], 333, reason: 'ring\'s red channel');
+      expect(frames.single['spo2_ir_raw'], null,
+          reason: 'the ring owns ppgRedIr and genuinely has no IR reading '
+              'this second — before the fix this stayed at the primary\'s '
+              '222, silently mixing two devices\' PPG channels in one frame');
+    });
+
+    test('a single contributing device never enters the splice path '
+        '(byte-identical to a plain single-device day)', () {
+      final rows = [row(_primary, 100, hr: 58, skinTempRaw: 500)];
+      final ownership = <InputSignal, List<OwnedSpan>>{
+        InputSignal.hr1Hz: [(start: 0, end: 200, deviceId: null)],
+      };
+      expect(composeOneHzFrames(rows, ownership), rows);
+    });
+
+    test('no ownership resolved for any spliced signal falls back to the '
+        'plain hr1Hz row filter unchanged', () {
+      final rows = [
+        row(_primary, 100, hr: 58, skinTempRaw: 500),
+        row(_ring, 100, hr: 100, skinTempRaw: 900),
+      ];
+      final ownership = <InputSignal, List<OwnedSpan>>{
+        InputSignal.hr1Hz: [(start: 0, end: 200, deviceId: _ring)],
+      };
+      final frames = composeOneHzFrames(rows, ownership);
+      expect(frames.length, 1);
+      expect(frames.single['device_id'], _ring);
+      expect(frames.single['skin_temp_raw'], 900);
+    });
+  });
+
+  group('trailingRecTsGroupStart — a contended second must never be split '
+      'across a decoded_onehz page boundary', () {
+    Map<String, dynamic> r(int recTs) => {'rec_ts': recTs};
+
+    test('the last row is alone: nothing to hold back', () {
+      expect(trailingRecTsGroupStart([r(1), r(2), r(3)]), 2);
+    });
+
+    test('the trailing group spans several rows (one per contending device)',
+        () {
+      expect(trailingRecTsGroupStart([r(1), r(2), r(2), r(2)]), 1);
+    });
+
+    test('the whole batch shares one rec_ts — pathological, index 0', () {
+      expect(trailingRecTsGroupStart([r(9), r(9), r(9)]), 0);
+    });
+
+    test('a single row is trivially its own group', () {
+      expect(trailingRecTsGroupStart([r(5)]), 0);
+    });
+  });
 }

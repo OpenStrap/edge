@@ -135,6 +135,42 @@ struct StartBreathingIntent: AppIntent {
   }
 }
 
+/// "Enable tomorrow's alarm" — the other action intent. It does not carry a
+/// time: it turns on whatever hour/minute tomorrow's weekday already has in
+/// the app's weekly schedule (same toggle as the Alarm screen), so there is
+/// nothing to ask Siri to parse and nothing that can silently pick the wrong
+/// time. Setting the actual band alarm needs a live BLE connection the
+/// widget process doesn't have, so — same as [StartBreathingIntent] — this
+/// just latches a flag and opens the app; AppState.checkPendingSiriRoute
+/// consumes it and does the real write (setScheduleDay → engine.setAlarm) on
+/// launch/resume.
+@available(iOS 16.0, *)
+struct EnableTomorrowAlarmIntent: AppIntent {
+  static var title: LocalizedStringResource = "Enable Tomorrow's Alarm"
+  static var description = IntentDescription(
+    "Turn on tomorrow's alarm at whatever time you already set for that weekday in OpenStrap.")
+  static var openAppWhenRun = true
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    // "Tomorrow" is fixed HERE, at the moment Siri actually ran this, not
+    // whenever AppState happens to consume the latch — a request made just
+    // before local midnight must still mean the day the user asked for, even
+    // if the app doesn't launch/resume until after midnight has rolled over.
+    // Calendar's `.weekday` is 1=Sun..7=Sat; AlarmScheduleEntry's column
+    // (lib/state/alarm_schedule.dart) is 0=Mon..6=Sun — `(weekday + 5) % 7`
+    // converts one to the other (Mon 2→0 … Sat 7→5, Sun 1→6).
+    let cal = Calendar.current
+    let tomorrow = cal.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+    let column = (cal.component(.weekday, from: tomorrow) + 5) % 7
+    OpenStrapShared.defaults()?.set(column, forKey: "enable_tomorrow_alarm_weekday")
+    // Same App Group route latch StartBreathingIntent uses, so the user lands
+    // on the Alarm screen and can see the toggle actually flipped rather than
+    // wondering whether Siri did anything.
+    OpenStrapShared.defaults()?.set("/alarm", forKey: "pending_route")
+    return .result(dialog: "Turning on tomorrow's alarm.")
+  }
+}
+
 // MARK: - Shortcuts provider (zero-setup Siri phrases)
 
 @available(iOS 16.0, *)
@@ -179,5 +215,15 @@ struct OpenStrapShortcuts: AppShortcutsProvider {
       ],
       shortTitle: "Breathe",
       systemImageName: "wind")
+
+    AppShortcut(
+      intent: EnableTomorrowAlarmIntent(),
+      phrases: [
+        "Enable tomorrow's alarm in \(.applicationName)",
+        "Turn on tomorrow's alarm in \(.applicationName)",
+        "\(.applicationName) enable tomorrow's alarm",
+      ],
+      shortTitle: "Tomorrow's Alarm",
+      systemImageName: "alarm")
   }
 }

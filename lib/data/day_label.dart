@@ -68,3 +68,19 @@ int? localDayLengthSec(String dayId) {
   if (lo == null || hi == null) return null;
   return hi - lo;
 }
+
+/// Whole CALENDAR days from [a] to [b] (negative if [b] precedes [a]).
+///
+/// Anchors both dates at UTC midnight of their own year/month/day before
+/// diffing, so a local-midnight `DateTime.difference(...).inDays` — which
+/// floors real elapsed hours by 24 — can't undercount by 1 across a
+/// spring-forward day (23h) or overcount across a fall-back day (25h). Works
+/// for both local `DateTime`s and the naive local `DateTime`s produced by
+/// `DateTime.tryParse('YYYY-MM-DD')`.
+int calendarDaysBetween(DateTime a, DateTime b) {
+  return DateTime.utc(
+    b.year,
+    b.month,
+    b.day,
+  ).difference(DateTime.utc(a.year, a.month, a.day)).inDays;
+}

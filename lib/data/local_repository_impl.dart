@@ -574,11 +574,7 @@ class LocalRepositoryImpl extends LocalRepository {
   static int? _dayGap(String from, String to) {
     final a = DateTime.tryParse(from), b = DateTime.tryParse(to);
     if (a == null || b == null) return null;
-    return DateTime.utc(
-      b.year,
-      b.month,
-      b.day,
-    ).difference(DateTime.utc(a.year, a.month, a.day)).inDays;
+    return calendarDaysBetween(a, b);
   }
 
   @override
@@ -1553,6 +1549,16 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
+  Future<Map<String, dynamic>> getDayOverview(String date) async {
+    final b = await _bundleForDate(date);
+    if (b == null) return const {};
+    return {
+      'readiness': _scalar(b, 'readiness'),
+      'resting_hr': _scalar(b, 'rhr')?.round(),
+    };
+  }
+
+  @override
   Future<Map<String, dynamic>> getDayTimeline(String date) async {
     final b = await _bundleForDate(date);
     if (b == null) return const {};
@@ -2052,6 +2058,10 @@ class LocalRepositoryImpl extends LocalRepository {
       'avg_hr': (r['avg_hr'] as num?)?.toInt(),
       // Heart-rate recovery (bpm drop in 60 s) backfilled during derivation.
       'hrr60': (r['hrr_bpm'] as num?)?.round(),
+      // Submax VO2max estimate (ml/kg/min), backfilled from one completed km
+      // route split — see `_submaxVo2maxFromSplits`. ESTIMATE tier; null on
+      // any session without a qualifying steady bout, never fabricated.
+      'vo2max_estimate': (r['vo2max_estimate'] as num?)?.toDouble(),
       'zone_min': zoneMin,
       // manual / auto — the detail screen shows the AUTO tag + correct-type CTA.
       'source': r['source'],
@@ -2373,6 +2383,7 @@ class LocalRepositoryImpl extends LocalRepository {
         deviceFamily: deviceFamily,
         observedCeilingBpm: a.observedCeilingBpm,
         restingHrHistory: a.restingHrHistory,
+        manualZoneLowerBpm: manualZoneBoundsFromProfile(getProfileMap()),
       );
 
   /// The two anchors [trainingZones] needs, read once per call chain.
@@ -2584,13 +2595,17 @@ class LocalRepositoryImpl extends LocalRepository {
     // Everything ever logged — the overlap check has to see a session from any
     // date the athlete might be back-filling into, not just a recent window.
     final rows = await LocalDb.sessionsInRange(0, 1 << 40);
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     return [
       for (final r in rows)
-        if (r['id'] is String && r['start_ts'] is num && r['end_ts'] is num)
+        if (r['id'] is String && r['start_ts'] is num)
           SessionSpan(
             r['id'] as String,
             (r['start_ts'] as num).toInt(),
-            (r['end_ts'] as num).toInt(),
+            // A still-running session (status='live') has a null end_ts —
+            // treat it as open through "now" so it stays in the overlap
+            // check instead of vanishing from `existing` entirely.
+            r['end_ts'] is num ? (r['end_ts'] as num).toInt() : nowSec,
           ),
     ];
   }
@@ -2803,13 +2818,20 @@ class LocalRepositoryImpl extends LocalRepository {
 
       final profile = Profile.fromMap(getProfileMap());
       final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
+      // Hoisted (not just passed inline) so the submax VO2max estimate below
+      // can reuse the SAME hrMax/restingHr this session's own zones/TRIMP
+      // were scored against, instead of resolving its own answer that could
+      // silently disagree with the strain the rest of this pass just wrote.
+      final hrMaxForSession =
+          _profileMaxHr(row['device_family'] as String?)?.toDouble();
+      final restingHrForSession =
+          await _recentRestingHr() ?? profile.restingHrManual?.toDouble();
       final stats = computeManualSessionStats(
         hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
         hrBpm: hrBpm,
         profile: profile,
-        hrMax: _profileMaxHr(row['device_family'] as String?)?.toDouble(),
-        restingHr:
-            await _recentRestingHr() ?? profile.restingHrManual?.toDouble(),
+        hrMax: hrMaxForSession,
+        restingHr: restingHrForSession,
         zoneSet: _zoneSetFor(
             row['device_family'] as String?, await _zoneAnchors()),
       );
@@ -2918,6 +2940,22 @@ class LocalRepositoryImpl extends LocalRepository {
       // against `decoded_onehz`, which is gone at ~3 days, so a split not
       // written inside that window can never be written at all. Forward-only.
       if (needsTrace) await _persistKmSplits(id, hrRows);
+      // VO2max — backfill-only, like `avg_hr`: computed once from a completed
+      // km split (a real known distance held over a real known duration) and
+      // never recomputed once banked, because the raw substrate it needs ages
+      // out in days while the split it was computed from does not change.
+      double? vo2max;
+      if ((row['vo2max_estimate'] as num?) == null &&
+          hrMaxForSession != null &&
+          restingHrForSession != null) {
+        vo2max = await _submaxVo2maxFromSplits(
+          id,
+          hrRows: hrRows,
+          hrMaxBpm: hrMaxForSession,
+          restingHrBpm: restingHrForSession,
+        );
+        if (vo2max != null) await LocalDb.setSessionVo2max(id, vo2max);
+      }
       final updated = {
         ...current,
         'strain': merged.strain,
@@ -2927,6 +2965,7 @@ class LocalRepositoryImpl extends LocalRepository {
         if (stats.avgHr != null) 'avg_hr': stats.avgHr,
         'trace_json': ?traceJson,
         if (traceJson != null) 'trace_samples': stats.hrSampleCount,
+        'vo2max_estimate': ?vo2max,
       };
       return (row: updated, hrRows: hrRows, zoneMinutesRebinned: rebinned);
     } catch (_) {
@@ -3093,6 +3132,69 @@ class LocalRepositoryImpl extends LocalRepository {
       await LocalDb.putWorkoutSplits(id, out);
     } catch (_) {
       /* best-effort: a missing route or a malformed row costs the splits only */
+    }
+  }
+
+  /// Submax VO2max (see `ana.vo2maxSubmaxEstimate`) from ONE completed km
+  /// split of this session's route — a real known distance held over a real
+  /// known duration, with the split's own average HR.
+  ///
+  /// ponytail: picks the LONGEST full (1000 m) split rather than detecting a
+  /// genuinely steady-pace segment within it (warm-up/surge/fade all still
+  /// land inside the chosen km and blur its average). The %HRR gate in
+  /// `vo2maxSubmaxEstimate` is what actually catches most of the damage that
+  /// causes; upgrade to a pace-variance-gated sub-window if the %HRR band
+  /// keeps admitting bouts that don't look steady on the recorded curve.
+  /// Best-effort — a bad/missing route costs only this estimate, never the
+  /// scores this pass already wrote.
+  Future<double?> _submaxVo2maxFromSplits(
+    String id, {
+    required List<Map<String, dynamic>> hrRows,
+    required double hrMaxBpm,
+    required double restingHrBpm,
+  }) async {
+    try {
+      if (!await LocalDb.sessionHasRoute(id)) return null;
+      final rows = await LocalDb.routePoints(id);
+      if (rows.length < 2) return null;
+      final points = [for (final r in rows) RoutePoint.fromRow(r)];
+      final hr = [
+        for (final r in hrRows)
+          HrSample(
+            tsMs: (r['rec_ts'] as num).toInt() * 1000,
+            hr: (r['hr'] as num).toInt(),
+          ),
+      ];
+      final splits = rmath.computeSplits(points, hr,
+          unitMeters: rmath.kMetersPerKm);
+      // Full splits only — a trailing partial km has no fixed distance to
+      // divide a duration by, so its "speed" is just noise.
+      final full = [for (final s in splits) if (s.meters >= 999) s];
+      if (full.isEmpty) return null;
+      full.sort((a, b) => b.durationSec.compareTo(a.durationSec));
+      final best = full.first;
+      if (best.avgHr == null || best.durationSec <= 0) return null;
+
+      var edgeMs = points.first.tsMs;
+      for (final s in splits) {
+        final startMs = edgeMs;
+        edgeMs += s.durationSec * 1000;
+        if (s.index != best.index) continue;
+        final net = _netElevation(points, startMs, edgeMs);
+        final grade = net == null ? null : net / best.meters * 100;
+        final m = ana.vo2maxSubmaxEstimate(
+          speedMps: best.meters / best.durationSec,
+          avgHrBpm: best.avgHr!,
+          boutDurationSec: best.durationSec,
+          restingHrBpm: restingHrBpm,
+          hrMaxBpm: hrMaxBpm,
+          gradePercent: grade,
+        );
+        return m.present ? m.value : null;
+      }
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -3630,7 +3732,7 @@ class LocalRepositoryImpl extends LocalRepository {
         final a = DateTime.tryParse(startDates[i - 1]);
         final b = DateTime.tryParse(startDates[i]);
         if (a != null && b != null) {
-          gaps.add(b.difference(a).inDays.toDouble());
+          gaps.add(calendarDaysBetween(a, b).toDouble());
         }
       }
       if (gaps.isNotEmpty) {
@@ -3647,9 +3749,7 @@ class LocalRepositoryImpl extends LocalRepository {
     final today = DateTime.now();
     int? cycleDay;
     if (lastStart != null) {
-      final d0 = DateTime(lastStart.year, lastStart.month, lastStart.day);
-      final t0 = DateTime(today.year, today.month, today.day);
-      cycleDay = t0.difference(d0).inDays + 1; // day 1 = start day
+      cycleDay = calendarDaysBetween(lastStart, today) + 1; // day 1 = start day
     }
 
     String? predictedNext, predictedFrom, predictedTo;
@@ -3657,12 +3757,7 @@ class LocalRepositoryImpl extends LocalRepository {
     if (predictOk && lastStart != null && medianLength != null) {
       final next = lastStart.add(Duration(days: medianLength.round()));
       predictedNext = dayLabelOf(next);
-      final t0 = DateTime(today.year, today.month, today.day);
-      daysUntilNext = DateTime(
-        next.year,
-        next.month,
-        next.day,
-      ).difference(t0).inDays;
+      daysUntilNext = calendarDaysBetween(today, next);
       if (gapSpread != null) {
         final w = gapSpread.round();
         predictedFrom = dayLabelOf(next.subtract(Duration(days: w)));
@@ -3749,7 +3844,7 @@ class LocalRepositoryImpl extends LocalRepository {
           final i = cycleStarts.lastIndexWhere((s) => !s.isAfter(day));
           if (i >= 0) {
             ci = i;
-            cd = day.difference(cycleStarts[i]).inDays + 1;
+            cd = calendarDaysBetween(cycleStarts[i], day) + 1;
           }
         }
         overlay.add({
@@ -3903,11 +3998,13 @@ class LocalRepositoryImpl extends LocalRepository {
             ana.calibrationFor(ana.hrCeilingMotionGateG, family) == null
         ? ana.unknownFamilyNote(family)
         : null;
+    final manualZoneBpm = manualZoneBoundsFromProfile(getProfileMap());
     final set = trainingZones(
       age: _profileAge(),
       deviceFamily: family,
       observedCeilingBpm: ceiling?.bpm,
       restingHrHistory: rhrHistory,
+      manualZoneLowerBpm: manualZoneBpm,
     );
     final measured = zonesAreMeasured(set?.source);
     // WHY there are no edges. This screen printed "Without your age or a strap
@@ -3943,6 +4040,13 @@ class LocalRepositoryImpl extends LocalRepository {
                         needInputNote(
                           ceiling != null ? 'maximal_effort' : 'observed_ceiling',
                         )
+                  // A manual override has no measured anchor at all, ever —
+                  // regardless of how many resting-HR nights are on file.
+                  // Falling into the generic !measured branch below would
+                  // print "not enough nights" with a have/need pair that
+                  // contradicts itself the moment the user has a full history.
+                  : set.source == 'manual'
+                  ? needInputNote('manual_zones')
                   : !measured
                   ? needInputNote(
                       'resting_hr_days',

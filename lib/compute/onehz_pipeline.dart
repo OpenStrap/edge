@@ -31,7 +31,12 @@ import 'package:openstrap_analytics/onehz.dart';
 // normalisation has ONE definition across the pipeline and the coordinator
 // instead of two that can drift.
 import 'hr_max.dart'
-    show estimatedMaxHr, smoothedMaxHr, smoothedMinHr, trainingZones;
+    show
+        estimatedMaxHr,
+        manualZoneBoundsFromProfile,
+        smoothedMaxHr,
+        smoothedMinHr,
+        trainingZones;
 import 'profile.dart' show workoutSex;
 import 'step_cadence.dart' show cadenceSpmForMinutes;
 // Same argument: a pure `DateTime` lookup, no DB / IO / Flutter binding. It is
@@ -451,7 +456,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final ac = accelerationCapacity(nn);
   // Baevsky Stress Index over the sleep NN — resting autonomic tension (a
   // transparent RR-histogram metric; no ML). Daily resting-stress indicator.
-  final stress = baevskyStressIndex(nn);
+  // nnTimesMs lets it segment at a charging/off-wrist gap instead of letting
+  // a sliding window straddle it (same gap-aware pattern as cvhrApneaScreen
+  // below).
+  final stress = baevskyStressIndex(nn, nnTimesMs: nnTimes);
 
   // ── RESPIRATION (sleep-windowed) ───────────────────────────────────────────
   final resp = nn.length >= 30
@@ -569,7 +577,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   if (skinTempAdc != null && d.skinTempAdcHistory.length >= 3) {
     final base = _mean(d.skinTempAdcHistory)!;
     final sd = _stddev(d.skinTempAdcHistory);
-    if (sd != null && sd > 0) skinTempZ = (skinTempAdc - base) / sd;
+    // Quantum floor matches analytics' tempInput(quantum: 1) guard
+    // (readiness_composite.dart) for this same raw-ADC channel: a baseline
+    // oscillating between two adjacent ADC counts has a nonzero but
+    // sub-quantum SD, which standardizes ordinary quantization noise into
+    // an inflated z. Below 1 ADC count of dispersion, abstain instead.
+    if (sd != null && sd >= 1) skinTempZ = (skinTempAdc - base) / sd;
   }
 
   // ── READINESS (the canonical composite, baseline-dependent) ───────────────
@@ -685,6 +698,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     deviceFamily: d.deviceFamily,
     observedCeilingBpm: d.observedHrCeilingBpm,
     restingHrHistory: d.rhrHistory,
+    manualZoneLowerBpm: manualZoneBoundsFromProfile(prof),
   );
   final rhrForTrimp = rhrToday ?? (prof['resting_hr'] as num?)?.toDouble();
   final weightKg = (prof['weight_kg'] as num?)?.toDouble();

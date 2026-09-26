@@ -6,7 +6,7 @@ publish_to: 'none'
 # Watch App" targets in ios/Runner.xcodeproj/project.pbxproj — they aren't wired
 # to FLUTTER_BUILD_NAME/FLUTTER_BUILD_NUMBER. See guides/IOS_INSTALLATION.md
 # "Version Numbers".
-version: 0.9.29+65
+version: 0.10.0+67
 
 environment:
   sdk: ^3.11.4
@@ -248,7 +248,14 @@ dependencies:
       # protocol, true — protocol's PR#47 merged as b8430e4 before #48/#50
       # landed. So `fe1464d` carries ZeTime, wearfit and ringconn together;
       # nothing from this branch's own repin is lost by moving to it.
-      ref: fe1464db98b84ac4d3ce6175d54ada11356d6c62
+      #
+      # protocol main @ bc7d8d0 — the whole point of this repin: PR#54 lands
+      # the Labrador (WHOOP MG ECG) parser this branch's `lib/ecg/` calls
+      # (`LabradorR17`, `LabradorR16Raw`, `Gen5HelloInfo.isMaverick`,
+      # `cmdAbortHistorical`). Also carries #70 (garmin/ultrahuman decode
+      # fixes, unrelated but already an ancestor). Verified present:
+      # `git show bc7d8d0:lib/src/labrador.dart | grep 'class LabradorR17'`.
+      ref: bc7d8d0df706e40a2546ffde4545263f09d0fecb
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
@@ -424,7 +431,70 @@ dependencies:
       # `irregularBeatScreen` feeds the stored 24 h and sleep irregular-rhythm
       # screens (onehz_pipeline.dart) — both are real, if narrow, output
       # changes, not NaN/±inf-only rejections.
-      ref: 1fa8144a5e3b728ce91eeed6ecbc15d482933b44
+      #
+      # analytics main @ #61 merge (2a0bea1) + this branch's own #62
+      # (41ac641): adds `vo2maxSubmaxEstimate`, additive-only, nothing
+      # existing reads it yet on the analytics side. 41ac641 is #62's second
+      # commit — CodeRabbit caught `inputs_used` under-claiming grade when
+      # `gradePercent` was supplied; fixed there, not on f334a06.
+      #
+      # Verified against the SHA:
+      #   `git show 41ac641:lib/src/onehz/clinical/vo2max.dart |
+      #      grep -E 'vo2maxSubmaxEstimate|workout_grade'`
+      #
+      # analytics PR #70 (merged to main @ 1bf9b62): adds optional
+      # `nnTimesMs` + `maxGapSec` to `baevskyStressIndex`, so a
+      # charging/off-wrist hole spliced into one sleep-night NN array
+      # segments before the 256-beat sliding window instead of a straddling
+      # window reading the pre/post-gap RR jump as MxDMn (same gap-aware
+      # pattern `cvhrApneaScreen` already has). No-times callers are
+      # byte-identical. Verified:
+      #   `git show 1bf9b62:lib/src/onehz/clinical/stress_si.dart |
+      #      grep -n 'nnTimesMs\|maxGapSec'`
+      #
+      # analytics PR #72 (merged to main @ 8285710): Welch segmenter in
+      # hrv_freq.dart only rejected a segment by beat count, never by
+      # time-completeness, so a mid-window gap (BLE reconnect, off-wrist
+      # moment) could still publish a bogus LF/HF/VLF/ULF reading at
+      # Tier.high. Now gated on endpoint-span + largest-single-gap. Verified:
+      #   `git show 8285710:lib/src/onehz/clinical/hrv_freq.dart |
+      #      grep -n 'segSec \* 0.8\|segSec \* 0.2'`
+      #
+      # analytics PR #73 (merged to main @ eed6dc9, tip carries both #72 and
+      # #73): overreachingConjunction() never called dispersionBelowQuantum
+      # on rhrBaselineWindow, unlike illness_cusum/readiness_composite/
+      # event_detection on this same rhr channel. An alternating whole-bpm
+      # baseline (58/59) has a small nonzero MAD that isn't real dispersion,
+      # so a 1bpm rise could clear the gate and fire the conjunction card on
+      # rounding noise. Verified:
+      #   `git show eed6dc9:lib/src/onehz/human/overreaching_conjunction.dart |
+      #      grep dispersionBelowQuantum`
+      #
+      # analytics PR #75 (MERGED to main @ 01e8b6e): readiness_glassbox's SWC
+      # gate had the same gap #73 fixed on overreaching_conjunction --
+      # glassBoxReadiness does the identical 0.5*scale standardization on the
+      # same rhr/temp channels edge wires in below (`_glassInput('rhr', ...)`
+      # / `_glassInput('temp', ...)`), never gated by dispersionBelowQuantum.
+      # Adds `GlassBoxInput.quantum`. Re-pinned from #75's branch head to main
+      # now that it's merged. Verified:
+      #   `git show 01e8b6e:lib/src/onehz/human/readiness_glassbox.dart |
+      #      grep dispersionBelowQuantum`
+      # Changes the stored "readiness_glassbox" drivers list for real users
+      # (see derivation_engine.dart's 94 -> 95 changelog entry), so this got
+      # a kAlgoVersion bump despite being narrative-only, not a headline-score
+      # change.
+      #
+      # analytics main @ 0441ef9 (MERGED, one hop past #75 above): fixes
+      # temp_circadian.dart's `_nonparam` dividing by varTot/diffN with no
+      # zero-variance guard, so a flat/heavily-quantized skin-temp window
+      # reported interdailyStability=0.0 / intradailyVariability=0.0 as
+      # measured instead of withheld -- a fabricated-metric bug (matches the
+      # zero-variance discipline circadian_np.dart already had). Changes
+      # stored circadian_lifestyle output for any user with a flat temp
+      # window, so kAlgoVersion bumped (96 -> 97). Verified:
+      #   `git show 0441ef9:lib/src/onehz/wellness/temp_circadian.dart |
+      #      grep -n 'varTot == 0\|diffN == 0'`
+      ref: 0441ef9e6fc6d5681c309ce6341911285e829f20
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

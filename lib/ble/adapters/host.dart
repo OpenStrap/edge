@@ -367,6 +367,7 @@ class BandHost {
     List<Sample?> samples,
     String? trimTokenHex, {
     List<ArchiveRecord>? archives,
+    List<EcgRawPacket>? ecgRawPackets,
     String? deviceFamily,
   }) async {
     try {
@@ -375,6 +376,7 @@ class BandHost {
         samples,
         trimToken: trimTokenHex,
         archives: archives,
+        ecgRawPackets: ecgRawPackets,
         deviceFamily: deviceFamily,
         deviceId: deviceId,
         onCheckpoint: onLog,

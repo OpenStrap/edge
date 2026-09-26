@@ -74,14 +74,14 @@ class CloudImporter {
       final date = row['date'] as String?;
       if (date == null) continue;
       dailyDates.add(date);
-      await _writeDay(date, row.cast<String, dynamic>(), sleepByDate[date]);
-      dayCount++;
+      if (await _writeDay(date, row.cast<String, dynamic>(), sleepByDate[date])) {
+        dayCount++;
+      }
     }
     // Nights present in /sleep but with no daily row → still import the sleep.
     for (final e in sleepByDate.entries) {
       if (dailyDates.contains(e.key)) continue;
-      await _writeDay(e.key, const {}, e.value);
-      dayCount++;
+      if (await _writeDay(e.key, const {}, e.value)) dayCount++;
     }
 
     var sessCount = 0;
@@ -107,13 +107,21 @@ class CloudImporter {
     };
   }
 
-  static Future<void> _writeDay(
+  /// Test seam for [_writeDay] — mirrors [debugWriteSession] below.
+  @visibleForTesting
+  static Future<bool> debugWriteDay(
+          String date, Map<String, dynamic> d, Map<String, dynamic>? sl) =>
+      _writeDay(date, d, sl);
+
+  /// Returns true when a day row was actually written (false when skipped
+  /// because the band already measured this date locally).
+  static Future<bool> _writeDay(
       String date, Map<String, dynamic> d, Map<String, dynamic>? sl) async {
     // Real data wins BOTH ways. The header's claim only ever held in one
     // direction (a later band sync overwriting a snapshot); importing over a
     // day the band had already measured replaced it and, because the write is
     // `finalized: true`, locked the replacement in for good.
-    if (await LocalDb.isMeasuredDay(date)) return;
+    if (await LocalDb.isMeasuredDay(date)) return false;
     num? n(Object? v) => v is num ? v : null;
     final rhr = n(d['resting_hr']);
     final rmssd = n(d['hrv_rmssd']);
@@ -263,6 +271,7 @@ class CloudImporter {
         'spo2': f(n(d['spo2_idx'])),
       },
     );
+    return true;
   }
 
   /// Test seam for [_writeSession] — the malformed-row skip is a data-integrity

@@ -153,6 +153,127 @@ void main() {
     });
   });
 
+  // ── manual zone override — wins outright, and only when well-formed ────────
+  group('manual zone override', () {
+    test('five ascending thresholds win outright, ignoring age and ceiling',
+        () {
+      final z = trainingZones(
+        age: 30,
+        deviceFamily: 'gen4',
+        observedCeilingBpm: 196,
+        restingHrHistory: List<double>.filled(28, 50),
+        manualZoneLowerBpm: [100, 120, 140, 160, 180],
+      )!;
+      expect(z.source, 'manual');
+      expect(z.zones.map((zone) => zone.lower), [100, 120, 140, 160, 180]);
+      expect(z.zones[0].upper, 120);
+      // Z5 is open-ended for classification (zoneNumber never consults its
+      // upper edge) but still finite: every getZones()/session-summary
+      // caller rounds it for display, and Infinity.round() throws.
+      expect(z.zones.last.upper.isFinite, isTrue);
+      expect(z.zones.last.upper.round(), isA<int>());
+      expect(z.zoneNumber(190), 5);
+      expect(z.zoneNumber(90), 0);
+    });
+
+    test("a manual top threshold above the hard ceiling still gets a real "
+        "upper edge above it", () {
+      final z = trainingZones(manualZoneLowerBpm: [180, 190, 200, 210, 225])!;
+      expect(z.zones.last.upper, greaterThan(225));
+      expect(z.zones.last.upper.isFinite, isTrue);
+    });
+
+    test('works with no age and no ceiling at all — the point of an override',
+        () {
+      final z = trainingZones(manualZoneLowerBpm: [90, 110, 130, 150, 170])!;
+      expect(z.source, 'manual');
+    });
+
+    test('null override falls through to the computed set', () {
+      final z = trainingZones(age: 30, deviceFamily: 'gen4')!;
+      expect(z.source, 'tanaka');
+    });
+
+    test('wrong length falls through rather than half-applying', () {
+      final z = trainingZones(
+        age: 30,
+        deviceFamily: 'gen4',
+        manualZoneLowerBpm: [100, 120, 140],
+      )!;
+      expect(z.source, 'tanaka');
+    });
+
+    group('manualZoneBoundsFromProfile', () {
+      test('reads five ascending bounds', () {
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [100, 120, 140, 160, 180],
+          }),
+          [100, 120, 140, 160, 180],
+        );
+      });
+
+      test('null profile, missing key, or wrong length ⇒ null', () {
+        expect(manualZoneBoundsFromProfile(null), isNull);
+        expect(manualZoneBoundsFromProfile({}), isNull);
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [100, 120, 140],
+          }),
+          isNull,
+        );
+      });
+
+      test('not strictly ascending ⇒ null, not clamped or sorted', () {
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [100, 120, 120, 160, 180],
+          }),
+          isNull,
+        );
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [180, 160, 140, 120, 100],
+          }),
+          isNull,
+        );
+      });
+
+      test('non-numeric entry ⇒ null', () {
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [100, 120, 'x', 160, 180],
+          }),
+          isNull,
+        );
+      });
+
+      test('Z1 below the sensor-dropout floor ⇒ null, even if ascending', () {
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [-50, -20, 0, 40, 80],
+          }),
+          isNull,
+        );
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [0, 1, 2, 3, 4],
+          }),
+          isNull,
+        );
+      });
+
+      test('Z1 exactly at the floor still passes', () {
+        expect(
+          manualZoneBoundsFromProfile({
+            'hr_zone_bounds': [kHrFloorBpm, 60, 90, 120, 150],
+          }),
+          [kHrFloorBpm, 60, 90, 120, 150],
+        );
+      });
+    });
+  });
+
   // ── TS-04 — the footnote a zone chart carries names the RIGHT anchors ─────
   //
   // The session summary hard-coded `kZonesWhy` while the day screen switched on
@@ -499,5 +620,42 @@ void main() {
       }
       expect((await repo.getZones())['distribution'], isNull);
     });
+
+    test(
+        'a manual override above the hard ceiling still serializes — '
+        'Infinity.round() throws, so this is the regression that matters',
+        () async {
+      final manualRepo = LocalRepositoryImpl(
+        getProfileMap: () =>
+            {'age': 30, 'hr_zone_bounds': [200, 205, 210, 215, 225]},
+      );
+      final z = await manualRepo.getZones();
+      expect(z['source'], 'manual');
+      expect(z['zones'], hasLength(5));
+      expect((z['zones'] as List).last['zone'], 5);
+      expect((z['zones'] as List).last['hi'], greaterThan(225));
+      expect(z['max_hr'], greaterThan(225));
+    });
+
+    test(
+      'manual zones with a FULL resting-HR history still name the manual '
+      'override, never a fabricated reserve-nights shortfall',
+      () async {
+        // 28 nights on file — well above reserveMinDays — so a regression
+        // back to the generic !measured branch would print "have 28, need
+        // 14", contradicting its own sentence.
+        await seedRhr(28);
+        final manualRepo = LocalRepositoryImpl(
+          getProfileMap: () =>
+              {'age': 30, 'hr_zone_bounds': [100, 120, 140, 160, 180]},
+        );
+        final z = await manualRepo.getZones();
+        expect(z['source'], 'manual');
+        expect(z['distribution'], isNull);
+        final note = (z['absent'] as Map)['distribution']['note'] as String;
+        expect(note, 'need_input:name=manual_zones');
+        expect(note, isNot(contains('resting_hr_days')));
+      },
+    );
   });
 }

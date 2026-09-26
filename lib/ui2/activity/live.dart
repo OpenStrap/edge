@@ -221,6 +221,13 @@ class LiveDraft {
   final double? weightKg;
   final DateTime startedAt;
 
+  /// Interval config chosen on the setup screen — null for every archetype
+  /// but [Track.interval], where 45/30/8 used to be a constant nothing let
+  /// the user change.
+  final int? workSec;
+  final int? restSec;
+  final int? rounds;
+
   /// Seconds banked in earlier pauses, and when the current pause began. The
   /// clock is wall time minus these, so it stays true across a long
   /// background spell or a relaunch instead of counting screen-on seconds.
@@ -235,6 +242,9 @@ class LiveDraft {
       {required this.startedAt,
       this.private = false,
       this.weightKg,
+      this.workSec,
+      this.restSec,
+      this.rounds,
       this.pausedSec = 0,
       this.pausedAt,
       Map<String, Object?>? data})
@@ -254,10 +264,20 @@ class LiveDraft {
   }
 
   /// Open a draft for a session the app has just accepted.
-  static LiveDraft begin(Activity a, {bool private = false, double? weightKg}) {
+  static LiveDraft begin(Activity a,
+      {bool private = false,
+      double? weightKg,
+      int? workSec,
+      int? restSec,
+      int? rounds}) {
     _loaded = true;
     _current = LiveDraft._(a.typeKey,
-        startedAt: DateTime.now(), private: private, weightKg: weightKg);
+        startedAt: DateTime.now(),
+        private: private,
+        weightKg: weightKg,
+        workSec: workSec,
+        restSec: restSec,
+        rounds: rounds);
     _save();
     return _current!;
   }
@@ -312,6 +332,9 @@ class LiveDraft {
           'a': d.activityKey,
           'private': d.private,
           'weight': d.weightKg,
+          'work_sec': d.workSec,
+          'rest_sec': d.restSec,
+          'rounds': d.rounds,
           'start': d.startedAt.millisecondsSinceEpoch,
           'paused_sec': d.pausedSec,
           'paused_at': d.pausedAt?.millisecondsSinceEpoch,
@@ -332,6 +355,9 @@ class LiveDraft {
         startedAt: DateTime.fromMillisecondsSinceEpoch(start.toInt()),
         private: m['private'] == true,
         weightKg: (m['weight'] as num?)?.toDouble(),
+        workSec: (m['work_sec'] as num?)?.toInt(),
+        restSec: (m['rest_sec'] as num?)?.toInt(),
+        rounds: (m['rounds'] as num?)?.toInt(),
         pausedSec: (m['paused_sec'] as num?)?.toInt() ?? 0,
         pausedAt: (m['paused_at'] as num?) == null
             ? null
@@ -353,6 +379,14 @@ Widget liveFor(
   bool private = false,
   double? weightKg,
   ActivityHost host = ActivityHost.none,
+
+  /// Explicit interval config, from the setup screen that just chose it.
+  /// Null falls back to [LiveDraft.current] (a resume/minimise, where the
+  /// screen that reopens the session never chose anything itself) and then
+  /// to the old 45/30/8 defaults.
+  int? intervalWorkSec,
+  int? intervalRestSec,
+  int? intervalRounds,
 }) {
   final p = private || a.private;
   final feed = host.feed;
@@ -373,7 +407,13 @@ Widget liveFor(
     Arch.match => LiveMatch(a,
         feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
     Arch.interval => LiveInterval(a,
-        feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
+        feed: feed,
+        weightKg: weightKg,
+        private: p,
+        onFinish: onFinish,
+        workSec: intervalWorkSec ?? LiveDraft.current?.workSec ?? 45,
+        restSec: intervalRestSec ?? LiveDraft.current?.restSec ?? 30,
+        rounds: intervalRounds ?? LiveDraft.current?.rounds ?? 8),
     _ => LiveMeasured(a,
         feed: feed, weightKg: weightKg, private: p, onFinish: onFinish),
   };
@@ -1373,13 +1413,20 @@ class _LiveStrengthState extends State<LiveStrength> {
   Widget build(BuildContext c) {
     final volume = log.volumeKg;
     final l = AppLocalizations.of(c);
+    final u = unitsOf(c);
+    // Localized template bakes "KG" in — safe for metric (correct unit), but
+    // imperial bypasses it rather than mislabel a pound figure as kilos; see
+    // the same call at [_body] below.
     return LiveShell(
       widget.a,
       subtitle: volume == null
           ? (l?.activityLiveSetsCountSubtitle(log.setCount) ??
               '${log.setCount} SETS')
-          : (l?.activityLiveVolumeSetsSubtitle(grouped(volume), log.setCount) ??
-              '${grouped(volume)} KG · ${log.setCount} SETS'),
+          : (u?.isImperial == true
+              ? '${grouped(u!.weightValue(volume))} ${u.weightUnit.toUpperCase()} · '
+                  '${log.setCount} SETS'
+              : (l?.activityLiveVolumeSetsSubtitle(grouped(volume), log.setCount) ??
+                  '${grouped(volume)} KG · ${log.setCount} SETS')),
       private: widget.private,
       weightKg: widget.weightKg,
       onFinish: widget.onFinish,
@@ -1432,6 +1479,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   Widget _body(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
+    final u = unitsOf(c);
     if (plan.isEmpty) {
       return Column(children: [
         StatusCard(
@@ -1452,10 +1500,14 @@ class _LiveStrengthState extends State<LiveStrength> {
         Expanded(
             child: _total(
                 p,
-                volume == null ? (l?.activityLiveBwAbbrev ?? 'BW') : grouped(volume),
+                volume == null
+                    ? (l?.activityLiveBwAbbrev ?? 'BW')
+                    : grouped(u?.weightValue(volume) ?? volume),
                 volume == null
                     ? (l?.activityLiveBodyweightOnly ?? 'bodyweight only')
-                    : (l?.activityLiveKgVolumeUnit ?? 'kg volume'))),
+                    : (u?.isImperial == true
+                        ? '${u!.weightUnit} volume'
+                        : (l?.activityLiveKgVolumeUnit ?? 'kg volume')))),
         Container(width: 1, height: 26, color: p.line),
         Expanded(child: _total(p, '${log.setCount}', l?.activityLiveSetsUnit ?? 'sets')),
         Container(width: 1, height: 26, color: p.line),
@@ -1582,7 +1634,8 @@ class _LiveStrengthState extends State<LiveStrength> {
                             ? (l?.activityLiveRepsBodyweightRow(
                                     setsHere[i].reps) ??
                                 '${setsHere[i].reps} reps · bodyweight')
-                            : '${_fmt(setsHere[i].loadKg!)} kg × '
+                            : '${_fmt(setsHere[i].loadKg!, u)} '
+                                '${u?.weightUnit ?? 'kg'} × '
                                 '${setsHere[i].reps}',
                         style: F.body.copyWith(color: p.ink)),
                   ),
@@ -1591,7 +1644,8 @@ class _LiveStrengthState extends State<LiveStrength> {
                         style: F.cap.copyWith(color: p.ink3)),
                   if (setsHere[i].volume != null) ...[
                     const SizedBox(width: S.x3),
-                    Text('${grouped(setsHere[i].volume!)} kg',
+                    Text('${grouped(u?.weightValue(setsHere[i].volume!) ?? setsHere[i].volume!)} '
+                        '${u?.weightUnit ?? 'kg'}',
                         style: F.cap.copyWith(
                             color: p.ink2, fontWeight: FontWeight.w600)),
                   ],
@@ -1623,16 +1677,17 @@ class _LiveStrengthState extends State<LiveStrength> {
 
   List<Widget> _entry(P p, BuildContext c) {
     final l = AppLocalizations.of(c);
+    final u = unitsOf(c);
+    final stepKg = u?.loadStepKg(def?.step ?? 2.5) ?? (def?.step ?? 2.5);
     return [
         _stepper(
             c,
             p,
             l?.activityLiveWeightLabel ?? 'WEIGHT',
-            bodyweight ? (l?.activityLiveBwAbbrev ?? 'BW') : _fmt(kg),
-            bodyweight ? '' : 'kg',
-            () => setState(() =>
-                kg = (kg - (def?.step ?? 2.5)).clamp(0, 500).toDouble()),
-            () => setState(() => kg = kg + (def?.step ?? 2.5))),
+            bodyweight ? (l?.activityLiveBwAbbrev ?? 'BW') : _fmt(kg, u),
+            bodyweight ? '' : (u?.weightUnit ?? 'kg'),
+            () => setState(() => kg = (kg - stepKg).clamp(0, 500).toDouble()),
+            () => setState(() => kg = kg + stepKg)),
         const SizedBox(height: S.x3),
         Pressable(
           onTap: () => setState(() => bodyweight = !bodyweight),
@@ -1682,6 +1737,7 @@ class _LiveStrengthState extends State<LiveStrength> {
 
   Widget _rest_(P p, BuildContext c) {
     final l = AppLocalizations.of(c);
+    final u = unitsOf(c);
     return Column(children: [
         Text(l?.activityLiveRestingHeader ?? 'RESTING',
             style: F.over.copyWith(color: p.on(C.teal))),
@@ -1702,10 +1758,14 @@ class _LiveStrengthState extends State<LiveStrength> {
                         ? (l?.activityLiveRepsLoggedBodyweight(
                                 logged.last.reps) ??
                             '${logged.last.reps} reps logged')
-                        : (l?.activityLiveWeightRepsLogged(
-                                _fmt(logged.last.loadKg!), logged.last.reps) ??
-                            '${_fmt(logged.last.loadKg!)} kg × '
-                                '${logged.last.reps} logged'),
+                        : (u?.isImperial == true
+                            ? '${_fmt(logged.last.loadKg!, u)} '
+                                '${u!.weightUnit} × ${logged.last.reps} logged'
+                            : (l?.activityLiveWeightRepsLogged(
+                                    _fmt(logged.last.loadKg!),
+                                    logged.last.reps) ??
+                                '${_fmt(logged.last.loadKg!)} kg × '
+                                    '${logged.last.reps} logged')),
                     style: F.cap.copyWith(color: p.ink3)),
             ]),
           ]),
@@ -1739,6 +1799,7 @@ class _LiveStrengthState extends State<LiveStrength> {
   Widget _ref(BuildContext c, P p, String label, LoggedSet? s,
       {bool gold = false}) {
     final l = AppLocalizations.of(c);
+    final u = unitsOf(c);
     return Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x3, vertical: S.x3),
         child: Column(children: [
@@ -1757,15 +1818,19 @@ class _LiveStrengthState extends State<LiveStrength> {
                   ? (l?.activityLiveNoneYet ?? 'None yet')
                   : s.loadKg == null
                       ? (l?.activityLiveRepsOnly(s.reps) ?? '${s.reps} reps')
-                      : '${_fmt(s.loadKg!)} kg × ${s.reps}',
+                      : '${_fmt(s.loadKg!, u)} ${u?.weightUnit ?? 'kg'} × ${s.reps}',
               style: F.cap
                   .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
         ]),
       );
   }
 
-  String _fmt(double d) =>
-      d == d.roundToDouble() ? d.round().toString() : d.toStringAsFixed(1);
+  /// [d] is always in kg (storage unit); [u] converts + rounds for display
+  /// the same way its edit-field does. Null [u] (a golden, or no unit
+  /// context) shows metric untouched.
+  String _fmt(double d, [UnitsController? u]) =>
+      u?.weightField(d) ??
+      (d == d.roundToDouble() ? d.round().toString() : d.toStringAsFixed(1));
 }
 
 // ══════════════ SWIMMING — laps are counted, not measured ══════════════
@@ -2333,12 +2398,21 @@ class LiveInterval extends StatefulWidget {
   final double? weightKg;
   final bool private;
   final SessionFinish? onFinish;
+
+  /// Chosen on the setup screen (defaults match the old hardcoded values —
+  /// nothing to migrate for a draft that predates this).
+  final int workSec;
+  final int restSec;
+  final int rounds;
   const LiveInterval(this.a,
       {super.key,
       this.feed,
       this.weightKg,
       this.private = false,
-      this.onFinish});
+      this.onFinish,
+      this.workSec = 45,
+      this.restSec = 30,
+      this.rounds = 8});
 
   @override
   State<LiveInterval> createState() => _LiveIntervalState();
@@ -2350,13 +2424,11 @@ class _LiveIntervalState extends State<LiveInterval> {
   // LOST; it is a timer, and a timer that keeps running while the screen is
   // gone needs the countdown to live on the draft's clock. Do that if anyone
   // actually minimises intervals.
-  /// [rounds] is how many pips the row starts with, NOT a plan the session
-  /// runs to: nothing stops this timer at the eighth round, so a session that
-  /// keeps going simply grows the row.
-  static const workSec = 45, restSec = 30, rounds = 8;
-
+  /// [widget.rounds] is how many pips the row starts with, NOT a plan the
+  /// session runs to: nothing stops this timer at that round, so a session
+  /// that keeps going simply grows the row.
   int round = 1;
-  int left = workSec;
+  late int left;
   bool work = true;
   final done = <IntervalRound>[];
   Timer? _t;
@@ -2369,6 +2441,7 @@ class _LiveIntervalState extends State<LiveInterval> {
   @override
   void initState() {
     super.initState();
+    left = widget.workSec;
     _t = Timer.periodic(Motion.tick, (_) {
       if (!mounted) return;
       // PAUSE STOPS THE INTERVAL ENGINE. Without this the countdown kept
@@ -2398,21 +2471,21 @@ class _LiveIntervalState extends State<LiveInterval> {
                 : (l?.activityLiveWorkWord ?? 'Work'));
         if (work) {
           work = false;
-          left = restSec;
+          left = widget.restSec;
         } else {
-          done.add(IntervalRound(workSec, restSec,
+          done.add(IntervalRound(widget.workSec, widget.restSec,
               avgHr: _roundHr.isEmpty
                   ? null
                   : (_roundHr.reduce((x, y) => x + y) / _roundHr.length)
                       .round()));
           _roundHr.clear();
           work = true;
-          left = workSec;
+          left = widget.workSec;
           // UNCAPPED. `done` is unconditional and the timer never stops at the
-          // eighth round, so `if (round < rounds) round++` froze the live
-          // counter at 8 while the summary counted 11 — two screens, one
-          // session, two round counts. [rounds] is the pip row's floor now,
-          // not a limit the session has.
+          // configured round count, so `if (round < widget.rounds) round++`
+          // froze the live counter while the summary counted more — two
+          // screens, one session, two round counts. [widget.rounds] is the
+          // pip row's floor now, not a limit the session has.
           round++;
         }
       });
@@ -2430,8 +2503,8 @@ class _LiveIntervalState extends State<LiveInterval> {
     final l = AppLocalizations.of(c);
     return LiveShell(
       widget.a,
-      subtitle: l?.activityLiveIntervalSubtitle(workSec, restSec) ??
-          '$workSec S WORK · $restSec S REST',
+      subtitle: l?.activityLiveIntervalSubtitle(widget.workSec, widget.restSec) ??
+          '${widget.workSec} S WORK · ${widget.restSec} S REST',
       private: widget.private,
       weightKg: widget.weightKg,
       onFinish: widget.onFinish,
@@ -2444,9 +2517,9 @@ class _LiveIntervalState extends State<LiveInterval> {
         final l = AppLocalizations.of(ctx);
         final f = widget.feed?.call() ?? LiveFeed.none;
         final col = work ? C.red : C.teal;
-        // At least the eight the row is drawn for, and more once the session
-        // has done more. '/ 8' was a denominator nothing enforced.
-        final pips = round > rounds ? round : rounds;
+        // At least [widget.rounds] the row is drawn for, and more once the
+        // session has done more. '/ 8' was a denominator nothing enforced.
+        final pips = round > widget.rounds ? round : widget.rounds;
         return Column(children: [
           const SizedBox(height: S.x5),
           Text(l?.activityLiveRoundLabel(round) ?? 'ROUND $round',
@@ -2464,7 +2537,7 @@ class _LiveIntervalState extends State<LiveInterval> {
           ClipRRect(
             borderRadius: R.rPill,
             child: LinearProgressIndicator(
-                value: left / (work ? workSec : restSec),
+                value: left / (work ? widget.workSec : widget.restSec),
                 minHeight: 10,
                 backgroundColor: p.track,
                 valueColor: AlwaysStoppedAnimation(p.on(col))),
@@ -2477,10 +2550,10 @@ class _LiveIntervalState extends State<LiveInterval> {
               const Spacer(),
               Text(
                   work
-                      ? (l?.activityLiveNextRest(clock(restSec)) ??
-                          'Rest · ${clock(restSec)}')
-                      : (l?.activityLiveNextWork(clock(workSec)) ??
-                          'Work · ${clock(workSec)}'),
+                      ? (l?.activityLiveNextRest(clock(widget.restSec)) ??
+                          'Rest · ${clock(widget.restSec)}')
+                      : (l?.activityLiveNextWork(clock(widget.workSec)) ??
+                          'Work · ${clock(widget.workSec)}'),
                   style: F.body
                       .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
             ]),

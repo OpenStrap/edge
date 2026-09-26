@@ -159,7 +159,7 @@ List<Map<String, Object?>> routeRowsFrom(Object? payload) {
     final lng = (raw[1] as num?)?.toDouble();
     final ts = (raw[3] as num?)?.toInt();
     if (lat == null || lng == null || ts == null) continue;
-    if (lat.abs() > 90 || lng.abs() > 180) continue;
+    if (lat.isNaN || lng.isNaN || lat.abs() > 90 || lng.abs() > 180) continue;
     out.add({
       'session_id': uuid,
       'seq': seq++,
@@ -308,7 +308,7 @@ class HealthWorkoutImporter {
     await LocalDb.putImportedWorkouts([for (final r in alive) r.toRow()]);
     final withRoutes = await _importRoutes(start, end, skip: tombstones);
     return WorkoutImportResult(
-      workouts: rows.length,
+      workouts: alive.length,
       withRoutes: withRoutes,
       routesSupported: routesSupported,
     );

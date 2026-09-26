@@ -30,6 +30,7 @@ import '../ui2.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
 import 'metric_detail.dart';
+import 'naps.dart';
 import 'rough_night.dart';
 
 /// Nights of history before a personal normal is claimed at all. Below this the
@@ -462,6 +463,10 @@ class _SleepDetailState extends State<SleepDetail> {
                 l?.sleepDetailUndoRejection ?? 'Undo — go back to automatic'),
           ),
         ],
+        // A day with no main-sleep window can still have naps — worn all
+        // day, off overnight, or a rejected night — so this door to the naps
+        // screen does not live inside the window card.
+        ..._napsButton(c, l, d.day),
       ]);
     }
 
@@ -486,6 +491,7 @@ class _SleepDetailState extends State<SleepDetail> {
 
       // ── 2b · WHOSE WINDOW IS THIS ──
       ...?_windowCard(c, p, d, n),
+      ..._napsButton(c, l, d.day),
 
       // ── 3 · WHAT IT WAS MADE OF ──
       Section(l?.sleepDetailStagesSection ?? 'Stages', _stages(c, p, n)),
@@ -594,10 +600,30 @@ class _SleepDetailState extends State<SleepDetail> {
   /// anywhere in the app, so the derive engine's user-window restage path could
   /// never run and a mis-staged night was uncorrectable.
   ///
-  /// NAP EDITS ARE DELIBERATELY NOT HERE. `applyNapEdits` reads a `nap_edits`
-  /// table that nothing in the app writes either; a control that appeared to
-  /// edit naps while the edits went nowhere would be worse than the absence.
-  /// It needs a writer first.
+  /// Naps have their own screen and their own table (`sleep_nap`, with a real
+  /// writer — `LocalDb.putNapEdit`/`deleteNapEdit`), reached from the Health
+  /// screen's nap row. They are not folded into this card: a night's window
+  /// is one thing you either confirm or move, naps are a list you add to and
+  /// remove from, and `_editWindow` below only ever asks two time pickers for
+  /// one pair of times — the wrong shape for "how many, which ones".
+  /// The door to the naps screen, for [day] — not inside `_windowCard`, so it
+  /// still renders on a day with no scored main-sleep window (worn all day,
+  /// off overnight, or a night the user rejected outright).
+  List<Widget> _napsButton(BuildContext c, AppLocalizations? l, String? day) {
+    if (day == null) return const [];
+    return [
+      const SizedBox(height: S.x2),
+      TextButton(
+        // `_loading` too: `_goDay` swaps `_day` and keeps the old `_d` on
+        // screen until `_load()` resolves, so a tap in that window would
+        // open naps for the day you just navigated away from.
+        onPressed:
+            _saving || _loading ? null : () => go(c, NapsScreen(day: day)),
+        child: Text(l?.sleepDetailEditNaps ?? 'Naps'),
+      ),
+    ];
+  }
+
   List<Widget>? _windowCard(
       BuildContext c, P p, SleepData d, Map<String, dynamic> n) {
     final l = AppLocalizations.of(c);

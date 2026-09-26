@@ -618,23 +618,79 @@ List<String> declaringDeviceIds(List<HealthSource> sources, InputSignal sig) => 
 /// agreement that may not exist — see [unanimousWinner], which is the test
 /// for whether it does.
 ///
+/// [signalWinners]' coverage lookback — long enough to catch a device paired
+/// months ago and left unranked, short enough that the query it drives stays
+/// bounded regardless of how old the install is.
+const kSignalWinnersLookbackDays = 400;
+
 /// A stored id is skipped unless the device still DECLARES that signal, the
 /// same filter [SignalPriorityScreen] applies when it renders an order: a row
 /// left behind by a forgotten device has no adapter to serve the window, and
 /// the resolver passes over it too (it has no coverage to own). [fallback]
 /// answers a signal with no usable row — the ladder's choice, which the
 /// caller already has in hand.
-Map<InputSignal, String?> signalWinners(
+///
+/// A device with real `device_coverage` rows for [sig] but no stored priority
+/// row (paired after the user last customized ranking for this signal) is
+/// unioned in below the stored order, sorted — the same fix
+/// `_resolveOwnership` got in derivation_engine.dart (kAlgoVersion 91):
+/// otherwise this caption disagrees with the engine's actual answer for the
+/// exact population that bump was written for. Coverage is read over the
+/// last [kSignalWinnersLookbackDays] days, not all of history — a `from: 0`
+/// scan over `device_coverage` (never pruned) grows unbounded with an
+/// install's age, and this runs on the UI isolate on every metric-detail
+/// load; a device that stopped covering this signal a year ago is also a
+/// worse answer for "who is CURRENTLY feeding this metric" than "absent".
+Future<Map<InputSignal, String?>> signalWinners(
   List<HealthSource> sources, {
   required Set<InputSignal> requires,
   required Map<String, List<String>> stored,
   String? fallback,
-}) {
+}) async {
+  final now = DateTime.now();
+  // Calendar subtraction on the DateTime constructor, not `* 86400` or
+  // `Duration(days:)` — a day is not always 86400s across a DST transition
+  // (AGENTS.md §3.7), and this file is under lib/ui2's token boundary, where
+  // a raw `Duration(` is reserved for animation timing gated through
+  // `motion(context, …)` (ui2_tokens_test.dart).
+  final from = DateTime(now.year, now.month, now.day - kSignalWinnersLookbackDays);
+  final nowSec = now.millisecondsSinceEpoch ~/ 1000;
+  final fromSec = from.millisecondsSinceEpoch ~/ 1000;
+  // Only a signal with a customized (non-empty) stored order needs real
+  // coverage — an empty one resolves to the primary device with no query at
+  // all. Fetched together, not one per signal inside the loop below: a
+  // four-signal metric like readiness would otherwise fire four sequential
+  // DB round trips on the UI isolate on every metric-detail load.
+  final needsCoverage = [
+    for (final sig in requires)
+      if ((stored[sig.name] ?? const <String>[]).isNotEmpty) sig,
+  ];
+  final coverageBySig = Map.fromIterables(
+    needsCoverage,
+    await Future.wait([
+      for (final sig in needsCoverage) LocalDb.coverageIntervals(sig, fromSec, nowSec),
+    ]),
+  );
+
   final out = <InputSignal, String?>{};
   for (final sig in requires) {
     final declaring = declaringDeviceIds(sources, sig);
+    final rawPriority = stored[sig.name] ?? const <String>[];
+    // Mirrors `_resolveOwnership`'s empty-priority rule: no stored row means
+    // the primary device owns this window, never "let every covering device
+    // in unranked" — a customized-but-narrower order still gets the coverage
+    // union below, only a NEVER-customized one gets this fixed default.
+    final order = rawPriority.isEmpty
+        ? const [LocalDb.kPrimaryDeviceId]
+        : [
+            ...rawPriority,
+            ...{for (final iv in coverageBySig[sig] ?? const []) iv.deviceId}
+                .difference(rawPriority.toSet())
+                .toList()
+              ..sort(),
+          ];
     String? winner;
-    for (final id in stored[sig.name] ?? const <String>[]) {
+    for (final id in order) {
       if (declaring.contains(id)) {
         winner = id;
         break;
@@ -1772,14 +1828,25 @@ class _DeviceDetailState extends State<DeviceDetail> {
   /// notification they may have dismissed.
   BatteryForecast? _forecast;
 
+  /// This page shows the band's live BPM, so it owns the HR stream while
+  /// mounted. Captured for `dispose`, which must not read `context`.
+  AppState? _liveHrOwner;
+
   @override
   void initState() {
     super.initState();
     if (!widget.s.isBand) return;
+    _liveHrOwner = context.read<AppState>()..retainLiveHrView();
     LocalDb.batteryHealth().then((h) {
       if (mounted) setState(() => _health = h);
     }).catchError((_) {});
     _loadForecast();
+  }
+
+  @override
+  void dispose() {
+    _liveHrOwner?.releaseLiveHrView();
+    super.dispose();
   }
 
   Future<void> _loadForecast() async {

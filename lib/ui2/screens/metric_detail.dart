@@ -737,6 +737,12 @@ class _MetricDetailState extends State<MetricDetail> {
     ]);
   }
 
+  /// The AppState this screen told "a live-HR view is on screen", captured
+  /// here so `dispose` can release it without touching `context`. Only the
+  /// LIVE resting-HR screen (data == null) reads AppState at all — fixtures
+  /// and goldens render with no Provider above them.
+  AppState? _liveHrOwner;
+
   @override
   void initState() {
     super.initState();
@@ -745,7 +751,16 @@ class _MetricDetailState extends State<MetricDetail> {
       _loading = false;
       return;
     }
+    if (widget.metricKey == 'resting_hr') {
+      _liveHrOwner = context.read<AppState>()..retainLiveHrView();
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _liveHrOwner?.releaseLiveHrView();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -780,12 +795,18 @@ class _MetricDetailState extends State<MetricDetail> {
         // One query for every signal, not one per signal — `_prefer` writes
         // all of `spec.requires`, so this reads all of them back.
         final stored = await LocalDb.signalPriorities();
-        winners = signalWinners(
+        final resolved = await signalWinners(
           sources,
           requires: spec.requires,
           stored: stored,
           fallback: d.sources.firstWhereOrNull((o) => o.selectable)?.deviceId,
         );
+        // `signalWinners` now awaits its own DB queries, a second gap after
+        // the one above — nothing reads `context` past this point, but the
+        // guard is unconditional for every await here, not just the ones
+        // that happen to touch it.
+        if (!mounted) return;
+        winners = resolved;
       }
       if (mounted) {
         setState(() => (_d = d, _winners = winners, _loading = false));
@@ -1292,7 +1313,10 @@ class _MetricDetailState extends State<MetricDetail> {
                           dots: series.length <= 40,
                           t: animate(c, 1),
                           dotInk: p.card,
-                          axis: axis),
+                          axis: axis,
+                          selectedX: _pick == null
+                              ? null
+                              : _slotAt01(_pick!, series.length)),
                     )
                   // No painter signature changes: the merged series drawn
                   // dim UNDER the same series masked to the contributing
@@ -1320,7 +1344,10 @@ class _MetricDetailState extends State<MetricDetail> {
                             dots: series.length <= 40,
                             t: animate(c, 1),
                             dotInk: p.card,
-                            axis: axis),
+                            axis: axis,
+                            selectedX: _pick == null
+                                ? null
+                                : _slotAt01(_pick!, series.length)),
                       ),
                     ]),
             ),

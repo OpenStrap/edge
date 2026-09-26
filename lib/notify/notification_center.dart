@@ -778,10 +778,19 @@ class NotificationCenter {
   }
 
   /// The absolute instant [s] is due, or null when its day cannot be resolved.
+  ///
+  /// Built as a calendar `DateTime(y, m, d, hour, minute)`, not
+  /// `localDayStartSec + slotMin*60` — the latter treats every day as a
+  /// uniform 86400s of elapsed time, which is wrong on a DST transition day
+  /// (see `day_label.dart`'s `localDayEndSec` for the same class of bug).
   static DateTime? medSlotInstant(MedSlot s) {
-    final start = localDayStartSec(s.date);
-    if (start == null) return null;
-    return DateTime.fromMillisecondsSinceEpoch((start + s.slotMin * 60) * 1000);
+    final parts = s.date.split('-');
+    if (parts.length != 3) return null;
+    final y = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    final d = int.tryParse(parts[2]);
+    if (y == null || m == null || d == null) return null;
+    return DateTime(y, m, d, 0, s.slotMin);
   }
 
   /// Re-assert the three AI slots (morning briefing, nightly sweep, pre-sleep
@@ -816,6 +825,7 @@ class NotificationCenter {
       bedtimeMinOfDay: bedtimeMinOfDay,
       journalDoneToday: journalDoneToday,
       sweepHeadline: sweepHeadline,
+      quiet: prefs,
     ).where((s) => NotificationService.maySchedule(s.id)).toList();
     if (plan.isEmpty) return;
     await svc.ensureTimezone();

@@ -15,6 +15,7 @@
 import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ble/adapters/_registry.dart' show kWhoopGen4;
@@ -50,13 +51,30 @@ import '../ble/zetime_link.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/profile.dart';
 import '../data/db.dart';
+import '../ecg/ecg_guard_store.dart';
+import '../ecg/ecg_recovery.dart';
+import '../ecg/ecg_transport.dart';
 import '../notify/notification_center.dart';
 import '../notify/notification_event.dart';
 import '../state/alarm_schedule.dart';
 import 'band_ownership.dart';
 import 'high_freq_wake_window.dart';
+import 'reset_gate.dart';
 import 'paired_device.dart';
 import 'sync_policy.dart';
+
+/// Headless mirror of the foreground `AlarmConfirmation` self-heal: an
+/// ALARM_SET event (56) means the strap has this arm latched, independent of
+/// whatever `armNextScheduledOccurrence` decided this cycle (its same-epoch
+/// dedupe returns `epoch: null` and skips the re-arm/poll block entirely, so
+/// this is the only place headless ever sees a live confirmation). Extracted
+/// so the write can be unit-tested without the full drain harness.
+@visibleForTesting
+Future<void> handleHeadlessAlarmEvent(int id) async {
+  if (id != proto.EventId.strapDrivenAlarmSet) return;
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool('alarm_epoch_confirmed', true);
+}
 
 /// Load the local profile (no Provider in the headless isolate).
 Future<Profile> _loadProfile() async {
@@ -89,6 +107,16 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     '(${BandOwnership.debugState})',
   );
   try {
+    // "Delete everything" is running in this same process — see [ResetGate].
+    // Checked BEFORE PairedDevice.load(), which is the only thing standing
+    // between a reset and a fresh drain today, and only by accident: the reset
+    // calls `prefs.clear()`, so a LATER run reads no paired device and bails
+    // here. That is incidental protection for future runs and none at all for
+    // a drain already in flight.
+    if (ResetGate.active) {
+      debugPrint('[bgsync] a data reset is running — not starting a drain.');
+      return true;
+    }
     final paired = await PairedDevice.load();
     if (paired == null) {
       debugPrint('[bgsync] not paired — nothing to do.');
@@ -101,23 +129,72 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     // (whose facade adapter needs `engine` itself) is constructed.
     late final BandHost bandHost;
     final engine = BleEngine(
-      onRecord: (sample, raw) => LocalDb.insertRecord(raw, sample),
+      // EVERY write below is gated on [ResetGate]: a reset can begin at any
+      // point during a drain, and these callbacks are the reason it is not
+      // enough for AppState to guard only its own. Refusing loses nothing —
+      // none of it has been ACKed, so it is all still on the band.
+      onRecord: (sample, raw) async {
+        if (ResetGate.active) return;
+        await LocalDb.insertRecord(raw, sample);
+      },
       onState: (_) {},
       // This path drains exactly the one paired band (PairedDevice.load()),
       // so kPrimaryDeviceId is the correct value here, not a placeholder.
-      onEvent: (id, ts, hex) =>
-          LocalDb.insertEvent(id, ts, hex, deviceId: LocalDb.kPrimaryDeviceId),
+      onEvent: (id, ts, hex) async {
+        if (ResetGate.active) return;
+        await LocalDb.insertEvent(id, ts, hex,
+            deviceId: LocalDb.kPrimaryDeviceId);
+        await handleHeadlessAlarmEvent(id);
+      },
       log: (l) => debugPrint('[bgsync] $l'),
-      onRecordsBatch: LocalDb.insertRecordsBatch,
+      onRecordsBatch: (raws, samples) async {
+        if (ResetGate.active) return;
+        await LocalDb.insertRecordsBatch(raws, samples);
+      },
       // Routed through BandHost (M1a) rather than calling
       // LocalDb.commitSyncBatch directly — same durable commit, same
       // arguments, one extra await frame, and the SAME failure contract:
       // `commitNativeBatch` rethrows so `DrainController.commit` still reads
       // durability from a throw and `TrimAckPolicy` still blocks the ACK.
-      onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
-          bandHost.commitNativeBatch(raws, samples, trimTokenHex,
-              archives: archives, deviceFamily: deviceFamily),
-      onArchiveRecord: LocalDb.archiveRawRecord,
+      onCommitBatch: (raws, samples, trimTokenHex,
+          {archives, ecgRawPackets, deviceFamily}) async {
+        // THROWS, never silently succeeds. This is the ACK gate: only
+        // `onCommit` can bank raws + archives + trim cursor in one
+        // transaction, and DrainController reads durability FROM A THROW
+        // (see its safe-trim invariant). Returning quietly here would tell
+        // the drain the chunk was banked, it would ACK, and the band would
+        // trim flash that this reset refused to store — turning a race into
+        // real data loss on a band the user may not be deleting after all if
+        // the reset then fails. A throw blocks the ACK and the records stay
+        // on the strap.
+        if (ResetGate.active) {
+          throw StateError('data reset in progress — refusing to commit');
+        }
+        return bandHost.commitNativeBatch(raws, samples, trimTokenHex,
+            archives: archives,
+            ecgRawPackets: ecgRawPackets,
+            deviceFamily: deviceFamily);
+      },
+      onArchiveRecord: (raw) async {
+        if (ResetGate.active) return;
+        await LocalDb.archiveRawRecord(raw);
+      },
+      // A WHOOP MG left generating by a dead process must be cleaned up
+      // BEFORE this drainer claims history — same rule as the foreground
+      // engine, controller-free.
+      onReadyEcgRecovery: (e) => ecgRecoverRetainedGuard(
+        guard: PrefsEcgGuardStore(),
+        serial: paired.serial,
+        cleanup: () async {
+          final out = await e.ecgRecoveryCleanup();
+          return EcgCommandListResult([
+            for (final o in out)
+              EcgMemberOutcome(o.label,
+                  written: o.written, succeeded: o.succeeded),
+          ]);
+        },
+        log: (l) => debugPrint('[bgsync] $l'),
+      ),
       cursorReader: (base) =>
           LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
       // Mark this as the background drainer: if the foreground app engine already
@@ -151,7 +228,25 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await PairedDevice.save(paired.remoteId, paired.serial, generation: gen);
     }
     try {
-      final plan = await HighFreqWakeWindow.planNow();
+      // Read the schedule + currently-armed epoch for the HighFreq window
+      // check ONLY — HighFreqWakeWindow needs the window of the alarm that's
+      // imminent right now, before the (possibly long) sync below runs. This
+      // read is NOT reused for the re-arm block further down: `runSync()` can
+      // take a while, and re-reading fresh there (as the old code did) avoids
+      // arming a stale schedule if the user edits it mid-sync (see PR #403).
+      final preSyncSchedule = fillDefaultAlarmSchedule([
+        for (final r in await LocalDb.alarmScheduleRows())
+          AlarmScheduleEntry.fromRow(r),
+      ]);
+      final preSyncPrefs = await SharedPreferences.getInstance();
+      final armedWindow = armedSmartWakeWindow(
+        epoch: preSyncPrefs.getInt('alarm_epoch'),
+        schedule: preSyncSchedule,
+      );
+      final plan = await HighFreqWakeWindow.planNow(
+        scheduledWindowEnd: armedWindow?.windowEnd,
+        scheduledWindowMinutes: armedWindow?.minutes ?? 0,
+      );
       await engine.applyHighFreqWakeWindow(
         enabled: plan.shouldEnable,
         targetWake: plan.targetWake,
@@ -175,7 +270,9 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       // connect AND after each headless sync". No AppState here, so the
       // schedule read and the `alarm_epoch` persistence go straight through
       // LocalDb/SharedPreferences — the same store the foreground path uses,
-      // so whichever side runs next sees a consistent value.
+      // so whichever side runs next sees a consistent value. Re-read fresh
+      // here (not the pre-sync copies above) in case the user changed the
+      // schedule while `runSync()` was draining.
       try {
         final schedule = fillDefaultAlarmSchedule([
           for (final r in await LocalDb.alarmScheduleRows())

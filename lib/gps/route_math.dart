@@ -10,6 +10,7 @@
 import 'dart:math' as math;
 
 import 'package:latlong2/latlong.dart';
+import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'route_models.dart';
 
@@ -102,17 +103,14 @@ int movingSeconds(List<RoutePoint> pts, {int maxGapSec = 60}) {
   return (ms / 1000).round();
 }
 
-/// HR → zone 0..5 as a fraction of max HR. Mirrors the app's live zone bands
-/// (50/60/70/80/90 % thresholds) so the map colours match the rest of the UI.
-int zoneForHr(int hr, int maxHr) {
-  if (hr <= 0 || maxHr <= 0) return 0;
-  final pct = hr / maxHr * 100;
-  if (pct >= 90) return 5;
-  if (pct >= 80) return 4;
-  if (pct >= 70) return 3;
-  if (pct >= 60) return 2;
-  if (pct >= 50) return 1;
-  return 0;
+/// HR → zone 0..5 via THE app's zone set ([ana.HeartRateZoneSet], built by
+/// `hr_max.dart`'s `trainingZones`) so the map agrees with the Heart Rate
+/// screen, live zone alerts and a workout's zone bands for the same bpm —
+/// never a route-local percent ladder that can drift from karvonen/manual
+/// zones (see hr_max.dart's header on why there must be only one of these).
+int zoneForHr(int hr, ana.HeartRateZoneSet zoneSet) {
+  if (hr <= 0) return 0;
+  return zoneSet.zoneNumber(hr.toDouble());
 }
 
 /// Find the HR (bpm) nearest in time to [tsMs], or null if [hr] is empty or the
@@ -148,14 +146,16 @@ int? nearestHr(List<HrSample> hr, int tsMs, {int maxGapMs = 15000}) {
 /// segment (recording gap) is flagged `gapBefore` so the map breaks the
 /// polyline instead of drawing a straight line across the gap.
 List<RouteVertex> buildVertices(
-    List<RoutePoint> pts, List<HrSample> hr, int maxHr) {
+    List<RoutePoint> pts, List<HrSample> hr, ana.HeartRateZoneSet? zoneSet) {
   return [
     for (var i = 0; i < pts.length; i++)
       RouteVertex(
         pts[i].latLng,
         () {
           final bpm = nearestHr(hr, pts[i].tsMs);
-          return bpm == null ? null : zoneForHr(bpm, maxHr);
+          return bpm == null || zoneSet == null
+              ? null
+              : zoneForHr(bpm, zoneSet);
         }(),
         gapBefore: i > 0 &&
             isImplausibleSegment(

@@ -182,11 +182,17 @@ Map<String, dynamic> buildCrossDayBundle(
   final gbInputs = <ana.GlassBoxInput>[];
   final gbRmssd = _glassInput('hrv', rmssdList, ana.wHrv, lowerIsBetter: false);
   if (gbRmssd != null) gbInputs.add(gbRmssd);
-  final gbRhr = _glassInput('rhr', rhrList, ana.wRhr, lowerIsBetter: true);
+  final gbRhr =
+      _glassInput('rhr', rhrList, ana.wRhr, lowerIsBetter: true, quantum: 1);
   if (gbRhr != null) gbInputs.add(gbRhr);
   final gbResp = _glassInput('resp', respList, ana.wResp, lowerIsBetter: true);
   if (gbResp != null) gbInputs.add(gbResp);
-  // temp: use absolute z so "further from your baseline" is worse.
+  // temp: use absolute z so "further from your baseline" is worse. `tempList`
+  // here is `skin_temp_z` — already a z-score against the raw-ADC baseline
+  // (onehz_pipeline.dart's `skinTempZ`, which has its OWN quantum:1 guard on
+  // the raw-ADC dispersion before the z is computed at all). It's continuous,
+  // not integer-quantized, so no quantum here (unlike readiness_composite's
+  // `tempInput`, which is fed the raw ADC mean and genuinely needs quantum:1).
   final gbTemp = _glassInput(
     'temp',
     _absList(tempList),
@@ -795,6 +801,7 @@ ana.GlassBoxInput? _glassInput(
   List<double?> series,
   double weight, {
   required bool lowerIsBetter,
+  double quantum = 0,
 }) {
   if (series.isEmpty || series.last == null) return null;
   final history = <double>[
@@ -807,6 +814,7 @@ ana.GlassBoxInput? _glassInput(
     history: history,
     weight: weight,
     lowerIsBetter: lowerIsBetter,
+    quantum: quantum,
   );
 }
 

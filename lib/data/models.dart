@@ -320,6 +320,30 @@ class ArchiveRecord {
   });
 }
 
+/// A historical WHOOP MG raw-ECG record (type 47, revision 16) exactly as it
+/// came off the band. Persisted to `ecg_raw_packet` inside the SAME durable
+/// commit that precedes the HISTORY_END ACK — it is the only durable store of
+/// these bytes, so it rides the safe-trim transaction like raw_archive does.
+/// The body is not decoded; only the common header (sequence, strap time) is
+/// read, and [hex] (the full inner) is the idempotency key.
+class EcgRawPacket {
+  final String hex; // full inner bytes, hex — identity
+  final String deviceId;
+  final int sequence; // inner[3..6]
+  final int strapSeconds; // inner[7..10], strap seconds
+  final int strapSubsec; // inner[11..12], 1/32768 s
+  final int capturedAt; // epoch ms we received it
+
+  const EcgRawPacket({
+    required this.hex,
+    required this.deviceId,
+    required this.sequence,
+    required this.strapSeconds,
+    required this.strapSubsec,
+    required this.capturedAt,
+  });
+}
+
 /// Live, in-memory device state (not persisted; rebuilt each connection).
 class DeviceState {
   String? address;

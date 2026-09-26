@@ -121,12 +121,26 @@ double? estimatedMaxHr(num? age, String? deviceFamily) {
 /// a guessed ceiling are one measured anchor and one guessed one, which is not
 /// the claim `karvonen` makes here and not worth moving every existing user's
 /// zone boundaries for.
+/// [manualZoneLowerBpm] is the user's own override — five ascending BPM
+/// thresholds, one per zone's LOWER edge. Zone 5 has no upper edge for
+/// CLASSIFICATION ([zoneNumber] never checks it — same as every computed
+/// set), but [_manualZones] still gives it a finite display value, because
+/// `.round()` on `double.infinity` throws and every payload builder rounds
+/// it unconditionally. When present and well-formed the override wins
+/// outright: no age, no ceiling, no resting history is consulted. When
+/// absent or
+/// malformed it falls straight through to the computed set below — an
+/// override that failed to save is not license to fabricate one, but nor is
+/// it license to erase the honest default underneath it.
 ana.HeartRateZoneSet? trainingZones({
   num? age,
   String? deviceFamily,
   double? observedCeilingBpm,
   List<double> restingHrHistory = const [],
+  List<int>? manualZoneLowerBpm,
 }) {
+  final manual = manualZoneLowerBpm;
+  if (manual != null && manual.length == 5) return _manualZones(manual);
   final est = estimatedMaxHr(age, deviceFamily);
   if (observedCeilingBpm != null &&
       observedCeilingBpm > 0 &&
@@ -143,6 +157,68 @@ ana.HeartRateZoneSet? trainingZones({
   return est == null
       ? null
       : ana.HeartRateZones.zonesFromMaxHr(est, source: 'tanaka');
+}
+
+/// Builds a zone set straight from five user-set bpm thresholds — no
+/// percentage-of-anything, so `lowerPct`/`upperPct` (display metadata no
+/// screen reads for a manual set) are left at 0.
+///
+/// Zone 5's upper edge is open-ended for classification ([zoneNumber] never
+/// consults it there) but every caller of [trainingZones] still rounds it
+/// for display, so it cannot be `double.infinity` — `.round()` on that
+/// throws. [kHrHardCeilBpm] (no human sustains a heart rate above it) is the
+/// same hard ceiling already used to bound implausible samples elsewhere in
+/// this file, so it is not a new number being invented here.
+ana.HeartRateZoneSet _manualZones(List<int> lowerBpm) {
+  final z5Upper = math.max(
+    lowerBpm[4] + 1,
+    kHrHardCeilBpm,
+  ).toDouble();
+  return ana.HeartRateZoneSet(
+    zones: [
+      for (var i = 0; i < 5; i++)
+        ana.HeartRateZone(
+          number: i + 1,
+          lower: lowerBpm[i].toDouble(),
+          upper: i < 4 ? lowerBpm[i + 1].toDouble() : z5Upper,
+          lowerPct: 0,
+          upperPct: 0,
+        ),
+    ],
+    maxHr: z5Upper,
+    source: 'manual',
+  );
+}
+
+/// Whether five manual zone thresholds are strictly ascending AND above the
+/// sensor-dropout floor ([kHrFloorBpm]) — the one check both the profile
+/// reader below and the zones-screen editor route through, so a fat-fingered
+/// negative/zero/single-digit override (still "ascending") can never be
+/// accepted on either path.
+bool validManualZoneBounds(List<int> vals) {
+  if (vals.length != 5) return false;
+  if (vals[0] < kHrFloorBpm) return false;
+  for (var i = 1; i < vals.length; i++) {
+    if (vals[i] <= vals[i - 1]) return false;
+  }
+  return true;
+}
+
+/// Reads the manual zone override off a profile map — five ascending BPM
+/// thresholds under `hr_zone_bounds`, or null when unset/malformed (wrong
+/// length, non-numeric, below the floor, or not strictly ascending). Every
+/// [trainingZones] caller routes through this so the override and its
+/// validation cannot drift between the day pipeline, the live tick and the
+/// zones screen.
+List<int>? manualZoneBoundsFromProfile(Map<String, dynamic>? profile) {
+  final raw = profile?['hr_zone_bounds'];
+  if (raw is! List || raw.length != 5) return null;
+  final vals = <int>[];
+  for (final v in raw) {
+    if (v is! num) return null;
+    vals.add(v.round());
+  }
+  return validManualZoneBounds(vals) ? vals : null;
 }
 
 /// Whether [source] means BOTH zone anchors were measured on this user.

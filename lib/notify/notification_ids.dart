@@ -11,11 +11,18 @@
 // scheme guaranteed nothing.
 //
 // Ids are now ALLOCATED instead: each dedupeKey takes the next free slot in its
-// category's band, recorded in shared_preferences so the id stays stable across
-// restarts (a re-post of the same logical event still replaces in place, which
-// is the one property the hash gave us for free). A reverse index (slot → key)
-// makes occupancy explicit, so an allocation can never land on a slot another
-// key already owns.
+// category's band. The allocation itself goes through `LocalDb.claimNotifSlot`
+// — one SQLite `INSERT OR IGNORE` against a UNIQUE(category, slot) index,
+// exactly the primitive `FiredKeyStore`/`claimNotifFired` uses for the
+// fire-once guard — because a plain SharedPreferences read-then-write has no
+// atomicity across isolates: the foreground app isolate and a headless
+// BLE/BGTask derive isolate can both read the same free slot before either
+// writes it back, and both then compute the same OS notification id (see
+// derivation_engine.dart's plain/escalated same-day dedupeKey pair for a real
+// case where two isolates can race to FIRST-allocate two different keys in
+// the same category band). The DB claim closes that window; SharedPreferences
+// is kept only as a mirror (for the in-memory memo / prune bookkeeping below)
+// and as the degraded-mode fallback when no DB is available.
 //
 // RETENTION. Allocations are pruned on the same schedule as FiredKeyStore's
 // fire-once claims: a date-prefixed dedupeKey older than [retentionDays] can no
@@ -31,6 +38,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/day_label.dart';
+import '../data/db.dart';
 import 'fired_keys.dart';
 import 'notification_event.dart';
 
@@ -106,6 +114,52 @@ class NotificationIds {
     } catch (_) {
       p = null; // no platform prefs — the in-memory maps carry the process
     }
+    final nextKey = '$_kNext$cat';
+    final start = p?.getInt(nextKey) ?? _next[nextKey] ?? 0;
+
+    // Preferred path: one atomic DB claim (get-existing-or-INSERT OR IGNORE
+    // against a UNIQUE(category, slot) index), the same primitive
+    // claimNotifFired uses for the fire-once guard. This is checked BEFORE
+    // the SharedPreferences mirror below — on every call, not just the first
+    // allocation — so a prefs value that has gone stale or diverged from the
+    // DB (a partial write, a pre-migration leftover) can never win over the
+    // DB; the DB is the actual source of truth on every read, not only on
+    // first write. `start` above is only a probe hint for a first-time
+    // allocation, the UNIQUE index is what makes the claim correct even if
+    // the hint is stale. Falls through to the SharedPreferences scheme below
+    // on any failure (no DB in this process — a plain unit test, a
+    // torn-down background isolate — or the DB throwing).
+    try {
+      final slot = await LocalDb.claimNotifSlot(
+        cat,
+        e.dedupeKey,
+        startAt: start,
+        bandSize: bandSize,
+        maxProbes: maxProbes,
+      );
+      _slots[slotKey] = slot;
+      if (p != null) {
+        try {
+          final isFresh = p.getInt(slotKey) == null;
+          await p.setInt(slotKey, slot);
+          await p.setInt(nextKey, (slot + 1) % bandSize);
+          // Same "prune only after a fresh allocation" rule as the fallback
+          // path below — keeps this cheap and rare rather than a per-call
+          // sweep, while still actually running on the healthy-DB path (the
+          // common case) instead of only the DB-failure path.
+          if (isFresh) await _prune(p, keep: slotKey);
+        } catch (_) {/* mirror is best-effort; the DB is the source of truth */}
+      }
+      return slot;
+    } catch (err) {
+      // Degrade to the SharedPreferences scheme below. Logged (not swallowed
+      // silently) because this path re-opens the exact cross-isolate race
+      // this file exists to close — worth knowing if it's hit for a reason
+      // other than "no DB in this process" (a plain unit test, a torn-down
+      // background isolate), e.g. a genuinely failing DB.
+      debugPrint('NotificationIds: DB slot claim failed, degrading: $err');
+    }
+
     if (p != null) {
       try {
         await p.reload(); // the OTHER isolate may have allocated since
@@ -117,8 +171,6 @@ class NotificationIds {
       }
     }
 
-    final nextKey = '$_kNext$cat';
-    final start = p?.getInt(nextKey) ?? _next[nextKey] ?? 0;
     var slot = start % bandSize;
     for (var i = 0; i < maxProbes; i++) {
       final candidate = (start + i) % bandSize;

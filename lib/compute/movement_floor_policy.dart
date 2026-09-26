@@ -67,7 +67,13 @@ int daysSinceFrozen({required String frozenOn, required String dayId}) {
   final from = DateTime.tryParse(frozenOn);
   final to = DateTime.tryParse(dayId);
   if (from == null || to == null) return 0;
-  final diff = to.difference(from).inDays;
+  // UTC, not `.difference()` on the parsed (local) DateTimes directly: the
+  // same spring-forward trap `dayLabelBefore` above is built to avoid. A span
+  // crossing the one short day loses an hour of wall-clock duration, so
+  // `.inDays` floors a real 10-day gap to 9.
+  final fromUtc = DateTime.utc(from.year, from.month, from.day);
+  final toUtc = DateTime.utc(to.year, to.month, to.day);
+  final diff = toUtc.difference(fromUtc).inDays;
   return diff > 0 ? diff : 0;
 }
 

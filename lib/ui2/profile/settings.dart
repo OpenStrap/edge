@@ -157,6 +157,8 @@ class _MoreSettingsState extends State<MoreSettings> {
       units: units.system.label,
       appearance: theme.choice.label,
       cycleTracking: app.cycleTrackingEnabled,
+      zoneAlertEnabled: app.zoneAlertEnabled,
+      zoneAlertZone: app.zoneAlertTargetZone,
       appIcon: _icon,
       onPickIcon: _pickIcon,
       phoneSteps: app.phoneStepsEnabled,
@@ -196,6 +198,10 @@ class _MoreSettingsState extends State<MoreSettings> {
       onToggleHealthSync: () => _toggleHealthSync(app),
       onToggleUpdateChecks: () =>
           app.setUpdateChecksEnabled(!app.updateChecksEnabled),
+      onToggleZoneAlert: () =>
+          app.setZoneAlertEnabled(!app.zoneAlertEnabled),
+      onCycleZoneAlertZone: () => app.setZoneAlertTargetZone(
+          app.zoneAlertTargetZone >= 5 ? 1 : app.zoneAlertTargetZone + 1),
       onReset: () => _confirmReset(c, app),
     );
   }
@@ -477,6 +483,11 @@ class MoreSettingsView extends StatelessWidget {
   final String units, appearance;
   final bool phoneSteps, telemetry, barcodeLookup, cycleTracking;
 
+  /// The live-workout HR-zone-crossing haptic. Off by default; [zoneAlertZone]
+  /// (1..5) is only meaningful — and only drawn — while this is on.
+  final bool zoneAlertEnabled;
+  final int zoneAlertZone;
+
   /// The home-screen icon, or null where the OS will not change it — Android,
   /// and the managed iOS configurations that refuse. Null means the row is not
   /// drawn: a control that cannot do its one job is worse than no control.
@@ -526,6 +537,8 @@ class MoreSettingsView extends StatelessWidget {
       onToggleHealthShare,
       onToggleHealthSync,
       onToggleUpdateChecks,
+      onToggleZoneAlert,
+      onCycleZoneAlertZone,
       onReset;
 
   const MoreSettingsView({
@@ -541,6 +554,8 @@ class MoreSettingsView extends StatelessWidget {
     this.telemetry = false,
     this.barcodeLookup = true,
     this.cycleTracking = false,
+    this.zoneAlertEnabled = false,
+    this.zoneAlertZone = 3,
     this.showHealthShare = false,
     this.healthShare = false,
     this.showUpdateChecks = false,
@@ -566,6 +581,8 @@ class MoreSettingsView extends StatelessWidget {
     this.onToggleHealthShare,
     this.onToggleHealthSync,
     this.onToggleUpdateChecks,
+    this.onToggleZoneAlert,
+    this.onCycleZoneAlertZone,
     this.onReset,
   });
 
@@ -596,6 +613,26 @@ class MoreSettingsView extends StatelessWidget {
                       sub: l?.settingsAlarmRowSub ??
                           'Buzzes on your wrist, on the band’s own clock',
                       onTap: onAlarm),
+                  // Off by default — an existing user did not ask their band
+                  // to start buzzing mid-workout. The target-zone row below
+                  // only appears once this is on; a target for an alert
+                  // that's off is furniture, same rule as battery/water above.
+                  SetRow(LucideIcons.heartPulse, C.red,
+                      l?.settingsZoneAlertRowTitle ?? 'HR zone alert',
+                      sub: l?.settingsZoneAlertRowSub ??
+                          'Buzz when your heart rate crosses into or out of '
+                              'the target zone during a live workout',
+                      value: zoneAlertEnabled ? on : off,
+                      chevron: false,
+                      onTap: onToggleZoneAlert),
+                  if (zoneAlertEnabled)
+                    SetRow(LucideIcons.target, C.red,
+                        l?.settingsZoneAlertTargetRowTitle ?? 'Target zone',
+                        value: l?.settingsZoneAlertTargetRowValue(
+                                zoneAlertZone) ??
+                            'Zone $zoneAlertZone',
+                        chevron: false,
+                        onTap: onCycleZoneAlertZone),
                 ]),
                 // NOT in Preferences. Units and Appearance change how numbers
                 // are drawn; this one asks the OS for a sensor and decides

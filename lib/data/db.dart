@@ -185,6 +185,12 @@ class LocalDb {
     'sessions',
     'workout_route',
     'workout_split',
+    // User-initiated ECG readings and the band's raw ECG records recovered
+    // through history — the band trims its flash on ACK, so these too are
+    // the only copy. Parent before child.
+    'ecg_reading',
+    'ecg_reading_packet',
+    'ecg_raw_packet',
     // Derived once, from raw that no longer exists.
     'day_result',
     'metric_series',
@@ -343,7 +349,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 51;
+  static const int schemaVersion = 54;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -447,11 +453,13 @@ class LocalDb {
         await _createDevice(db);
         await _createDeviceCoverage(db);
         await _createSignalPriority(db);
+        await _createEcgTables(db);
         await _createWorkoutSuggestions(db);
         await _createSleepOverride(db);
         await _createSleepNap(db);
         await _createWorkoutRoute(db);
         await _createNotifFired(db);
+        await _createNotifSlots(db);
         await _createAlarmSchedule(db);
         await _ensureCoachViews(db);
       },
@@ -1031,6 +1039,40 @@ class LocalDb {
           // of it is a second source of truth that goes stale against the
           // adapter.
         }
+        if (oldV < 52) {
+          // Smart Wake Window: one additive column, default 0 (off), on an
+          // existing per-weekday row — every existing alarm keeps firing at
+          // exactly its configured time, unchanged. No kAlgoVersion bump:
+          // this is not a health metric.
+          await _addColumnIfMissing(
+            db, 'alarm_schedule', 'smart_window_minutes',
+            'INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldV < 53) {
+          // Cross-isolate atomic OS-notification-id slot allocation — the
+          // same TOCTOU hazard `_createNotifFired` fixed for the fire-once
+          // guard, but for id allocation: two isolates could allocate a slot
+          // for two different dedupeKeys in the same category band at nearly
+          // the same instant and land on the same id. Purely additive; the
+          // legacy SharedPreferences-allocated ids are left as-is and simply
+          // stop being consulted for new allocations going forward.
+          await _createNotifSlots(db);
+        }
+        if (oldV < 54) {
+          // The WHOOP MG ECG store: three new tables, CREATE TABLE IF NOT
+          // EXISTS and NOTHING else — no backfill, no rewrite, no ADD COLUMN,
+          // nothing read — so a throw here has nothing to roll back onto
+          // (invariant 11). The coach view over ecg_reading is created by
+          // _ensureCoachViews on the onOpen repair pass, after every table
+          // exists. Ships without a kAlgoVersion bump: nothing derived moves.
+          //
+          // This rung is 54: main took 51 for multi-device attribution (M3),
+          // 52 for Smart Wake Window and 53 for notif-slot allocation while
+          // this feature was on its own branch, so the store moved up to the
+          // next free rung rather than collide with any of them.
+          await _createEcgTables(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1110,11 +1152,84 @@ class LocalDb {
     await _ensureDayResultSkippedColumn(db);
     await _ensureDayResultPartialColumn(db);
     await _createNotifFired(db);
+    await _createNotifSlots(db);
     await _createAlarmSchedule(db);
+    // CREATE TABLE IF NOT EXISTS on the every-open repair path, no schema
+    // version bump needed — additive, no backfill (see _createImportedWorkout
+    // just above for the same reasoning).
+    await _createLiveWorkoutTally(db);
+    await _addColumnIfMissing(
+      db, 'alarm_schedule', 'smart_window_minutes',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
+    await _createEcgTables(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
+  }
+
+  /// Periodic snapshot of a LIVE workout's per-second tallies (per-minute HR
+  /// series, zone-seconds, the calorie bpm histogram, the spike-suppressed
+  /// peak) — written every ~30s by `AppState._tickWorkout` while a session is
+  /// live. On a hard-kill relaunch mid-workout, `_reconcileOrphanedLiveWorkout`
+  /// restores from the newest row instead of zeroing strain/calories/zone
+  /// minutes back to nothing. Deleted once the workout finishes or is
+  /// cancelled — this is scratch state for one in-progress session, never a
+  /// historical record.
+  static Future<void> _createLiveWorkoutTally(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS live_workout_tally (
+        workout_id     TEXT PRIMARY KEY,
+        updated_ts     INTEGER NOT NULL,
+        per_minute_hr  TEXT NOT NULL,
+        zone_seconds   TEXT NOT NULL,
+        seconds_by_bpm TEXT NOT NULL,
+        max_hr_seen    INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+  }
+
+  /// Upsert the latest tally snapshot for [workoutId]. Best-effort — a failed
+  /// write just means the NEXT periodic tick tries again; it must never take
+  /// down the live tick loop itself.
+  static Future<void> saveLiveWorkoutTally(Map<String, Object?> row) async {
+    final db = await instance;
+    await db.insert(
+      'live_workout_tally',
+      row,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// The persisted tally row for [workoutId], or null if this session was
+  /// never ticked long enough to be snapshotted (or predates this feature).
+  static Future<Map<String, Object?>?> liveWorkoutTally(
+    String workoutId,
+  ) async {
+    final db = await instance;
+    final rows = await db.query(
+      'live_workout_tally',
+      where: 'workout_id = ?',
+      whereArgs: [workoutId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// Drop the tally row for [workoutId] once it is no longer live (finished,
+  /// cancelled, or reconciled as stale). Best-effort.
+  static Future<void> deleteLiveWorkoutTally(String workoutId) async {
+    try {
+      final db = await instance;
+      await db.delete(
+        'live_workout_tally',
+        where: 'workout_id = ?',
+        whereArgs: [workoutId],
+      );
+    } catch (_) {
+      /* scratch state — a failed cleanup is not worth surfacing */
+    }
   }
 
   /// The column names [table] currently has (empty if the table is absent).
@@ -1441,6 +1556,32 @@ class LocalDb {
     ''');
   }
 
+  /// The cross-isolate OS-notification-id slot allocator (see
+  /// [claimNotifSlot] and lib/notify/notification_ids.dart).
+  ///
+  /// Same root cause as [_createNotifFired]: SharedPreferences' read-then-write
+  /// has no atomicity across isolates, so two derivation isolates allocating a
+  /// slot for two different dedupeKeys in the same category band at nearly the
+  /// same instant can both read the same free candidate and both write it,
+  /// producing the same OS notification id and silently dropping one alert.
+  /// The UNIQUE index on `(category, slot)` is what makes an allocation
+  /// atomic: `INSERT OR IGNORE` either claims the slot or fails, there is no
+  /// window where two writers both believe they own it.
+  static Future<void> _createNotifSlots(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS notif_slots (
+        category TEXT NOT NULL,
+        dedupe_key TEXT NOT NULL,
+        slot INTEGER NOT NULL,
+        PRIMARY KEY (category, dedupe_key)
+      )
+    ''');
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_notif_slots_owner '
+      'ON notif_slots(category, slot)',
+    );
+  }
+
   /// Atomically claim [key] for a one-time OS notification fire.
   ///
   /// Returns true iff THIS caller won the claim (the row did not exist and we
@@ -1491,6 +1632,60 @@ class LocalDb {
     return rows.isNotEmpty;
   }
 
+  /// Atomically get-or-allocate the OS notification id slot for
+  /// `(category, dedupeKey)`. Returns the existing slot if one is already
+  /// owned; otherwise probes `bandSize` candidates starting at [startAt] and
+  /// claims the first free one via `INSERT OR IGNORE` against the
+  /// `(category, slot)` UNIQUE index. [startAt] is only a hint for where to
+  /// start probing; correctness comes from the UNIQUE index, not from it
+  /// being fresh — a stale hint just means a few wasted probes, never a
+  /// collision.
+  ///
+  /// Throws if the claim can't be decided — same contract as
+  /// [claimNotifFired] — so the caller falls back to the best-effort
+  /// SharedPreferences scheme rather than silently misallocating.
+  static Future<int> claimNotifSlot(
+    String category,
+    String dedupeKey, {
+    required int startAt,
+    required int bandSize,
+    int maxProbes = 1024,
+  }) async {
+    if (bandSize <= 0) throw ArgumentError('bandSize must be > 0');
+    // maxProbes beyond bandSize can only re-probe candidates already tried
+    // (the modulo wraps), so cap it — this also bounds the DB round-trips a
+    // single transaction can make.
+    final probes = maxProbes < bandSize ? maxProbes : bandSize;
+    final start = startAt % bandSize;
+    final slot = await _guardedWrite<int>((db) async {
+      return db.transaction<int>((txn) async {
+        final existing = await txn.query(
+          'notif_slots',
+          columns: ['slot'],
+          where: 'category = ? AND dedupe_key = ?',
+          whereArgs: [category, dedupeKey],
+          limit: 1,
+        );
+        if (existing.isNotEmpty) return existing.first['slot'] as int;
+
+        for (var i = 0; i < probes; i++) {
+          final candidate = (start + i) % bandSize;
+          await txn.rawInsert(
+            'INSERT OR IGNORE INTO notif_slots(category, dedupe_key, slot) '
+            'VALUES(?, ?, ?)',
+            [category, dedupeKey, candidate],
+          );
+          final n =
+              Sqflite.firstIntValue(await txn.rawQuery('SELECT changes()'));
+          if (n == 1) return candidate;
+        }
+        throw StateError('notif_slots: no free slot within $probes probes');
+      });
+    });
+    if (slot == null) throw StateError('notif_slots: claim undecided');
+    return slot;
+  }
+
   /// Seed claims for [keys] without taking ownership — used once to carry the
   /// legacy SharedPreferences fired-key list over, so keys that already fired
   /// under the old store don't re-fire on the upgrade.
@@ -1538,6 +1733,7 @@ class LocalDb {
         hour    INTEGER NOT NULL,
         minute  INTEGER NOT NULL,
         enabled INTEGER NOT NULL DEFAULT 1,
+        smart_window_minutes INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (weekday)
       )
     ''');
@@ -1554,6 +1750,187 @@ class LocalDb {
     return db.query('alarm_schedule');
   }
 
+  // ── WHOOP MG ECG ────────────────────────────────────────────────────────────
+  // Three tables. `ecg_reading` is one user-initiated Labrador reading — the
+  // band-reported result, not a phone-side diagnosis. `ecg_reading_packet` is
+  // the accepted R17 window, one row per accepted packet in order, with the
+  // exact signed-i16-LE samples as a BLOB (the first BLOB column in this
+  // schema — every other payload is hex TEXT; the sample block is the one
+  // place a compact binary earns it) plus the exact inner hex, and a
+  // placeholder row for the ONE empty segment the official accumulator
+  // inserts at a sequence jump. `ecg_raw_packet` is the raw R16 record the
+  // band saved and ordinary history later delivered — kept byte-exact, keyed
+  // by its bytes, never decoded here.
+  //
+  // UNITS. start_ts / end_ts / strap_terminal_ts / strap_seconds are SECONDS
+  // (epoch or strap); created_at / captured_at are epoch MILLISECONDS — the
+  // same split raw_archive / RawRecord already use. `sample_unit` names what
+  // the samples are (filtered, input-referred integer microvolts); no lead or
+  // polarity is claimed anywhere.
+  //
+  // NO FOREIGN KEYS: this database never enables PRAGMA foreign_keys, so a
+  // REFERENCES clause would be inert. The reading→packet cascade is manual,
+  // inside one transaction ([deleteEcgReading]) — the same discipline
+  // decoded_onehz/decoded_rr use.
+  static Future<void> _createEcgTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ecg_reading (
+        id                    TEXT PRIMARY KEY,
+        device_id             TEXT NOT NULL,
+        source                TEXT NOT NULL,
+        wrist                 TEXT NOT NULL,
+        start_ts              INTEGER NOT NULL,
+        end_ts                INTEGER NOT NULL,
+        strap_terminal_ts     INTEGER,
+        strap_terminal_subsec INTEGER,
+        result_code           INTEGER NOT NULL,
+        category              TEXT NOT NULL,
+        avg_hr                INTEGER,
+        quality               INTEGER,
+        unreadable_mask       INTEGER NOT NULL DEFAULT 0,
+        interruptions         INTEGER NOT NULL DEFAULT 0,
+        sample_rate_hz        INTEGER NOT NULL DEFAULT 100,
+        sample_unit           TEXT NOT NULL DEFAULT 'filtered_input_referred_uv',
+        sample_count          INTEGER NOT NULL,
+        min_uv                INTEGER,
+        max_uv                INTEGER,
+        rms_uv                REAL,
+        missing_segments      INTEGER NOT NULL DEFAULT 0,
+        status                TEXT NOT NULL,
+        notes                 TEXT,
+        created_at            INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_ecg_reading_start '
+      'ON ecg_reading(start_ts DESC)',
+    );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ecg_reading_packet (
+        reading_id     TEXT NOT NULL,
+        ordinal        INTEGER NOT NULL,
+        sequence       INTEGER NOT NULL,
+        strap_seconds  INTEGER,
+        strap_subsec   INTEGER,
+        sample_count   INTEGER NOT NULL,
+        samples        BLOB NOT NULL,
+        inner_hex      TEXT NOT NULL,
+        is_placeholder INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (reading_id, ordinal)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ecg_raw_packet (
+        hex           TEXT PRIMARY KEY,
+        device_id     TEXT NOT NULL,
+        sequence      INTEGER,
+        strap_seconds INTEGER,
+        strap_subsec  INTEGER,
+        captured_at   INTEGER NOT NULL,
+        reading_id    TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_ecg_raw_packet_strap '
+      'ON ecg_raw_packet(strap_seconds)',
+    );
+  }
+
+  /// Persist one accepted reading and its packets ATOMICALLY. Throws on any
+  /// failure (including an id collision — a re-save of the same reading is a
+  /// bug, not a merge), and the caller must not present a completed reading
+  /// unless this returned. [packets] are inserted in list order as ordinals
+  /// 0..n-1; a placeholder packet carries an empty BLOB and empty inner_hex.
+  static Future<void> insertEcgReading(
+    Map<String, Object?> reading,
+    List<Map<String, Object?>> packets,
+  ) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      await txn.insert(
+        'ecg_reading',
+        reading,
+        conflictAlgorithm: ConflictAlgorithm.fail,
+      );
+      final batch = txn.batch();
+      for (var i = 0; i < packets.length; i++) {
+        batch.insert(
+          'ecg_reading_packet',
+          {...packets[i], 'reading_id': reading['id'], 'ordinal': i},
+          conflictAlgorithm: ConflictAlgorithm.fail,
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  /// Saved readings, newest first, WITHOUT packets.
+  static Future<List<Map<String, Object?>>> listEcgReadings({
+    int limit = 200,
+  }) async {
+    final db = await instance;
+    return db.query('ecg_reading', orderBy: 'start_ts DESC', limit: limit);
+  }
+
+  /// One reading row, or null.
+  static Future<Map<String, Object?>?> ecgReading(String id) async {
+    final db = await instance;
+    final r = await db.query('ecg_reading', where: 'id = ?', whereArgs: [id]);
+    return r.isEmpty ? null : r.first;
+  }
+
+  /// The accepted packets of [id] in ordinal order (placeholders included).
+  static Future<List<Map<String, Object?>>> ecgReadingPackets(
+    String id,
+  ) async {
+    final db = await instance;
+    return db.query(
+      'ecg_reading_packet',
+      where: 'reading_id = ?',
+      whereArgs: [id],
+      orderBy: 'ordinal ASC',
+    );
+  }
+
+  /// Delete a reading and ITS packets in one transaction (manual cascade —
+  /// see [_createEcgTables]). Raw R16 rows are independent history evidence
+  /// and are not deleted with a reading; their association is cleared.
+  static Future<void> deleteEcgReading(String id) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      await txn.delete(
+        'ecg_reading_packet',
+        where: 'reading_id = ?',
+        whereArgs: [id],
+      );
+      await txn.update(
+        'ecg_raw_packet',
+        {'reading_id': null},
+        where: 'reading_id = ?',
+        whereArgs: [id],
+      );
+      await txn.delete('ecg_reading', where: 'id = ?', whereArgs: [id]);
+    });
+  }
+
+  /// Update the free-text notes of a reading.
+  static Future<void> setEcgReadingNotes(String id, String? notes) async {
+    final db = await instance;
+    await db.update(
+      'ecg_reading',
+      {'notes': notes},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// How many raw R16 records history has recovered (diagnostics).
+  static Future<int> ecgRawPacketCount() async {
+    final db = await instance;
+    final r = await db.rawQuery('SELECT COUNT(*) AS n FROM ecg_raw_packet');
+    return (r.first['n'] as num?)?.toInt() ?? 0;
+  }
+
   /// Upsert one weekday's slot. [weekday] is 0=Mon..6=Sun (see
   /// `_createAlarmSchedule`'s doc); out-of-range values are the caller's bug,
   /// not something this layer silently clamps.
@@ -1562,6 +1939,7 @@ class LocalDb {
     required int hour,
     required int minute,
     required bool enabled,
+    int smartWindowMinutes = 0,
   }) async {
     final db = await instance;
     await db.insert(
@@ -1571,6 +1949,7 @@ class LocalDb {
         'hour': hour,
         'minute': minute,
         'enabled': enabled ? 1 : 0,
+        'smart_window_minutes': smartWindowMinutes,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -1582,6 +1961,32 @@ class LocalDb {
   static Future<void> clearAlarmSchedule() async {
     final db = await instance;
     await db.delete('alarm_schedule');
+  }
+
+  /// `decoded_onehz` rows with `rec_ts` (unix seconds) in
+  /// `[sinceEpochSec, untilEpochSec]`, oldest first — hr + accel only. Used by
+  /// the Smart Wake Window check (state/smart_wake.dart) to read a short
+  /// recent slice and the resting baseline that precedes it. No LIMIT: every
+  /// call site passes a window measured in single-digit minutes to ~90
+  /// minutes, at 1 row/sec that is at most a few thousand rows.
+  ///
+  /// Rows with a null hr/ax/ay/az are excluded: those columns are legitimately
+  /// nullable (a v25 record with no usable gravity vector, see the
+  /// v25-exclusion note near `FirmwareAwareR24Decoder().decode`'s call site),
+  /// and `SmartWakeSample.fromRow` requires all four non-null.
+  static Future<List<Map<String, Object?>>> onehzHrAccelBetween(
+    int sinceEpochSec,
+    int untilEpochSec,
+  ) async {
+    final db = await instance;
+    return db.query(
+      'decoded_onehz',
+      columns: const ['rec_ts', 'hr', 'ax', 'ay', 'az'],
+      where: 'rec_ts >= ? AND rec_ts <= ? '
+          'AND hr IS NOT NULL AND ax IS NOT NULL AND ay IS NOT NULL AND az IS NOT NULL',
+      whereArgs: [sinceEpochSec, untilEpochSec],
+      orderBy: 'rec_ts ASC',
+    );
   }
 
   /// sleep_nap — the user's edits to a day's naps.
@@ -2610,6 +3015,12 @@ class LocalDb {
   /// same day can be synced repeatedly as it fills in. So the phone sync is
   /// delete-then-insert scoped to `source = 'phone'`, which is idempotent by
   /// construction and needs no window-clipping. Band rows are untouched.
+  ///
+  /// A `steps == 0` window IS stored, deliberately — it is not "nothing to
+  /// say", it is the phone confirming it saw no motion over that hour, which
+  /// `resolveDaySteps`'s confirmed-still check uses to veto a wrist
+  /// false-positive over the same window. Only a negative count (never
+  /// produced by the reader) or an inverted window is dropped.
   static Future<void> replacePhoneCoverageForDay(
     String day,
     List<({int startTs, int endTs, int steps})> windows,
@@ -2622,7 +3033,7 @@ class LocalDb {
         whereArgs: [day, kStepSourcePhone],
       );
       for (final w in windows) {
-        if (w.steps <= 0 || w.endTs <= w.startTs) continue;
+        if (w.steps < 0 || w.endTs <= w.startTs) continue;
         await txn.insert('live_coverage', {
           'start_ts': w.startTs,
           'end_ts': w.endTs,
@@ -3004,6 +3415,9 @@ class LocalDb {
     /// path and the one conflict policy. Null on every WHOOP commit, where it
     /// costs exactly one null check.
     List<NeutralSample>? neutrals,
+    // WHOOP MG raw ECG (R16) records recovered by this burst. Same
+    // transaction as everything else here — they have no other durable home.
+    List<EcgRawPacket>? ecgRawPackets,
     void Function(String)? onCheckpoint,
     String? deviceFamily,
     String deviceId = kPrimaryDeviceId,
@@ -3021,6 +3435,7 @@ class LocalDb {
             extraCursors: extraCursors,
             archives: archives,
             neutrals: neutrals,
+            ecgRawPackets: ecgRawPackets,
             onCheckpoint: onCheckpoint,
             deviceFamily: deviceFamily,
             deviceId: deviceId,
@@ -3034,6 +3449,9 @@ class LocalDb {
     Map<String, String>? extraCursors,
     List<ArchiveRecord>? archives,
     List<NeutralSample>? neutrals,
+    // WHOOP MG raw ECG (R16) records recovered by this burst. Same
+    // transaction as everything else here — they have no other durable home.
+    List<EcgRawPacket>? ecgRawPackets,
     void Function(String)? onCheckpoint,
     // Which strap this batch came off, from the LIVE LINK (the engine pins it at
     // service discovery). Null = the caller could not name it, which lands as
@@ -3180,6 +3598,21 @@ class LocalDb {
             if (++ops >= chunkOps) await flushChunk();
           }
         }
+        // SAFE-TRIM INVARIANT, same rule: the raw ECG records land in this
+        // transaction, before the ACK that lets the band trim them.
+        if (ecgRawPackets != null) {
+          for (final e in ecgRawPackets) {
+            batch.insert('ecg_raw_packet', {
+              'hex': e.hex,
+              'device_id': e.deviceId,
+              'sequence': e.sequence,
+              'strap_seconds': e.strapSeconds,
+              'strap_subsec': e.strapSubsec,
+              'captured_at': e.capturedAt,
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+            if (++ops >= chunkOps) await flushChunk();
+          }
+        }
         for (var i = 0; i < raws.length; i++) {
           final raw = raws[i];
           final recTs = _recTsFor(raw);
@@ -3226,7 +3659,8 @@ class LocalDb {
         }
         checkpoint(
           'decoded_archive_queued raws=${raws.length} '
-          'archives=${archives?.length ?? 0}',
+          'archives=${archives?.length ?? 0} '
+          'ecg_raw=${ecgRawPackets?.length ?? 0}',
         );
         await flushChunk();
         checkpoint('decoded_archive_committed');
@@ -3975,6 +4409,10 @@ class LocalDb {
     // read NULL — the truth for them — and the read path still recomputes from
     // the substrate while it is there.
     await _addColumnIfMissing(db, 'sessions', 'avg_hr', 'INTEGER');
+    // Submax VO2max estimate (ml/kg/min), backfilled from a completed km
+    // route split — see `_submaxVo2maxFromSplits` in local_repository_impl.
+    // ESTIMATE tier always; absent (NULL) is the honest default, not 0.
+    await _addColumnIfMissing(db, 'sessions', 'vo2max_estimate', 'REAL');
     // v43 (TS-09) — SESSION RPE. A SELF-REPORT, and labelled as one everywhere
     // it is ever shown. It exists to score the sessions heart rate cannot see
     // (lifting, climbing, anything intermittent) and its real value is the
@@ -4088,6 +4526,7 @@ class LocalDb {
       'v_sessions',
       'v_baselines',
       'v_insights',
+      'v_ecg_readings',
     ];
     for (final v in views) {
       await db.execute('DROP VIEW IF EXISTS $v');
@@ -4259,6 +4698,24 @@ class LocalDb {
     await db.execute('''
       CREATE VIEW v_insights AS
       SELECT id, kind, title, body, date, created_at, read FROM notifications
+    ''');
+    // WHOOP MG ECG readings — SUMMARY ONLY, and from `ecg_reading` ALONE.
+    // The coach's structural (btree) guard admits every base table a view
+    // reads, so joining ecg_reading_packet or ecg_raw_packet here would make
+    // the exact sample bytes / raw frames reachable through run_sql. The
+    // bounded waveform envelope is served by the typed get_ecg_reading tool
+    // instead. No device_id (band identity) and no free-text notes. `date` is
+    // the LOCAL day like v_sessions; start_ts/end_ts are epoch SECONDS.
+    await db.execute('''
+      CREATE VIEW v_ecg_readings AS
+      SELECT id, start_ts, end_ts,
+             strftime('%Y-%m-%d', start_ts, 'unixepoch', 'localtime') AS date,
+             wrist, status, category, result_code, avg_hr, quality,
+             unreadable_mask, interruptions,
+             (end_ts - start_ts) AS duration_s,
+             sample_count, sample_rate_hz, sample_unit,
+             min_uv, max_uv, rms_uv, missing_segments
+      FROM ecg_reading
     ''');
   }
 
@@ -8171,15 +8628,10 @@ class LocalDb {
   /// behind its own catch: a rebuild salvaging a genuinely damaged file must
   /// lose that table and keep going, where a user-initiated restore of a file
   /// they chose must still fail loudly rather than report a partial success.
-  static Future<Map<String, int>> _mergeFromDbFile(
-    String path, {
-    List<String>? only,
-    bool tolerant = false,
-  }) async {
-    final src = await openDatabase(path, readOnly: true);
-    final db = await instance;
-    // Order: independent tables; all use INSERT OR REPLACE so re-import is safe.
-    const tables = [
+  /// Every table a backup restore (and the tolerant rebuild salvage)
+  /// merges, in order: independent tables first; all use INSERT OR
+  /// REPLACE so re-import is safe.
+  static const List<String> _restoreTables = [
       // Hand-entered rows first. Nothing regenerates these, so if a merge is
       // ever cut short (an OOM, a damaged source) they are the ones already
       // banked. They were also simply MISSING here until now — nutrition,
@@ -8248,8 +8700,30 @@ class LocalDb {
       'device',
       'device_coverage',
       'signal_priority',
+      // WHOOP MG ECG: a user-initiated reading, its exact accepted packets
+      // and the raw R16 records history recovered for it. None regenerates —
+      // the band trimmed its copy on ACK. Parent before child so a restore
+      // cut short never leaves packets without their reading.
+      'ecg_reading',
+      'ecg_reading_packet',
+      'ecg_raw_packet',
       'sync_cursor',
-    ];
+  ];
+
+  @visibleForTesting
+  static List<String> get restoreTablesForTest => _restoreTables;
+
+  @visibleForTesting
+  static List<String> get salvageTablesForTest => _salvageTables;
+
+  static Future<Map<String, int>> _mergeFromDbFile(
+    String path, {
+    List<String>? only,
+    bool tolerant = false,
+  }) async {
+    final src = await openDatabase(path, readOnly: true);
+    final db = await instance;
+    const tables = _restoreTables;
     // Columns this app's schema actually has, per table — so a row from a NEWER
     // export carrying extra columns this build doesn't know about is filtered
     // down (dropped) instead of throwing "no such column". A column the source
@@ -10389,6 +10863,20 @@ class LocalDb {
     await db.update(
       'sessions',
       {'hrr_bpm': hrrBpm},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Backfill a session's submax VO2max estimate, computed once from a
+  /// completed route km split (see `_submaxVo2maxFromSplits`). Never called
+  /// with null — a session that didn't qualify simply never writes here and
+  /// stays NULL, the honest "no estimate" state.
+  static Future<void> setSessionVo2max(String id, double vo2max) async {
+    final db = await instance;
+    await db.update(
+      'sessions',
+      {'vo2max_estimate': vo2max},
       where: 'id = ?',
       whereArgs: [id],
     );
