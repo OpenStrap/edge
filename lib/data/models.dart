@@ -146,8 +146,9 @@ class Sample {
   /// sleep. (Those records are the ARCHIVE, a biased sample, so the counts are
   /// not a population; the ordering is the claim.)
   ///
-  /// Nothing reads it. Persisting it claims nothing — same contract as
-  /// [tempCh2C] and [dynAccelG].
+  /// The derive query reads it into `Substrate.bandSleepState`, and the auto
+  /// sleep segmenter uses it to END a night at the band's last SLEEP second
+  /// (analytics `band_offset.dart`) — never to create, extend or stage one.
   final int? bandSleepState;
 
   Sample({

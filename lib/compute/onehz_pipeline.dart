@@ -390,6 +390,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // worse night. `absence_reason` is why a window produced nothing.
   final unobservedSec = (d.sleepJson['unobserved_sec'] as num?)?.toInt();
   final absenceReason = d.sleepJson['absence_reason'] as String?;
+  final bandOffsetTrimSec = (d.sleepJson['band_offset_trim_sec'] as num?)?.toInt();
   final runs = _sleepRuns(d);
 
   // ── CLINICAL (sleep-windowed) ──────────────────────────────────────────────
@@ -1010,6 +1011,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     // Why this night produced nothing, when the segmenter knows. Null on a
     // normal night; never render a bare dash for an absence that carries one.
     'absence_reason': absenceReason,
+    // Seconds the band's own last SLEEP cut off the end of the auto window; null = rule did not apply. Provenance, never a metric.
+    'band_offset_trim_sec': bandOffsetTrimSec,
     'stager': _envelope(
       hasSleep
           ? {

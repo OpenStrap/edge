@@ -213,6 +213,53 @@ void main() {
     expect((await LocalDb.latestSample())!.hrValid, isFalse);
   });
 
+  test('derive read path selects band_sleep_state in both call shapes',
+      () async {
+    const name = 'openstrap_band_sleep_state_test.db';
+    created.add(name);
+    await _useFreshDb(name);
+
+    const recTs = 1785000000;
+    for (final c in [9101, 9102]) {
+      await LocalDb.insertRecord(
+        _raw(recTs + c - 9101, c),
+        Sample(
+          tsEpoch: recTs + c - 9101,
+          counter: c,
+          hr: 58,
+          ax: 0.02,
+          ay: -0.05,
+          az: 0.99,
+          spo2RedRaw: 1,
+          spo2IrRaw: 2,
+          skinTempRaw: 3,
+        ),
+      );
+    }
+    final db = await LocalDb.instance;
+    await db.rawUpdate('UPDATE decoded_onehz SET band_sleep_state = 3');
+
+    final first = await LocalDb.decodedOneHzBatchByRecTsRange(
+      limit: 10,
+      fromRecTs: recTs - 1,
+      toRecTs: recTs + 5,
+    );
+    expect(first, hasLength(2));
+    expect(first.first.containsKey('band_sleep_state'), isTrue);
+    expect(first.first['band_sleep_state'], 3);
+
+    final cont = await LocalDb.decodedOneHzBatchByRecTsRange(
+      limit: 10,
+      fromRecTs: recTs - 1,
+      toRecTs: recTs + 5,
+      afterRecTs: recTs,
+      afterCounter: 9101,
+    );
+    expect(cont, hasLength(1));
+    expect(cont.single.containsKey('band_sleep_state'), isTrue);
+    expect(cont.single['band_sleep_state'], 3);
+  });
+
   test('a gen4 second stores NULL — never a fabricated 0 — for all of them',
       () async {
     const name = 'openstrap_gen4_null_fields_test.db';

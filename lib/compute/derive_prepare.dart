@@ -456,6 +456,7 @@ class _PrepareAccumulator {
   /// See [Substrate.stepCount] for why the sentinel is not 0.
   final List<int> stepCount = [];
   final List<int> hrValid = [];
+  final List<int> bandSleepState = [];
 
   /// The DISTINCT non-null `device_family` stamps seen across every page fed in
   /// (see [Substrate.deviceFamily]). Exactly one ⇒ that is the substrate's
@@ -565,6 +566,9 @@ class _PrepareAccumulator {
     hrValid.addAll(sub.hrValid.length == sub.length
         ? sub.hrValid
         : List<int>.filled(sub.length, -1));
+    bandSleepState.addAll(sub.bandSleepState.length == sub.length
+        ? sub.bandSleepState
+        : List<int>.filled(sub.length, -1));
   }
 
   void addDecodedPage(
@@ -662,6 +666,11 @@ class _PrepareAccumulator {
       // `device_family == 'gen5'` check that used to sit on top of it was a
       // band id in the neutral layer (BANDAGNOSTIC C12).
       hrValid.add(_num(row?['hr_valid'])?.toInt() ?? -1);
+      // The band's own envelope (0 wake, 1 still, 2 sleep, 3 up). NULL is ABSENT
+      // (-1): gen4 has no such field, and 0 is a real "wake". On a two-device
+      // second this is the hr1Hz owner's row (composeOneHzFrames keeps base
+      // columns) — fine for one WHOOP 5.
+      bandSleepState.add(_num(row?['band_sleep_state'])?.toInt() ?? -1);
       final beats = rrByRecTs[recTs];
       if (beats == null) continue;
       for (final beat in beats) {
@@ -720,6 +729,7 @@ class _PrepareAccumulator {
       skinContact: skinContact,
       stepCount: stepCount,
       hrValid: hrValid,
+      bandSleepState: bandSleepState,
       deviceFamily: deviceFamily,
       deviceIds: _deviceIds,
     );

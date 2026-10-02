@@ -258,7 +258,11 @@ dependencies:
       ref: bc7d8d0df706e40a2546ffde4545263f09d0fecb
   openstrap_analytics:
     git:
-      url: https://github.com/OpenStrap/analytics.git
+      # TEMPORARY (until analytics#80 merges): pinned to OpenStrap/analytics PR #80's head on the
+      # author's fork so CI compiles the band-sleep-offset-trim change. Repin
+      # to the OpenStrap/analytics merge SHA (url back to OpenStrap) before
+      # this PR is merged.
+      url: https://github.com/DropTabl/analytics.git
       # analytics main @ #34 merge. Two hops in one: #32 (the HR-onset bypass
       # for low-limb-swing cardio) had already merged and this pin was still
       # sitting on its PR-branch head, and #34 lands the sleep-stager rewrite.
@@ -494,7 +498,7 @@ dependencies:
       # window, so kAlgoVersion bumped (96 -> 97). Verified:
       #   `git show 0441ef9:lib/src/onehz/wellness/temp_circadian.dart |
       #      grep -n 'varTot == 0\|diffN == 0'`
-      ref: 0441ef9e6fc6d5681c309ce6341911285e829f20
+      ref: 9fc1d6a9b13240ee668e74940e03cb5646113a5c
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

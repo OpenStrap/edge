@@ -257,6 +257,12 @@ class Substrate {
   /// Same absent-marker discipline as [stepCount] and [accelPresentAt].
   final List<int> hrValid;
 
+  /// The band's own sleep envelope per second (0 wake, 1 still, 2 sleep, 3 up).
+  /// Parallel to [tsSec]. **`-1` means absent** (gen4, or a row decoded before
+  /// the column existed) — 0 is a real "wake". Corroboration only; see
+  /// analytics band_offset.dart. Read it through [bandSleepStateSlice].
+  final List<int> bandSleepState;
+
   /// WHICH STRAP MEASURED THIS SUBSTRATE — `'gen4'`, `'gen5'`, or null.
   ///
   /// Stamped at ingest into `decoded_onehz.device_family` and carried here so
@@ -318,6 +324,7 @@ class Substrate {
     required List<int> skinContact,
     List<int> stepCount = const [],
     List<int> hrValid = const [],
+    List<int> bandSleepState = const [],
     String? deviceFamily,
     Set<String> deviceIds = const {},
   }) =>
@@ -337,6 +344,7 @@ class Substrate {
         skinContact: skinContact,
         stepCount: stepCount,
         hrValid: hrValid,
+        bandSleepState: bandSleepState,
       );
 
   const Substrate._({
@@ -353,6 +361,7 @@ class Substrate {
     required this.skinContact,
     this.stepCount = const [],
     this.hrValid = const [],
+    this.bandSleepState = const [],
     this.deviceFamily,
     this.deviceIds = const {},
   });
@@ -476,6 +485,13 @@ class Substrate {
   /// [stepCount] sliced to [lo, hi), tolerating the legacy empty list.
   List<int> _stepSlice(int lo, int hi) => _perSecSlice(stepCount, lo, hi);
 
+  /// Positional band envelope for [lo, hi), -1 where absent (legacy empty
+  /// list included).
+  List<int> bandSleepStateSlice(int lo, int hi) =>
+      bandSleepState.length == length
+          ? bandSleepState.sublist(lo, hi)
+          : List<int>.filled(hi - lo, -1);
+
   /// Slice to the half-open window [startSec, endSec) by record time. Returns a
   /// new Substrate with the 1 Hz arrays sliced and the sparse RR arrays filtered
   /// to beats whose end time falls in the window.
@@ -500,6 +516,7 @@ class Substrate {
       skinContact: skinContact.sublist(lo, hi),
       stepCount: _stepSlice(lo, hi),
       hrValid: _perSecSlice(hrValid, lo, hi),
+      bandSleepState: _perSecSlice(bandSleepState, lo, hi),
       deviceFamily: deviceFamily,
       deviceIds: deviceIds,
       rrTsMs: rr.$1,
@@ -529,6 +546,7 @@ class Substrate {
       skinContact: skinContact.sublist(lo, hi),
       stepCount: _stepSlice(lo, hi),
       hrValid: _perSecSlice(hrValid, lo, hi),
+      bandSleepState: _perSecSlice(bandSleepState, lo, hi),
       deviceFamily: deviceFamily,
       deviceIds: deviceIds,
       rrTsMs: rr.$1,
@@ -595,6 +613,7 @@ class Substrate {
         'skin_contact': skinContact,
         'step_count': stepCount,
         'hr_valid': hrValid,
+        'band_sleep_state': bandSleepState,
         // Null (unknown provenance) is a real answer — emit the key regardless.
         'device_family': deviceFamily,
         'device_ids': deviceIds.toList(),
@@ -651,6 +670,11 @@ class Substrate {
       // reading — the band saying THIS second's beat is not trustworthy.
       hrValid: () {
         final l = ints(m, 'hr_valid');
+        return l.length == n ? l : List<int>.filled(n, -1);
+      }(),
+      // Same reason again: absent is -1, and 0 is a real "wake".
+      bandSleepState: () {
+        final l = ints(m, 'band_sleep_state');
         return l.length == n ? l : List<int>.filled(n, -1);
       }(),
       deviceFamily: m['device_family'] as String?,
@@ -802,6 +826,8 @@ Substrate decodeSubstrate(List<String> hexes) {
     // replay, which carries no device stamp either — so it would refuse at
     // `hrValidAt` regardless.
     hrValid: List<int>.filled(n, -1),
+    // Raw-hex replay carries no band envelope either: ABSENT.
+    bandSleepState: List<int>.filled(n, -1),
   );
 }
 
@@ -1172,6 +1198,10 @@ List<PhysioDay> calendarDays(
             rrMs: rrMsSeg,
             rrTsMs: rrTsSeg,
             habitualMidsleepSec: habitualMidsleepSec,
+            // Gen5/MG band envelope, positional 1:1 with accelSlice: may END
+            // the auto night at the band's own last SLEEP (AUTO path only —
+            // never the override or the HR-led fallback below).
+            bandSleepState: sub.bandSleepStateSlice(loS, hiS),
           );
         } else {
           // Not an error and not "no sleep" — just no accel evidence. Fall
@@ -1207,10 +1237,15 @@ List<PhysioDay> calendarDays(
 
       if (s.present && s.window != null) {
         final offSec = s.window!.offsetMs! ~/ 1000;
+        // Which day owns the night is decided on the UNTRIMMED end, so the band
+        // rule moves the wake time but never the night's day (each day searches a
+        // slice clipped at its own midnight and would otherwise see two different
+        // tails — a night could be claimed by both days or by neither).
+        final ownerSec = offSec + (s.bandOffsetTrimSec ?? 0);
         // Auto/fallback: attribute only if the wake lands in this calendar day.
         // Manual/confirmed: trust the user — attribute to the day they set it on.
         final userSet = ov != null;
-        if (userSet || (offSec >= dayStart && offSec < dayEnd)) {
+        if (userSet || (ownerSec >= dayStart && ownerSec < dayEnd)) {
           seg = s;
           sleepLo = loS + s.window!.onsetIdx;
           sleepHi = loS + s.window!.offsetIdx;

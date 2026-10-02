@@ -353,14 +353,23 @@ void main() {
   //    replaced the good one. "It got fixed, then a few syncs later it went
   //    back."
   group('a night never re-stages shorter', () {
-    SleepSessionCandidate night(num? tstSec) => SleepSessionCandidate(
+    SleepSessionCandidate night(
+      num? tstSec, {
+      int onset = 1000,
+      int offset = 2000,
+      int? bandTrim,
+    }) =>
+        SleepSessionCandidate(
           dayId: '2026-08-19',
           confidence: 0.8,
           flags: const [],
-          sleepJson: {'tst_sec': ?tstSec},
+          sleepJson: {
+            'tst_sec': ?tstSec,
+            'band_offset_trim_sec': ?bandTrim,
+          },
           hypnoStages: const [],
-          sleepOnsetSec: 1000,
-          sleepOffsetSec: 2000,
+          sleepOnsetSec: onset,
+          sleepOffsetSec: offset,
         );
 
     test('a shorter re-stage loses to the banked night', () {
@@ -379,6 +388,69 @@ void main() {
       expect(DerivationEngine.isRicherSleep(night(27000), night(null)), isTrue);
       expect(DerivationEngine.isRicherSleep(night(null), night(27000)), isFalse);
       expect(DerivationEngine.isRicherSleep(night(null), night(null)), isFalse);
+    });
+
+    // A band-corrected END (sleep.band_offset_trim_sec) is not "less
+    // substrate": it may replace a banked longer night with the same onset,
+    // but only within the tail the band corroborated as awake.
+    // prev untrimmed 1000→2000 tst 27000; next trimmed to 1700 with trim 300.
+    test('band END correction replaces the banked longer night', () {
+      // TST loss 250 s ≤ trim 300 + 60; untrimmed end 1700+300 == banked 2000.
+      expect(DerivationEngine.isRicherSleep(
+          night(27000), night(26750, offset: 1700, bandTrim: 300)), isFalse);
+    });
+    test('a small trim cannot authorise a much larger regression', () {
+      // banked end 2000 is beyond the untrimmed end 1700+10 (+60) = 1770
+      expect(DerivationEngine.isRicherSleep(
+          night(27000), night(20000, offset: 1700, bandTrim: 10)), isTrue);
+    });
+    test('TST loss larger than the removed interval (+60 s) is refused', () {
+      // removed from the banked window: 2000-1700 = 300; loss 7000 > 360
+      expect(DerivationEngine.isRicherSleep(
+          night(27000), night(20000, offset: 1700, bandTrim: 300)), isTrue);
+    });
+    test('growing morning record: an early short bank yields to the later trim', () {
+      // 07:19-style bank: end 1760, no trim. Later pass: untrimmed 2500 → 1700
+      // (trim 800). 1760 lies inside (1700, 2560]; loss 50 ≤ 60 + 60.
+      expect(DerivationEngine.isRicherSleep(
+          night(26800, offset: 1760), night(26750, offset: 1700, bandTrim: 800)),
+          isFalse);
+    });
+    test('backfilled SLEEP removes the trim: the longer new night wins', () {
+      // banked trimmed 1000→1700 (trim 300); a gap was backfilled with SLEEP,
+      // so the next pass ends 1990 untrimmed with more TST → ordinary compare.
+      expect(DerivationEngine.isRicherSleep(
+          night(26700, offset: 1700, bandTrim: 300), night(26950, offset: 1990)),
+          isFalse);
+    });
+    test('different onset (pruned start): no exception either way', () {
+      expect(DerivationEngine.isRicherSleep(
+          night(27000), night(9000, onset: 1500, offset: 1700, bandTrim: 300)), isTrue);
+    });
+    // Each 60 s tolerance is inclusive: exactly 60 applies, 61 falls through
+    // to the ordinary compare (prev TST is larger, so prev wins = isTrue).
+    test('onset tolerance: 60 s apart applies, 61 s falls through', () {
+      expect(DerivationEngine.isRicherSleep(night(27000),
+          night(26750, onset: 1060, offset: 1700, bandTrim: 300)), isFalse);
+      expect(DerivationEngine.isRicherSleep(night(27000),
+          night(26750, onset: 1061, offset: 1700, bandTrim: 300)), isTrue);
+    });
+    test('end tolerance: banked end == untrimmed end + 60 applies, 1 s past falls through', () {
+      // 1700 + 240 + 60 == 2000 (applies); 1700 + 239 + 60 == 1999 < 2000.
+      expect(DerivationEngine.isRicherSleep(night(27000),
+          night(26750, offset: 1700, bandTrim: 240)), isFalse);
+      expect(DerivationEngine.isRicherSleep(night(27000),
+          night(26750, offset: 1700, bandTrim: 239)), isTrue);
+    });
+    test('TST-loss tolerance: loss == removed + 60 applies, 1 s more falls through', () {
+      // removed = 2000 - 1700 = 300; allowed loss 360.
+      expect(DerivationEngine.isRicherSleep(night(27000),
+          night(26640, offset: 1700, bandTrim: 300)), isFalse);
+      expect(DerivationEngine.isRicherSleep(night(27000),
+          night(26639, offset: 1700, bandTrim: 300)), isTrue);
+    });
+    test('shorter WITHOUT trim still loses (pruning guard intact)', () {
+      expect(DerivationEngine.isRicherSleep(night(27000), night(9000)), isTrue);
     });
   });
 
