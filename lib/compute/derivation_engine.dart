@@ -1719,7 +1719,17 @@ import 'substrate.dart';
 // withheld — a fabricated-metric bug on `circadian_lifestyle`'s stored
 // output. kAnalyticsPin repinned to analytics main's tip (one commit past
 // PR #75's merge SHA).
-const int kAlgoVersion = 97;
+// 97 → 98 (day zone bars on ONE set, edge#333): the second half recomputed
+// the day's `zones` off `estimatedMaxHr` alone and overwrote the pipeline's,
+// while `zone_timeline`/`zone_source`/`zone_max_hr` stayed on the pipeline's
+// `trainingZones` set. Anyone whose observed ceiling reached the age line got
+// age-estimate bars under a footnote naming the measured ceiling. The
+// recompute is gone; `zones` is the pipeline's, binned off the same per-minute
+// wake series and set as the timeline. Moves `zones` for those users, and
+// marginally for everyone (per-minute means instead of raw 1 Hz). The bars
+// also gate on the set, not the age estimate, so a manual or observed set with
+// no age gets bars instead of "add your age". Edge-only.
+const int kAlgoVersion = 98;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -4540,13 +4550,19 @@ class DerivationEngine {
       // hrr_bpm reach the persisted series map below.
       // `addAll` REPLACES `absent_notes` wholesale, and the two halves own
       // different keys: `trimp` is only ever the pure pipeline's (nothing in the
-      // second half recomputes it), while strain/zones/calories/max_hr_used are
+      // second half recomputes it), while strain/calories/max_hr_used are
       // the recompute's. Keep the pipeline's trimp reason across the merge or
       // the Activity screen's "training load" goes absent with nothing to say.
+      // `zones` is the pipeline's too (same set as `zone_timeline`); its
+      // reason is present only when the zones are empty.
       final trimpNote = (bundle['absent_notes'] as Map?)?['trimp'] as String?;
+      final zonesNote = (bundle['absent_notes'] as Map?)?['zones'] as String?;
       bundle.addAll(blocks.bundlePatch);
       if (trimpNote != null && (bundle['scalars'] as Map?)?['trimp'] == null) {
         (bundle['absent_notes'] as Map?)?['trimp'] = trimpNote;
+      }
+      if (zonesNote != null) {
+        (bundle['absent_notes'] as Map?)?['zones'] = zonesNote;
       }
       (bundle['series'] as Map?)?.cast<String, dynamic>().addAll(
             blocks.seriesPatch,
@@ -5785,34 +5801,6 @@ class DerivationEngine {
     return false;
   }
 
-  static Map<String, int> _wakeZoneMinutes(
-    Substrate s,
-    int sleepOnsetSec,
-    int sleepOffsetSec,
-    double hrMax,
-  ) {
-    final samples = <ana.HrSample>[];
-    final n = math.min(s.tsSec.length, s.hr.length);
-    for (var i = 0; i < n; i++) {
-      final ts = s.tsSec[i];
-      if (sleepOnsetSec > 0 &&
-          sleepOffsetSec > sleepOnsetSec &&
-          ts >= sleepOnsetSec &&
-          ts < sleepOffsetSec) {
-        continue;
-      }
-      samples.add(ana.HrSample(ts * 1000.0, s.hr[i].toDouble()));
-    }
-    final zoneSet = ana.HeartRateZones.zonesFromMaxHr(hrMax);
-    // Null = the stream has no cadence `sampleCadenceSeconds` will vouch for.
-    // An empty map is already this function's "no zones" answer everywhere it
-    // is read; a zero-filled one would claim the day was measured and spent at
-    // rest. See `HeartRateZones.timeInZone`.
-    return ana.HeartRateZones.timeInZone(samples, zoneSet)
-            ?.toRoundedMinuteMap() ??
-        const {};
-  }
-
   /// ONE HR-flex pass, returning the day's active, basal and total figures
   /// TOGETHER so they cannot disagree. THE canonical day calorie computation —
   /// every other day-level site mirrors this one, never re-derives it.
@@ -6130,15 +6118,14 @@ class DerivationEngine {
     // every surface reads for the figures it owns, so its reasons win. NOTE
     // `bundle` here is the isolate's PATCH map, not the pure pipeline's bundle
     // — the two are merged at the `bundle.addAll(blocks.bundlePatch)` call
-    // site, and that merge is where `trimp` (the pipeline's alone; nothing here
-    // recomputes it) is carried across.
+    // site, and that merge is where `trimp` and `zones` (the pipeline's alone;
+    // nothing here recomputes them) are carried across.
     bundle['absent_notes'] = <String, String>{
       for (final e in ((wake['absent_notes'] as Map?) ?? const {}).entries)
         e.key.toString(): e.value.toString(),
     };
     bundle['activity'] = wake['activity'];
     bundle['activity_curve'] = wake['activity_curve'];
-    bundle['zones'] = wake['zones'];
     bundle['hr_stats'] = wake['hr_stats'];
     bundle['wear'] = wake['wear'];
   }
@@ -6612,16 +6599,12 @@ class DerivationEngine {
         : profile.heightCm == null
         ? needInputNote('height_cm')
                         : null;
-    final zonesAbsent = perMin.isEmpty
-        ? needInputNote('wake_hr')
-        : ceilingAbsent;
     double? calories;
     double? steps; // stays null here — real counts only, see below
     double? movementMin;
     double? caloriesTotal;
     double? caloriesWalking;
     double? caloriesBasal;
-    Map<String, int> zones = const {};
     if (perMin.isNotEmpty && hrMax != null) {
       // TRIMP needs a resting HR that is actually RESTING — a NOCTURNAL reading
       // (`scalars.rhr_nocturnal`, sleep-window only) or one the user entered —
@@ -6662,8 +6645,10 @@ class DerivationEngine {
         // "never a guessed cause" leaves when there is no cause to name.
         strainAbsent ??= strain == null ? kUnknownAbsenceNote : null;
       }
-      // Zones are pure %HRmax bands — real as soon as HRmax is real.
-      zones = _wakeZoneMinutes(daySub, sleepOnsetSec, sleepOffsetSec, hrMax);
+      // NO ZONES HERE. The day's `zones` are the pure pipeline's, binned on
+      // the same `trainingZones` set as `zone_timeline`/`zone_source` beside
+      // them. Recomputing them here off `estimatedMaxHr` alone drew
+      // age-estimate bars under a footnote naming the measured ceiling.
       // Calories are NOT computed here any more. Active and total both come
       // from the single `wakeDayEnergy` pass below, off this same wake series —
       // scoring active separately here, without the basal netting, is exactly
@@ -6748,7 +6733,6 @@ class DerivationEngine {
       // seam attaches to the value it hands a screen — see the note there.
       'absent_notes': <String, String>{
         if (strain == null) 'strain': strainAbsent ?? kUnknownAbsenceNote,
-        if (zones.isEmpty) 'zones': zonesAbsent ?? kUnknownAbsenceNote,
         if (hrMax == null && ceilingAbsent != null)
           'max_hr_used': ceilingAbsent,
         if (calories == null) 'calories': caloriesAbsent ?? kUnknownAbsenceNote,
@@ -6783,7 +6767,6 @@ class DerivationEngine {
             'counts come only from the 100 Hz or phone pedometer',
       },
       'activity_curve': _activityCurve(daySub),
-      'zones': zones,
       'hr_stats': hrStats,
       'wear': wear,
     };
