@@ -172,7 +172,12 @@ class DeriveScheduler {
     _arm();
   }
 
+  // An enqueue still in its DB await when the owner is disposed would
+  // otherwise arm a fresh timer and notify a dead listener.
+  bool _disposed = false;
+
   void dispose() {
+    _disposed = true;
     _timer?.cancel();
     _timer = null;
     _workoutCapTimer?.cancel();
@@ -189,7 +194,9 @@ class DeriveScheduler {
   }
 
   void _arm() {
-    if (_running || _offloadActive || _background || _workoutHeld) return;
+    if (_disposed || _running || _offloadActive || _background || _workoutHeld) {
+      return;
+    }
     if (!_pendingLight && !_pendingHeavy) {
       unawaited(_refreshSnapshot());
       return;
