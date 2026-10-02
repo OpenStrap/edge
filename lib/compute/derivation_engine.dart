@@ -31,6 +31,8 @@ import 'package:flutter/foundation.dart';
 import 'findings.dart';
 import 'nap_edits.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
+import '../data/live_coverage_policy.dart' show CoverageSpan;
+import '../data/step_calibration.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_performance/firebase_performance.dart';
 
@@ -1719,7 +1721,13 @@ import 'substrate.dart';
 // withheld — a fabricated-metric bug on `circadian_lifestyle`'s stored
 // output. kAnalyticsPin repinned to analytics main's tip (one commit past
 // PR #75's merge SHA).
-const int kAlgoVersion = 97;
+// 97 → 98 (gen5 step counter calibration): the strap_counter total is
+// scaled by a per-(family, wearing) factor learned against phone-only days
+// (step_calibration.dart; factor 1.0 until 3 admissible days exist), the
+// steps bundle gains `counter_wearing` / `counter_calibration` /
+// `counter_coverage`, and strap_counter confidence is 0.9..0.98 by evidence.
+// `band_measured` stays the raw ticks. gen4 has no counter and is unchanged.
+const int kAlgoVersion = 98;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -4171,6 +4179,25 @@ class DerivationEngine {
     final stepSpans = [
       for (final s in liveSteps.spans) [s.startTs, s.endTs, s.steps],
     ];
+    // Step-counter calibration profile, keyed by (family, wearing). Wearing
+    // is 0 (refused: no profile, no learning) when the stored code is one
+    // this build does not know, or the day started before the last wearing
+    // change and may have been worn at the old location.
+    final devRow = await LocalDb.deviceRow();
+    final rawWearing = (devRow?['wearing'] as num?)?.toInt();
+    final wearingSetTs = (devRow?['wearing_set_ts'] as num?)?.toInt();
+    final dayStartTs = daySub.tsSec.isEmpty ? null : daySub.tsSec.first;
+    final counterWearing = rawWearing == null
+        ? Wearing.wrist
+        : (wearingSetTs != null &&
+                dayStartTs != null &&
+                dayStartTs < wearingSetTs)
+            ? 0
+            : (Wearing.parse(rawWearing) ?? 0);
+    final counterProfile = counterWearing == 0 || daySub.deviceFamily == null
+        ? null
+        : await LocalDb.stepCalibrationProfile(
+            daySub.deviceFamily!, counterWearing);
     final input = DayBundleInput(
       date: day.date,
       dayTsSec: daySub.tsSec,
@@ -4506,6 +4533,8 @@ class DerivationEngine {
         maxHrUsed: (bundle['max_hr_used'] as num?)?.round(),
         liveStepsReal: liveSteps.total,
         liveStepsFromStrap: liveSteps.strap,
+        counterProfile: counterProfile,
+        counterWearing: counterWearing,
         // The same resolution's credited spans, so the walking-cadence term
         // prices exactly the steps the day's total already counted — never a
         // raw row the ladder took back.
@@ -4843,6 +4872,87 @@ class DerivationEngine {
       '(sleep=${day.sleepOffsetSec > day.sleepOnsetSec}, final=$finalized)',
     );
     await _maybeFreezeHeadlineReadiness(day, dataNowSec, sc('readiness'));
+    // Learn the step-counter calibration from finalized days only (a partial
+    // day has the phone running ahead of the last offload), and only from
+    // phone-only days: on a mixed day the phone spans are what is left after
+    // band spans claimed their windows, not an independent reference.
+    if (finalized && counterWearing != 0 && !liveSteps.mixed) {
+      await updateStepCalibration(
+        day.date,
+        daySub,
+        counterWearing,
+        phoneSpans: [
+          for (final s in liveSteps.spans)
+            if (!s.fromBand) s,
+        ],
+      );
+    }
+  }
+
+  /// Bank one day's (phone steps, counter ticks) pair for the (family,
+  /// wearing) profile and refit it over the banked days. Never throws into
+  /// the derive.
+  @visibleForTesting
+  Future<void> updateStepCalibration(
+    String date,
+    Substrate daySub,
+    int wearing, {
+    required List<CoverageSpan> phoneSpans,
+  }) async {
+    try {
+      final family = daySub.deviceFamily;
+      if (family == null) return;
+      // Pair the two sensors over the same windows only. A whole-day ratio
+      // reads a phone left on a desk, or the band off charging, as counter
+      // error.
+      final ticks = counterTicksPerWindow(
+        daySub,
+        [for (final s in phoneSpans) (s.startTs, s.endTs)],
+        cumulativeCounterModulus:
+            ana.calibrationFor(_stepCounterModulus, family),
+      );
+      // No counter on this family (gen4): nothing to learn, nothing to bank.
+      if (ticks == null) return;
+      var reference = 0;
+      var counted = 0;
+      for (var i = 0; i < ticks.length; i++) {
+        final t = ticks[i];
+        if (t == null) continue;
+        reference += phoneSpans[i].steps;
+        counted += t;
+      }
+      // Only bank a day the fit would admit. The refit reads the last 30
+      // rows, so banking no-phone days would push the learned days out of
+      // that window and reset the factor on exactly the days it is used.
+      if (!stepCalibrationDayAdmissible(StepCalibrationDay(
+        referenceSteps: reference,
+        counterTicks: counted,
+      ))) {
+        return;
+      }
+      await LocalDb.putStepCalibrationDay(
+        day: date,
+        deviceFamily: family,
+        wearing: wearing,
+        referenceSteps: reference,
+        counterTicks: counted,
+      );
+      final rows = await LocalDb.stepCalibrationDays(family, wearing);
+      final profile = estimateStepCalibration(
+        family,
+        wearing,
+        [
+          for (final r in rows)
+            StepCalibrationDay(
+              referenceSteps: (r['reference_steps'] as num?)?.toInt() ?? 0,
+              counterTicks: (r['counter_ticks'] as num?)?.toInt() ?? 0,
+            ),
+        ],
+      );
+      await LocalDb.putStepCalibrationProfile(profile);
+    } catch (e) {
+      _log('step calibration update failed for $date: $e');
+    }
   }
 
   /// Pin today's morning readiness headline once its overnight is genuinely
@@ -5975,6 +6085,9 @@ class DerivationEngine {
     /// zero-coverage credit below. Defaults to none — every existing caller
     /// keeps its old behaviour until it is threaded through.
     List<Map<String, dynamic>> sessions = const [],
+    /// Step-counter calibration, read by the caller; null = uncalibrated.
+    StepCalibrationProfile? counterProfile,
+    int counterWearing = Wearing.wrist,
   }) {
     final wake = _buildWakeDayFeatures(
       daySub,
@@ -6046,6 +6159,8 @@ class DerivationEngine {
       liveStepsFromStrap,
       dynFloorG,
       dynHistoryDays,
+      counterProfile: counterProfile,
+      counterWearing: counterWearing,
     );
     // `_stepsAndEnergy` just wrote `steps` — REAL pedometer counts from
     // `live_coverage`, band 100 Hz or phone, never an estimate. `wake` was
@@ -6274,12 +6389,17 @@ class DerivationEngine {
   /// [hardwareStepsFromCounter]) — a genuine on-wrist gait counter, not a 1 Hz
   /// inference, so it outranks the phone. Null on every gen4 day, and on a gen5
   /// day whose records predate schema v34; that is the absent case, not zero.
+  ///
+  /// [profile] scales the counter total (null/uncalibrated = raw); [wearing]
+  /// is the placement it was learned for, 0 when refused for this day.
   static void _writeSteps(
     Map<String, dynamic> bundle,
     Map<String, dynamic>? scMap,
     int liveStepsReal, {
     int liveStepsFromStrap = 0,
-    int? bandSteps,
+    CounterDeltas? counter,
+    StepCalibrationProfile? profile,
+    int wearing = Wearing.wrist,
   }) {
     // THE SOURCE LADDER, and where each rung is actually decided.
     //
@@ -6301,8 +6421,13 @@ class DerivationEngine {
     // 18,856 on a day the strap synced for part of).
     final strap = liveStepsFromStrap.clamp(0, liveStepsReal);
     final phone = liveStepsReal - strap;
-    final useBand = liveStepsReal <= 0 && bandSteps != null && bandSteps > 0;
-    final steps = useBand ? bandSteps : liveStepsReal;
+    final rawBand = counter?.total;
+    final calibratedBand =
+        rawBand == null ? null : applyStepCalibration(rawBand, profile);
+    final useBand =
+        liveStepsReal <= 0 && calibratedBand != null && calibratedBand > 0;
+    final steps = useBand ? calibratedBand : liveStepsReal;
+    final calibrated = useBand && profile != null && profile.isCalibrated;
     final haveRealSteps = steps > 0;
     if (haveRealSteps) {
       scMap?['steps'] = steps.toDouble();
@@ -6313,16 +6438,32 @@ class DerivationEngine {
       'value': haveRealSteps ? steps : null,
       'real_measured': liveStepsReal,
       // What the strap's own pedometer counted, independent of which source
-      // won. Null (never 0) when this generation has no counter at all.
-      'band_measured': bandSteps,
+      // won. Null (never 0) when this generation has no counter at all. Raw
+      // ticks; `counter_calibration` carries the factor applied to `value`.
+      'band_measured': rawBand,
+      if (counter != null && wearing != 0)
+        'counter_wearing': wearingName(wearing),
+      if (calibrated)
+        'counter_calibration': <String, dynamic>{
+          'factor': profile.factor,
+          'n_days': profile.nDays,
+        },
+      if (counter != null)
+        'counter_coverage': <String, dynamic>{
+          'samples': counter.sampleCount,
+          'gap_seconds': counter.gapSeconds,
+          'dropped_boundaries': counter.droppedBoundaries,
+        },
       // WHICH SENSOR COUNTED WHAT, so a screen can say so instead of implying
       // the phone's count came off the wrist or the other way round. Only the
       // keys that contributed are present — a zero here would read as "that
       // sensor was there and counted nothing", which is a different claim.
       'by_source': haveRealSteps
           ? <String, int>{
+              // What the chip counted, not the scaled value: the factor is
+              // in `counter_calibration`.
               if (useBand)
-                'strap_counter': steps
+                'strap_counter': rawBand!
               else ...{
                 if (strap > 0) 'strap': strap,
                 if (phone > 0) 'phone': phone,
@@ -6336,7 +6477,9 @@ class DerivationEngine {
               : (strap > 0 && phone > 0)
                   ? 'mixed'
                   : (strap > 0 ? 'strap' : 'phone'),
-      'confidence': haveRealSteps ? 0.9 : 0.0,
+      'confidence': haveRealSteps
+          ? (useBand ? stepCounterConfidence(profile) : 0.9)
+          : 0.0,
       // NO TIER ON AN ABSENT METRIC. `ESTIMATE` here was actively wrong in two
       // ways: this code path never estimates anything (that is the whole point
       // of the change), and `Metric.parse` turns tier == ESTIMATE into
@@ -6364,6 +6507,9 @@ class DerivationEngine {
               ? 'the strap\'s own on-chip pedometer, summed from its cumulative '
                   'counter; wrapped and reset boundaries contribute nothing '
                   'rather than a guess'
+                  '${calibrated ? '; scaled by ${profile.factor.toStringAsFixed(2)} '
+                      'from ${profile.nDays} days your phone counted alongside '
+                      'it' : ''}'
               : (strap > 0 && phone > 0)
                   ? 'counted over measured windows only, each window by the '
                       'better sensor that was actually recording it — the '
@@ -6400,8 +6546,10 @@ class DerivationEngine {
     int liveStepsReal,
     int liveStepsFromStrap,
     double? dynFloorG,
-    int dynHistoryDays,
-  ) {
+    int dynHistoryDays, {
+    StepCalibrationProfile? counterProfile,
+    int counterWearing = Wearing.wrist,
+  }) {
     try {
       // STEPS FIRST — they depend on NOTHING from the band substrate.
       //
@@ -6415,16 +6563,19 @@ class DerivationEngine {
       // The strap's own pedometer, when this strap has one (gen5). Read off
       // `daySub` — already sliced to this calendar day — so the first record's
       // delta against yesterday's last is not carried across the boundary.
+      final counter = counterDeltasFromSubstrate(
+        daySub,
+        cumulativeCounterModulus:
+            ana.calibrationFor(_stepCounterModulus, daySub.deviceFamily),
+      );
       _writeSteps(
         bundle,
         scMap,
         liveStepsReal,
         liveStepsFromStrap: liveStepsFromStrap,
-        bandSteps: hardwareStepsFromCounter(
-          daySub,
-          cumulativeCounterModulus:
-              ana.calibrationFor(_stepCounterModulus, daySub.deviceFamily),
-        ),
+        counter: counter,
+        profile: counterProfile,
+        wearing: counterWearing,
       );
 
       if (daySub.length < 60) return;
@@ -7263,6 +7414,8 @@ class DerivationEngine {
   /// off a resetting counter loses the day's whole pre-sync prefix, and it
   /// cannot be told apart from a wrap afterwards. See
   /// [hardwareStepsFromCounter].
+  ///
+  /// gen4 has no counter and is deliberately absent.
   static const Map<String, int> _stepCounterModulus = {'gen5': 65536};
 
   static const Map<String, double> _quietEnmoCutG = {
@@ -8021,6 +8174,8 @@ class DerivationEngine {
       dynFloorG: inp.dynFloorG,
       liveStepsReal: inp.liveStepsReal,
       liveStepsFromStrap: inp.liveStepsFromStrap,
+      counterProfile: inp.counterProfile,
+      counterWearing: inp.counterWearing,
       dynHistoryDays: inp.dynHistoryDays,
       stepSpans: inp.stepSpans,
       sessions: inp.savedSessions,
@@ -8721,6 +8876,10 @@ class _DayBlocksInput {
   final double? rhr;
   final int? maxHrUsed;
   final int liveStepsReal;
+  /// Step-counter calibration read on the main isolate; null = uncalibrated.
+  final StepCalibrationProfile? counterProfile;
+  /// `Wearing` code the profile is keyed to, 0 when refused for this day.
+  final int counterWearing;
 
   /// How much of [liveStepsReal] the BAND's own 100 Hz pedometer was credited
   /// with after the per-window resolution; the rest is the phone's. Carried so
@@ -8784,6 +8943,8 @@ class _DayBlocksInput {
     required this.rhr,
     required this.maxHrUsed,
     required this.liveStepsReal,
+    this.counterProfile,
+    this.counterWearing = Wearing.wrist,
     this.liveStepsFromStrap = 0,
     this.stepSpans = const [],
     required this.dynFloorG,

@@ -345,6 +345,9 @@ class _InvestigateState extends State<Investigate> {
             n(split['strap'])),
         (l?.investigateStrapOnChipCounter ?? 'strap · on-chip counter',
             n(split['strap_counter'])),
+        if (d.steps['counter_calibration'] case {'factor': final num f})
+          (l?.investigateStrapCounterFactor ?? 'on-chip counter · phone factor',
+              '× ${f.toStringAsFixed(2)}'),
         (l?.investigatePhonePedometer ?? 'phone · pedometer', n(split['phone'])),
         (l?.investigateDayTotal ?? 'day total', n(d.steps['value'])),
         (l?.investigateStrapChipReported ?? 'strap chip reported',

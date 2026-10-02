@@ -902,6 +902,7 @@
   "investigateWhichSensorCounted": "किस सेंसर ने गिनती की",
   "investigateStrapPedometer": "बैंड · 100 Hz पेडोमीटर",
   "investigateStrapOnChipCounter": "बैंड · ऑन-चिप काउंटर",
+  "investigateStrapCounterFactor": "ऑन-चिप काउंटर · फ़ोन फ़ैक्टर",
   "investigatePhonePedometer": "फ़ोन · पेडोमीटर",
   "investigateDayTotal": "दिन का कुल",
   "investigateStrapChipReported": "बैंड चिप द्वारा दर्ज",
@@ -2381,5 +2382,45 @@
   "ecgProgress": "{pct}% पूर्ण",
   "ecgWaveformEmpty": "इस रीडिंग के साथ कोई तरंग सहेजी नहीं गई।",
   "ecgWaveformLabel": "स्वीकृत तरंग, माइक्रोवोल्ट में जैसा बैंड ने भेजा। रिक्त स्थान अनुपलब्ध सेकंड हैं।",
-  "ecgSampleNote": "{rate} Hz पर {count} सैंपल, फ़िल्टर्ड, इनपुट-संदर्भित µV। कोई लीड या ध्रुवता का दावा नहीं।"
+  "ecgSampleNote": "{rate} Hz पर {count} सैंपल, फ़िल्टर्ड, इनपुट-संदर्भित µV। कोई लीड या ध्रुवता का दावा नहीं।",
+  "devicesWornOn": "पहना है",
+  "@devicesWornOn": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOnSub": "बैंड कहाँ है। कदम उसी के अनुसार सुधारे जाते हैं।",
+  "@devicesWornOnSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWrist": "कलाई",
+  "@devicesWornWrist": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicep": "ऊपरी बांह",
+  "@devicesWornBicep": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOther": "कहीं और",
+  "@devicesWornOther": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornSheetTitle": "आप इसे कहाँ पहनते हैं?",
+  "@devicesWornSheetTitle": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWristSub": "डिफ़ॉल्ट। बैंड जो सबसे अच्छी कदम सटीकता दे सकता है।",
+  "@devicesWornWristSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicepSub": "कदम कम गिनता है — बांह कलाई से कम घूमती है।",
+  "@devicesWornBicepSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornUnknown": "अज्ञात",
+  "@devicesWornUnknown": {
+    "description": "डिवाइस विवरण: सहेजी गई पहनने की जगह इस बिल्ड को ज्ञात नहीं है"
+  },
+  "devicesWornOtherSub": "जेब या बैग। बैंड वहाँ चाल अच्छे से नहीं देख सकता।",
+  "@devicesWornOtherSub": {
+    "description": "Step calibration wearing-location setting"
+  }
 }

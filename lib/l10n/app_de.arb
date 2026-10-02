@@ -902,6 +902,7 @@
   "investigateWhichSensorCounted": "Welcher Sensor gezählt hat",
   "investigateStrapPedometer": "Band · 100-Hz-Schrittzähler",
   "investigateStrapOnChipCounter": "Band · integrierter Zähler",
+  "investigateStrapCounterFactor": "integrierter Zähler · Telefon-Faktor",
   "investigatePhonePedometer": "Telefon · Schrittzähler",
   "investigateDayTotal": "Tagesgesamt",
   "investigateStrapChipReported": "Band-Chip gemeldet",
@@ -2381,5 +2382,45 @@
   "ecgProgress": "{pct} % abgeschlossen",
   "ecgWaveformEmpty": "Zu dieser Aufzeichnung wurde keine Kurve gespeichert.",
   "ecgWaveformLabel": "Akzeptierte Kurve in Mikrovolt, wie vom Band gesendet. Lücken sind fehlende Sekunden.",
-  "ecgSampleNote": "{count} Messwerte bei {rate} Hz, gefiltert, eingangsbezogene µV. Keine Ableitung oder Polarität wird behauptet."
+  "ecgSampleNote": "{count} Messwerte bei {rate} Hz, gefiltert, eingangsbezogene µV. Keine Ableitung oder Polarität wird behauptet.",
+  "devicesWornOn": "Getragen an",
+  "@devicesWornOn": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOnSub": "Wo das Band sitzt. Schritte werden dafür korrigiert.",
+  "@devicesWornOnSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWrist": "Handgelenk",
+  "@devicesWornWrist": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicep": "Oberarm",
+  "@devicesWornBicep": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOther": "Anderswo",
+  "@devicesWornOther": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornSheetTitle": "Wo trägst du es?",
+  "@devicesWornSheetTitle": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWristSub": "Der Standard. Die beste Schrittzähl-Genauigkeit, die das Band bieten kann.",
+  "@devicesWornWristSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicepSub": "Zählt Schritte zu niedrig — der Oberarm schwingt weniger als das Handgelenk.",
+  "@devicesWornBicepSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornUnknown": "Unbekannt",
+  "@devicesWornUnknown": {
+    "description": "Gerätedetail: gespeicherter Trageort ist diesem Build nicht bekannt"
+  },
+  "devicesWornOtherSub": "Eine Tasche oder ein Beutel. Das Band sieht dort das Gehen schlecht.",
+  "@devicesWornOtherSub": {
+    "description": "Step calibration wearing-location setting"
+  }
 }

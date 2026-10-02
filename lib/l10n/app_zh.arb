@@ -902,6 +902,7 @@
   "investigateWhichSensorCounted": "哪个传感器计数",
   "investigateStrapPedometer": "腕带 · 100 Hz 计步器",
   "investigateStrapOnChipCounter": "腕带 · 芯片内置计数器",
+  "investigateStrapCounterFactor": "芯片计数器 · 手机校准系数",
   "investigatePhonePedometer": "手机 · 计步器",
   "investigateDayTotal": "当日总计",
   "investigateStrapChipReported": "腕带芯片上报值",
@@ -2381,5 +2382,45 @@
   "ecgProgress": "已完成 {pct}%",
   "ecgWaveformEmpty": "此读数未保存波形。",
   "ecgWaveformLabel": "接受的波形，单位为手环发送的微伏。空隙为缺失的秒。",
-  "ecgSampleNote": "{rate} Hz 下 {count} 个样本，已滤波，输入参考 µV。不声明导联或极性。"
+  "ecgSampleNote": "{rate} Hz 下 {count} 个样本，已滤波，输入参考 µV。不声明导联或极性。",
+  "devicesWornOn": "佩戴位置",
+  "@devicesWornOn": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOnSub": "手环戴在哪里。步数会据此校正。",
+  "@devicesWornOnSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWrist": "手腕",
+  "@devicesWornWrist": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicep": "上臂",
+  "@devicesWornBicep": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOther": "其他位置",
+  "@devicesWornOther": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornSheetTitle": "你戴在哪里？",
+  "@devicesWornSheetTitle": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWristSub": "默认位置。手环能给出的最佳步数精度。",
+  "@devicesWornWristSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicepSub": "步数会偏少——上臂摆动比手腕少。",
+  "@devicesWornBicepSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornUnknown": "未知",
+  "@devicesWornUnknown": {
+    "description": "设备详情：此版本无法识别已保存的佩戴位置"
+  },
+  "devicesWornOtherSub": "口袋或包里。手环在那里很难看清步伐。",
+  "@devicesWornOtherSub": {
+    "description": "Step calibration wearing-location setting"
+  }
 }

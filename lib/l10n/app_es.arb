@@ -902,6 +902,7 @@
   "investigateWhichSensorCounted": "Qué sensor contó",
   "investigateStrapPedometer": "banda · podómetro de 100 Hz",
   "investigateStrapOnChipCounter": "banda · contador integrado",
+  "investigateStrapCounterFactor": "contador integrado · factor del teléfono",
   "investigatePhonePedometer": "teléfono · podómetro",
   "investigateDayTotal": "total del día",
   "investigateStrapChipReported": "chip de la banda reportó",
@@ -2410,5 +2411,45 @@
   "ecgProgress": "{pct}% completado",
   "ecgWaveformEmpty": "No se guardó ninguna onda con esta lectura.",
   "ecgWaveformLabel": "Onda aceptada en microvoltios tal como la envió la banda. Los huecos son segundos faltantes.",
-  "ecgSampleNote": "{count} muestras a {rate} Hz, filtradas, µV referidos a la entrada. No se afirma derivación ni polaridad."
+  "ecgSampleNote": "{count} muestras a {rate} Hz, filtradas, µV referidos a la entrada. No se afirma derivación ni polaridad.",
+  "devicesWornOn": "Lo llevas en",
+  "@devicesWornOn": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOnSub": "Dónde está la banda. Los pasos se corrigen según eso.",
+  "@devicesWornOnSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWrist": "Muñeca",
+  "@devicesWornWrist": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicep": "Parte superior del brazo",
+  "@devicesWornBicep": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOther": "Otro sitio",
+  "@devicesWornOther": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornSheetTitle": "¿Dónde lo llevas?",
+  "@devicesWornSheetTitle": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWristSub": "El valor por defecto. La mejor precisión de pasos que la banda puede dar.",
+  "@devicesWornWristSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicepSub": "Cuenta menos pasos: el brazo se balancea menos que la muñeca.",
+  "@devicesWornBicepSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornUnknown": "Desconocido",
+  "@devicesWornUnknown": {
+    "description": "Detalle del dispositivo: la ubicación guardada no es conocida por esta versión"
+  },
+  "devicesWornOtherSub": "Un bolsillo o bolso. La banda no ve bien la marcha ahí.",
+  "@devicesWornOtherSub": {
+    "description": "Step calibration wearing-location setting"
+  }
 }

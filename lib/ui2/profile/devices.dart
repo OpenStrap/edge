@@ -111,6 +111,7 @@ import '../../ble/zetime_link.dart' show ZeTimeLink, pairZeTime;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
 import '../../data/db.dart' show LocalDb;
+import '../../data/step_calibration.dart';
 import '../../l10n/app_localizations.dart';
 import '../../notify/battery_forecast.dart';
 import '../../state/prefs.dart' show Prefs;
@@ -960,7 +961,9 @@ List<HealthSource> liveSources(AppState app,
           charging: app.device.charging ?? false,
           lastData: app.lastRecordAt,
           isBand: true,
-          family: app.device.generation,
+          // The stored generation when no link has come up this launch, so a
+          // disconnected band keeps its family-gated rows (Worn on, signals).
+          family: app.device.generation ?? app.paired?.generation,
         ),
       // Sensors paired alongside the band. One row each, ranked by their own
       // tier like everything else — a beat-to-beat strap sorts ABOVE the wrist
@@ -1821,6 +1824,9 @@ class _DeviceDetailState extends State<DeviceDetail> {
   /// a fresh `batteryHealth()` on every build would rescan the sample table on
   /// every connection tick.
   Map<String, dynamic>? _health;
+  /// `device.wearing`, loaded once like `_health`.
+  int? _wornOn;
+  bool _wornOnUnknown = false;
 
   /// The same projection the overnight charge warning fires on, read here
   /// rather than recomputed: this screen is where someone asks "how long have I
@@ -1839,6 +1845,13 @@ class _DeviceDetailState extends State<DeviceDetail> {
     _liveHrOwner = context.read<AppState>()..retainLiveHrView();
     LocalDb.batteryHealth().then((h) {
       if (mounted) setState(() => _health = h);
+    }).catchError((_) {});
+    LocalDb.deviceWearingRaw().then((raw) {
+      if (!mounted) return;
+      setState(() {
+        _wornOnUnknown = raw != null && !Wearing.known.contains(raw);
+        _wornOn = _wornOnUnknown ? raw : Wearing.parse(raw);
+      });
     }).catchError((_) {});
     _loadForecast();
   }
@@ -1882,6 +1895,20 @@ class _DeviceDetailState extends State<DeviceDetail> {
     return DeviceDetailView(
       s,
       status: app?.engine.bandStatus,
+      wornOn: _wornOn,
+      wornOnUnknown: _wornOnUnknown,
+      // Only the gen5 counter is calibrated per wearing location.
+      onWearing: s.family != 'gen5'
+          ? null
+          : () async {
+              final w = await _pickWearing(c);
+              if (w != null && mounted) {
+                setState(() {
+                  _wornOn = w;
+                  _wornOnUnknown = false;
+                });
+              }
+            },
       health: _health,
       forecast: _forecast,
       onFind: app?.buzzBand,
@@ -2533,6 +2560,14 @@ class DeviceDetailView extends StatelessWidget {
   /// The band's own state, from `bandStatusFor`. Null for a non-band source.
   final BandStatus? status;
 
+  /// `device.wearing`; null until loaded (shown as the wrist default).
+  final int? wornOn;
+
+  /// The stored code is one this build does not know; shown as "Unknown".
+  final bool wornOnUnknown;
+
+  /// Opens the wearing sheet. Null hides the row.
+  final VoidCallback? onWearing;
   /// `LocalDb.batteryHealth()` — the recent `band_battery` series, which is the
   /// one table nothing prunes. Null until it loads, and on a non-band source.
   final Map<String, dynamic>? health;
@@ -2550,6 +2585,9 @@ class DeviceDetailView extends StatelessWidget {
       this.onRename,
       this.liveHr,
       this.status,
+      this.wornOn,
+      this.wornOnUnknown = false,
+      this.onWearing,
       this.health,
       this.forecast});
 
@@ -2697,6 +2735,18 @@ class DeviceDetailView extends StatelessWidget {
                           chevron: onRename != null,
                           onTap: onRename),
                       Divider(color: p.line, height: 1),
+                      if (onWearing != null) ...[
+                        SetRow(LucideIcons.personStanding, C.teal,
+                            l?.devicesWornOn ?? 'Worn on',
+                            value: wornOnUnknown
+                                ? (l?.devicesWornUnknown ?? 'Unknown')
+                                : wornName(c, wornOn ?? Wearing.wrist),
+                            sub: l?.devicesWornOnSub ??
+                                'Where the band sits. Steps are corrected '
+                                'for it.',
+                            onTap: onWearing),
+                        Divider(color: p.line, height: 1),
+                      ],
                       SetRow(LucideIcons.batteryMedium, C.green,
                           l?.devicesBattery ?? 'Battery',
                           value: battery == null ? '' : '${battery.round()}%',
@@ -2819,6 +2869,68 @@ String? _chargeHistory(Map<String, dynamic>? h) {
   final mv = (h?['full_charge_mv'] as num?)?.toInt();
   return '$cycles charge${cycles == 1 ? '' : 's'} logged'
       '${mv == null ? '' : ', up to $mv mV'}';
+}
+
+String wornName(BuildContext c, int w) {
+  final l = AppLocalizations.of(c);
+  return switch (w) {
+    Wearing.bicep => l?.devicesWornBicep ?? 'Upper arm',
+    Wearing.other => l?.devicesWornOther ?? 'Somewhere else',
+    _ => l?.devicesWornWrist ?? 'Wrist',
+  };
+}
+
+/// One tap saves; returns the saved code, or null if nothing was saved.
+Future<int?> _pickWearing(BuildContext c) async {
+  final p = P.of(c);
+  final l = AppLocalizations.of(c);
+  final chosen = await showModalBottomSheet<int>(
+    context: c,
+    backgroundColor: p.card,
+    showDragHandle: true,
+    builder: (sheet) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x4),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(l?.devicesWornSheetTitle ?? 'Where do you wear it?',
+              style: F.t2.copyWith(color: p.ink)),
+          const SizedBox(height: S.x3),
+          for (final (code, title, sub) in [
+            (
+              Wearing.wrist,
+              l?.devicesWornWrist ?? 'Wrist',
+              l?.devicesWornWristSub ??
+                  'The default. Best step accuracy the band can give.'
+            ),
+            (
+              Wearing.bicep,
+              l?.devicesWornBicep ?? 'Upper arm',
+              l?.devicesWornBicepSub ??
+                  'Under-counts steps — the arm swings less than the wrist.'
+            ),
+            (
+              Wearing.other,
+              l?.devicesWornOther ?? 'Somewhere else',
+              l?.devicesWornOtherSub ??
+                  'A pocket or bag. The band cannot see gait well there.'
+            ),
+          ])
+            Padding(
+              padding: const EdgeInsets.only(bottom: S.x2),
+              child: Surface(
+                onTap: () => Navigator.of(sheet).pop(code),
+                child: SetRow(LucideIcons.personStanding, C.teal, title,
+                    sub: sub, chevron: false),
+              ),
+            ),
+        ]),
+      ),
+    ),
+  );
+  if (chosen == null) return null;
+  // 0 rows = the device row is gone (an unpair raced the sheet).
+  final saved = await LocalDb.setDeviceWearing(chosen);
+  return saved > 0 ? chosen : null;
 }
 
 /// "Thu 4 Sep, 07:12" — local, which is what every day label in this app is.

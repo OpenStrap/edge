@@ -19,6 +19,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../compute/substrate.dart' show beatTimesMs;
@@ -34,6 +35,7 @@ import 'coverage_resolver.dart' show CoverageInterval;
 import 'day_label.dart';
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
+import 'step_calibration.dart';
 import 'med_store.dart';
 import 'models.dart';
 import 'nutrition_store.dart';
@@ -196,6 +198,8 @@ class LocalDb {
     'metric_series',
     'metric_series_version',
     'baselines',
+    'step_calibration',
+    'step_calibration_day',
     'raw_archive',
     'device_coverage',
     'signal_priority',
@@ -349,7 +353,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 54;
+  static const int schemaVersion = 55;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -370,6 +374,12 @@ class LocalDb {
   /// A SECONDARY device gets a real id, issued by its adapter from something
   /// the band emits across the handshake — never from the link.
   static const String kPrimaryDeviceId = '';
+
+  /// Prefs key holding `[remoteId, wearing, wearing_set_ts]`: an explicit
+  /// wearing choice waiting for the next primary pairing to adopt it. A
+  /// forgotten band leaves its own remoteId; a restore onto an install with
+  /// no band yet leaves `''`, which whichever band pairs next takes.
+  static const String kPendingWornOnPref = 'paired_worn_on';
 
   /// The `sync_cursor` name for a per-offloading-device bookmark.
   ///
@@ -1073,6 +1083,14 @@ class LocalDb {
           // next free rung rather than collide with any of them.
           await _createEcgTables(db);
         }
+        if (oldV < 55) {
+          // Step calibration tables, plus when `device.wearing` was last
+          // changed (NULL = never; that column has had DEFAULT 1 since v51).
+          await _addColumnIfMissing(
+            db, 'device', 'wearing_set_ts', 'INTEGER',
+          );
+          await _createStepCalibration(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1163,6 +1181,10 @@ class LocalDb {
       'INTEGER NOT NULL DEFAULT 0',
     );
     await _createEcgTables(db);
+    await _addColumnIfMissing(
+      db, 'device', 'wearing_set_ts', 'INTEGER',
+    );
+    await _createStepCalibration(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
@@ -1833,6 +1855,160 @@ class LocalDb {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_ecg_raw_packet_strap '
       'ON ecg_raw_packet(strap_seconds)',
+    );
+  }
+
+  /// Step calibration: one profile per (device_family, wearing), and the
+  /// per-day observations it is fitted from.
+  static Future<void> _createStepCalibration(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS step_calibration (
+        device_family TEXT NOT NULL,
+        wearing       INTEGER NOT NULL,
+        factor        REAL NOT NULL,
+        n_days        INTEGER NOT NULL,
+        version       INTEGER NOT NULL,
+        updated_ts    INTEGER NOT NULL,
+        PRIMARY KEY (device_family, wearing)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS step_calibration_day (
+        day           TEXT NOT NULL,
+        device_family TEXT NOT NULL,
+        wearing       INTEGER NOT NULL,
+        reference_steps INTEGER,
+        counter_ticks   INTEGER,
+        PRIMARY KEY (day, device_family, wearing)
+      )
+    ''');
+  }
+
+  /// Idempotent by key. NULL reference_steps = the phone did not cover the day.
+  static Future<void> putStepCalibrationDay({
+    required String day,
+    required String deviceFamily,
+    required int wearing,
+    int? referenceSteps,
+    int? counterTicks,
+  }) async {
+    final db = await instance;
+    await db.insert(
+      'step_calibration_day',
+      {
+        'day': day,
+        'device_family': deviceFamily,
+        'wearing': wearing,
+        'reference_steps': referenceSteps,
+        'counter_ticks': counterTicks,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Observed days for one (family, wearing) pair, most recent first.
+  static Future<List<Map<String, Object?>>> stepCalibrationDays(
+    String deviceFamily,
+    int wearing, {
+    int limit = 30,
+  }) async {
+    final db = await instance;
+    return db.query(
+      'step_calibration_day',
+      where: 'device_family = ? AND wearing = ?',
+      whereArgs: [deviceFamily, wearing],
+      orderBy: 'day DESC',
+      limit: limit,
+    );
+  }
+
+  /// Sets `device.wearing` and stamps `wearing_set_ts` only on a real change
+  /// (re-picking the same location must not invalidate learned days).
+  /// Returns rows updated; 0 means the device row is gone.
+  static Future<int> setDeviceWearing(
+    int wearing, [
+    String id = kPrimaryDeviceId,
+  ]) async {
+    final db = await instance;
+    return db.rawUpdate(
+      'UPDATE device SET wearing = ?, wearing_set_ts = '
+      'CASE WHEN wearing = ? THEN wearing_set_ts ELSE ? END '
+      'WHERE id = ?',
+      [
+        wearing,
+        wearing,
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        id,
+      ],
+    );
+  }
+
+  /// Carry an EARLIER explicit wearing choice onto a row that has none of its
+  /// own (`wearing_set_ts IS NULL`: fresh after a forget/re-pair, or a restore
+  /// target nobody has set yet). The stamp is kept, not renewed — the days
+  /// before it stay refused exactly as they were. Without this the row's
+  /// DEFAULT silently says wrist while the arm profile survives, and wrist
+  /// days start learning from arm-worn data.
+  static const String _adoptWearingSql =
+      'UPDATE device SET wearing = ?, wearing_set_ts = ? '
+      'WHERE id = ? AND wearing_set_ts IS NULL';
+
+  static Future<int> adoptDeviceWearing(
+    int wearing,
+    int setTs, [
+    String id = kPrimaryDeviceId,
+  ]) async {
+    final db = await instance;
+    return db.rawUpdate(_adoptWearingSql, [wearing, setTs, id]);
+  }
+
+  /// Raw `device.wearing`, null when there is no device row.
+  static Future<int?> deviceWearingRaw([String id = kPrimaryDeviceId]) async {
+    final row = await deviceRow(id);
+    return (row?['wearing'] as num?)?.toInt();
+  }
+
+  /// The stored profile for a (family, wearing) pair, or null when none was
+  /// learned or the stored version is not this code's.
+  static Future<StepCalibrationProfile?> stepCalibrationProfile(
+    String deviceFamily,
+    int wearing,
+  ) async {
+    final db = await instance;
+    final r = await db.query(
+      'step_calibration',
+      where: 'device_family = ? AND wearing = ?',
+      whereArgs: [deviceFamily, wearing],
+      limit: 1,
+    );
+    if (r.isEmpty) return null;
+    final row = r.first;
+    final version = (row['version'] as num?)?.toInt() ?? 0;
+    if (version != kStepCalibrationVersion) return null;
+    return StepCalibrationProfile(
+      deviceFamily: deviceFamily,
+      wearing: wearing,
+      factor: (row['factor'] as num?)?.toDouble() ?? 1.0,
+      nDays: (row['n_days'] as num?)?.toInt() ?? 0,
+      version: version,
+    );
+  }
+
+  static Future<void> putStepCalibrationProfile(
+    StepCalibrationProfile p,
+  ) async {
+    final db = await instance;
+    await db.insert(
+      'step_calibration',
+      {
+        'device_family': p.deviceFamily,
+        'wearing': p.wearing,
+        'factor': p.factor,
+        'n_days': p.nDays,
+        'version': p.version,
+        'updated_ts': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
@@ -8646,6 +8822,9 @@ class LocalDb {
       'sessions',
       'notifications',
       'baselines',
+      // Calibration observations cannot be rebuilt once raw is pruned.
+      'step_calibration',
+      'step_calibration_day',
       // The devices this phone knows about — so a SECONDARY device's identity
       // survives a backup/restore round trip rather than leaving its rows in
       // `decoded_onehz` pointing at a `device_id` nothing can name. The PRIMARY
@@ -8700,6 +8879,7 @@ class LocalDb {
     // null when day_result could not be read at all, so the caller can tell
     // "nothing imported" from "we don't know".
     Set<String>? importedDays;
+    List<String>? restoredWornOn;
     try {
       for (final t in (only ?? tables)) {
         try {
@@ -8824,7 +9004,31 @@ class LocalDb {
                 // same install needs nothing from here: the row is already
                 // present, and the SharedPreferences mirror re-establishes it
                 // if the database was rebuilt.
-                if (t == 'device' && row['id'] == kPrimaryDeviceId) continue;
+                //
+                // HOW the band is worn is the person's, not the install's, and
+                // `step_calibration*` (keyed by it) does come across — so the
+                // explicit choice rides along onto a local row that has none.
+                if (t == 'device' && row['id'] == kPrimaryDeviceId) {
+                  final w = row['wearing'];
+                  final ts = row['wearing_set_ts'];
+                  if (w is num && ts is num) {
+                    // No band paired yet (the usual new-phone restore runs at
+                    // Welcome, before pairing): nothing to update, so it waits
+                    // for the pairing to adopt it.
+                    final local = await txn.query('device',
+                        columns: ['id'],
+                        where: 'id = ?',
+                        whereArgs: [kPrimaryDeviceId]);
+                    if (local.isEmpty) {
+                      restoredWornOn = ['', '${w.toInt()}', '${ts.toInt()}'];
+                    } else {
+                      batch.rawUpdate(_adoptWearingSql,
+                          [w.toInt(), ts.toInt(), kPrimaryDeviceId]);
+                      if (++ops >= chunkOps) await flush();
+                    }
+                  }
+                  continue;
+                }
                 if (t == 'day_result') {
                   if (protectedKeys.contains(
                     '${row['day_id']}|${row['algo_version']}',
@@ -8946,6 +9150,14 @@ class LocalDb {
       }
     } finally {
       await src.close();
+    }
+    final wornOn = restoredWornOn;
+    if (wornOn != null) {
+      final prefs = await SharedPreferences.getInstance();
+      // A forgotten band's stash is a choice made on THIS install; it wins.
+      if (!prefs.containsKey(kPendingWornOnPref)) {
+        await prefs.setStringList(kPendingWornOnPref, wornOn);
+      }
     }
     // An import writes day_result rows with a raw batch.insert, deliberately
     // bypassing putDayResult (and therefore the curve-encode seam), so the rows

@@ -11,6 +11,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/step_calibration.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -312,5 +313,47 @@ void main() {
       'paired_serial': '?*',
     });
     expect((await PairedDevice.load())!.serial, isNull);
+  });
+
+  test('forget and re-pair the same band keeps the wearing choice', () async {
+    await PairedDevice.save('AA:BB:CC:DD:EE:FF', null, generation: 'gen5');
+    await LocalDb.setDeviceWearing(Wearing.bicep);
+    final ts = (await LocalDb.deviceRow())!['wearing_set_ts'];
+    await PairedDevice.clear();
+    await PairedDevice.save('AA:BB:CC:DD:EE:FF', null, generation: 'gen5');
+    expect(await LocalDb.deviceWearingRaw(), Wearing.bicep);
+    expect((await LocalDb.deviceRow())!['wearing_set_ts'], ts);
+  });
+
+  test('a different band after a forget starts at the default', () async {
+    await PairedDevice.save('AA:BB:CC:DD:EE:FF', null, generation: 'gen5');
+    await LocalDb.setDeviceWearing(Wearing.bicep);
+    await PairedDevice.clear();
+    await PairedDevice.save('11:22:33:44:55:66', null, generation: 'gen5');
+    expect(await LocalDb.deviceWearingRaw(), Wearing.wrist);
+    expect((await LocalDb.deviceRow())!['wearing_set_ts'], isNull);
+  });
+
+  test('a restore before any pairing hands the wearing choice to the next band',
+      () async {
+    final dir = await databaseFactory.getDatabasesPath();
+    final srcPath = p.join(dir, 'paired_device_restore_src.db');
+    await databaseFactory.deleteDatabase(srcPath);
+    final src = await databaseFactory.openDatabase(srcPath);
+    await src.execute('CREATE TABLE device (id TEXT PRIMARY KEY, '
+        'remote_id TEXT, wearing INTEGER, wearing_set_ts INTEGER)');
+    await src.insert('device', {
+      'id': LocalDb.kPrimaryDeviceId,
+      'remote_id': 'OLD-PHONE-UUID',
+      'wearing': Wearing.bicep,
+      'wearing_set_ts': 1786000000,
+    });
+    await src.close();
+
+    await LocalDb.importFromDbFile(srcPath);
+    await PairedDevice.save('NEW-PHONE-UUID', null, generation: 'gen5');
+    expect(await LocalDb.deviceWearingRaw(), Wearing.bicep);
+    expect((await LocalDb.deviceRow())!['wearing_set_ts'], 1786000000);
+    await databaseFactory.deleteDatabase(srcPath);
   });
 }

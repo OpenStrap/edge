@@ -39,6 +39,12 @@ class PairedDevice {
   static const String _kSerial = 'paired_serial';
   static const String _kGeneration = 'paired_generation';
 
+  /// `[remoteId, wearing, wearing_set_ts]` of a forgotten band's explicit
+  /// wearing choice, or a restored one (remoteId `''`, any band). NOT cleared
+  /// by [clear]: forget-and-re-pair the same band (the usual BLE fix) must not
+  /// silently reset it to the wrist DEFAULT.
+  static const String _kWornOn = LocalDb.kPendingWornOnPref;
+
   final String remoteId; // BLE remote id (iOS: per-install UUID; Android: MAC)
   final String? serial;
 
@@ -192,6 +198,15 @@ class PairedDevice {
     // would otherwise leave the mirror pointing at a band the table no longer
     // has — and `load()` heals FROM the mirror.
     if (epoch != _forgetEpoch) return;
+    final worn = prefs.getStringList(_kWornOn);
+    if (worn != null &&
+        worn.length == 3 &&
+        (worn[0] == remoteId || worn[0].isEmpty)) {
+      final w = int.tryParse(worn[1]);
+      final ts = int.tryParse(worn[2]);
+      if (w != null && ts != null) await LocalDb.adoptDeviceWearing(w, ts);
+      await prefs.remove(_kWornOn);
+    }
     await prefs.setString(_kRemoteId, remoteId);
     if (clean != null) {
       await prefs.setString(_kSerial, clean);
@@ -215,8 +230,18 @@ class PairedDevice {
     // see the bump and writes normally — which is what "the user re-paired"
     // means. Only a save already running ahead of it is refused.
     _forgetEpoch++;
+    final row = await LocalDb.deviceRow();
     await LocalDb.deleteDevice();
     final prefs = await SharedPreferences.getInstance();
+    final rid = row?['remote_id'] as String?;
+    final w = row?['wearing'];
+    final ts = row?['wearing_set_ts'];
+    if (rid != null && w is num && ts is num) {
+      await prefs.setStringList(
+        _kWornOn,
+        [rid, '${w.toInt()}', '${ts.toInt()}'],
+      );
+    }
     await prefs.remove(_kRemoteId);
     await prefs.remove(_kSerial);
     await prefs.remove(_kGeneration);

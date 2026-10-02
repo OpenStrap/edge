@@ -4590,6 +4590,10 @@
   "@investigateStrapOnChipCounter": {
     "description": "Step source row: strap's on-chip step counter"
   },
+  "investigateStrapCounterFactor": "on-chip counter · phone factor",
+  "@investigateStrapCounterFactor": {
+    "description": "Step source row: factor learned against the phone that scaled the on-chip counter"
+  },
   "investigatePhonePedometer": "phone · pedometer",
   "@investigatePhonePedometer": {
     "description": "Step source row: phone pedometer"
@@ -12441,5 +12445,45 @@
         "type": "int"
       }
     }
+  },
+  "devicesWornOn": "Worn on",
+  "@devicesWornOn": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOnSub": "Where the band sits. Steps are corrected for it.",
+  "@devicesWornOnSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWrist": "Wrist",
+  "@devicesWornWrist": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicep": "Upper arm",
+  "@devicesWornBicep": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOther": "Somewhere else",
+  "@devicesWornOther": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornSheetTitle": "Where do you wear it?",
+  "@devicesWornSheetTitle": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWristSub": "The default. Best step accuracy the band can give.",
+  "@devicesWornWristSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicepSub": "Under-counts steps — the arm swings less than the wrist.",
+  "@devicesWornBicepSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornUnknown": "Unknown",
+  "@devicesWornUnknown": {
+    "description": "Device detail: the stored wearing code is not one this build knows"
+  },
+  "devicesWornOtherSub": "A pocket or bag. The band cannot see gait well there.",
+  "@devicesWornOtherSub": {
+    "description": "Step calibration wearing-location setting"
   }
 }

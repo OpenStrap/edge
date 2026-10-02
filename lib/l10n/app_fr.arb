@@ -902,6 +902,7 @@
   "investigateWhichSensorCounted": "Quel capteur a compté",
   "investigateStrapPedometer": "bracelet · podomètre 100 Hz",
   "investigateStrapOnChipCounter": "bracelet · compteur intégré",
+  "investigateStrapCounterFactor": "compteur intégré · facteur du téléphone",
   "investigatePhonePedometer": "téléphone · podomètre",
   "investigateDayTotal": "total du jour",
   "investigateStrapChipReported": "puce du bracelet a indiqué",
@@ -2381,5 +2382,45 @@
   "ecgProgress": "{pct} % terminé",
   "ecgWaveformEmpty": "Aucun tracé n’a été enregistré avec cette lecture.",
   "ecgWaveformLabel": "Tracé accepté en microvolts tel qu’envoyé par le bracelet. Les trous sont des secondes manquantes.",
-  "ecgSampleNote": "{count} échantillons à {rate} Hz, filtrés, µV rapportés à l’entrée. Aucune dérivation ni polarité n’est revendiquée."
+  "ecgSampleNote": "{count} échantillons à {rate} Hz, filtrés, µV rapportés à l’entrée. Aucune dérivation ni polarité n’est revendiquée.",
+  "devicesWornOn": "Porté au",
+  "@devicesWornOn": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOnSub": "Où se trouve le bracelet. Les pas sont corrigés en conséquence.",
+  "@devicesWornOnSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWrist": "Poignet",
+  "@devicesWornWrist": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicep": "Haut du bras",
+  "@devicesWornBicep": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornOther": "Ailleurs",
+  "@devicesWornOther": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornSheetTitle": "Où le portez-vous ?",
+  "@devicesWornSheetTitle": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornWristSub": "Par défaut. La meilleure précision de pas que le bracelet puisse offrir.",
+  "@devicesWornWristSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornBicepSub": "Sous-compte les pas — le bras balance moins que le poignet.",
+  "@devicesWornBicepSub": {
+    "description": "Step calibration wearing-location setting"
+  },
+  "devicesWornUnknown": "Inconnu",
+  "@devicesWornUnknown": {
+    "description": "Détail de l'appareil : l'emplacement enregistré n'est pas connu par cette version"
+  },
+  "devicesWornOtherSub": "Une poche ou un sac. Le bracelet y voit mal la marche.",
+  "@devicesWornOtherSub": {
+    "description": "Step calibration wearing-location setting"
+  }
 }
