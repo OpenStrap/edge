@@ -45,6 +45,7 @@ import '../../state/app_state.dart';
 import '../../state/units_controller.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
+import '../profile/alarm.dart' show AlarmArmState, alarmArmOf, alarmDoor;
 import '../profile/devices.dart' show formatDayTime;
 import '../profile/profile.dart';
 import '../ui2.dart';
@@ -118,6 +119,16 @@ VoidCallback? syncOf(BuildContext c) {
 DbRebuild? dbRebuildOf(BuildContext c) {
   try {
     return c.read<AppState>().dbRebuild;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// The armed alarm and its state, or null when there is no AppState above us
+/// (every golden). Read-only: Home never arms or re-arms anything.
+(DateTime?, AlarmArmState)? alarmArmOfContext(BuildContext c) {
+  try {
+    return c.select<AppState, (DateTime?, AlarmArmState)>(alarmArmOf);
   } catch (_) {
     return null;
   }
@@ -1808,6 +1819,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             l?.homeBreakdownSubtitle ?? 'Hour by hour',
             () => go(c, const DayTimelineScreen())),
       ],
+
+      // ── the next alarm: a door, same as the one above ──
+      if (isToday)
+        if (alarmArmOfContext(c) case final (DateTime?, AlarmArmState) a) ...[
+          const SizedBox(height: S.x3),
+          alarmDoor(c, a.$1, a.$2),
+        ],
     ]));
   }
 

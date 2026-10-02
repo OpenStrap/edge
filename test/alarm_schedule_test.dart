@@ -109,6 +109,41 @@ void main() {
     });
   });
 
+  group('alarmRearmFrom', () {
+    // Wednesday 2026-08-19, a daily 07:00 schedule.
+    final schedule = fillDefaultAlarmSchedule([
+      for (var w = 0; w < 7; w++)
+        AlarmScheduleEntry(weekday: w, hour: 7, minute: 0, enabled: true),
+    ]);
+    final slot = DateTime(2026, 8, 19, 7, 0);
+    final firedEpoch = slot.millisecondsSinceEpoch ~/ 1000;
+
+    test('a fire that lands just before the slot re-arms tomorrow', () {
+      // Strap RTC a fraction of a second fast: event 57 arrives at 06:59:59.5.
+      final now = DateTime(2026, 8, 19, 6, 59, 59, 500);
+      expect(nextAlarmOccurrence(schedule, alarmRearmFrom(now, firedEpoch)),
+          DateTime(2026, 8, 20, 7, 0));
+    });
+
+    test('a fire after the slot just uses now', () {
+      final now = DateTime(2026, 8, 19, 7, 0, 3);
+      expect(alarmRearmFrom(now, firedEpoch), now);
+    });
+
+    test('an early RUN_ALARM buzz leaves the slot still due', () {
+      // Smart wake buzzed 20 min early; the fallback 07:00 must stay armed.
+      final now = DateTime(2026, 8, 19, 6, 40);
+      expect(alarmRearmFrom(now, firedEpoch), now);
+      expect(nextAlarmOccurrence(schedule, alarmRearmFrom(now, firedEpoch)),
+          slot);
+    });
+
+    test('no armed epoch at fire time just uses now', () {
+      final now = DateTime(2026, 8, 19, 6, 59, 59);
+      expect(alarmRearmFrom(now, null), now);
+    });
+  });
+
   group('alarmArmsTonight', () {
     // Wednesday 2026-08-19, 19:00 — the 7pm check-in instant.
     final now = DateTime(2026, 8, 19, 19, 0);

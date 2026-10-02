@@ -173,6 +173,24 @@ DateTime? nextAlarmOccurrence(List<AlarmScheduleEntry> schedule, DateTime now) {
   return best;
 }
 
+/// The instant to compute the re-arm from right after the alarm armed for
+/// [firedEpoch] (unix sec) fired. The strap fires on its own RTC, which can
+/// run a second or more ahead of the phone (whole-second drift, sub-tolerance
+/// skew, crystal drift over a link that stays up all day), so the fire event
+/// can land just BEFORE the slot on the phone's clock. Computing from plain
+/// `now` then re-picks the slot that just fired and leaves the next day
+/// unarmed. A fire within 30 s of the armed slot is that slot, so floor past
+/// it. A fire well before the slot isn't that slot, so `now` stands. (A
+/// RUN_ALARM buzz is event 58, which never reaches here: it doesn't consume
+/// the armed slot.)
+DateTime alarmRearmFrom(DateTime now, int? firedEpoch) {
+  if (firedEpoch == null) return now;
+  final slot = DateTime.fromMillisecondsSinceEpoch(firedEpoch * 1000);
+  if (slot.difference(now) > const Duration(seconds: 30)) return now;
+  final after = slot.add(const Duration(seconds: 1));
+  return after.isAfter(now) ? after : now;
+}
+
 /// Result of [armNextScheduledOccurrence]. [epoch] is the newly-armed unix
 /// instant, or null when nothing changed on the strap (no enabled day and
 /// already unarmed, the target already matches what's armed, or the write

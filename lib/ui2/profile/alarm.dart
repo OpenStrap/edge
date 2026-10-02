@@ -28,7 +28,8 @@ import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/alarm_schedule.dart';
 import '../../state/app_state.dart';
-import '../screens/home_screen.dart' show weekdayShortName;
+import '../screens/home_screen.dart' show go, weekdayShortName;
+import '../screens/metric_detail.dart' show detailLinkRow;
 import '../ui2.dart';
 import 'profile.dart' show SetRow, settingsGroup;
 
@@ -51,24 +52,53 @@ enum AlarmArmState {
   unknown,
 }
 
+/// The armed instant and what we know about it. Shared by this screen and
+/// Home's door so the two can never disagree. Reading it arms nothing.
+(DateTime?, AlarmArmState) alarmArmOf(AppState app) {
+  final epoch = app.alarmEpoch;
+  if (epoch == null) return (null, AlarmArmState.none);
+  return (
+    DateTime.fromMillisecondsSinceEpoch(epoch * 1000),
+    app.alarmConfirmed
+        ? AlarmArmState.confirmed
+        : app.alarmPending
+            ? AlarmArmState.pending
+            : AlarmArmState.unknown,
+  );
+}
+
+/// Home's door onto the alarm: the next armed day and time plus its state,
+/// or "Set an alarm". A plain [detailLinkRow], not a card. An epoch already
+/// behind [now] fired or was missed while the link was down (only a live
+/// event or the next connect clears it), so it says so instead of passing a
+/// spent alarm off as the next one.
+Widget alarmDoor(BuildContext c, DateTime? at, AlarmArmState state,
+    {DateTime? now}) {
+  final l = AppLocalizations.of(c);
+  final String sub;
+  if (at == null) {
+    sub = l?.alarmSetAnAlarm ?? 'Set an alarm';
+  } else {
+    final what = at.isAfter(now ?? DateTime.now())
+        ? AlarmScreenView._localizedStateLabel(c, state)
+        : (l?.alarmInThePast ??
+            'In the past — it has already fired or been missed');
+    sub = '${AlarmScreenView._dayAndTime(c, at)} · $what';
+  }
+  return detailLinkRow(c, LucideIcons.alarmClock, l?.alarmNavTitle ?? 'Alarm',
+      sub, () => go(c, const AlarmScreen()));
+}
+
 class AlarmScreen extends StatelessWidget {
   const AlarmScreen({super.key});
 
   @override
   Widget build(BuildContext c) {
     final app = c.watch<AppState>();
-    final epoch = app.alarmEpoch;
+    final (armedAt, state) = alarmArmOf(app);
     return AlarmScreenView(
-      armedAt: epoch == null
-          ? null
-          : DateTime.fromMillisecondsSinceEpoch(epoch * 1000),
-      state: epoch == null
-          ? AlarmArmState.none
-          : app.alarmConfirmed
-              ? AlarmArmState.confirmed
-              : app.alarmPending
-                  ? AlarmArmState.pending
-                  : AlarmArmState.unknown,
+      armedAt: armedAt,
+      state: state,
       connected: app.isConnected,
       schedule: app.alarmSchedule,
       onToggleDay: (weekday, enabled) =>

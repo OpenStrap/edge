@@ -294,18 +294,24 @@ void main() {
       expect(a.isUnconfirmed(10000), isFalse);
     });
 
-    test('events 57/58 mark FIRED with a timestamp', () {
-      for (final id in [
-        AlarmConfirmation.kEvtStrapExecuted,
-        AlarmConfirmation.kEvtAppExecuted,
-      ]) {
-        final a = AlarmConfirmation();
-        a.set(1750000000, 0);
-        final eff = a.onEvent(id, 4242);
-        expect(eff, AlarmEffect.fired);
-        expect(a.firedAt, 4242);
-        expect(a.lastEventId, id);
-      }
+    test('event 57 marks FIRED with a timestamp', () {
+      final a = AlarmConfirmation();
+      a.set(1750000000, 0);
+      final eff = a.onEvent(AlarmConfirmation.kEvtStrapExecuted, 4242);
+      expect(eff, AlarmEffect.fired);
+      expect(a.firedAt, 4242);
+      expect(a.lastEventId, 57);
+    });
+
+    test('event 58 (RUN_ALARM buzz) does not consume the armed slot', () {
+      final a = AlarmConfirmation();
+      a.set(1750000000, 0);
+      a.onEvent(AlarmConfirmation.kEvtSet, 10);
+      final eff = a.onEvent(AlarmConfirmation.kEvtAppExecuted, 4242);
+      expect(eff, AlarmEffect.buzzed);
+      expect(a.firedAt, isNull);
+      expect(a.targetEpoch, 1750000000);
+      expect(a.confirmed, isTrue);
     });
 
     test('event 59 clears the alarm', () {
