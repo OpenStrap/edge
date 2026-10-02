@@ -1929,7 +1929,10 @@ const String kAnalyticsPin = '0441ef9e6fc6d5681c309ce6341911285e829f20';
 // calls. NO kAlgoVersion bump: ECG is not a derived `day_result`/
 // `metric_series` output, it is its own store (`ecg_reading` etc., schema
 // v54) with nothing feeding the existing metrics.
-const String kProtocolPin = 'bc7d8d0df706e40a2546ffde4545263f09d0fecb';
+// REPIN: protocol oura sleep-phase decoder (#71) @ a41b174, on top of bc7d8d0.
+// NO kAlgoVersion bump: the stage minutes land in `observation`, which no
+// derivation reads.
+const String kProtocolPin = 'a41b174d2210a89e38efb4b74bd39c6487259923';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

@@ -297,6 +297,18 @@ List<Moment> dayMoments({
   return out;
 }
 
+/// The row title for an observation. A vendor's own composite name
+/// ('BioCharge') renders verbatim; the stable ids an adapter mints for things
+/// we have words for map to a localized title.
+String observationTitle(String? vendorKey, String? key, AppLocalizations? l) =>
+    switch (vendorKey) {
+      'oura_sleep_deep' => l?.sleepDetailStageDeep ?? 'Deep sleep',
+      'oura_sleep_light' => l?.sleepDetailStageLight ?? 'Light sleep',
+      'oura_sleep_rem' => l?.sleepDetailStageRem ?? 'REM',
+      'oura_sleep_awake' => l?.sleepDetailStageAwake ?? 'Awake',
+      _ => vendorKey ?? key ?? '',
+    };
+
 /// Logged for the day, with no time on it. Same sources, opposite branch.
 List<DayNote> dayNotes({
   List<FoodEntry> meals = const [],
@@ -618,7 +630,8 @@ class TimelineData {
         // the literal "null", which reads as a measurement.
         for (final r in observations)
           DayNote(
-            (r['vendor_key'] as String?) ?? (r['key'] as String?) ?? '',
+            observationTitle(
+                r['vendor_key'] as String?, r['key'] as String?, l),
             r['value'] == null
                 ? '${r['attribution']}'
                 : '${r['value']}${(r['unit'] as String?)?.isNotEmpty == true ? ' ${r['unit']}' : ''} · ${r['attribution']}',

@@ -43,6 +43,8 @@ import 'dart:typed_data';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 import 'package:pointycastle/export.dart' show AESEngine, ECBBlockCipher, KeyParameter;
 
+import '../../data/observation.dart'
+    show Observation, ObservationSource;
 import '_registry.dart';
 import 'adapter.dart';
 import 'signals.dart';
@@ -130,13 +132,12 @@ class OuraAdapter extends BandAdapter {
 
   /// NOTHING, and that is the honest answer today rather than a placeholder.
   ///
-  /// The ring emits beat-to-beat intervals, SpO2 and a hypnogram, and this
-  /// adapter decodes none of them: their layouts are bit-packed and there is
-  /// not one captured byte of any of them to check a decoder against. A
-  /// declared-but-absent signal is WORSE than a missing one (see
-  /// [BandAdapter.signals]) — it turns a card that should delete itself into
-  /// one that is permanently empty — so nothing is claimed until a decoder
-  /// exists and a real capture has met it.
+  /// The ring emits beat-to-beat intervals and SpO2, and this adapter
+  /// decodes neither: their layouts are bit-packed and there is not one
+  /// captured byte of either to check a decoder against. A declared-but-absent
+  /// signal is WORSE than a missing one (see [BandAdapter.signals]) — it turns
+  /// a card that should delete itself into one that is permanently empty — so
+  /// nothing is claimed until a decoder exists and a real capture has met it.
   ///
   /// Temperature is emitted below and still not declared here, deliberately:
   /// [InputSignal.skinTempRaw] means RELATIVE ADC COUNTS (I8), and this ring
@@ -144,6 +145,9 @@ class OuraAdapter extends BandAdapter {
   /// per-family calibration that I8 exists to key does not apply. There is no
   /// member for absolute temperature and one should not be invented for a band
   /// nobody owns.
+  ///
+  /// The hypnogram's stage minutes are emitted too, and [InputSignal.vendorScalars]
+  /// stays undeclared until a real ring has been checked against the decoder.
   @override
   Map<InputSignal, Duration> get signals => const {};
 
@@ -176,6 +180,10 @@ class OuraAdapter extends BandAdapter {
   /// ever does, they are dropped: the frames are still handed over verbatim in
   /// every [SampleBatch], so nothing is lost that was not already banked.
   final List<(int ds, double tempC)> _held = [];
+
+  /// Per-stage hypnogram minutes waiting for an origin, as
+  /// `(ds, stage, minutes)`. Same lifecycle as [_held].
+  final List<(int ds, OuraSleepPhase stage, double minutes)> _heldStages = [];
 
   /// The Unix second [ds] falls on, or null when no origin is known.
   int? _anchorUnixFor(int ds) {
@@ -243,6 +251,8 @@ class OuraAdapter extends BandAdapter {
         }
         final got = await _collectBatch(inbox);
         if (got == null) {
+          // No summary = the batch never ended. Leave the cursor put; the
+          // next sync re-reads from the last confirmed boundary.
           link.log('oura: no batch summary within the reply window.');
           return;
         }
@@ -265,6 +275,32 @@ class OuraAdapter extends BandAdapter {
           }
           return;
         }
+
+        // A cursor past the newest event is answered with the last few
+        // events again, not an empty batch. Drop anything below the cursor;
+        // advancing on a replay would move the bookmark backwards.
+        // `_collectBatch` fills events and raw in lockstep.
+        final keep = [
+          for (var i = 0; i < got.events.length; i++)
+            if (got.events[i].tsDs >= cursor) i,
+        ];
+        if (keep.isEmpty) {
+          link.log('oura: the ring replayed ${got.events.length} event(s) '
+              'below the cursor; nothing new after $cursor.');
+          // Replays with bytes still left is the same stranded bookmark as
+          // the empty-batch case above (counter restarted below it).
+          if (got.summary.bytesLeft > 0) {
+            yield const BandNote('oura_cursor_stranded');
+          }
+          return;
+        }
+        final fresh = [for (final i in keep) got.events[i]];
+        final freshRaw = [for (final i in keep) got.raw[i]];
+        got.raw
+          ..clear()
+          ..addAll(freshRaw);
+        got.events.clear();
+        got.events.addAll(fresh);
 
         for (final e in got.events) {
           final unix = decodeTimeSync(e);
@@ -399,6 +435,21 @@ class OuraAdapter extends BandAdapter {
           if (d.text != null) link.log('oura fw: ${d.text}');
           if (d.batteryPct != null) yield BandNote('battery', d.batteryPct);
           if (d.batteryMv != null) yield BandNote('battery_mv', d.batteryMv);
+        case kOuraEvtSleepPhaseInformation:
+        case kOuraEvtSleepPhaseDetails:
+        case kOuraEvtSleepPhaseData:
+          // The ring's own staging, kept per event (no night boundary is
+          // known) as stage-minute totals under `vendorKey`: their algorithm,
+          // not our `stages4`. The epoch series stays in `raw_archive`.
+          final hyp = decodeSleepPhases(e);
+          if (hyp == null) break;
+          final epochs = <OuraSleepPhase, int>{};
+          for (final phase in hyp.phases) {
+            epochs.update(phase, (n) => n + 1, ifAbsent: () => 1);
+          }
+          for (final MapEntry(:key, :value) in epochs.entries) {
+            _heldStages.add((e.tsDs, key, value * 0.5));
+          }
       }
     }
     // Stamp everything an origin can now reach — this batch's readings and any
@@ -416,11 +467,34 @@ class OuraAdapter extends BandAdapter {
       ));
       return true;
     });
+    final stageRows = <Observation>[];
+    _heldStages.removeWhere((h) {
+      final a = _anchor;
+      if (a == null) return false;
+      stageRows.add(Observation(
+        // To the decisecond, not the second: each event is its own page of
+        // counts, and two pages in one second would share an observation key
+        // and REPLACE each other. A re-read of the same event still dedupes.
+        at: DateTime.fromMillisecondsSinceEpoch(
+            a.$2 * 1000 + (h.$1 - a.$1) * 100),
+        sourceKind: ObservationSource.vendor,
+        // A stable id, not a label: it is part of the row's identity, so a
+        // display string here would split every banked row from its re-read
+        // the day the wording or locale changed. The timeline maps it to a
+        // localized title (`observationTitle`).
+        vendorKey: 'oura_sleep_${h.$2.name}',
+        value: h.$3,
+        unit: 'min',
+        attribution: 'Oura',
+      ));
+      return true;
+    });
+    if (stageRows.isNotEmpty) yield VendorScalars(stageRows);
     // EVERY event frame is archived, including the ones just decoded and every
-    // one that was not. Beat intervals, SpO2, the hypnogram and steps all live
-    // in here undecoded, and that is the point: the bytes are banked now so a
-    // decoder written when someone owns a ring can be run over them, instead of
-    // a guess being run over them today (owner rulings R1-R3).
+    // one that was not. Beat intervals, SpO2 and steps all live in here
+    // undecoded, and that is the point: the bytes are banked now so a decoder
+    // written when someone owns a ring can be run over them, instead of a
+    // guess being run over them today (owner rulings R1-R3).
     yield SampleBatch(samples, raw: got.raw);
   }
 }
