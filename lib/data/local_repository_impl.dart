@@ -1706,8 +1706,9 @@ class LocalRepositoryImpl extends LocalRepository {
   // ── lists / summaries ─────────────────────────────────────────────────────
 
   @override
-  Future<List<Map<String, dynamic>>> sleepWindows({int days = 60}) async {
-    final rows = await LocalDb.sleepWindowRows(days);
+  Future<List<Map<String, dynamic>>> sleepWindows(
+      {int days = 60, String? before}) async {
+    final rows = await LocalDb.sleepWindowRows(days, before: before);
     final out = <Map<String, dynamic>>[];
     for (final r in rows) {
       final date = r['day_id'] as String?;
