@@ -1963,6 +1963,15 @@ const int _baselineWindowDays = 28;
 /// slightly later freeze for more safety margin.
 const int _headlineFreezeMarginSec = 60 * 60;
 
+/// The cross-day inputs an importer fills with its vendor's own scores.
+const _crossDayVendorScoreKeys = [
+  'rhr',
+  'rmssd',
+  'readiness',
+  'resp_rate',
+  'skin_temp_z',
+];
+
 /// The frozen morning readiness headline that should be persisted/surfaced for
 /// [today], given the current pin and a fresh look at today's live readiness and
 /// whether today's overnight is genuinely COMPLETE. Pure so the freeze semantics
@@ -4715,7 +4724,11 @@ class DerivationEngine {
     await LocalDb.putDayResult(
       dayId: day.date,
       algoVersion: kAlgoVersion,
-      payloadJson: jsonEncode(bundle),
+      // The data edge this row was derived against. The cross-day settled
+      // test compares the row's wake with THIS edge, not a fresher one read
+      // later: ingest keeps committing during a pass, and a newer edge would
+      // call a night settled whose wake came from a truncated substrate.
+      payloadJson: jsonEncode({...bundle, 'data_edge_sec': dataNowSec}),
       windowJson: jsonEncode(
         ((day.sleepJson['window'] as Map?) ?? const {}).cast<String, dynamic>(),
       ),
@@ -5285,34 +5298,20 @@ class DerivationEngine {
     // both static, so this whole transform+encode step is isolate-safe.
     final rows = await LocalDb.recentDayResults(_crossDayWindow);
     final today = LocalDb.localDayLabelNow();
+    final imported = await LocalDb.importedDates();
     final (days, json) = await _runIsolateCancellable(() {
       final days = <Map<String, dynamic>>[];
       for (final row in rows.reversed) {
         final payload = _decodeBundle(row['payload_json']);
         if (payload == null) continue;
         if (payload['skipped'] == true) continue;
-        final rec = _crossDayRecord(row, payload);
-        if (rec == null) continue;
-        // Today's own row updates on every derive pass while the night is
-        // still syncing/settling — feeding that partial reading into the
-        // illness/anomaly CUSUM can fire a false "possible illness onset" on
-        // data that's really just a truncated/mid-drain night. Only exclude
-        // TODAY specifically; older days already had their 48h to settle.
-        //
-        // FLAG it rather than DROP it: `days` is the single input list for the
-        // whole cross-day bundle, so dropping today also silently removed it
-        // from readiness/glass-box, the resting-HR trend-shift CUSUM, load,
-        // sleep debt and `recent` (whose last row dates every notification).
-        // buildCrossDayBundle nulls only the alert inputs for a flagged day.
-        if (row['day_id'] == today && (row['finalized'] as num?) != 1) {
-          rec['unsettled'] = true;
-        }
-        // Explicit identity for TODAY-scoped reads. `unsettled` cannot serve
-        // this purpose — it is only set while today is unfinalized. Without a
-        // flag, a today-scoped consumer can only take the LAST record
-        // positionally, which on a day with no derived row is YESTERDAY's.
-        if (row['day_id'] == today) rec['is_today'] = true;
-        days.add(rec);
+        final rec = crossDayInputRecord(
+          row,
+          payload,
+          today: today,
+          imported: imported,
+        );
+        if (rec != null) days.add(rec);
       }
       // `built_for_day` is what makes the `is_today` stamps inside `days`
       // interpretable later. Without it the envelope carries day-relative facts
@@ -5498,6 +5497,63 @@ class DerivationEngine {
   /// different shapes for the same curve.
   static Map<String, dynamic>? _decodeBundle(Object? json) =>
       SeriesCodec.decodePayloadJson(json);
+
+  /// One `day_result` row as a cross-day input record, with the per-day
+  /// masks the rollup needs. Static and pure so it runs in the isolate.
+  @visibleForTesting
+  static Map<String, dynamic>? crossDayInputRecord(
+    Map<String, dynamic> row,
+    Map<String, dynamic> payload, {
+    required String today,
+    required Set<String> imported,
+  }) {
+    final rec = _crossDayRecord(row, payload);
+    if (rec == null) return null;
+    // An imported day's scores are another vendor's maths. The baseline
+    // cache already masks them; the cross-day families (illness CUSUM,
+    // anomaly, glass-box, percentiles) need the same mask or tonight's
+    // reading is scored against that vendor's history. Sleep timing and
+    // load stay, they are not an algorithm's opinion of the night.
+    if (imported.contains(row['day_id'])) {
+      for (final k in _crossDayVendorScoreKeys) {
+        rec[k] = null;
+      }
+    }
+    // Today's own row updates on every derive pass while the night is
+    // still syncing/settling — feeding that partial reading into the
+    // illness/anomaly CUSUM can fire a false "possible illness onset" on
+    // data that's really just a truncated/mid-drain night. Only exclude
+    // TODAY specifically; older days already had their 48h to settle.
+    //
+    // FLAG it rather than DROP it: `days` is the single input list for the
+    // whole cross-day bundle, so dropping today also silently removed it
+    // from readiness/glass-box, the resting-HR trend-shift CUSUM, load,
+    // sleep debt and `recent` (whose last row dates every notification).
+    // buildCrossDayBundle nulls only the alert inputs for a flagged day.
+    //
+    // Today is never finalized (that waits 48 h behind the data edge), so
+    // "not finalized" alone held the alerts off all day, every day. The night
+    // is done once the data edge is [_headlineFreezeMarginSec] past its wake,
+    // the same test the headline pin uses; no wake yet is no complete night.
+    // The edge is the one the row was derived against (`data_edge_sec`), so
+    // the wake and the edge come from the same substrate; a row without one
+    // stays unsettled.
+    final wakeSec = (rec['wake_sec'] as num?)?.toInt();
+    final dataEdgeSec = (payload['data_edge_sec'] as num?)?.toInt();
+    if (row['day_id'] == today &&
+        (row['finalized'] as num?) != 1 &&
+        (wakeSec == null ||
+            dataEdgeSec == null ||
+            dataEdgeSec < wakeSec + _headlineFreezeMarginSec)) {
+      rec['unsettled'] = true;
+    }
+    // Explicit identity for TODAY-scoped reads. `unsettled` cannot serve
+    // this purpose — it is only set while today's night is unsettled. Without a
+    // flag, a today-scoped consumer can only take the LAST record
+    // positionally, which on a day with no derived row is YESTERDAY's.
+    if (row['day_id'] == today) rec['is_today'] = true;
+    return rec;
+  }
 
   /// Build the cross-day record from a day_result row + its payload bundle.
   static Map<String, dynamic>? _crossDayRecord(

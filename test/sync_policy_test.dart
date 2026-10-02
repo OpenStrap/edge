@@ -147,8 +147,14 @@ void main() {
 
     test('periodic honors the 900s floor', () {
       expect(
-        BackfillPolicy.shouldRun(BackfillTrigger.periodic, 899, 0, 0),
+        BackfillPolicy.shouldRun(BackfillTrigger.periodic, 869, 0, 0),
         isFalse,
+      );
+      // a tick landing a hair early against the last stamp (timer jitter, or
+      // the INIT drain stamping just after the timer was armed) still runs
+      expect(
+        BackfillPolicy.shouldRun(BackfillTrigger.periodic, 899.995, 0, 0),
+        isTrue,
       );
       expect(
         BackfillPolicy.shouldRun(BackfillTrigger.periodic, 900, 0, 0),

@@ -409,6 +409,17 @@ void main() {
       await LocalDb.close();
     });
 
+    test('the salvage list covers everything a restore carries', () {
+      // Notifications regenerate on the next derive; everything else a
+      // restore treats as the only copy is the only copy on a rebuild too.
+      expect(
+        LocalDb.restoreTablesForTest
+            .toSet()
+            .difference(LocalDb.salvageTablesForTest.toSet()),
+        {'notifications'},
+      );
+    });
+
     test('a garbage file is quarantined byte-for-byte and the app still opens',
         () async {
       const name = 'rebuild_garbage_test.db';

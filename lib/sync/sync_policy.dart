@@ -460,6 +460,13 @@ class BatteryPolicy {
 
 class BackfillPolicy {
   static const double periodicFloorSeconds = 900.0;
+
+  /// The periodic floor equals the timer period, so a tick that fires a few
+  /// ms less late than the run it is measured against, or one measured
+  /// against a stamp taken just after the timer was armed (the INIT drain),
+  /// sees 900 minus a little and gets refused, which pushes the next offload
+  /// to ~30 min. This much early is still "the same tick".
+  static const double periodicSlackSeconds = 30.0;
   static const double eventFloorSeconds = 90.0;
   static const int emptyBackoffThreshold = 3;
   static const double maxEmptyBackoff = 4.0;
@@ -491,7 +498,7 @@ class BackfillPolicy {
       case BackfillTrigger.strap:
         return elapsed >= eventFloorSeconds * backoff;
       case BackfillTrigger.periodic:
-        return elapsed >= periodicFloorSeconds * backoff;
+        return elapsed >= periodicFloorSeconds * backoff - periodicSlackSeconds;
     }
   }
 }

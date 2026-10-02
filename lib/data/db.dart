@@ -182,9 +182,16 @@ class LocalDb {
     'sleep_override',
     'sleep_nap',
     'breathing_session',
+    // Vendor, typed-in and imported scalars: a `reports` band trims its own
+    // history and the source app may be gone.
+    'observation',
     'sessions',
     'workout_route',
     'workout_split',
+    // The only copy of what a paired sensor measured during a session.
+    'external_hr',
+    'imported_measurement',
+    'imported_workout',
     // User-initiated ECG readings and the band's raw ECG records recovered
     // through history — the band trims its flash on ACK, so these too are
     // the only copy. Parent before child.
@@ -197,6 +204,9 @@ class LocalDb {
     'metric_series_version',
     'baselines',
     'raw_archive',
+    // Secondary devices, so their decoded rows still name a device. The
+    // primary row is skipped by the merge, as on a restore.
+    'device',
     'device_coverage',
     'signal_priority',
     'sync_cursor',

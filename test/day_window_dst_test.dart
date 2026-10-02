@@ -21,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/day_label.dart';
+import 'package:openstrap_edge/data/journal_fields.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart'
@@ -104,6 +105,12 @@ void main() {
       reason: 'setenv(TZ)+tzset() did not re-home the local calendar; the '
           'assertions below would be vacuous',
     );
+  }, skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null);
+
+  test('the weight trend still counts the reading after a spring-forward', () {
+    final ewma = weightTrendEwma({'2026-03-08': 80.0, '2026-03-09': 84.0});
+    // one day of decay at a 7-day half-life, not zero
+    expect(ewma['2026-03-09'], closeTo(80.4, 0.1));
   }, skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null);
 
   test('localDayEndSec is the next local midnight, not start + 86400', () {

@@ -532,6 +532,24 @@ void main() {
   });
 
   test(
+    'a different window on the same start second is refused, not replaced',
+    () async {
+      final start = sessionStart - 16 * 86400;
+      await repo.logManualWorkout(
+          startTs: start, endTs: start + 3600, type: 'strength');
+      await expectLater(
+        () => repo.logManualWorkout(
+            startTs: start, endTs: start + 1800, type: 'run'),
+        throwsA(isA<ManualWindowException>().having(
+            (e) => e.error, 'error', ManualWindowError.overlapsExisting)),
+      );
+      final row = await LocalDb.session(manualSessionId(start));
+      expect(row!['type'], 'strength');
+      expect(row['end_ts'], start + 3600);
+    },
+  );
+
+  test(
     're-logging the identical window replaces rather than duplicates',
     () async {
       final start = sessionStart - 15 * 86400;
@@ -543,6 +561,29 @@ void main() {
 
       final rows = await LocalDb.sessionsInRange(start - 60, start + 3600);
       expect(rows.where((r) => r['id'] == a['workout_id']).length, 1);
+    },
+  );
+
+  test(
+    'logging at the old start second of a retimed session leaves it alone',
+    () async {
+      final start = sessionStart - 17 * 86400;
+      final first = await repo.logManualWorkout(
+          startTs: start, endTs: start + 1800, type: 'run');
+      final movedId = first['workout_id'] as String;
+      await repo.setWorkoutWindow(movedId,
+          startTs: start + 7200, endTs: start + 9000);
+
+      final fresh = await repo.logManualWorkout(
+          startTs: start, endTs: start + 1200, type: 'strength');
+      expect(fresh['workout_id'], isNot(movedId));
+
+      final moved = await LocalDb.session(movedId);
+      expect(moved!['start_ts'], start + 7200);
+      expect(moved['type'], 'run');
+      final added = await LocalDb.session(fresh['workout_id'] as String);
+      expect(added!['start_ts'], start);
+      expect(added['type'], 'strength');
     },
   );
 }
