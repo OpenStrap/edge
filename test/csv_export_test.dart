@@ -216,6 +216,32 @@ void main() {
       final broken = rows.firstWhere((r) => r['date'] == '2026-04-10');
       expect(broken['tags'], 'not json');
     });
+
+    test('a private session\'s sets stay out of the strength set', () async {
+      final db = await LocalDb.instance;
+      for (final (id, private) in [('pub', 0), ('priv', 1)]) {
+        await db.insert('sessions', {
+          'id': id,
+          'start_ts': 1,
+          'type': 'weights',
+          'status': 'done',
+          'private': private,
+          'created_at': 1,
+        });
+        await db.insert('strength_set', {
+          'session_id': id,
+          'seq': 0,
+          'exercise_key': 'squat',
+          'set_index': 0,
+          'reps': 5,
+          'at_ts': 1,
+        });
+      }
+
+      final strength = kCsvExportSets.firstWhere((s) => s.name == 'strength');
+      final rows = await db.rawQuery(strength.sql);
+      expect(rows.map((r) => r['session_id']), ['pub']);
+    });
   });
 
   group('formula injection', () {

@@ -506,6 +506,45 @@ void _wiredFamilies() {
       // A pair's SRI is on the same 200p−100 scale as the headline.
       expect((pairs.first as Map)['sri'], isA<num>());
     });
+
+    test('a missing day is a gap, not a pair of the nights either side', () {
+      final days = _synthDays(30)..removeAt(10);
+      final reg = (buildCrossDayBundle(days, const {})['regularity'] as Map)
+          .cast<String, dynamic>();
+      final pairs = ((reg['value'] as Map)['pairs'] as List).cast<Map>();
+      expect(pairs, isNotEmpty);
+      for (final p in pairs) {
+        final prev = DateTime.parse('${p['prev_date']}T00:00:00Z');
+        final cur = DateTime.parse('${p['date']}T00:00:00Z');
+        expect(cur.difference(prev).inDays, 1,
+            reason: '${p['prev_date']} -> ${p['date']} is not 24 h apart');
+      }
+    });
+
+    test('unobserved minutes are not scored as sleep', () {
+      // Every night is light 23:00-03:00. After 03:00, half the nights are
+      // awake and the other half the band saw nothing. Only 23:00-03:00 is
+      // observed on both sides of any pair, and it agrees perfectly.
+      int at(int day, int h) =>
+          DateTime(2024, 3, 4 + day, h).millisecondsSinceEpoch ~/ 1000;
+      final days = [
+        for (var i = 0; i < 14; i++)
+          {
+            'date': '2024-03-${(5 + i).toString().padLeft(2, '0')}',
+            'hypnogram': [
+              {'start': at(i, 23), 'end': at(i + 1, 3), 'stage': 'light'},
+              {
+                'start': at(i + 1, 3),
+                'end': at(i + 1, 7),
+                'stage': i.isEven ? 'wake' : 'unobserved',
+              },
+            ],
+          },
+      ];
+      final reg = (buildCrossDayBundle(days, const {})['regularity'] as Map)
+          .cast<String, dynamic>();
+      expect((reg['value'] as Map)['sri'], closeTo(100, 1e-9));
+    });
   });
 
   group('TS-12 — overreaching as two facts', () {

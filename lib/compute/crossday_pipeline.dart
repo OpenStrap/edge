@@ -216,7 +216,7 @@ Map<String, dynamic> buildCrossDayBundle(
   final brv = ana.breathingRateVariability(brpm);
 
   // ── true Phillips SRI across days on a 1440-epoch (1-min) clock grid ───────
-  final sri = _crossDaySri(days);
+  final (sri, sriDates) = _crossDaySri(days);
   // SLP-08 — which two nights. `SriPair.dayIndex` indexes THIS day list and
   // nothing else (the analytics never sees a date), so here is the only place
   // it can be resolved into the two nights it compared. Pairs the mask left too
@@ -230,9 +230,9 @@ Map<String, dynamic> buildCrossDayBundle(
   if (sriValue is Map) {
     for (final p in ((sriValue['pairs'] as List?) ?? const []).whereType<Map>()) {
       final d = (p['day_index'] as num?)?.toInt();
-      if (d == null || d <= 0 || d >= dates.length) continue;
-      p['prev_date'] = dates[d - 1];
-      p['date'] = dates[d];
+      if (d == null || d <= 0 || d >= sriDates.length) continue;
+      p['prev_date'] = sriDates[d - 1];
+      p['date'] = sriDates[d];
     }
   }
 
@@ -1004,12 +1004,32 @@ bool _isNextDay(String a, String b) {
 /// the day's hypnogram (stage != 'wake' within [onset,wake] => asleep; minutes
 /// with no hypnogram coverage => valid=false), concatenate across days, then run
 /// the true Phillips SRI. If too few covered days, the package returns absent.
-ana.Metric<ana.SriResult> _crossDaySri(List<Map<String, dynamic>> days) {
+///
+/// The SRI compares grid d-1 with grid d as if they were 24 h apart, so a
+/// missing calendar day gets its own all-invalid grid rather than letting the
+/// nights either side of it pair up. Returns the date of every grid, padding
+/// included, since `SriPair.dayIndex` indexes those grids, not [days].
+(ana.Metric<ana.SriResult>, List<String>) _crossDaySri(
+    List<Map<String, dynamic>> days) {
   const epochsPerDay = 1440; // 1-minute epochs over 24 h
   final sleepWake = <bool>[];
   final valid = <bool>[];
+  final gridDates = <String>[];
 
   for (final d in days) {
+    final date = (d['date'] as String?) ?? '';
+    if (gridDates.isNotEmpty) {
+      final prev = DateTime.tryParse('${gridDates.last}T00:00:00Z');
+      final cur = DateTime.tryParse('${date}T00:00:00Z');
+      final gap = prev == null || cur == null ? 1 : cur.difference(prev).inDays;
+      for (var k = 1; k < gap; k++) {
+        final pad = prev!.add(Duration(days: k));
+        gridDates.add(pad.toIso8601String().substring(0, 10));
+        sleepWake.addAll(List<bool>.filled(epochsPerDay, false));
+        valid.addAll(List<bool>.filled(epochsPerDay, false));
+      }
+    }
+    gridDates.add(date);
     // Fresh blank day grid (all wake, all invalid until covered).
     final asleep = List<bool>.filled(epochsPerDay, false);
     final cov = List<bool>.filled(epochsPerDay, false);
@@ -1041,6 +1061,9 @@ ana.Metric<ana.SriResult> _crossDaySri(List<Map<String, dynamic>> days) {
         final endMin =
             endMinRaw < startMin ? endMinRaw + epochsPerDay : endMinRaw;
         final span = math.min(endMin - startMin, epochsPerDay);
+        // 'unobserved' is the band seeing nothing (off wrist, lost contact):
+        // neither asleep nor awake, so those minutes stay uncovered.
+        if (stage == 'unobserved') continue;
         final asleepSeg = stage != null && stage != 'wake';
         for (var k = 0; k < span; k++) {
           final m = (startMin + k) % epochsPerDay;
@@ -1065,6 +1088,8 @@ ana.Metric<ana.SriResult> _crossDaySri(List<Map<String, dynamic>> days) {
   // out the half-unobserved weekend the floor exists for, and it does NOT move
   // the published SRI: every accepted epoch counts toward the total whether or
   // not its pair is emitted.
-  return ana.phillipsSri(sleepWake, epochsPerDay,
-      valid: valid, minPairCases: 240);
+  return (
+    ana.phillipsSri(sleepWake, epochsPerDay, valid: valid, minPairCases: 240),
+    gridDates,
+  );
 }

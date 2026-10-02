@@ -4626,6 +4626,8 @@ class LocalDb {
     // instead of the coach having to convert a local day back into a raw
     // start_ts/end_ts epoch range itself, which silently drifted to UTC
     // (issue #129: coach mis-dated workouts near local-midnight boundaries).
+    // Private sessions stay out: this view is what the coach and the CSV
+    // export read, and private means hidden from both.
     await db.execute('''
       CREATE VIEW v_sessions AS
       SELECT id, start_ts, end_ts,
@@ -4633,6 +4635,7 @@ class LocalDb {
              type, status, calories, strain, max_hr,
              duration_min, steps, hrr_bpm, source, zone_min_json
       FROM sessions
+      WHERE private = 0
     ''');
     // Rolling personal baselines (json_extract; missing paths return NULL safely).
     await db.execute('''

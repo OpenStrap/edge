@@ -5332,6 +5332,9 @@ class DerivationEngine {
 
   // ── notifications generator ─────────────────────────────────────────────────
 
+  @visibleForTesting
+  Future<void> runNotificationsForTest() => _runNotifications();
+
   Future<void> _runNotifications() async {
     try {
       final cdRow = await LocalDb.baseline('crossday');
@@ -5350,9 +5353,6 @@ class DerivationEngine {
       final illness = cd['illness'] is Map ? cd['illness'] as Map : null;
       final anomaly = cd['anomaly'] is Map ? cd['anomaly'] as Map : null;
       final temp = cd['temp_illness'] is Map ? cd['temp_illness'] as Map : null;
-      final gb = cd['readiness_glassbox'] is Map
-          ? cd['readiness_glassbox'] as Map
-          : null;
       date ??=
           (illness?['date'] ?? anomaly?['date'] ?? temp?['date']) as String?;
       // ANCHORED TO THE DAY THIS IS RUNNING ON, not to the newest DERIVED day.
@@ -5404,8 +5404,16 @@ class DerivationEngine {
       if (irregFlag == 1.0) {
         findings.add(Finding(FindingKind.irregularRhythm, date));
       }
-      final score = gb?['value'] is Map ? (gb!['value'] as Map)['score'] : null;
-      if (score is num && score < kLowReadiness) {
+      // The headline readiness the ring shows and the findings log reads, not
+      // the glass-box score, which is a different model and can land on the
+      // other side of the threshold. The morning pin wins for its day, same as
+      // getToday and getChart: later re-derives rewrite metric_series, so the
+      // live value can drift across the line while the ring still reads the pin.
+      final pin = await LocalDb.frozenHeadline();
+      final score = pin != null && pin.day == date
+          ? pin.value.toDouble()
+          : await LocalDb.metricValueOn(date, 'readiness');
+      if (score != null && score < kLowReadiness) {
         findings.add(Finding(FindingKind.lowReadiness, date));
       }
 
