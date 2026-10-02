@@ -33,6 +33,7 @@ import '../import/import_container.dart';
 import 'coverage_resolver.dart' show CoverageInterval;
 import 'day_label.dart';
 import 'journal_fields.dart';
+import '../health/bp_research_capture.dart';
 import 'live_coverage_policy.dart';
 import 'med_store.dart';
 import 'models.dart';
@@ -166,6 +167,8 @@ class LocalDb {
   /// flash as we ACK, so in practice this is the only copy of those days too.
   static const _salvageTables = [
     // Hand-entered. The only copy that exists anywhere.
+    'bp_research_reference',
+    'bp_research_window',
     'journal',
     'journal_metric',
     'journal_field_def',
@@ -349,7 +352,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 54;
+  static const int schemaVersion = 55;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -461,6 +464,7 @@ class LocalDb {
         await _createNotifFired(db);
         await _createNotifSlots(db);
         await _createAlarmSchedule(db);
+        await _createBpResearch(db);
         await _ensureCoachViews(db);
       },
       onUpgrade: (db, oldV, newV) async {
@@ -1073,6 +1077,11 @@ class LocalDb {
           // next free rung rather than collide with any of them.
           await _createEcgTables(db);
         }
+        if (oldV < 55) {
+          // BP research capture tables. Create-only, nothing derived reads
+          // them, so no kAlgoVersion bump.
+          await _createBpResearch(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1163,6 +1172,7 @@ class LocalDb {
       'INTEGER NOT NULL DEFAULT 0',
     );
     await _createEcgTables(db);
+    await _createBpResearch(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
@@ -1580,6 +1590,203 @@ class LocalDb {
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_notif_slots_owner '
       'ON notif_slots(category, slot)',
     );
+  }
+
+
+  /// BP research capture store (dev mode only). Read only by the dev screen
+  /// and the CSV export; bp_research_isolation_test.dart keeps it that way.
+  /// Foreign keys are off in this database, so the window's cascade is inert
+  /// and every delete takes the window row explicitly.
+  static Future<void> _createBpResearch(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS bp_research_reference (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        measured_at_ms INTEGER NOT NULL,
+        device TEXT,
+        posture TEXT,
+        conditions TEXT,
+        systolic_mmhg REAL NOT NULL,
+        diastolic_mmhg REAL NOT NULL,
+        captured_at_ms INTEGER NOT NULL,
+        UNIQUE (measured_at_ms, device)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS bp_research_window (
+        reference_id INTEGER NOT NULL PRIMARY KEY
+          REFERENCES bp_research_reference(id) ON DELETE CASCADE,
+        window_start_ms INTEGER NOT NULL,
+        window_end_ms INTEGER NOT NULL,
+        onehz_rows INTEGER,
+        rr_beats INTEGER,
+        hr_mean REAL,
+        rr_ms_mean REAL,
+        rr_ms_min REAL,
+        rr_ms_max REAL,
+        rmssd_ms REAL,
+        meta_json TEXT
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_bp_research_reference_at '
+      'ON bp_research_reference(measured_at_ms)',
+    );
+  }
+
+  /// Insert one cuff reading plus its window, replacing any capture with the
+  /// same `(measured_at_ms, device)`.
+  static Future<void> putBpResearchCapture(BpResearchCapture c) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      // device is stored as '' rather than NULL so the UNIQUE key holds.
+      await txn.rawDelete(
+        'DELETE FROM bp_research_window WHERE reference_id IN '
+        '(SELECT id FROM bp_research_reference '
+        'WHERE measured_at_ms = ? AND device = ?)',
+        [c.measuredAtMs, c.device ?? ''],
+      );
+      await txn.rawDelete(
+        'DELETE FROM bp_research_reference '
+        'WHERE measured_at_ms = ? AND device = ?',
+        [c.measuredAtMs, c.device ?? ''],
+      );
+      final id = await txn.rawInsert(
+        'INSERT INTO bp_research_reference '
+        '(measured_at_ms, device, posture, conditions, systolic_mmhg, '
+        'diastolic_mmhg, captured_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [
+          c.measuredAtMs,
+          c.device ?? '',
+          c.posture,
+          c.conditions,
+          c.systolicMmHg,
+          c.diastolicMmHg,
+          c.capturedAtMs,
+        ],
+      );
+      // No band data = no window row.
+      final w = c.window;
+      if (w == null) return;
+      await txn.rawInsert(
+        'INSERT OR REPLACE INTO bp_research_window '
+        '(reference_id, window_start_ms, window_end_ms, onehz_rows, '
+        'rr_beats, hr_mean, rr_ms_mean, rr_ms_min, rr_ms_max, rmssd_ms, '
+        'meta_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          id,
+          w.windowStartMs,
+          w.windowEndMs,
+          w.onehzRows,
+          w.rrBeats,
+          w.hrMean,
+          w.rrMsMean,
+          w.rrMsMin,
+          w.rrMsMax,
+          w.rmssdMs,
+          w.metaJson,
+        ],
+      );
+    });
+  }
+
+  /// All captures, newest first, for the dev screen and the CSV export.
+  static Future<List<Map<String, Object?>>> bpResearchCaptures() async {
+    final db = await instance;
+    return db.rawQuery('''
+      SELECT r.id, r.measured_at_ms, r.device, r.posture, r.conditions,
+             r.systolic_mmhg, r.diastolic_mmhg, r.captured_at_ms,
+             w.window_start_ms, w.window_end_ms, w.onehz_rows, w.rr_beats,
+             w.hr_mean, w.rr_ms_mean, w.rr_ms_min, w.rr_ms_max, w.rmssd_ms,
+             w.meta_json
+      FROM bp_research_reference r
+      LEFT JOIN bp_research_window w ON w.reference_id = r.id
+      ORDER BY r.measured_at_ms DESC
+    ''');
+  }
+
+  /// Beats of one record share rr_ts_ms; beat_index orders them. Ranged on
+  /// ts_ms (= rr_ts_ms for every row) so the read rides the
+  /// (device_id, ts_ms, beat_index) PK. rr_ts_ms has no index, so ranging on
+  /// it scanned and sorted the whole store once per pending capture.
+  @visibleForTesting
+  static const bpResearchRrWindowSql = 'SELECT rr_ts_ms, rr_ms FROM decoded_rr '
+      'WHERE device_id = ? AND ts_ms >= ? AND ts_ms <= ? '
+      'ORDER BY ts_ms ASC, beat_index ASC';
+
+  /// Fill the window of every capture that has none yet, once the primary
+  /// band's synced 1 Hz data reaches the window end. At capture time the
+  /// window is still in the future and the band hasn't offloaded it, so it
+  /// can only be read later. Returns that data edge in epoch ms (null when
+  /// nothing is decoded): a windowless capture before it is still pending,
+  /// one at or after it had no band data.
+  static Future<int?> fillBpResearchWindows() async {
+    final db = await instance;
+    final edgeSec = Sqflite.firstIntValue(await db.rawQuery(
+      'SELECT MAX(rec_ts) FROM decoded_onehz WHERE device_id = ?',
+      [kPrimaryDeviceId],
+    ));
+    if (edgeSec == null) return null;
+    final edgeMs = edgeSec * 1000;
+    final pending = await db.rawQuery(
+      'SELECT r.id, r.measured_at_ms FROM bp_research_reference r '
+      'LEFT JOIN bp_research_window w ON w.reference_id = r.id '
+      'WHERE w.reference_id IS NULL AND r.measured_at_ms <= ?',
+      [edgeMs - kBpResearchWindowPostMs],
+    );
+    for (final r in pending) {
+      final at = r['measured_at_ms'] as int;
+      final start = at - kBpResearchWindowPreMs;
+      final end = at + kBpResearchWindowPostMs;
+      final w = researchWindowFrom(
+        measuredAtMs: at,
+        onehzRows: await db.rawQuery(
+          'SELECT rec_ts, hr FROM decoded_onehz '
+          'WHERE device_id = ? AND rec_ts >= ? AND rec_ts <= ? '
+          'ORDER BY rec_ts ASC',
+          [kPrimaryDeviceId, start ~/ 1000, end ~/ 1000],
+        ),
+        rrRows: await db.rawQuery(
+          bpResearchRrWindowSql,
+          [kPrimaryDeviceId, start, end],
+        ),
+      );
+      if (w == null) continue;
+      await db.insert(
+        'bp_research_window',
+        {
+          'reference_id': r['id'],
+          'window_start_ms': w.windowStartMs,
+          'window_end_ms': w.windowEndMs,
+          'onehz_rows': w.onehzRows,
+          'rr_beats': w.rrBeats,
+          'hr_mean': w.hrMean,
+          'rr_ms_mean': w.rrMsMean,
+          'rr_ms_min': w.rrMsMin,
+          'rr_ms_max': w.rrMsMax,
+          'rmssd_ms': w.rmssdMs,
+          'meta_json': w.metaJson,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    return edgeMs;
+  }
+
+  /// Delete one capture and its window.
+  static Future<void> deleteBpResearchCapture(int id) async {
+    final db = await instance;
+    await db.transaction((txn) async {
+      await txn.delete(
+        'bp_research_window',
+        where: 'reference_id = ?',
+        whereArgs: [id],
+      );
+      await txn.delete(
+        'bp_research_reference',
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
   }
 
   /// Atomically claim [key] for a one-time OS notification fire.
@@ -8590,6 +8797,8 @@ class LocalDb {
       // banked. They were also simply MISSING here until now — nutrition,
       // medication, strength sets, symptoms and routes did not survive a
       // backup/restore round trip at all, the same omission `wipeAll` documents.
+      'bp_research_reference',
+      'bp_research_window',
       'journal',
       'journal_metric',
       'journal_field_def',
@@ -8745,6 +8954,85 @@ class LocalDb {
             // outcome, so anything that is not a missing table now propagates.
             if (e.isNoSuchTableError()) continue;
             rethrow;
+          }
+          // BP research captures merge on (measured_at_ms, device), never by
+          // source id, and keep the destination id so a local window stays
+          // attached. Both tables go in one transaction on the reference pass.
+          if (t == 'bp_research_window') continue;
+          if (t == 'bp_research_reference') {
+            try {
+              final refs =
+                  await src.rawQuery('SELECT * FROM bp_research_reference');
+              var wins = const <Map<String, Object?>>[];
+              try {
+                wins = await src.rawQuery('SELECT * FROM bp_research_window');
+              } on DatabaseException catch (e) {
+                // A missing or unreadable window table only costs the
+                // windows; the hand-entered references still come across.
+                if (!e.isNoSuchTableError() && !tolerant) rethrow;
+              }
+              final winBySrcId = {
+                for (final w in wins)
+                  if (w['reference_id'] is num)
+                    (w['reference_id'] as num).toInt(): w,
+              };
+              final winCols = await destCols('bp_research_window');
+              var winCount = 0;
+              await db.transaction((txn) async {
+                for (final r in refs) {
+                  final device = (r['device'] as String?) ?? '';
+                  final values = [
+                    r['posture'],
+                    r['conditions'],
+                    r['systolic_mmhg'],
+                    r['diastolic_mmhg'],
+                    r['captured_at_ms'],
+                  ];
+                  final existing = await txn.rawQuery(
+                    'SELECT id FROM bp_research_reference '
+                    'WHERE measured_at_ms = ? AND device = ?',
+                    [r['measured_at_ms'], device],
+                  );
+                  final int destId;
+                  if (existing.isNotEmpty) {
+                    destId = (existing.first['id'] as num).toInt();
+                    await txn.rawUpdate(
+                      'UPDATE bp_research_reference SET posture = ?, '
+                      'conditions = ?, systolic_mmhg = ?, diastolic_mmhg = ?, '
+                      'captured_at_ms = ? WHERE id = ?',
+                      [...values, destId],
+                    );
+                  } else {
+                    destId = await txn.rawInsert(
+                      'INSERT INTO bp_research_reference '
+                      '(posture, conditions, systolic_mmhg, diastolic_mmhg, '
+                      'captured_at_ms, measured_at_ms, device) '
+                      'VALUES (?, ?, ?, ?, ?, ?, ?)',
+                      [...values, r['measured_at_ms'], device],
+                    );
+                  }
+                  final srcId = r['id'];
+                  final w = srcId is num ? winBySrcId[srcId.toInt()] : null;
+                  if (w == null) continue;
+                  await txn.insert(
+                    'bp_research_window',
+                    {
+                      for (final e in w.entries)
+                        if (winCols.contains(e.key)) e.key: e.value,
+                      'reference_id': destId,
+                    },
+                    conflictAlgorithm: ConflictAlgorithm.replace,
+                  );
+                  winCount++;
+                }
+              });
+              counts[t] = refs.length;
+              counts['bp_research_window'] = winCount;
+            } catch (_) {
+              if (!tolerant) rethrow;
+              counts[t] = 0;
+            }
+            continue;
           }
           if (t == 'day_result') importedDays = <String>{};
           if (firstPage.isEmpty) {
@@ -10883,6 +11171,12 @@ class LocalDb {
   /// TIME (epoch seconds) is strictly before [cutoffSec].
   static Future<int> pruneDecodedBeforeRecTs(int cutoffSec) async {
     final db = await instance;
+    // A pending BP research window can only be read from the decoded rows this
+    // is about to delete, so fill it first. Best effort: a dev-only capture
+    // must not stall retention.
+    try {
+      await fillBpResearchWindows();
+    } catch (_) {}
     // `deleted` used to just stay 0 forever - none of the txn.delete() calls'
     // return values (rows actually deleted) were ever added to it, so the
     // caller's `if (deleted > 0) log(...)` never fired even on a real prune.

@@ -12441,5 +12441,113 @@
         "type": "int"
       }
     }
+  },
+  "settingsBpResearchRowTitle": "BP research capture",
+  "@settingsBpResearchRowTitle": {
+    "description": "Developer settings row title for the experimental blood-pressure research capture screen"
+  },
+  "settingsBpResearchRowSub": "Experimental. Pair cuff readings with band data for analysis outside the app",
+  "@settingsBpResearchRowSub": {
+    "description": "Developer settings row subtitle for the BP research capture screen"
+  },
+  "bpResearchTitle": "BP research capture",
+  "@bpResearchTitle": {
+    "description": "Title of the experimental BP research capture screen"
+  },
+  "bpResearchIntro": "Experimental. Take a cuff reading, type it in and press capture. Band data from 2 minutes either side is added once the band has synced it.",
+  "@bpResearchIntro": {
+    "description": "Intro text of the BP research capture screen"
+  },
+  "bpResearchSystolic": "Systolic (mmHg)",
+  "@bpResearchSystolic": {
+    "description": "Text field label for the systolic reference value"
+  },
+  "bpResearchDiastolic": "Diastolic (mmHg)",
+  "@bpResearchDiastolic": {
+    "description": "Text field label for the diastolic reference value"
+  },
+  "bpResearchDevice": "Cuff device (optional)",
+  "@bpResearchDevice": {
+    "description": "Text field label for the cuff device name"
+  },
+  "bpResearchPosture": "Posture (optional)",
+  "@bpResearchPosture": {
+    "description": "Text field label for the posture during the reading"
+  },
+  "bpResearchConditions": "Conditions (optional)",
+  "@bpResearchConditions": {
+    "description": "Text field label for measurement conditions"
+  },
+  "bpResearchCapture": "Capture now",
+  "@bpResearchCapture": {
+    "description": "Button label to store one capture"
+  },
+  "bpResearchHistory": "Captures",
+  "@bpResearchHistory": {
+    "description": "Section header for the stored capture list"
+  },
+  "bpResearchBadValue": "That pair is outside the supported range (systolic 50–300, diastolic 20–200 mmHg, diastolic below systolic). It was not saved.",
+  "@bpResearchBadValue": {
+    "description": "Snackbar text for an out-of-bounds reference pair, which is rejected, never clamped"
+  },
+  "bpResearchExportHint": "Included in Your data › Export as spreadsheets. Backups and an opt-in health share include them too.",
+  "@bpResearchExportHint": {
+    "description": "Hint under the capture list explaining the CSV export path"
+  },
+  "bpResearchWindowPending": "Waiting for the band to sync",
+  "@bpResearchWindowPending": {
+    "description": "Capture list subtitle while the band data around the reading has not synced yet"
+  },
+  "bpResearchWindowEmpty": "No band data in the window",
+  "@bpResearchWindowEmpty": {
+    "description": "Capture list subtitle when the band recorded nothing around the reading"
+  },
+  "bpResearchRefreshFailed": "Saved, but the list failed to refresh. ({error})",
+  "@bpResearchRefreshFailed": {
+    "description": "Snackbar when the capture was stored but the list reload threw",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "bpResearchCaptureFailed": "Capture failed, nothing was saved. ({error})",
+  "@bpResearchCaptureFailed": {
+    "description": "Snackbar when storing the capture threw",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "bpResearchWindowHr": "HR {bpm} bpm",
+  "@bpResearchWindowHr": {
+    "description": "Capture list subtitle part: mean heart rate in the window",
+    "placeholders": {
+      "bpm": {
+        "type": "String"
+      }
+    }
+  },
+  "bpResearchWindowRmssd": "RMSSD {ms} ms",
+  "@bpResearchWindowRmssd": {
+    "description": "Capture list subtitle part: RMSSD in the window",
+    "placeholders": {
+      "ms": {
+        "type": "String"
+      }
+    }
+  },
+  "bpResearchWindowCounts": "{rows} 1 Hz rows, {beats} beats",
+  "@bpResearchWindowCounts": {
+    "description": "Capture list subtitle part: how much band data the window holds",
+    "placeholders": {
+      "rows": {
+        "type": "String"
+      },
+      "beats": {
+        "type": "String"
+      }
+    }
   }
 }

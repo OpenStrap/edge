@@ -283,6 +283,42 @@ const kCsvExportSets = <CsvExportSet>[
       ORDER BY d.date ASC
     ''',
   ),
+  CsvExportSet(
+    name: 'bp_research',
+    title: 'BP research captures (EXPERIMENTAL)',
+    // Cuff readings plus their band window. Absent stats stay empty.
+    columns: [
+      'measured_at_ms',
+      'device',
+      'posture',
+      'conditions',
+      'systolic_mmhg',
+      'diastolic_mmhg',
+      'captured_at_ms',
+      'window_start_ms',
+      'window_end_ms',
+      'onehz_rows',
+      'rr_beats',
+      'hr_mean',
+      'rr_ms_mean',
+      'rr_ms_min',
+      'rr_ms_max',
+      'rmssd_ms',
+      'meta_json',
+    ],
+    sql: '''
+      SELECT r.measured_at_ms, COALESCE(r.device, '') AS device,
+             COALESCE(r.posture, '') AS posture,
+             COALESCE(r.conditions, '') AS conditions,
+             r.systolic_mmhg, r.diastolic_mmhg, r.captured_at_ms,
+             w.window_start_ms, w.window_end_ms, w.onehz_rows, w.rr_beats,
+             w.hr_mean, w.rr_ms_mean, w.rr_ms_min, w.rr_ms_max, w.rmssd_ms,
+             COALESCE(w.meta_json, '') AS meta_json
+      FROM bp_research_reference r
+      LEFT JOIN bp_research_window w ON w.reference_id = r.id
+      ORDER BY r.measured_at_ms ASC
+    ''',
+  ),
 ];
 
 /// What CSV deliberately does NOT carry, and why. Shown to the user on the
