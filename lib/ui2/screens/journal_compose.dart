@@ -884,7 +884,7 @@ class _WeightTrendState extends State<_WeightTrend> {
     // across it.
     final days = trend.keys.toList()..sort();
     final first = DateTime.parse(days.first);
-    final span = DateTime.parse(days.last).difference(first).inDays;
+    final span = calendarDaysBetween(first, DateTime.parse(days.last));
     // The controller owns every conversion; this only asks it for the number
     // rather than the sentence, because an axis cannot print "72.4 kg".
     double show(double kg) =>

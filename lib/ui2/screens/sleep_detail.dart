@@ -100,6 +100,30 @@ int? _noonOf(String? day) => day == null
   return (lo: q(.25), mid: q(.5), hi: q(.75), n: s.length);
 }
 
+/// The window a bed/wake time correction means. The bedtime lands on whichever
+/// of the measured onset's day, the day before or the day after puts it
+/// closest to the measured onset — 23:30 picked over a 00:30 onset is the
+/// evening before, not 23 hours later. The wake is the first one after that
+/// bedtime. Calendar arithmetic (`day ± 1`), never a Duration: a DST day is 23
+/// or 25 hours long.
+(DateTime, DateTime) correctedSleepWindow(
+    DateTime onset, TimeOfDay bed, TimeOfDay up) {
+  DateTime at(int dayOffset, TimeOfDay t) => DateTime(
+      onset.year, onset.month, onset.day + dayOffset, t.hour, t.minute);
+  int off(DateTime d) => d.difference(onset).inSeconds.abs();
+  var newOnset = at(0, bed);
+  for (final o in const [-1, 1]) {
+    if (off(at(o, bed)) < off(newOnset)) newOnset = at(o, bed);
+  }
+  var newWake = DateTime(
+      newOnset.year, newOnset.month, newOnset.day, up.hour, up.minute);
+  if (!newWake.isAfter(newOnset)) {
+    newWake = DateTime(
+        newOnset.year, newOnset.month, newOnset.day + 1, up.hour, up.minute);
+  }
+  return (newOnset, newWake);
+}
+
 String _pct(double v) => '${v.round()}%';
 String _pts(double v) => '${v.round()} points';
 
@@ -738,9 +762,8 @@ class _SleepDetailState extends State<SleepDetail> {
       _runOverride(() => context.read<AppState>().rejectSleep(day));
 
   /// Two pickers, seeded from the window we already have — the user is
-  /// correcting times, not entering a date, so the DATES stay as measured and
-  /// only the clock moves. A wake that lands before the onset belongs to the
-  /// next morning.
+  /// correcting times, not entering a date. See [correctedSleepWindow] for
+  /// which dates the picked clock times land on.
   Future<void> _editWindow(String day, int t0, int t1) async {
     final onset = DateTime.fromMillisecondsSinceEpoch(t0 * 1000);
     final wake = DateTime.fromMillisecondsSinceEpoch(t1 * 1000);
@@ -757,17 +780,7 @@ class _SleepDetailState extends State<SleepDetail> {
       helpText: l?.sleepDetailWakeTimeHelp ?? 'WHEN YOU GOT UP',
     );
     if (up == null || !mounted) return;
-    final newOnset =
-        DateTime(onset.year, onset.month, onset.day, bed.hour, bed.minute);
-    // A wake at or before the onset is the next morning. `day + 1` rather than
-    // adding a Duration: DateTime normalises the overflow, and it is calendar
-    // arithmetic across a possible DST boundary, not a span of elapsed time.
-    var newWake =
-        DateTime(onset.year, onset.month, onset.day, up.hour, up.minute);
-    if (!newWake.isAfter(newOnset)) {
-      newWake = DateTime(
-          onset.year, onset.month, onset.day + 1, up.hour, up.minute);
-    }
+    final (newOnset, newWake) = correctedSleepWindow(onset, bed, up);
     await _runOverride(
       () => context.read<AppState>().setSleepOverride(day, newOnset, newWake),
     );

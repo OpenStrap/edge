@@ -248,6 +248,9 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
   DayStepsData? _d;
   bool _loading = true;
   String? _day;
+  // A quick second tap on the day stepper starts a second load; the first
+  // can finish last and must not paint the old day under the new label.
+  int _loadToken = 0;
 
   @override
   void initState() {
@@ -262,6 +265,7 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
   }
 
   Future<void> _load() async {
+    final token = ++_loadToken;
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
@@ -270,9 +274,11 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
     try {
       final d = await DayStepsData.load(repo,
           bandLabel: bandLabel(context), want: _day);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      if (mounted && token == _loadToken) {
+        setState(() => (_d = d, _loading = false));
+      }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && token == _loadToken) setState(() => _loading = false);
     }
   }
 

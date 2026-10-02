@@ -17,12 +17,16 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/models.dart';
+import 'package:openstrap_edge/ui2/screens/log_workout.dart' show dayLabel;
+import 'package:openstrap_edge/ui2/screens/sleep_detail.dart'
+    show correctedSleepWindow;
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart'
     show lastSevenDays;
 
@@ -214,6 +218,31 @@ void main() {
           },
       ];
       expect(lastSevenDays(points, end), [3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+    },
+    skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
+  );
+
+  test(
+    'the workout day label counts calendar days over a spring-forward',
+    () {
+      // Sunday 00:00 to Monday 00:00 is 23 h; `inDays` on that called
+      // Sunday's session "Today" and Saturday's "Yesterday".
+      final now = DateTime(2026, 3, 9, 12);
+      expect(dayLabel(DateTime(2026, 3, 9, 7), now: now), 'Today');
+      expect(dayLabel(DateTime(2026, 3, 8, 7), now: now), 'Yesterday');
+      expect(dayLabel(DateTime(2026, 3, 7, 7), now: now), 'Sat 7 Mar');
+    },
+    skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
+  );
+
+  test(
+    'a corrected sleep window over a spring-forward night is still one night',
+    () {
+      final (on, off) = correctedSleepWindow(DateTime(2026, 3, 8, 0, 30),
+          const TimeOfDay(hour: 23, minute: 30),
+          const TimeOfDay(hour: 7, minute: 0));
+      expect(on, DateTime(2026, 3, 7, 23, 30));
+      expect(off, DateTime(2026, 3, 8, 7, 0));
     },
     skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
   );

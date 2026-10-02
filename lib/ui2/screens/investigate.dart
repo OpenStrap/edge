@@ -227,6 +227,9 @@ class _InvestigateState extends State<Investigate> {
   InvestigateData? _d;
   bool _loading = true;
   String? _day;
+  // A quick second tap on the day stepper starts a second load; the first
+  // can finish last and must not paint the old day under the new label.
+  int _loadToken = 0;
 
   @override
   void initState() {
@@ -241,6 +244,7 @@ class _InvestigateState extends State<Investigate> {
   }
 
   Future<void> _load() async {
+    final token = ++_loadToken;
     final repo = repoOf(context);
     if (repo == null) {
       if (mounted) setState(() => _loading = false);
@@ -249,9 +253,11 @@ class _InvestigateState extends State<Investigate> {
     try {
       final d =
           await InvestigateData.load(repo, widget.metricKey, want: _day);
-      if (mounted) setState(() => (_d = d, _loading = false));
+      if (mounted && token == _loadToken) {
+        setState(() => (_d = d, _loading = false));
+      }
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && token == _loadToken) setState(() => _loading = false);
     }
   }
 
