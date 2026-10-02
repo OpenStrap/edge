@@ -6984,6 +6984,10 @@
   "@healthDateFormatError": {
     "description": "Add-result dialog validation error: date format"
   },
+  "healthDateInFuture": "That date is after today. Nothing was saved.",
+  "@healthDateInFuture": {
+    "description": "Add-result dialog validation error: draw date after today"
+  },
   "healthCouldNotSaveIt": "Could not save it: {error}",
   "@healthCouldNotSaveIt": {
     "description": "Add-result dialog snackbar on save failure",

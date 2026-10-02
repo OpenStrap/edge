@@ -1350,6 +1350,7 @@
   "healthDateDrawn": "Entnahmedatum (JJJJ-MM-TT)",
   "healthValueMustBeNumber": "Der Wert muss eine reine Zahl sein, ohne Einheit. Es wurde nichts gespeichert.",
   "healthDateFormatError": "Das Datum muss im Format JJJJ-MM-TT sein. Es wurde nichts gespeichert.",
+  "healthDateInFuture": "Dieses Datum liegt nach heute. Es wurde nichts gespeichert.",
   "healthCouldNotSaveIt": "Konnte nicht gespeichert werden: {error}",
   "homeStepSensorStrapPhone": "Band + Telefon",
   "homeStepSensorStrap": "Band",

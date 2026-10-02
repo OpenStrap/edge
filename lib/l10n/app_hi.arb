@@ -1350,6 +1350,7 @@
   "healthDateDrawn": "लिए जाने की तारीख़ (YYYY-MM-DD)",
   "healthValueMustBeNumber": "मान केवल एक संख्या होना चाहिए, इकाई के बिना। कुछ भी सहेजा नहीं गया।",
   "healthDateFormatError": "तारीख़ YYYY-MM-DD प्रारूप में होनी चाहिए। कुछ भी सहेजा नहीं गया।",
+  "healthDateInFuture": "यह तारीख़ आज के बाद की है। कुछ भी सहेजा नहीं गया।",
   "healthCouldNotSaveIt": "सहेजा नहीं जा सका: {error}",
   "homeStepSensorStrapPhone": "स्ट्रैप + फ़ोन",
   "homeStepSensorStrap": "स्ट्रैप",

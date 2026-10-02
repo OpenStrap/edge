@@ -1350,6 +1350,7 @@
   "healthDateDrawn": "Date du prélèvement (AAAA-MM-JJ)",
   "healthValueMustBeNumber": "La valeur doit être un nombre seul, sans l'unité. Rien n'a été enregistré.",
   "healthDateFormatError": "La date doit être au format AAAA-MM-JJ. Rien n'a été enregistré.",
+  "healthDateInFuture": "Cette date est postérieure à aujourd'hui. Rien n'a été enregistré.",
   "healthCouldNotSaveIt": "Impossible d'enregistrer : {error}",
   "homeStepSensorStrapPhone": "Bracelet + téléphone",
   "homeStepSensorStrap": "Bracelet",

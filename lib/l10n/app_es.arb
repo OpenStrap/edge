@@ -1350,6 +1350,7 @@
   "healthDateDrawn": "Fecha de extracción (AAAA-MM-DD)",
   "healthValueMustBeNumber": "El valor debe ser un número por sí solo, sin la unidad. No se guardó nada.",
   "healthDateFormatError": "La fecha debe tener el formato AAAA-MM-DD. No se guardó nada.",
+  "healthDateInFuture": "Esa fecha es posterior a hoy. No se guardó nada.",
   "healthCouldNotSaveIt": "No se pudo guardar: {error}",
   "homeStepSensorStrapPhone": "Correa + teléfono",
   "homeStepSensorStrap": "Correa",

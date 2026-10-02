@@ -1350,6 +1350,7 @@
   "healthDateDrawn": "抽取日期（YYYY-MM-DD）",
   "healthValueMustBeNumber": "数值必须是不带单位的纯数字。未保存任何内容。",
   "healthDateFormatError": "日期格式必须为 YYYY-MM-DD。未保存任何内容。",
+  "healthDateInFuture": "该日期晚于今天。未保存任何内容。",
   "healthCouldNotSaveIt": "无法保存：{error}",
   "homeStepSensorStrapPhone": "腕带 + 手机",
   "homeStepSensorStrap": "腕带",
