@@ -104,8 +104,9 @@ const String kRouteProfile = '/profile';
 const String kRouteRecap = '/recap';
 
 /// Emitted by the two alarm safety notifications (latch-failure, the 7pm
-/// no-alarm-tonight check-in). Lands on the Alarm screen itself, the one place
-/// either can actually be fixed — see `screenForRoute` in app.dart.
+/// no-alarm-tonight check-in) and the alarm-fired note. Lands on the Alarm
+/// screen itself, the one place any of them can be acted on — see
+/// `screenForRoute` in app.dart.
 const String kRouteAlarm = '/alarm';
 
 class TapTarget {

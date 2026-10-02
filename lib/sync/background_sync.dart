@@ -621,6 +621,8 @@ Future<void> checkSyncStaleness({bool allowPermissionPrompt = false}) async {
         body: 'No new data for about $hoursStale hours. Open OpenStrap to '
             'reconnect — background sync may have stalled.',
         date: now.toIso8601String().substring(0, 10),
+        // Home: its day card carries the synced-through line and the sync
+        // button this body points at. Profile shows neither.
         route: '/today',
       ),
       allowPermissionPrompt: allowPermissionPrompt,

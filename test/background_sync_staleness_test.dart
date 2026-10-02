@@ -14,6 +14,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/notify/notification_center.dart';
+import 'package:openstrap_edge/notify/notification_event.dart';
+import 'package:openstrap_edge/notify/tap_router.dart';
 import 'package:openstrap_edge/sync/background_sync.dart';
 
 const _kCooldown = 'last_staleness_notified_ms';
@@ -49,6 +52,30 @@ void main() {
     await prefs.reload();
     expect(prefs.getInt(_kCooldown), isNull,
         reason: 'the cooldown belongs to an alert that was actually shown');
+  });
+
+  test('the staleness alert opens Home, where the sync state is', () async {
+    // Home's day card holds the synced-through line and the sync button the
+    // body points at; Profile shows neither.
+    SharedPreferences.setMockInitialValues({'notif_quiet_enabled': false});
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await LocalDb.setCursor('rec_ts_hw', '${nowSec - 4 * 24 * 3600}');
+    final center = NotificationCenter.instance;
+    final original = center.presentSink;
+    NotificationEvent? sent;
+    center.presentSink = (e, {bool allowPermissionPrompt = true}) async {
+      sent = e;
+      return true;
+    };
+    try {
+      await checkSyncStaleness();
+    } finally {
+      center.presentSink = original;
+    }
+    expect(sent, isNotNull);
+    final target = resolveTapRoute(sent!.route!);
+    expect(target.tab, 0);
+    expect(target.screen, isNull);
   });
 
   test('a band that has never synced is not stale', () async {

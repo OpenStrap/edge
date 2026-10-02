@@ -360,12 +360,12 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
       // itself — the live session bar with its finish control is pinned to
       // the shell there — so screenForRoute stays null for it.
       kRouteWorkoutIdle => ShellDomain.workout,
-      // Emitted by the battery forecast (`app_state.dart`) and the weekly
-      // recap (`notification_center.dart`), and declared in `tap_router`
+      // Emitted by the battery forecast (`app_state.dart`) and the device
+      // alerts (`device_alerts.dart`), and declared in `tap_router`
       // alongside every other deep link — see the note below.
       kRouteProfile => ShellDomain.home,
-      // The two alarm safety notifications. Reached the same way as the
-      // battery/band alerts above — Profile lives on Home.
+      // The two alarm safety notifications and the alarm-fired note. Reached
+      // the same way as the battery/band alerts above — Profile lives on Home.
       kRouteAlarm => ShellDomain.home,
       // No recap screen exists. Health is where a week of sleep, strain and
       // recovery actually lives, so it is the nearest true destination — but
