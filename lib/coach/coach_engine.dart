@@ -957,8 +957,8 @@ class CoachEngine {
         'v_daily(date,resting_hr,hrv,sdnn,readiness,strain,resp_rate,stress,'
         'sleep_efficiency,sleep_min,deep_min,rem_min,light_min,nap_min,steps,'
         // `odi_per_hour` is NOT listed: the view still has the column but the
-        // pipeline stopped writing the key when SpO2 was refused edge-side, so
-        // it is permanently NULL. Advertising a column that can never hold a
+        // pipeline stopped writing the key when band SpO2 was dropped, so it
+        // is always NULL. Advertising a column that can never hold a
         // value makes the model query it, get nothing, and reason about the
         // hole. A column that can never have data is a lie to the model.
         'active_calories,total_calories,skin_temp_z,lf_hf,hrv_cv,dip_pct,'

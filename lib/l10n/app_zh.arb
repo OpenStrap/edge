@@ -1315,6 +1315,10 @@
   "healthBlurbNapMin": "在主要夜间睡眠之外检测到的睡眠",
   "healthBlurbRespRate": "每分钟呼吸次数，由心跳节律推算得出",
   "healthBlurbBrv": "该频率在整夜中的波动程度",
+  "healthBlurbSpo2": "WHOOP 自己的数值，来自导入数据",
+  "@healthBlurbSpo2": {
+    "description": "Explore 目录：导入的血氧"
+  },
   "healthBlurbSteps": "由计步器实际计数，从不依赖模型估算",
   "healthBlurbActiveMin": "运动量的分钟数，而非移动距离",
   "healthBlurbCalories": "根据心率和你的个人资料计算出的活动能量",

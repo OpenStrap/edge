@@ -1315,6 +1315,10 @@
   "healthBlurbNapMin": "Schlaf, der außerhalb der Hauptnacht erkannt wurde",
   "healthBlurbRespRate": "Atemzüge pro Minute, aus der Herzschlagzeit ermittelt",
   "healthBlurbBrv": "Wie stark diese Rate über die Nacht hinweg schwankt",
+  "healthBlurbSpo2": "WHOOPs eigener Wert, unverändert aus einem Import übernommen",
+  "@healthBlurbSpo2": {
+    "description": "Explore-Katalog: importierter Blutsauerstoff"
+  },
   "healthBlurbSteps": "Von einem Schrittzähler gezählt, niemals modelliert",
   "healthBlurbActiveMin": "Minuten an Bewegungsvolumen, nicht an Fortbewegung",
   "healthBlurbCalories": "Aktive Energie aus Herzfrequenz und deinem Profil",

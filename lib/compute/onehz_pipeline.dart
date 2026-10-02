@@ -508,14 +508,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           ),
         );
 
-  // SpO2 is refused PERMANENTLY, not parked. `spo2RedRaw` and `spo2IrRaw` are
-  // one signal: `ir - red` is a fixed integer within a capture session (see
-  // protocol/records.dart — constant across 178 of 300 hours of a real export)
-  // while both drift together. Any ratio, or ratio-of-ratios, built from them
-  // is a function of one channel's baseline drift and measures that drift, not
-  // oxygenation. No firmware capture and no packet work changes that; it is a
-  // property of the bytes. The raw channels stay in the substrate because they
-  // ARE the bytes at those offsets.
+  // No SpO2 is derived from the band's red/IR channels. `spo2RedRaw` and
+  // `spo2IrRaw` are one signal: `ir - red` is a fixed integer within a capture
+  // session (see protocol/records.dart) while both drift together, so any
+  // ratio built from them measures that drift, not oxygenation. Imported WHOOP
+  // blood oxygen is a separate `spo2` metric_series key and does not pass
+  // through here.
   const kSpo2Refusal = 'refused: the red and IR channels are one signal — '
       'ir − red is a fixed offset within a session, so any ratio built from '
       'them measures baseline drift, not oxygenation';
@@ -1128,10 +1126,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'note': 'Baevsky Stress Index → 0–100; resting autonomic tension (PRV).',
   };
 
-  // ── SpO₂ — REFUSED, permanently. See kSpo2Refusal above: the red and IR
-  //    ADCs are one signal, so there is no oxygen metric to publish from them
-  //    at any tier, relative or otherwise. The block stays so old bundles keep
-  //    a shape, and it says why.
+  // ── SpO₂ from the band: none. See kSpo2Refusal above: the red and IR ADCs
+  //    are one signal. The block stays so old bundles keep a shape, and it
+  //    says why.
   final rejectCounts = odi.present ? odi.value!.rejectCounts : null;
   final severityCounts = odi.present ? odi.value!.severityCounts : null;
   final spo2Block = <String, dynamic>{

@@ -6744,6 +6744,10 @@
   "@healthBlurbBrv": {
     "description": "Explore catalogue one-line description for breathing rate variability"
   },
+  "healthBlurbSpo2": "WHOOP's own derived value, carried from an import",
+  "@healthBlurbSpo2": {
+    "description": "Explore catalogue one-line description for imported blood oxygen"
+  },
   "healthBlurbSteps": "Counted by a pedometer, never modelled",
   "@healthBlurbSteps": {
     "description": "Explore catalogue one-line description for steps"

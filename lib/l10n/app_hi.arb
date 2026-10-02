@@ -1315,6 +1315,10 @@
   "healthBlurbNapMin": "मुख्य रात के अलावा मिली नींद",
   "healthBlurbRespRate": "प्रति मिनट साँसें, धड़कन-समय से निकाली गई",
   "healthBlurbBrv": "यह दर पूरी रात में कितनी बदलती है",
+  "healthBlurbSpo2": "WHOOP का अपना मान, आयात से लिया गया",
+  "@healthBlurbSpo2": {
+    "description": "Explore सूची: आयातित रक्त ऑक्सीजन"
+  },
   "healthBlurbSteps": "पेडोमीटर से गिने गए, कभी अनुमानित नहीं",
   "healthBlurbActiveMin": "गति की मात्रा के मिनट, चलना-फिरना नहीं",
   "healthBlurbCalories": "हृदय गति और आपकी प्रोफ़ाइल से निकाली गई सक्रिय ऊर्जा",

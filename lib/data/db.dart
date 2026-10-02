@@ -9293,7 +9293,8 @@ class LocalDb {
       out[key] =
           Sqflite.firstIntValue(
             await db.rawQuery(
-              'SELECT COUNT(*) FROM metric_series WHERE key = ? AND value IS NOT NULL',
+              'SELECT COUNT(*) FROM metric_series WHERE key = ? AND value IS NOT NULL'
+              '${_validSql(key)}',
               [key],
             ),
           ) ??
@@ -9396,13 +9397,22 @@ class LocalDb {
     final db = await instance;
     return db.query(
       'metric_series',
-      where: 'key = ? AND value IS NOT NULL'
+      where: 'key = ? AND value IS NOT NULL${_validSql(key)}'
           '${measuredOnly ? ' AND date NOT IN ($_importedDatesSql)' : ''}',
       whereArgs: [key],
       orderBy: 'date ASC',
       limit: limit,
     );
   }
+
+  /// Drops stored `spo2` rows that are not a blood oxygen percentage: WHOOP export
+  /// cells outside 70-100 banked before the importer dropped them, and the old
+  /// cloud_v2 importer's relative index, written under the same key.
+  static String _validSql(String key) => key != 'spo2'
+      ? ''
+      : ' AND value BETWEEN 70 AND 100 AND date NOT IN ('
+          'SELECT r.day_id FROM day_result r $_servedDayJoin '
+          "WHERE r.day_id IS NOT NULL AND r.payload_json LIKE '%\"source\":\"cloud_v2\"%')";
 
   /// The TRAILING [n] non-null values for [key] — the newest n days, returned
   /// oldest→newest. Unlike [metricSeries] (which is `date ASC LIMIT n`, i.e. the

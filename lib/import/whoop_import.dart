@@ -206,6 +206,9 @@ class WhoopImporter {
 
   // ── per-row writers ──────────────────────────────────────────────────────────
 
+  // a blank/0/garbage cell is no reading, not a 0% night.
+  static num? _pct(num? v, num lo) => v != null && v >= lo && v <= 100 ? v : null;
+
   /// Pure extraction: (date, raw field map) from one CSV row, or null when
   /// the row has no parseable anchor timestamp. No DB access — callers
   /// accumulate these across every file in the import before writing, so a
@@ -227,7 +230,7 @@ class WhoopImporter {
       'strain': n(['day strain', 'strain']),
       'calories': _kcal(get(_energyCols), row.header(_energyCols)),
       'resp': n(['respiratory rate (rpm)', 'respiratory rate']),
-      'spo2': n(['blood oxygen %', 'blood oxygen']),
+      'spo2': _pct(n(['blood oxygen %', 'blood oxygen']), 70),
       'skinTempC': n(['skin temp (celsius)', 'skin temperature (celsius)']),
       'asleepMin': n(['asleep duration (min)', 'asleep duration (minutes)']),
       'inBedMin': n(['in bed duration (min)', 'in bed duration (minutes)']),

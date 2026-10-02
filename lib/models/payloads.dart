@@ -101,9 +101,8 @@ class TodayData {
   /// Skin-temp deviation vs your baseline (relative, raw units), or null.
   double? get skinTempIdx => (_skinTemp?['value'] as num?)?.toDouble();
 
-  /// ALWAYS NULL. SpO2 is permanently refused edge-side — `odi_per_hour` is
-  /// hard-null in onehz_pipeline.dart with the reason attached. see [Spo2Data]
-  /// before you try to make this return something.
+  /// Always null for now: `odi_per_hour` is hard-null in onehz_pipeline.dart
+  /// with the reason attached. see [Spo2Data].
   Spo2Data? get spo2 =>
       (_spo2 == null || _spo2['odi_per_hour'] == null) ? null : Spo2Data(_spo2);
 
@@ -307,30 +306,19 @@ class NocturnalData {
   bool get elevated => _n['elevated'] == true;
 }
 
-/// ── SpO2 — REFUSED, permanently. do not add a reader. ────────────────────────
+/// ── SpO2 from the band: not derived yet. ────────────────────────────────────
 ///
-/// this class only still exists so old bundles keep a shape. `odi_per_hour` is
-/// hard-null in the pipeline, so the `spo2` getter above returns null for every
-/// day and every getter below is dead. that is the intended state.
+/// `odi_per_hour` is hard-null in the pipeline, so the `spo2` getter above
+/// returns null for every day. imported WHOOP blood oxygen does not come
+/// through here; it is the `spo2` metric_series key.
 ///
-/// gen4: `spo2RedRaw` and `spo2IrRaw` are ONE signal. `ir − red` is a fixed
-/// integer within a capture session across 61% of a million real rows while
-/// both channels drift together, so any ratio — or ratio-of-ratios — built from
-/// them is a function of one channel's baseline drift and measures the drift,
-/// not oxygenation. no firmware capture and no packet work changes that; it is
-/// a property of the bytes. protocol/records.dart carries the finding verbatim.
+/// gen4: `spo2RedRaw` and `spo2IrRaw` are one signal. `ir − red` is a fixed
+/// integer within a session while both drift together, so a red/IR ratio
+/// measures the drift, not oxygenation.
 ///
-/// gen5: `spo2CandidateRaw` @inner[74] is the most dangerous field on the whole
-/// decode surface and it is deliberately unread here. it is zero in 99% of
-/// records, nonzero only inside band-declared sleep, and clusters at 95-99 —
-/// exactly where a real SpO2 sits, with no validity flag to say which are real.
-/// it validates against intuition and is wrong, and it is one line from a tile.
-///
-/// nothing survives at a lower tier either: not a %, not a relative trend, not a
-/// desaturation count, not an overnight minimum, not in Investigate. wrist
-/// reflectance oximetry is not cleared as a pulse oximeter by any vendor, and
-/// the FDA's pigmentation accuracy work means the error is not uniform across
-/// users — a number here would be worst for the people it is already worst for.
+/// gen5: the v18 byte at inner[74] has no pinned encoding (zero in ~99% of
+/// records, nonzero only in band-declared sleep, no validity flag), so it is
+/// not read.
 class Spo2Data {
   final Map<String, dynamic> _s;
   Spo2Data(this._s);

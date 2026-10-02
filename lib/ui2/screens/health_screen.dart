@@ -322,7 +322,14 @@ class LabsData {
 /// is how two screens end up disagreeing about what a metric is called.
 class _CatRow {
   final String key, series, blurb;
-  const _CatRow(this.key, this.series, this.blurb);
+
+  /// Only an import writes this series, so with no history the row is left
+  /// out entirely instead of being listed as not measured yet.
+  final bool importOnly;
+  const _CatRow(this.key, this.series, this.blurb, {this.importOnly = false});
+
+  bool shown(Map<String, int> counts) =>
+      !importOnly || (counts[series] ?? 0) > 0;
 }
 
 class _Cat {
@@ -334,10 +341,10 @@ class _Cat {
 /// The families, in the order a person looks for them.
 ///
 /// What is deliberately NOT here:
-/// - SpO2, ODI and anything apnea-shaped. Refused outright — a capability this
-///   app does not produce has no entry, no card and no key, and an index that
-///   listed them to explain their absence would be the exact thing the
-///   absent-forever rule forbids.
+/// - ODI and anything apnea-shaped. A capability this app does not produce
+///   has no entry, no card and no key, and an index that listed them to
+///   explain their absence would be the exact thing the absent-forever rule
+///   forbids.
 /// - Cycle. It is a Wellness tab with its own door and its own on/off switch;
 ///   a second entrance from Health would be a duplicate route, not a feature.
 /// - `rmssd_whole`, `stress_si`, `brv_slope`. Real numbers, but single-night
@@ -365,6 +372,8 @@ const _catalogue = <_Cat>[
   _Cat('Breathing', [
     _CatRow('resp_rate', 'resp_rate', 'Breaths per minute, recovered from beat timing'),
     _CatRow('brv', 'brv_cv', 'How much that rate varies across the night'),
+    _CatRow('spo2', 'spo2', "WHOOP's own derived value, carried from an import",
+        importOnly: true),
   ]),
   _Cat('Movement & load', [
     _CatRow('steps', 'steps', 'Counted by a pedometer, never modelled'),
@@ -407,6 +416,7 @@ String _rowBlurb(AppLocalizations? l, String key, String blurb) =>
       'nap_min' => l?.healthBlurbNapMin ?? blurb,
       'resp_rate' => l?.healthBlurbRespRate ?? blurb,
       'brv' => l?.healthBlurbBrv ?? blurb,
+      'spo2' => l?.healthBlurbSpo2 ?? blurb,
       'steps' => l?.healthBlurbSteps ?? blurb,
       'active_min' => l?.healthBlurbActiveMin ?? blurb,
       'calories' => l?.healthBlurbCalories ?? blurb,
@@ -1289,6 +1299,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     var have = 0, total = 0;
     for (final f in _catalogue) {
       for (final r in f.rows) {
+        if (!r.shown(e.counts)) continue;
         total++;
         if ((e.counts[r.series] ?? 0) > 0) have++;
       }
@@ -1322,7 +1333,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     ];
     final none = [
       for (final r in f.rows)
-        if ((counts[r.series] ?? 0) == 0) r,
+        if ((counts[r.series] ?? 0) == 0 && r.shown(counts)) r,
     ];
 
     return Section(
