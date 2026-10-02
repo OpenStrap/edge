@@ -181,6 +181,44 @@ void main() {
       expect(d.lastTrimAdvanced, isFalse);
     });
 
+    test('the HISTORY_COMPLETE tail commit keeps the trim advance for '
+        'auto-continue', () async {
+      final d = _drainWith((raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {});
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      expect(await d.commit(_tokenA), isTrue);
+      d.onHistoricalRecord(_raw(2), _sample(2), 24);
+      expect(await d.commit(null), isTrue); // tail, no token
+      expect(d.lastTrimAdvanced, isTrue,
+          reason: '_onOffloadFinished reads it after the tail commit');
+      d.resetOffloadCounters();
+      expect(d.lastTrimAdvanced, isFalse, reason: 'cleared per offload');
+    });
+
+    test('a token commit queued behind a failing flush banks the flushed rows '
+        'before its token', () async {
+      final gate = Completer<void>();
+      var fail = true;
+      final committed = <String>[];
+      final d = _drainWith((raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {
+        if (fail) {
+          fail = false;
+          await gate.future;
+          throw StateError('rollback');
+        }
+        committed.addAll(raws.map((r) => r.hex));
+      });
+      d.onHistoricalRecord(_raw(1), _sample(1), 24);
+      final flush = d.flush(); // awaitComplete's timer flush
+      d.onHistoricalRecord(_raw(2), _sample(2), 24);
+      final end = d.commit(_tokenA); // HISTORY_END while the flush is parked
+      gate.complete();
+      expect(await flush, isFalse);
+      expect(await end, isTrue);
+      // The ACK for tokenA goes out now, so row 1 must already be durable.
+      expect(committed, [_hex(1), _hex(2)]);
+      expect(d.bufferedRecords, 0);
+    });
+
     test('archive-only commit still counts as trim advanced', () async {
       final d = _drainWith((raws, samples, token, {archives, ecgRawPackets, deviceFamily}) async {});
       d.onUndecodableRecord(_archive(1));

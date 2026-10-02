@@ -506,6 +506,52 @@ void _wiredFamilies() {
       // A pair's SRI is on the same 200p−100 scale as the headline.
       expect((pairs.first as Map)['sri'], isA<num>());
     });
+
+    test('a missing calendar day is a gap, not an adjacent night', () {
+      // Drop every third day, so some neighbouring rows are two days apart.
+      final all = _synthDays(30);
+      final days = [
+        for (var i = 0; i < all.length; i++)
+          if (i % 3 != 1) all[i],
+      ];
+      final reg = (buildCrossDayBundle(days, const {})['regularity'] as Map)
+          .cast<String, dynamic>();
+      final pairs = (reg['value'] as Map)['pairs'] as List;
+      expect(pairs, isNotEmpty);
+      for (final p in pairs.cast<Map>()) {
+        final prev = DateTime.parse('${p['prev_date']}T00:00:00Z');
+        final date = DateTime.parse('${p['date']}T00:00:00Z');
+        expect(date.difference(prev).inDays, 1,
+            reason: '${p['prev_date']} → ${p['date']} is not a 24 h pair');
+      }
+    });
+
+    test('padded gap days do not count toward days or confidence', () {
+      // Rows on day 1, 2 and 10: a 10-day grid with one observed pair.
+      final all = _synthDays(10);
+      final reg = (buildCrossDayBundle([all[0], all[1], all[9]], const {})[
+              'regularity'] as Map)
+          .cast<String, dynamic>();
+      expect((reg['value'] as Map)['days'], 2);
+      expect(reg['confidence'] as num, lessThanOrEqualTo(0.3));
+    });
+  });
+
+  group('sleep performance is last night only', () {
+    test('no TST last night → absent, not an older night\'s TST', () {
+      final days = _synthDays(30);
+      days.last['is_today'] = true;
+      days.last.remove('tst_min');
+      final coach = (buildCrossDayBundle(days, const {})['sleep_coach'] as Map);
+      expect((coach['performance'] as Map)['value'], '—');
+    });
+
+    test('TST last night → scored', () {
+      final days = _synthDays(30);
+      days.last['is_today'] = true;
+      final coach = (buildCrossDayBundle(days, const {})['sleep_coach'] as Map);
+      expect((coach['performance'] as Map)['value'], isA<Map>());
+    });
   });
 
   group('TS-12 — overreaching as two facts', () {

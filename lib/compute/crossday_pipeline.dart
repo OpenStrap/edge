@@ -216,9 +216,9 @@ Map<String, dynamic> buildCrossDayBundle(
   final brv = ana.breathingRateVariability(brpm);
 
   // ── true Phillips SRI across days on a 1440-epoch (1-min) clock grid ───────
-  final sri = _crossDaySri(days);
-  // SLP-08 — which two nights. `SriPair.dayIndex` indexes THIS day list and
-  // nothing else (the analytics never sees a date), so here is the only place
+  final (sri, sriDates) = _crossDaySri(days);
+  // SLP-08 — which two nights. `SriPair.dayIndex` indexes the SRI grid (one
+  // per calendar day, gaps padded) and nothing else (the analytics never sees a date), so here is the only place
   // it can be resolved into the two nights it compared. Pairs the mask left too
   // thin were already dropped upstream, so a half-unobserved weekend cannot top
   // the list for having no data.
@@ -230,9 +230,9 @@ Map<String, dynamic> buildCrossDayBundle(
   if (sriValue is Map) {
     for (final p in ((sriValue['pairs'] as List?) ?? const []).whereType<Map>()) {
       final d = (p['day_index'] as num?)?.toInt();
-      if (d == null || d <= 0 || d >= dates.length) continue;
-      p['prev_date'] = dates[d - 1];
-      p['date'] = dates[d];
+      if (d == null || d <= 0 || d >= sriDates.length) continue;
+      p['prev_date'] = sriDates[d - 1];
+      p['date'] = sriDates[d];
     }
   }
 
@@ -373,8 +373,10 @@ Map<String, dynamic> buildCrossDayBundle(
           !needNoStrain.present)
       ? null
       : ((need.value!.needSec - needNoStrain.value!.needSec) / 60).round();
-  // last night's TST (sec) for performance.
-  final lastTstMin = _lastNum(days, 'tst_min');
+  // last night's TST (sec) for performance. Today's row carries the main sleep
+  // that ended this morning; `_lastNum` reached back to an older night when
+  // last night had none, and scored that as last night's performance.
+  final lastTstMin = _todayNum(days, 'tst_min');
   final perf = (need.present && lastTstMin != null)
       ? ana.sleepPerformance(lastTstMin * 60.0, need.value!.needSec)
       : ana.Metric<ana.SleepPerformance>.absent(
@@ -636,9 +638,9 @@ double? _median(List<double> xs) {
 /// The value of [key] on the MOST RECENT day only, or null if that day did not
 /// produce one.
 ///
-/// Unlike [_lastNum] this never reaches back to an earlier day. For a
+/// Unlike a walk back to the last non-null, this never reaches back to an earlier day. For a
 /// TODAY-scoped quantity that is the difference between "we have no reading"
-/// and a fabricated one: `_lastNum(days, 'nap_min')` would credit YESTERDAY's
+/// and a fabricated one: a backward walk over 'nap_min' would credit YESTERDAY's
 /// naps against tonight's sleep need whenever today's nap detection abstained,
 /// which is imputation (AGENTS §3.3) and always errs toward recommending less
 /// sleep than the user needs.
@@ -651,15 +653,6 @@ double? _todayNum(List<Map<String, dynamic>> days, String key) {
   final last = days.last;
   if (last['is_today'] != true) return null;
   return _numOrNull(last[key]);
-}
-
-/// The last non-null value of [key] across the (oldest-first) day records.
-double? _lastNum(List<Map<String, dynamic>> days, String key) {
-  for (var i = days.length - 1; i >= 0; i--) {
-    final v = _numOrNull(days[i][key]);
-    if (v != null) return v;
-  }
-  return null;
 }
 
 /// Sat/Sun => free day. We lack a real work/free calendar; the weekday split is
@@ -1004,12 +997,33 @@ bool _isNextDay(String a, String b) {
 /// the day's hypnogram (stage != 'wake' within [onset,wake] => asleep; minutes
 /// with no hypnogram coverage => valid=false), concatenate across days, then run
 /// the true Phillips SRI. If too few covered days, the package returns absent.
-ana.Metric<ana.SriResult> _crossDaySri(List<Map<String, dynamic>> days) {
+///
+/// SRI pairs grids by position, so a calendar day with no row gets an
+/// all-invalid grid: without it nights D and D+2 were scored as adjacent.
+/// Returns the grid's date labels alongside, one per grid.
+(ana.Metric<ana.SriResult>, List<String>) _crossDaySri(
+    List<Map<String, dynamic>> days) {
   const epochsPerDay = 1440; // 1-minute epochs over 24 h
   final sleepWake = <bool>[];
   final valid = <bool>[];
+  final gridDates = <String>[];
 
   for (final d in days) {
+    final date = (d['date'] as String?) ?? '';
+    final prev = gridDates.isEmpty ? null : gridDates.last;
+    final from = prev == null ? null : DateTime.tryParse('${prev}T00:00:00Z');
+    final to = DateTime.tryParse('${date}T00:00:00Z');
+    if (from != null && to != null) {
+      final gap = to.difference(from).inDays - 1;
+      // Same bound as the TRIMP densifier: an absurd span is not a gap.
+      for (var g = 1; g <= gap && gap < _maxDenseTrimpDays; g++) {
+        sleepWake.addAll(List<bool>.filled(epochsPerDay, false));
+        valid.addAll(List<bool>.filled(epochsPerDay, false));
+        gridDates.add(
+            from.add(Duration(days: g)).toIso8601String().substring(0, 10));
+      }
+    }
+    gridDates.add(date);
     // Fresh blank day grid (all wake, all invalid until covered).
     final asleep = List<bool>.filled(epochsPerDay, false);
     final cov = List<bool>.filled(epochsPerDay, false);
@@ -1065,6 +1079,31 @@ ana.Metric<ana.SriResult> _crossDaySri(List<Map<String, dynamic>> days) {
   // out the half-unobserved weekend the floor exists for, and it does NOT move
   // the published SRI: every accepted epoch counts toward the total whether or
   // not its pair is emitted.
-  return ana.phillipsSri(sleepWake, epochsPerDay,
-      valid: valid, minPairCases: 240);
+  final m =
+      ana.phillipsSri(sleepWake, epochsPerDay, valid: valid, minPairCases: 240);
+  final r = m.value;
+  if (r == null) return (m, gridDates);
+  // phillipsSri sizes `days` and confidence off the grid length, so every
+  // padded (all-invalid) day above would count as a comparison. Size them off
+  // the pairs actually observed on both days instead, same formula.
+  var observed = 0;
+  for (var d = 1; d < gridDates.length; d++) {
+    for (var e = 0; e < epochsPerDay; e++) {
+      if (valid[(d - 1) * epochsPerDay + e] && valid[d * epochsPerDay + e]) {
+        observed++;
+        break;
+      }
+    }
+  }
+  return (
+    ana.Metric<ana.SriResult>(
+      value: ana.SriResult(r.sri, observed + 1, r.cases, r.pairs),
+      confidence: (observed / 7.0).clamp(0.3, 0.95),
+      tier: m.tier,
+      inputs_used: m.inputs_used,
+      drivers: m.drivers,
+      note: m.note,
+    ),
+    gridDates,
+  );
 }

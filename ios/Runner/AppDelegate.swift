@@ -19,9 +19,11 @@ import CoreMotion
     // The channel wiring (messenger) happens in didInitializeImplicitFlutterEngine below;
     // here we only register the identifier with the OS so it survives to that point.
     // schedule() is called after the channel is wired so Dart is ready to handle the task.
+    // Main queue, not nil: nil runs the handler on a background queue, and the
+    // handler calls invokeMethod, which Flutter requires on the platform thread.
     BGTaskScheduler.shared.register(
       forTaskWithIdentifier: BackgroundTaskManager.taskIdentifier,
-      using: nil
+      using: DispatchQueue.main
     ) { task in
       guard let processingTask = task as? BGProcessingTask else {
         task.setTaskCompleted(success: false)
@@ -33,7 +35,7 @@ import CoreMotion
     // processing task above; also registered BEFORE didFinishLaunching returns.
     BGTaskScheduler.shared.register(
       forTaskWithIdentifier: BackgroundTaskManager.refreshTaskIdentifier,
-      using: nil
+      using: DispatchQueue.main
     ) { task in
       guard let refreshTask = task as? BGAppRefreshTask else {
         task.setTaskCompleted(success: false)
