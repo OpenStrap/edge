@@ -1163,10 +1163,29 @@ class LocalDb {
       'INTEGER NOT NULL DEFAULT 0',
     );
     await _createEcgTables(db);
+    await _scrubImportedSkinTempZ(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
+  }
+
+  /// Older WHOOP CSV imports filed the export's absolute skin temp (°C) under
+  /// `scalars.skin_temp_z`, which every reader treats as SDs off baseline, so
+  /// 33 °C read as +33 SD in the cross-day temp inputs and the skin temp card.
+  /// Imported days are finalized with no raw behind them and never re-derive,
+  /// so the import fix alone can't heal them: drop the key from those rows.
+  /// Idempotent and a no-op once clean (the LIKE prefilter skips every row).
+  static Future<void> _scrubImportedSkinTempZ(Database db) async {
+    await db.execute(
+      "UPDATE day_result SET payload_json = "
+      "json_remove(payload_json, '\$.scalars.skin_temp_z') "
+      "WHERE payload_json LIKE '%skin_temp_z%' "
+      "AND payload_json LIKE '%whoop_export%' "
+      'AND json_valid(payload_json) '
+      "AND json_extract(payload_json, '\$.source') = 'whoop_export' "
+      "AND json_type(payload_json, '\$.scalars.skin_temp_z') IS NOT NULL",
+    );
   }
 
   /// Periodic snapshot of a LIVE workout's per-second tallies (per-minute HR

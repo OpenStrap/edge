@@ -8,6 +8,8 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart'
+    show AndroidFlutterLocalNotificationsPlugin;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -17,6 +19,7 @@ import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/health/health_export.dart';
 import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
+import 'package:openstrap_edge/notify/notification_service.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
 
@@ -324,6 +327,30 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
       expect(prefs.getInt('alarm_epoch'), 1785000000);
+    });
+
+    test('ALARM_SET (event 56) re-decides the 7pm no-alarm check', () async {
+      // it was only decided on resume, so a check armed at 17:00 with nothing
+      // set went on to fire at 19:00 over an alarm the strap had confirmed.
+      SharedPreferences.setMockInitialValues({'alarm_epoch': 1785000000});
+      const ch = MethodChannel('dexterous.com/flutter/local_notifications');
+      final cancelled = <Object?>[];
+      final messenger = TestDefaultBinaryMessengerBinding
+          .instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(ch, (call) async {
+        if (call.method == 'cancel') cancelled.add((call.arguments as Map)['id']);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(ch, null));
+      AndroidFlutterLocalNotificationsPlugin.registerWith();
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      app.device.alarmEpoch = 1785000000;
+
+      app.debugHandleAlarmEvent(56);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(cancelled, contains(NotificationService.idAlarmNightCheck));
     });
   });
 

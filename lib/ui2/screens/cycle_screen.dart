@@ -567,7 +567,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
 
   int? _spanDays(String from, String to) {
     final a = _parse(from), b = _parse(to);
-    return (a == null || b == null) ? null : b.difference(a).inDays;
+    return (a == null || b == null) ? null : calendarDaysBetween(a, b);
   }
 
   // ── symptoms ─────────────────────────────────────────────────────────────
@@ -708,7 +708,7 @@ class _CycleTabState extends State<CycleTab> with RevisionReload {
       // Nearest PRECEDING start, not the last one — a day from March belongs to
       // March's cycle, and counting it from the newest start puts it in week 40.
       final from = starts.lastWhere((s) => !s.isAfter(day));
-      final week = (day.difference(from).inDays ~/ 7).clamp(0, 3);
+      final week = (calendarDaysBetween(from, day) ~/ 7).clamp(0, 3);
       daysLogged++;
       daysByWeek[week]++;
       for (final tag in e.value) {

@@ -25,6 +25,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/day_label.dart' show calendarDaysBetween;
 import '../../l10n/app_localizations.dart';
 import '../../state/alarm_schedule.dart';
 import '../../state/app_state.dart';
@@ -302,9 +303,7 @@ class AlarmScreenView extends StatelessWidget {
 
   static String _whichDay(BuildContext c, DateTime d, DateTime now) {
     final l = AppLocalizations.of(c);
-    final days = DateTime(d.year, d.month, d.day)
-        .difference(DateTime(now.year, now.month, now.day))
-        .inDays;
+    final days = calendarDaysBetween(now, d);
     if (days < 0) {
       return l?.alarmInThePast ??
           'In the past — it has already fired or been missed';
