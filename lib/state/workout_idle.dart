@@ -17,9 +17,10 @@
 /// ask "Still working out?".
 ///
 /// Fed once per 1 Hz workout tick. A tick is ACTIVE when it carries a real
-/// reading (positive bpm) at or above the calorie pipeline's activity gate —
-/// the same `Calories.activeGateHr` line that separates a bout from rest, so
-/// "quiet" here means exactly "billed as rest there". With no gate (a profile
+/// reading (positive bpm) at or above the [gate] the caller passes. The app
+/// passes the calorie pipeline's `Calories.activeGateHr`, capped at the
+/// zone-1 floor but never below halfway from resting HR to that gate, so
+/// "quiet" means billed as rest AND shown as rest on the live zone bar. With no gate (a profile
 /// without calorie anchors), intensity cannot be judged and any real reading
 /// counts as active: a worn strap is never nudged on a guess, and only
 /// absence — off skin, or the link gone — builds the streak.
@@ -57,9 +58,9 @@ class WorkoutIdleWatch {
   /// Feed one tick. Returns true when the caller should try to nudge NOW.
   ///
   /// [hr] is this second's live reading (null when the band is stale or
-  /// dropped — the workout tick already refuses those); [gate] is
-  /// `Calories.activeGateHr` for this session's anchors, or null when the
-  /// anchors cannot define one.
+  /// dropped — the workout tick already refuses those); [gate] is the
+  /// session's activity line (see the class doc), or null when the anchors
+  /// cannot define one.
   bool onTick(DateTime now, {required int? hr, required num? gate}) {
     final active = hr != null && hr > 0 && (gate == null || hr >= gate);
     if (active) {

@@ -6825,16 +6825,30 @@ class AppState extends ChangeNotifier {
       unawaited(engine.buzz());
     }
 
-    // Forgotten-session watch: judged against the SAME gate calories bill
-    // with, so "quiet" here means exactly "billed as rest there" (null when
+    // Forgotten-session watch: judged against the calorie gate (null when
     // the anchors cannot define one — then only absence counts, see
-    // WorkoutIdleWatch). The ask is a notification, once per session; the
-    // session itself is never touched — there is deliberately no auto-stop.
+    // WorkoutIdleWatch), capped at the zone-1 floor (issue #466): the calorie
+    // gate is 40 % HRR, moderate intensity, so a steady 92 bpm session the
+    // live bar shows as ZONE 1 was being told "nothing above resting effort".
+    // Quiet means below BOTH lines — billed as rest AND shown as rest. The
+    // ask is a notification, once per session; the session itself is never
+    // touched — there is deliberately no auto-stop.
+    //
+    // The cap never goes below halfway between resting HR and the calorie
+    // gate. Resting HR here is the night's LOWEST 30-min mean, so sleeping HR
+    // sits a few bpm above it: a zone-1 edge at or just above it (manual
+    // bounds only need >= 30 bpm, or zone 1 = 50 % HRmax at an older age)
+    // would make a session left open overnight read active forever, and the
+    // nudge would never go out.
     final wRhr = w.restingHr;
     final wMax = w.hrMax;
-    final idleGate = (wRhr != null && wMax != null)
+    final calGate = (wRhr != null && wMax != null)
         ? ana.Calories.activeGateHr(wMax, wRhr)
         : null;
+    final z1Floor = w.zoneSet?.zones.first.lower;
+    final idleGate = (calGate == null || z1Floor == null)
+        ? calGate
+        : math.max(math.min(calGate, z1Floor), (wRhr! + calGate) / 2);
     if (w.idleWatch.onTick(DateTime.now(), hr: hr, gate: idleGate)) {
       unawaited(_nudgeIdleWorkout(w));
     }
