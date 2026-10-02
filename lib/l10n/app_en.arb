@@ -12441,5 +12441,115 @@
         "type": "int"
       }
     }
+  },
+  "settingsBpResearchRowTitle": "BP research capture",
+  "@settingsBpResearchRowTitle": {
+    "description": "Developer settings row title for the experimental blood-pressure research capture screen"
+  },
+  "settingsBpResearchRowSub": "Experimental. Pair a cuff reading with the band data from the 5 minutes before it, for CSV export",
+  "@settingsBpResearchRowSub": {
+    "description": "Developer settings row subtitle for the BP research capture screen"
+  },
+  "bpResearchTitle": "BP research capture",
+  "@bpResearchTitle": {
+    "description": "Title of the experimental BP research capture screen"
+  },
+  "bpResearchIntro": "Experimental. Take a cuff reading, type it in and press capture. The 5 minutes of band data before the reading are saved next to it for CSV export.",
+  "@bpResearchIntro": {
+    "description": "Intro text of the BP research capture screen"
+  },
+  "bpResearchSystolic": "Systolic (mmHg)",
+  "@bpResearchSystolic": {
+    "description": "Text field label for the systolic reference value"
+  },
+  "bpResearchDiastolic": "Diastolic (mmHg)",
+  "@bpResearchDiastolic": {
+    "description": "Text field label for the diastolic reference value"
+  },
+  "bpResearchDevice": "Cuff device (optional)",
+  "@bpResearchDevice": {
+    "description": "Text field label for the cuff device name"
+  },
+  "bpResearchPosture": "Posture (optional)",
+  "@bpResearchPosture": {
+    "description": "Text field label for the posture during the reading"
+  },
+  "bpResearchConditions": "Conditions (optional)",
+  "@bpResearchConditions": {
+    "description": "Text field label for measurement conditions"
+  },
+  "bpResearchCapture": "Capture now",
+  "@bpResearchCapture": {
+    "description": "Button label to store one capture"
+  },
+  "bpResearchMeasuredAt": "Measurement time (HH:MM or YYYY-MM-DD HH:MM; empty = now)",
+  "@bpResearchMeasuredAt": {
+    "description": "Optional back-dating field: when the cuff reading was actually taken"
+  },
+  "bpResearchMeasuredAtHint": "Back-date to the actual cuff reading \u2014 the 5-minute band window covers the rest time BEFORE that reading, not the typing-in. Your entry is minute-precise; the stored timestamp is the technical pairing anchor.",
+  "@bpResearchMeasuredAtHint": {
+    "description": "Helper text under the measurement-time field"
+  },
+  "bpResearchSessionId": "Session id (optional)",
+  "@bpResearchSessionId": {
+    "description": "Optional label grouping readings of one sitting"
+  },
+  "bpResearchSessionIdHint": "Groups readings taken in one sitting.",
+  "@bpResearchSessionIdHint": {
+    "description": "Helper text under the session-id field"
+  },
+  "bpResearchBadTime": "Could not read the measurement time — use HH:MM or YYYY-MM-DD HH:MM, or leave it empty for \"now\". Nothing was stored.",
+  "@bpResearchBadTime": {
+    "description": "Snackbar text for an unparseable measurement-time entry, which is rejected, never guessed"
+  },
+  "bpResearchFutureTime": "The measurement time is in the future. Nothing was stored.",
+  "@bpResearchFutureTime": {
+    "description": "Snackbar text rejecting a future measurement time"
+  },
+  "bpResearchRefreshTooltip": "Refresh band window",
+  "@bpResearchRefreshTooltip": {
+    "description": "Tooltip of the developer-mode button that re-reads the current local data for this capture's original window bounds"
+  },
+  "bpResearchPendingSync": "Band data is still syncing — refresh this window after sync.",
+  "@bpResearchPendingSync": {
+    "description": "Window summary hint for a pending window: the local sync provably does not reach the window end yet, so the missing tail may still arrive; not a data-quality verdict"
+  },
+  "bpResearchNoData": "No band data in the window — stored as-is.",
+  "@bpResearchNoData": {
+    "description": "Window summary text for a final window that provably holds no band data"
+  },
+  "bpResearchHistory": "Captures",
+  "@bpResearchHistory": {
+    "description": "Section header for the stored capture list"
+  },
+  "bpResearchBadValue": "That pair is outside the range this app supports (systolic 50–300, diastolic 20–200 mmHg, diastolic below systolic) — it was not saved. Check the numbers and try again.",
+  "@bpResearchBadValue": {
+    "description": "Snackbar text for an out-of-bounds reference pair, which is rejected, never clamped"
+  },
+  "bpResearchExportHint": "Export the captures from Your data › Export CSV, set \"BP research captures\".",
+  "@bpResearchExportHint": {
+    "description": "Hint under the capture list explaining the CSV export path"
+  },
+  "bpResearchSaveFailed": "Capture failed, nothing was stored. ({error})",
+  "@bpResearchSaveFailed": {
+    "description": "Snackbar when storing a BP research capture throws",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "bpResearchListFailed": "Capture saved, but the list did not refresh. ({error})",
+  "@bpResearchListFailed": {
+    "description": "Snackbar when a capture was stored but re-reading the list failed",
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "bpResearchDeleteTooltip": "Delete capture",
+  "@bpResearchDeleteTooltip": {
+    "description": "Tooltip of the button that deletes one BP research capture"
   }
 }

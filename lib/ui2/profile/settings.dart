@@ -36,6 +36,7 @@ import '../../theme/theme_controller.dart';
 import '../ui2.dart';
 import 'alarm.dart';
 import 'band_notifications.dart';
+import 'bp_research.dart';
 import 'data.dart';
 import 'gallery.dart';
 import 'gestures.dart';
@@ -793,6 +794,13 @@ class MoreSettingsView extends StatelessWidget {
                             'Every component, at any text scale, in either '
                                 'theme',
                         onTap: onGallery),
+                    SetRow(LucideIcons.heartPulse, C.purple,
+                        l?.settingsBpResearchRowTitle ?? 'BP research capture',
+                        sub: l?.settingsBpResearchRowSub ??
+                            'Experimental. Pair a cuff reading with the band '
+                                'data from the 5 minutes before it, for CSV '
+                                'export',
+                        onTap: () => goto(c, const BpResearchScreen())),
                     SetRow(LucideIcons.code, C.n500,
                         l?.settingsDeveloperModeRowTitle ?? 'Developer mode',
                         value: on, chevron: false, onTap: onToggleDev),
