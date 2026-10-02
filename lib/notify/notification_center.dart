@@ -33,6 +33,7 @@ import '../ai/reminder_plan.dart';
 import '../data/day_label.dart';
 import '../data/journal_fields.dart';
 import '../data/med_store.dart';
+import '../state/clock_format.dart' show formatClockMinute;
 import 'fired_keys.dart';
 import 'notification_event.dart';
 import 'notification_prefs.dart';
@@ -531,12 +532,8 @@ class NotificationCenter {
     return t;
   }
 
-  /// Two-digit HH:MM from minutes-past-midnight (notification bodies).
-  static String _hhmm(int minuteOfDay) {
-    final m = minuteOfDay % 1440;
-    return '${(m ~/ 60).toString().padLeft(2, '0')}:'
-        '${(m % 60).toString().padLeft(2, '0')}';
-  }
+  /// Minutes-past-midnight → the user's clock format (notification bodies).
+  static String _hhmm(int minuteOfDay) => formatClockMinute(minuteOfDay);
 
   // ── the weekly lookback finding ─────────────────────────────────────────
 

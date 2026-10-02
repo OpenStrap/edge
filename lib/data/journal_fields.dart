@@ -15,6 +15,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../state/clock_format.dart';
+
 /// What a field measures, which decides how it is entered and read back.
 enum JournalFieldKind {
   /// A subjective 1–5 self-report (mood, sleep quality). Ordinal: the gap
@@ -305,11 +307,6 @@ String customJournalFieldKey(String label) {
   return 'custom_$slug';
 }
 
-/// Local minutes past midnight → "7:05 AM".
-String formatMinuteOfDay(int minuteOfDay) {
-  final m = minuteOfDay % (24 * 60);
-  final h24 = m ~/ 60;
-  final mm = (m % 60).toString().padLeft(2, '0');
-  final h = h24 % 12 == 0 ? 12 : h24 % 12;
-  return '$h:$mm ${h24 < 12 ? 'AM' : 'PM'}';
-}
+/// Local minutes past midnight → "7:05 AM" or "07:05", per the user's clock
+/// format ([formatClockMinute]).
+String formatMinuteOfDay(int minuteOfDay) => formatClockMinute(minuteOfDay);

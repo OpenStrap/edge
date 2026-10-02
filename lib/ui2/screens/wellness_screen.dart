@@ -1242,8 +1242,7 @@ Future<MedSchedule?> pickMedSchedule(
                       const SizedBox(width: S.x3),
                       Expanded(
                         child: Text(
-                          '${(minute ~/ 60).toString().padLeft(2, '0')}:'
-                          '${(minute % 60).toString().padLeft(2, '0')}',
+                          formatMinuteOfDay(minute),
                           style: F.n17.copyWith(color: p.ink),
                         ),
                       ),

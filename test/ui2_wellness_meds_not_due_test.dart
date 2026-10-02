@@ -19,6 +19,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/med_store.dart';
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/state/clock_format.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
@@ -29,7 +30,12 @@ void main() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   });
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    // The slot time follows the user's clock format; pin the 24-hour one.
+    ClockFormatController.seed(ClockFormat.h24);
+  });
+  tearDown(ClockFormatController.debugReset);
 
   testWidgets('a medication with nothing due today says so', (t) async {
     t.view.physicalSize = const Size(390 * 3, 844 * 3);

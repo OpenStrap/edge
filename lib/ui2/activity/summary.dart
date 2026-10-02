@@ -30,6 +30,7 @@ import '../../data/db.dart';
 import '../../gps/gpx_export.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
+import '../../state/clock_format.dart' show formatClockOf;
 import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../charts.dart';
@@ -501,9 +502,7 @@ String _shortDate(DateTime t) {
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
-  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
-  return '${months[t.month - 1]} ${t.day}, ${t.year} at $h:'
-      '${t.minute.toString().padLeft(2, '0')} ${t.hour < 12 ? 'AM' : 'PM'}';
+  return '${months[t.month - 1]} ${t.day}, ${t.year} at ${formatClockOf(t)}';
 }
 
 // ── THE SUPPORTING STATS ───────────────────────────────────────────────────

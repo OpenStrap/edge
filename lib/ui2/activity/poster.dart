@@ -36,6 +36,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../state/clock_format.dart' show formatClockOf;
 import '../../state/units_controller.dart';
 import '../screens/home_screen.dart' show unitsOf;
 import '../theme.dart';
@@ -920,16 +921,13 @@ void drawPin(Canvas canvas, Offset o, Color col) {
   );
 }
 
-/// `20 May 2026 • 7:15 AM`, in the reader's own clock terms.
+/// `May 20, 2026 • 7:15 AM` (or `07:15`), in the reader's own clock terms.
 String posterDate(DateTime t) {
   const m = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
-  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
-  final min = t.minute.toString().padLeft(2, '0');
-  return '${m[t.month - 1]} ${t.day}, ${t.year} • $h:$min '
-      '${t.hour < 12 ? 'AM' : 'PM'}';
+  return '${m[t.month - 1]} ${t.day}, ${t.year} • ${formatClockOf(t)}';
 }
 
 /// Hero, unit, caption — distance when the session has one, time when it does

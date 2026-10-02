@@ -9,6 +9,7 @@ import 'notify/notification_service.dart';
 import 'coach/coach_config.dart';
 import 'state/app_state.dart';
 import 'state/prefs.dart';
+import 'state/clock_format.dart';
 import 'state/locale_controller.dart';
 import 'state/units_controller.dart';
 import 'sync/headless_boot.dart';
@@ -160,6 +161,16 @@ Future<void> main() async {
     units = UnitsController.seed(UnitSystem.metric);
   }
 
+  // Local 12/24-hour clock preference. Best-effort; defaults to the OS setting.
+  // The timeout lives inside bootstrap() so a late load can't replace the seed.
+  ClockFormatController clockFormat;
+  try {
+    clockFormat = await ClockFormatController.bootstrap(timeout: _kStartupInitTimeout);
+  } catch (e, st) {
+    debugPrint('[main] ClockFormatController.bootstrap failed, using system: $e\n$st');
+    clockFormat = ClockFormatController.seed(ClockFormat.system);
+  }
+
   // Local language override (null = system default).
   LocaleController locale;
   try {
@@ -189,6 +200,7 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => AppState(), lazy: false),
         ChangeNotifierProvider<ThemeController>.value(value: theme),
         ChangeNotifierProvider<UnitsController>.value(value: units),
+        ChangeNotifierProvider<ClockFormatController>.value(value: clockFormat),
         ChangeNotifierProvider<LocaleController>.value(value: locale),
         ChangeNotifierProvider<CoachConfig>.value(value: coachConfig),
       ],

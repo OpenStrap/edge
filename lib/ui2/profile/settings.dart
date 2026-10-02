@@ -29,6 +29,7 @@ import '../../notify/notification_prefs.dart';
 import '../../notify/notification_service.dart';
 import '../../platform/app_icon.dart';
 import '../../state/app_state.dart';
+import '../../state/clock_format.dart';
 import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../../telemetry/health_uploader.dart';
@@ -148,6 +149,7 @@ class _MoreSettingsState extends State<MoreSettings> {
     final app = c.watch<AppState>();
     final units = c.watch<UnitsController>();
     final theme = c.watch<ThemeController>();
+    final clock = c.watch<ClockFormatController>();
     return MoreSettingsView(
       version: _version,
       devMode: _dev,
@@ -156,6 +158,7 @@ class _MoreSettingsState extends State<MoreSettings> {
       onGallery: () => goto(c, const GalleryScreen()),
       units: units.system.label,
       appearance: theme.choice.label,
+      clockFormat: clock.format,
       cycleTracking: app.cycleTrackingEnabled,
       zoneAlertEnabled: app.zoneAlertEnabled,
       zoneAlertZone: app.zoneAlertTargetZone,
@@ -187,6 +190,11 @@ class _MoreSettingsState extends State<MoreSettings> {
           : UnitSystem.imperial),
       onCycleAppearance: () => theme.setChoice(AppThemeChoice.values[
           (theme.choice.index + 1) % AppThemeChoice.values.length]),
+      // the wind-down body bakes the time in when it's armed, re-arm it now
+      onCycleClockFormat: () async {
+        await clock.cycle();
+        await app.refreshAiReminders();
+      },
       onToggleCycleTracking: () =>
           app.setCycleTrackingEnabled(!app.cycleTrackingEnabled),
       onTogglePhoneSteps: () => app.phoneStepsEnabled
@@ -481,6 +489,9 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
 
 class MoreSettingsView extends StatelessWidget {
   final String units, appearance;
+
+  /// 12- or 24-hour clock, or whatever the OS says ("System", the default).
+  final ClockFormat clockFormat;
   final bool phoneSteps, telemetry, barcodeLookup, cycleTracking;
 
   /// The live-workout HR-zone-crossing haptic. Off by default; [zoneAlertZone]
@@ -530,6 +541,7 @@ class MoreSettingsView extends StatelessWidget {
       onAutomation,
       onCycleUnits,
       onCycleAppearance,
+      onCycleClockFormat,
       onTogglePhoneSteps,
       onToggleTelemetry,
       onToggleBarcodeLookup,
@@ -545,6 +557,7 @@ class MoreSettingsView extends StatelessWidget {
     super.key,
     this.units = 'Metric',
     this.appearance = 'System',
+    this.clockFormat = ClockFormat.system,
     this.appIcon,
     this.onPickIcon,
     this.phoneSteps = false,
@@ -574,6 +587,7 @@ class MoreSettingsView extends StatelessWidget {
     this.onAutomation,
     this.onCycleUnits,
     this.onCycleAppearance,
+    this.onCycleClockFormat,
     this.onTogglePhoneSteps,
     this.onToggleTelemetry,
     this.onToggleBarcodeLookup,
@@ -666,6 +680,17 @@ class MoreSettingsView extends StatelessWidget {
                   SetRow(LucideIcons.sun, C.yellow,
                       l?.settingsAppearanceRowTitle ?? 'Appearance',
                       value: appearance, onTap: onCycleAppearance),
+                  SetRow(LucideIcons.clock, C.teal,
+                      l?.settingsClockFormatRowTitle ?? 'Time format',
+                      value: switch (clockFormat) {
+                        ClockFormat.system =>
+                          l?.settingsClockFormatSystem ?? clockFormat.label,
+                        ClockFormat.h24 =>
+                          l?.settingsClockFormat24h ?? clockFormat.label,
+                        ClockFormat.h12 =>
+                          l?.settingsClockFormat12h ?? clockFormat.label,
+                      },
+                      onTap: onCycleClockFormat),
                   if (appIcon != null)
                     _IconRow(chosen: appIcon!, onPick: onPickIcon),
                   // Opt-in, and it says what it does rather than what it is
@@ -1265,11 +1290,7 @@ class NotificationSettingsView extends StatelessWidget {
     return batteryChoices[(i + 1) % batteryChoices.length];
   }
 
-  static String _hhmm(int minuteOfDay) {
-    final m = minuteOfDay % 1440;
-    return '${(m ~/ 60).toString().padLeft(2, '0')}:'
-        '${(m % 60).toString().padLeft(2, '0')}';
-  }
+  static String _hhmm(int minuteOfDay) => formatClockMinute(minuteOfDay);
 
   static Future<int?> _pickMinute(BuildContext c, int current) async {
     final picked = await showTimePicker(

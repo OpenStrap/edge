@@ -443,7 +443,7 @@ class CoachActions {
       ],
       'today': [
         for (final s in slots)
-          {'name': s.def.label, 'time': s.timeLabel, 'state': s.state.name},
+          {'name': s.def.label, 'time': s.timeMachine, 'state': s.state.name},
       ],
     });
   }

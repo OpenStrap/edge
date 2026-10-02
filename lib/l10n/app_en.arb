@@ -11253,6 +11253,22 @@
   "@settingsAppearanceRowTitle": {
     "description": "Settings row title cycling the app theme"
   },
+  "settingsClockFormatRowTitle": "Time format",
+  "@settingsClockFormatRowTitle": {
+    "description": "Settings row title cycling the 12/24-hour clock format"
+  },
+  "settingsClockFormatSystem": "System",
+  "@settingsClockFormatSystem": {
+    "description": "Clock format value: follow the operating system setting"
+  },
+  "settingsClockFormat24h": "24-hour",
+  "@settingsClockFormat24h": {
+    "description": "Clock format value: 24-hour clock (e.g. 19:30)"
+  },
+  "settingsClockFormat12h": "12-hour",
+  "@settingsClockFormat12h": {
+    "description": "Clock format value: 12-hour clock with AM/PM (e.g. 7:30 PM)"
+  },
   "settingsCycleTrackingRowTitle": "Cycle tracking",
   "@settingsCycleTrackingRowTitle": {
     "description": "Settings row title toggling cycle tracking"

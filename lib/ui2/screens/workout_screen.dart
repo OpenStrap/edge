@@ -27,6 +27,7 @@ import '../../health/health_workout_import.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
 import '../../state/app_state.dart';
+import '../../state/clock_format.dart' show formatClockOf;
 import '../../state/units_controller.dart';
 import '../activity/catalogue.dart';
 import '../activity/day_strain.dart';
@@ -1789,8 +1790,7 @@ class _PastWorkout {
       loc?.workoutWeekdayAbbrSat ?? 'Sat',
       loc?.workoutWeekdayAbbrSun ?? 'Sun',
     ];
-    final t = '${start.hour.toString().padLeft(2, '0')}:'
-        '${start.minute.toString().padLeft(2, '0')}';
+    final t = formatClockOf(start);
     if (days == 0) return loc?.workoutWhenToday(t) ?? 'Today, $t';
     if (days == 1) return loc?.workoutWhenYesterday(t) ?? 'Yesterday, $t';
     if (days < 7) return '${names[start.weekday - 1]}, $t';

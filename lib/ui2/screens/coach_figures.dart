@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../state/clock_format.dart' show formatClockOf;
 import '../ui2.dart';
 
 // ── loose parsing (the model is not a schema) ────────────────────────────────
@@ -354,8 +355,7 @@ class CoachFigure extends StatelessWidget {
       final d = DateTime.fromMillisecondsSinceEpoch(
         (epochSec * 1000).round(),
       ).toLocal();
-      return '${d.hour.toString().padLeft(2, '0')}:'
-          '${d.minute.toString().padLeft(2, '0')}';
+      return formatClockOf(d);
     }
 
     return _frame(

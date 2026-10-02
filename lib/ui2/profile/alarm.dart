@@ -28,6 +28,7 @@ import 'package:provider/provider.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/alarm_schedule.dart';
 import '../../state/app_state.dart';
+import '../../state/clock_format.dart' show formatClock;
 import '../screens/home_screen.dart' show weekdayShortName;
 import '../ui2.dart';
 import 'profile.dart' show SetRow, settingsGroup;
@@ -285,8 +286,7 @@ class AlarmScreenView extends StatelessWidget {
 
   static String _hhmm(DateTime d) => _hhmmOf(d.hour, d.minute);
 
-  static String _hhmmOf(int hour, int minute) =>
-      '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+  static String _hhmmOf(int hour, int minute) => formatClock(hour, minute);
 
   /// "Tue 07:30" — the weekday plus the time, both from the ARMED instant
   /// (not merely from the schedule row), so this never claims a day the band

@@ -25,6 +25,8 @@
 
 import 'dart:math' as math;
 
+import '../state/clock_format.dart' show formatClockOf;
+
 /// One battery observation from `band_battery`.
 class BatterySample {
   const BatterySample({
@@ -355,9 +357,8 @@ class BatteryForecaster {
     final pct = f.currentPct;
     final empty = f.predictedEmptyAt;
     if (rate == null || pct == null || empty == null) return '';
-    final h = empty.hour.toString().padLeft(2, '0');
-    final m = empty.minute.toString().padLeft(2, '0');
-    final head = 'At ${rate.toStringAsFixed(1)}%/h it runs out around $h:$m';
+    final head = 'At ${rate.toStringAsFixed(1)}%/h it runs out around '
+        '${formatClockOf(empty)}';
     if (empty.isBefore(wakeAt)) {
       return '$head — before you wake. Charge it now to keep tonight\'s sleep.';
     }
