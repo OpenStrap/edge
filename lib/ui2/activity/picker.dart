@@ -262,8 +262,8 @@ class ActivityRow extends StatelessWidget {
     final kcal = a.kcal(weightKg, 30);
     final met = a.met;
     final metStr = met?.toStringAsFixed(1);
-    // The catch-all row has neither: no weight means no kcal, and no named
-    // activity means no MET to fall back to. It gets no trailing number
+    // An unpriced row (the catch-all, Padel) has neither: no weight means no
+    // kcal, and there is no MET to fall back to. It gets no trailing number
     // rather than a placeholder standing in for one.
     final trailing = kcal != null
         ? '$kcal kcal / 30 min'

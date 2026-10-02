@@ -1264,10 +1264,19 @@ class _LiveStrengthState extends State<LiveStrength> {
   StrengthLog get log => StrengthLog(logged);
 
   /// Open each exercise at what the user did last time. Nothing to go on →
-  /// leave the stepper where it is rather than guessing a load.
+  /// leave the stepper where it is rather than guessing a load, but take the
+  /// mode from this session's sets, else from the exercise itself, so a first
+  /// push-up after bench does not log the bench load.
   void _seedFromHistory() {
     final prev = widget.history[key]?.previous;
-    if (prev == null) return;
+    if (prev == null) {
+      final here = setsHere;
+      final bw = here.isNotEmpty
+          ? here.last.loadKg == null
+          : def?.bodyweight ?? false;
+      if (bw != bodyweight) setState(() => bodyweight = bw);
+      return;
+    }
     setState(() {
       bodyweight = prev.loadKg == null;
       kg = prev.loadKg ?? kg;

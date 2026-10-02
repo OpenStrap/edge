@@ -238,9 +238,9 @@ class _ActivitySetupState extends State<ActivitySetup> {
                           a.met == null
                               ? (l?.activitySetupNoMetEstimate ??
                                   'No estimate up front: no published MET '
-                                      'applies to a session that names no '
-                                      'activity. Calories come from your '
-                                      'heart rate instead — when your age, '
+                                      'covers this activity. Calories come '
+                                      'from your heart rate instead — when '
+                                      'your age, '
                                       'weight and sex are set, and your '
                                       'resting and maximum rates are '
                                       'measured rather than assumed.')

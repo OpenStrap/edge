@@ -48,9 +48,9 @@ class Activity {
   /// Metabolic equivalent of task — the honest basis for a calorie estimate.
   /// Compendium of Physical Activities, Ainsworth et al.
   ///
-  /// NULL for a row the compendium cannot price, which is exactly one:
-  /// 'General workout' means the user did not say what they did, and the
-  /// compendium prices named activities. Every number that could go here
+  /// NULL for a row the compendium cannot price. 'General workout' means the
+  /// user did not say what they did, and the compendium prices named
+  /// activities; 'Padel' is named but has no compendium row at all. Every number that could go here
   /// would be a stand-in — which is the 'Custom activity' mistake below,
   /// whose MET of 4.0 was invented. So [kcal] returns null, the picker and
   /// the setup screen show no estimate, and the session still gets a REAL
@@ -149,6 +149,10 @@ const activityLibrary = <ActGroup>[
     Activity(
         'Table tennis', LucideIcons.volleyball, C.blue, Track.duration, 4.0),
     Activity('Squash', LucideIcons.volleyball, C.red, Track.duration, 12.0),
+    // No MET: the compendium has no padel row. Tennis doubles and paddleball
+    // are different games, and borrowing either would be a stand-in. The
+    // post-session estimate still works from heart rate.
+    Activity('Padel', LucideIcons.volleyball, C.yellow, Track.duration, null),
     Activity('Volleyball', LucideIcons.volleyball, C.orange, Track.duration, 6.0),
     Activity('Hockey', LucideIcons.target, C.blue, Track.duration, 8.0),
     Activity('Baseball', LucideIcons.target, C.red, Track.duration, 5.0),
@@ -191,6 +195,10 @@ const activityLibrary = <ActGroup>[
         gps: true),
     Activity('Skating', LucideIcons.circleDashed, C.purple, Track.distance, 7.0,
         gps: true),
+    // Compendium 15580, "skateboarding, general, moderate effort". Timed, not
+    // a route: a park session goes nowhere, and cruising is the longboard rows.
+    Activity(
+        'Skateboarding', LucideIcons.circleDashed, C.orange, Track.duration, 5.0),
     Activity('Horse riding', LucideIcons.rabbit, C.orange, Track.duration, 5.5),
   ]),
   ActGroup('Mind & body', LucideIcons.leaf, [
@@ -350,7 +358,12 @@ class ExerciseDef {
   /// makes every strength app feel like a spreadsheet.
   final double step;
 
-  const ExerciseDef(this.key, this.label, this.muscles, {this.step = 2.5});
+  /// Done with the body as the load. With no history to seed from, the set
+  /// starts as bodyweight instead of inheriting the last lift's kilos.
+  final bool bodyweight;
+
+  const ExerciseDef(this.key, this.label, this.muscles,
+      {this.step = 2.5, this.bodyweight = false});
 }
 
 const exerciseLibrary = <ExerciseDef>[
@@ -360,6 +373,9 @@ const exerciseLibrary = <ExerciseDef>[
       {'chest': .5, 'shoulders': .3, 'triceps': .2},
       step: 2),
   ExerciseDef('cable_fly', 'Cable fly', {'chest': .8, 'shoulders': .2}),
+  ExerciseDef('push_up', 'Push-up',
+      {'chest': .6, 'triceps': .25, 'shoulders': .15},
+      bodyweight: true),
   ExerciseDef('overhead_press', 'Overhead press',
       {'shoulders': .6, 'triceps': .3, 'core': .1}),
   ExerciseDef('triceps_pushdown', 'Triceps pushdown', {'triceps': 1.0}),
@@ -367,7 +383,8 @@ const exerciseLibrary = <ExerciseDef>[
   ExerciseDef('barbell_row', 'Barbell row',
       {'back': .65, 'biceps': .25, 'core': .1}),
   ExerciseDef('lat_pulldown', 'Lat pulldown', {'back': .7, 'biceps': .3}),
-  ExerciseDef('pull_up', 'Pull-up', {'back': .65, 'biceps': .25, 'core': .1}),
+  ExerciseDef('pull_up', 'Pull-up', {'back': .65, 'biceps': .25, 'core': .1},
+      bodyweight: true),
   ExerciseDef('barbell_curl', 'Barbell curl', {'biceps': 1.0}),
   ExerciseDef('back_squat', 'Back squat',
       {'legs': .65, 'glutes': .25, 'core': .1}),
@@ -379,8 +396,9 @@ const exerciseLibrary = <ExerciseDef>[
       {'glutes': .45, 'legs': .35, 'back': .2}),
   ExerciseDef('hip_thrust', 'Hip thrust', {'glutes': .8, 'legs': .2}),
   ExerciseDef('leg_press', 'Leg press', {'legs': .75, 'glutes': .25}),
-  ExerciseDef('plank', 'Plank', {'core': 1.0}, step: 0),
-  ExerciseDef('hanging_leg_raise', 'Hanging leg raise', {'core': 1.0}, step: 0),
+  ExerciseDef('plank', 'Plank', {'core': 1.0}, step: 0, bodyweight: true),
+  ExerciseDef('hanging_leg_raise', 'Hanging leg raise', {'core': 1.0},
+      step: 0, bodyweight: true),
 ];
 
 final Map<String, ExerciseDef> _exercisesByKey = {

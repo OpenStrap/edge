@@ -9426,13 +9426,13 @@
   "@activitySetupCaloriesNeedWeight": {
     "description": "Shown instead of a calorie estimate when the user has no weight on file"
   },
-  "activitySetupNoMetEstimate": "No estimate up front: no published MET applies to a session that names no activity. Calories come from your heart rate instead — when your age, weight and sex are set, and your resting and maximum rates are measured rather than assumed.",
+  "activitySetupNoMetEstimate": "No estimate up front: no published MET covers this activity. Calories come from your heart rate instead — when your age, weight and sex are set, and your resting and maximum rates are measured rather than assumed.",
   "@activitySetupNoMetEstimate": {
-    "description": "Shown instead of a calorie estimate when the activity has no published MET (e.g. General workout)"
+    "description": "Shown instead of a calorie estimate when the activity has no published MET (e.g. General workout, Padel)"
   },
-  "activitySummaryCalorieNoMet": "Estimated from your heart rate and your weight. No MET is in this figure: the session named no activity for one to apply to.",
+  "activitySummaryCalorieNoMet": "Estimated from your heart rate and your weight. No MET is in this figure: none is published for this activity.",
   "@activitySummaryCalorieNoMet": {
-    "description": "Calorie basis line on the summary screen for a session whose activity has no published MET (e.g. General workout)"
+    "description": "Calorie basis line on the summary screen for a session whose activity has no published MET (e.g. General workout, Padel)"
   },
   "activitySetupCalorieEstimate": "About {est} kcal per {minutes} min, from {met} MET and your weight.",
   "@activitySetupCalorieEstimate": {

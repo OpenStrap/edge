@@ -40,6 +40,11 @@ void main() {
           HealthWorkoutActivityType.BOWLING);
       expect(healthActivityForType('bowling', ios: false),
           HealthWorkoutActivityType.OTHER);
+      // Skateboarding lands as SKATING on both, not OTHER.
+      for (final ios in [true, false]) {
+        expect(healthActivityForType('skateboarding', ios: ios),
+            HealthWorkoutActivityType.SKATING);
+      }
     });
 
     test('an OTHER workout still reaches Android under its own name', () {

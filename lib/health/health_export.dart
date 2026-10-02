@@ -1488,6 +1488,10 @@ HealthWorkoutActivityType healthActivityForType(
     case 'snowboard':
     case 'snowboarding':
       return HealthWorkoutActivityType.SNOWBOARDING;
+    case 'skating':
+    case 'skateboarding':
+      // `SKATING` is on both stores (iOS `.skatingSports`).
+      return HealthWorkoutActivityType.SKATING;
     case 'stairs':
     case 'stair':
       // `STAIRS` is iOS-only; `STAIR_CLIMBING` exists on both.
