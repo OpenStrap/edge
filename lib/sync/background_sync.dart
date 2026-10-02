@@ -77,7 +77,7 @@ Future<void> handleHeadlessAlarmEvent(int id) async {
 }
 
 /// Load the local profile (no Provider in the headless isolate).
-Future<Profile> _loadProfile() async {
+Future<Profile> loadHeadlessProfile() async {
   try {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('local_profile_json');
@@ -86,6 +86,102 @@ Future<Profile> _loadProfile() async {
   } catch (_) {
     return const Profile();
   }
+}
+
+/// Every headless caller must use the same commit-before-ACK persistence path.
+BleEngine createHeadlessSyncEngine({
+  required PairedDevice paired,
+  void Function(int records)? onCommitted,
+  void Function(Object error)? onCommitError,
+}) {
+  late final BandHost bandHost;
+  final engine = BleEngine(
+    // EVERY write below is gated on [ResetGate]: a reset can begin at any
+    // point during a drain, and these callbacks are the reason it is not
+    // enough for AppState to guard only its own. Refusing loses nothing —
+    // none of it has been ACKed, so it is all still on the band.
+    onRecord: (sample, raw) async {
+      if (ResetGate.active) return;
+      await LocalDb.insertRecord(raw, sample);
+    },
+    onState: (_) {},
+    // This path drains exactly the one paired band (PairedDevice.load()),
+    // so kPrimaryDeviceId is the correct value here, not a placeholder.
+    onEvent: (id, ts, hex) async {
+      if (ResetGate.active) return;
+      await LocalDb.insertEvent(id, ts, hex,
+          deviceId: LocalDb.kPrimaryDeviceId);
+      await handleHeadlessAlarmEvent(id);
+    },
+    log: (l) => debugPrint('[bgsync] $l'),
+    onRecordsBatch: (raws, samples) async {
+      if (ResetGate.active) return;
+      await LocalDb.insertRecordsBatch(raws, samples);
+    },
+    // Routed through BandHost (M1a) rather than calling
+    // LocalDb.commitSyncBatch directly — same durable commit, same
+    // arguments, one extra await frame, and the SAME failure contract:
+    // `commitNativeBatch` rethrows so `DrainController.commit` still reads
+    // durability from a throw and `TrimAckPolicy` still blocks the ACK.
+    onCommitBatch: (raws, samples, trimTokenHex,
+        {archives, ecgRawPackets, deviceFamily}) async {
+      try {
+        // THROWS, never silently succeeds. This is the ACK gate: only
+        // `onCommit` can bank raws + archives + trim cursor in one
+        // transaction, and DrainController reads durability FROM A THROW
+        // (see its safe-trim invariant). Returning quietly here would tell
+        // the drain the chunk was banked, it would ACK, and the band would
+        // trim flash that this reset refused to store — turning a race into
+        // real data loss on a band the user may not be deleting after all if
+        // the reset then fails. A throw blocks the ACK and the records stay
+        // on the strap.
+        if (ResetGate.active) {
+          throw StateError('data reset in progress — refusing to commit');
+        }
+        await bandHost.commitNativeBatch(raws, samples, trimTokenHex,
+            archives: archives,
+            ecgRawPackets: ecgRawPackets,
+            deviceFamily: deviceFamily);
+      } catch (e) {
+        onCommitError?.call(e);
+        rethrow;
+      }
+      onCommitted?.call(samples.length);
+    },
+    onArchiveRecord: (raw) async {
+      if (ResetGate.active) return;
+      await LocalDb.archiveRawRecord(raw);
+    },
+    // A WHOOP MG left generating by a dead process must be cleaned up
+    // BEFORE this drainer claims history — same rule as the foreground
+    // engine, controller-free.
+    onReadyEcgRecovery: (e) => ecgRecoverRetainedGuard(
+      guard: PrefsEcgGuardStore(),
+      serial: paired.serial,
+      cleanup: () async {
+        final out = await e.ecgRecoveryCleanup();
+        return EcgCommandListResult([
+          for (final o in out)
+            EcgMemberOutcome(o.label,
+                written: o.written, succeeded: o.succeeded),
+        ]);
+      },
+      log: (l) => debugPrint('[bgsync] $l'),
+    ),
+    cursorReader: (base) =>
+        LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
+    // Mark this as the background drainer: if the foreground app engine already
+    // owns the band (same process — iOS restore-wake OR Android headless boot /
+    // foreground service), this engine YIELDS instead of opening a second drain
+    // that would double-ACK the same offload and stall the trim cursor.
+    isBackgroundDrainer: true,
+  );
+  bandHost = BandHost(
+    adapter: WhoopFramedAdapter(engine, kWhoopGen4),
+    deviceId: LocalDb.kPrimaryDeviceId,
+    onLog: (msg) => debugPrint('[bgsync][COMMIT] $msg'),
+  );
+  return engine;
 }
 
 /// One headless LOCAL drain pass. Safe to call from a background isolate. Never
@@ -123,91 +219,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       return true;
     }
 
-    // Connect → drain → store. No live streams (battery): in and out.
-    // `bandHost` is `late final`: the closure below captures the variable,
-    // not a value, so it is fine that it is only assigned after `engine`
-    // (whose facade adapter needs `engine` itself) is constructed.
-    late final BandHost bandHost;
-    final engine = BleEngine(
-      // EVERY write below is gated on [ResetGate]: a reset can begin at any
-      // point during a drain, and these callbacks are the reason it is not
-      // enough for AppState to guard only its own. Refusing loses nothing —
-      // none of it has been ACKed, so it is all still on the band.
-      onRecord: (sample, raw) async {
-        if (ResetGate.active) return;
-        await LocalDb.insertRecord(raw, sample);
-      },
-      onState: (_) {},
-      // This path drains exactly the one paired band (PairedDevice.load()),
-      // so kPrimaryDeviceId is the correct value here, not a placeholder.
-      onEvent: (id, ts, hex) async {
-        if (ResetGate.active) return;
-        await LocalDb.insertEvent(id, ts, hex,
-            deviceId: LocalDb.kPrimaryDeviceId);
-        await handleHeadlessAlarmEvent(id);
-      },
-      log: (l) => debugPrint('[bgsync] $l'),
-      onRecordsBatch: (raws, samples) async {
-        if (ResetGate.active) return;
-        await LocalDb.insertRecordsBatch(raws, samples);
-      },
-      // Routed through BandHost (M1a) rather than calling
-      // LocalDb.commitSyncBatch directly — same durable commit, same
-      // arguments, one extra await frame, and the SAME failure contract:
-      // `commitNativeBatch` rethrows so `DrainController.commit` still reads
-      // durability from a throw and `TrimAckPolicy` still blocks the ACK.
-      onCommitBatch: (raws, samples, trimTokenHex,
-          {archives, ecgRawPackets, deviceFamily}) async {
-        // THROWS, never silently succeeds. This is the ACK gate: only
-        // `onCommit` can bank raws + archives + trim cursor in one
-        // transaction, and DrainController reads durability FROM A THROW
-        // (see its safe-trim invariant). Returning quietly here would tell
-        // the drain the chunk was banked, it would ACK, and the band would
-        // trim flash that this reset refused to store — turning a race into
-        // real data loss on a band the user may not be deleting after all if
-        // the reset then fails. A throw blocks the ACK and the records stay
-        // on the strap.
-        if (ResetGate.active) {
-          throw StateError('data reset in progress — refusing to commit');
-        }
-        return bandHost.commitNativeBatch(raws, samples, trimTokenHex,
-            archives: archives,
-            ecgRawPackets: ecgRawPackets,
-            deviceFamily: deviceFamily);
-      },
-      onArchiveRecord: (raw) async {
-        if (ResetGate.active) return;
-        await LocalDb.archiveRawRecord(raw);
-      },
-      // A WHOOP MG left generating by a dead process must be cleaned up
-      // BEFORE this drainer claims history — same rule as the foreground
-      // engine, controller-free.
-      onReadyEcgRecovery: (e) => ecgRecoverRetainedGuard(
-        guard: PrefsEcgGuardStore(),
-        serial: paired.serial,
-        cleanup: () async {
-          final out = await e.ecgRecoveryCleanup();
-          return EcgCommandListResult([
-            for (final o in out)
-              EcgMemberOutcome(o.label,
-                  written: o.written, succeeded: o.succeeded),
-          ]);
-        },
-        log: (l) => debugPrint('[bgsync] $l'),
-      ),
-      cursorReader: (base) =>
-          LocalDb.getCursorInt(LocalDb.cursorKeyFor(base, LocalDb.kPrimaryDeviceId)),
-      // Mark this as the background drainer: if the foreground app engine already
-      // owns the band (same process — iOS restore-wake OR Android headless boot /
-      // foreground service), this engine YIELDS instead of opening a second drain
-      // that would double-ACK the same offload and stall the trim cursor.
-      isBackgroundDrainer: true,
-    );
-    bandHost = BandHost(
-      adapter: WhoopFramedAdapter(engine, kWhoopGen4),
-      deviceId: LocalDb.kPrimaryDeviceId,
-      onLog: (msg) => debugPrint('[bgsync][COMMIT] $msg'),
-    );
+    final engine = createHeadlessSyncEngine(paired: paired);
 
     // connect() subscribes → SET_CLOCK → INIT, so the historical offload is already
     // streaming when this returns. We then await it reaching HISTORY_COMPLETE.
@@ -319,7 +331,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await DerivationEngine(
         log: (l) => debugPrint('[bgsync-derive] $l'),
         background: true,
-      ).run(await _loadProfile());
+      ).run(await loadHeadlessProfile());
     } catch (e) {
       debugPrint('[bgsync] derive skipped: $e');
     }

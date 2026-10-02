@@ -13,6 +13,7 @@ import 'state/locale_controller.dart';
 import 'state/units_controller.dart';
 import 'sync/headless_boot.dart';
 import 'sync/ios_bg_task.dart';
+import 'sync/ios_shortcut_sync.dart';
 import 'theme/theme_controller.dart';
 import 'widget/widget_service.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -114,6 +115,8 @@ Future<void> main() async {
     await FlutterBluePlus.setLogLevel(LogLevel.none, color: false)
         .timeout(_kStartupInitTimeout);
   } catch (_) {/* older plugin / unsupported platform — ignore */}
+
+  await _safeInit('IosShortcutSync', IosShortcutSync.init);
 
   // Optional startup services. A failure in any one of these must NEVER block the
   // first frame — they are awaited before runApp, so an unguarded throw (e.g. the

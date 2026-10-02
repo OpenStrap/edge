@@ -116,13 +116,17 @@ void main() {
   // Same isolate (see reset_gate.dart), so one static covers both.
 
   test('the headless drain refuses to start while a reset is running', () {
-    expect(bg.contains('if (ResetGate.active) {'), isTrue,
+    // Scoped to runHeadlessSync: the engine callbacks above it guard too.
+    final body = bg.substring(bg.indexOf('Future<bool> runHeadlessSync('));
+    expect(body.contains('if (ResetGate.active) {'), isTrue,
         reason: 'runHeadlessSync must bail before it drains');
     // Ahead of PairedDevice.load(), which is the only thing standing between a
     // reset and a fresh drain today — and only by accident, via prefs.clear().
     // The real CALL, not the mention of it in the comment above the guard.
-    expect(bg.indexOf('ResetGate.active'),
-        lessThan(bg.indexOf('final paired = await PairedDevice.load();')));
+    final guard = body.indexOf('ResetGate.active');
+    expect(guard, greaterThanOrEqualTo(0));
+    expect(guard,
+        lessThan(body.indexOf('final paired = await PairedDevice.load();')));
   });
 
   test('every headless write path is gated', () {
@@ -132,7 +136,7 @@ void main() {
       expect(at, greaterThanOrEqualTo(0), reason: '$cb not found');
       // Slice to the NEXT callback at the same indent, so a guard belonging to
       // a neighbour can never be mistaken for this one's.
-      final next = bg.indexOf('\n      on', at + cb.length);
+      final next = bg.indexOf('\n    on', at + cb.length);
       final window = bg.substring(at, next < 0 ? bg.length : next);
       expect(window.contains('ResetGate.active'), isTrue,
           reason: '$cb writes without consulting ResetGate');
