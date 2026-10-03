@@ -2108,6 +2108,10 @@
       }
     }
   },
+  "readinessDetailBreakdownNoScoreNote": "These are a separate, looser-gated view of the same four inputs — they do not add up to today's score, which is absent above for the reason already given.",
+  "@readinessDetailBreakdownNoScoreNote": {
+    "description": "Shown above the breakdown rows only when readiness itself is absent, clarifying that this glass-box percentile view is a different calculation than the headline composite and does not explain or contradict its absence."
+  },
   "readinessDetailNoBreakdownTitle": "No breakdown yet",
   "@readinessDetailNoBreakdownTitle": {
     "description": "Status card title when readiness scored but no breakdown exists yet."
@@ -2171,6 +2175,18 @@
     "description": "Row value in the absence diagnostic stating how many of the user's own nights back the baseline.",
     "placeholders": {
       "n": {
+        "type": "int"
+      }
+    }
+  },
+  "readinessDetailNightsOfTarget": "{have} of {need} nights",
+  "@readinessDetailNightsOfTarget": {
+    "description": "Row value in the absence diagnostic: how many of the user's own nights back this input against the floor every input needs before it can be used.",
+    "placeholders": {
+      "have": {
+        "type": "int"
+      },
+      "need": {
         "type": "int"
       }
     }

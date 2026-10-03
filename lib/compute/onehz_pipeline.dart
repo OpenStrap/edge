@@ -128,6 +128,112 @@ String? zCapAbsentNote(Metric<Readiness> composite) {
   return 'unstable_baseline:z=${z.toStringAsFixed(3)},cap=$kReadinessZCap';
 }
 
+/// A genuine, human reason — or a real "N more nights" estimate — for a
+/// `readiness_absent_diag` the composite refused via its `need_inputs:` note:
+/// at least one input usable, but too few of them (or too little combined
+/// weight) to compose — see `readinessCompositeMinInputs`/
+/// `readinessCompositeMinWeight` in readiness_composite.dart. Distinct from
+/// [zCapAbsentNote]'s case and from the `need_baseline:` cold-start case
+/// `needMessageFromNote` already covers — same reasoning as that function's
+/// own doc: a wrong cause is worse than no cause.
+///
+/// Built ENTIRELY from data already stored in [diag] — per-input
+/// `baseline_n` (already shown in "What was missing") and temp's own
+/// `settled_frac` — plus the analytics package's own published thresholds.
+/// Nothing here re-derives a score or changes what gets persisted, so this
+/// needs no kAlgoVersion bump: it is a read-time translation of already-
+/// stored data into prose, the job [needMessageFromNote] already does for a
+/// different note convention.
+///
+/// Counts the WORST (furthest from ready) of the three baseline-length
+/// inputs — HRV/RHR/breathing rate — because that is the actual bottleneck:
+/// the composite cannot score until it clears, regardless of how close the
+/// others are. Deliberately names no input: the per-input "X of Y nights"
+/// rows this sentence sits above already say which one, by name, with its
+/// own count — this is the overall answer, not a second copy of a row.
+///
+/// Skin temperature is reported separately, without a night count: its
+/// settled-fraction gate depends on how many FUTURE nights read as genuinely
+/// settled (not warming up / off-wrist), a quality threshold, not an
+/// elapsed-time one — promising "N more nights" for it would be exactly the
+/// fabrication this codebase's honesty rule exists to refuse.
+///
+/// Null when [diag] is null or nothing here applies — the existing raw-note
+/// / generic fallback chain in readiness_detail.dart still covers that case.
+///
+/// [metricName] names the thing the sentence says cannot score — "readiness"
+/// on the Readiness detail screen, "recovery" on Home, which labels the same
+/// absence "Recovery" (the ring) rather than "Readiness". Same underlying
+/// diagnostic and the same number either way; only the noun changes, so the
+/// two screens' explanations still can't drift apart on anything that
+/// matters.
+String? readinessInputShortfallNote(
+  Map<String, dynamic>? diag, {
+  String metricName = 'readiness',
+}) {
+  if (diag == null) return null;
+  const keys = ['hrv', 'rhr', 'resp'];
+  String? worstKey;
+  var worstShortfall = 0;
+  for (final key in keys) {
+    final e = diag[key];
+    if (e is! Map) continue;
+    final have = (e['baseline_n'] as num?)?.toInt() ?? 0;
+    final shortfall = readinessCompositeMinBaseline - have;
+    if (shortfall > worstShortfall) {
+      worstShortfall = shortfall;
+      worstKey = key;
+    }
+  }
+
+  final tempFrac = (diag['temp'] as Map?)?['settled_frac'] as num?;
+  final tempUnsettled = tempFrac != null && tempFrac < kMinSettledFraction;
+
+  if (worstKey == null) {
+    // No input is short on raw nights — if the only thing refused is skin
+    // temperature, say so honestly, without an ETA this data cannot back.
+    // No input named here either: the per-input "X of Y nights" rows below
+    // this sentence already say which one, by name, with its own count — this
+    // banner only needs the overall answer.
+    if (tempUnsettled) {
+      return 'Needs more consistently measured nights before $metricName '
+          'can score.';
+    }
+    return null;
+  }
+
+  return 'Needs $worstShortfall more night${worstShortfall == 1 ? '' : 's'} '
+      'before $metricName can score.';
+}
+
+final _unstableBaselinePattern = RegExp(r'^unstable_baseline:');
+
+/// A genuine reason for [zCapAbsentNote]'s absence: the composite actually
+/// computed but got withheld as a saturated, degenerate-baseline artefact
+/// (see [kReadinessZCap]) — a DIFFERENT cause than [readinessInputShortfallNote]
+/// covers (which needs a baseline-count shortfall or an unsettled temp; this
+/// one has neither, since reaching the z-cap check means every input already
+/// cleared its own floor).
+///
+/// Found live on PR #510: callers that only tried
+/// [readinessInputShortfallNote] and fell straight to the generic "nothing
+/// recorded says why" for this case lost the specific reason a prior version
+/// of the screen showed (as the raw, unreadable note) — worth a real
+/// translation rather than either extreme.
+///
+/// Null for every other note, including no note at all — the same "a key it
+/// does not recognise renders as we do not know" floor [whyFromNote] already
+/// uses, so an absence this function can't name still gets the honest
+/// generic fallback instead of a leaked machine string.
+String? readinessUnstableBaselineNote(
+  String? note, {
+  String metricName = 'readiness',
+}) {
+  if (note == null || !_unstableBaselinePattern.hasMatch(note)) return null;
+  return 'Today\'s $metricName looked too extreme to trust against your own '
+      'history, so it was held back rather than shown.';
+}
+
 /// Serializable input to the isolate: one physiological day's decoded 1 Hz
 /// substrate (the day slice), the PRECOMPUTED single-source sleep segmentation,
 /// the profile, and trailing baseline history for the readiness pass.

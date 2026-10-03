@@ -5,11 +5,12 @@
 // parallel percentile view of the same four inputs. Presenting the second as
 // if it decomposed the first would be a small lie that is very hard to catch.
 
-import 'dart:convert' show jsonDecode;
-
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:openstrap_analytics/onehz.dart' show readinessCompositeMinBaseline;
 
+import '../../compute/onehz_pipeline.dart'
+    show readinessInputShortfallNote, readinessUnstableBaselineNote;
 import '../../data/db.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
@@ -57,20 +58,6 @@ class ReadinessData {
     this.absentDiag,
   });
 
-  /// The absence diagnostic off a stored day bundle. Read straight from
-  /// `day_result` the way `InvestigateData.load` reads `imported` — no
-  /// repository accessor exists and this is the only screen that wants it.
-  static Future<Map<String, dynamic>?> _absentDiag(String? day) async {
-    if (day == null) return null;
-    final payload = (await LocalDb.dayResult(day))?['payload_json'];
-    if (payload is! String || !payload.contains('"readiness_absent_diag"')) {
-      return null;
-    }
-    final b = jsonDecode(payload);
-    final diag = b is Map ? b['readiness_absent_diag'] : null;
-    return diag is Map ? diag.cast<String, dynamic>() : null;
-  }
-
   static Future<ReadinessData> load(LocalRepository repo) async {
     final today = await repo.getToday();
     final cd = await repo.getInsights();
@@ -109,7 +96,7 @@ class ReadinessData {
       // null, which is correct — the note on the metric is the reason then.
       absentDiag: readiness.value != null
           ? null
-          : await _absentDiag(
+          : await LocalDb.readinessAbsentDiag(
               (today['status'] as Map?)?['today_day']?.toString()),
     );
   }
@@ -170,26 +157,58 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       ] else ...[
         if (v == null) ...[
           // No `why:`. The pipeline records why readiness abstained on every
-          // day it does, and the "What was missing" section directly below is
-          // built from that record — a sentence written here was competing
-          // with the real answer one line down and winning.
-          StatusCard.forMetric(
-                  l?.readinessDetailNotScoredTitle ??
-                      'Readiness is not scored',
-                  d.readiness,
-                  // Where the data stops, appended to whatever the pipeline
-                  // said. Not a substitute for the reason and not a reading —
-                  // "the last one was Saturday" is a fact about coverage.
-                  gap: d.heldOverNight == null
-                      ? null
-                      : (l?.readinessDetailLastNightScored(
-                              prettyDay(d.heldOverNight, l)) ??
-                          'The last night scored was '
-                              '${prettyDay(d.heldOverNight, l)}.')) ??
-              const SizedBox.shrink(),
-          if (d.absentDiag != null)
-            Section(l?.readinessDetailWhatWasMissing ?? 'What was missing',
-                _absence(c, p, d.absentDiag!)),
+          // day it does, and the "What was missing" section directly below
+          // shows the same record in more detail. `why:` below reuses the
+          // EXACT SAME computed reason as that section (readinessInputShortfallNote
+          // off d.absentDiag) rather than a second, independently-guessed one
+          // — the two must never be able to disagree, only one be shorter.
+          // readinessUnstableBaselineNote covers the OTHER absence shape
+          // (PR #510): a z-cap withhold has no baseline shortfall to report
+          // (every input already cleared its floor), so the first function
+          // alone fell straight to the generic fallback for it.
+          Builder(builder: (c) {
+            final diagReason = readinessInputShortfallNote(d.absentDiag) ??
+                readinessUnstableBaselineNote(
+                    d.absentDiag?['note']?.toString());
+            // StatusCard.forMetric prefers a prose note already ON the
+            // metric (`told`, via whyFromNote) over `why:` — deliberately,
+            // for screen-authored text like the held-over "nothing synced
+            // yet" sentence [overnightMetric] attaches. When that wins, the
+            // diagnostic reason above never reaches the banner at all
+            // (PR #510 follow-up) — _absence below shows it in that one
+            // case so it is not lost from the screen entirely, without
+            // reintroducing the general "says it twice" duplication fixed
+            // earlier in this same PR.
+            final bannerShowsDiag = whyFromNote(d.readiness.note) == null;
+            return Column(children: [
+              StatusCard.forMetric(
+                      l?.readinessDetailNotScoredTitle ??
+                          'Readiness is not scored',
+                      d.readiness,
+                      why: diagReason ?? '',
+                      // Where the data stops, appended to whatever the
+                      // pipeline said. Not a substitute for the reason and
+                      // not a reading — "the last one was Saturday" is a
+                      // fact about coverage.
+                      gap: d.heldOverNight == null
+                          ? null
+                          : (l?.readinessDetailLastNightScored(
+                                  prettyDay(d.heldOverNight, l)) ??
+                              'The last night scored was '
+                                  '${prettyDay(d.heldOverNight, l)}.')) ??
+                  const SizedBox.shrink(),
+              if (d.absentDiag != null)
+                Section(
+                    l?.readinessDetailWhatWasMissing ?? 'What was missing',
+                    _absence(
+                      c,
+                      p,
+                      d.absentDiag!,
+                      fallbackReason:
+                          bannerShowsDiag ? null : diagReason,
+                    )),
+            ]);
+          }),
         ] else
           Surface(
             child: Column(children: [
@@ -215,6 +234,23 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
         if (d.breakdown.isNotEmpty) ...[
           Section(l?.readinessDetailWhatWentIntoIt ?? 'What went into it',
               _breakdown(c, p, d)),
+          // Only when the headline above is absent: the footer's "parallel
+          // view, not slices of the number above" caveat is true either way,
+          // but it sits BELOW four rows of real-looking numbers and is easy
+          // to skim past — exactly the gap this file's own header comment
+          // warns about ("presenting the second as if it decomposed the
+          // first would be a small lie that is very hard to catch"). When
+          // there is no score to misread this against, say so up front too.
+          if (v == null) ...[
+            const SizedBox(height: S.x2),
+            Text(
+              l?.readinessDetailBreakdownNoScoreNote ??
+                  'These are a separate, looser-gated view of the same four '
+                      'inputs — they do not add up to today\'s score, which '
+                      'is absent above for the reason already given.',
+              style: F.cap.copyWith(color: p.ink3, height: 1.5),
+            ),
+          ],
           const SizedBox(height: S.x4),
           Surface(
             elevation: 0,
@@ -309,13 +345,25 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
     );
   }
 
-  /// The pipeline's own absence diagnostic, one row per input. Two facts per
-  /// row and neither is inferred here: did last night produce this input, and
-  /// how many of your own nights are behind it. The line underneath QUOTES the
-  /// composite's note rather than guessing a reason from the rows above it —
-  /// and it never turns a night count into a date, because nothing in the
-  /// pipeline knows when you will next wear the band.
-  Widget _absence(BuildContext c, P p, Map<String, dynamic> diag) {
+  /// The pipeline's own absence diagnostic, one row per input: did last night
+  /// produce this input, and how many of your own nights are behind it
+  /// against the floor every input needs ([readinessCompositeMinBaseline]).
+  /// The genuine "why" sentence lives ONLY in the banner above this section
+  /// now (built from the same [readinessInputShortfallNote] off the same
+  /// [diag]) — this used to repeat a second copy of it here, which read as
+  /// the screen saying the same thing twice.
+  /// [fallbackReason] is non-null ONLY in the one case the banner above this
+  /// section does not already show the diagnostic reason itself: a held-over
+  /// night, where `StatusCard.forMetric` prefers the metric's own prose note
+  /// ("nothing synced yet") over it. Null in the ordinary case — the banner
+  /// already said it once, and repeating it here is the exact duplication a
+  /// prior pass of this same PR removed.
+  Widget _absence(
+    BuildContext c,
+    P p,
+    Map<String, dynamic> diag, {
+    String? fallbackReason,
+  }) {
     final l = AppLocalizations.of(c);
     final rows = <(String, String)>[];
     for (final k in const ['hrv', 'rhr', 'resp', 'temp']) {
@@ -325,17 +373,23 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       rows.add((
         driverLabel(k, l),
         '${e['value'] == true ? (l?.readinessDetailMeasured ?? 'Measured') : (l?.readinessDetailNotMeasured ?? 'Not measured')} · '
-            '${l?.readinessDetailNightsOfHistory(n) ?? '$n night${n == 1 ? '' : 's'} of your own history'}',
+            '${l?.readinessDetailNightsOfTarget(n, readinessCompositeMinBaseline) ?? '$n of $readinessCompositeMinBaseline nights'}',
       ));
     }
-    final note = diag['note']?.toString();
-    final need = needMessageFromNote(note);
 
+    if (rows.isEmpty) return const SizedBox.shrink();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (rows.isNotEmpty)
-        Surface(
-          pad: const EdgeInsets.symmetric(horizontal: S.x4),
-          child: Column(children: [
+      Surface(
+        pad: const EdgeInsets.symmetric(horizontal: S.x4),
+        child: Column(
+          // Explicit, not the default `center`: each row's inner Column
+          // shrink-wraps to its own (narrow) text width, same as every row
+          // in `_breakdown` below it — the difference is that `_breakdown`'s
+          // rows are a `Row` (fills the full width by default regardless of
+          // the parent's alignment), so only this Column needed the
+          // alignment said out loud for the two sections to actually match.
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             for (var i = 0; i < rows.length; i++) ...[
               if (i > 0) Divider(color: p.line, height: 1),
               Padding(
@@ -349,21 +403,13 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                     ]),
               ),
             ],
-          ]),
+          ],
         ),
-      const SizedBox(height: S.x3),
-      Text(
-        need != null
-            ? (l?.readinessDetailNeedSuffix(need) ??
-                '$need. Each input is ranked against your own nights, so the '
-                    'score cannot start before there are enough of them.')
-            : (note != null && note.isNotEmpty
-                ? note
-                : (l?.readinessDetailNoNoteFallback ??
-                    'Everything above was present, and the comparison against '
-                        'your own history still could not be made.')),
-        style: F.cap.copyWith(color: p.ink3, height: 1.5),
       ),
+      if (fallbackReason != null) ...[
+        const SizedBox(height: S.x3),
+        Text(fallbackReason, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+      ],
     ]);
   }
 

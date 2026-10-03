@@ -7723,6 +7723,26 @@ class LocalDb {
     return rows.isEmpty ? null : _withDate(rows.first);
   }
 
+  /// The `readiness_absent_diag` diagnostic off [day]'s stored bundle — per
+  /// input `{value, baseline_n}` plus the composite's own `note`. Produced on
+  /// every day readiness comes back absent; null when [day] is null, has no
+  /// stored bundle, or scored normally (no diag is written on a scored day).
+  ///
+  /// ONE reader, not two: this used to be a private copy inside
+  /// `readiness_detail.dart` (the only place that read it); Home's "not
+  /// scored" card needed the exact same lookup for the exact same reason, and
+  /// a second copy is how the two screens' explanations drift apart.
+  static Future<Map<String, dynamic>?> readinessAbsentDiag(String? day) async {
+    if (day == null) return null;
+    final payload = (await dayResult(day))?['payload_json'];
+    if (payload is! String || !payload.contains('"readiness_absent_diag"')) {
+      return null;
+    }
+    final b = jsonDecode(payload);
+    final diag = b is Map ? b['readiness_absent_diag'] : null;
+    return diag is Map ? diag.cast<String, dynamic>() : null;
+  }
+
   /// The most recent day (highest day_id label), latest version, or null.
   static Future<Map<String, dynamic>?> latestDayResult() async {
     final rows = await recentDayResults(1);
