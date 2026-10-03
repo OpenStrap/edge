@@ -111,4 +111,26 @@ void main() {
     expect(res.workouts, 2);
     expect(await LocalDb.importedWorkouts(), hasLength(2));
   });
+
+  test('apple: only a prompt:true sync lets the route fetch ask', () async {
+    final sent = <Object?>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(kHealthRoutesChannel, (call) async {
+      sent.add((call.arguments as Map)['prompt']);
+      return const <Object?>[];
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(kHealthRoutesChannel, null));
+    final importer = HealthWorkoutImporter(
+      health: _FakeHealth([_w('a')]),
+      isApple: true,
+    );
+
+    await importer.sync();
+    await importer.sync(prompt: true);
+
+    expect(sent, [false, true],
+        reason: 'the auto path calls sync() bare and must never prompt');
+  });
 }

@@ -45,6 +45,16 @@ enum HealthRouteBridge {
         }
         let from = Date(timeIntervalSince1970: Double(fromMs) / 1000)
         let to = Date(timeIntervalSince1970: Double(toMs) / 1000)
+        let reply: ([[String: Any]]) -> Void = { payload in
+          DispatchQueue.main.async { result(payload) }
+        }
+        // Only the manual Import tap may ask. A background/cadence pass reads
+        // with whatever has already been decided; an undecided route grant
+        // just reads empty there instead of popping a sheet with no tap.
+        guard args["prompt"] as? Bool == true else {
+          routes(from: from, to: to, completion: reply)
+          return
+        }
         // `HKSeriesType.workoutRoute()` is a SEPARATE read authorization from
         // the workout type, and the `health` plugin requests only the latter —
         // so without this the route query returns nothing on a store the user
@@ -59,11 +69,7 @@ enum HealthRouteBridge {
         store.requestAuthorization(
           toShare: [], read: [HKSeriesType.workoutRoute(), HKObjectType.workoutType()]
         ) { _, _ in
-          routes(
-            from: from, to: to,
-            completion: { payload in
-              DispatchQueue.main.async { result(payload) }
-            })
+          routes(from: from, to: to, completion: reply)
         }
 
       default:

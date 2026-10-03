@@ -1360,20 +1360,43 @@ class AlarmConfirmation {
   bool isUnconfirmed(int nowMs) =>
       targetEpoch != null && !confirmed && !isPending(nowMs);
 
+  /// How far before its reference moment a strap event may be stamped and
+  /// still count as this arm's. Covers RTC drift between connects; a replay of
+  /// an earlier arm sits further back than this (an alarm re-armed within it
+  /// is the ceiling).
+  static const int replaySlackSec = 120;
+
   /// Feed a strap event. Returns the resulting [AlarmEffect] the caller acts on,
-  /// or null when the event is unrelated to the alarm.
-  AlarmEffect? onEvent(int id, int nowMs) {
+  /// or null when the event is unrelated to the alarm (or belongs to an
+  /// earlier arm).
+  ///
+  /// [tsSec] is the event's own timestamp, mapped to wall seconds. The strap
+  /// re-sends already-delivered events after a reconnect, so a 56/57/58/59
+  /// from an EARLIER arm must not confirm, fire or clear the current one:
+  /// 56 and 59 have to come after this arm's SET write, and a fire can't
+  /// predate the wake time it fires for (or, with nothing armed, now). Null or an unset-RTC value can't be
+  /// told apart and is taken as current.
+  AlarmEffect? onEvent(int id, int nowMs, {int? tsSec}) {
+    final known = tsSec != null && tsSec >= kMinPlausibleUnix;
+    bool before(int? sec) =>
+        known && sec != null && tsSec < sec - replaySlackSec;
+    final setAtSec = setAtMs == null ? null : setAtMs! ~/ 1000;
     switch (id) {
       case kEvtSet:
+        if (before(setAtSec)) return null;
         confirmed = true;
         lastEventId = id;
         return AlarmEffect.confirmed;
       case kEvtStrapExecuted:
       case kEvtAppExecuted:
+        // With nothing armed (state lost, or this fire already handled) only
+        // a fire from just now is news.
+        if (before(targetEpoch ?? nowMs ~/ 1000)) return null;
         lastEventId = id;
         firedAt = nowMs;
         return AlarmEffect.fired;
       case kEvtDisabled:
+        if (before(setAtSec)) return null;
         confirmed = false;
         targetEpoch = null;
         setAtMs = null;

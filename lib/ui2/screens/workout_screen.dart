@@ -766,7 +766,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         });
         return;
       }
-      final res = await importer.sync();
+      final res = await importer.sync(prompt: true);
       if (res.workouts == 0) {
         if (!mounted) return;
         final loc = AppLocalizations.of(context);

@@ -218,7 +218,12 @@ Future<List<SweepSeries>> collectSweepSeries(
       if (breaks is List) {
         for (final b in breaks) {
           final t = b is Map ? _num(b['t'])?.toInt() : null;
-          if (t != null && t > cutoff) cutoff = t;
+          if (t == null || t <= cutoff) continue;
+          // Only breaks up to the day being read. A past day swept against a
+          // LATER bump had a cutoff after its whole history: 0 days, always.
+          final day =
+              todayLabel(DateTime.fromMillisecondsSinceEpoch(t * 1000));
+          if (day.compareTo(today) <= 0) cutoff = t;
         }
       }
       double? todayValue;

@@ -87,6 +87,11 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   /// True only when everything needed to actually buzz is in place.
   bool get active => supported && _enabled && _granted && _packages.isNotEmpty;
 
+  /// Whether the listener runs. NOT [active]: with zero apps picked the
+  /// listener is the only thing that fills the picker, so gating it on a
+  /// picked app meant a fresh install could never pick its first one.
+  bool get _listening => supported && _enabled && _granted;
+
   StreamSubscription<ServiceNotificationEvent>? _sub;
   // Per-package de-dupe: ignore repeat posts of the same app within this window
   // (apps re-post the same notification as it updates), plus a global floor so a
@@ -183,14 +188,11 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   // stream down so we're not holding a system callback for nothing. Also runs a
   // periodic heal so a system-unbound listener gets re-armed while we're alive.
   void _resync() {
-    // [active] (which includes `_packages.isNotEmpty`), not just
-    // enabled+granted: with ZERO apps selected the feature can never produce a
-    // buzz, yet it used to hold the stream subscription (every phone
-    // notification crossing the platform channel into Dart just to be
-    // discarded) and the heal timer, forever, in a process the FGS keeps
-    // alive. setAppEnabled calls back in here, so selecting the first app
-    // arms everything again.
-    final shouldListen = active;
+    // Off whenever the relay is off or ungranted, so an install that never
+    // turned it on holds no stream and no heal timer. On with zero apps
+    // picked: those posts are what the picker is built from (see
+    // [_onNotification]); the buzz itself stays gated on the allow-list.
+    final shouldListen = _listening;
     if (shouldListen) {
       _startListening();
       _healTimer ??= Timer.periodic(_healEvery, (_) => _heal());
@@ -225,7 +227,7 @@ class NotificationRelay extends ChangeNotifier with WidgetsBindingObserver {
   // rebind + reconnect via the plugin's (Dart-unexposed) handlers. All best-effort
   // — older plugin builds or pre-API-24 devices simply no-op.
   Future<void> _heal() async {
-    if (!active) return;
+    if (!_listening) return;
     _startListening(); // re-arm the Dart stream if it died
     try {
       final connected =

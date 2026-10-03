@@ -9,6 +9,7 @@ import 'package:openstrap_edge/health/health_workout_import.dart';
 HealthDataPoint _w({
   String uuid = 'w1',
   String source = 'Strava',
+  String sourceId = 'src',
   HealthWorkoutActivityType type = HealthWorkoutActivityType.RUNNING,
   DateTime? from,
   DateTime? to,
@@ -28,7 +29,7 @@ HealthDataPoint _w({
       unit: HealthDataUnit.NO_UNIT,
       dateFrom: from ?? DateTime(2026, 8, 1, 9),
       dateTo: to ?? DateTime(2026, 8, 1, 10),
-      sourceId: 'src',
+      sourceId: sourceId,
       sourcePlatform: HealthPlatformType.appleHealth,
       sourceDeviceId: 'dev',
       sourceName: source,
@@ -51,6 +52,19 @@ void main() {
       expect(w.energyKcal, isNull);
       expect(w.distanceM, isNull);
       expect(w.steps, isNull);
+    });
+
+    test('our own exported workouts are not imported back', () {
+      // The export rewrites them under a new uuid each pass; importing them
+      // would duplicate every band session in History.
+      final rows = workoutsFrom([
+        _w(uuid: 'ios', source: 'OpenStrap', sourceId: 'wtf.openstrap.x'),
+        _w(uuid: 'android', source: 'wtf.openstrap.x', sourceId: ''),
+        _w(uuid: 'strava'),
+      ], ownApp: 'wtf.openstrap.x');
+      expect(rows.map((r) => r.uuid), ['strava']);
+      // An unknown own id must not drop Health Connect's empty sourceIds.
+      expect(workoutsFrom([_w(sourceId: '')], ownApp: ''), hasLength(1));
     });
 
     test('a workout with no uuid is skipped, not given a synthetic key', () {

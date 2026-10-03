@@ -327,6 +327,33 @@ void main() {
     });
   });
 
+  test('a late event 56 after a relaunch still confirms the earlier arm',
+      () async {
+    // Armed an hour ago, no 56 inside the grace window, app killed. The
+    // relaunch used to restamp setAtMs to launch time, so the strap's pending
+    // 56 (stamped at the real arm) read as a replay and was dropped.
+    final armMs =
+        DateTime.now().subtract(const Duration(hours: 1)).millisecondsSinceEpoch;
+    final epoch = armMs ~/ 1000 + 10 * 3600;
+    SharedPreferences.setMockInitialValues({
+      'alarm_epoch': epoch,
+      'alarm_epoch_confirmed': false,
+      'alarm_set_at_ms': armMs,
+    });
+    final app = AppState.forTesting();
+    await app.debugInit();
+    // Let start-up's fire-and-forget tails land before dispose.
+    addTearDown(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      app.dispose();
+    });
+    expect(app.alarmConfirmed, isFalse);
+
+    app.debugHandleAlarmEvent(56, tsSec: armMs ~/ 1000);
+
+    expect(app.alarmConfirmed, isTrue);
+  });
+
   // ── 10. dispose must release EVERYTHING AppState owns ──────────────────────
   group('dispose', () {
     testWidgets('cancels every owned timer', (t) async {

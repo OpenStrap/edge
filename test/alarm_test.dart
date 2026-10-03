@@ -319,6 +319,49 @@ void main() {
       expect(a.lastEventId, 59);
     });
 
+    test('a replayed event from an earlier arm leaves the current one alone',
+        () {
+      // Monday's 07:00 fired; Tuesday's 07:00 is armed (SET written Monday
+      // 22:00). The strap then re-sends Monday's events on a reconnect.
+      const mon7 = 1759302000;
+      const tue7 = mon7 + 86400;
+      const setAt = mon7 + 15 * 3600;
+      final a = AlarmConfirmation()..set(tue7, setAt * 1000);
+      expect(
+          a.onEvent(AlarmConfirmation.kEvtSet, 0, tsSec: mon7 - 9 * 3600),
+          isNull);
+      expect(a.confirmed, isFalse, reason: 'an old 56 must not confirm');
+      expect(
+          a.onEvent(AlarmConfirmation.kEvtStrapExecuted, 0, tsSec: mon7),
+          isNull);
+      expect(a.onEvent(AlarmConfirmation.kEvtDisabled, 0, tsSec: mon7),
+          isNull);
+      expect(a.targetEpoch, tue7, reason: 'an old fire/disable must not clear');
+
+      // This arm's own events still land.
+      expect(a.onEvent(AlarmConfirmation.kEvtSet, 0, tsSec: setAt + 1),
+          AlarmEffect.confirmed);
+      expect(a.onEvent(AlarmConfirmation.kEvtStrapExecuted, 0, tsSec: tue7),
+          AlarmEffect.fired);
+    });
+
+    test('with nothing armed only a fire from just now counts; an unset RTC '
+        'is taken as is', () {
+      const now = 1759302000;
+      final a = AlarmConfirmation();
+      expect(
+          a.onEvent(AlarmConfirmation.kEvtAppExecuted, now * 1000,
+              tsSec: now - 8 * 3600),
+          isNull);
+      expect(
+          a.onEvent(AlarmConfirmation.kEvtAppExecuted, now * 1000, tsSec: now),
+          AlarmEffect.fired);
+      // ts below the plausible floor can't be placed, so the old behaviour.
+      a.set(1759302000, 0);
+      expect(a.onEvent(AlarmConfirmation.kEvtStrapExecuted, 0, tsSec: 5000),
+          AlarmEffect.fired);
+    });
+
     test('an unrelated event returns null and changes nothing', () {
       final a = AlarmConfirmation();
       a.set(1750000000, 0);

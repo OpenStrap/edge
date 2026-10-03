@@ -1444,14 +1444,19 @@ HealthWorkoutActivityType healthActivityForType(
   switch ((type ?? '').toLowerCase()) {
     case 'run':
     case 'running':
+    case 'treadmill':
+    case 'sprinting':
       return HealthWorkoutActivityType.RUNNING;
     case 'cycle':
     case 'cycling':
     case 'bike':
     case 'biking':
+    case 'indoor_bike':
+    case 'mountain_biking':
       return HealthWorkoutActivityType.BIKING;
     case 'walk':
     case 'walking':
+    case 'dog_walking':
       return HealthWorkoutActivityType.WALKING;
     case 'swim':
     case 'swimming':
@@ -1461,6 +1466,11 @@ HealthWorkoutActivityType healthActivityForType(
     case 'strength':
     case 'weights':
     case 'lifting':
+    // The catalogue's stored keys (`Activity.typeKey`). Without them a
+    // 'Weight training' session landed in Apple Health as Other, #184 again.
+    case 'weight_training':
+    case 'powerlifting':
+    case 'kettlebell':
       return ios
           ? HealthWorkoutActivityType.TRADITIONAL_STRENGTH_TRAINING
           : HealthWorkoutActivityType.STRENGTH_TRAINING;

@@ -42,6 +42,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:health/health.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../data/db.dart';
 
@@ -101,12 +102,26 @@ class ImportedWorkoutRow {
 
 /// Turn raw health-store points into workout rows, dropping anything unusable.
 /// Pure, so the filtering is testable without a store.
+///
+/// [ownApp] is this app's bundle id / package name. Our own exported sessions
+/// are skipped: they are already in History as band sessions, and the export
+/// rewrites them under a fresh uuid on every pass, so importing them would add
+/// one more copy each time. HealthKit names the app in `sourceId`, Health
+/// Connect in `sourceName`, so either matching counts.
 @visibleForTesting
-List<ImportedWorkoutRow> workoutsFrom(List<HealthDataPoint> points) {
+List<ImportedWorkoutRow> workoutsFrom(List<HealthDataPoint> points,
+    {String? ownApp}) {
   final out = <ImportedWorkoutRow>[];
   final seen = <String>{};
   for (final p in points) {
     if (p.type != HealthDataType.WORKOUT) continue;
+    // An empty id would match every Health Connect point (its sourceId is
+    // always ""), so it never counts as ours.
+    if (ownApp != null &&
+        ownApp.isNotEmpty &&
+        (p.sourceId == ownApp || p.sourceName == ownApp)) {
+      continue;
+    }
     final v = p.value;
     if (v is! WorkoutHealthValue) continue;
     // A record with no uuid cannot be deduplicated or matched to its route, and
@@ -244,15 +259,22 @@ class HealthWorkoutImporter {
 
   bool get routesSupported => _isApple;
 
-  /// NON-PROMPTING read-permission probe for the auto path: true only when
-  /// the store already granted WORKOUT read. Never shows a dialog — the
-  /// manual Import button's tap is the only place that question gets asked.
+  /// NON-PROMPTING read-permission probe for the auto path: true when the
+  /// store granted WORKOUT read, or (Apple) when it cannot say. Never shows a
+  /// dialog — the manual Import button's tap is the only place that question
+  /// gets asked.
+  ///
+  /// HealthKit never reveals a READ grant: `hasPermissions` answers null for
+  /// READ whether or not the user allowed it, so `== true` kept the auto path
+  /// off on every iPhone. A read without a grant returns an empty list (no
+  /// prompt, no error), and sync() writes nothing on an empty read, so the
+  /// throttled read is safe to just try.
   Future<bool> hasReadPermission() async {
     try {
       await _health.configure();
-      return await _health.hasPermissions(types,
-              permissions: [for (final _ in types) HealthDataAccess.READ]) ==
-          true;
+      final ok = await _health.hasPermissions(types,
+          permissions: [for (final _ in types) HealthDataAccess.READ]);
+      return ok == true || (_isApple && ok == null);
     } catch (_) {
       return false;
     }
@@ -276,7 +298,11 @@ class HealthWorkoutImporter {
   /// Never throws: an empty store, a denied permission and a locked device all
   /// come back as a zero result, which the caller reports as "nothing to
   /// import" rather than as a failure.
-  Future<WorkoutImportResult> sync({DateTime? now}) async {
+  ///
+  /// [prompt] is true only from the manual Import tap: it lets the route
+  /// fetch ask for the separate workoutRoute grant. The auto path leaves it
+  /// false so a cadence pass never pops a HealthKit sheet.
+  Future<WorkoutImportResult> sync({DateTime? now, bool prompt = false}) async {
     final end = now ?? DateTime.now();
     final start = end.subtract(Duration(
       days: _isApple ? kImportWindowDaysApple : kImportWindowDaysAndroid,
@@ -289,7 +315,11 @@ class HealthWorkoutImporter {
         startTime: start,
         endTime: end,
       );
-      rows = workoutsFrom(points);
+      String? ownApp;
+      try {
+        ownApp = (await PackageInfo.fromPlatform()).packageName;
+      } catch (_) {}
+      rows = workoutsFrom(points, ownApp: ownApp);
     } catch (e) {
       debugPrint('[imported_workout] read: $e');
       return WorkoutImportResult(routesSupported: routesSupported);
@@ -306,7 +336,8 @@ class HealthWorkoutImporter {
         if (!tombstones.contains(r.uuid)) r,
     ];
     await LocalDb.putImportedWorkouts([for (final r in alive) r.toRow()]);
-    final withRoutes = await _importRoutes(start, end, skip: tombstones);
+    final withRoutes =
+        await _importRoutes(start, end, skip: tombstones, prompt: prompt);
     return WorkoutImportResult(
       workouts: alive.length,
       withRoutes: withRoutes,
@@ -321,7 +352,7 @@ class HealthWorkoutImporter {
   /// async round trip, and 90 days of running is a lot of them to serialise
   /// across the channel one at a time.
   Future<int> _importRoutes(DateTime start, DateTime end,
-      {Set<String> skip = const {}}) async {
+      {Set<String> skip = const {}, bool prompt = false}) async {
     if (!routesSupported) return 0;
     List<Object?> payload;
     try {
@@ -330,6 +361,7 @@ class HealthWorkoutImporter {
         {
           'fromMs': start.millisecondsSinceEpoch,
           'toMs': end.millisecondsSinceEpoch,
+          'prompt': prompt,
         },
       );
       payload = res ?? const [];

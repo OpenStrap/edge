@@ -63,8 +63,8 @@ class AutoWorkoutImport {
 
   /// DEFAULT ON. The sweep is pull-based, silent and throttled to one read
   /// per hour; until the user grants WORKOUT access (one tap on the refresh
-  /// button) it does nothing at all, so there is no consent reason to ship
-  /// it off.
+  /// button) it reads nothing (HealthKit hands an ungranted read an empty
+  /// list), so there is no consent reason to ship it off.
   static Future<bool> isEnabled() async =>
       (await SharedPreferences.getInstance())
           .getBool(kAutoWorkoutImportPref) ??

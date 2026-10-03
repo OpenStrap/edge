@@ -303,6 +303,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
             confirmed = await LocalDb.alarmSetConfirmedSince(armedAtMs);
           }
           await prefs.setInt('alarm_epoch', epoch);
+          await prefs.setInt('alarm_set_at_ms', armedAtMs);
           await prefs.setBool('alarm_epoch_confirmed', confirmed);
         }
       } catch (e) {
