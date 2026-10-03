@@ -116,6 +116,8 @@ Every screenshot above is real output from a WHOOP 4.0.
 - **Any standard Bluetooth heart-rate strap** — pairs for workout tracking today (heart
   rate + beat timing, stored and shown). Feeding it into recovery/strain is on the roadmap.
 - **Oura Ring** — protocol groundwork exists in the codebase; not pairable in the app yet.
+  When it lands it will pair with the key the ring already holds, so there is no factory
+  reset and the Oura app keeps working — [how to get that key](docs/OURA_KEY.md).
 
 ## What works
 
