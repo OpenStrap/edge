@@ -4,6 +4,7 @@
 //   - seedEntryFromLegacyEpoch's weekday mapping for the 49→50 migration seed.
 // No radio, no DB — everything here is deterministic.
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/state/alarm_schedule.dart';
@@ -272,6 +273,30 @@ void main() {
       expect(result, isNotNull);
       expect(result!.windowEnd, at);
       expect(result.minutes, 20);
+    });
+  });
+
+  group('awaitAlarmLatch (headless grace window)', () {
+    // Some straps send ALARM_SET (56) ~15s after the SET write; the headless
+    // re-arm used to give up at 6s and save a latched alarm as unconfirmed.
+    bool? run(int latchAtSec) {
+      bool? out;
+      fakeAsync((fa) {
+        final start = fa.elapsed;
+        awaitAlarmLatch(() async =>
+                (fa.elapsed - start).inSeconds >= latchAtSec)
+            .then((v) => out = v);
+        fa.elapse(const Duration(seconds: 31));
+      });
+      return out;
+    }
+
+    test('a 56 arriving 15s after the write still confirms', () {
+      expect(run(15), isTrue);
+    });
+
+    test('no 56 within the 30s window stays unconfirmed', () {
+      expect(run(45), isFalse);
     });
   });
 }

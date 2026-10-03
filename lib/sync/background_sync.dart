@@ -76,6 +76,33 @@ Future<void> handleHeadlessAlarmEvent(int id) async {
   await prefs.setBool('alarm_epoch_confirmed', true);
 }
 
+/// Headless re-arm + latch wait. No live AppState here to catch a late
+/// ALARM_SET (event 56) the way the foreground grace timer does, so wait for
+/// it inline, the same grace window as AlarmConfirmation, before this
+/// headless connection closes. The window opens BEFORE the write: setAlarm
+/// can sit up to 5s on a reply the strap never echoes, and a 56 landing in
+/// that wait is still this arm's latch. Not confirmed within the window still
+/// persists the epoch (optimistic, matching the foreground write) but as
+/// unconfirmed, so the 7pm safety check (AppState._alarmArmedTonight) won't
+/// wrongly treat an un-latched headless arm as covering tonight. If the wake
+/// is cut short mid-wait nothing is persisted, so the next connect re-arms
+/// instead of deduping on a stale epoch.
+@visibleForTesting
+Future<void> headlessArmAndConfirm(Future<AlarmArmResult> Function() arm,
+    Future<bool> Function(int sinceMs) latchedSince) async {
+  final armedAtMs = DateTime.now().millisecondsSinceEpoch;
+  final result = await arm();
+  final prefs = await SharedPreferences.getInstance();
+  if (result.disabled) {
+    await prefs.remove('alarm_epoch');
+    await prefs.remove('alarm_epoch_confirmed');
+  } else if (result.epoch != null) {
+    final confirmed = await awaitAlarmLatch(() => latchedSince(armedAtMs));
+    await prefs.setInt('alarm_epoch', result.epoch!);
+    await prefs.setBool('alarm_epoch_confirmed', confirmed);
+  }
+}
+
 /// Load the local profile (no Provider in the headless isolate).
 Future<Profile> _loadProfile() async {
   try {
@@ -279,32 +306,14 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
             AlarmScheduleEntry.fromRow(r),
         ]);
         final prefs = await SharedPreferences.getInstance();
-        final result = await armNextScheduledOccurrence(
-          engine: engine,
-          schedule: schedule,
-          currentArmedEpoch: prefs.getInt('alarm_epoch'),
+        await headlessArmAndConfirm(
+          () => armNextScheduledOccurrence(
+            engine: engine,
+            schedule: schedule,
+            currentArmedEpoch: prefs.getInt('alarm_epoch'),
+          ),
+          LocalDb.alarmSetConfirmedSince,
         );
-        if (result.disabled) {
-          await prefs.remove('alarm_epoch');
-          await prefs.remove('alarm_epoch_confirmed');
-        } else if (result.epoch != null) {
-          final epoch = result.epoch!;
-          // No live AppState here to catch a late ALARM_SET (event 56) the way
-          // the foreground grace timer does, so wait for it inline — same
-          // grace window as AlarmConfirmation's default (6s) — before this
-          // headless connection closes. Not confirmed within that window still
-          // persists the epoch (optimistic, matching the foreground write) but
-          // as unconfirmed, so the 7pm safety check (AppState._alarmArmedTonight)
-          // won't wrongly treat an un-latched headless arm as covering tonight.
-          final armedAtMs = DateTime.now().millisecondsSinceEpoch;
-          var confirmed = false;
-          for (var i = 0; i < 6 && !confirmed; i++) {
-            await Future.delayed(const Duration(milliseconds: 1000));
-            confirmed = await LocalDb.alarmSetConfirmedSince(armedAtMs);
-          }
-          await prefs.setInt('alarm_epoch', epoch);
-          await prefs.setBool('alarm_epoch_confirmed', confirmed);
-        }
       } catch (e) {
         debugPrint('[bgsync] alarm re-arm skipped: $e');
       }

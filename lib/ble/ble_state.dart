@@ -1326,8 +1326,11 @@ class AlarmConfirmation {
   static const int kEvtDisabled = 59;
   static const int kEvtHapticsFired = 60;
 
+  // Some straps send event 56 tens of seconds after the SET write, so a short
+  // window flags alarms that did latch. A late 56 still confirms either way.
+  static const int kDefaultGraceMs = 30000;
   final int graceMs;
-  AlarmConfirmation({this.graceMs = 6000});
+  AlarmConfirmation({this.graceMs = kDefaultGraceMs});
 
   int? targetEpoch; // the scheduled wake time (unix sec), or null when off
   bool confirmed = false; // strap emitted ALARM_SET (56)
