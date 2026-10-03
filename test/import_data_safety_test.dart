@@ -122,6 +122,10 @@ void main() {
       // No raw for this date, so nothing could ever re-derive it — finalizing
       // is correct here.
       expect(((await _row(otherDay))!['finalized'] as num).toInt(), 1);
+      // …but the lock is the importer's, not the derive gate's: band rows for
+      // that date arriving later (import, THEN pair) must still derive.
+      expect(await LocalDb.finalizedDayIds(kAlgoVersion),
+          isNot(contains(otherDay)));
     });
 
     test('does not finalize a day that still has raw to re-derive from',

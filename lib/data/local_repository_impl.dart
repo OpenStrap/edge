@@ -285,7 +285,6 @@ class LocalRepositoryImpl extends LocalRepository {
     }
     final todayDay = todayFresh?['today_day']?.toString() ?? _todayLocalLabel();
     final todayBundle = await _bundle(todayDay);
-    final overnightBundle = await _latestBundle();
     final overnightState =
         todayFresh?['overnight_state']?.toString() ?? 'missing';
     final activityState =
@@ -293,7 +292,16 @@ class LocalRepositoryImpl extends LocalRepository {
     final showingPriorOvernight =
         todayFresh?['showing_prior_overnight'] == true;
     final showOvernight = overnightState == 'ready' || showingPriorOvernight;
-    final sleepBundle = showOvernight ? overnightBundle : null;
+    // Read the night freshness names (`overnight_day`, today when `ready`),
+    // including a settled no-sleep night. _latestBundle skips no-sleep days
+    // for the newest day WITH sleep, so it served an older night's numbers
+    // under this night's label.
+    final overnightDay = todayFresh?['overnight_day']?.toString();
+    final sleepBundle = !showOvernight
+        ? null
+        : overnightState == 'ready'
+        ? todayBundle
+        : (overnightDay == null ? null : await _bundle(overnightDay));
     final activityBundle = activityState == 'ready' ? todayBundle : null;
     final wakeFeatures = activityState == 'ready'
         ? null

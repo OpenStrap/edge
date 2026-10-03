@@ -59,6 +59,21 @@ void main() {
       expect(folded.length, days.length);
     });
 
+    test('a night still in progress at the data edge does not fold', () {
+      final dayEnd = DateTime(2026, 7, 31).millisecondsSinceEpoch ~/ 1000 - 1;
+      // 00:15 on the day: an hour of a night that is still going.
+      expect(
+          SleepProfilePolicy.nightOver(
+              dataEdgeSec: dayEnd - 86400 + 900, dayEndSec: dayEnd),
+          isFalse);
+      expect(SleepProfilePolicy.nightOver(dataEdgeSec: null, dayEndSec: dayEnd),
+          isFalse);
+      expect(
+          SleepProfilePolicy.nightOver(
+              dataEdgeSec: dayEnd + 60, dayEndSec: dayEnd),
+          isTrue);
+    });
+
     test('an override night never folds — the window is asserted, not measured',
         () {
       expect(

@@ -5,7 +5,7 @@
 // (`baselines` key `sleep_user_profile`) into tonight's per-night-local
 // baselines, bounded by `SleepUserProfile.personalWeight` (0 → 0.5 as nights
 // accumulate). The profile is produced by EWMA-folding one observation per
-// finalized night.
+// night, once the data has run past that day ([nightOver]).
 //
 // Two defects made that layer harmful in the field, and this policy exists to
 // prevent both:
@@ -88,6 +88,13 @@ class SleepProfilePolicy {
     required bool hasOverride,
   }) =>
       !hasOverride && !alreadyFolded.contains(dayId);
+
+  /// Whether the data has run past the day's window ([dayEndSec], the last
+  /// second of the day), so its night is over and complete. Before that a
+  /// pass stages the night only up to the data edge, and folding that
+  /// fragment would use up the day's one fold.
+  static bool nightOver({required int? dataEdgeSec, required int dayEndSec}) =>
+      dataEdgeSec != null && dataEdgeSec > dayEndSec;
 
   /// Whether a profile with [nights] folded nights may influence staging.
   static bool shouldBlend(int? nights) =>

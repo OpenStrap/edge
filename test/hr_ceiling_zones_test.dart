@@ -27,6 +27,7 @@ import 'package:openstrap_edge/ui2/activity/catalogue.dart'
     show kZonesWhy, zonesWhy;
 import 'package:openstrap_edge/compute/manual_session.dart';
 import 'package:openstrap_edge/compute/onehz_pipeline.dart';
+import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
@@ -211,6 +212,16 @@ void main() {
           }),
           [100, 120, 140, 160, 180],
         );
+      });
+
+      test('survives the Profile round trip the day derive goes through', () {
+        // The engine hands the pipeline `Profile.fromMap(user).toMap()`, so a
+        // key Profile drops never reaches the day's zone set.
+        final m = Profile.fromMap({
+          'age': 30,
+          'hr_zone_bounds': [100, 120, 140, 160, 180],
+        }).toMap();
+        expect(manualZoneBoundsFromProfile(m), [100, 120, 140, 160, 180]);
       });
 
       test('null profile, missing key, or wrong length ⇒ null', () {

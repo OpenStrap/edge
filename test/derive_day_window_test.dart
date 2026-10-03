@@ -334,4 +334,24 @@ void main() {
       expect(await LocalDb.metricValueOn(ctlLabel, 'active_min'), isNotNull);
     });
   });
+
+  // An import day's substrate exists only in the importer's buffer, which is
+  // evicted right after the call, so a day skipped as busy is lost for good.
+  test('an import day waits out a running derive instead of being skipped',
+      () async {
+    final engine = DerivationEngine();
+    final aStart = DateTime(2026, 4, 20).millisecondsSinceEpoch ~/ 1000;
+    final bStart = DateTime(2026, 4, 21).millisecondsSinceEpoch ~/ 1000;
+    final a = engine.deriveImportedDays(
+      _synthDay(aStart + 9 * 3600, 2 * 3600),
+      const Profile(),
+      {'2026-04-20'},
+    );
+    final b = engine.deriveImportedDays(
+      _synthDay(bStart + 9 * 3600, 2 * 3600),
+      const Profile(),
+      {'2026-04-21'},
+    );
+    expect(await Future.wait([a, b]), [1, 1]);
+  });
 }

@@ -352,6 +352,40 @@ void main() {
       });
     });
 
+    test('the report counts this task, not the whole connection', () {
+      fakeAsync((async) {
+        final d = drain();
+        RawRecord raw(int counter) => RawRecord(
+              counter: counter,
+              packetType: 0x2f,
+              hex: '2f18${counter.toRadixString(16).padLeft(8, '0')}',
+              capturedAt: 1786000000000 + counter,
+              recTs: 1786000000 + counter,
+            );
+        SyncReport? first;
+        d.awaitComplete(isLinkUp: () => true).then((r) => first = r);
+        d.onHistoricalRecord(raw(1), null, 24);
+        d.onHistoricalRecord(raw(2), null, 24);
+        d.noteBatchAcked();
+        // Auto-continue claims the next task before the waiter's tick.
+        d.onComplete();
+        d.startFreshTask();
+        async.elapse(const Duration(seconds: 2));
+        expect((first?.records, first?.batches), (2, 1));
+
+        // The next pull on the same link gets nothing.
+        SyncReport? next;
+        d.awaitComplete(isLinkUp: () => true).then((r) => next = r);
+        async.elapse(const Duration(seconds: 3));
+        d.onTaskTerminal();
+        async.elapse(const Duration(seconds: 2));
+        expect(next?.complete, isFalse);
+        expect((next?.records, next?.batches), (0, 0),
+            reason: 'connection totals made a dead pull look like progress');
+        expect((d.records, d.batches), (2, 1));
+      });
+    });
+
     test(
         'a superseded waiter performs NO commit — the replacement\'s buffered '
         'rows are persisted only by its own token commit', () {

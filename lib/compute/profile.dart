@@ -8,12 +8,17 @@
 // (never a fabricated default). The engine therefore passes nullable getters and
 // only computes profile-gated metrics when the input is present.
 
+import 'hr_max.dart' show manualZoneBoundsFromProfile;
+
 class Profile {
   final int? ageYears;
   final double? weightKg;
   final double? heightCm;
   final String? sex; // 'm' | 'f' (lowercase; matches the AppState profile map)
   final int? restingHrManual; // optional user-supplied RHR
+  // The zones screen's manual edges. Carried so the day derive (which only
+  // sees [toMap]) bands on the same set the zones screen shows.
+  final List<int>? hrZoneBounds;
 
   const Profile({
     this.ageYears,
@@ -21,6 +26,7 @@ class Profile {
     this.heightCm,
     this.sex,
     this.restingHrManual,
+    this.hrZoneBounds,
   });
 
   static Profile fromMap(Map<String, dynamic>? m) {
@@ -31,6 +37,7 @@ class Profile {
       heightCm: (m['height_cm'] as num?)?.toDouble(),
       sex: (m['sex'] as String?)?.toLowerCase(),
       restingHrManual: (m['resting_hr'] as num?)?.round(),
+      hrZoneBounds: manualZoneBoundsFromProfile(m),
     );
   }
 
@@ -40,6 +47,7 @@ class Profile {
         if (heightCm != null) 'height_cm': heightCm,
         if (sex != null) 'sex': sex,
         if (restingHrManual != null) 'resting_hr': restingHrManual,
+        if (hrZoneBounds != null) 'hr_zone_bounds': hrZoneBounds,
       };
 
   // NO `hrMaxTanaka` HERE. It was `208 − 0.7·age` inlined on the profile, which
