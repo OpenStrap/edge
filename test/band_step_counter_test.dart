@@ -34,6 +34,64 @@ Substrate _sub(List<int> counters, {int startTs = 1_700_000_000, int step = 1}) 
 }
 
 void main() {
+  group('hardwareStepSpansFromCounter', () {
+    test('no counter -> null, same as the total', () {
+      expect(hardwareStepSpansFromCounter(_sub([-1, -1]), cumulativeCounterModulus: 65536), isNull);
+    });
+
+    test('one span per clock hour, summing to the total, reset dropped', () {
+      // 10-minute records from an hour boundary. The delta closing at +3600 is
+      // the second hour's; the jump to 39998 and the reset to 0 are dropped.
+      // A whole LOCAL hour (spans bucket by local hour), whatever the host zone.
+      final t0 = 1_699_999_200 -
+          DateTime.fromMillisecondsSinceEpoch(1_699_999_200 * 1000).minute * 60;
+      final s = _sub([0, 10, 20, 20, 30, 40, 50, 39998, 40000, 0, 7],
+          startTs: t0, step: 600);
+      final spans = hardwareStepSpansFromCounter(s, cumulativeCounterModulus: 65536)!;
+      // The delta read across the hour line is its own span.
+      expect([for (final x in spans) (x.startTs, x.endTs, x.steps)], [
+        (t0, t0 + 3000, 40),
+        (t0 + 3000, t0 + 3600, 10),
+        (t0 + 4200, t0 + 6000, 9),
+      ]);
+      expect(spans.fold<int>(0, (a, x) => a + x.steps),
+          hardwareStepsFromCounter(s, cumulativeCounterModulus: 65536));
+    });
+  });
+
+  group('hardwareStepSpansFromCounter across a hole', () {
+    test('a delta read across a hole does not absorb the next hour', () {
+      // Last record before the hole at 08:10 (1000), records resume 09:40
+      // (1100), then a 2000-step walk at 1 Hz to 09:59:59. Merged into one
+      // [08:10, 09:59] span the chart would put ~960 walk steps in the 8
+      // o'clock bar, where at most the 100 across the hole could have happened.
+      final t810 = DateTime(2026, 6, 15, 8, 10).millisecondsSinceEpoch ~/ 1000;
+      final t940 = DateTime(2026, 6, 15, 9, 40).millisecondsSinceEpoch ~/ 1000;
+      const n = 1200;
+      final ts = [t810, for (var i = 0; i < n; i++) t940 + i];
+      final counters = [1000, for (var i = 0; i < n; i++) 1100 + i * 2000 ~/ (n - 1)];
+      final s = Substrate(
+        tsSec: ts,
+        hr: List<int>.filled(n + 1, 60),
+        rrTsMs: const [],
+        rrMs: const [],
+        ax: List<double>.filled(n + 1, 0),
+        ay: List<double>.filled(n + 1, 0),
+        az: List<double>.filled(n + 1, 1),
+        spo2Red: List<int>.filled(n + 1, 0),
+        spo2Ir: List<int>.filled(n + 1, 0),
+        skinTemp: List<int>.filled(n + 1, 0),
+        skinContact: List<int>.filled(n + 1, 0),
+        stepCount: counters,
+      );
+      final spans = hardwareStepSpansFromCounter(s, cumulativeCounterModulus: 65536)!;
+      expect([for (final x in spans) (x.startTs, x.endTs, x.steps)], [
+        (t810, t940, 100),
+        (t940, t940 + n - 1, 2000),
+      ]);
+    });
+  });
+
   group('hardwareStepsFromCounter', () {
     test('gen4 (no counter on any record) returns NULL, not zero', () {
       // The distinction the whole feature rests on: "this hardware cannot count

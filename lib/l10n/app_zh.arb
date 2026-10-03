@@ -425,7 +425,7 @@
   "dayStepsOnDay": "{day}",
   "dayStepsNoTimesTitle": "{when}的步数没有对应的时间记录",
   "dayStepsNoStepsTitle": "{when}没有记录到步数",
-  "dayStepsStrapCounterBody": "{when}记录的 {count} 步来自设备自带的计步器，它只报告全天累计总数，没有具体时间。这里没有可以标注在时钟上的内容。",
+  "dayStepsStrapCounterBody": "{when}记录的 {count} 步来自设备自带的计步器，这一天没有保留对应的时间。这里没有可以标注在时钟上的内容。",
   "dayStepsNothingCounted": "{when}没有任何设备记录到步数。",
   "dayStepsChartTitle": "计步时间分布",
   "dayStepsUnit": "步",

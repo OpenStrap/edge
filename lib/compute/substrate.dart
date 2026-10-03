@@ -887,13 +887,69 @@ int? hardwareStepsFromCounter(
   required int? cumulativeCounterModulus,
   int maxStepsPerSecond = 5,
 }) {
-  final wrap = cumulativeCounterModulus;
-  if (wrap == null || wrap <= 0) return null;
+  var total = 0;
+  final seen = _walkCounterDeltas(sub, cumulativeCounterModulus,
+      maxStepsPerSecond, (_, _, delta) => total += delta);
+  return seen ? total : null;
+}
+
+/// The same credited deltas as [hardwareStepsFromCounter], placed on the
+/// clock: every delta happened between the two records it was read across, so
+/// the counter DOES carry times — one per record. Grouped into one span per
+/// LOCAL clock hour (by the delta's closing record), each span running from the
+/// first credited delta's opening record to the last one's closing record.
+/// A delta read across an hour line (its opening record in an earlier local
+/// hour, e.g. the one record pair either side of an off-wrist hole) is a span
+/// of its own that nothing merges into: when in that stretch its steps fell is
+/// unknown, and merging the next hour's deltas into it would stretch that whole
+/// hour's steps back across the hole.
+/// Local, not `ts ~/ 3600`: in a half-hour-offset zone a UTC hour crosses a
+/// local hour line, and the day chart spreads a span evenly over its extent,
+/// so a UTC-hour span would push steps into the wrong local hour.
+/// The spans sum to exactly [hardwareStepsFromCounter]'s total. Null whenever
+/// that is null.
+List<({int startTs, int endTs, int steps})>? hardwareStepSpansFromCounter(
+  Substrate sub, {
+  required int? cumulativeCounterModulus,
+  int maxStepsPerSecond = 5,
+}) {
+  final out = <({int startTs, int endTs, int steps})>[];
+  final seen = _walkCounterDeltas(sub, cumulativeCounterModulus,
+      maxStepsPerSecond, (fromTs, ts, delta) {
+    final last = out.isEmpty ? null : out.last;
+    final hour = _localHourStart(ts);
+    if (last != null &&
+        _localHourStart(last.endTs) == hour &&
+        _localHourStart(last.startTs) == hour) {
+      out[out.length - 1] =
+          (startTs: last.startTs, endTs: ts, steps: last.steps + delta);
+    } else {
+      out.add((startTs: fromTs, endTs: ts, steps: delta));
+    }
+  });
+  return seen ? out : null;
+}
+
+/// Epoch second of the start of the local clock hour containing [ts].
+int _localHourStart(int ts) {
+  final d = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+  return ts - d.minute * 60 - d.second;
+}
+
+/// Walks [sub]'s counter and calls [credit] once per delta that passes the
+/// wrap/reset/budget rules documented on [hardwareStepsFromCounter]. Returns
+/// whether any record carried a counter at all.
+bool _walkCounterDeltas(
+  Substrate sub,
+  int? wrap,
+  int maxStepsPerSecond,
+  void Function(int fromTs, int ts, int delta) credit,
+) {
+  if (wrap == null || wrap <= 0) return false;
   const minGapSecForBudget = 60;
   const maxGapSecForBudget = 3600;
   int? prev;
   int? prevTs;
-  var total = 0;
   var seen = false;
   for (var i = 0; i < sub.length; i++) {
     final c = sub.stepCounterAt(i);
@@ -906,12 +962,12 @@ int? hardwareStepsFromCounter(
           gap.clamp(minGapSecForBudget, maxGapSecForBudget) * maxStepsPerSecond;
       var delta = c - prev;
       if (delta < 0) delta += wrap; // wrap candidate; a reset overshoots below
-      if (delta > 0 && delta <= budget) total += delta;
+      if (delta > 0 && delta <= budget) credit(prevTs, ts, delta);
     }
     prev = c;
     prevTs = ts;
   }
-  return seen ? total : null;
+  return seen;
 }
 
 class _Rec {

@@ -425,7 +425,7 @@
   "dayStepsOnDay": "{day} को",
   "dayStepsNoTimesTitle": "{when} की गिनती के पीछे कोई समय दर्ज नहीं",
   "dayStepsNoStepsTitle": "{when} कोई कदम नहीं गिने गए",
-  "dayStepsStrapCounterBody": "{when} गिने गए {count} कदम बैंड के अपने स्टेप काउंटर से आए हैं, जो पूरे दिन का कुल तो बताता है पर कोई समय नहीं। यहाँ घड़ी पर दिखाने लायक कुछ नहीं है।",
+  "dayStepsStrapCounterBody": "{when} गिने गए {count} कदम बैंड के अपने स्टेप काउंटर से आए हैं, पर इस दिन के उनके समय सहेजे नहीं गए। यहाँ घड़ी पर दिखाने लायक कुछ नहीं है।",
   "dayStepsNothingCounted": "{when} कदम गिनने वाला कोई भी उपकरण सक्रिय नहीं था।",
   "dayStepsChartTitle": "कब गिने गए",
   "dayStepsUnit": "कदम",

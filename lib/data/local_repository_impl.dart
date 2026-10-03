@@ -1311,23 +1311,54 @@ class LocalRepositoryImpl extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getDaySteps(String date) async {
     final r = await LocalDb.resolvedStepsForDay(date);
+    // THE EXACT DAY, never `_bundleForDate`'s latest-complete fallback: the
+    // spans come from this date's coverage rows, and pairing them with another
+    // day's published total is the one mismatch this screen must not show.
+    final st = _sub(await _bundle(date), 'steps');
+    final dayTotal = (st?['value'] as num?)?.toInt();
+    // A day answered by the strap's on-chip counter has no coverage spans;
+    // its own hourly spans (stamped by the derive) stand in for them.
+    final counter = r.spans.isEmpty &&
+            st?['source'] == 'strap_counter' &&
+            st?['spans'] is List
+        ? st!['spans'] as List
+        : null;
     // Only for naming: a span that sits inside a session gets that session's
     // name. Cheap — one indexed read over one day.
-    final sessions = r.spans.isEmpty
+    final sessions = r.spans.isEmpty && counter == null
         ? const <Map<String, dynamic>>[]
         : await LocalDb.sessionsInRange(
             _localMidnightSec(date),
             _localDayEndSec(date),
           );
-    // THE EXACT DAY, never `_bundleForDate`'s latest-complete fallback: the
-    // spans come from this date's coverage rows, and pairing them with another
-    // day's published total is the one mismatch this screen must not show.
-    final st = _sub(await _bundle(date), 'steps');
+    if (counter != null) {
+      return {
+        'total': dayTotal ?? 0,
+        'strap': dayTotal ?? 0,
+        'phone': 0,
+        'day_total': dayTotal,
+        'day_source': 'strap_counter',
+        'note': st?['note'] as String?,
+        'spans': [
+          for (final s in counter)
+            if (s is Map && s['start_ts'] is num && s['end_ts'] is num)
+              {
+                ...s,
+                'source': LocalDb.kStepSourceBand,
+                'activity': _sessionOver(
+                  sessions,
+                  (s['start_ts'] as num).toInt(),
+                  (s['end_ts'] as num).toInt(),
+                ),
+              },
+        ],
+      };
+    }
     return {
       'total': r.total,
       'strap': r.strap,
       'phone': r.phone,
-      'day_total': (st?['value'] as num?)?.toInt(),
+      'day_total': dayTotal,
       'day_source': st?['source'] as String?,
       'note': st?['note'] as String?,
       'spans': [

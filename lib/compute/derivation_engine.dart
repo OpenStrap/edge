@@ -1719,7 +1719,12 @@ import 'substrate.dart';
 // withheld — a fabricated-metric bug on `circadian_lifestyle`'s stored
 // output. kAnalyticsPin repinned to analytics main's tip (one commit past
 // PR #75's merge SHA).
-const int kAlgoVersion = 97;
+// 97 → 98 (gen5 on-chip step counter spans, issue #475): a day whose steps
+// came off the strap's counter now also stores hourly `steps.spans` built
+// from the counter's per-record times, so the day steps screen can place
+// them on a clock instead of saying the strap gave no times.
+// kAnalyticsPin/kProtocolPin UNCHANGED: edge-only change.
+const int kAlgoVersion = 98;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -6280,6 +6285,7 @@ class DerivationEngine {
     int liveStepsReal, {
     int liveStepsFromStrap = 0,
     int? bandSteps,
+    List<({int startTs, int endTs, int steps})>? bandSpans,
   }) {
     // THE SOURCE LADDER, and where each rung is actually decided.
     //
@@ -6290,11 +6296,11 @@ class DerivationEngine {
     // share of it. Nothing here re-decides that.
     //
     // Rung 2, the gen5 ON-CHIP COUNTER, cannot join that sum honestly. It is a
-    // cumulative u16 with no midnight reset and no timestamps of its own
-    // (`hardwareStepsFromCounter` differences it across the day's records): a
-    // whole-day total with no window behind it. Slicing it into spans would
-    // mean inventing an extent for it, and adding it to windowed spans would
-    // double-count every walk the other two already counted. So it stays a
+    // cumulative u16 with no midnight reset (`hardwareStepsFromCounter`
+    // differences it across the day's records). Its deltas do carry times, one
+    // per record, so the day screen gets hourly `spans` off them; but adding
+    // it to the windowed spans would double-count every walk the other two
+    // already counted. So it stays a
     // WHOLE-DAY FALLBACK — used only when no span source covered the day at
     // all. That inversion is deliberate: whole-day precedence for this counter
     // is exactly the bug being fixed (622 steps published over the phone's
@@ -6315,6 +6321,13 @@ class DerivationEngine {
       // What the strap's own pedometer counted, independent of which source
       // won. Null (never 0) when this generation has no counter at all.
       'band_measured': bandSteps,
+      // When the on-chip counter is the day's answer, WHEN it counted: hourly
+      // spans off the counter's own per-record times, summing to `value`.
+      if (useBand && bandSpans != null)
+        'spans': [
+          for (final s in bandSpans)
+            {'start_ts': s.startTs, 'end_ts': s.endTs, 'steps': s.steps},
+        ],
       // WHICH SENSOR COUNTED WHAT, so a screen can say so instead of implying
       // the phone's count came off the wrist or the other way round. Only the
       // keys that contributed are present — a zero here would read as "that
@@ -6421,6 +6434,11 @@ class DerivationEngine {
         liveStepsReal,
         liveStepsFromStrap: liveStepsFromStrap,
         bandSteps: hardwareStepsFromCounter(
+          daySub,
+          cumulativeCounterModulus:
+              ana.calibrationFor(_stepCounterModulus, daySub.deviceFamily),
+        ),
+        bandSpans: hardwareStepSpansFromCounter(
           daySub,
           cumulativeCounterModulus:
               ana.calibrationFor(_stepCounterModulus, daySub.deviceFamily),

@@ -150,8 +150,9 @@ abstract class LocalRepository {
   /// The spans are post-ladder (see `resolveDaySteps`), so they sum to `total`
   /// and never show the same walk twice. `day_total`/`day_source` are the
   /// number the day actually published, which is NOT always this sum: with no
-  /// span source at all a gen5 day falls back to the strap's on-chip counter,
-  /// a whole-day figure with no times behind it and therefore no spans.
+  /// span source at all a gen5 day falls back to the strap's on-chip counter.
+  /// That day's spans are the counter's own hourly ones from the derive, all
+  /// 'band'; only a bundle derived before those were stored has none.
   Future<Map<String, dynamic>> getDaySteps(String date) =>
       throw UnimplementedError('re-layer: getDaySteps');
 

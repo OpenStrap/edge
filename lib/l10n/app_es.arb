@@ -425,7 +425,7 @@
   "dayStepsOnDay": "el {day}",
   "dayStepsNoTimesTitle": "Sin horarios detrás del total {when}",
   "dayStepsNoStepsTitle": "No se contaron pasos {when}",
-  "dayStepsStrapCounterBody": "Los {count} pasos contados {when} provienen del contador de pasos propio de la correa, que informa un total del día sin horarios. No hay nada que ubicar en un reloj.",
+  "dayStepsStrapCounterBody": "Los {count} pasos contados {when} provienen del contador de pasos propio de la correa, y sus horarios no se guardaron para este día. No hay nada que ubicar en un reloj.",
   "dayStepsNothingCounted": "Nada capaz de contar pasos registró datos {when}.",
   "dayStepsChartTitle": "CUÁNDO SE CONTARON",
   "dayStepsUnit": "pasos",

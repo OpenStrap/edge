@@ -2252,7 +2252,7 @@
       }
     }
   },
-  "dayStepsStrapCounterBody": "The {count} steps counted {when} came from the strap's own step counter, which reports a running day total and no times. There is nothing to place on a clock.",
+  "dayStepsStrapCounterBody": "The {count} steps counted {when} came from the strap's own step counter, and the times behind them weren't kept for this day. There is nothing to place on a clock.",
   "@dayStepsStrapCounterBody": {
     "description": "Empty-state body explaining the strap's own running counter has no times.",
     "placeholders": {
