@@ -13,6 +13,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../l10n/app_localizations.dart';
 import 'grammar.dart';
 import 'theme.dart';
 
@@ -28,6 +29,20 @@ enum ShellDomain {
 
   final String label;
   final IconData icon;
+
+  /// [label] in the user's language. Own keys rather than the screen titles:
+  /// zh has Health and Wellness both as 健康, two identical tabs.
+  String title(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    return switch (this) {
+          ShellDomain.home => l?.tabHome,
+          ShellDomain.health => l?.tabHealth,
+          ShellDomain.nutrition => l?.tabNutrition,
+          ShellDomain.workout => l?.tabWorkout,
+          ShellDomain.wellness => l?.tabWellness,
+        } ??
+        label;
+  }
 
   /// The domain's pigment. Use `P.of(context).on(accent)` for text and
   /// `.fill(accent)` for a filled surface — the raw value is not AA-safe.
@@ -158,11 +173,12 @@ class _Tab extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final ink = on ? p.on(domain.accent) : p.ink3;
+    final label = domain.title(c);
     return Semantics(
       selected: on,
       child: Pressable(
         onTap: onTap,
-        semanticLabel: domain.label,
+        semanticLabel: label,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -178,7 +194,7 @@ class _Tab extends StatelessWidget {
             ),
             const SizedBox(height: 3),
             Text(
-              domain.label,
+              label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: F.over.copyWith(

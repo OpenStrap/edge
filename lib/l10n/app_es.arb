@@ -2410,5 +2410,10 @@
   "ecgProgress": "{pct}% completado",
   "ecgWaveformEmpty": "No se guardó ninguna onda con esta lectura.",
   "ecgWaveformLabel": "Onda aceptada en microvoltios tal como la envió la banda. Los huecos son segundos faltantes.",
-  "ecgSampleNote": "{count} muestras a {rate} Hz, filtradas, µV referidos a la entrada. No se afirma derivación ni polaridad."
+  "ecgSampleNote": "{count} muestras a {rate} Hz, filtradas, µV referidos a la entrada. No se afirma derivación ni polaridad.",
+  "tabHome": "Inicio",
+  "tabHealth": "Salud",
+  "tabNutrition": "Nutrición",
+  "tabWorkout": "Entrenamiento",
+  "tabWellness": "Bienestar"
 }

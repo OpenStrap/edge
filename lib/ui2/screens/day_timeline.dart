@@ -281,13 +281,18 @@ List<Moment> dayMoments({
     final n = v.value == v.value.roundToDouble()
         ? v.value.round().toString()
         : v.value.toStringAsFixed(1);
+    // A wall-clock minute, so built on the calendar, not added as elapsed
+    // seconds: on a 23- or 25-hour day that lands an hour off.
+    final d = DateTime.fromMillisecondsSinceEpoch(dayStart * 1000);
+    final at =
+        DateTime(d.year, d.month, d.day, 0, min).millisecondsSinceEpoch ~/ 1000;
     out.add(Moment(
-      at: dayStart + min * 60,
+      at: at,
       title: spec?.label ?? key.replaceAll('_', ' '),
       // "last one at" is the stored meaning, and saying just "at" would turn a
       // total plus one timestamp into a single event that never happened.
       detail: '$n${spec == null || spec.unit.isEmpty ? '' : ' ${spec.unit}'} · '
-          '${l?.dayTimelineLastAt(clockOfTs(dayStart + min * 60)) ?? 'last at ${clockOfTs(dayStart + min * 60)}'}',
+          '${l?.dayTimelineLastAt(clockOfTs(at)) ?? 'last at ${clockOfTs(at)}'}',
       icon: LucideIcons.notebookPen,
       color: C.domMind,
     ));

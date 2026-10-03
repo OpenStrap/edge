@@ -2381,5 +2381,10 @@
   "ecgProgress": "{pct} % terminé",
   "ecgWaveformEmpty": "Aucun tracé n’a été enregistré avec cette lecture.",
   "ecgWaveformLabel": "Tracé accepté en microvolts tel qu’envoyé par le bracelet. Les trous sont des secondes manquantes.",
-  "ecgSampleNote": "{count} échantillons à {rate} Hz, filtrés, µV rapportés à l’entrée. Aucune dérivation ni polarité n’est revendiquée."
+  "ecgSampleNote": "{count} échantillons à {rate} Hz, filtrés, µV rapportés à l’entrée. Aucune dérivation ni polarité n’est revendiquée.",
+  "tabHome": "Accueil",
+  "tabHealth": "Santé",
+  "tabNutrition": "Nutrition",
+  "tabWorkout": "Entraînement",
+  "tabWellness": "Bien-être"
 }

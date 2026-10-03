@@ -2381,5 +2381,10 @@
   "ecgProgress": "已完成 {pct}%",
   "ecgWaveformEmpty": "此读数未保存波形。",
   "ecgWaveformLabel": "接受的波形，单位为手环发送的微伏。空隙为缺失的秒。",
-  "ecgSampleNote": "{rate} Hz 下 {count} 个样本，已滤波，输入参考 µV。不声明导联或极性。"
+  "ecgSampleNote": "{rate} Hz 下 {count} 个样本，已滤波，输入参考 µV。不声明导联或极性。",
+  "tabHome": "首页",
+  "tabHealth": "健康",
+  "tabNutrition": "营养",
+  "tabWorkout": "锻炼",
+  "tabWellness": "身心"
 }

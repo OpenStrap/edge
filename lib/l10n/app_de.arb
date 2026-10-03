@@ -2381,5 +2381,10 @@
   "ecgProgress": "{pct} % abgeschlossen",
   "ecgWaveformEmpty": "Zu dieser Aufzeichnung wurde keine Kurve gespeichert.",
   "ecgWaveformLabel": "Akzeptierte Kurve in Mikrovolt, wie vom Band gesendet. Lücken sind fehlende Sekunden.",
-  "ecgSampleNote": "{count} Messwerte bei {rate} Hz, gefiltert, eingangsbezogene µV. Keine Ableitung oder Polarität wird behauptet."
+  "ecgSampleNote": "{count} Messwerte bei {rate} Hz, gefiltert, eingangsbezogene µV. Keine Ableitung oder Polarität wird behauptet.",
+  "tabHome": "Start",
+  "tabHealth": "Gesundheit",
+  "tabNutrition": "Ernährung",
+  "tabWorkout": "Training",
+  "tabWellness": "Wohlbefinden"
 }

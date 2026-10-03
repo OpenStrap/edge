@@ -12441,5 +12441,13 @@
         "type": "int"
       }
     }
+  },
+  "tabHome": "Home",
+  "tabHealth": "Health",
+  "tabNutrition": "Nutrition",
+  "tabWorkout": "Workout",
+  "tabWellness": "Wellness",
+  "@tabHome": {
+    "description": "Bottom tab bar labels (tabHome..tabWellness). Keep short; the five must read as different words."
   }
 }

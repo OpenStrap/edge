@@ -1466,14 +1466,31 @@ Future<void> showReasonSheet(BuildContext c, String reason) async {
 /// band answered. A pushed copy has no gate under it, so it closes itself —
 /// otherwise it sits there on "Paired · Continue", whose button re-runs the
 /// scan.
-class RePair extends StatelessWidget {
+///
+/// Once, and only down to itself. `isPaired` stays true through every notify
+/// the connect and handshake fire after it, and this route keeps building
+/// through its own exit transition — a pop per rebuild walks on down into
+/// Devices and Profile.
+class RePair extends StatefulWidget {
   const RePair({super.key});
 
   @override
+  State<RePair> createState() => _RePairState();
+}
+
+class _RePairState extends State<RePair> {
+  bool _closing = false;
+
+  @override
   Widget build(BuildContext c) {
-    if (c.watch<AppState>().isPaired) {
+    if (c.watch<AppState>().isPaired && !_closing) {
+      _closing = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (c.mounted) Navigator.of(c).maybePop();
+        final route = mounted ? ModalRoute.of(context) : null;
+        if (route == null || !route.isActive) return;
+        Navigator.of(context)
+          ..popUntil((r) => r == route)
+          ..pop();
       });
     }
     // NO `onSkip`. That argument is first-run onboarding's "Skip for now",

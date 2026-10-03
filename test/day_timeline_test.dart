@@ -133,6 +133,32 @@ void main() {
       );
     });
 
+    test('a timed journal field keeps its wall-clock minute on a DST day', () {
+      // The first 23- or 25-hour day of the year in this zone, if it has one.
+      DateTime? dst;
+      for (var d = DateTime(2026, 1, 1); d.year == 2026;) {
+        final next = DateTime(d.year, d.month, d.day + 1);
+        if (next.difference(d) != const Duration(hours: 24)) {
+          dst = d;
+          break;
+        }
+        d = next;
+      }
+      if (dst == null) {
+        markTestSkipped('no DST in this time zone');
+        return;
+      }
+      final m = dayMoments(
+        timeline: {'day_start': dst.millisecondsSinceEpoch ~/ 1000},
+        journal: const {
+          'caffeine': JournalMetricValue(3, atMinuteOfDay: 15 * 60),
+        },
+        fields: kJournalFields,
+      );
+      final at = DateTime.fromMillisecondsSinceEpoch(m.single.at * 1000);
+      expect((at.hour, at.minute), (15, 0));
+    });
+
     test('a journal row is read off tags_json, not tags', () {
       final n = dayNotes(journalRows: const [
         {'date': '2026-08-14', 'tags_json': '["travel","late meal"]', 'note': ''},
