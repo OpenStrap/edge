@@ -254,6 +254,126 @@ void main() {
     expect(await payload('2026-06-30'), '{"src":"foreign"}');
   });
 
+  test('import keeps a finalized day\'s series + baselines, merges step windows',
+      () async {
+    // 2026-07-01 is locally finalized (previous test); 2026-07-03 is not.
+    await LocalDb.putMetricSeriesValue('2026-07-01', 'readiness', 62);
+    await LocalDb.putMetricSeriesValue('2026-07-03', 'readiness', 40);
+    await LocalDb.putBaseline('movement_floor', '{"src":"local"}');
+    // A 3-night local profile vs a backup's 30: the accumulator with more
+    // folded nights survives, finalized history or not.
+    String profile(int n) => '{"folded_days":[${[
+          for (var i = 0; i < n; i++) '"2026-05-${'${i + 1}'.padLeft(2, '0')}"'
+        ].join(',')}]}';
+    await LocalDb.putBaseline('sleep_user_profile', profile(3));
+    await LocalDb.addLiveCoverage(1782900000, 1782900600, 500, '2026-07-01');
+
+    final dir = await databaseFactory.getDatabasesPath();
+    final srcPath = p.join(dir, 'foreign_export_series_test.db');
+    await databaseFactory.deleteDatabase(srcPath);
+    final src = await databaseFactory.openDatabase(srcPath);
+    await src.execute(
+      'CREATE TABLE metric_series (date TEXT, key TEXT, value REAL, '
+      'PRIMARY KEY (date, key))',
+    );
+    await src.execute(
+      'CREATE TABLE baselines (key TEXT PRIMARY KEY, payload_json TEXT, '
+      'updated_at INTEGER)',
+    );
+    await src.execute(
+      'CREATE TABLE live_coverage (id INTEGER PRIMARY KEY AUTOINCREMENT, '
+      'start_ts INTEGER, end_ts INTEGER, steps INTEGER, day TEXT, '
+      "source TEXT DEFAULT 'band', device_id TEXT DEFAULT '')",
+    );
+    for (final d in ['2026-07-01', '2026-07-03']) {
+      await src.insert('metric_series', {'date': d, 'key': 'readiness', 'value': 55});
+    }
+    await src.insert('baselines', {
+      'key': 'movement_floor',
+      'payload_json': '{"src":"foreign"}',
+      'updated_at': 1,
+    });
+    await src.insert('baselines', {
+      'key': 'sleep_user_profile',
+      'payload_json': profile(30),
+      'updated_at': 1,
+    });
+    // id 1 collides with the local row's id; the first window is a replay of
+    // the local one, the second is new.
+    for (final w in [(1782900000, 1782900600), (1782904000, 1782904600)]) {
+      await src.insert('live_coverage', {
+        'start_ts': w.$1,
+        'end_ts': w.$2,
+        'steps': 500,
+        'day': '2026-07-01',
+      });
+    }
+    await src.close();
+    await LocalDb.importFromDbFile(srcPath);
+    await databaseFactory.deleteDatabase(srcPath);
+
+    final db = await LocalDb.instance;
+    Future<Object?> readiness(String d) async => (await db.query(
+          'metric_series',
+          where: 'date = ? AND key = ?',
+          whereArgs: [d, 'readiness'],
+        ))
+            .single['value'];
+    expect(await readiness('2026-07-01'), 62); // finalized: ours
+    expect(await readiness('2026-07-03'), 55); // not finalized: import wins
+    expect((await LocalDb.baseline('movement_floor'))!['payload_json'],
+        '{"src":"local"}');
+    expect((await LocalDb.baseline('sleep_user_profile'))!['payload_json'],
+        profile(30));
+    final cov = await db.query('live_coverage',
+        where: 'day = ?', whereArgs: ['2026-07-01'], orderBy: 'start_ts');
+    expect([for (final r in cov) r['start_ts']], [1782900000, 1782904000]);
+  });
+
+  test('import keeps a day\'s local phone snapshot, no partial-hour stacking',
+      () async {
+    // Local already wrote the full 10:00 hour; the backup holds the partial
+    // hour it saw mid-sync. Same device, same rank: summing them double counts.
+    const h = 1783000800;
+    await LocalDb.replacePhoneCoverageForDay('2026-07-02', [
+      (startTs: h, endTs: h + 3600, steps: 900),
+    ]);
+
+    final dir = await databaseFactory.getDatabasesPath();
+    final srcPath = p.join(dir, 'foreign_export_phone_test.db');
+    await databaseFactory.deleteDatabase(srcPath);
+    final src = await databaseFactory.openDatabase(srcPath);
+    await src.execute(
+      'CREATE TABLE live_coverage (id INTEGER PRIMARY KEY AUTOINCREMENT, '
+      'start_ts INTEGER, end_ts INTEGER, steps INTEGER, day TEXT, '
+      "source TEXT DEFAULT 'band', device_id TEXT DEFAULT '')",
+    );
+    for (final r in [
+      (h, h + 2220, 400, '2026-07-02'),
+      (h + 86400, h + 86400 + 3600, 700, '2026-07-04'),
+    ]) {
+      await src.insert('live_coverage', {
+        'start_ts': r.$1,
+        'end_ts': r.$2,
+        'steps': r.$3,
+        'day': r.$4,
+        'source': 'phone',
+      });
+    }
+    await src.close();
+    await LocalDb.importFromDbFile(srcPath);
+    await databaseFactory.deleteDatabase(srcPath);
+
+    final db = await LocalDb.instance;
+    Future<List<Object?>> phone(String d) async => [
+          for (final r in await db.query('live_coverage',
+              where: 'day = ? AND source = ?', whereArgs: [d, 'phone']))
+            r['steps'],
+        ];
+    expect(await phone('2026-07-02'), [900]);
+    expect(await phone('2026-07-04'), [700]); // no local snapshot: backup's
+  });
+
   group('sync_ledger real per-chunk rows + sync_quarantine reader', () {
     test('distinct chunk_ids do not collide (the old "capture"-only bug)',
         () async {

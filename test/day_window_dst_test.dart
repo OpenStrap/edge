@@ -22,6 +22,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart'
     show lastSevenDays;
@@ -214,6 +215,22 @@ void main() {
           },
       ];
       expect(lastSevenDays(points, end), [3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+    },
+    skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
+  );
+
+  test(
+    'predicted next period counts calendar days across the fall-back',
+    () async {
+      await LocalDb.putCycleLog('2026-09-12', 'start');
+      await LocalDb.putCycleLog('2026-10-10', 'start'); // 28 days
+      final repo = LocalRepositoryImpl(
+        getProfileMap: () => {'track_cycle': true},
+      );
+      final cycle = await repo.getCycle();
+      // 2026-10-10 + 28 crosses $_fallBack (25 h); a Duration add lands at
+      // 23:00 on 2026-11-06.
+      expect(cycle['predicted_next'], '2026-11-07');
     },
     skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
   );

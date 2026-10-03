@@ -27,6 +27,7 @@ import '../compute/substrate.dart' show beatTimesMs;
 // `show` keeps the rest of the engine out of this namespace.
 import '../coach/coach_db.dart' show CoachDb;
 import '../compute/derivation_engine.dart' show kAlgoVersion;
+import '../compute/sleep_profile_policy.dart' show SleepProfilePolicy;
 import '../ble/adapters/adapter.dart' show NeutralSample;
 import '../ble/adapters/signals.dart' show InputSignal;
 import '../import/import_container.dart';
@@ -198,6 +199,9 @@ class LocalDb {
     'baselines',
     'raw_archive',
     'device_coverage',
+    // Step windows. Every day's steps are read from here, and the band's live
+    // pedometer windows exist nowhere else.
+    'live_coverage',
     'signal_priority',
     'sync_cursor',
     // The retention window. Big, and last for that reason.
@@ -8060,6 +8064,9 @@ class LocalDb {
         await _createPrimitiveArtifacts(db);
         await _createLiveCoverage(db);
       },
+      // Same additive repair the live DB runs on every open, so the export's
+      // tables carry every column the source rows do (sessions.avg_hr etc.).
+      onOpen: _repairOpenSchema,
     );
 
     // Every source read on the export path is PAGED on rowid. A day-ranged
@@ -8644,6 +8651,9 @@ class LocalDb {
       'metric_series',
       'metric_series_version',
       'sessions',
+      // Every day's step windows. Append-only with an AUTOINCREMENT id, so the
+      // merge drops the id and skips windows already here (see below).
+      'live_coverage',
       'notifications',
       'baselines',
       // The devices this phone knows about — so a SECONDARY device's identity
@@ -8700,6 +8710,20 @@ class LocalDb {
     // null when day_result could not be read at all, so the caller can tell
     // "nothing imported" from "we don't know".
     Set<String>? importedDays;
+    // Days this device already finalized itself, read BEFORE anything merges.
+    // The day_result guard below protects their bundle; their series scalars,
+    // version stamp and this device's baselines are the same day's history and
+    // get the same protection, or trends and the rolling baselines would be
+    // rebuilt from the other export's numbers while day detail serves ours.
+    final finalizedDays = {
+      for (final r in await db.query(
+        'day_result',
+        columns: ['day_id'],
+        where: 'finalized = 1',
+        distinct: true,
+      ))
+        '${r['day_id']}',
+    };
     try {
       for (final t in (only ?? tables)) {
         try {
@@ -8769,6 +8793,47 @@ class LocalDb {
               for (final r in fin) '${r['day_id']}|${r['algo_version']}',
             };
           }
+          // live_coverage is a SUM with no natural key, so a REPLACE on `id`
+          // would clobber or double-count local windows. Key on the window.
+          String coverageKey(Map<String, Object?> r) =>
+              '${r['start_ts']}|${r['end_ts']}|'
+              '${r['source'] ?? kStepSourceBand}|'
+              '${r['device_id'] ?? kPrimaryDeviceId}';
+          final haveCoverage = <String>{
+            if (t == 'live_coverage')
+              for (final r in await db.query(
+                'live_coverage',
+                columns: ['start_ts', 'end_ts', 'source', 'device_id'],
+              ))
+                coverageKey(r),
+          };
+          // Phone rows are a per-day SNAPSHOT (replacePhoneCoverageForDay), not
+          // windows: a backup taken mid-hour holds a partial current-hour row
+          // whose key differs from the full hour this device has since written,
+          // and same-device phone rows sum. So a day this device already has a
+          // phone snapshot for keeps it whole; the backup's only fills days
+          // with none.
+          final havePhoneDays = <String>{
+            if (t == 'live_coverage')
+              for (final r in await db.query(
+                'live_coverage',
+                columns: ['day'],
+                where: 'source = ?',
+                whereArgs: [kStepSourcePhone],
+                distinct: true,
+              ))
+                '${r['day']}',
+          };
+          // sleep_user_profile is an accumulator (one fold per finalized
+          // night), so the local-wins rule below would let a few local nights
+          // throw away a backup's months. The side that folded more nights
+          // keeps it; restored nights arrive finalized and never re-fold.
+          final localProfileNights = t == 'baselines'
+              ? SleepProfilePolicy.foldedDays(
+                  (await LocalDb.baseline('sleep_user_profile'))?['payload_json']
+                      as String?,
+                ).length
+              : 0;
           var copied = 0;
           var page = firstPage;
           // ONE TRANSACTION PER PAGE, not per table. The whole-table transaction
@@ -8832,6 +8897,18 @@ class LocalDb {
                     continue; // locally finalized — never overwritten by import
                   }
                   importedDays?.add('${row['day_id']}');
+                }
+                if ((t == 'metric_series' || t == 'metric_series_version') &&
+                    finalizedDays.contains('${row['date']}')) {
+                  continue;
+                }
+                if (t == 'live_coverage') {
+                  row.remove('id');
+                  if (row['source'] == kStepSourcePhone &&
+                      havePhoneDays.contains('${row['day']}')) {
+                    continue;
+                  }
+                  if (!haveCoverage.add(coverageKey(row))) continue;
                 }
                 // A LEGACY export's decoded_rr carries no rec_ts column; derive
                 // it from rr_ts_ms (= rec_ts*1000) so the NOT NULL PK column is
@@ -8903,7 +8980,17 @@ class LocalDb {
                 batch.insert(
                   t,
                   row,
-                  conflictAlgorithm: ConflictAlgorithm.replace,
+                  // A device with its own finalized history keeps its own
+                  // baselines (the frozen movement floor among them).
+                  conflictAlgorithm: t == 'baselines' &&
+                          (row['key'] == 'sleep_user_profile'
+                              ? SleepProfilePolicy.foldedDays(
+                                          row['payload_json'] as String?)
+                                      .length <=
+                                  localProfileNights
+                              : finalizedDays.isNotEmpty)
+                      ? ConflictAlgorithm.ignore
+                      : ConflictAlgorithm.replace,
                 );
                 copied++;
                 if (t == 'decoded_rr') {

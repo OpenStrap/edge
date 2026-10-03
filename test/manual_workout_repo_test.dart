@@ -248,6 +248,27 @@ void main() {
     },
   );
 
+  test('retiming keeps the private flag and the rpe rating', () async {
+    final start = sessionStart - 11 * 86400;
+    await LocalDb.putSession({
+      'id': 'w-retime-own',
+      'start_ts': start,
+      'end_ts': start + 600,
+      'type': 'run',
+      'status': 'done',
+      'source': 'manual',
+      'created_at': start * 1000,
+    });
+    await LocalDb.setSessionPrivate('w-retime-own', true);
+    await LocalDb.setSessionRpe('w-retime-own', 8);
+    await repo.setWorkoutWindow('w-retime-own',
+        startTs: start, endTs: start + 3600);
+
+    final row = await LocalDb.session('w-retime-own');
+    expect(row!['private'], 1);
+    expect(row['rpe'], 8);
+  });
+
   test(
     'logging a session retires the auto-detect suggestion it covers',
     () async {

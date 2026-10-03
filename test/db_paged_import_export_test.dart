@@ -278,6 +278,30 @@ void main() {
     });
   });
 
+  test('exportDaysDb copies a day that has a workout on it', () async {
+    await clearLocal();
+    // Local noon, so the session sits inside the day in any timezone.
+    final start = DateTime(2026, 5, 20, 12).millisecondsSinceEpoch ~/ 1000;
+    await LocalDb.putSession({
+      'id': 'manual:$start',
+      'start_ts': start,
+      'end_ts': start + 1800,
+      'type': 'run',
+      'status': 'done',
+      'avg_hr': 140,
+      'created_at': start * 1000,
+    });
+    final outPath = await LocalDb.exportDaysDb({'2026-05-20'});
+    final out = await databaseFactory.openDatabase(outPath);
+    try {
+      final rows = await out.query('sessions');
+      expect([for (final r in rows) r['avg_hr']], [140]);
+    } finally {
+      await out.close();
+      await databaseFactory.deleteDatabase(outPath);
+    }
+  });
+
   group('importFromDbFile applies the v46 data rule at the seam', () {
     test('a pre-v46 backup cannot reinstate the retired columns', () async {
       await clearLocal();

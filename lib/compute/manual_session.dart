@@ -435,6 +435,12 @@ Map<String, dynamic> buildManualSessionRow({
     'source': (existing?['source'] as String?) ?? source,
     'created_at':
         (existing?['created_at'] as num?)?.toInt() ?? createdAtMs,
+    // The athlete's own word about the session, not the window: a retime
+    // keeps it, or REPLACE resets private to 0 and drops the rating.
+    if (existing != null) ...{
+      'private': existing['private'] ?? 0,
+      'rpe': existing['rpe'],
+    },
   };
 }
 
