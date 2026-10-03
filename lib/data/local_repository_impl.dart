@@ -2547,8 +2547,12 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<void> deleteWorkout(String id) async => LocalDb.deleteSession(id);
 
   @override
-  Future<void> setWorkoutPrivate(String id, bool private) async =>
-      LocalDb.setSessionPrivate(id, private);
+  Future<void> setWorkoutPrivate(String id, bool private) async {
+    await LocalDb.setSessionPrivate(id, private);
+    // The workout was already exported when it stopped, before this flag
+    // landed. Re-export: a private row clears its window and writes nothing.
+    unawaited(HealthExporter.exportWorkoutId(id));
+  }
 
   @override
   Future<Map<String, dynamic>> startWorkout(

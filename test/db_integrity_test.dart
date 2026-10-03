@@ -169,6 +169,16 @@ void main() {
         reason: 'the returned count must reflect the rows actually deleted');
   });
 
+  test('prune remembers the furthest cutoff it applied', () async {
+    await LocalDb.pruneDecodedBeforeRecTs(1700005000);
+    await LocalDb.pruneDecodedBeforeRecTs(1700001000);
+    expect(
+      await LocalDb.getCursorInt(LocalDb.kDecodedPrunedBeforeCursor),
+      1700005000,
+      reason: 'minute HR export must know which span it can no longer rewrite',
+    );
+  });
+
   test('dayResultIds excludes skipped days - a failed derivation must not look "done" to the pruning guard', () async {
     const v = 9001; // scratch version, wont collide with other tests in this file
     await LocalDb.putDayResult(

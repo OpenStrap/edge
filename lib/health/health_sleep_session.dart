@@ -269,6 +269,9 @@ HealthSleepStage? healthSleepStageOf(String? stage) {
 
 abstract interface class HealthConnectSleepSessionWriter {
   Future<bool> replace(HealthSleepSession session);
+
+  /// Delete our own SleepSessionRecords overlapping [start, end).
+  Future<bool> clear(DateTime start, DateTime end);
 }
 
 class MethodChannelHealthConnectSleepSessionWriter
@@ -281,17 +284,21 @@ class MethodChannelHealthConnectSleepSessionWriter
   Future<void> _pending = Future<void>.value();
 
   @override
-  Future<bool> replace(HealthSleepSession session) {
+  Future<bool> replace(HealthSleepSession session) =>
+      _invoke('replaceSleepSession', session.toMap());
+
+  @override
+  Future<bool> clear(DateTime start, DateTime end) =>
+      _invoke('clearSleepSessions', {
+        'startTime': start.millisecondsSinceEpoch,
+        'endTime': end.millisecondsSinceEpoch,
+      });
+
+  Future<bool> _invoke(String method, Map<String, Object?> args) {
     final result = Completer<bool>();
     _pending = _pending.then((_) async {
       try {
-        result.complete(
-          await channel.invokeMethod<bool>(
-                'replaceSleepSession',
-                session.toMap(),
-              ) ==
-              true,
-        );
+        result.complete(await channel.invokeMethod<bool>(method, args) == true);
       } catch (error, stackTrace) {
         result.completeError(error, stackTrace);
       }
@@ -305,10 +312,20 @@ class HealthConnectSleepSessionExporter {
 
   final HealthConnectSleepSessionWriter writer;
 
-  Future<bool> replace(Map<String, dynamic> bundle) async {
+  Future<bool> replace(Map<String, dynamic> bundle, {DateTime? dayStart}) async {
     final session = normalizeHealthSleepSession(bundle);
     // No sleep window at all — nothing to write, and that is not a failure.
-    if (session == null) return true;
+    // But a night exported earlier (since rejected, or gone on re-derive) is
+    // still in the store, and nothing else deletes Health Connect sleep. A
+    // range delete matches records by START time and most nights start the
+    // evening before, so clear the same noon-to-noon window a replace does.
+    if (session == null) {
+      if (dayStart == null) return true;
+      return writer.clear(
+        DateTime(dayStart.year, dayStart.month, dayStart.day - 1, 12),
+        DateTime(dayStart.year, dayStart.month, dayStart.day, 12),
+      );
+    }
     // A window WITH NO STAGES is the same kind of "nothing to write", and has
     // to report the same way. It used to return false, and the caller treats
     // false as a hard failure of the ENTIRE day: `success = false` in

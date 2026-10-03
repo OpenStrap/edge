@@ -229,8 +229,8 @@ AlarmScheduleEntry seedEntryFromLegacyEpoch(int epoch) {
 
 /// Whether the alarm armed for [armedEpochSec] fires during tonight's
 /// upcoming overnight sleep, as measured from [now]. TRUE iff the epoch is
-/// non-null, strictly after [now], AND strictly before noon of the day after
-/// [now]'s calendar date — the window covering the whole overnight sleep
+/// non-null, strictly after [now], not before noon of [now]'s date, AND
+/// strictly before noon of the day after [now]'s calendar date — the window covering the whole overnight sleep
 /// ahead, whether the arm lands later tonight or in the small hours of
 /// tomorrow morning. An epoch already past, or one two-or-more nights out, is
 /// not "tonight". Calendar-date comparison of the two DateTimes is
@@ -247,6 +247,10 @@ bool alarmArmsTonight(int? armedEpochSec, DateTime now) {
   if (armedEpochSec == null) return false;
   final at = DateTime.fromMillisecondsSinceEpoch(armedEpochSec * 1000);
   if (!at.isAfter(now)) return false;
+  // Before noon the alarm still ahead is THIS morning's, not tonight's: opened
+  // at 06:30, a 07:00 alarm would otherwise cancel the 7pm check for a night
+  // that may have none.
+  if (at.isBefore(DateTime(now.year, now.month, now.day, 12))) return false;
   final endOfTonight = DateTime(now.year, now.month, now.day + 1, 12, 0);
   return at.isBefore(endOfTonight);
 }

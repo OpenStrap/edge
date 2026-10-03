@@ -2518,6 +2518,10 @@ class DerivationEngine {
   static bool _running = false;
   bool get running => _running;
 
+  /// Hold or release the process-wide latch, as another pass would.
+  @visibleForTesting
+  static set debugRunning(bool v) => _running = v;
+
   /// Run [body] under the process-wide derivation lock, returning [busy]
   /// unchanged if a pass is already in flight. Only for entry points that do
   /// NOT call another locked entry point (which would deadlock-by-skip).
@@ -2561,7 +2565,9 @@ class DerivationEngine {
   /// freshness-critical day: TODAY when raw has reached today, else the latest
   /// pending day. [heavy]=true sweeps every recomputable day.
   /// [force]=true recomputes EVERY non-finalized day regardless of the cursor.
-  /// Re-entrant calls are coalesced. Returns the number of days computed.
+  /// A call while another pass holds the latch is DROPPED (returns 0); a
+  /// caller that must run waits on [running] first. Returns the number of
+  /// days computed.
   Future<int> run(
     Profile profile, {
     bool heavy = false,

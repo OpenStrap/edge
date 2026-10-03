@@ -143,6 +143,15 @@ void main() {
       expect(alarmArmsTonight(epochOf(DateTime(2026, 8, 20, 12, 0)), now),
           isFalse);
     });
+
+    test('this morning\'s alarm is not tonight\'s (app opened before it rang)',
+        () {
+      final early = DateTime(2026, 8, 19, 6, 30);
+      expect(alarmArmsTonight(epochOf(DateTime(2026, 8, 19, 7, 0)), early),
+          isFalse);
+      expect(alarmArmsTonight(epochOf(DateTime(2026, 8, 20, 7, 0)), early),
+          isTrue);
+    });
   });
 
   group('inSmartWakeWindow — the fallback-always-fires guarantee', () {

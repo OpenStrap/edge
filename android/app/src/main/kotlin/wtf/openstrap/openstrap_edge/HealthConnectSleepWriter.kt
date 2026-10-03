@@ -43,6 +43,7 @@ object HealthConnectSleepWriter {
     private const val TAG = "OpenStrapSleepExport"
     private const val CHANNEL = "openstrap/health_connect_sleep"
     private const val REPLACE_SLEEP_SESSION = "replaceSleepSession"
+    private const val CLEAR_SLEEP_SESSIONS = "clearSleepSessions"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val replaceMutex = Mutex()
 
@@ -50,13 +51,15 @@ object HealthConnectSleepWriter {
         val app = context.applicationContext
         MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
-                if (call.method != REPLACE_SLEEP_SESSION) {
+                if (call.method != REPLACE_SLEEP_SESSION && call.method != CLEAR_SLEEP_SESSIONS) {
                     result.notImplemented()
                     return@setMethodCallHandler
                 }
                 scope.launch {
-                    val replaced = withContext(Dispatchers.IO) { replace(app, call) }
-                    result.success(replaced)
+                    val ok = withContext(Dispatchers.IO) {
+                        if (call.method == CLEAR_SLEEP_SESSIONS) clear(app, call) else replace(app, call)
+                    }
+                    result.success(ok)
                 }
             }
     }
@@ -95,6 +98,35 @@ object HealthConnectSleepWriter {
                 // Health Connect may surface several unrelated platform and
                 // transport exceptions; the channel reports all of them as false.
                 Log.e(TAG, "SleepSessionRecord replace failed", error)
+                false
+            }
+        }
+    }
+
+    /** Deletes our own sleep records overlapping a day with no night left to write. */
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun clear(context: Context, call: MethodCall): Boolean {
+        return replaceMutex.withLock {
+            try {
+                val start = (call.argument<Any>("startTime") as? Number)
+                    ?.toLong()?.let(Instant::ofEpochMilli)
+                val end = (call.argument<Any>("endTime") as? Number)
+                    ?.toLong()?.let(Instant::ofEpochMilli)
+                if (start == null || end == null || !start.isBefore(end) ||
+                    HealthConnectClient.getSdkStatus(context) != HealthConnectClient.SDK_AVAILABLE
+                ) {
+                    false
+                } else {
+                    HealthConnectClient.getOrCreate(context).deleteRecords(
+                        SleepSessionRecord::class,
+                        TimeRangeFilter.between(start, end),
+                    )
+                    true
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.e(TAG, "SleepSessionRecord clear failed", error)
                 false
             }
         }

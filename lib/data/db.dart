@@ -2045,6 +2045,16 @@ class LocalDb {
       'source': source,
       'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await releaseFrozenHeadline(dayId);
+  }
+
+  /// A sleep correction to the pinned day is the user's word, not drift: drop
+  /// the morning pin so the re-derive pins the corrected readiness instead of
+  /// holding the old night's value until midnight.
+  static Future<void> releaseFrozenHeadline(String dayId) async {
+    if ((await frozenHeadline())?.day == dayId) {
+      await deleteCursor(kFrozenHeadlineCursor);
+    }
   }
 
   /// The user's sleep window for [dayId], or null if none.
@@ -2063,6 +2073,7 @@ class LocalDb {
   static Future<void> deleteSleepOverride(String dayId) async {
     final db = await instance;
     await db.delete('sleep_override', where: 'day_id = ?', whereArgs: [dayId]);
+    await releaseFrozenHeadline(dayId);
   }
 
   /// Every day that currently has a user override — these must be force-derived
@@ -3323,6 +3334,11 @@ class LocalDb {
   /// complete night, so the Today hero + recovery story stop drifting through
   /// the day. Day-tagged so it survives restarts and is ignored on a new day.
   static const String kFrozenHeadlineCursor = 'frozen_headline';
+
+  /// Cursor holding the highest `rec_ts` cutoff [pruneDecodedBeforeRecTs] has
+  /// applied: decoded rows before it are gone, so anything rebuilt from them
+  /// (minute HR export) can't be rewritten for that span.
+  static const String kDecodedPrunedBeforeCursor = 'decoded_pruned_before';
 
   /// The pinned morning readiness headline (day + value), or null if unset /
   /// unparseable. The `day` must be compared to today's label by the caller — a
@@ -10948,6 +10964,10 @@ class LocalDb {
       // storage problem; the 1 Hz substrate is.
       // ponytail: unbounded, so give it its own multi-year cutoff if a real
       // install's table ever shows up big.
+      final prior = await _cursorIntVia(txn, kDecodedPrunedBeforeCursor);
+      if (prior == null || cutoffSec > prior) {
+        await setCursor(kDecodedPrunedBeforeCursor, '$cutoffSec', txn: txn);
+      }
     });
     return deleted;
   }

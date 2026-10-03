@@ -727,15 +727,7 @@ class AppState extends ChangeNotifier {
     if (ok) {
       unawaited(() async {
         await syncPhoneSteps(days: PhonePedometer.fullSyncDays);
-        // `_reanalyzeForOverride` no-ops while another derive is running, and
-        // the full sync above takes long enough (7 days of hourly platform
-        // reads) that a drain-triggered pass can easily have started. Dropping
-        // it silently leaves the freshly-banked rows out of `day_result` and
-        // the tile on a dash — the exact "looks broken" symptom this call was
-        // added to prevent. Wait for the other pass, bounded, then run.
-        for (var i = 0; i < 60 && reanalyzing; i++) {
-          await Future<void>.delayed(const Duration(seconds: 1));
-        }
+        // Waits out any derive already running (see _reanalyzeForOverride).
         await _reanalyzeForOverride();
       }());
     }
@@ -2207,7 +2199,7 @@ class AppState extends ChangeNotifier {
       offsetTs: offsetSec,
       source: source,
     );
-    await _reanalyzeForOverride();
+    await _reanalyzeForOverride(date);
   }
 
   /// Confirm the HR-led fallback's proposal for [date] (Approach 2): accept the
@@ -2225,7 +2217,7 @@ class AppState extends ChangeNotifier {
       offsetTs: offset,
       source: 'confirmed',
     );
-    await _reanalyzeForOverride();
+    await _reanalyzeForOverride(date);
   }
 
   /// Reject a day's detected main sleep entirely — "this was not sleep at
@@ -2251,23 +2243,50 @@ class AppState extends ChangeNotifier {
       offsetTs: offset ?? (fallback + 1),
       source: 'rejected',
     );
-    await _reanalyzeForOverride();
+    await _reanalyzeForOverride(date);
   }
 
   /// Remove a manual/confirmed override for [date] — revert to auto/fallback.
   Future<void> clearSleepOverride(String date) async {
     await LocalDb.deleteSleepOverride(date);
-    await _reanalyzeForOverride();
+    await _reanalyzeForOverride(date);
   }
 
   /// Force-derive after a sleep-override change so the affected day restages from
   /// the user's window (the engine force-includes override days even if locked).
-  Future<void> _reanalyzeForOverride() async {
-    if (reanalyzing) return;
+  Future<void> _reanalyzeForOverride([String? editedDay]) async {
+    // run() returns 0 without queueing while ANY pass holds the derive latch
+    // (a drain's light pass, the post-drain rescan, another edit), and only a
+    // force pass reaches a finalized edited day. Wait our turn rather than
+    // drop the edit; the latch is released in a finally, so this ends.
+    while (reanalyzing) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
     reanalyzing = true;
     notifyListeners();
     try {
+      // A pass that was already running prepared the edited day from the old
+      // window and re-pins that night's readiness when it lands, after the
+      // edit's own release. Release again once it's done, right before the
+      // force pass takes the latch (no await between the check and run()).
+      do {
+        while (_derive.running) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
+        if (editedDay != null) await LocalDb.releaseFrozenHeadline(editedDay);
+      } while (_derive.running);
       await _derive.run(_profile, force: true);
+      if (editedDay != null) {
+        // A finalized day behind the export cursor is never re-written, so
+        // the corrected (or rejected) night would never reach the health store.
+        // Not awaited: the rewind waits out any export already running, and
+        // the edit shouldn't spin for that long.
+        unawaited(
+          HealthExporter.reexportFrom(editedDay).then((_) {
+            if (healthSyncEnabled) unawaited(_runHealthExport());
+          }),
+        );
+      }
       await LocalDb.refreshComputeFreshness();
       // The day_result rows just changed — without this no RevisionReload screen
       // re-reads, so an override/nap edit only showed up after a restart.
@@ -4927,6 +4946,10 @@ class AppState extends ChangeNotifier {
     switch (effect) {
       case AlarmEffect.confirmed:
         _alarmGraceTimer?.cancel();
+        // A re-arm from a sync (tomorrow's schedule slot) never passes through
+        // the foreground reminder pass, so the 7pm "no alarm tonight" check
+        // armed at this morning's open would still go off. Re-decide it now.
+        unawaited(_ensureRemindersScheduled());
         // Diagnostic: ALARM_SET (event 56) means the arm LATCHED on the band.
         // Its absence after a SET is the tell that the write never took.
         _log('[alarm] strap CONFIRMED arm — ALARM_SET (event $id) received.');

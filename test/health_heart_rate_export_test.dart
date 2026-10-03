@@ -74,7 +74,12 @@ void main() {
       expect(calls, hasLength(1));
       expect(calls.single.method, 'replaceHeartRateDay');
       final args = (calls.single.arguments as Map).cast<String, Object?>();
-      expect(args['startTime'], start.millisecondsSinceEpoch);
+      expect(
+        args['startTime'],
+        start.millisecondsSinceEpoch,
+        reason: 'the day is one record starting at midnight and a range '
+            'delete matches by start time; a later start misses it',
+      );
       expect(args['endTime'], end.millisecondsSinceEpoch);
       expect(args['samples'], [
         {
@@ -86,6 +91,39 @@ void main() {
           'beatsPerMinute': anyOf(81, 82),
         },
       ]);
+    });
+
+    test('Android leaves a partly pruned day\'s record alone', () async {
+      final writer = _UnusedHeartRateWriter();
+      final rows = [_row(DateTime(2026, 8, 5, 14, 7), 70)];
+      Future<bool> export(DateTime? prunedBefore) =>
+          exportContinuousHeartRateDay(
+            rows: rows,
+            start: start,
+            end: end,
+            useAndroidBatch: true,
+            androidWriter: writer,
+            prunedBefore: prunedBefore,
+            writeGeneric: (_, _) async => throw StateError('not Apple'),
+          );
+
+      expect(await export(DateTime(2026, 8, 5, 14)), isTrue);
+      expect(writer.calls, 0, reason: 'the record holds HR the rows lost');
+      expect(await export(start), isTrue);
+      expect(writer.calls, 1);
+    });
+
+    test('a day with no samples left is not rewritten', () {
+      // The raw window is gone for an older day being re-exported. Clearing
+      // its HR anyway deletes what was written while the rows still existed.
+      expect(healthHeartRateRewriteFrom(const []), isNull);
+      expect(
+        healthHeartRateRewriteFrom([
+          HealthHeartRateSample(DateTime(2026, 8, 5, 14, 7), 70),
+          HealthHeartRateSample(DateTime(2026, 8, 5, 14, 8), 71),
+        ]),
+        DateTime(2026, 8, 5, 14, 7),
+      );
     });
 
     test('Android batch false result is retryable', () async {
