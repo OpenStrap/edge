@@ -555,7 +555,10 @@ class OuraLink {
     var finished = false;
     final done = host.run(link).whenComplete(() => finished = true);
     var served = 0;
-    for (var spin = 0; spin < 800 && !finished; spin++) {
+    // bounded by wall time, not a spin count: a loaded CI box can take more
+    // than 800 hops for one real sqlite commit, closing the link mid-session.
+    final sw = Stopwatch()..start();
+    while (!finished && sw.elapsed < timeouts) {
       await Future<void>.delayed(Duration.zero);
       while (served < link.writes.length) {
         for (final f in reply(served, link.writes[served].$2)) {
