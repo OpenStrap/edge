@@ -235,7 +235,10 @@ class WhoopImporter {
       'deepMin': n(['deep (sws) duration (min)', 'deep sleep duration (min)', 'deep (sws) duration (minutes)']),
       'remMin': n(['rem duration (min)', 'rem duration (minutes)']),
       'awakeMin': n(['awake duration (min)', 'awake duration (minutes)']),
-      'effPct': n(['sleep performance %', 'sleep efficiency %', 'sleep performance']),
+      // Efficiency only. 'Sleep performance %' is hours slept against sleep
+      // need, a different number; _pick takes the first column that exists,
+      // so listing it here stored performance as efficiency.
+      'effPct': n(['sleep efficiency %']),
       'sleepOnset': _parseTs(get(['sleep onset'])),
       'sleepWake': _parseTs(get(['wake onset'])),
     });
@@ -268,7 +271,11 @@ class WhoopImporter {
     final deepMin = f['deepMin'] as num?;
     final remMin = f['remMin'] as num?;
     final awakeMin = f['awakeMin'] as num?;
-    final effPct = f['effPct'] as num?;
+    // No efficiency column: asleep over in bed is the definition.
+    final effPct = f['effPct'] as num? ??
+        (asleepMin != null && inBedMin != null && inBedMin > 0
+            ? asleepMin / inBedMin * 100
+            : null);
     final sleepOnset = f['sleepOnset'] as int?;
     final sleepWake = f['sleepWake'] as int?;
 

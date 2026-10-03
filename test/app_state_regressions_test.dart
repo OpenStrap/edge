@@ -14,10 +14,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/health/health_export.dart';
 import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/state/prefs.dart';
+import 'package:openstrap_edge/ui2/activity/catalogue.dart';
+import 'package:openstrap_edge/ui2/activity/live.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
 
 void main() {
@@ -418,6 +422,96 @@ void main() {
       expect(w.maxHrSeen, peak, reason: 'the peak is untouched by an absence');
     });
 
+    test('a paused session holds its clock and its tallies', () async {
+      await Prefs.ensureLoaded();
+      final app = connected(150);
+      addTearDown(app.dispose);
+      addTearDown(LiveDraft.clear);
+      final w = LiveWorkoutState(
+        startTime: DateTime.now().subtract(const Duration(minutes: 50)),
+        targetKcal: 300,
+        workoutId: 'w1',
+        type: 'run',
+      );
+      app.activeWorkout = w;
+      final d = LiveDraft.begin(activityByName('running')!);
+      // 20 of the 50 minutes were spent paused.
+      d.pausedSec = 20 * 60;
+      app.debugTickWorkout();
+      expect(w.elapsed.inMinutes, 30);
+      final billed = w.zoneSeconds.reduce((x, y) => x + y);
+
+      d.setPaused(true);
+      app.debugTickWorkout();
+      expect(w.elapsed.inMinutes, 30, reason: 'the clock holds while paused');
+      expect(w.zoneSeconds.reduce((x, y) => x + y), billed,
+          reason: 'no zone-second billed while paused');
+    });
+
+    test('finishing a session that came back paused saves its real length',
+        () async {
+      await Prefs.ensureLoaded();
+      const id = 'paused-at-relaunch';
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      addTearDown(LiveDraft.clear);
+      // A relaunch rebuilds the session with elapsed 0, and a paused draft
+      // means no tick ever moves it.
+      final w = LiveWorkoutState(
+        startTime: DateTime.now().subtract(const Duration(minutes: 50)),
+        targetKcal: 300,
+        workoutId: id,
+        type: 'run',
+      );
+      app.activeWorkout = w;
+      LiveDraft.begin(activityByName('running')!).pausedAt =
+          DateTime.now().subtract(const Duration(minutes: 10));
+      app.debugTickWorkout();
+      expect(w.elapsed.inMinutes, 40);
+
+      w.elapsed = Duration.zero;
+      await app.stopWorkout();
+      expect((await LocalDb.session(id))?['duration_min'], 40);
+    });
+
+    test('a paused draft left from an older session does not hold a new one',
+        () async {
+      await Prefs.ensureLoaded();
+      final app = connected(150);
+      addTearDown(app.dispose);
+      addTearDown(LiveDraft.clear);
+      LiveDraft.begin(activityByName('running')!).setPaused(true);
+      // The gesture path: startWorkout with no setup screen, so no new draft.
+      app.startWorkout(type: 'other');
+      addTearDown(app.stopWorkout); // no live row left for later reconciles
+      expect(LiveDraft.current, isNull);
+      app.debugTickWorkout();
+      expect(app.activeWorkout!.zoneSeconds.reduce((x, y) => x + y), 1,
+          reason: 'the new session ticks');
+    });
+
+    test('resuming after a long pause does not ask "still working out?"',
+        () async {
+      await Prefs.ensureLoaded();
+      final app = connected(null);
+      addTearDown(app.dispose);
+      addTearDown(LiveDraft.clear);
+      final w = LiveWorkoutState(
+        startTime: DateTime.now().subtract(const Duration(minutes: 30)),
+        targetKcal: 300,
+        workoutId: 'w1',
+        type: 'run',
+      );
+      app.activeWorkout = w;
+      final d = LiveDraft.begin(activityByName('running')!)
+        ..pausedAt = DateTime.now().subtract(const Duration(minutes: 25));
+      app.debugTickWorkout();
+      d.setPaused(false);
+      app.debugTickWorkout();
+      expect(w.idleWatch.lastAskAt, isNull,
+          reason: 'the pause was the user, not a forgotten session');
+    });
+
     test('the tick consults the idle watch — a quiet session asks', () {
       // The wiring, not the policy (workout_idle_test.dart owns the policy):
       // a session 30 minutes old with no live HR must have produced an ask by
@@ -562,5 +656,31 @@ void main() {
 
       expect(await LocalDb.liveWorkoutTally(id), isNull);
     });
+
+    test('deleting the running session ends it, and stop cannot bring it back',
+        () async {
+      await Prefs.ensureLoaded();
+      const id = 'deleted-while-live';
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      addTearDown(LiveDraft.clear);
+      app.repo = _DeleteRepo();
+      app.startWorkout(workoutId: id, type: 'run');
+      LiveDraft.begin(activityByName('running')!).setPaused(true);
+      expect(await LocalDb.session(id), isNotNull);
+
+      await app.deleteWorkout(id);
+
+      expect(app.activeWorkout, isNull);
+      expect(LiveDraft.current, isNull,
+          reason: 'a paused draft left behind would freeze the next session');
+      await app.stopWorkout();
+      expect(await LocalDb.session(id), isNull);
+    });
   });
+}
+
+class _DeleteRepo extends LocalRepository {
+  @override
+  Future<void> deleteWorkout(String id) => LocalDb.deleteSession(id);
 }

@@ -10,7 +10,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/coach/coach_config.dart';
 import 'package:openstrap_edge/ecg/ecg_controller.dart';
+import 'package:openstrap_edge/ecg/ecg_guard_store.dart';
 import 'package:openstrap_edge/ecg/ecg_models.dart';
+import 'package:openstrap_edge/ecg/ecg_transport.dart';
 import 'package:openstrap_edge/ecg/ecg_waveform_buffer.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/screens/ecg.dart';
@@ -92,7 +94,68 @@ EcgReading _reading({
   createdAt: 1787823784000,
 );
 
+class _NoTransport implements EcgTransport {
+  @override
+  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
+}
+
+/// A controller parked on a saved reading; never touches a band.
+class _Saved extends EcgController {
+  _Saved()
+    : super(
+        transport: _NoTransport(),
+        guard: MemoryEcgGuardStore(),
+        save: (_, _) async {},
+        busyReason: () => null,
+        holdScreen: (_) async {},
+        releaseScreen: (_) async {},
+      );
+
+  @override
+  EcgCaptureState get state => const EcgCaptureState(
+    phase: EcgCapturePhase.completed,
+    readingId: 'ecg_1',
+  );
+
+  @override
+  Future<void> begin(EcgWrist wrist) async {}
+}
+
 void main() {
+  testWidgets('View reading hands the id back instead of pushing a detail', (
+    t,
+  ) async {
+    final results = <String?>[];
+    await _pump(
+      t,
+      Builder(
+        builder: (c) => TextButton(
+          onPressed: () async => results.add(
+            await Navigator.of(c).push<String>(
+              MaterialPageRoute(
+                builder: (_) => EcgCaptureScreen(
+                  wrist: EcgWrist.right,
+                  controller: _Saved(),
+                ),
+              ),
+            ),
+          ),
+          child: const Text('go'),
+        ),
+      ),
+      reducedMotion: true,
+    );
+    await t.tap(find.text('go'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 500));
+    await t.tap(find.text('View reading'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 500));
+    // The history screen opens the detail once, from this id.
+    expect(results, ['ecg_1']);
+    expect(find.byType(EcgDetailScreen), findsNothing);
+  });
+
   group('capture body per phase', () {
     testWidgets('waiting: instructions, illustration, status, preview label', (
       t,

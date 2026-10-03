@@ -34,6 +34,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../data/db.dart';
 import '../data/day_label.dart';
@@ -149,6 +150,14 @@ List<double?> nightlySeriesFrom(
   return out;
 }
 
+/// Whether a health sample was written by this app. With health sync on, the
+/// exporter writes the band's own nightly RHR back as RESTING_HEART_RATE, and
+/// a seed built from those compares the band to itself. iOS reports the
+/// writer's bundle id as sourceId; Health Connect leaves sourceId empty and
+/// puts the package name in sourceName.
+bool isOwnHealthSample(String sourceId, String sourceName, String ownId) =>
+    ownId.isNotEmpty && (sourceId == ownId || sourceName == ownId);
+
 class RhrSeedImporter {
   RhrSeedImporter({Health? health, bool? isApple})
       : _health = health ?? Health(),
@@ -211,9 +220,16 @@ class RhrSeedImporter {
       debugPrint('[rhr_seed] read: $e');
       return null;
     }
+    var ownId = '';
+    try {
+      ownId = (await PackageInfo.fromPlatform()).packageName;
+    } catch (e) {
+      debugPrint('[rhr_seed] package info: $e');
+    }
     final dayValues = <(String, double)>[];
     for (final p in points) {
       if (p.type != HealthDataType.RESTING_HEART_RATE) continue;
+      if (isOwnHealthSample(p.sourceId, p.sourceName, ownId)) continue;
       final v = p.value;
       if (v is! NumericHealthValue) continue;
       dayValues.add((dayLabelOf(p.dateTo.toLocal()), v.numericValue.toDouble()));

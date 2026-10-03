@@ -130,7 +130,9 @@ class _EcgHomeScreenState extends State<EcgHomeScreen> {
       builder: (_) => EcgWristSheet(current: remembered),
     );
     if (wrist == null || !c.mounted) return;
-    await Navigator.of(c).push(
+    // The capture screen pops with the reading id only when 'View reading'
+    // was tapped; Done and back pop with null and land on the history.
+    final viewId = await Navigator.of(c).push<String>(
       themedRoute(
         (_) => EcgCaptureScreen(wrist: wrist),
         name: 'EcgCaptureScreen',
@@ -138,11 +140,8 @@ class _EcgHomeScreenState extends State<EcgHomeScreen> {
     );
     if (!mounted) return;
     await _load();
-    if (!mounted) return;
-    final id = app.ecg.state.readingId;
-    if (app.ecg.state.phase == EcgCapturePhase.completed && id != null) {
-      unawaited(_openDetail(context, id));
-    }
+    if (!mounted || viewId == null) return;
+    unawaited(_openDetail(context, viewId));
   }
 
   Future<void> _openDetail(BuildContext c, String id) async {
@@ -427,17 +426,9 @@ class _EcgCaptureScreenState extends State<EcgCaptureScreen>
                           onRetry: ctl.retry,
                           onTakeAnother: () => ctl.begin(widget.wrist),
                           onDone: () => _close(c),
-                          onView: () async {
+                          onView: () {
                             final id = s.readingId;
-                            if (id == null) return;
-                            final data = await EcgDetailData.load(id);
-                            if (!c.mounted || data == null) return;
-                            await Navigator.of(c).pushReplacement(
-                              themedRoute(
-                                (_) => EcgDetailScreen(data: data),
-                                name: 'EcgDetailScreen',
-                              ),
-                            );
+                            if (id != null) Navigator.of(c).pop(id);
                           },
                         ),
                 ),

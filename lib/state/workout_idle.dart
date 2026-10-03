@@ -77,6 +77,13 @@ class WorkoutIdleWatch {
     return true;
   }
 
+  /// The session is paused: the user is plainly still there, so the quiet
+  /// stretch starts over from [now] instead of counting the pause.
+  void hold(DateTime now) {
+    _lastActive = now;
+    _lastAsk = null;
+  }
+
   /// The nudge actually reached the shade — stop asking, permanently. Only a
   /// PRESENTED notification confirms; a drop (quiet hours, muted category)
   /// leaves the retry loop running so the ask survives the night.

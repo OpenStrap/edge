@@ -267,6 +267,37 @@ void main() {
     });
   });
 
+  group('WhoopImporter sleep efficiency', () {
+    Future<double?> importEff(String wake, String header, String row) async {
+      final day =
+          localDateLabel(DateTime.parse(wake).millisecondsSinceEpoch ~/ 1000);
+      final f = File(p.join(tmp.path, 'eff_${header.hashCode}.csv'));
+      f.writeAsStringSync('Cycle start time,Wake onset,$header\n'
+          '$wake,$wake,$row\n');
+      await WhoopImporter.importFiles([f.path]);
+      return _metric(day, 'efficiency');
+    }
+
+    test('reads efficiency, not sleep performance', () async {
+      expect(
+          await importEff(
+              '2026-04-10 07:00:00',
+              'Sleep performance %,Sleep efficiency %,Asleep duration (min),'
+                  'In bed duration (min)',
+              '68,93,400,430'),
+          93.0);
+    });
+
+    test('no efficiency column falls back to asleep over in bed', () async {
+      expect(
+          await importEff(
+              '2026-04-11 07:00:00',
+              'Sleep performance %,Asleep duration (min),In bed duration (min)',
+              '68,400,500'),
+          closeTo(80.0, 1e-9));
+    });
+  });
+
   group('CloudImporter session rows', () {
     test('skips a session with no start_ts instead of filing it at epoch 0',
         () async {

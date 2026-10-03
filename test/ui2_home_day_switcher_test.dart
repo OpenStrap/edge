@@ -13,6 +13,7 @@ import 'package:provider/provider.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:openstrap_edge/theme/theme_controller.dart';
 import 'package:openstrap_edge/ui2/screens/screens.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
@@ -103,6 +104,68 @@ void main() {
     await t.tap(find.bySemanticsLabel('Next day'));
     await _settle(t);
     expect(find.text('70'), findsOneWidget);
+  });
+
+  testWidgets('on a past day the day breakdown opens THAT day', (t) async {
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    app.repo = _Repo();
+
+    // Providers above the app, so the pushed route can see them too.
+    await t.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AppState>.value(value: app),
+        ChangeNotifierProvider<ThemeController>.value(
+            value: ThemeController.seed(
+                AppThemeChoice.light, Brightness.light)),
+      ],
+      child: MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: const Scaffold(body: HomeScreen(hour: 9)),
+      ),
+    ));
+    await _settle(t);
+    await t.tap(find.bySemanticsLabel('Previous day'));
+    await _settle(t);
+
+    final row = find.text('Breakdown of your day');
+    await t.scrollUntilVisible(row, 300,
+        scrollable: find.byType(Scrollable).first);
+    await t.tap(row);
+    await _settle(t);
+    expect(t.widget<DayTimelineScreen>(find.byType(DayTimelineScreen)).day,
+        _yesterday);
+  });
+
+  testWidgets('back on today the sleep ring opens the held-over night',
+      (t) async {
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    app.repo = _Repo();
+
+    await t.pumpWidget(MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AppState>.value(value: app),
+        ChangeNotifierProvider<ThemeController>.value(
+            value: ThemeController.seed(
+                AppThemeChoice.light, Brightness.light)),
+      ],
+      child: MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: const Scaffold(body: HomeScreen(hour: 9)),
+      ),
+    ));
+    await _settle(t);
+    await t.tap(find.bySemanticsLabel('Previous day'));
+    await _settle(t);
+    await t.tap(find.bySemanticsLabel('Next day'));
+    await _settle(t);
+
+    // Today, reached through the switcher, is still today: no explicit day,
+    // so Sleep resolves the night the ring is drawn from.
+    t.widget<RingTrio>(find.byType(RingTrio)).onOpen!(HomeRingKind.sleep);
+    await _settle(t);
+    expect(t.widget<SleepDetail>(find.byType(SleepDetail)).day, isNull);
   });
 
   testWidgets('a past day with nothing recorded says so, not "sync the band"',

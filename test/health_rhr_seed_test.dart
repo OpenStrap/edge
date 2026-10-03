@@ -32,6 +32,14 @@ void main() {
     });
   });
 
+  test('isOwnHealthSample drops what this app wrote, on both platforms', () {
+    const own = 'wtf.openstrap.edge';
+    expect(isOwnHealthSample(own, 'OpenStrap', own), isTrue); // iOS
+    expect(isOwnHealthSample('', own, own), isTrue); // Health Connect
+    expect(isOwnHealthSample('com.apple.health.abc', 'Watch', own), isFalse);
+    expect(isOwnHealthSample('', '', ''), isFalse);
+  });
+
   group('compareSeedToBand', () {
     List<double?> nights(double v, int n) => [for (var i = 0; i < n; i++) v];
 
