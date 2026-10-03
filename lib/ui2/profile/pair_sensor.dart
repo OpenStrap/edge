@@ -475,7 +475,10 @@ class PairSensorView extends StatelessWidget {
           Text(
             'If you have the key this device already uses, paste it here and '
             'it pairs without a factory reset — nothing is written to the '
-            'device. Leave it empty to pair the usual way.',
+            'device. Several keys, one per line, are tried in turn until one '
+            'is accepted, which is handy when you have a few and do not know '
+            'which belongs to this device. Leave it empty to pair the usual '
+            'way.',
             style: F.cap.copyWith(color: p.ink3, height: 1.5),
           ),
           TextField(
@@ -483,9 +486,17 @@ class PairSensorView extends StatelessWidget {
             enabled: !locked,
             autocorrect: false,
             enableSuggestions: false,
+            // ONE PER LINE, so the field has to be multi-line. `maxLines` is
+            // how tall it may GROW, not a cap on what can be pasted: the cap
+            // lives with the code that honours it (`kOuraMaxCandidateKeys`),
+            // and a limit enforced in two places is the one that drifts.
+            minLines: 1,
+            maxLines: 5,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
             style: F.head.copyWith(color: p.ink),
             decoration: InputDecoration(
-              hintText: '32 hex digits or base64',
+              hintText: '32 hex digits or base64 — one key per line',
               hintStyle: F.head.copyWith(color: p.ink3),
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(vertical: S.x3),

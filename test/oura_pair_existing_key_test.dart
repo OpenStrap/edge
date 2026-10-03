@@ -73,9 +73,10 @@ void main() {
     test('lets a ring in with the key it holds, and never installs one',
         () async {
       final ring = _Ring(List.of(_appKey));
-      final refusal = await ouraPairHandshake(ring, _appKey,
+      final attempt = await ouraPairHandshake(ring, _appKey,
           install: false, replyWindow: _window);
-      expect(refusal, isNull);
+      expect(attempt.ok, isTrue);
+      expect(attempt.refusal, isNull);
       expect(ring.sentKeyInstall, isFalse,
           reason: 'the existing-key path must be read-only on the ring');
       expect(ring.held, _appKey);
@@ -84,19 +85,23 @@ void main() {
     test('a wrong key is refused without ever suggesting a reset', () async {
       final ring = _Ring(List.of(_appKey));
       final wrong = List<int>.generate(16, (i) => i);
-      final refusal = await ouraPairHandshake(ring, wrong,
+      final attempt = await ouraPairHandshake(ring, wrong,
           install: false, replyWindow: _window);
-      expect(refusal, contains('refused that key'));
-      expect(refusal!.toLowerCase(), isNot(contains('reset')));
+      expect(attempt.refusal, contains('refused that key'));
+      expect(attempt.refusal!.toLowerCase(), isNot(contains('reset')));
+      expect(attempt.keyRejected, isTrue,
+          reason: 'the ring answered, so this is a verdict on the key and a '
+              'multi-key trial may move to the next candidate');
       expect(ring.sentKeyInstall, isFalse);
       expect(ring.held, _appKey, reason: 'the ring keeps its own key');
     });
 
     test('a factory-reset ring says there is no key to match', () async {
       final ring = _Ring(null);
-      final refusal = await ouraPairHandshake(ring, _appKey,
+      final attempt = await ouraPairHandshake(ring, _appKey,
           install: false, replyWindow: _window);
-      expect(refusal, contains('holds no key yet'));
+      expect(attempt.refusal, contains('holds no key yet'));
+      expect(attempt.keyRejected, isTrue);
       expect(ring.sentKeyInstall, isFalse);
     });
   });
@@ -105,9 +110,9 @@ void main() {
     test('a factory-reset ring takes our key, then proves it', () async {
       final ring = _Ring(null);
       final ours = List<int>.generate(16, (i) => 0x10 + i);
-      final refusal = await ouraPairHandshake(ring, ours,
+      final attempt = await ouraPairHandshake(ring, ours,
           install: true, replyWindow: _window);
-      expect(refusal, isNull);
+      expect(attempt.ok, isTrue);
       expect(ring.writes.first.$2.first, 0x24,
           reason: 'the install goes out first, before any nonce request');
       expect(ring.held, ours);
@@ -115,9 +120,9 @@ void main() {
 
     test('a ring in use refuses the install, and is told to reset', () async {
       final ring = _Ring(List.of(_appKey));
-      final refusal = await ouraPairHandshake(ring, List.filled(16, 7),
+      final attempt = await ouraPairHandshake(ring, List.filled(16, 7),
           install: true, replyWindow: _window);
-      expect(refusal, contains('factory reset'));
+      expect(attempt.refusal, contains('factory reset'));
       expect(ring.held, _appKey);
     });
   });
@@ -142,6 +147,71 @@ void main() {
       expect(parseOuraKey('${hex}00'), isNull); // 17 bytes of hex
       expect(parseOuraKey('AAAAAAAAAAAAAAAAAAAA'), isNull); // 15 bytes base64
       expect(parseOuraKey('not a key at all!'), isNull);
+    });
+  });
+
+  group('parseOuraKeys', () {
+    const a = 'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf';
+    const b = 'b0b1b2b3b4b5b6b7b8b9babbbcbdbebf';
+    const c = 'c0c1c2c3c4c5c6c7c8c9cacbcccdcecf';
+
+    test('one key stays one key, separators and all', () {
+      // THE COMPATIBILITY CASE. `parseOuraKey` strips spaces, colons, hyphens
+      // and newlines, so this has always been ONE key — splitting the field
+      // before trying it whole would turn it into malformed fragments.
+      final d = parseOuraKeys(' a0:a1:a2:a3 a4-a5-a6-a7\na8a9aaabacadaeaf ');
+      expect(d.keys, [_appKey]);
+      expect(d.malformed, 0);
+      expect(d.overflow, 0);
+    });
+
+    test('reads one key per line, in order', () {
+      final d = parseOuraKeys('$a\n$b\n$c');
+      expect(d.keys.length, 3);
+      expect(d.keys.first, _appKey);
+      expect(d.malformed, 0);
+    });
+
+    test('also splits on commas and semicolons, and ignores blank lines', () {
+      expect(parseOuraKeys('$a,$b').keys.length, 2);
+      expect(parseOuraKeys('$a;$b').keys.length, 2);
+      expect(parseOuraKeys('\n$a\n\n$b\n\n').keys.length, 2);
+    });
+
+    test('mixes hex and base64, and de-duplicates on the bytes', () {
+      // The same key written both ways is ONE candidate — otherwise it burns
+      // two connections to answer the same question.
+      final d = parseOuraKeys('$a\noKGio6SlpqeoqaqrrK2urw==\n$b');
+      expect(d.keys.length, 2);
+      expect(d.keys.first, _appKey);
+    });
+
+    test('keeps the valid lines and counts the rest, rather than refusing all',
+        () {
+      final d = parseOuraKeys('$a\nnot a key\n$b\nzz');
+      expect(d.keys.length, 2);
+      expect(d.malformed, 2,
+          reason: 'a silently dropped line is how a typo gets retried twice');
+    });
+
+    test('caps at kOuraMaxCandidateKeys and reports the overflow', () {
+      final many = [
+        for (var i = 0; i < kOuraMaxCandidateKeys + 2; i++)
+          List<int>.generate(16, (j) => i * 16 + j)
+              .map((b) => b.toRadixString(16).padLeft(2, '0'))
+              .join(),
+      ].join('\n');
+      final d = parseOuraKeys(many);
+      expect(d.keys.length, kOuraMaxCandidateKeys);
+      expect(d.overflow, 2);
+    });
+
+    test('an empty or hopeless field yields no candidates', () {
+      expect(parseOuraKeys('').isEmpty, isTrue);
+      expect(parseOuraKeys('   \n  ').isEmpty, isTrue);
+      final d = parseOuraKeys('nope\nalso nope');
+      expect(d.isEmpty, isTrue);
+      expect(d.malformed, 2);
     });
   });
 }
