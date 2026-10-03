@@ -106,7 +106,13 @@ const String _kResetFirst =
     'factory reset, so reset it first and then pair here — that is the order, '
     'and resetting is what frees the ring from whatever set it up before. '
     'The ring has no reset button: open the Oura app and remove/unpair the '
-    'ring there, then fully close that app before pairing here.';
+    'ring there, then fully close that app before pairing here. If that app '
+    'cannot reach the ring either, the charging dock can factory-reset it '
+    'without any app — four flips, each waiting for its LED colour: with the '
+    'ring seated, flip the dock upside-down and wait for blue, flip it back '
+    'upright and wait for red, upside-down again for purple, and upright a '
+    'final time for yellow — yellow means the reset has started, and a '
+    'blinking blue LED a few minutes later means it is done.';
 
 String _hex(List<int> b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
@@ -393,8 +399,19 @@ class OuraLink {
         // re-read is idempotent here (`decoded_onehz` REPLACEs by second,
         // `raw_archive` dedups on the frame bytes). Leaving it costs every
         // record the ring takes from here on, silently.
+        //
+        // The anchor goes too: it pairs a decisecond from the old boot with a
+        // Unix second, and stamping the new boot with it would be plausible
+        // and wrong. Readings wait for the new boot's own time_sync instead.
         debugPrint('[oura] the bookmark is past the end of the ring — '
             'dropping it so the next sync re-reads from the beginning.');
+        _anchor = null;
+        final deviceId = _deviceId;
+        if (deviceId != null) {
+          _cursorWrites = _cursorWrites
+              .then((_) => LocalDb.deleteCursor(_anchorItem(deviceId)))
+              .catchError((_) {});
+        }
         _writeCursor(0);
       case 'battery':
         if (value is int) _batteryPct = value;
@@ -570,6 +587,7 @@ class OuraLink {
     await done.timeout(const Duration(seconds: 30), onTimeout: () {});
     await host.stop();
     _host = null;
+    await _cursorWrites;
     _anchor = null;
     _deviceId = null;
     return link;

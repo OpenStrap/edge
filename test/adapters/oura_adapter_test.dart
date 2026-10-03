@@ -73,6 +73,14 @@ List<int> _summary(int received, int bytesLeft) => _frame(0x11, <int>[
       (bytesLeft >> 24) & 0xff,
     ]);
 
+/// A `time_sync` body: Unix seconds, little-endian — 1782043215 = 0x6a37d24f.
+List<int> _syncBody(int unix) => <int>[
+      unix & 0xff,
+      (unix >> 8) & 0xff,
+      (unix >> 16) & 0xff,
+      (unix >> 24) & 0xff,
+    ];
+
 /// Drive [adapter] over a replay link, answering each write as the ring would.
 ///
 /// A replay link records writes but cannot react to them, and this session is a
@@ -368,5 +376,100 @@ void main() {
     expect(events.whereType<SampleBatch>(), isEmpty);
     expect(link.writes.any((w) => w.$2.first == 0x10), isTrue,
         reason: 'the session must have reached the history request at all');
+  });
+
+  test('an up-to-date cursor answered with replays ends the session',
+      () async {
+    // Cursor 5000 = one past the newest event; the ring replays its tail,
+    // including an old boot record, which must not read as a reboot.
+    final (events, link) = await _drive(_adapter(startCursorDs: 5000), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) {
+        return [
+          _event(0x41, 2743, _hex('0400000032020c03')),
+          _event(kOuraEvtTempPeriod, 4999, _hex('6c0d')),
+          _summary(2, 0),
+        ];
+      }
+      return const [];
+    });
+    expect(events.whereType<SampleBatch>(), isEmpty);
+    final keys = events.whereType<BandNote>().map((n) => n.key);
+    expect(keys, isNot(contains('oura_cursor_ds')));
+    expect(keys, isNot(contains('oura_cursor_stranded')));
+    expect(link.writes.where((w) => w.$2.first == 0x10), hasLength(1));
+  });
+
+  test('replays far below the cursor strand the bookmark', () async {
+    // The ring's newest event is well below cursor - 1: its counter restarted
+    // after the bookmark was taken, even though it reports nothing left.
+    final (events, _) = await _drive(_adapter(startCursorDs: 5000), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) {
+        return [
+          _event(0x41, 20, _hex('0400000032020c03')),
+          _event(kOuraEvtTempPeriod, 800, _hex('6c0d')),
+          _summary(2, 0),
+        ];
+      }
+      return const [];
+    });
+    expect(events.whereType<SampleBatch>(), isEmpty);
+    expect(
+      events.whereType<BandNote>().map((n) => n.key),
+      contains('oura_cursor_stranded'),
+    );
+  });
+
+  test('replays with bytes remaining strand the bookmark, not just an empty '
+      'batch', () async {
+    final (events, _) = await _drive(_adapter(startCursorDs: 5000), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) {
+        return [
+          _event(kOuraEvtTempPeriod, 4999, _hex('6c0d')),
+          _summary(1, 4096),
+        ];
+      }
+      return const [];
+    });
+    expect(
+      events.whereType<BandNote>().any((n) => n.key == 'oura_cursor_stranded'),
+      isTrue,
+      reason: 'replays below the cursor with bytes left mean the bookmark '
+          'points past everything the ring holds',
+    );
+  });
+
+  test('a batch of replays and new events keeps only the new', () async {
+    const syncUnix = 1782043215;
+    final (events, link) = await _drive(_adapter(startCursorDs: 1000), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) {
+        final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+        if (cursor > 1000) return [_summary(0, 0)];
+        return [
+          // Replays below the 1000 we asked from.
+          _event(kOuraEvtTempPeriod, 900, _hex('6c0d')),
+          // New data at and after the cursor.
+          _event(kOuraEvtTimeSync, 1000, _syncBody(syncUnix)),
+          _event(kOuraEvtTempPeriod, 1100, _hex('6c0d')),
+          _summary(3, 512),
+        ];
+      }
+      return const [];
+    });
+    final batch = events.whereType<SampleBatch>().single;
+    expect(batch.raw, hasLength(2));
+    expect(batch.samples, hasLength(1));
+    final cursor = events
+        .whereType<BandNote>()
+        .firstWhere((n) => n.key == 'oura_cursor_ds');
+    expect(cursor.value, 1101);
+    expect(link.writes.where((w) => w.$2.first == 0x10), hasLength(2));
   });
 }

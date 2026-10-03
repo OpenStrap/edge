@@ -266,6 +266,39 @@ class OuraAdapter extends BandAdapter {
           return;
         }
 
+        // A cursor past the newest event is answered with the last few events
+        // again, not an empty batch. Anything below the cursor is a replay:
+        // drop it (and its raw copy, `_collectBatch` fills both in lockstep)
+        // so it is never banked twice or advanced on.
+        final fresh = <OuraEvent>[
+          for (final e in got.events)
+            if (e.tsDs >= cursor) e,
+        ];
+        if (fresh.length != got.events.length) {
+          final keepRaw = <Uint8List>[
+            for (var i = 0; i < got.events.length; i++)
+              if (got.events[i].tsDs >= cursor) got.raw[i],
+          ];
+          got.raw
+            ..clear()
+            ..addAll(keepRaw);
+        }
+        if (fresh.isEmpty) {
+          link.log('oura: the ring replayed ${got.events.length} event(s) '
+              'below the cursor; nothing new after $cursor.');
+          // Every stored cursor is at most one past an event the ring
+          // delivered, so a ring that has not rebooted still holds something
+          // at cursor - 1 or later. A newest event below that (or bytes left
+          // with nothing new) means the counter restarted under the bookmark.
+          if (got.summary.bytesLeft > 0 || got.maxDs + 1 < cursor) {
+            yield const BandNote('oura_cursor_stranded');
+          }
+          return;
+        }
+        got.events
+          ..clear()
+          ..addAll(fresh);
+
         for (final e in got.events) {
           final unix = decodeTimeSync(e);
           if (unix == null) continue;
