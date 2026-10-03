@@ -4424,9 +4424,14 @@ class AppState extends ChangeNotifier {
     IosBleRestore.foregroundActive = false;
     await EdgeTracking.stop();
     await IosBleRestore.disarm();
-    // Deprovision the ASK accessory (iOS 18+) so a future pair re-shows the picker and
+    // Deprovision the ASK BAND (iOS 18+) so a future pair re-shows the picker and
     // re-establishes iOS-26 relaunch eligibility. No-op on Android / iOS < 18.
-    await AccessorySetup.removeAll();
+    //
+    // BANDS ONLY. This was `removeAll`, and `removeAccessory` removes an accessory
+    // "from the system and for ALL apps" — bond included — so a band unpair was also
+    // unpairing the user's ring from the phone, where neither this app nor the Oura app
+    // could put it back. A ring the user never touched must survive a band unpair.
+    await AccessorySetup.removeBands();
     await engine.disconnect();
     _releaseForegroundLease();
     await PairedDevice.clear();
