@@ -102,7 +102,8 @@ drawer-bracelet problem can use it, or go dig through the code themselves.
 | <img src="screenshots/recap.png" width="230"><br>**Recap** | <img src="screenshots/profile.png" width="230"><br>**Profile** | |
 
 iOS also gets a home-screen widget, a lock-screen/Dynamic Island Live Activity, and a
-couple of Siri shortcuts.
+couple of Siri shortcuts, including [Sync Data](guides/IOS_SHORTCUTS.md) for
+on-demand or scheduled band synchronization without opening the interface.
 
 | | | |
 |:--:|:--:|:--:|

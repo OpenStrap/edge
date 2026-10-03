@@ -23,7 +23,7 @@ import Flutter
 ///   1. BGTaskScheduler.shared.register(forTaskIdentifier:...) in didFinishLaunching
 ///      (BEFORE super returns) — the OS needs this call before launch completes.
 ///   2. handleTask(_:) wired as the task handler in that same register block.
-///   3. wireChannel(messenger:) called from didInitializeImplicitFlutterEngine so
+///   3. wireChannel(messenger:) called from AppDelegate.registerEngine so
 ///      the Flutter binary messenger is available for Dart callout.
 ///   4. schedule() called after wireChannel so the first request is queued once
 ///      Dart is ready, and again on every applicationDidEnterBackground.
@@ -44,7 +44,7 @@ enum BackgroundTaskManager {
 
     // MARK: - AppDelegate hooks
 
-    /// Wire the Dart method channel. Called from didInitializeImplicitFlutterEngine
+    /// Wire the Dart method channel. Called from AppDelegate.registerEngine
     /// once the binary messenger is live. Also called from schedule() guard so we
     /// never schedule without a channel.
     static func wireChannel(messenger: FlutterBinaryMessenger) {
