@@ -141,6 +141,16 @@ class IosBleRestore {
     } catch (_) {}
   }
 
+  /// Re-create the restore central after a SENSOR picker, without recording the
+  /// sensor as a band ([provisioned] would). A no-op when no band is
+  /// provisioned, which is also when no central was released.
+  static Future<void> reacquireCentral() async {
+    if (!Platform.isIOS) return;
+    try {
+      await _ch.invokeMethod('reacquireCentral');
+    } catch (_) {}
+  }
+
   static Future<void> _done() async {
     try {
       await _ch.invokeMethod('syncDone');

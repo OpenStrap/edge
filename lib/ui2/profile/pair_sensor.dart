@@ -30,19 +30,31 @@
 // recoverable by restarting the app and by nothing else, so the screen says it
 // out loud BEFORE scanning and lets the user decide, rather than discovering it
 // later as a WHOOP that cannot be paired for no visible reason.
+//
+// A SENSOR IN `kAskPickerSensors` DOES NOT SCAN AT ALL on iOS 18+. The app
+// declares `NSAccessorySetupKitSupports`, so iOS never grants it standard
+// Bluetooth access and a scan only ever sees accessories approved in an ASK
+// picker — for such a sensor the scan returned an empty list with no error
+// (#371/#372). Its "search" opens the ASK picker filtered to its own service
+// instead, and the id that comes back goes to the same [onPicked] step a
+// scanned row would. No scan runs first, so no `CBCentralManager` exists to
+// make that picker fail either.
 
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart' show BluetoothDevice;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/accessory_setup.dart';
 import '../../ble/adapters/_registry.dart';
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
 import '../../ble/hrs_link.dart';
+import '../../ble/ios_ble_restore.dart';
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -67,7 +79,18 @@ class PairSensorScreen extends StatefulWidget {
   /// case out of every caller.
   final Future<String?> Function(BluetoothDevice)? onPicked;
 
-  const PairSensorScreen({super.key, required this.entry, this.onPicked});
+  /// Pair with a secret the device ALREADY holds, typed by the user — for a
+  /// ring, the key its own app installed, so it can be paired without a
+  /// factory reset. Null hides the field. When the field is left empty the
+  /// ordinary [onPicked] step runs, so this only ever adds a way in.
+  final Future<String?> Function(BluetoothDevice, String key)? onPickedWithKey;
+
+  const PairSensorScreen({
+    super.key,
+    required this.entry,
+    this.onPicked,
+    this.onPickedWithKey,
+  });
 
   @override
   State<PairSensorScreen> createState() => _PairSensorScreenState();
@@ -91,6 +114,13 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
 
   PairedSensor? _paired;
 
+  /// True when this sensor pairs through the iOS ASK picker instead of a scan
+  /// (iOS 18+ and [kAskPickerSensors]). Decided once, in [_load].
+  bool _viaPicker = false;
+
+  /// The key field's text, when [PairSensorScreen.onPickedWithKey] is set.
+  final TextEditingController _key = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -109,6 +139,7 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     // cannot await one, and nothing follows it onto the radio — unlike
     // `_pick`, where a connect does.
     unawaited(HrsLink.stopScanIfRunning(this));
+    _key.dispose();
     super.dispose();
   }
 
@@ -125,9 +156,14 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
         break;
       }
     }
-    final held = await HrsLink.scanHeldBackReason();
+    final viaPicker = kAskPickerSensors.any((e) => e.id == widget.entry.id) &&
+        await AccessorySetup.isSupported();
+    // No scan runs on the picker path, so the scan's iOS gate has nothing to
+    // warn about there.
+    final held = viaPicker ? null : await HrsLink.scanHeldBackReason();
     if (!mounted) return;
     setState(() {
+      _viaPicker = viaPicker;
       _paired = row == null
           ? null
           : (id: row['id'] as String, label: row['label'] as String?);
@@ -136,6 +172,7 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
   }
 
   Future<void> _scan() async {
+    if (_viaPicker) return _pairViaPicker();
     setState(() {
       _scanning = true;
       _problem = null;
@@ -168,9 +205,47 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     }
   }
 
-  Future<void> _pick(BandCandidate c) async {
+  /// The iOS 18+ path for a [kAskPickerSensors] entry: the ASK picker filtered
+  /// to this sensor's service, then the same pairing step a scanned row gets.
+  Future<void> _pairViaPicker() async {
     setState(() {
-      _busy = c.device.remoteId.str;
+      _scanning = true;
+      _problem = null;
+      _found = const [];
+    });
+    final l = AppLocalizations.of(context);
+    String? id;
+    String? failure;
+    // The picker refuses to open while a restore central is alive, so it is
+    // released first and re-created after — WITHOUT recording the ring as a
+    // band (see `IosBleRestore.reacquireCentral`).
+    await IosBleRestore.releaseCentralForPicker();
+    try {
+      id = await AccessorySetup.showSensorPicker([widget.entry.service]);
+    } on PlatformException catch (e) {
+      failure = l?.pairSensorCouldNotPair(e.message ?? e.code) ??
+          'Could not pair that device: ${e.message ?? e.code}';
+    } catch (e) {
+      failure = l?.pairSensorCouldNotPair(e.toString()) ??
+          'Could not pair that device: $e';
+    } finally {
+      await IosBleRestore.reacquireCentral();
+    }
+    if (!mounted) return;
+    setState(() {
+      _scanning = false;
+      _problem = failure;
+    });
+    if (id != null) {
+      await _pickDevice(BluetoothDevice.fromId(id), label: null);
+    }
+  }
+
+  Future<void> _pick(BandCandidate c) => _pickDevice(c.device, label: c.label);
+
+  Future<void> _pickDevice(BluetoothDevice device, {required String? label}) async {
+    setState(() {
+      _busy = device.remoteId.str;
       _problem = null;
     });
     // The injected callback (a ring's key exchange) is not this file's code
@@ -187,13 +262,16 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     // `l` above the await, because `context` after one is the lint's point.
     await HrsLink.stopScanIfRunning(this);
     String? failure;
+    final typedKey = _key.text.trim();
     try {
-      failure = widget.onPicked != null
-          ? await widget.onPicked!(c.device)
+      failure = widget.onPickedWithKey != null && typedKey.isNotEmpty
+          ? await widget.onPickedWithKey!(device, typedKey)
+          : widget.onPicked != null
+          ? await widget.onPicked!(device)
           : await HrsLink.pairNotifySensor(
               widget.entry,
-              c.device,
-              label: c.label,
+              device,
+              label: label,
             );
     } catch (e) {
       failure = l?.pairSensorCouldNotPair(e.toString()) ??
@@ -232,6 +310,7 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
         problem: _problem,
         paired: _paired,
         busyRemoteId: _busy,
+        keyController: widget.onPickedWithKey == null ? null : _key,
         onScan: _scan,
         onPick: _pick,
         onForget: _forget,
@@ -252,6 +331,9 @@ class PairSensorView extends StatelessWidget {
   final PairedSensor? paired;
   final String? busyRemoteId;
 
+  /// The optional "pair with the key it already holds" field. Null hides it.
+  final TextEditingController? keyController;
+
   final VoidCallback? onScan;
   final void Function(BandCandidate)? onPick;
   final void Function(String id)? onForget;
@@ -265,6 +347,7 @@ class PairSensorView extends StatelessWidget {
     this.problem,
     this.paired,
     this.busyRemoteId,
+    this.keyController,
     this.onScan,
     this.onPick,
     this.onForget,
@@ -305,6 +388,10 @@ class PairSensorView extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (keyController != null) ...[
+                  const SizedBox(height: S.x4),
+                  _keySection(c, keyController!, busy || scanning),
+                ],
                 if (heldBack != null) ...[
                   const SizedBox(height: S.x4),
                   StatusCard(
@@ -370,6 +457,53 @@ class PairSensorView extends StatelessWidget {
                     ),
                   ),
               ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// The key the device already holds, if the user has it. Optional, and says
+  /// so: an empty field is the ordinary pairing.
+  Widget _keySection(BuildContext c, TextEditingController ctl, bool locked) {
+    final p = P.of(c);
+    return Section(
+      'Already set up elsewhere?',
+      Surface(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(
+            'If you have the key this device already uses, paste it here and '
+            'it pairs without a factory reset — nothing is written to the '
+            'device. Several keys, one per line, are tried in turn until one '
+            'is accepted, which is handy when you have a few and do not know '
+            'which belongs to this device. Leave it empty to pair the usual '
+            'way.',
+            style: F.cap.copyWith(color: p.ink3, height: 1.5),
+          ),
+          TextField(
+            controller: ctl,
+            enabled: !locked,
+            autocorrect: false,
+            enableSuggestions: false,
+            // ONE PER LINE, so the field has to be multi-line. `maxLines` is
+            // how tall it may GROW, not a cap on what can be pasted: the cap
+            // lives with the code that honours it (`kOuraMaxCandidateKeys`),
+            // and a limit enforced in two places is the one that drifts.
+            minLines: 1,
+            maxLines: 5,
+            keyboardType: TextInputType.multiline,
+            textInputAction: TextInputAction.newline,
+            style: F.head.copyWith(color: p.ink),
+            decoration: InputDecoration(
+              hintText: '32 hex digits or base64 — one key per line',
+              hintStyle: F.head.copyWith(color: p.ink3),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: S.x3),
+              enabledBorder:
+                  UnderlineInputBorder(borderSide: BorderSide(color: p.line)),
+              focusedBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: p.on(C.green))),
             ),
           ),
         ]),

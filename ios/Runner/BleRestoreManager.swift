@@ -263,6 +263,16 @@ class BleRestoreManager: NSObject {
           NSLog("[ble-restore] restore central released for ASK picker (bands kept)")
         }
         result(nil)
+      case "reacquireCentral":
+        // The other half of `releaseCentralForPicker` for a picker that provisions a
+        // SENSOR: nothing new goes into `arms` or UserDefaults (a sensor is not a band
+        // this central restores), so `provisioned` would be wrong here. The central comes
+        // back only when a band already owned one.
+        if !self.arms.isEmpty {
+          self.ensureCentral()
+          NSLog("[ble-restore] restore central re-created after a sensor picker")
+        }
+        result(nil)
       case "ready":
         self.flutterReady = true
         if self.wakeQueuedBeforeReady {

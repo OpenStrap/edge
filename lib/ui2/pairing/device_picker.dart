@@ -41,6 +41,7 @@ import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
 import '../../ble/hrs_link.dart';
+import '../../ble/oura_link.dart' show pairOuraRingWithTypedKey;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
 import '../onboarding/pairing.dart' show PairingScreen;
@@ -208,7 +209,14 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       return;
     }
     await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => PairSensorScreen(entry: sensor.entry, onPicked: sensor.pick),
+      builder: (_) => PairSensorScreen(
+        entry: sensor.entry,
+        onPicked: sensor.pick,
+        // The ring alone can be paired with the key its own app installed —
+        // see `pairOuraRingWithKey`.
+        onPickedWithKey:
+            sensor.entry.id == kOura.id ? pairOuraRingWithTypedKey : null,
+      ),
     ));
     if (mounted) await _afterPair();
   }
