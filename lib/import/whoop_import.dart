@@ -213,6 +213,9 @@ class WhoopImporter {
   /// what the earlier file already contributed for the same date.
   static (String, Map<String, dynamic>)? _extractDayFields(_Row row) {
     String get(List<String> names) => row.get(names);
+    // sleeps.csv lists naps as their own rows, filed under the same date as
+    // the night that ended that morning. A nap is not the day's sleep.
+    if (get(['nap']).toLowerCase() == 'true') return null;
     final wakeTs = _parseTs(get(['wake onset', 'sleep onset', 'cycle start time']));
     final cycleStart = _parseTs(get(['cycle start time', 'sleep onset']));
     final anchor = wakeTs ?? cycleStart;

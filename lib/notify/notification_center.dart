@@ -341,7 +341,9 @@ class NotificationCenter {
     await svc.ensureTimezone();
     await _armWaterSlots(svc, water);
     if (wantWeekly) await _armWeeklyLookback(svc, weeklyFinding);
-    if (windDownMin != null) await _armWindDown(svc, windDownMin);
+    if (windDownMin != null) {
+      await _armWindDown(svc, windDownMin, bedtimeMinOfDay!);
+    }
     if (checkIn != null) await _armCheckIn(svc, checkIn);
     await _armMedSlots(svc, meds);
     // Recomputed fresh right before arming, not reused from the `now` this
@@ -479,18 +481,27 @@ class NotificationCenter {
   /// reminder if the slot is still ahead — `nextInstanceOf` already resolves
   /// to the next occurrence strictly after now, and same-id re-scheduling
   /// replaces rather than stacks.
-  Future<void> _armWindDown(NotificationService svc, int minuteOfDay) async {
+  Future<void> _armWindDown(
+    NotificationService svc,
+    int minuteOfDay,
+    double bedtimeMinOfDay,
+  ) async {
     await svc.scheduleDaily(
       id: NotificationService.idWindDown,
       category: NotifCategory.reminders,
       title: 'Wind down',
-      body: 'Your bedtime is around ${_hhmm(minuteOfDay + windDownBeforeBedMin)}. '
-          'Start slowing down.',
+      body: windDownBody(bedtimeMinOfDay),
       hour: minuteOfDay ~/ 60,
       minute: minuteOfDay % 60,
       route: kRouteBreathing,
     );
   }
+
+  /// The wind-down copy. Names the LEARNED bedtime, not the slot plus the
+  /// offset: quiet hours can pull the slot earlier.
+  static String windDownBody(double bedtimeMinOfDay) =>
+      'Your bedtime is around ${_hhmm(bedtimeMinOfDay.round())}. '
+      'Start slowing down.';
 
   /// How long before the learned bedtime the wind-down lands.
   static const int windDownBeforeBedMin = 45;

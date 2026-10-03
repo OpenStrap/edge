@@ -147,6 +147,12 @@ void main() {
           const NotificationPrefs(windDownEnabled: true), 20.0);
       expect(t, 21 * 60 + 30);
     });
+
+    test('the copy names the learned bedtime, not the capped slot', () {
+      // Bedtime 23:30 caps the slot to 21:30; the body must still say 23:30.
+      expect(NotificationCenter.windDownBody(23 * 60 + 30.0),
+          contains('23:30'));
+    });
   });
 
   group('alarmNightCheckSlot', () {

@@ -242,6 +242,18 @@ class HealthWorkoutImporter {
   /// READ only. The export half writes workouts; this never does.
   static const List<HealthDataType> types = [HealthDataType.WORKOUT];
 
+  /// What the read needs granted. On Health Connect the plugin reads each
+  /// session's distance, total calories and steps alongside it, and one
+  /// missing read permission makes the whole call come back empty.
+  List<HealthDataType> get _readTypes => _isApple
+      ? types
+      : const [
+          HealthDataType.WORKOUT,
+          HealthDataType.DISTANCE_DELTA,
+          HealthDataType.TOTAL_CALORIES_BURNED,
+          HealthDataType.STEPS,
+        ];
+
   bool get routesSupported => _isApple;
 
   /// NON-PROMPTING read-permission probe for the auto path: true only when
@@ -250,8 +262,10 @@ class HealthWorkoutImporter {
   Future<bool> hasReadPermission() async {
     try {
       await _health.configure();
-      return await _health.hasPermissions(types,
-              permissions: [for (final _ in types) HealthDataAccess.READ]) ==
+      return await _health.hasPermissions(_readTypes,
+              permissions: [
+                for (final _ in _readTypes) HealthDataAccess.READ
+              ]) ==
           true;
     } catch (_) {
       return false;
@@ -261,10 +275,11 @@ class HealthWorkoutImporter {
   Future<bool> requestPermission() async {
     try {
       await _health.configure();
-      final perms = [for (final _ in types) HealthDataAccess.READ];
-      final already = await _health.hasPermissions(types, permissions: perms);
+      final perms = [for (final _ in _readTypes) HealthDataAccess.READ];
+      final already =
+          await _health.hasPermissions(_readTypes, permissions: perms);
       if (already == true) return true;
-      return await _health.requestAuthorization(types, permissions: perms);
+      return await _health.requestAuthorization(_readTypes, permissions: perms);
     } catch (e) {
       debugPrint('[imported_workout] permission: $e');
       return false;

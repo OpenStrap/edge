@@ -87,6 +87,10 @@
     <uses-permission android:name="android.permission.health.WRITE_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
     <uses-permission android:name="android.permission.health.WRITE_EXERCISE" />
+    <!-- Importing workouts: the plugin reads each session's distance and
+         total calories with it, and a missing read fails the whole read. -->
+    <uses-permission android:name="android.permission.health.READ_DISTANCE" />
+    <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
     <!-- READ only, and no WRITE counterpart on purpose: body metrics are read
          INTO the local profile (weight drifts, and the calorie estimate
          depends on it) and this app has no business writing them back. Health

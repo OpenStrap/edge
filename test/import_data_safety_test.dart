@@ -232,6 +232,20 @@ void main() {
     });
   });
 
+  test('WhoopImporter: a nap row never replaces that date\'s night',
+      () async {
+    final f = File(p.join(tmp.path, 'sleeps.csv'));
+    f.writeAsStringSync(
+      'Sleep onset,Wake onset,Asleep duration (min),Nap\n'
+      '2026-06-03 23:00:00,2026-06-04 06:30:00,420,false\n'
+      '2026-06-04 14:00:00,2026-06-04 14:25:00,25,true\n',
+    );
+    final day = localDateLabel(
+        DateTime.parse('2026-06-04 06:30:00').millisecondsSinceEpoch ~/ 1000);
+    await WhoopImporter.importFiles([f.path]);
+    expect(await _metric(day, 'tst_min'), 420.0);
+  });
+
   group('WhoopImporter energy units come from the header, not the value', () {
     Future<double?> importEnergy(
         String wake, String header, String value) async {
