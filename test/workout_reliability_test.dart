@@ -263,6 +263,24 @@ void main() {
       expect(await LocalDb.takeNextComputeJob(), isNull);
     });
 
+    test('a request landing during a running pass queues behind it',
+        () async {
+      await LocalDb.enqueueDeriveJob(type: 'derive_light', reason: 'test');
+      final running = await LocalDb.takeNextComputeJob();
+      expect(running, isNotNull);
+
+      await LocalDb.enqueueDeriveJob(type: 'derive_light', reason: 'test');
+      await LocalDb.enqueueDeriveJob(type: 'derive_light', reason: 'test');
+      await LocalDb.completeComputeJob(running!['id'].toString());
+
+      final next = await LocalDb.takeNextComputeJob();
+      expect(next, isNotNull,
+          reason: 'the batch behind the second request needs its own pass');
+      await LocalDb.completeComputeJob(next!['id'].toString());
+      expect(await LocalDb.takeNextComputeJob(), isNull,
+          reason: 'requests behind a running pass still coalesce');
+    });
+
     test('requeueing an unknown id is harmless', () async {
       await LocalDb.requeueComputeJob('no-such-job');
       expect(await LocalDb.takeNextComputeJob(), isNull);

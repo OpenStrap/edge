@@ -551,7 +551,14 @@ class NotificationCenter {
   /// detections), then a plainly-stated resting-HR drift, then silence.
   static String? weeklyLookbackFinding(
       List<Map<String, dynamic>> recentDays) {
-    final days = recentDays
+    // `recent[]` is the whole rollup window (90 days, oldest first); the
+    // lookback is the last week of it.
+    // ponytail: last 7 rows, not 7 calendar days; a gappy week reaches a bit
+    // further back.
+    final week = recentDays.length > 7
+        ? recentDays.sublist(recentDays.length - 7)
+        : recentDays;
+    final days = week
         .where((d) => d['unsettled'] != true)
         .toList(growable: false);
     if (days.isEmpty) return null;

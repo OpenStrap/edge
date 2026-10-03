@@ -4338,6 +4338,7 @@ class DerivationEngine {
     // day-detail reads; declining is what actually protects it.
     if (!producedNothing &&
         nightSubstrateRegressed(
+          sleepRejected: day.sleepSource == 'rejected',
           sleepSubEmpty: sleepSub.isEmpty,
           nightScalarsNull: scMap == null ||
               (scMap['rhr'] == null &&
@@ -4900,10 +4901,15 @@ class DerivationEngine {
   /// shape is unit-testable without the full pipeline; the caller still has to
   /// confirm an EXISTING result actually had real night scalars before
   /// declining to write over it.
+  ///
+  /// [sleepRejected] (the user said "not sleep") is never a regression: the
+  /// null night is what they asked for, and the existing row is the very
+  /// night they rejected.
   static bool nightSubstrateRegressed({
+    bool sleepRejected = false,
     required bool sleepSubEmpty,
     required bool nightScalarsNull,
-  }) => sleepSubEmpty && nightScalarsNull;
+  }) => !sleepRejected && sleepSubEmpty && nightScalarsNull;
 
   /// Whether [row] is a REAL derived day result worth protecting — i.e. not a
   /// skip marker and not an all-absent shell.

@@ -4436,13 +4436,34 @@ class LocalDb {
   }
 
   /// Upsert an auto-detected workout suggestion (id = "$date:$startSec").
+  /// A bout caught mid-workout comes back with the same start and a later end
+  /// on the next pass, so the detected span refreshes; `dismissed` and
+  /// `created_at` stay as the first insert left them. INSERT OR IGNORE +
+  /// UPDATE, not UPSERT (minSdk 26 ships SQLite 3.18, see [upsertDevice]).
   static Future<void> putWorkoutSuggestion(Map<String, dynamic> row) async {
     final db = await instance;
-    await db.insert(
-      'workout_suggestions',
-      row,
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+    await db.transaction((txn) async {
+      await txn.insert(
+        'workout_suggestions',
+        row,
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+      await txn.update(
+        'workout_suggestions',
+        {
+          for (final k in const [
+            'end_ts',
+            'avg_bpm',
+            'peak_bpm',
+            'duration_min',
+            'sport',
+          ])
+            if (row.containsKey(k)) k: row[k],
+        },
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    });
   }
 
   /// Active (not-yet-dismissed, not-yet-confirmed) suggestions, newest first.
@@ -9871,11 +9892,14 @@ class LocalDb {
     final db = await instance;
     final now = DateTime.now().millisecondsSinceEpoch;
     await db.transaction((txn) async {
+      // Only a QUEUED job covers a new request. A running pass may have
+      // loaded its substrate before the batch behind this request landed, so
+      // it queues behind it and drains when the pass finishes.
       final active = await txn.query(
         'compute_jobs',
         columns: ['id', 'type', 'state'],
-        where: 'scope = ? AND state IN (?, ?)',
-        whereArgs: ['derive', 'queued', 'running'],
+        where: 'scope = ? AND state = ?',
+        whereArgs: ['derive', 'queued'],
       );
       bool hasType(String t) =>
           active.any((row) => row['type']?.toString() == t);
@@ -9890,7 +9914,9 @@ class LocalDb {
         );
       }
       await txn.insert('compute_jobs', {
-        'id': 'derive_${type}_$now',
+        // Microseconds: the running job this one may queue behind can share
+        // its millisecond, and a PK collision would throw.
+        'id': 'derive_${type}_${DateTime.now().microsecondsSinceEpoch}',
         'type': type,
         'scope': 'derive',
         'priority': type == 'derive_heavy' ? 200 : 100,

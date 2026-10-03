@@ -57,6 +57,19 @@ void main() {
     expect(rows.length, 1);
   });
 
+  test('one blood-pressure record id keeps both halves', () {
+    // Health Connect: systolic and diastolic come from one record, one id.
+    final rows = rowsFrom([
+      _p(HealthDataType.BLOOD_PRESSURE_SYSTOLIC, 120, uuid: 'bp'),
+      _p(HealthDataType.BLOOD_PRESSURE_DIASTOLIC, 80, uuid: 'bp'),
+    ]);
+    expect(rows.map((r) => r['kind']), [kKindSystolic, kKindDiastolic]);
+    expect(rows.map((r) => r['uuid']).toSet(), hasLength(2),
+        reason: 'the table is keyed on uuid; a shared key overwrites a half');
+    expect(rows.first['uuid'], 'bp',
+        reason: 'existing systolic rows keep their key');
+  });
+
   test('a type we do not import is ignored, not mis-filed', () {
     final rows = rowsFrom([_p(HealthDataType.HEART_RATE, 60, uuid: 'h')]);
     expect(rows, isEmpty);

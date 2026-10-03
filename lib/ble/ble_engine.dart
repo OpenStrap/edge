@@ -3058,7 +3058,7 @@ class BleEngine {
     return _startInitDrain(session);
   }
 
-  /// The official WHOOP 5 connect order, from an established link through
+  /// The WHOOP 5 connect order, from an established link through
   /// READY:
   ///
   ///   prefer LE 2M PHY → discover + validate the fd4b service → request
@@ -7506,8 +7506,7 @@ class BleEngine {
   ///   [5..7]   u16 subsec  LE    (millis % 1000) * 32768 ~/ 1000 (1/32768 s units)
   ///   [7..9]   u16 haptic-mode   0 = the stock wake buzz
   /// ```
-  /// This is what the official WHOOP app sends (btsnoop wire capture), and on
-  /// our band (fw 41.17.4, 2026-08-19/20) it fired autonomously at the armed
+  /// On fw 41.17.4 it fires autonomously at the armed
   /// second (HAPTICS_FIRED 60 + STRAP_DRIVEN_ALARM_EXECUTED 57, then
   /// auto-disable 59) while the rich 0x04 form previously armed here latched
   /// (event 56) without executing. Execution of the rich form is
@@ -7548,7 +7547,7 @@ class BleEngine {
   }) async {
     final isGen5 = _session?.band.isGen5 ?? false;
     if (isGen5) {
-      // Official WHOOP app SET_CLOCKs before SET_ALARM; refresh RTC drift first.
+      // SET_CLOCK before SET_ALARM; refresh RTC drift first.
       await setClock();
       await Future.delayed(const Duration(milliseconds: 120));
     }

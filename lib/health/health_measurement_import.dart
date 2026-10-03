@@ -60,6 +60,13 @@ const Map<String, (double, double)> kImportedBounds = {
 List<Map<String, Object?>> rowsFrom(List<HealthDataPoint> points) {
   final out = <Map<String, Object?>>[];
   final seen = <String>{};
+  // Health Connect reports both halves of one blood-pressure reading under the
+  // record's single id; HealthKit gives each half its own. The diastolic half
+  // of a shared id gets its own key, or it collides with the systolic row.
+  final systolicIds = {
+    for (final p in points)
+      if (p.type == HealthDataType.BLOOD_PRESSURE_SYSTOLIC) p.uuid,
+  };
   for (final p in points) {
     final kind = kImportedKinds[p.type];
     if (kind == null) continue;
@@ -71,9 +78,13 @@ List<Map<String, Object?>> rowsFrom(List<HealthDataPoint> points) {
     // A record with no uuid cannot be updated or deduplicated later, and the
     // table's whole idempotence rests on it. Skipping is better than minting a
     // synthetic key that re-inserts the same reading on every read.
-    if (p.uuid.isEmpty || !seen.add(p.uuid)) continue;
+    if (p.uuid.isEmpty) continue;
+    final key = kind == kKindDiastolic && systolicIds.contains(p.uuid)
+        ? '${p.uuid}:$kind'
+        : p.uuid;
+    if (!seen.add(key)) continue;
     out.add({
-      'uuid': p.uuid,
+      'uuid': key,
       'ts': p.dateTo.millisecondsSinceEpoch ~/ 1000,
       'kind': kind,
       'value': value,

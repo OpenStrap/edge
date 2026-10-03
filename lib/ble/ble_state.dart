@@ -1132,16 +1132,13 @@ class DeriveDebouncer {
 /// autonomously at the armed second (events 60 HAPTICS_FIRED + 57
 /// STRAP_DRIVEN_ALARM_EXECUTED, then 59 auto-disable), while the RICH
 /// 20-byte 0x04 form latched (event 56 + GET_ALARM readback) but never
-/// executed — three controlled trials, 2026-08-19/20, plus zero event-57s
-/// across 1.07M lines of this band's history while rich was the shipped
-/// form. On another WHOOP 4 (fw not yet reported; 2026-08-11 export in the
-/// PR review) the RICH form DID execute — the observed discriminator is
+/// executed. On another WHOOP 4 (fw not yet reported) the RICH form DID
+/// execute — the observed discriminator is
 /// firmware version, not the form alone. The SHORT 7-byte form is rev1 minus
 /// the trailing haptic-mode u16; at haptic-mode 0 the two pad4 to
 /// byte-identical BLE frames, so there is no wire distinction between them
-/// and no separate short-form behaviour to claim. [rev1] is the arm form: it
-/// is what the official WHOOP app sends (btsnoop wire capture, noop PR #535)
-/// and no observed firmware fails to execute it. WHOOP 5 keeps the rich
+/// and no separate short-form behaviour to claim. [rev1] is the arm form: no
+/// observed firmware fails to execute it. WHOOP 5 keeps the rich
 /// 21-byte slot-1 form (#194, verified by its own users).
 class AlarmPayloads {
   /// The strap's stock 12-byte wake-buzz haptic pattern:
@@ -1160,13 +1157,13 @@ class AlarmPayloads {
   static int subsecOf(DateTime when) =>
       ((when.millisecondsSinceEpoch % 1000) * 32768) ~/ 1000;
 
-  /// REV-1 9-byte SET_ALARM_TIME payload — the gen4 arm form: the official
-  /// app's wire form, fired on fw 41.17.4 (class doc for the evidence):
+  /// REV-1 9-byte SET_ALARM_TIME payload — the gen4 arm form, fires on
+  /// fw 41.17.4 (class doc for the firmware split):
   /// `[0x01][u32 epoch-sec LE][u16 subsec LE][u16 haptic-mode LE]`.
   /// The byte layout has exactly one home, `openstrap_protocol`'s
   /// [alarmRev1Payload]; this is the app-side name for it. Haptic-mode stays
-  /// at its default 0 (the strap's stock wake buzz) — the only value
-  /// wire-captured from the official app, so we never send anything else.
+  /// at its default 0 (the strap's stock wake buzz); we never send anything
+  /// else.
   static List<int> rev1(DateTime when) => alarmRev1Payload(when);
 
   /// RICH 20-byte SET_ALARM_TIME payload. On gen4 this is REFERENCE ONLY —
@@ -1215,7 +1212,7 @@ class AlarmPayloads {
 
   /// Generation-correct SET_ALARM_TIME body — 9 bytes on gen4, 21 on gen5.
   ///
-  /// WHOOP 4: the REV-1 form ([rev1]) — the official app's wire form, which
+  /// WHOOP 4: the REV-1 form ([rev1]), which
   /// fired on fw 41.17.4 where the rich slot-0 body this used to build
   /// latched without executing (class doc for the firmware split).
   /// [index]/[haptics]/[crescendo] do not exist in the rev-1 layout and are

@@ -238,6 +238,16 @@ void main() {
       expect(down, contains('lower'));
     });
 
+    test('only the last week of the rollup counts', () {
+      final f = NotificationCenter.weeklyLookbackFinding([
+        _day(date: 'old', illness: true, rhr: 45),
+        for (var i = 0; i < 20; i++) _day(date: 'mid$i', rhr: 45),
+        for (var i = 0; i < 7; i++) _day(date: 'week$i', rhr: 52),
+      ]);
+      expect(f, isNull,
+          reason: 'a flag and an RHR level from weeks ago are not this week');
+    });
+
     test('too few RHR nights stays silent even if the drift looks big', () {
       final f = NotificationCenter.weeklyLookbackFinding([
         _day(date: '1', rhr: 50),

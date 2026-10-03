@@ -427,6 +427,18 @@ void main() {
       );
     });
 
+    test('a user-rejected night is not a regression, so the rejection '
+        'replaces the old night', () {
+      expect(
+        DerivationEngine.nightSubstrateRegressed(
+          sleepRejected: true,
+          sleepSubEmpty: true,
+          nightScalarsNull: true,
+        ),
+        isFalse,
+      );
+    });
+
     test('real night scalars computed is not a regression', () {
       expect(
         DerivationEngine.nightSubstrateRegressed(

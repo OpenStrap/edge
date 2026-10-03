@@ -1742,16 +1742,17 @@ class AppState extends ChangeNotifier {
         // so refresh baseline-dependent scalars (readiness/illness/stress) on
         // recent FINALIZED days. Cheap when the baseline is unchanged (a single
         // signature read). Best-effort — never throws into the BLE path.
-        unawaited(() async {
-          try {
-            final n = await _derive.rescanRecent(_profile);
-            if (n > 0) {
-              notifyListeners(); // screens re-read the refreshed scalars
-            }
-          } catch (e) {
-            _log('[derive] rescan failed: $e');
+        // Awaited: it holds the engine's run latch, so a light job drained
+        // while it ran would no-op and be marked done. Keeping this job
+        // running holds the next one in the queue until the rescan is over.
+        try {
+          final n = await _derive.rescanRecent(_profile);
+          if (n > 0) {
+            notifyListeners(); // screens re-read the refreshed scalars
           }
-        }());
+        } catch (e) {
+          _log('[derive] rescan failed: $e');
+        }
       }
       // Continuous health export: push freshly-derived days (incl. TODAY) to Apple
       // Health / Health Connect AS SOON as they're computed — runs on BOTH the
