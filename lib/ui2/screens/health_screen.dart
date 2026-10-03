@@ -656,7 +656,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         Rising rising = Rising.neither}) {
       if (m.isEmpty) {
         final s = StatusCard.forMetric(
-            l?.healthNoMetric(name.toLowerCase()) ??
+            l?.healthNoMetric(nounInSentence(l, name)) ??
                 'No ${name.toLowerCase()}',
             m,
             why: whyAbsent ?? '', gap: overnight ? d.nightGap : null);

@@ -41,6 +41,12 @@ import 'sleep_detail.dart';
 
 // ═══════════════════ the vocabulary ═══════════════════
 
+/// [name] as it reads in a caption. German keeps it as written: its labels
+/// can open with an adjective, so the DE strings put [name] first in the
+/// sentence instead. Everywhere else the title case comes off.
+String nounInSentence(AppLocalizations? l, String name) =>
+    l?.localeName.startsWith('de') == true ? name : name.toLowerCase();
+
 /// What a metric key means on screen, and whether we are willing to draw it.
 class MetricSpec {
   /// The alias `getChart` / `getTrend` understand (`_trendKey` maps it on).
@@ -1007,11 +1013,12 @@ class _MetricDetailState extends State<MetricDetail> {
         l?.metricDetailUsingForX(device, subject) ??
         'Using $device for $subject.';
     if (!_split) {
-      return [line(_labelOf(d, _preferredId), spec.title.toLowerCase())];
+      return [line(_labelOf(d, _preferredId), nounInSentence(l, spec.title))];
     }
     return [
       for (final e in _winners.entries)
-        line(_labelOf(d, e.value), signalDisplayName(c, e.key).toLowerCase()),
+        line(_labelOf(d, e.value),
+            nounInSentence(l, signalDisplayName(c, e.key))),
     ];
   }
 
