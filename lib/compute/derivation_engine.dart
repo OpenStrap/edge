@@ -1952,9 +1952,9 @@ const int _baselineWindowDays = 28;
 /// day (#128: "morning it was 49, now 45"). Once today's overnight is genuinely
 /// COMPLETE we PIN the first such readiness as the headline so it stops moving.
 ///
-/// "Complete" must be stronger than `overnight_state == 'ready'` — that flips as
-/// soon as the FIRST sleep-bearing row lands (mid-drain), so pinning on it could
-/// freeze a partial-night value. We instead require the drained data edge to
+/// "Complete" cannot be "a sleep-bearing row exists" — that is true as soon as
+/// the FIRST one lands (mid-drain), so pinning on it could freeze a
+/// partial-night value. We instead require the drained data edge to
 /// have moved at least this far PAST the sleep offset (wake): the whole sleep
 /// window is then decoded and the segmentation-placed wake is settled, so the
 /// overnight inputs are final. Same "edge past the window" model finalisation
@@ -1962,6 +1962,44 @@ const int _baselineWindowDays = 28;
 /// reached within the first post-wake sync in practice; raise it to trade a
 /// slightly later freeze for more safety margin.
 const int _headlineFreezeMarginSec = 60 * 60;
+
+/// How long after a night's wake we stop waiting for the data edge to pass
+/// it. A strap that went quiet right after waking (flat battery, taken off and
+/// not recording) never moves the edge again, and the night we hold is then
+/// the whole night as far as any sync will ever know.
+// ponytail: wall-clock give-up; a persisted "drain complete" marker would be exact.
+const int kOvernightGiveUpSec = 12 * 60 * 60;
+
+/// Whether a night whose sleep ends at [sleepOffsetSec] is SETTLED: the drained
+/// data edge has moved [_headlineFreezeMarginSec] past the wake, so the window
+/// is no longer just where the sync happened to stop (#448: mid-drain, the
+/// newest record is still inside the night and the stager closes the window at
+/// it, so a partial night and its readiness showed as this morning's). Home and
+/// the readiness freeze both read this, on the same band-only edge
+/// ([LocalDb.lastDecodedRecTs]).
+///
+/// [nowSec] enables the wall-clock give-up. Only Home passes it: a drain that
+/// stalled mid-night looks exactly like a strap that went quiet at wake, and
+/// Home recovers on the next derive, but the freeze pins for the whole day, so
+/// it waits for the edge.
+///
+/// A null [sleepOffsetSec] is a night with no window yet. Mid-drain that is
+/// usually an edge still before sleep onset, not a night without sleep, so it
+/// only settles once the band edge has caught up to [nowSec], or gone quiet
+/// for the give-up.
+bool overnightSettled({
+  required int? sleepOffsetSec,
+  required int dataEdgeSec,
+  int? nowSec,
+}) {
+  if (sleepOffsetSec == null) {
+    return nowSec != null &&
+        (dataEdgeSec >= nowSec - _headlineFreezeMarginSec ||
+            nowSec >= dataEdgeSec + kOvernightGiveUpSec);
+  }
+  return dataEdgeSec >= sleepOffsetSec + _headlineFreezeMarginSec ||
+      (nowSec != null && nowSec >= sleepOffsetSec + kOvernightGiveUpSec);
+}
 
 /// The frozen morning readiness headline that should be persisted/surfaced for
 /// [today], given the current pin and a fresh look at today's live readiness and
@@ -1974,17 +2012,30 @@ const int _headlineFreezeMarginSec = 60 * 60;
 ///   drift — a re-derive that would RAISE or LOWER the score is ignored).
 /// - A new day → the prior day's pin no longer applies; re-pins once the new
 ///   day's overnight completes.
+/// - Same day, but the night's wake [wakeSec] moved a margin or more from the
+///   pinned one → a different sleep block is now the night (segmentation only
+///   bridges gaps under an hour, so a long mid-night awakening settles the
+///   first block, then a later one takes over as main sleep). Re-pins once that
+///   night settles; until then the old pin holds.
 @visibleForTesting
-({String day, int value})? nextFrozenHeadline({
+({String day, int value, int? wakeSec})? nextFrozenHeadline({
   required String today,
   required bool overnightComplete,
   required int? liveReadiness,
-  required ({String day, int value})? current,
+  required ({String day, int value, int? wakeSec})? current,
+  int? wakeSec,
 }) {
-  if (current != null && current.day == today) return current; // pinned; hold
+  final sameNight = current != null &&
+      current.day == today &&
+      (current.wakeSec == null ||
+          wakeSec == null ||
+          (wakeSec - current.wakeSec!).abs() < _headlineFreezeMarginSec);
+  if (sameNight) return current; // pinned; hold
   if (overnightComplete && liveReadiness != null) {
-    return (day: today, value: liveReadiness); // first complete settle → pin
+    // first complete settle of this night → pin
+    return (day: today, value: liveReadiness, wakeSec: wakeSec);
   }
+  if (current != null && current.day == today) return current;
   return null; // nothing to pin yet for today
 }
 
@@ -4859,23 +4910,27 @@ class DerivationEngine {
     if (day.date != todayLabel()) return;
     final hasSleep = day.sleepOffsetSec > day.sleepOnsetSec;
     if (!hasSleep) return;
-    final overnightComplete =
-        dataNowSec >= day.sleepOffsetSec + _headlineFreezeMarginSec;
+    final overnightComplete = overnightSettled(
+      sleepOffsetSec: day.sleepOffsetSec,
+      dataEdgeSec: dataNowSec,
+    );
     final current = await LocalDb.frozenHeadline();
     final next = nextFrozenHeadline(
       today: day.date,
       overnightComplete: overnightComplete,
       liveReadiness: readiness?.round(),
       current: current,
+      wakeSec: day.sleepOffsetSec,
     );
     if (next == null) return;
     // Already pinned to this exact value → skip the redundant write.
     if (current != null &&
         current.day == next.day &&
-        current.value == next.value) {
+        current.value == next.value &&
+        current.wakeSec == next.wakeSec) {
       return;
     }
-    await LocalDb.setFrozenHeadline(next.day, next.value);
+    await LocalDb.setFrozenHeadline(next.day, next.value, wakeSec: next.wakeSec);
     _log('froze headline readiness ${next.value} for ${next.day}');
   }
 

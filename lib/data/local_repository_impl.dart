@@ -69,10 +69,15 @@ class LocalRepositoryImpl extends LocalRepository {
   /// recovery". Fallbacks, in order: latest day with sleep → latest day with any
   /// scalars → newest decodable → null. This is what makes Today show yesterday's
   /// data when today hasn't filled yet (and the day-detail seams inherit it).
-  Future<Map<String, dynamic>?> _latestBundle() async {
+  ///
+  /// [skipDay] leaves one day out: getToday passes today when freshness says
+  /// today's night is not the overnight yet (#448), so a partial night can't
+  /// be served under the prior night's label.
+  Future<Map<String, dynamic>?> _latestBundle({String? skipDay}) async {
     final rows = await LocalDb.recentDayResults(14);
     Map<String, dynamic>? newest, withScalars;
     for (final row in rows) {
+      if (skipDay != null && row['day_id']?.toString() == skipDay) continue;
       final b = _decode(row['payload_json']);
       if (b == null) continue;
       newest ??= b;
@@ -277,17 +282,26 @@ class LocalRepositoryImpl extends LocalRepository {
     // kept serving yesterday's finished bundle as today: yesterday's steps,
     // kcal and strain on Home, yesterday's date in the greeting, and the
     // frozen headline matching so the readiness went un-flagged too.
+    //
+    // Also once a held-back night's give-up has passed: the strap that went
+    // quiet at wake never drains again, so no derive would ever refresh it.
     var todayFresh = await _freshness('today');
+    final recheckAt = (todayFresh?['overnight_recheck_at'] as num?)?.toInt();
     if (todayFresh == null ||
-        todayFresh['today_day']?.toString() != _todayLocalLabel()) {
+        todayFresh['today_day']?.toString() != _todayLocalLabel() ||
+        (todayFresh['overnight_state'] == 'building' &&
+            recheckAt != null &&
+            DateTime.now().millisecondsSinceEpoch ~/ 1000 >= recheckAt)) {
       await LocalDb.refreshComputeFreshness();
       todayFresh = await _freshness('today');
     }
     final todayDay = todayFresh?['today_day']?.toString() ?? _todayLocalLabel();
     final todayBundle = await _bundle(todayDay);
-    final overnightBundle = await _latestBundle();
     final overnightState =
         todayFresh?['overnight_state']?.toString() ?? 'missing';
+    final overnightBundle = await _latestBundle(
+      skipDay: overnightState == 'ready' ? null : todayDay,
+    );
     final activityState =
         todayFresh?['activity_state']?.toString() ?? 'missing';
     final showingPriorOvernight =
@@ -1860,6 +1874,19 @@ class LocalRepositoryImpl extends LocalRepository {
     // 74 in the ring and 69 as today's point in the chart underneath it. One
     // day, one readiness number.
     final pin = key == 'readiness' ? await LocalDb.frozenHeadline() : null;
+    // #448: every derive writes today's readiness, partial night or not, and a
+    // held night has no pin yet. Leave today's point out while getToday holds
+    // it back, or the chart plots the number the ring above it refuses.
+    String? heldDay;
+    if (key == 'readiness') {
+      final fresh = await _freshness('today');
+      final recheckAt = (fresh?['overnight_recheck_at'] as num?)?.toInt();
+      if (recheckAt != null &&
+          _nowSec() < recheckAt &&
+          fresh?['today_day']?.toString() == _todayLocalLabel()) {
+        heldDay = _todayLocalLabel();
+      }
+    }
 
     // ONE read of metric_series_version, two consumers. `_algoBreaks` used to
     // fetch it privately; `coverage_devices` rides on the same rows because it
@@ -1883,10 +1910,11 @@ class LocalRepositoryImpl extends LocalRepository {
     return {
       'points': [
         for (final r in rows)
-          {
-            't': _dateToEpoch(r['date'] as String),
-            'v': r['date'] == pin?.day ? pin!.value : r['value'],
-          },
+          if (r['date'] != heldDay || r['date'] == pin?.day)
+            {
+              't': _dateToEpoch(r['date'] as String),
+              'v': r['date'] == pin?.day ? pin!.value : r['value'],
+            },
       ],
       // L4 — THE DENOMINATOR. Worn minutes for the same days, so a long trend
       // can be read against how much of it was actually measured instead of

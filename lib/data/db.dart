@@ -26,7 +26,7 @@ import '../compute/substrate.dart' show beatTimesMs;
 // version, which every day_result read applies as a CEILING (see [dayResult]).
 // `show` keeps the rest of the engine out of this namespace.
 import '../coach/coach_db.dart' show CoachDb;
-import '../compute/derivation_engine.dart' show kAlgoVersion;
+import '../compute/derivation_engine.dart' show kAlgoVersion, kOvernightGiveUpSec, overnightSettled;
 import '../ble/adapters/adapter.dart' show NeutralSample;
 import '../ble/adapters/signals.dart' show InputSignal;
 import '../import/import_container.dart';
@@ -3327,13 +3327,18 @@ class LocalDb {
   /// The pinned morning readiness headline (day + value), or null if unset /
   /// unparseable. The `day` must be compared to today's label by the caller — a
   /// pin left over from a previous day must NOT be surfaced.
-  static Future<({String day, int value})?> frozenHeadline() async {
+  static Future<({String day, int value, int? wakeSec})?> frozenHeadline() async {
     final raw = await getCursor(kFrozenHeadlineCursor);
     if (raw == null || raw.isEmpty) return null;
     try {
       final d = jsonDecode(raw);
       if (d is Map && d['day'] is String && d['value'] is num) {
-        return (day: d['day'] as String, value: (d['value'] as num).round());
+        final wake = d['wake_sec'];
+        return (
+          day: d['day'] as String,
+          value: (d['value'] as num).round(),
+          wakeSec: wake is num ? wake.toInt() : null,
+        );
       }
     } catch (_) {
       /* malformed → treat as unset */
@@ -3343,10 +3348,16 @@ class LocalDb {
 
   /// Pin [value] as the frozen readiness headline for [day] (overwrites any
   /// prior pin — first-complete-settle-per-day is enforced by the caller).
-  static Future<void> setFrozenHeadline(String day, int value) => setCursor(
-    kFrozenHeadlineCursor,
-    jsonEncode({'day': day, 'value': value}),
-  );
+  /// [wakeSec] is the wake of the night it was pinned on.
+  static Future<void> setFrozenHeadline(String day, int value, {int? wakeSec}) =>
+      setCursor(
+        kFrozenHeadlineCursor,
+        jsonEncode({
+          'day': day,
+          'value': value,
+          'wake_sec': ?wakeSec,
+        }),
+      );
 
   /// Persist a sync batch atomically: the raw records, their samples, AND the
   /// continuation cursor in ONE transaction. This is the durable half of the
@@ -9754,11 +9765,16 @@ class LocalDb {
     final today = localDayLabelNow();
     final latestRawTs = (raw['max_rec_ts'] as num?)?.toInt();
     final todayWake = await wakeDayFeatures(today);
+    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    // The band's edge, same as the readiness freeze: a peripheral streaming
+    // this morning says nothing about how far the band's night has drained.
+    final bandEdgeSec = await lastDecodedRecTs() ?? 0;
     String? latestOvernightDay;
     int? latestOvernightComputedAt;
     String? latestRecoveryDay;
     int? latestRecoveryComputedAt;
     Map<String, dynamic>? todayRow;
+    int? overnightRecheckAt;
     for (final row in recent) {
       final dayId = row['day_id']?.toString();
       if (dayId == null || dayId.isEmpty) continue;
@@ -9767,6 +9783,25 @@ class LocalDb {
           SeriesCodec.decodePayloadJson(row['payload_json']) ??
           const <String, dynamic>{};
       if (decoded['skipped'] == true) continue;
+      // #448: today's night is not today's overnight until the drain has
+      // passed its wake. Mid-drain the window closes at the newest record, so
+      // serving it showed a partial night and its readiness as this morning's.
+      // A row with no window is held too: mid-drain the edge can still sit
+      // before sleep onset, and that read as a settled 'no sleep' night.
+      final offsetMs = (((decoded['sleep'] as Map?)?['window'] as Map?)?['value']
+          as Map?)?['offset_ms'];
+      final wakeSec = offsetMs is num ? offsetMs ~/ 1000 : null;
+      if (dayId == today &&
+          !overnightSettled(
+            sleepOffsetSec: wakeSec,
+            dataEdgeSec: bandEdgeSec,
+            nowSec: nowSec,
+          )) {
+        // When the give-up lands; getToday re-checks then, since a quiet
+        // strap triggers no derive to do it.
+        overnightRecheckAt = (wakeSec ?? bandEdgeSec) + kOvernightGiveUpSec;
+        continue;
+      }
       final scalars = ((decoded['scalars'] as Map?) ?? const {})
           .cast<String, dynamic>();
       if (latestOvernightDay == null) {
@@ -9824,6 +9859,7 @@ class LocalDb {
         'overnight_day': latestOvernightDay,
         'overnight_state': overnightState,
         'overnight_computed_at': latestOvernightComputedAt,
+        'overnight_recheck_at': overnightRecheckAt,
         'recovery_day': latestRecoveryDay,
         'recovery_computed_at': latestRecoveryComputedAt,
         'showing_prior_overnight':

@@ -155,6 +155,26 @@ PairedDevice? healedPairing(PairedDevice? current, String? reportedSerial) {
   return PairedDevice(current.remoteId, clean, generation: current.generation);
 }
 
+/// Whether [dayId]'s night is settled enough to announce its recovery: today's
+/// row goes through the same [overnightSettled] gate Home uses (#448), older
+/// rows are past it.
+@visibleForTesting
+bool recoveryNightSettled({
+  required String dayId,
+  required Map<String, dynamic>? payload,
+  required int dataEdgeSec,
+  required int nowSec,
+}) {
+  if (dayId != todayLabel()) return true;
+  final offsetMs = (((payload?['sleep'] as Map?)?['window'] as Map?)?['value']
+      as Map?)?['offset_ms'];
+  return overnightSettled(
+    sleepOffsetSec: offsetMs is num ? offsetMs ~/ 1000 : null,
+    dataEdgeSec: dataEdgeSec,
+    nowSec: nowSec,
+  );
+}
+
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
 
@@ -1734,10 +1754,11 @@ class AppState extends ChangeNotifier {
       // Same signal, for the surfaces that can't listen: home/lock-screen
       // widget, Watch mirror, Siri intents (WidgetService.refresh).
       unawaited(WidgetService.refresh(repo));
-      // A heavy finalize is where a freshly-closed sleep window + recovery for a
-      // new physiological day lands — fire the "recovery ready" push off it.
+      // "Recovery ready" push, on light passes too: it waits for the settled
+      // night (#448), and once a heavy has run before the edge passed the
+      // wake, only light drains are left to see it settle.
+      unawaited(_maybeNotifyRecoveryReady());
       if (heavy) {
-        unawaited(_maybeNotifyRecoveryReady());
         // Baseline-dirty rescan: new data may have shifted the rolling baseline,
         // so refresh baseline-dependent scalars (readiness/illness/stress) on
         // recent FINALIZED days. Cheap when the baseline is unchanged (a single
@@ -1835,18 +1856,27 @@ class AppState extends ChangeNotifier {
       if (score == null) {
         return; // recovery not computed (no nocturnal HRV) → no fire
       }
-
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getString(_kLastRecoveryNotifDay) == dayId) {
         return; // already fired
+      }
+      final payload = SeriesCodec.decodePayloadJson(
+        (row['payload_json'] ?? '{}').toString(),
+      );
+      // Home holds a partial night back; announcing it would also spend the
+      // day's guard before the real recovery lands.
+      if (!recoveryNightSettled(
+        dayId: dayId,
+        payload: payload,
+        dataEdgeSec: await LocalDb.lastDecodedRecTs() ?? 0,
+        nowSec: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      )) {
+        return;
       }
 
       // Sleep hours from the day's bundle accounting (tst), for the body copy.
       String slept = '';
       try {
-        final payload = SeriesCodec.decodePayloadJson(
-          (row['payload_json'] ?? '{}').toString(),
-        );
         if (payload != null) {
           final acct = ((payload['sleep'] as Map?)?['accounting'] as Map?);
           final tstSec = ((acct?['value'] as Map?)?['tst_sec'] as num?)
