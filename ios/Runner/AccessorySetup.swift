@@ -33,7 +33,10 @@ import AccessorySetupKit
 ///   - `provisionedId`      -> String?(uppercased UUID of an already-provisioned band, or nil)
 ///   - `showPicker`         -> String (the band provisioned by THIS call; throws on cancel/error)
 ///                             optional Bool argument: true = add another accessory
-///   - `removeAll`          -> nil    (deprovision all — used on unpair)
+///   - `removeBands`        -> nil    (deprovision BANDS — what unpair uses; a paired
+///                             sensor survives, because removing one takes its system
+///                             bond away from every app)
+///   - `removeAll`          -> nil    (deprovision all — no caller; full teardown)
 ///
 /// The service UUIDs the picker matches on are NOT duplicated here: they come from
 /// Info.plist's NSAccessorySetupBluetoothServices, which Apple requires to list every
@@ -101,6 +104,16 @@ enum AccessorySetup {
                               message: "AccessorySetupKit requires iOS 18", details: nil))
         }
 
+      // Unpairing a BAND must not deprovision the user's ring — see `removeBands`.
+      case "removeBands":
+        if #available(iOS 18.0, *) {
+          Impl.shared.removeBands { result(nil) }
+        } else {
+          result(nil)
+        }
+
+      // KEPT for a genuine full teardown and for Dart older than this build, on the same
+      // reasoning as `provisionedId` above. `unpair()` deliberately no longer calls it.
       case "removeAll":
         if #available(iOS 18.0, *) {
           Impl.shared.removeAll { result(nil) }
@@ -316,9 +329,41 @@ private final class Impl {
     }
   }
 
+  /// Deprovision every provisioned BAND, leaving sensors (a ring) provisioned.
+  ///
+  /// WHY NOT `removeAll`: `removeAccessory` does not merely revoke this app's grant.
+  /// Apple's answer on the Developer Forums is that it "will remove the accessory from
+  /// the system and for ALL apps — this is by design, and this call will always remove it
+  /// from the system", i.e. it takes the link-layer bond with it. So unpairing a WHOOP
+  /// band through `removeAll` also silently unpaired the user's Oura ring from the PHONE,
+  /// which nothing in this app can put back and which the Oura app and NOOP lose too.
+  /// Reported from the field: the ring gone from Settings › Bluetooth, with no band
+  /// unpair that ever mentioned a ring.
+  ///
+  /// "Band" is `provisionedIdList`'s rule, not a second one: anything whose descriptor
+  /// service is not a declared `OSAskSensorServices` entry, an accessory with no readable
+  /// service included — a band can be provisioned under the bare 0xFD4B fallback
+  /// descriptor, so "unknown" has to stay on the band side or a real band would survive
+  /// its own unpair.
+  func removeBands(_ completion: @escaping () -> Void) {
+    ensureActivated()
+    let sensors = sensorServices
+    let bands = session.accessories.filter { a in
+      guard let svc = service(of: a) else { return true }
+      return !sensors.contains(svc)
+    }
+    NSLog("[ASK] unpair: deprovisioning %ld band(s), leaving %ld sensor(s) alone",
+          bands.count, session.accessories.count - bands.count)
+    remove(bands, completion)
+  }
+
   func removeAll(_ completion: @escaping () -> Void) {
     ensureActivated()
-    let accessories = session.accessories
+    remove(session.accessories, completion)
+  }
+
+  private func remove(_ accessories: [ASAccessory],
+                      _ completion: @escaping () -> Void) {
     guard !accessories.isEmpty else { completion(); return }
     let group = DispatchGroup()
     for acc in accessories {

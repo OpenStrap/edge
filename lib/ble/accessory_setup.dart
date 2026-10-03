@@ -66,11 +66,20 @@ class AccessorySetup {
     return id;
   }
 
-  /// Deprovision all ASK accessories (called on unpair). Best-effort.
-  static Future<void> removeAll() async {
+  /// Deprovision the provisioned BANDS on unpair, leaving a paired sensor (a ring)
+  /// alone. Best-effort.
+  ///
+  /// NOT `removeAll`, and the difference is not cosmetic: `ASAccessorySession
+  /// .removeAccessory` does not just revoke this app's grant. Apple's own answer is that
+  /// it removes the accessory "from the system and for ALL apps … this call will always
+  /// remove it from the system" — the link-layer bond included. So unpairing a WHOOP band
+  /// used to unpair the user's Oura ring from the PHONE as well, which nothing in this
+  /// app can put back and which the Oura app and NOOP also lose. Seen in the field: the
+  /// ring gone from Settings › Bluetooth.
+  static Future<void> removeBands() async {
     if (!Platform.isIOS) return;
     try {
-      await _ch.invokeMethod('removeAll');
+      await _ch.invokeMethod('removeBands');
     } catch (_) {}
   }
 }
