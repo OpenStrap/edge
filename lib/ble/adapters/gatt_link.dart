@@ -174,15 +174,42 @@ class GattBandLink implements BandLink {
           'this peripheral.');
       return const Stream.empty();
     }
+    // THE SUBSCRIBE IS ISSUED HERE, synchronously, and NOT inside the generator
+    // below. That ordering is the whole point of this being two statements.
+    //
+    // A generator's body does not run when its stream is listened to, only when
+    // the scheduler next gets a turn. So with the `setNotifyValue` inside it,
+    // the natural way to write "ask the device something and read the answer" —
+    //
+    //     final sub = link.notify(notifyChar).listen(...);
+    //     await link.write(commandChar, askSomething());
+    //
+    // put the command into flutter_blue_plus's queue AHEAD of the CCCD write
+    // that enables notifications, because there is no `await` between the two
+    // and `.listen()` only schedules. The device answered into a subscription
+    // that did not exist yet and the reply went on the floor.
+    //
+    // Traced on an Oura Gen3 (iOS 27): connected, two services discovered, the
+    // nonce request written fine, then `no nonce came back within 10 s`, over
+    // and over, against a ring that was working. The handshake reported that
+    // the ring had stopped answering, which was exactly backwards — it
+    // answered, nobody was listening.
+    //
+    // Issuing it before the stream is returned fixes it for every adapter at
+    // once rather than for one caller, because flutter_blue_plus serialises all
+    // GATT operations behind one global mutex (see [read]'s note on it), so a
+    // write enqueued afterwards cannot overtake it.
+    final subscribed = _closed
+        ? Future.value(false)
+        : c.setNotifyValue(true).timeout(_notifyTimeout).then(
+            (_) => true,
+            onError: (Object e) {
+              log('notify: setNotifyValue failed: $e');
+              return false;
+            },
+          );
     final raw = () async* {
-      if (!_closed) {
-        try {
-          await c.setNotifyValue(true).timeout(_notifyTimeout);
-        } catch (e) {
-          log('notify: setNotifyValue failed: $e');
-          return;
-        }
-      }
+      if (!await subscribed) return;
       // The arrival second is stamped HERE, at the edge of the radio, and
       // not inside the adapter — it is the closest we can get to when the
       // notification actually landed, and it keeps `DateTime.now()` out of
