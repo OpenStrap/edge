@@ -4071,7 +4071,7 @@ class LocalDb {
   /// which the UI states in as many words.
   ///
   /// Derived on read, never stored: total volume, set/rep counts, 1RM
-  /// estimates, per-muscle volume, "vs last session", PR detection.
+  /// estimates, "vs last session", PR detection.
   static Future<void> _createStrengthTables(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS strength_set (
@@ -4152,6 +4152,44 @@ class LocalDb {
       orderBy: 'at_ts DESC',
       limit: limit,
     );
+  }
+
+  /// Newest-set and heaviest-set candidates per logged exercise, in two
+  /// queries. The caller keeps the first row per key (most reps wins a tie).
+  /// No window functions: minSdk 26 can ship SQLite older than 3.25.
+  static Future<({
+    List<Map<String, Object?>> previous,
+    List<Map<String, Object?>> best,
+  })> strengthHistoryCandidates() async {
+    final db = await instance;
+    final previous = await db.rawQuery('''
+      SELECT s.*
+      FROM strength_set s
+      JOIN (
+        SELECT exercise_key, MAX(COALESCE(at_ts, 0)) AS newest_at
+        FROM strength_set
+        GROUP BY exercise_key
+      ) newest
+        ON newest.exercise_key = s.exercise_key
+       AND newest.newest_at = COALESCE(s.at_ts, 0)
+      ORDER BY s.exercise_key ASC, COALESCE(s.at_ts, 0) DESC,
+               s.session_id DESC, s.seq DESC
+    ''');
+    final best = await db.rawQuery('''
+      SELECT s.*
+      FROM strength_set s
+      JOIN (
+        SELECT exercise_key, MAX(load_kg) AS best_load
+        FROM strength_set
+        WHERE load_kg IS NOT NULL
+        GROUP BY exercise_key
+      ) heaviest
+        ON heaviest.exercise_key = s.exercise_key
+       AND heaviest.best_load = s.load_kg
+      ORDER BY s.exercise_key ASC, COALESCE(s.reps, 0) DESC,
+               COALESCE(s.at_ts, 0) DESC, s.session_id DESC, s.seq DESC
+    ''');
+    return (previous: previous, best: best);
   }
 
   // ── USER-DATA STORE (journal / cycle / workouts / notifications) ────────────

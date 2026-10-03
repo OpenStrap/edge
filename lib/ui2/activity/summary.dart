@@ -1733,7 +1733,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                              exerciseByKey(top.exerciseKey)?.label ??
+                              exerciseByKey(top.exerciseKey)?.labelFor(
+                                      Localizations.localeOf(c).languageCode) ??
                                   top.exerciseKey,
                               style: F.body.copyWith(
                                   color: p.ink, fontWeight: FontWeight.w600)),
@@ -1952,7 +1953,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         return [
           for (final key in r.strength.exercises) ...[
             Section(
-              exerciseByKey(key)?.label ?? key,
+              exerciseByKey(key)
+                      ?.labelFor(Localizations.localeOf(c).languageCode) ??
+                  key,
               Surface(
                 pad: const EdgeInsets.symmetric(horizontal: S.x4),
                 child: Column(children: [
@@ -2206,4 +2209,3 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     ];
   }
 }
-

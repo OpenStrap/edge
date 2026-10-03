@@ -337,5 +337,31 @@ void main() {
       expect(failed.isEmpty, isTrue);
       expect(failed.hasFailures, isTrue);
     });
+
+    test('strength rows carry the exercise name, not just its key', () async {
+      final db = await LocalDb.instance;
+      for (final (seq, key) in [
+        (0, 'wger:eb9476ac-2c00-4f49-a40f-f81682161a75'),
+        (1, 'retired_lift'),
+      ]) {
+        await db.insert('strength_set', {
+          'session_id': 's1',
+          'seq': seq,
+          'exercise_key': key,
+          'set_index': 0,
+          'reps': 8,
+          'load_kg': 14.0,
+          'at_ts': 1767225600 + seq,
+        });
+      }
+      final strength = kCsvExportSets.firstWhere((s) => s.name == 'strength');
+      final result = await exportCsvFiles([strength], now: DateTime(2026, 9, 3));
+      final lines =
+          (await File(result.paths.single).readAsString()).trim().split('\n');
+      expect(lines.first, startsWith('at_ts,session_id,exercise,exercise_name,'));
+      expect(lines[1], contains(',Alternating dumbbell hammer curl,'));
+      expect(lines[2], contains(',retired_lift,,'),
+          reason: 'an unknown key has no name, so the field is empty');
+    });
   });
 }

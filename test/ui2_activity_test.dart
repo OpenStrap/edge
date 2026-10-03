@@ -20,6 +20,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/gps/gps_source.dart';
+import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/state/prefs.dart';
 import 'package:openstrap_edge/state/units_controller.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
@@ -35,6 +36,8 @@ import 'package:openstrap_edge/ui2/screens/workout_screen.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../tool/wger_weightlifting_selection.dart';
 
 // ── deterministic fixtures ─────────────────────────────────────────────────
 
@@ -233,6 +236,84 @@ void main() {
       expect(activityByName(null), isNull);
     });
 
+    test('the offline strength catalogue keeps old keys and wger provenance',
+        () {
+      expect(coreExerciseCount, 18);
+      expect(wgerExerciseCount, wgerWeightliftingSelection.length);
+      expect(
+          {for (final e in exerciseLibrary.where((e) => e.fromWger))
+            e.sourceId: e.label},
+          wgerWeightliftingSelection,
+          reason: 'only explicitly reviewed lifting additions may ship');
+      expect(exerciseLibrary, hasLength(coreExerciseCount + wgerExerciseCount));
+      expect(exerciseLibrary.map((e) => e.key).toSet(),
+          hasLength(exerciseLibrary.length),
+          reason: 'a duplicate key would merge two exercises in history');
+      expect(exerciseByKey('bench_press')?.label, 'Bench press',
+          reason: 'existing set-history keys must remain stable');
+
+      final arnold = exerciseLibrary
+          .firstWhere((e) => e.label == 'Arnold Shoulder Press');
+      expect(arnold.fromWger, isTrue);
+      expect(arnold.matches('Schwarzenegger', 'en'), isTrue,
+          reason: 'search includes upstream aliases');
+      expect(arnold.labelFor('de'), 'Arnold Press');
+      expect(arnold.sourceId, isNotEmpty);
+      expect(arnold.sourceUrl,
+          'https://wger.de/api/v2/exerciseinfo/?uuid=${arnold.sourceId}');
+      expect(arnold.sourceCredits.map((credit) => credit.author),
+          containsAll({'trzr23', 'wgerjhn'}),
+          reason: 'base data and translated labels have separate authors');
+      const allowedLicenses = {
+        'CC-BY-SA 3':
+            'https://creativecommons.org/licenses/by-sa/3.0/deed.en',
+        'CC-BY-SA 4':
+            'https://creativecommons.org/licenses/by-sa/4.0/deed.en',
+        'CC0': 'http://creativecommons.org/publicdomain/zero/1.0/',
+      };
+      expect(
+          exerciseLibrary
+              .where((e) => e.fromWger)
+              .every((e) =>
+                  e.sourceCredits.isNotEmpty &&
+                  e.sourceCredits.every((credit) =>
+                      allowedLicenses[credit.licenseName] ==
+                      credit.licenseUrl)),
+          isTrue);
+    });
+
+    test('the core lifts are named and searchable in the shipped languages',
+        () {
+      for (final e in exerciseLibrary.take(coreExerciseCount)) {
+        for (final code in ['de', 'es', 'fr']) {
+          expect(e.localizedLabels[code], isNotEmpty,
+              reason: '${e.key} has no $code name');
+        }
+      }
+      final bench = exerciseByKey('bench_press')!;
+      expect(bench.labelFor('de'), 'Bankdrücken');
+      expect(bench.matches('Bankdrücken', 'de'), isTrue);
+      expect(bench.matches('soulevé', 'fr'), isFalse);
+      expect(exerciseByKey('deadlift')!.matches('soulevé', 'fr'), isTrue);
+    });
+
+    test('the lifting catalogue excludes other workouts and mobility drills', () {
+      final labels = exerciseLibrary.map((e) => e.label).toSet();
+      for (final excluded in [
+        'Walking', 'Cycling', 'Zone 2 Running', 'Treadmill Cardio',
+        'Cool-Down Swim', 'Guided or free meditation', '90/90 Breathing',
+        'Cobra Stretch', 'Yoga exercise: Cow-cat',
+      ]) {
+        expect(labels, isNot(contains(excluded)), reason: excluded);
+      }
+      expect(exerciseLibrary.any((e) => e.category == 'Cardio'), isFalse);
+      expect(labels, containsAll([
+        'Bench press', 'Back squat', 'Deadlift', 'Arnold Shoulder Press',
+        'Dumbbell Romanian Deadlift', 'Leg Extension', 'Cable Curls',
+        'Barbell Lunges Walking',
+      ]));
+    });
+
     test('kcal is MET × 3.5 × kg / 200 × min, and null without a weight', () {
       final run = activityByName('running')!;
       // 9.8 × 3.5 × 70 / 200 × 30 = 360.15
@@ -275,6 +356,15 @@ void main() {
       for (final arch in Arch.values) {
         expect(liveFor(_first(arch)), isA<Widget>());
       }
+    });
+
+    test('other workout types keep their own live screens', () {
+      expect(liveFor(activityByName('weight_training')!), isA<LiveStrength>());
+      expect(liveFor(activityByName('running')!), isA<LiveMeasured>());
+      expect(liveFor(activityByName('cycling')!), isA<LiveMeasured>());
+      expect(liveFor(activityByName('swimming')!), isA<LiveSwim>());
+      expect(liveFor(activityByName('yoga')!), isA<LiveFlow>());
+      expect(liveFor(activityByName('hiit')!), isA<LiveInterval>());
     });
 
     test('there is no power archetype, and the machines that claimed it are '
@@ -1139,10 +1229,15 @@ void main() {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final activity = activityByName('weight_training')!;
+      LiveDraft.begin(activity, weightKg: 72.4);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
 
       ActivityResult? handed;
       await tester.pumpWidget(_frame(
-          liveFor(activityByName('weight_training')!,
+          liveFor(activity,
               weightKg: 72.4,
               host: ActivityHost(onFinish: (draft) async {
                 handed = draft;
@@ -1305,6 +1400,8 @@ void main() {
       final a = activityByName('weight_training')!;
       // What the setup screen does once the app accepts the session.
       LiveDraft.begin(a, weightKg: 72.4);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
+      LiveDraft.current!.put('exercise_index', 0);
 
       await tester.pumpWidget(
           _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
@@ -1325,6 +1422,147 @@ void main() {
       expect(find.text('40 kg × 8'), findsWidgets,
           reason: 'a typed set is the one thing nothing can recompute');
       expect(find.text('320'), findsOneWidget, reason: 'volume, restored');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a lift can be chosen, replaced, and changed without retagging sets',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+      SharedPreferences.setMockInitialValues(const {});
+      await Prefs.ensureLoaded();
+
+      final a = activityByName('weight_training')!;
+      LiveDraft.begin(a, weightKg: 72.4);
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Choose exercise'), findsWidgets);
+      expect(find.text('Bench press'), findsNothing,
+          reason: 'a real session must not invent a first lift');
+      await tester.tap(find.widgetWithText(BigButton, 'Choose exercise'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Incline DB press'));
+      await tester.pumpAndSettle();
+      expect(LiveDraft.current!.data['exercise_plan'], ['incline_db_press']);
+
+      // The choice is part of the draft even before a set exists, so a
+      // minimise/restore cycle cannot lose an empty exercise slot.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+      expect(find.text('Incline DB press'), findsOneWidget);
+
+      // No set belongs to this slot yet, so changing it replaces the slot.
+      await tester.tap(find.text('Incline DB press'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Back squat'));
+      await tester.pumpAndSettle();
+      expect(LiveDraft.current!.data['exercise_plan'], ['back_squat']);
+
+      // Once a set exists, changing exercises switches/adds instead of
+      // relabelling what the user already logged.
+      await tester.tap(find.text('Log set'));
+      await tester.pump();
+      await tester.tap(find.text('Back squat'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bench press'));
+      await tester.pumpAndSettle();
+      expect(LiveDraft.current!.data['exercise_plan'],
+          ['back_squat', 'bench_press']);
+      final saved = LiveDraft.current!.data['sets']! as List<Object?>;
+      expect((saved.single as Map)['k'], 'back_squat');
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the exercise picker searches the offline catalogue and exposes '
+        'per-entry credits', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('weight_training')!;
+      LiveDraft.begin(a, weightKg: 72.4);
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 3.1));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(BigButton, 'Choose exercise'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Cardio'), findsNothing);
+      for (final query in ['Treadmill Cardio', '90/90 Breathing', 'Cobra Stretch']) {
+        await tester.enterText(find.byType(TextField), query);
+        await tester.pumpAndSettle();
+        expect(find.text('No exercises match that'), findsOneWidget);
+      }
+      await tester.enterText(find.byType(TextField), 'Arnold Shoulder Press');
+      await tester.pumpAndSettle();
+      expect(find.text('Arnold Shoulder Press'), findsNWidgets(2),
+          reason: 'the search field and its offline result both show the name');
+      expect(
+          find.bySemanticsLabel(
+              'View source and credits for Arnold Shoulder Press'),
+          findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('searching keeps the highlighted category', (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('weight_training')!;
+      LiveDraft.begin(a, weightKg: 72.4);
+      await tester.pumpWidget(
+          _frame(liveFor(a, weightKg: 72.4), Brightness.light, 1.0));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(BigButton, 'Choose exercise'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Abs'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'raise');
+      await tester.pumpAndSettle();
+      expect(find.text('Hanging leg raise'), findsOneWidget);
+      expect(find.text('Front Raises'), findsNothing,
+          reason: 'a shoulders lift is not in the Abs filter');
+    });
+
+    testWidgets('search matches the translated category and equipment it shows',
+        (tester) async {
+      tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final a = activityByName('weight_training')!;
+      LiveDraft.begin(a, weightKg: 72.4);
+      await tester.pumpWidget(MaterialApp(
+        locale: const Locale('de'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        theme: buildTheme(Brightness.light),
+        home: liveFor(a, weightKg: 72.4),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(BigButton, 'Übung auswählen'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'Rücken');
+      await tester.pumpAndSettle();
+      expect(find.text('Langhantelrudern'), findsOneWidget,
+          reason: 'the chip says Rücken, so typing it finds Back lifts');
+      expect(find.text('Rücken · Langhantel'), findsWidgets);
+
+      await tester.enterText(find.byType(TextField), 'Kurzhantel');
+      await tester.pumpAndSettle();
+      expect(find.text('Schrägbankdrücken mit Kurzhanteln'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -1513,12 +1751,13 @@ void main() {
           reason: 'a fit instruction only makes sense for a band that is there');
     });
 
-    testWidgets('the strength screen still follows the band it does not tick '
-        'for', (tester) async {
+    testWidgets('a draftless strength screen chooses nothing and still follows '
+        'the band', (tester) async {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
       addTearDown(LiveDraft.clear);
+      LiveDraft.clear();
 
       var hr = 96;
       await tester.pumpWidget(_frame(
@@ -1527,6 +1766,9 @@ void main() {
           Brightness.light,
           1.0));
       await tester.pumpAndSettle();
+      expect(find.text('Choose exercise'), findsWidgets);
+      expect(find.text('Bench press'), findsNothing,
+          reason: 'no draft is not evidence that this was a bench press');
       expect(find.text('96'), findsOneWidget);
 
       // The body is built once and left alone by the 1 Hz tick — but the heart
@@ -1543,8 +1785,12 @@ void main() {
       addTearDown(tester.view.reset);
       addTearDown(LiveDraft.clear);
 
+      final activity = activityByName('weight_training')!;
+      LiveDraft.begin(activity);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
+
       await tester.pumpWidget(_frame(
-          LiveStrength(activityByName('weight_training')!),
+          LiveStrength(activity),
           Brightness.light,
           1.0));
       await tester.pumpAndSettle();
@@ -1725,9 +1971,14 @@ void main() {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final activity = activityByName('weight_training')!;
+      LiveDraft.begin(activity, weightKg: 72.4);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
 
       await tester.pumpWidget(_frame(
-          liveFor(activityByName('weight_training')!, weightKg: 72.4),
+          liveFor(activity, weightKg: 72.4),
           Brightness.light,
           1.0));
       await tester.pumpAndSettle();
@@ -1748,12 +1999,16 @@ void main() {
       tester.view.physicalSize = const Size(390 * 3, 2400 * 3);
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
+      addTearDown(LiveDraft.clear);
+
+      final activity = activityByName('weight_training')!;
+      LiveDraft.begin(activity, weightKg: 72.4);
+      LiveDraft.current!.put('exercise_plan', ['bench_press']);
 
       await tester.pumpWidget(_frame(
           ChangeNotifierProvider<UnitsController>.value(
               value: UnitsController.seed(UnitSystem.imperial),
-              child: liveFor(activityByName('weight_training')!,
-                  weightKg: 72.4)),
+              child: liveFor(activity, weightKg: 72.4)),
           Brightness.light,
           1.0));
       await tester.pumpAndSettle();
