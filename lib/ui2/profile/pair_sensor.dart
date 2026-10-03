@@ -79,7 +79,18 @@ class PairSensorScreen extends StatefulWidget {
   /// case out of every caller.
   final Future<String?> Function(BluetoothDevice)? onPicked;
 
-  const PairSensorScreen({super.key, required this.entry, this.onPicked});
+  /// Pair with a secret the device ALREADY holds, typed by the user — for a
+  /// ring, the key its own app installed, so it can be paired without a
+  /// factory reset. Null hides the field. When the field is left empty the
+  /// ordinary [onPicked] step runs, so this only ever adds a way in.
+  final Future<String?> Function(BluetoothDevice, String key)? onPickedWithKey;
+
+  const PairSensorScreen({
+    super.key,
+    required this.entry,
+    this.onPicked,
+    this.onPickedWithKey,
+  });
 
   @override
   State<PairSensorScreen> createState() => _PairSensorScreenState();
@@ -107,6 +118,9 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
   /// (iOS 18+ and [kAskPickerSensors]). Decided once, in [_load].
   bool _viaPicker = false;
 
+  /// The key field's text, when [PairSensorScreen.onPickedWithKey] is set.
+  final TextEditingController _key = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -125,6 +139,7 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     // cannot await one, and nothing follows it onto the radio — unlike
     // `_pick`, where a connect does.
     unawaited(HrsLink.stopScanIfRunning(this));
+    _key.dispose();
     super.dispose();
   }
 
@@ -247,8 +262,11 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     // `l` above the await, because `context` after one is the lint's point.
     await HrsLink.stopScanIfRunning(this);
     String? failure;
+    final typedKey = _key.text.trim();
     try {
-      failure = widget.onPicked != null
+      failure = widget.onPickedWithKey != null && typedKey.isNotEmpty
+          ? await widget.onPickedWithKey!(device, typedKey)
+          : widget.onPicked != null
           ? await widget.onPicked!(device)
           : await HrsLink.pairNotifySensor(
               widget.entry,
@@ -292,6 +310,7 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
         problem: _problem,
         paired: _paired,
         busyRemoteId: _busy,
+        keyController: widget.onPickedWithKey == null ? null : _key,
         onScan: _scan,
         onPick: _pick,
         onForget: _forget,
@@ -312,6 +331,9 @@ class PairSensorView extends StatelessWidget {
   final PairedSensor? paired;
   final String? busyRemoteId;
 
+  /// The optional "pair with the key it already holds" field. Null hides it.
+  final TextEditingController? keyController;
+
   final VoidCallback? onScan;
   final void Function(BandCandidate)? onPick;
   final void Function(String id)? onForget;
@@ -325,6 +347,7 @@ class PairSensorView extends StatelessWidget {
     this.problem,
     this.paired,
     this.busyRemoteId,
+    this.keyController,
     this.onScan,
     this.onPick,
     this.onForget,
@@ -365,6 +388,10 @@ class PairSensorView extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (keyController != null) ...[
+                  const SizedBox(height: S.x4),
+                  _keySection(c, keyController!, busy || scanning),
+                ],
                 if (heldBack != null) ...[
                   const SizedBox(height: S.x4),
                   StatusCard(
@@ -430,6 +457,42 @@ class PairSensorView extends StatelessWidget {
                     ),
                   ),
               ],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// The key the device already holds, if the user has it. Optional, and says
+  /// so: an empty field is the ordinary pairing.
+  Widget _keySection(BuildContext c, TextEditingController ctl, bool locked) {
+    final p = P.of(c);
+    return Section(
+      'Already set up elsewhere?',
+      Surface(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(
+            'If you have the key this device already uses, paste it here and '
+            'it pairs without a factory reset — nothing is written to the '
+            'device. Leave it empty to pair the usual way.',
+            style: F.cap.copyWith(color: p.ink3, height: 1.5),
+          ),
+          TextField(
+            controller: ctl,
+            enabled: !locked,
+            autocorrect: false,
+            enableSuggestions: false,
+            style: F.head.copyWith(color: p.ink),
+            decoration: InputDecoration(
+              hintText: '32 hex digits or base64',
+              hintStyle: F.head.copyWith(color: p.ink3),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: S.x3),
+              enabledBorder:
+                  UnderlineInputBorder(borderSide: BorderSide(color: p.line)),
+              focusedBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: p.on(C.green))),
             ),
           ),
         ]),

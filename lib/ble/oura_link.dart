@@ -57,6 +57,7 @@
 // erasing anything.
 
 import 'dart:async';
+import 'dart:convert' show base64;
 import 'dart:math' show Random;
 
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
@@ -136,6 +137,28 @@ Future<void> _awaitAdapterOn() async {
       .firstWhere((s) => s == BluetoothAdapterState.on)
       .timeout(const Duration(seconds: 10),
           onTimeout: () => BluetoothAdapterState.unknown);
+}
+
+/// A 16-byte Oura pairing key typed or pasted by the user, or null when [raw]
+/// is not one.
+///
+/// Two spellings, because those are the two a key actually turns up in: 32 hex
+/// digits, and the base64 form a key is stored as in the vendor app's own
+/// database (24 characters with its `==` padding). Whitespace, colons and
+/// dashes are ignored so a key copied out of a hex dump still parses. Anything
+/// that does not come out at exactly 16 bytes is refused rather than padded or
+/// truncated — a wrong key costs nothing on the ring, but a silently mangled
+/// one reads as "the ring refused my key" when the ring was never shown it.
+List<int>? parseOuraKey(String raw) {
+  final s = raw.replaceAll(RegExp(r'[\s:-]'), '');
+  if (s.isEmpty) return null;
+  if (RegExp(r'^[0-9a-fA-F]{32}$').hasMatch(s)) return _unhex(s);
+  try {
+    final bytes = base64.decode(s);
+    return bytes.length == 16 ? bytes : null;
+  } on FormatException {
+    return null;
+  }
 }
 
 /// The live link to a paired Oura ring. One instance; a second concurrent ring
@@ -593,6 +616,19 @@ class OuraLink {
   }
 }
 
+/// What to tell a user whose OWN key the ring refused, by result code. Not
+/// [_kResetFirst]: that sentence tells them to reset the ring, which is exactly
+/// what pairing with an existing key exists to avoid.
+String _existingKeyRefusal(int? result) => switch (result) {
+      kOuraAuthWrongKey => 'The ring refused that key. Check that it is this '
+          'ring\'s key and that all of it was copied.',
+      kOuraAuthFactoryReset => 'This ring holds no key yet, so there is nothing '
+          'to match. Pair it without a key instead.',
+      kOuraAuthNotOnboarded => 'The ring matched the key but reported that this '
+          'is not the device it was set up with (code 3).',
+      _ => 'The ring refused that key (code ${result ?? "none"}).',
+    };
+
 /// Pair [device] as this phone's Oura ring. Null on success, or a sentence the
 /// user can act on.
 ///
@@ -615,9 +651,147 @@ class OuraLink {
 /// that only checks the first hands the user a device row that can never sync.
 ///
 /// STILL HARDWARE-UNVERIFIED, like everything else on this path (R6).
-Future<String?> pairOuraRing(BluetoothDevice device) async {
+Future<String?> pairOuraRing(BluetoothDevice device) =>
+    _pairOuraRing(device, existingKey: null);
+
+/// Pair [device] with the 16-byte key the ring ALREADY holds — no factory
+/// reset, nothing written to the ring. Null on success, or a sentence the user
+/// can act on.
+///
+/// THE OTHER HALF OF "THERE IS NO STATE IN WHICH BOTH WORK". [pairOuraRing]
+/// installs a key of ours, which the ring only accepts while factory reset, and
+/// that reset is what removes it from the Oura app. A ring that is in use keeps
+/// the key its app installed, and a user who has that key (it is stored in the
+/// app's own database on their own phone) can hand it to this app instead:
+/// the ring then answers both, one connection at a time.
+///
+/// READ-ONLY ON THE RING. Only the authentication round trip goes out — the
+/// key-install command is never sent on this path — so a wrong key costs a
+/// refusal and nothing else. The key is still stored before the device row and
+/// dropped if pairing fails, exactly as on the install path.
+///
+/// [key] is the vendor app's key, which is a credential for the user's own
+/// ring: it is kept in the keychain like ours and never leaves the phone.
+Future<String?> pairOuraRingWithKey(BluetoothDevice device, List<int> key) {
+  if (key.length != 16) {
+    return Future.value('That is not a ring key: it must be exactly 16 bytes.');
+  }
+  return _pairOuraRing(device, existingKey: List<int>.unmodifiable(key));
+}
+
+/// The pairing handshake over an open [link]: install [key] when [install],
+/// then prove it. Null when the ring let us in, or the sentence to show.
+///
+/// Split out of [_pairOuraRing] so the bytes it puts on the wire can be pinned
+/// without a radio — in particular that the key-install command is NEVER sent
+/// on the existing-key path, which is what makes that path read-only on the
+/// ring.
+///
+/// Over the real wire builders and nothing else.
+@visibleForTesting
+Future<String?> ouraPairHandshake(
+  BandLink link,
+  List<int> key, {
+  required bool install,
+  Duration replyWindow = const Duration(seconds: 10),
+}) async {
+  // ONE subscription and a growing list, rather than a `firstWhere` per
+  // reply: `BandLink.notify` is single-subscription, so the second
+  // `firstWhere` would throw "already listened to" AFTER the first reply had
+  // been consumed — a pairing that fails on a ring that answered correctly.
+  // ponytail: a 20 ms poll over the list is the smallest correct thing here.
+  // The alternative is a second copy of `oura.dart`'s private `_Inbox`, for
+  // three replies, once, during pairing.
+  final inbox = <OuraFrame>[];
+  final sub = link.notify(kOuraNotifyChar).listen((rec) {
+    final f = parseOuraFrame(rec.$2);
+    if (f != null) inbox.add(f);
+  });
+  var read = 0;
+  Future<OuraFrame?> waitFor(bool Function(OuraFrame) matches) async {
+    final elapsed = Stopwatch()..start();
+    while (elapsed.elapsed < replyWindow) {
+      while (read < inbox.length) {
+        final f = inbox[read++];
+        if (matches(f)) return f;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    return null;
+  }
+
+  try {
+    // The key install only when the key is OURS. A key the ring already holds
+    // needs nothing but the proof below.
+    if (install) {
+      if (!await link.write(kOuraCommandChar, ouraCmdSetAuthKey(key))) {
+        return 'The ring would not accept a command. Try again with it on '
+            'the charger and next to the phone.';
+      }
+      final installed = await waitFor((f) => ouraSetAuthKeyResult(f) != null);
+      // SILENCE IS A REFUSAL, NOT CONSENT. A ring that already holds a key is
+      // the case that matters here and it does not necessarily answer at all —
+      // and carrying on to mint a `device` row on the strength of a quiet ring
+      // is how a user spends a factory reset and ends up with nothing working.
+      if (installed == null || ouraSetAuthKeyResult(installed) != 0) {
+        return _kResetFirst;
+      }
+    }
+    if (!await link.write(kOuraCommandChar, ouraCmdAuthNonce())) {
+      return 'The ring would not accept a command. Try again with it on '
+          'the charger and next to the phone.';
+    }
+    final challenge = await waitFor((f) => ouraAuthNonce(f) != null);
+    if (challenge == null) {
+      return 'The ring stopped answering part-way through pairing. Put it on '
+          'the charger, keep it next to the phone, and try again.';
+    }
+    final answer = ouraAuthResponse(key, ouraAuthNonce(challenge)!);
+    if (!await link.write(kOuraCommandChar, ouraCmdAuthenticate(answer))) {
+      return 'The ring would not accept the pairing answer.';
+    }
+    final replyFrame = await waitFor((f) => ouraAuthResult(f) != null);
+    if (replyFrame == null) {
+      return 'The ring stopped answering part-way through pairing. Put it on '
+          'the charger, keep it next to the phone, and try again.';
+    }
+    // THE CODES CARRY DIFFERENT REMEDIES, so they are not collapsed into one
+    // sentence. On the install path, `factoryReset` here means the install did
+    // not actually take even though it was acknowledged — retrying is worth a
+    // try and does not cost another reset. Everything else means the ring
+    // belongs to something else, and only a reset frees it. On the
+    // existing-key path a reset is the one thing NOT to suggest.
+    final result = ouraAuthResult(replyFrame);
+    if (result == 0) return null;
+    if (!install) return _existingKeyRefusal(result);
+    if (result == kOuraAuthFactoryReset) {
+      return 'The ring took the key but is still waiting for one, which '
+          'should not happen. Try pairing again.';
+    }
+    return _kResetFirst;
+  } finally {
+    await sub.cancel();
+  }
+}
+
+/// [pairOuraRingWithKey] for a key as the user typed or pasted it — the shape
+/// a pairing screen's text field hands over. See [parseOuraKey].
+Future<String?> pairOuraRingWithTypedKey(BluetoothDevice device, String raw) {
+  final key = parseOuraKey(raw);
+  if (key == null) {
+    return Future.value('That is not a ring key. Paste 32 hex digits, or the '
+        '24-character base64 form, with nothing else around it.');
+  }
+  return pairOuraRingWithKey(device, key);
+}
+
+Future<String?> _pairOuraRing(
+  BluetoothDevice device, {
+  required List<int>? existingKey,
+}) async {
   final rnd = Random.secure();
-  final key = List<int>.generate(16, (_) => rnd.nextInt(256));
+  final key =
+      existingKey ?? List<int>.generate(16, (_) => rnd.nextInt(256));
   final deviceId =
       'oura-${_hex(List<int>.generate(4, (_) => rnd.nextInt(256)))}';
   GattBandLink? link;
@@ -665,92 +839,24 @@ Future<String?> pairOuraRing(BluetoothDevice device) async {
       return 'That device does not expose the ring service this app speaks.';
     }
 
-    // Install, then prove — over the real wire builders and nothing else.
-    //
-    // ONE subscription and a growing list, rather than a `firstWhere` per
-    // reply: `BandLink.notify` is single-subscription, so the second
-    // `firstWhere` would throw "already listened to" AFTER the first reply had
-    // been consumed — a pairing that fails on a ring that answered correctly.
-    // ponytail: a 20 ms poll over the list is the smallest correct thing here.
-    // The alternative is a second copy of `oura.dart`'s private `_Inbox`, for
-    // three replies, once, during pairing.
-    final inbox = <OuraFrame>[];
-    final sub = localLink.notify(kOuraNotifyChar).listen((rec) {
-      final f = parseOuraFrame(rec.$2);
-      if (f != null) inbox.add(f);
-    });
-    var read = 0;
-    Future<OuraFrame?> waitFor(bool Function(OuraFrame) matches) async {
-      final elapsed = Stopwatch()..start();
-      while (elapsed.elapsed < const Duration(seconds: 10)) {
-        while (read < inbox.length) {
-          final f = inbox[read++];
-          if (matches(f)) return f;
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-      }
-      return null;
-    }
-
-    try {
-      // THE KEY IS STORED BEFORE IT IS SENT, and the order is deliberate. A
-      // crash between the write and the store leaves the ring holding a key
-      // this phone does not have — unrecoverable except by another factory
-      // reset, which is the one cost in this flow the user cannot undo. A
-      // stored key with no ring behind it costs nothing: `sync()` never looks
-      // at it, because there is no `device` row pointing to it yet.
-      await _secure.write(
-        key: _keyItem(deviceId),
-        value: _hex(key),
-        iOptions: _kApple,
-        mOptions: _kMacos,
-      );
-      if (!await localLink.write(kOuraCommandChar, ouraCmdSetAuthKey(key))) {
-        return 'The ring would not accept a command. Try again with it on '
-            'the charger and next to the phone.';
-      }
-      final installed = await waitFor((f) => ouraSetAuthKeyResult(f) != null);
-      // SILENCE IS A REFUSAL, NOT CONSENT. A ring that already holds a key is
-      // the case that matters here and it does not necessarily answer at all —
-      // and carrying on to mint a `device` row on the strength of a quiet ring
-      // is how a user spends a factory reset and ends up with nothing working.
-      if (installed == null || ouraSetAuthKeyResult(installed) != 0) {
-        return _kResetFirst;
-      }
-      if (!await localLink.write(kOuraCommandChar, ouraCmdAuthNonce())) {
-        return 'The ring would not accept a command. Try again with it on '
-            'the charger and next to the phone.';
-      }
-      final challenge = await waitFor((f) => ouraAuthNonce(f) != null);
-      if (challenge == null) {
-        return 'The ring stopped answering part-way through pairing. Put it on '
-            'the charger, keep it next to the phone, and try again.';
-      }
-      final answer = ouraAuthResponse(key, ouraAuthNonce(challenge)!);
-      if (!await localLink.write(kOuraCommandChar, ouraCmdAuthenticate(answer))) {
-        return 'The ring would not accept the pairing answer.';
-      }
-      final replyFrame = await waitFor((f) => ouraAuthResult(f) != null);
-      if (replyFrame == null) {
-        return 'The ring stopped answering part-way through pairing. Put it on '
-            'the charger, keep it next to the phone, and try again.';
-      }
-      // THE CODES CARRY DIFFERENT REMEDIES, so they are not collapsed into one
-      // sentence. `factoryReset` here means the install did not actually take
-      // even though it was acknowledged — retrying is worth a try and does not
-      // cost another reset. Everything else means the ring belongs to something
-      // else, and only a reset frees it.
-      final result = ouraAuthResult(replyFrame);
-      if (result == kOuraAuthFactoryReset) {
-        return 'The ring took the key but is still waiting for one, which '
-            'should not happen. Try pairing again.';
-      }
-      if (result != 0) {
-        return _kResetFirst;
-      }
-    } finally {
-      await sub.cancel();
-    }
+    // THE KEY IS STORED BEFORE IT IS SENT, and the order is deliberate. A
+    // crash between the write and the store leaves the ring holding a key this
+    // phone does not have — unrecoverable except by another factory reset,
+    // which is the one cost in this flow the user cannot undo. A stored key
+    // with no ring behind it costs nothing: `sync()` never looks at it,
+    // because there is no `device` row pointing to it yet.
+    await _secure.write(
+      key: _keyItem(deviceId),
+      value: _hex(key),
+      iOptions: _kApple,
+      mOptions: _kMacos,
+    );
+    final refusal = await ouraPairHandshake(
+      localLink,
+      key,
+      install: existingKey == null,
+    );
+    if (refusal != null) return refusal;
 
     // The `device` row LAST, because it is what makes the ring reachable: a row
     // that exists is a ring `sync()` will try to drain, so it is only written
