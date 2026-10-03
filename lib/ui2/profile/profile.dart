@@ -245,7 +245,12 @@ class _ProfileHomeState extends State<ProfileHome> {
 
   Future<void> _open(BuildContext c, Widget w) async {
     await goto(c, w);
-    if (mounted) setState(() => _stats = _load());
+    // A block body, not `=>`: the arrow form returns the assigned Future, which
+    // setState asserts against (debug builds throw and skip the rebuild).
+    if (!mounted) return;
+    setState(() {
+      _stats = _load();
+    });
   }
 
   @override

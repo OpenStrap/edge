@@ -73,8 +73,11 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
   }
 
   @override
-  void reload() =>
-      setState(() => _load = _loadWorkoutData(context.read<AppState>()));
+  // Block bodies, not `=>`: the arrow form returns the assigned Future, which
+  // setState asserts against (debug builds throw and skip the rebuild).
+  void reload() => setState(() {
+        _load = _loadWorkoutData(context.read<AppState>());
+      });
 
   @override
   Widget build(BuildContext c) {
@@ -645,7 +648,9 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
       await LocalDb.deleteSession(w.id);
     }
     if (!mounted) return;
-    setState(() => _load = _loadWorkoutData(context.read<AppState>()));
+    setState(() {
+      _load = _loadWorkoutData(context.read<AppState>());
+    });
   }
 
   /// Bring in what another app recorded. On History because that is the list
