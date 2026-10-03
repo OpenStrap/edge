@@ -15,6 +15,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -43,6 +44,13 @@ class _Repo extends LocalRepository {
   Future<Map<String, JournalMetricValue>> getJournalMetrics(String date) async {
     reads++;
     return journal;
+  }
+
+  Map<String, JournalMetricValue>? posted;
+  @override
+  Future<void> postJournalMetrics(
+      String date, Map<String, JournalMetricValue> fields) async {
+    posted = journal = {...fields};
   }
 }
 
@@ -225,5 +233,35 @@ void main() {
           contains('with RevisionReload'),
           reason: '$f loads once and never reads again');
     }
+  });
+
+  testWidgets('a water tap steps from the stored day, not the last load',
+      (t) async {
+    t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+    t.view.devicePixelRatio = 3;
+    addTearDown(t.view.reset);
+
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    final repo = _Repo()
+      ..journal = const {'water_ml': JournalMetricValue(2000)};
+    app.repo = repo;
+
+    await t.pumpWidget(_app(app));
+    await _until(t, find.text('2.0 L'));
+    expect(find.text('2.0 L'), findsOneWidget);
+
+    // Midnight passes with the tab open and nothing bumps it: the tile still
+    // holds yesterday's 2.0 L, but today has nothing stored yet.
+    repo.journal = const {};
+    await t.tap(find.byIcon(LucideIcons.plus).last);
+    for (var i = 0; i < 20 && repo.posted == null; i++) {
+      await t.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await t.pump();
+    }
+
+    expect(repo.posted?['water_ml']?.value, 250,
+        reason: 'yesterday\'s total was carried into today');
   });
 }

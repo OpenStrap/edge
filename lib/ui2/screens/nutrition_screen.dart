@@ -134,29 +134,33 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     final repo = context.read<AppState>().repo;
     if (repo == null || _writingWater) return;
     _writingWater = true;
-    final spec = _waterSpec;
-    final v = _waterMl;
-    double? next;
-    if (dir > 0) {
-      next = ((v ?? 0) + spec.step).clamp(0, spec.max).toDouble();
-    } else {
-      final down = (v ?? 0) - spec.step;
-      next = down <= 0 ? (v == 0 ? null : 0.0) : down;
-    }
-    setState(() => _waterMl = next);
     try {
       // Inside the try, not before it: the READ can throw too, and with the
       // guard already set that left both buttons dead until the screen was
       // rebuilt — the flag outliving the operation it was protecting.
       //
+      // Step from what is stored for today, not from `_waterMl`: that is the
+      // last load's figure, and on a tab left open past midnight it is still
+      // yesterday's total, so the first tap wrote yesterday + 250 ml to today.
+      //
       // Drop the key rather than omitting it from a spread: `putJournalMetrics`
       // clears the day and re-inserts what it is handed, so leaving `water_ml`
       // out is what "no answer today" looks like on disk — and spreading the
       // old map back in is exactly what made this un-clearable.
-      final fields =
-          {...await repo.getJournalMetrics(_date)}..remove('water_ml');
+      final date = _date;
+      final fields = {...await repo.getJournalMetrics(date)};
+      final v = fields.remove('water_ml')?.value;
+      final spec = _waterSpec;
+      double? next;
+      if (dir > 0) {
+        next = ((v ?? 0) + spec.step).clamp(0, spec.max).toDouble();
+      } else {
+        final down = (v ?? 0) - spec.step;
+        next = down <= 0 ? (v == null || v == 0 ? null : 0.0) : down;
+      }
+      if (mounted) setState(() => _waterMl = next);
       if (next != null) fields['water_ml'] = JournalMetricValue(next);
-      await repo.postJournalMetrics(_date, fields);
+      await repo.postJournalMetrics(date, fields);
       await _load();
     } finally {
       // Cleared unconditionally; the setState is only for the repaint. Gating
