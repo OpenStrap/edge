@@ -140,6 +140,14 @@ class _PairingScreenState extends State<PairingScreen> {
       }
       if (!mounted) return;
       setState(() => _phase = PairPhase.paired);
+      // Pushed from the device picker, nothing under this route reacts to
+      // `isPaired` — the onboarding gate swaps `home` beneath it — and the
+      // only button on "Paired" re-runs the scan. Close it, unless something
+      // (RePair) already has.
+      final route = ModalRoute.of(context);
+      if (route != null && route.isCurrent && !route.isFirst) {
+        Navigator.of(context).pop();
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {

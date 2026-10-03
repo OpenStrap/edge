@@ -404,7 +404,9 @@ Widget? screenForRoute(String route) => switch (routePath(route)) {
       // a whole screen for this one field; it was reachable ONLY from here,
       // which is how the tile that everybody actually used stayed add-only for
       // so long — the thing that could clear a value was behind a notification.
-      kRouteWater => const NutritionScreen(),
+      // Nothing is pushed: Nutrition is a shell tab (see `/meds` below), and
+      // `_consume` has already switched to it.
+      kRouteWater => null,
       // The detected bout, with the three answers to it: log it, adjust the
       // times first, or say it never happened.
       // The medication reminder pushes NOTHING, and still lands on the

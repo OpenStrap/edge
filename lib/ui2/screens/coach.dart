@@ -184,6 +184,9 @@ class _CoachScreenState extends State<CoachScreen> {
     if (t.isEmpty || _busy || engine == null) return;
     _input.clear();
     setState(() => _busy = true);
+    // Read before the await: `send` can outlive this screen.
+    final app = context.read<AppState>();
+    var wrote = false;
     try {
       // `send` can block for up to 120 s, so every callback below can land after
       // the user has popped the screen.
@@ -197,7 +200,11 @@ class _CoachScreenState extends State<CoachScreen> {
         onStatus: (s) {
           if (mounted) setState(() => _status = s);
         },
-        confirm: _confirm,
+        confirm: (req) async {
+          final ok = await _confirm(req);
+          if (ok) wrote = true;
+          return ok;
+        },
       );
     } catch (e) {
       if (mounted) {
@@ -220,6 +227,9 @@ class _CoachScreenState extends State<CoachScreen> {
         });
       }
       await engine.persist(); // survive reopen
+      // A confirmed write can change what the reminders should say — a dose
+      // marked or added, a day rated — and they are armed ahead of time.
+      if (wrote) await app.refreshAiReminders();
       _scrollDown();
     }
   }

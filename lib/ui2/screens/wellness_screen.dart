@@ -15,6 +15,8 @@
 //     saying so either — a disclaimer for a feature that was never offered is
 //     still an advert for it.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_analytics/onehz.dart' show journalFieldLagDays;
@@ -136,6 +138,16 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
   /// keeps alive forever, so it read them once and stopped.
   @override
   void reload() => _load();
+
+  /// After a medication or journal write. The dose reminders, the strap buzz
+  /// and the check-in are armed ahead of time and never look at the dose or
+  /// the day when they fire — so a dose ticked at 07:56 still buzzed at 08:00
+  /// until the next resume re-armed them.
+  Future<void> _wrote() async {
+    if (!mounted) return;
+    unawaited(context.read<AppState>().refreshAiReminders());
+    await _load();
+  }
 
   Future<void> _load() async {
     final t = beginRead(#wellness);
@@ -413,7 +425,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
         next[key] = JournalMetricValue(v);
       }
       await repo.postJournalMetrics(_date, next);
-      await _load();
+      await _wrote();
     } finally {
       if (mounted) setState(() => _writingField = false);
     }
@@ -846,7 +858,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
       slotMin: s.slotMin,
       taken: s.state != DoseState.taken,
     );
-    await _load();
+    await _wrote();
   }
 
   /// A dose deliberately NOT taken.
@@ -868,7 +880,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
       taken: false,
       skipped: s.state != DoseState.skipped,
     );
-    await _load();
+    await _wrote();
   }
 
   Future<void> _medActions(BuildContext c, MedSlot s) async {
@@ -970,7 +982,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
         schedule: [...rest, MedSchedule(picked.minuteOfDay, picked.days)],
       ),
     );
-    await _load();
+    await _wrote();
   }
 
   /// Remove the medication, keep the doses.
@@ -991,7 +1003,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
     );
     if (!ok || !mounted) return;
     await MedDb.deleteDef(await LocalDb.instance, d.key);
-    await _load();
+    await _wrote();
   }
 
   Future<void> _addMed(BuildContext c) async {
@@ -1019,7 +1031,7 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
         schedule: [MedSchedule(picked.minuteOfDay, picked.days)],
       ),
     );
-    await _load();
+    await _wrote();
   }
 
   Future<String?> _askName(BuildContext c, String title, String hint) {

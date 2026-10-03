@@ -2002,8 +2002,11 @@ class AppState extends ChangeNotifier {
   static const String _kLastStepGoalDay = 'last_stepgoal_day';
   Future<void> _maybeNotifyStepGoal() async {
     try {
-      final goal = (user?['step_goal'] as num?)?.toInt();
-      if (goal == null || goal <= 0) return;
+      // Same default every other step-goal reader uses — a user who never
+      // opened the goal editor still sees "100% of goal" on Home.
+      final goal =
+          (user?['step_goal'] as num?)?.toInt() ?? kDefaultStepGoal;
+      if (goal <= 0) return;
       final rows = await LocalDb.metricSeries('steps');
       if (rows.isEmpty) return;
       final last = rows.last;
@@ -2126,11 +2129,12 @@ class AppState extends ChangeNotifier {
       // at the next launch. It is also what makes the slot allow-listed at all
       // (NotificationService.schedulableIds): a nudge with no off switch was
       // refused there, and had never once fired.
-      if (!(await NotificationPrefs.load()).movementEnabled) return;
+      final prefs = await NotificationPrefs.load();
+      if (!prefs.movementEnabled) return;
       await NotificationService.instance.cancel(NotificationService.idStillness);
-      final at =
-          DateTime.fromMillisecondsSinceEpoch(nowMs).add(const Duration(hours: 2));
-      if (at.hour < 9 || at.hour >= 21) return; // would land outside daytime
+      final at = NotificationCenter.stillnessNudgeAt(
+          prefs, DateTime.fromMillisecondsSinceEpoch(nowMs));
+      if (at == null) return;
       await NotificationService.instance.scheduleOnce(
         id: NotificationService.idStillness,
         category: NotifCategory.reminders,

@@ -199,7 +199,11 @@ class _JournalComposeState extends State<JournalCompose> {
     setState(() => _saving = true);
     await repo.postJournalMetrics(_date, _values);
     await repo.postJournal(_date, _tags.toList(), _note.text.trim());
-    if (mounted) Navigator.of(context).pop(true);
+    if (!mounted) return;
+    // Today's "How was today?" is already armed; a rated day moves it to
+    // tomorrow, and only a re-arm does that.
+    unawaited(context.read<AppState>().refreshAiReminders());
+    Navigator.of(context).pop(true);
   }
 
   @override

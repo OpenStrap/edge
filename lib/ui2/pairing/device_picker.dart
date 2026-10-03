@@ -217,8 +217,8 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
     // Neither sub-flow tells AppState a `device` row changed underneath it.
     if (mounted) await context.read<AppState>().refreshSensors();
     // A framed pair changes `AppState.isPaired`, which nothing here watches
-    // directly — the screen that pushed us (the onboarding gate, or
-    // `RePair`'s own post-frame pop) reacts to that on its own.
+    // directly — the pushed `PairingScreen` closes itself on success, and the
+    // gate (or `RePair`) reacts to the flag underneath.
   }
 
   bool _matches(String label, String sub) {

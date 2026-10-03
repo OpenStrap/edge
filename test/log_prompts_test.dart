@@ -155,29 +155,60 @@ void main() {
 
   group('the check-in does not ask twice', () {
     const on = NotificationPrefs(checkInEnabled: true);
+    final fb = NotificationCenter.checkInFallbackMin;
+    final noon = DateTime(2026, 8, 20, 12, 0);
+    final tonight = DateTime(2026, 8, 20, fb ~/ 60, fb % 60);
+    final tomorrow = DateTime(2026, 8, 21, fb ~/ 60, fb % 60);
 
-    test('a day already written is not asked about again', () {
+    test('a day already written skips tonight but still arms tomorrow', () {
+      // Rated at noon, slot later today. Nothing re-arms while the app is
+      // closed, so returning null here meant tomorrow was never asked either.
+      expect(
+          NotificationCenter.checkInSlot(on, null, doneToday: true, now: noon),
+          tomorrow);
+    });
+
+    test('and tomorrow once tonight has passed', () {
       expect(
           NotificationCenter.checkInSlot(on, null,
-              doneToday: true, nowMin: 12 * 60),
+              doneToday: true, now: DateTime(2026, 8, 20, 21, 0)),
+          tomorrow);
+    });
+
+    test('an unwritten day arms tonight', () {
+      expect(
+          NotificationCenter.checkInSlot(on, null, doneToday: false, now: noon),
+          tonight);
+    });
+  });
+
+  group('the movement nudge respects quiet hours', () {
+    const on = NotificationPrefs(movementEnabled: true);
+
+    test('two hours after the last movement, in the day', () {
+      expect(NotificationCenter.stillnessNudgeAt(on, DateTime(2026, 8, 20, 10)),
+          DateTime(2026, 8, 20, 12));
+    });
+
+    test('not past 21:00', () {
+      expect(
+          NotificationCenter.stillnessNudgeAt(on, DateTime(2026, 8, 20, 19, 30)),
           isNull);
     });
 
-    test('but tomorrow is still armed once tonight has passed', () {
-      // 21:00, journal written, slot was 20:30 — that instance is behind us, so
-      // the one being armed is tomorrow's and the day it asks about is not
-      // written yet.
+    test('not inside a quiet window the user set', () {
+      // 20:00-07:00: movement at 18:30 would buzz at 20:30, inside it.
+      const quiet = NotificationPrefs(
+          movementEnabled: true, quietStartMin: 20 * 60, quietEndMin: 7 * 60);
       expect(
-          NotificationCenter.checkInSlot(on, null,
-              doneToday: true, nowMin: 21 * 60),
-          NotificationCenter.checkInFallbackMin);
-    });
-
-    test('an unwritten day arms normally', () {
-      expect(
-          NotificationCenter.checkInSlot(on, null,
-              doneToday: false, nowMin: 12 * 60),
-          NotificationCenter.checkInFallbackMin);
+          NotificationCenter.stillnessNudgeAt(
+              quiet, DateTime(2026, 8, 20, 18, 30)),
+          isNull);
+      // A midday nap window too.
+      const nap = NotificationPrefs(
+          movementEnabled: true, quietStartMin: 13 * 60, quietEndMin: 15 * 60);
+      expect(NotificationCenter.stillnessNudgeAt(nap, DateTime(2026, 8, 20, 12)),
+          isNull);
     });
   });
 
