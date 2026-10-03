@@ -66,6 +66,25 @@ class AccessorySetup {
     return id;
   }
 
+  /// Show the ASK picker for ONE sensor, filtered to [services], and return its
+  /// CoreBluetooth UUID — the `remoteId` the sensor's pairing step connects to.
+  /// Throws on cancel / error, like [showPicker].
+  ///
+  /// For `kAskPickerSensors` only: with `NSAccessorySetupKitSupports` declared
+  /// the app has no standard Bluetooth authorization, so a sensor the user has
+  /// not approved here cannot be found by a scan at all (#371/#372). Each
+  /// service must be declared under `OSAskSensorServices`; the native side
+  /// refuses anything else. An already-approved sensor comes back with no sheet.
+  static Future<String> showSensorPicker(List<String> services) async {
+    final id = await _ch.invokeMethod<String>('showPicker', <String, Object>{
+      'services': [for (final s in services) s.toUpperCase()],
+    });
+    if (id == null || id.isEmpty) {
+      throw Exception('Pairing cancelled.');
+    }
+    return id;
+  }
+
   /// Deprovision all ASK accessories (called on unpair). Best-effort.
   static Future<void> removeAll() async {
     if (!Platform.isIOS) return;

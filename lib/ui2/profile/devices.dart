@@ -1098,9 +1098,10 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
   (
     entry: kOura,
     blurb: 'Reads the ring directly, with no Oura account and no subscription. '
-        'The ring must be factory reset FIRST — one that is already set up in '
-        'the Oura app cannot be re-keyed. Reset it from the Oura app (remove/'
-        'unpair the ring), then close that app before pairing here.',
+        'Either factory reset the ring FIRST (remove/unpair it in the Oura '
+        'app) so this app can give it a key of its own, or paste the key the '
+        'Oura app already uses and pair without a reset. Close the Oura app '
+        'before pairing here.',
     pick: pairOuraRing,
   ),
   (

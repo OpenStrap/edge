@@ -833,8 +833,10 @@ const BandEntry kPolarPmd = BandEntry.notify(
 /// here: the length is a u8 that counts payload only, there is no CRC anywhere
 /// in the protocol, and there is no inner opcode byte to find. `isFramed ==
 /// false` keeps it out of [kFramedBands], which is what keeps it out of the
-/// offload engine's scan filter and out of the iOS AccessorySetupKit plist —
-/// both of which are about the primary band that holds a link and gets trimmed.
+/// offload engine's scan filter and out of the band half of the iOS
+/// AccessorySetupKit plist — both of which are about the primary band that
+/// holds a link and gets trimmed. It IS in [kAskPickerSensors], which gives it
+/// a picker of its own on iOS 18+.
 ///
 /// [TimeAnchor.arrival] is the conservative half of a two-clock situation, not
 /// a claim that the ring has no clock. See `oura.dart`.
@@ -1579,6 +1581,43 @@ const List<BandEntry> kBandRegistry = <BandEntry>[
 /// straps to the WHOOP pairing picker.
 final List<BandEntry> kFramedBands =
     kBandRegistry.where((e) => e.isFramed).toList(growable: false);
+
+/// Notify-class entries that iOS 18+ pairs through the AccessorySetupKit
+/// picker instead of a CoreBluetooth scan.
+///
+/// WHY A SCAN IS NOT ENOUGH ON iOS. Info.plist declares
+/// `NSAccessorySetupKitSupports`, so the app never receives the standard
+/// Bluetooth authorization — Settings → Apps → Edge has no Bluetooth row at
+/// all. Core Bluetooth then only reaches accessories the user approved in the
+/// ASK picker, and a plain `startScan` for anything else returns nothing, with
+/// no error (issues #371/#372). A sensor listed here gets its own ASK
+/// descriptor, and its pairing screen shows the picker filtered to its service
+/// alone, so the WHOOP picker never offers it (the plist marks these services
+/// under `OSAskSensorServices`, which `AccessorySetup.swift` excludes from the
+/// band picker).
+///
+/// Only the ring for now: it is the one sensor with a report behind it, and
+/// every entry added here is one more row the picker can show.
+const List<BandEntry> kAskPickerSensors = <BandEntry>[kOura];
+
+/// The Bluetooth SIG company identifier each [kAskPickerSensors] entry puts in
+/// its advertisement's manufacturer data, by entry id. Declared in Info.plist's
+/// `NSAccessorySetupBluetoothCompanyIdentifiers` and NOWHERE ELSE.
+///
+/// WHY IT HAS TO BE DECLARED. A device whose advertisement carries
+/// manufacturer data was not found by the ASK picker while only its service
+/// was declared ("No accessory found"); with its company identifier declared
+/// as well, the same picker found it (iPhone, iOS 27, Oura ring advertising
+/// `ff b2 02 …`). This matches an Apple developer-forum report for the same
+/// symptom.
+///
+/// WHY IT IS NOT ON THE DESCRIPTOR. Setting `bluetoothCompanyIdentifier` on
+/// the ASDiscoveryDescriptor trapped on iOS 27 ("'NSAccessorySetupBluetooth
+/// CompanyIdentifiers' has no item '2b2' in Info.plist"), whatever spelling
+/// the plist used. The declaration alone is what made discovery work.
+const Map<String, int> kAskSensorCompanyIds = <String, int>{
+  'oura': 0x02B2, // Oura Health Oy
+};
 
 /// The entry speaking [wire]. Used by the engine's test seam, which is handed
 /// a [BandProfile] rather than an entry.
