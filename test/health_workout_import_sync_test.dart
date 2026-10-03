@@ -10,6 +10,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health/health.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -17,7 +18,11 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/health/health_workout_import.dart';
 
-HealthDataPoint _w(String uuid) => HealthDataPoint(
+HealthDataPoint _w(
+  String uuid, {
+  String sourceId = 'src',
+  String sourceName = 'Strava',
+}) => HealthDataPoint(
       uuid: uuid,
       value: WorkoutHealthValue(
         workoutActivityType: HealthWorkoutActivityType.RUNNING,
@@ -26,10 +31,10 @@ HealthDataPoint _w(String uuid) => HealthDataPoint(
       unit: HealthDataUnit.NO_UNIT,
       dateFrom: DateTime(2026, 8, 1, 9),
       dateTo: DateTime(2026, 8, 1, 10),
-      sourceId: 'src',
+      sourceId: sourceId,
       sourcePlatform: HealthPlatformType.appleHealth,
       sourceDeviceId: 'dev',
-      sourceName: 'Strava',
+      sourceName: sourceName,
     );
 
 /// Stubs the platform channel calls sync() makes so it never leaves Dart:
@@ -110,5 +115,40 @@ void main() {
 
     expect(res.workouts, 2);
     expect(await LocalDb.importedWorkouts(), hasLength(2));
+  });
+
+  test('our own exported workouts are not imported back', () async {
+    const app = 'wtf.openstrap.openstrap_edge';
+    PackageInfo.setMockInitialValues(
+      appName: 'OpenStrap',
+      packageName: app,
+      version: '1.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+    );
+    // An earlier import already stored one of them.
+    await LocalDb.putImportedWorkouts([
+      {
+        'uuid': 'ours-ios',
+        'start_ts': 1,
+        'end_ts': 2,
+        'kind': 'RUNNING',
+        'source': 'OpenStrap',
+      },
+    ]);
+    final importer = HealthWorkoutImporter(
+      health: _FakeHealth([
+        _w('ours-ios', sourceId: app, sourceName: 'OpenStrap'),
+        _w('ours-android', sourceId: '', sourceName: app),
+        _w('strava'),
+      ]),
+      isApple: false,
+    );
+
+    final res = await importer.sync();
+
+    expect(res.workouts, 1);
+    final stored = await LocalDb.importedWorkouts();
+    expect(stored.map((r) => r['uuid']), ['strava']);
   });
 }

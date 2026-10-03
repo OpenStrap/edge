@@ -127,6 +127,31 @@ List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
 bool healthDeleteClearedRange({required bool deleted, required bool ios}) =>
     deleted || ios;
 
+/// Where a day's nightly RHR/HRV/resp samples go: the sleep midpoint, kept
+/// inside [dayStart, dayEnd). The day's delete only covers its own window, so a
+/// midpoint before midnight (a night mostly spent the evening before) would sit
+/// in the previous day, where nothing clears it once that day is finalized, and
+/// every rewrite of this day would stack another copy. Falls back to wake, then
+/// noon.
+@visibleForTesting
+DateTime healthNightlyScalarTime({
+  required num? onsetMs,
+  required num? offsetMs,
+  required DateTime dayStart,
+  required DateTime dayEnd,
+}) {
+  bool inDay(DateTime t) => !t.isBefore(dayStart) && t.isBefore(dayEnd);
+  if (onsetMs != null && offsetMs != null) {
+    final mid = DateTime.fromMillisecondsSinceEpoch(
+      ((onsetMs + offsetMs) / 2).round(),
+    );
+    if (inDay(mid)) return mid;
+    final wake = DateTime.fromMillisecondsSinceEpoch(offsetMs.round());
+    if (inDay(wake)) return wake;
+  }
+  return dayStart.add(const Duration(hours: 12));
+}
+
 /// Cursor for the one-shot Apple Health sleep rewrite. Bump when the writer
 /// changes enough that nights already sitting in HealthKit should be replaced
 /// (plugin Core/in-bed misses, leftover 11pm fragments). Does not bump
@@ -401,9 +426,11 @@ class HealthExporter {
   ///     `success` — could permanently stall a day's export cursor. The
   ///     historical fabricated samples are handled once by
   ///     [_purgeLegacyStepsIfNeeded] instead, outside the success accounting.
+  ///   * HEART_RATE is removed on Apple too: the minute-HR block clears it
+  ///     itself, only over the minutes it still has rows for.
   List<HealthDataType> get _rewriteTypes => [
     for (final t in healthDeleteTypes(isApplePlatform: isApple))
-      if (t != HealthDataType.STEPS) t,
+      if (t != HealthDataType.STEPS && t != HealthDataType.HEART_RATE) t,
   ];
 
   /// Cursor for the one-shot legacy-STEPS purge: the newest day already purged.
@@ -802,6 +829,11 @@ class HealthExporter {
 
           var ok = false;
           var giveUp = false;
+          // A finalized day that already exported cleanly is done: its payload
+          // no longer changes. It only sits above the cursor because an older
+          // day is still retrying, and rewriting it on every pass meanwhile is
+          // pure churn (and deletes again from the store).
+          final alreadyExported = finalized && wasFinalized && okMs != null;
           final shouldAttempt = shouldAttemptHealthBulkExport(
             attempts: attempts,
             maxAttempts: _kMaxExportAttempts,
@@ -818,7 +850,9 @@ class HealthExporter {
                 finalized ? Duration.zero : _kNonFinalizedRewriteInterval,
             force: forceRetry,
           );
-          if (!shouldAttempt && attempts >= _kMaxExportAttempts) {
+          if (alreadyExported) {
+            giveUp = true; // counts toward the cursor, not toward `done`
+          } else if (!shouldAttempt && attempts >= _kMaxExportAttempts) {
             giveUp = true;
           } else if (!shouldAttempt) {
             // Not due for retry yet — don't hammer the health store on every
@@ -831,12 +865,11 @@ class HealthExporter {
             ); // delete-then-write (idempotent)
             if (ok) {
               if (finalized) {
-                // Finalized + exported → the cursor advances past it; no
-                // per-day state left behind.
-                if (entry != null) {
-                  retryState.remove(date);
-                  retryStateDirty = true;
-                }
+                // Stamped so a pass that can't move the cursor past it yet
+                // (an older day still retrying) doesn't rewrite it again; the
+                // entry is dropped once the cursor passes it.
+                retryState[date] = {'ok_ms': nowMs, 'finalized': true};
+                retryStateDirty = true;
               } else {
                 // Non-finalized success: stamp ok_ms so the next passes skip
                 // the identical rewrite until _kNonFinalizedRewriteInterval
@@ -881,6 +914,9 @@ class HealthExporter {
         }
         if (newCursor != cursor) {
           await LocalDb.setCursor('health_export_through', newCursor);
+          final before = retryState.length;
+          retryState.removeWhere((d, _) => d.compareTo(newCursor) <= 0);
+          if (retryState.length != before) retryStateDirty = true;
         }
         if (retryStateDirty) {
           await LocalDb.setCursor(_kRetryCursor, jsonEncode(retryState));
@@ -987,11 +1023,12 @@ class HealthExporter {
 
     // Sleep window → a representative instant for the nightly scalars.
     final win = _sub(b, 'sleep.window.value');
-    final onMs = (win?['onset_ms'] as num?)?.toDouble();
-    final offMs = (win?['offset_ms'] as num?)?.toDouble();
-    final mid = (onMs != null && offMs != null)
-        ? DateTime.fromMillisecondsSinceEpoch(((onMs + offMs) / 2).round())
-        : dayStart.add(const Duration(hours: 12));
+    final mid = healthNightlyScalarTime(
+      onsetMs: win?['onset_ms'] as num?,
+      offsetMs: win?['offset_ms'] as num?,
+      dayStart: dayStart,
+      dayEnd: dayEnd,
+    );
 
     Future<void> writeAt(
       HealthDataType type,
@@ -1180,6 +1217,8 @@ class HealthExporter {
           endTime: sampleEnd,
           unit: HealthDataUnit.BEATS_PER_MINUTE,
         ),
+        clearGeneric: (from, to) =>
+            _deleteOwnSamples(HealthDataType.HEART_RATE, from, to),
       );
       if (!wroteHeartRate) {
         debugPrint('[health] write continuous heart rate returned false');

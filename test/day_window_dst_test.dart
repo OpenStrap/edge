@@ -22,6 +22,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/data/models.dart';
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart'
     show lastSevenDays;
@@ -214,6 +215,26 @@ void main() {
           },
       ];
       expect(lastSevenDays(points, end), [3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+    },
+    skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
+  );
+
+  test(
+    'the cycle prediction counts calendar days across a fall-back',
+    () async {
+      // Gaps 28, 21, 35 -> median 28, MAD 7, last start 2026-10-10. Adding
+      // 28 x 24 h crosses 2026-11-01's extra hour and lands at 23:00 on
+      // 11-06, so the date (and the band's upper edge) came out a day early.
+      for (final d in ['2026-07-18', '2026-08-15', '2026-09-05', '2026-10-10']) {
+        await LocalDb.putCycleLog(d, 'start');
+      }
+      final repo = LocalRepositoryImpl(
+        getProfileMap: () => {'track_cycle': true},
+      );
+      final cycle = await repo.getCycle();
+      expect(cycle['predicted_next'], '2026-11-07');
+      expect(cycle['predicted_from'], '2026-10-31');
+      expect(cycle['predicted_to'], '2026-11-14');
     },
     skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
   );

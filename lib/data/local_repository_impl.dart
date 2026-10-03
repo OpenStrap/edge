@@ -2999,14 +2999,15 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<int> rescoreRecentSessions({int sinceDays = 3}) async {
-    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final now = DateTime.now();
+    final nowSec = now.millisecondsSinceEpoch ~/ 1000;
     var changed = 0;
     try {
       // Local-midnight bound, not `now - n * 86400`: a DST day is 23 or 25
       // hours, so a flat day-length silently moves the window by an hour.
       final fromTs =
           localDayStartSec(
-            dayLabelOf(DateTime.now().subtract(Duration(days: sinceDays))),
+            dayLabelOf(DateTime(now.year, now.month, now.day - sinceDays)),
           ) ??
           (nowSec - sinceDays * 86400);
       final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
@@ -3673,7 +3674,8 @@ class LocalRepositoryImpl extends LocalRepository {
     if (range == 'all') return null;
     final m = RegExp(r'(\d+)').firstMatch(range);
     final days = m == null ? 30 : int.parse(m.group(1)!);
-    return dayLabelOf(DateTime.now().subtract(Duration(days: days)));
+    final now = DateTime.now();
+    return dayLabelOf(DateTime(now.year, now.month, now.day - days));
   }
 
   // ── menstrual cycle — local log + honest phase/prediction ───────────────────
@@ -3755,13 +3757,17 @@ class LocalRepositoryImpl extends LocalRepository {
     String? predictedNext, predictedFrom, predictedTo;
     num? daysUntilNext;
     if (predictOk && lastStart != null && medianLength != null) {
-      final next = lastStart.add(Duration(days: medianLength.round()));
+      // Calendar-day adds, not Duration: N * 24 h across a fall-back lands at
+      // 23:00 the day before and labels the prediction a day early.
+      DateTime plusDays(DateTime d, int n) =>
+          DateTime(d.year, d.month, d.day + n);
+      final next = plusDays(lastStart, medianLength.round());
       predictedNext = dayLabelOf(next);
       daysUntilNext = calendarDaysBetween(today, next);
       if (gapSpread != null) {
         final w = gapSpread.round();
-        predictedFrom = dayLabelOf(next.subtract(Duration(days: w)));
-        predictedTo = dayLabelOf(next.add(Duration(days: w)));
+        predictedFrom = dayLabelOf(plusDays(next, -w));
+        predictedTo = dayLabelOf(plusDays(next, w));
       }
     }
 

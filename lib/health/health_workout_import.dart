@@ -40,6 +40,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:health/health.dart';
 
@@ -244,6 +245,15 @@ class HealthWorkoutImporter {
 
   bool get routesSupported => _isApple;
 
+  static Future<String?> _ownAppId() async {
+    try {
+      final id = (await PackageInfo.fromPlatform()).packageName;
+      return id.isEmpty ? null : id;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// NON-PROMPTING read-permission probe for the auto path: true only when
   /// the store already granted WORKOUT read. Never shows a dialog — the
   /// manual Import button's tap is the only place that question gets asked.
@@ -282,6 +292,10 @@ class HealthWorkoutImporter {
       days: _isApple ? kImportWindowDaysApple : kImportWindowDaysAndroid,
     ));
     List<ImportedWorkoutRow> rows;
+    // Our own exported sessions come back from the store too; they are already
+    // in history as band sessions. HealthKit names the writer by bundle id in
+    // sourceId, Health Connect by package name in sourceName.
+    final mine = <String>{};
     try {
       await _health.configure();
       final points = await _health.getHealthDataFromTypes(
@@ -289,7 +303,20 @@ class HealthWorkoutImporter {
         startTime: start,
         endTime: end,
       );
-      rows = workoutsFrom(points);
+      final own = await _ownAppId();
+      for (final p in points) {
+        if (own != null && (p.sourceId == own || p.sourceName == own)) {
+          mine.add(p.uuid);
+        }
+      }
+      rows = workoutsFrom([
+        for (final p in points)
+          if (!mine.contains(p.uuid)) p,
+      ]);
+      // Drop the copies earlier imports already stored.
+      for (final uuid in mine) {
+        await LocalDb.deleteImportedWorkout(uuid);
+      }
     } catch (e) {
       debugPrint('[imported_workout] read: $e');
       return WorkoutImportResult(routesSupported: routesSupported);
@@ -306,7 +333,8 @@ class HealthWorkoutImporter {
         if (!tombstones.contains(r.uuid)) r,
     ];
     await LocalDb.putImportedWorkouts([for (final r in alive) r.toRow()]);
-    final withRoutes = await _importRoutes(start, end, skip: tombstones);
+    final withRoutes =
+        await _importRoutes(start, end, skip: {...tombstones, ...mine});
     return WorkoutImportResult(
       workouts: alive.length,
       withRoutes: withRoutes,
