@@ -50,6 +50,13 @@ void main() {
     await databaseFactory.deleteDatabase(await _dbPath(name));
   });
 
+  test('two non-Latin medication names do not share a key', () {
+    // putDef REPLACEs by key: a shared `custom__` meant the second med
+    // overwrote the first and took over its dose history.
+    expect(MedDb.keyFor('鱼油'), isNot(MedDb.keyFor('铁')));
+    expect(MedDb.keyFor('Vitamin D'), 'custom_vitamin_d');
+  });
+
   test('v34 → 36 adds nutrition and medication, usable immediately', () async {
     final path = await _dbPath(name);
     await databaseFactory.deleteDatabase(path);

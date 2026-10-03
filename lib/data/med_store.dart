@@ -262,8 +262,11 @@ List<MedSlot> slotsForDay(
 class MedDb {
   MedDb._();
 
+  /// Letters and digits of ANY script survive: an ASCII-only class turned
+  /// every Chinese or Hindi name into the same `custom__`, so adding a second
+  /// one replaced the first and inherited its dose history.
   static String keyFor(String label) =>
-      'custom_${label.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}';
+      'custom_${label.trim().toLowerCase().replaceAll(RegExp(r'[^\p{L}\p{M}\p{N}]+', unicode: true), '_')}';
 
   static Future<List<MedDef>> defs(Database db, {bool activeOnly = true}) async {
     final rows = await db.query(

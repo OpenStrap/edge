@@ -300,7 +300,9 @@ JournalFieldSpec? journalFieldSpec(
 String customJournalFieldKey(String label) {
   final slug = label
       .toLowerCase()
-      .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+      // Any script's letters/digits (and combining marks, which Devanagari
+      // vowels are). ASCII-only collapsed every non-Latin name to `custom_`.
+      .replaceAll(RegExp(r'[^\p{L}\p{M}\p{N}]+', unicode: true), '_')
       .replaceAll(RegExp(r'^_+|_+$'), '');
   return 'custom_$slug';
 }

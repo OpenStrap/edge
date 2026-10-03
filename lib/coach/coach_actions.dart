@@ -467,16 +467,22 @@ class CoachActions {
         if (num_(d) != null) num_(d)!.round(),
     }..removeWhere((d) => d < 1 || d > 7);
     final dose = num_(a['dose_value']);
-    final key = MedDb.keyFor(name);
+    var key = MedDb.keyFor(name);
     // ADD, not replace. `putDef` writes the whole row, so building a fresh
     // MedDef here meant a second "add paracetamol at 22:00" silently deleted
     // the 08:00 and 14:00 doses already on it — and blanked the dose, unit,
     // kind and note whenever the model did not resend them. An assistant that
     // destroys a medication schedule as a side effect of adding to it is worse
     // than one with no tool at all.
+    // By label too: a med saved before the key kept non-ASCII letters has an
+    // older key ("Grüner Tee" was custom_gr_ner_tee), and must still be the
+    // one added to rather than duplicated.
     final existing = (await MedDb.defs(db, activeOnly: false))
-        .where((d) => d.key == key)
+        .where((d) =>
+            d.key == key ||
+            d.label.trim().toLowerCase() == name.trim().toLowerCase())
         .firstOrNull;
+    key = existing?.key ?? key;
     final slot = MedSchedule(
       minute,
       days.isEmpty ? const [1, 2, 3, 4, 5, 6, 7] : (days.toList()..sort()),

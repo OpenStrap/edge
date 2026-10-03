@@ -28,6 +28,15 @@ class PreparedDerivationDay {
   /// the strict [daySub] so steps/wear/activity are never double-counted.
   final Substrate napSub;
 
+  /// TONIGHT's sleep: the main sleep of the NEXT day when it began before this
+  /// day ended (bed at 22:00, the night ends tomorrow), epoch seconds, 0 when
+  /// there is none or it is not known yet. This day's own window is the night
+  /// that ended this morning, so without this the hours asleep before
+  /// midnight count as waking time (strain, daytime HRV, the HR dip) and can
+  /// be booked again as a nap.
+  final int tonightSleepOnsetSec;
+  final int tonightSleepOffsetSec;
+
   /// M5: the resolved exclusive-owner spans, one entry per anchor signal
   /// (`hr1Hz`, `rrIntervals`), over the union window `_prepareTargetDay`
   /// resolved once. Empty (never populated) on the import path — a bulk
@@ -61,6 +70,8 @@ class PreparedDerivationDay {
     required this.sleepSub,
     Substrate? napSub,
     this.sleepSource = 'auto',
+    this.tonightSleepOnsetSec = 0,
+    this.tonightSleepOffsetSec = 0,
     this.ownership = const {},
     this.priority = const {},
   }) : napSub = napSub ?? daySub;
@@ -78,6 +89,8 @@ class PreparedDerivationDay {
     'day_sub': daySub.toJson(),
     'sleep_sub': sleepSub.toJson(),
     'nap_sub': napSub.toJson(),
+    'tonight_sleep_onset_sec': tonightSleepOnsetSec,
+    'tonight_sleep_offset_sec': tonightSleepOffsetSec,
     // ponytail: `ownership` is NOT round-tripped here. Grepped for real
     // callers of PreparedDerivationDay.toJson()/fromJson() outside this file
     // — none exist (only `candidate.toPreparedDay(...)` at
@@ -102,6 +115,10 @@ class PreparedDerivationDay {
       sleepOnsetSec: (m['sleep_onset_sec'] as num?)?.toInt() ?? 0,
       sleepOffsetSec: (m['sleep_offset_sec'] as num?)?.toInt() ?? 0,
       sleepSource: m['sleep_source'] as String? ?? 'auto',
+      tonightSleepOnsetSec:
+          (m['tonight_sleep_onset_sec'] as num?)?.toInt() ?? 0,
+      tonightSleepOffsetSec:
+          (m['tonight_sleep_offset_sec'] as num?)?.toInt() ?? 0,
       daySub: daySub,
       sleepSub: Substrate.fromJson(
         ((m['sleep_sub'] as Map?) ?? const {}).cast<String, dynamic>(),
@@ -227,6 +244,8 @@ class SleepSessionCandidate {
     required Substrate daySub,
     required Substrate sleepSub,
     Substrate? napSub,
+    int tonightSleepOnsetSec = 0,
+    int tonightSleepOffsetSec = 0,
     Map<InputSignal, List<OwnedSpan>> ownership = const {},
     Map<InputSignal, List<String>> priority = const {},
   }) => PreparedDerivationDay(
@@ -251,6 +270,8 @@ class SleepSessionCandidate {
     daySub: daySub,
     napSub: napSub,
     sleepSub: sleepSub,
+    tonightSleepOnsetSec: tonightSleepOnsetSec,
+    tonightSleepOffsetSec: tonightSleepOffsetSec,
     ownership: ownership,
     priority: priority,
   );

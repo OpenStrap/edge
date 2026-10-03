@@ -686,6 +686,19 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
     if (name == null || name.isEmpty || !mounted) return;
     final repo = context.read<AppState>().repo;
     if (repo == null) return;
+    // Same guard as the custom-field sheet: a name with no letters or digits
+    // ("???") slugs to the bare `custom_` every other such name shares.
+    if (customJournalFieldKey(name) == customJournalFieldKey('')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)?.journalFieldErrorInvalidName ??
+                'Use at least one letter or number',
+          ),
+        ),
+      );
+      return;
+    }
     try {
       await repo.postCustomJournalField(
         JournalFieldSpec(

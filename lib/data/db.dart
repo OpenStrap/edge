@@ -7789,10 +7789,10 @@ class LocalDb {
   /// The stored sleep WINDOW for each of the [limit] most recent days, newest
   /// first, WITHOUT touching `payload_json`.
   ///
-  /// `day_result.window_json` already holds the sleep-window Metric envelope
-  /// (`{value: {onset_ms, offset_ms, …}, confidence, tier, …}`) in its own
-  /// column, so onset/offset are one small projected read — no bundle decode,
-  /// no per-day round trip. Rows: `{day_id, window_json}`.
+  /// `day_result.window_json` already holds the sleep window (a bare
+  /// `SleepWindow.toJson()`, `{onset_ms, offset_ms, …}`) in its own column, so
+  /// onset/offset are one small projected read — no bundle decode, no per-day
+  /// round trip. Rows: `{day_id, window_json}`.
   static Future<List<Map<String, dynamic>>> sleepWindowRows(int limit) async {
     final db = await instance;
     return db.rawQuery(
@@ -7803,6 +7803,19 @@ class LocalDb {
       'ORDER BY r.day_id DESC LIMIT ?',
       [limit],
     );
+  }
+
+  /// One day's stored `window_json` (see [sleepWindowRows]), or null.
+  static Future<String?> sleepWindowJsonFor(String dayId) async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      'SELECT r.window_json AS window_json '
+      'FROM day_result r '
+      '$_servedDayJoin '
+      'WHERE r.skipped = 0 AND r.day_id = ? LIMIT 1',
+      [dayId],
+    );
+    return rows.isEmpty ? null : rows.first['window_json'] as String?;
   }
 
   /// Every day_id that has a `day_result` row at its LATEST algo_version, newest

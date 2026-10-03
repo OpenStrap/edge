@@ -117,6 +117,13 @@ void main() {
       expect(customJournalFieldKey('???'), 'custom_');
       expect(customJournalFieldKey(''), 'custom_');
     });
+
+    test('non-Latin names get their own keys', () {
+      // zh and hi ship; an ASCII-only slug made every such name `custom_`.
+      expect(customJournalFieldKey('冥想'), 'custom_冥想');
+      expect(customJournalFieldKey('冥想'), isNot(customJournalFieldKey('散步')));
+      expect(customJournalFieldKey('विटामिन डी'), 'custom_विटामिन_डी');
+    });
   });
 
   group('JournalMetricValue', () {

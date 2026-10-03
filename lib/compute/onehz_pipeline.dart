@@ -159,6 +159,9 @@ class DayBundleInput {
   final List<String> hypnoStages; // per-second 'wake'|'nrem'|'rem' over window
   final int sleepOnsetSec; // window onset (epoch sec), 0 if no sleep
   final int sleepOffsetSec; // window offset (epoch sec), 0 if no sleep
+  // Onset of TONIGHT's sleep (the next day's main sleep, begun before this
+  // day's midnight), 0 if none. Everything from it on is asleep, not waking.
+  final int tonightSleepOnsetSec;
 
   // ── profile + trailing baseline history ───────────────────────────────────
   final Map<String, dynamic> profile;
@@ -229,6 +232,7 @@ class DayBundleInput {
     required this.hypnoStages,
     required this.sleepOnsetSec,
     required this.sleepOffsetSec,
+    this.tonightSleepOnsetSec = 0,
     required this.profile,
     this.lnRmssdHistory = const [],
     this.rhrHistory = const [],
@@ -259,6 +263,7 @@ class DayBundleInput {
     'hypno_stages': hypnoStages,
     'sleep_onset_sec': sleepOnsetSec,
     'sleep_offset_sec': sleepOffsetSec,
+    'tonight_sleep_onset_sec': tonightSleepOnsetSec,
     'profile': profile,
     'ln_rmssd_history': lnRmssdHistory,
     'rhr_history': rhrHistory,
@@ -307,6 +312,8 @@ class DayBundleInput {
       hypnoStages: strs('hypno_stages'),
       sleepOnsetSec: (m['sleep_onset_sec'] as num?)?.toInt() ?? 0,
       sleepOffsetSec: (m['sleep_offset_sec'] as num?)?.toInt() ?? 0,
+      tonightSleepOnsetSec:
+          (m['tonight_sleep_onset_sec'] as num?)?.toInt() ?? 0,
       profile: ((m['profile'] as Map?) ?? const {}).cast<String, dynamic>(),
       lnRmssdHistory: dbls('ln_rmssd_history'),
       rhrHistory: dbls('rhr_history'),
@@ -1619,20 +1626,22 @@ List<bool>? _nremMaskAlignedToNn(
   return mask;
 }
 
-/// Day-side HR: the day-span HR samples that fall OUTSIDE the sleep window.
+/// Day-side HR: the day-span HR samples that fall OUTSIDE the sleep window
+/// (and before tonight's sleep, see [DayBundleInput.tonightSleepOnsetSec]).
 List<double> _dayHrOutsideSleep(DayBundleInput d) {
-  if (d.sleepOnsetSec == 0 && d.sleepOffsetSec == 0) {
-    return [for (final h in d.dayHr) h.toDouble()];
-  }
   final out = <double>[];
   for (var i = 0; i < d.dayHr.length; i++) {
     final t = d.dayTsSec[i];
-    if (t < d.sleepOnsetSec || t >= d.sleepOffsetSec) {
-      out.add(d.dayHr[i].toDouble());
-    }
+    if (_asleepAt(d, t)) continue;
+    out.add(d.dayHr[i].toDouble());
   }
   return out;
 }
+
+/// Whether [t] is inside this morning's sleep window or tonight's sleep.
+bool _asleepAt(DayBundleInput d, int t) =>
+    (t >= d.sleepOnsetSec && t < d.sleepOffsetSec) ||
+    (d.tonightSleepOnsetSec > 0 && t >= d.tonightSleepOnsetSec);
 
 /// Per-minute mean HR over the WAKE span (day minus sleep window), valid only.
 class _WakeMinuteHr {
@@ -1646,7 +1655,7 @@ List<_WakeMinuteHr> _perMinuteWakeSeries(DayBundleInput d) {
   for (var i = 0; i < d.dayHr.length; i++) {
     if (d.dayHr[i] <= 0) continue;
     final t = d.dayTsSec[i];
-    if (t >= d.sleepOnsetSec && t < d.sleepOffsetSec) continue; // skip sleep
+    if (_asleepAt(d, t)) continue; // skip sleep
     (buckets[t ~/ 60] ??= []).add(d.dayHr[i].toDouble());
   }
   final keys = buckets.keys.toList()..sort();
