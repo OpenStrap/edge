@@ -29,7 +29,7 @@ import 'package:openstrap_edge/ui2/ui2.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-BandCandidate _cand(String id, {String? label, int rssi = -60}) => (
+BandCandidate _cand(String id, {String? label, int? rssi = -60}) => (
       device: BluetoothDevice.fromId(id),
       label: label,
       rssi: rssi,
@@ -232,6 +232,28 @@ void main() {
       await t.tap(find.text('Polar H10'));
       await t.pumpAndSettle();
       expect(picked, ['AA:BB:CC:DD:EE:01']);
+    });
+
+    // A ring another app still holds is not advertising, so it arrives from
+    // the OS's connected list with no signal reading at all.
+    testWidgets('an already-connected sensor shows as connected, not a dBm',
+        (t) async {
+      final picked = <String>[];
+      await _pump(
+        t,
+        PairSensorView(
+          entryLabel: 'Oura Ring',
+          candidates: [
+            _cand('AA:BB:CC:DD:EE:03', label: 'Oura Ring Gen3', rssi: null),
+          ],
+          onPick: (c) => picked.add(c.device.remoteId.str),
+        ),
+      );
+      expect(layoutFaults, isEmpty);
+      expect(find.text('Connected'), findsOneWidget);
+      await t.tap(find.text('Oura Ring Gen3'));
+      await t.pumpAndSettle();
+      expect(picked, ['AA:BB:CC:DD:EE:03']);
     });
 
     testWidgets('a pair in flight locks the rest of the list', (t) async {
