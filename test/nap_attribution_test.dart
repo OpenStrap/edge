@@ -145,12 +145,14 @@ void main() {
         final bundle = <String, dynamic>{};
         final sc = <String, dynamic>{};
 
+        final candidates = <Map<String, dynamic>>[];
         final periods = DerivationEngine.debugAttachNaps(
           bundle,
           sc,
           s,
           0,
           0,
+          candidates: candidates,
           attributionStartSec: midnight,
           attributionEndSec: midnight + 86400,
         );
@@ -174,7 +176,7 @@ void main() {
     );
 
     test(
-      'the same bout IS counted when the record only starts hours into the '
+      'the same bout is proposed when the record only starts hours into the '
       'day — yesterday could not have seen it',
       () {
         // A recording gap across the boundary: the first sample is 08:00.
@@ -190,23 +192,26 @@ void main() {
         final bundle = <String, dynamic>{};
         final sc = <String, dynamic>{};
 
+        final candidates = <Map<String, dynamic>>[];
         final periods = DerivationEngine.debugAttachNaps(
           bundle,
           sc,
           s,
           0,
           0,
+          candidates: candidates,
           attributionStartSec: midnight,
           attributionEndSec: midnight + 86400,
         );
 
         expect(periods, isNotNull);
         expect(
-          periods,
+          candidates,
           hasLength(1),
-          reason: 'dropping this would be data loss, not de-duplication',
+          reason: 'the candidate must survive until reviewed',
         );
-        expect((sc['nap_min'] as num) > 0, isTrue);
+        expect(periods, isEmpty);
+        expect(sc['nap_min'], 0);
       },
     );
 
@@ -223,19 +228,21 @@ void main() {
         final bundle = <String, dynamic>{};
         final sc = <String, dynamic>{};
 
+        final candidates = <Map<String, dynamic>>[];
         final periods = DerivationEngine.debugAttachNaps(
           bundle,
           sc,
           s,
           0,
           0,
+          candidates: candidates,
           attributionStartSec: midnight,
           attributionEndSec: midnight + 86400,
         );
 
-        expect(periods, hasLength(1));
-        expect(periods!.first['is_main'], false);
-        expect((periods.first['onset_ts'] as int) > midnight, isTrue);
+        expect(periods, isEmpty);
+        expect(candidates, hasLength(1));
+        expect((candidates.first['start'] as int) > midnight, isTrue);
       },
     );
 
@@ -305,13 +312,15 @@ void main() {
         napToSec: 2 * 3600 + napLen,
       );
       final sc = <String, dynamic>{};
-      final periods = DerivationEngine.debugAttachNaps(
+      final candidates = <Map<String, dynamic>>[];
+        final periods = DerivationEngine.debugAttachNaps(
         <String, dynamic>{},
         sc,
         s,
         0,
         0,
-        attributionStartSec: midnight,
+        candidates: candidates,
+          attributionStartSec: midnight,
         attributionEndSec: midnight + 86400,
         wristOff: [
           [midnight + 2 * 3600 - 60, midnight + 2 * 3600 + napLen + 60],
@@ -373,12 +382,14 @@ void main() {
         final bundle = <String, dynamic>{};
         final sc = <String, dynamic>{};
 
+        final candidates = <Map<String, dynamic>>[];
         final periods = DerivationEngine.debugAttachNaps(
           bundle,
           sc,
           s,
           0,
           0,
+          candidates: candidates,
           attributionStartSec: midnight,
           attributionEndSec: midnight + 86400,
         );
@@ -403,13 +414,15 @@ void main() {
         napToSec: 2 * 3600 + napLen,
       );
       final sc = <String, dynamic>{};
-      final periods = DerivationEngine.debugAttachNaps(
+      final candidates = <Map<String, dynamic>>[];
+        final periods = DerivationEngine.debugAttachNaps(
         <String, dynamic>{},
         sc,
         s,
         0,
         0,
-        attributionStartSec: midnight,
+        candidates: candidates,
+          attributionStartSec: midnight,
         attributionEndSec: midnight + 86400,
         charging: [
           [midnight + 2 * 3600 - 60, midnight + 2 * 3600 + napLen + 60],

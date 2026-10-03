@@ -25,10 +25,10 @@ void main() {
   });
 
   test(
-      'kRouteWorkoutSuggestion lands on the Workouts tab + the suggestion '
+      'kRouteWorkoutSuggestion lands on the Home tab + the suggestion '
       'sub-screen (issue #113)', () {
     final t = resolveTapRoute(kRouteWorkoutSuggestion);
-    expect(t.tab, 4); // Workouts tab underneath
+    expect(t.tab, 0); // Home underneath
     expect(t.screen, kRouteWorkoutSuggestion); // focused log/adjust review
   });
 
@@ -38,7 +38,7 @@ void main() {
     // notification about a workout.
     const id = '2026-08-19:1755625800';
     final t = resolveTapRoute(workoutSuggestionRoute(id));
-    expect(t.tab, 4);
+    expect(t.tab, 0);
     expect(routePath(t.screen!), kRouteWorkoutSuggestion);
     expect(routeId(t.screen!), id, reason: 'the shell needs it to open on it');
   });

@@ -43,6 +43,8 @@ import '../../data/nutrition_store.dart';
 import '../../ai/nightly_sweep.dart' show SweepFinding;
 import '../../compute/findings.dart';
 import '../../models/metric.dart';
+import '../../models/activity_suggestion.dart';
+import '../screens/detected_activities.dart';
 import '../activity/catalogue.dart';
 import '../activity/live.dart';
 import '../activity/picker.dart' show ActivityPicker, ActivityRow;
@@ -802,6 +804,18 @@ Map<String, Widget> extraCases() => {
       // read as one: a day with naps, a judged day that had none (a MEASURED
       // zero, so it says None rather than a dash), and a day nothing could be
       // said about at all.
+      'activity_review_empty': const DetectedActivitiesCard(pendingCount: 0),
+      'activity_review_pending': const DetectedActivitiesCard(pendingCount: 12),
+      'activity_proposal_nap': ActivityProposalCard(
+        suggestion: ActivitySuggestion(id: 'nap-fixture', kind: ActivityKind.nap,
+          startTs: 1787157000, endTs: 1787160600, revision: 0,
+          status: ActivityReviewStatus.pending, details: const {}),
+        highlighted: true, onConfirm: () {}, onEdit: () {}, onDiscard: () {}),
+      'activity_proposal_workout': ActivityProposalCard(
+        suggestion: ActivitySuggestion(id: 'workout-fixture', kind: ActivityKind.workout,
+          startTs: 1787157000, endTs: 1787164200, revision: 0,
+          status: ActivityReviewStatus.pending, details: const {}),
+        onConfirm: () {}, onEdit: () {}, onDiscard: () {}),
       'nap_row': const MetricRow(LucideIcons.sun, C.indigo, 'Daytime sleep',
           '1h 12m',
           sub: '2 naps · Sunday, 16 August'),

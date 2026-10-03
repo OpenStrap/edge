@@ -32,6 +32,7 @@ import 'ui2/screens/health_screen.dart';
 import 'ui2/screens/home_screen.dart';
 import 'ui2/screens/journal_compose.dart';
 import 'ui2/screens/log_workout.dart';
+import 'ui2/screens/detected_activities.dart';
 import 'ui2/screens/nutrition_screen.dart';
 import 'ui2/screens/wellness_screen.dart';
 import 'ui2/screens/workout_screen.dart';
@@ -355,7 +356,8 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
       // on Today, and neither has a screen of its own to push.
       kRouteRecovery => ShellDomain.home,
       kRouteSteps => ShellDomain.home,
-      kRouteWorkoutSuggestion => ShellDomain.workout,
+      kRouteDetectedActivities => ShellDomain.home,
+    kRouteWorkoutSuggestion => ShellDomain.home,
       // The forgotten-workout nudge. The Workouts tab is the destination
       // itself — the live session bar with its finish control is pinned to
       // the shell there — so screenForRoute stays null for it.
@@ -417,6 +419,7 @@ Widget? screenForRoute(String route) => switch (routePath(route)) {
       // screen is PUSHED by `_consume`, so every tap builds a fresh one and the
       // id reaches it. Wellness is a shell tab kept alive in the IndexedStack,
       // never rebuilt on a tap, which is why that one needs a request notifier.
+      kRouteDetectedActivities => DetectedActivitiesScreen(focusId: routeId(route)),
       kRouteWorkoutSuggestion =>
         WorkoutSuggestionScreen(focusId: routeId(route)),
       // Battery, band and sources all live behind this one.

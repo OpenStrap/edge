@@ -32,6 +32,10 @@ import '../ble/adapters/signals.dart' show InputSignal;
 import '../import/import_container.dart';
 import 'coverage_resolver.dart' show CoverageInterval;
 import 'day_label.dart';
+import 'activity_store.dart';
+import '../models/activity_suggestion.dart';
+import '../compute/accepted_naps.dart';
+import '../compute/nap_edits.dart' show NapEditKind;
 import 'journal_fields.dart';
 import 'live_coverage_policy.dart';
 import 'med_store.dart';
@@ -181,8 +185,14 @@ class LocalDb {
     'cycle_symptom',
     'sleep_override',
     'sleep_nap',
-    'breathing_session',
+    'workout_suggestions',
+    // Merge saved activities before their ledger so local decisions can guard
+    // incoming records before an imported confirmation becomes local too.
     'sessions',
+    'activity_suggestions',
+    'activity_review_meta',
+    'activity_review_days',
+    'breathing_session',
     'workout_route',
     'workout_split',
     // User-initiated ECG readings and the band's raw ECG records recovered
@@ -349,7 +359,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 54;
+  static const int schemaVersion = 55;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -457,6 +467,7 @@ class LocalDb {
         await _createWorkoutSuggestions(db);
         await _createSleepOverride(db);
         await _createSleepNap(db);
+        await ActivityStore.create(db);
         await _createWorkoutRoute(db);
         await _createNotifFired(db);
         await _createNotifSlots(db);
@@ -1073,6 +1084,10 @@ class LocalDb {
           // next free rung rather than collide with any of them.
           await _createEcgTables(db);
         }
+        if (oldV < 55) {
+          await _createSleepNap(db);
+          await ActivityStore.create(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1142,6 +1157,7 @@ class LocalDb {
     await _createWorkoutSuggestions(db);
     await _createSleepOverride(db);
     await _createSleepNap(db);
+    await ActivityStore.create(db);
     await _createWorkoutRoute(db);
     await _ensureWorkoutRouteSpeed(db);
     await _createWorkoutSplit(db);
@@ -4435,34 +4451,21 @@ class LocalDb {
     ''');
   }
 
-  /// Upsert an auto-detected workout suggestion (id = "$date:$startSec").
   static Future<void> putWorkoutSuggestion(Map<String, dynamic> row) async {
-    final db = await instance;
-    await db.insert(
-      'workout_suggestions',
-      row,
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+    await ActivityStore(await instance).reconcile(ActivityKind.workout, [row]);
   }
 
-  /// Active (not-yet-dismissed, not-yet-confirmed) suggestions, newest first.
-  static Future<List<Map<String, dynamic>>> activeWorkoutSuggestions() async {
-    final db = await instance;
-    return db.query(
-      'workout_suggestions',
-      where: 'dismissed = 0',
-      orderBy: 'start_ts DESC',
-    );
-  }
+  static Future<List<Map<String, dynamic>>> activeWorkoutSuggestions() async => [
+    for (final s in await ActivityStore(await instance).pending())
+      if (s.kind == ActivityKind.workout) {
+        ...s.details, 'id': s.id, 'start_ts': s.startTs, 'end_ts': s.endTs,
+      },
+  ];
 
   static Future<void> dismissWorkoutSuggestion(String id) async {
-    final db = await instance;
-    await db.update(
-      'workout_suggestions',
-      {'dismissed': 1},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final store = ActivityStore(await instance);
+    final suggestion = await store.get(id);
+    if (suggestion != null) await store.discard(suggestion);
   }
 
   // ── COACH READ-ONLY SQL VIEWS (derived-only) ───────────────────────────────
@@ -7619,8 +7622,22 @@ class LocalDb {
     // no producer needs to know the wire format exists — upstream code keeps
     // merging and patching plain [{t,v}] lists in memory. Lossless or no-op:
     // SeriesCodec leaves anything it cannot encode exactly as it found it.
-    final encodedPayload = SeriesCodec.encodePayloadJson(payloadJson);
     await db.transaction((txn) async {
+      var reviewedPayload = payloadJson;
+      var reviewedSeries = series;
+      if (source == 'band') {
+        final previous = await txn.query('day_result', where: 'day_id = ? AND algo_version <= ?',
+          whereArgs: [dayId, kAlgoVersion], orderBy: 'algo_version DESC', limit: 1);
+        if (previous.isNotEmpty) {
+          await ActivityStore.preserveLegacyNaps(txn, dayId,
+            Map<String, dynamic>.from(jsonDecode(previous.single['payload_json'] as String) as Map));
+        }
+        final bundle = Map<String, dynamic>.from(jsonDecode(payloadJson) as Map);
+        composeAcceptedNaps(bundle, await ActivityStore.napEdits(txn, dayId));
+        reviewedPayload = jsonEncode(bundle);
+        reviewedSeries = {...series, 'nap_min': ((bundle['scalars'] as Map?)?['nap_min'] as num?)?.toDouble()};
+      }
+      final encodedPayload = SeriesCodec.encodePayloadJson(reviewedPayload);
       await txn.insert('day_result', {
         'day_id': dayId,
         'algo_version': algoVersion,
@@ -7641,7 +7658,7 @@ class LocalDb {
       // baseline reads via metric_series. The next successful (non-partial)
       // pass writes the real value once it lands.
       if (!partial) {
-        for (final e in series.entries) {
+        for (final e in reviewedSeries.entries) {
           await txn.insert('metric_series', {
             'date': dayId,
             'key': e.key,
@@ -7657,7 +7674,7 @@ class LocalDb {
         // Inside the same transaction as the values, so the stamp and what it
         // describes can never disagree. Skipped when the series map is empty:
         // an empty map wrote nothing, so there is nothing to attribute.
-        if (series.isNotEmpty) {
+        if (reviewedSeries.isNotEmpty) {
           await txn.insert('metric_series_version', {
             'date': dayId,
             'algo_version': algoVersion,
@@ -8059,6 +8076,8 @@ class LocalDb {
         await _createComputeState(db);
         await _createPrimitiveArtifacts(db);
         await _createLiveCoverage(db);
+        await _createSleepNap(db);
+        await ActivityStore.create(db);
       },
     );
 
@@ -8211,6 +8230,9 @@ class LocalDb {
       final (startSec, endSec) = _localDayWindow(dayId);
       await copyRawRange(startSec, endSec);
       await copyRows('day_result', where: 'day_id = ?', whereArgs: [dayId]);
+      for (final table in ['sleep_nap', 'activity_suggestions', 'activity_review_days']) {
+        await copyRows(table, where: 'day_id = ?', whereArgs: [dayId]);
+      }
       await copyRows('metric_series', where: 'date = ?', whereArgs: [dayId]);
       await copyRows(
         'metric_series_version',
@@ -8237,6 +8259,7 @@ class LocalDb {
     // `custom_magnesium` with no label, no unit and no idea what scale they
     // are on — the values survive the export and their meaning does not.
     await copyRows('journal_field_def');
+    await copyRows('activity_review_meta');
     await out.close();
     return dest;
   }
@@ -8338,6 +8361,8 @@ class LocalDb {
       await deleteByIn(txn, 'workout_suggestions', 'date', sorted);
       await deleteByIn(txn, 'sleep_override', 'day_id', sorted);
       await deleteByIn(txn, 'sleep_nap', 'day_id', sorted);
+      await deleteByIn(txn, 'activity_suggestions', 'day_id', sorted);
+      await deleteByIn(txn, 'activity_review_days', 'day_id', sorted);
     });
     return deleted;
   }
@@ -8617,6 +8642,12 @@ class LocalDb {
       // and lose every one they logged.
       'sleep_override',
       'sleep_nap',
+      'workout_suggestions',
+      // Keep the decision merge after both kinds of accepted activity.
+      'sessions',
+      'activity_suggestions',
+      'activity_review_meta',
+      'activity_review_days',
       'samples',
       'events',
       'decoded_onehz',
@@ -8643,7 +8674,6 @@ class LocalDb {
       'day_result',
       'metric_series',
       'metric_series_version',
-      'sessions',
       'notifications',
       'baselines',
       // The devices this phone knows about — so a SECONDARY device's identity
@@ -8753,6 +8783,10 @@ class LocalDb {
           }
           final cols = await destCols(t);
           if (cols.isEmpty) continue; // table absent in THIS build
+          final sourceHasActivityDecisions = (t == 'sleep_nap' || t == 'sessions') &&
+              (await src.query('sqlite_master', columns: ['name'],
+                where: "type = 'table' AND name = 'activity_suggestions'"))
+                  .isNotEmpty;
           // FINALIZED-DAY PROTECTION: a local day_result row with finalized=1 is
           // LOCKED (this device's own fully-derived history — the long-term
           // system of record). A foreign export merged with REPLACE must never
@@ -8780,6 +8814,26 @@ class LocalDb {
           // orphan guard is still queued in the SAME transaction as the row it
           // guards — the invariant that matters is per-row, not per-table.
           while (page.isNotEmpty) {
+            // A confirmed activity belongs to its review decision even when the
+            // user moved its window. Match by that identity, not just overlap.
+            // Read only the owners for this page; older backups have no ledger.
+            final activityOwners = <String, List<String>>{};
+            if (sourceHasActivityDecisions) {
+              final kind = t == 'sleep_nap' ? 'nap' : 'workout';
+              final links = [for (final r in page)
+                t == 'sleep_nap' ? '${r['day_id']}:${r['start_ts']}' : r['id'] as String];
+              for (final chunk in _sqlVarChunks(links)) {
+                final owners = await src.query('activity_suggestions',
+                  columns: ['id', 'linked_id'],
+                  where: "kind = '$kind' AND status = 'confirmed' AND "
+                      "linked_id IN (${List.filled(chunk.length, '?').join(',')})",
+                  whereArgs: chunk);
+                for (final owner in owners) {
+                  activityOwners.putIfAbsent(owner['linked_id'] as String, () => [])
+                      .add(owner['id'] as String);
+                }
+              }
+            }
             await db.transaction((txn) async {
               // CHUNKED, for the same reason commitSyncBatch chunks: sqflite
               // serialises a whole batch's args into ONE platform message, and
@@ -8801,6 +8855,55 @@ class LocalDb {
                     if (cols.contains(e.key)) e.key: e.value,
                 };
                 if (row.isEmpty) continue;
+                if (t == 'sleep_nap' || t == 'sessions') {
+                  var keepLocalDecision = false;
+                  final link = t == 'sleep_nap'
+                      ? '${row['day_id']}:${row['start_ts']}' : row['id'];
+                  final owners = activityOwners[link];
+                  for (final chunk in _sqlVarChunks(owners ?? <String>[])) {
+                    final decided = await txn.query('activity_suggestions',
+                      columns: ['id'],
+                      where: "status != 'pending' AND "
+                          "id IN (${List.filled(chunk.length, '?').join(',')})",
+                      whereArgs: chunk, limit: 1);
+                    if (decided.isNotEmpty) {
+                      keepLocalDecision = true;
+                      break;
+                    }
+                  }
+                  if (keepLocalDecision) {
+                    // The decision merge below keeps this local answer. Do not
+                    // import the losing answer's activity, including after discard.
+                    // Recompose any day bundle that the backup may bring back.
+                    if (t == 'sleep_nap') {
+                      await ActivityStore.markDayChanged(txn, row['day_id'] as String);
+                    }
+                    continue;
+                  }
+                }
+                if (t == 'sleep_nap') {
+                  final local = await txn.query('sleep_nap',
+                    where: 'start_ts < ? AND end_ts > ? AND created_at >= ?',
+                    whereArgs: [row['end_ts'], row['start_ts'], row['created_at']]);
+                  // A newer local correction has already answered this window.
+                  if (local.isNotEmpty) continue;
+                }
+                if (t == 'activity_suggestions') {
+                  final local = await txn.query(t, where: 'id = ?', whereArgs: [row['id']], limit: 1);
+                  if (local.isNotEmpty && (local.single['status'] != 'pending' ||
+                      (row['status'] == 'pending' &&
+                       (local.single['updated_at'] as int) >= (row['updated_at'] as int)))) { continue; }
+                }
+                if (t == 'activity_review_meta') {
+                  final local = await txn.query(t, limit: 1);
+                  if (local.isNotEmpty) {
+                    final old = local.single;
+                    final a = old['activated_at'] as int, b = row['activated_at'] as int;
+                    row['activated_at'] = a < b ? a : b;
+                    row['revision'] = (old['revision'] as int) + (row['revision'] as int) + 1;
+                  }
+                }
+
                 if (t == 'decoded_onehz') {
                   // A pre-v46 export still carries the retired columns as
                   // VALUES (the disproven on_wrist/hr_valid reads and the
@@ -8946,6 +9049,29 @@ class LocalDb {
       }
     } finally {
       await src.close();
+    }
+    if (counts.values.any((count) => count > 0)) {
+      await ActivityStore.suppressImportedAlerts(db);
+    }
+    if ((counts['workout_suggestions'] ?? 0) > 0) {
+      await db.update('activity_review_meta', {'legacy_migrated': 0});
+      await ActivityStore(db).migrateLegacy();
+    }
+    if ((counts['sleep_nap'] ?? 0) > 0 || (counts['activity_suggestions'] ?? 0) > 0) {
+      // Imported day bundles may be older than a decision we kept locally.
+      // Recompose accepted naps after the merge, in bounded transactions.
+      String cursor = '';
+      while (true) {
+        final days = await db.rawQuery('''SELECT DISTINCT day_id FROM sleep_nap
+          WHERE day_id > ? ORDER BY day_id LIMIT 100''', [cursor]);
+        if (days.isEmpty) break;
+        await db.transaction((tx) async {
+          for (final day in days) {
+            await ActivityStore.markDayChanged(tx, day['day_id'] as String);
+          }
+        });
+        cursor = days.last['day_id'] as String;
+      }
     }
     // An import writes day_result rows with a raw batch.insert, deliberately
     // bypassing putDayResult (and therefore the curve-encode seam), so the rows
@@ -9438,6 +9564,23 @@ class LocalDb {
       limit: 1,
     );
     return rows.isEmpty ? null : rows.first;
+  }
+
+  static Future<int> activityReviewRevision() async {
+    final rows = await (await instance).query('activity_review_meta', columns: ['revision']);
+    return rows.isEmpty ? 0 : rows.single['revision'] as int;
+  }
+
+  /// A calculation started before a review must never publish over it.
+  static Future<bool> putReviewedBaseline(String key, String payloadJson, int expectedRevision) async {
+    return (await instance).transaction((tx) async {
+      final rows = await tx.query('activity_review_meta', columns: ['revision']);
+      final revision = rows.isEmpty ? 0 : rows.single['revision'] as int;
+      if (revision != expectedRevision) return false;
+      await tx.insert('baselines', {'key': key, 'payload_json': payloadJson,
+        'updated_at': DateTime.now().millisecondsSinceEpoch}, conflictAlgorithm: ConflictAlgorithm.replace);
+      return true;
+    });
   }
 
   static Future<void> putBaseline(String key, String payloadJson) async {
@@ -10198,6 +10341,86 @@ class LocalDb {
     });
   }
 
+  static Future<Map<String, int>> applyPendingActivityReviews() async {
+    final db = await instance;
+    return db.transaction((tx) async {
+      final pending = await tx.query(
+        'activity_review_days', orderBy: 'day_id', limit: 25,
+      );
+      final revisions = <String, int>{};
+      for (final job in pending) {
+        final day = job['day_id'] as String;
+        revisions[day] = job['revision'] as int;
+        final rows = await tx.query(
+          'day_result',
+          where: 'day_id = ? AND algo_version <= ?',
+          whereArgs: [day, kAlgoVersion],
+          orderBy: 'algo_version DESC',
+          limit: 1,
+        );
+        final edits = await ActivityStore.napEdits(tx, day);
+        if (rows.isEmpty && edits.every((e) => e.kind == NapEditKind.rejected)) {
+          continue;
+        }
+        // An accepted snapshot remains useful even if no day bundle survived.
+        // It does not make that day fully derived or invent other metrics.
+        final row = rows.isEmpty
+            ? <String, Object?>{
+                'day_id': day,
+                'algo_version': kAlgoVersion,
+                'payload_json': '{}',
+                'window_json': '{}',
+                'partial': 1,
+              }
+            : Map<String, Object?>.from(rows.single);
+        final bundle = Map<String, dynamic>.from(
+          jsonDecode(row['payload_json'] as String) as Map,
+        );
+        await ActivityStore.preserveLegacyNaps(tx, day, bundle);
+        final acceptedEdits = await ActivityStore.napEdits(tx, day);
+        if ((row['skipped'] == 1 || bundle['skipped'] == true) &&
+            acceptedEdits.any((e) => e.kind == NapEditKind.added)) {
+          // This day now has accepted information for navigation and summaries,
+          // but still needs derivation before it can be finalized or pruned.
+          row['skipped'] = 0;
+          row['partial'] = 1;
+          row['finalized'] = 0;
+          bundle.remove('skipped');
+          bundle.remove('reason');
+        }
+        composeAcceptedNaps(bundle, acceptedEdits);
+        // Editing naps does not recompute the retained metrics. Keep their
+        // version so scheduling and pruning still require a current derivation.
+        await tx.insert('day_result', {
+          ...row,
+          'payload_json': jsonEncode(bundle),
+          'computed_at': DateTime.now().millisecondsSinceEpoch,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        await tx.insert('metric_series', {
+          'date': day,
+          'key': 'nap_min',
+          'value': (bundle['scalars'] as Map?)?['nap_min'],
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      if (revisions.isNotEmpty) {
+        // Each batch changes the rollup's inputs, even without another review.
+        // Advance in this transaction so cached or in-flight calculations from
+        // before these day writes cannot be published as current.
+        await tx.rawUpdate('UPDATE activity_review_meta SET revision = revision + 1');
+      }
+      return revisions;
+    });
+  }
+
+  static Future<void> finishActivityReviews(Map<String, int> revisions) async {
+    final db = await instance;
+    await db.transaction((tx) async {
+      for (final e in revisions.entries) {
+        await tx.delete('activity_review_days', where: 'day_id = ? AND revision = ?', whereArgs: [e.key, e.value]);
+      }
+    });
+  }
+
   // ── nap edits ─────────────────────────────────────────────────────────────
 
   /// Log a nap the detector missed, or suppress one it invented.
@@ -10208,22 +10431,56 @@ class LocalDb {
     required String source,
   }) async {
     final db = await instance;
-    await db.insert('sleep_nap', {
-      'day_id': dayId,
-      'start_ts': startTs,
-      'end_ts': endTs,
-      'source': source,
-      'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.transaction((tx) async {
+      String? snapshot;
+      if (source == 'rejected') {
+        // A pre-upgrade nap may still live only in its retained day result.
+        // Capture it before replacing that result with the user's rejection.
+        final days = await tx.query('day_result',
+          where: 'day_id = ? AND algo_version <= ?',
+          whereArgs: [dayId, kAlgoVersion], orderBy: 'algo_version DESC', limit: 1);
+        if (days.isNotEmpty) {
+          await ActivityStore.preserveLegacyNaps(tx, dayId,
+            Map<String, dynamic>.from(jsonDecode(days.single['payload_json'] as String) as Map));
+        }
+        final existing = await tx.query('sleep_nap',
+          where: 'day_id = ? AND start_ts = ?', whereArgs: [dayId, startTs]);
+        if (existing.isNotEmpty) snapshot = existing.single['payload_json'] as String?;
+      }
+      await tx.insert('sleep_nap', {
+        'day_id': dayId, 'start_ts': startTs, 'end_ts': endTs,
+        'source': source, 'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        'payload_json': snapshot,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await ActivityStore.markDayChanged(tx, dayId);
+    });
   }
 
   static Future<void> deleteNapEdit(String dayId, int startTs) async {
     final db = await instance;
-    await db.delete(
-      'sleep_nap',
-      where: 'day_id = ? AND start_ts = ?',
-      whereArgs: [dayId, startTs],
-    );
+    await db.transaction((tx) async {
+      final rows = await tx.query('sleep_nap',
+        where: 'day_id = ? AND start_ts = ?', whereArgs: [dayId, startTs]);
+      String? restoreSource;
+      if (rows.isNotEmpty && rows.single['source'] == 'rejected') {
+        final payload = rows.single['payload_json'];
+        if (payload is String) {
+          final source = (jsonDecode(payload) as Map)['source'];
+          if (source == 'confirmed' || source == 'legacy') restoreSource = source as String;
+        }
+      }
+      if (restoreSource != null) {
+        // Removing a rejection means "Put it back". Keep its original asleep
+        // minutes and confidence even after raw recordings have expired.
+        await tx.update('sleep_nap', {
+          'source': restoreSource,
+          'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        }, where: 'day_id = ? AND start_ts = ?', whereArgs: [dayId, startTs]);
+      } else {
+        await tx.delete('sleep_nap', where: 'day_id = ? AND start_ts = ?', whereArgs: [dayId, startTs]);
+      }
+      await ActivityStore.markDayChanged(tx, dayId);
+    });
   }
 
   static Future<List<Map<String, dynamic>>> napEdits(String dayId) async {
@@ -10406,11 +10663,14 @@ class LocalDb {
   /// Upsert a workout session row (INSERT OR REPLACE — idempotent on id).
   static Future<void> putSession(Map<String, dynamic> row) async {
     final db = await instance;
-    await db.insert(
-      'sessions',
-      row,
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await db.transaction((tx) async {
+      await tx.insert('sessions', row, conflictAlgorithm: ConflictAlgorithm.replace);
+      final start = row['start_ts'] as int?;
+      if (start != null) {
+        await ActivityStore.supersedeWorkouts(tx, start,
+          (row['end_ts'] as int?) ?? DateTime.now().millisecondsSinceEpoch ~/ 1000);
+      }
+    });
   }
 
   /// Update ONLY a session's derived score columns.

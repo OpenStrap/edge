@@ -298,4 +298,5 @@ const _notComponents = {
   // time picker on tap. Covered by `log_workout_test.dart`, which pumps each
   // at a real phone width against injected rows.
   'WorkoutSuggestionScreen', 'LogWorkout',
+  'DetectedActivitiesScreen', 'NapProposalEditor', // Full review/editor routes.
 };

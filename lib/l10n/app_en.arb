@@ -12441,5 +12441,42 @@
         "type": "int"
       }
     }
-  }
+  },
+  "activityReviewTitle": "Detected activities",
+  "activityPossibleNap": "Possible nap",
+  "activityPossibleWorkout": "Possible workout",
+  "activityConfirm": "Confirm",
+  "activityEdit": "Edit",
+  "activityDiscard": "Discard",
+  "activitySaveConfirm": "Save and confirm",
+  "activityNothing": "Nothing to review",
+  "activityEmptyBody": "Possible naps and workouts will appear here.",
+  "activityLoadFailed": "Could not load activities. Try again.",
+  "activityReviewProblem": "Could not finish",
+  "activityReview": "Review",
+  "activityLoading": "Loading…",
+  "activityPending": "{count} to review",
+  "@activityPending": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "activityLengthMinutes": "{minutes} min",
+  "@activityLengthMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "activityStart": "Start",
+  "activityEnd": "End",
+  "activityCheckTimes": "Check the times",
+  "activityNapWindow": "Choose a past window between 5 minutes and 6 hours.",
+  "activityEditNap": "Edit nap",
+  "activityEditWorkout": "Edit workout",
+  "activityNapAlerts": "Detected naps",
+  "activityPushHint": "Push alerts only. Suggestions remain in Detected activities."
 }

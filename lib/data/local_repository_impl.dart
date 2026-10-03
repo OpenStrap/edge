@@ -28,6 +28,8 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 
 import 'day_label.dart';
 import 'db.dart';
+import 'activity_store.dart';
+import '../models/activity_suggestion.dart';
 import '../health/health_export.dart';
 import 'journal_fields.dart';
 import 'local_repository.dart';
@@ -36,7 +38,7 @@ import '../gps/route_models.dart';
 import '../gps/route_math.dart' as rmath;
 
 class LocalRepositoryImpl extends LocalRepository {
-  LocalRepositoryImpl({required this.getProfileMap, this.saveProfileFields});
+  LocalRepositoryImpl({required this.getProfileMap, this.saveProfileFields, this.onActivitiesChanged});
 
   /// Reads the live AppState profile map (age/weight/height/sex/step_goal…).
   final Map<String, dynamic>? Function() getProfileMap;
@@ -51,6 +53,41 @@ class LocalRepositoryImpl extends LocalRepository {
   /// user on every call and the goal never moved off 8 000.
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>)?
   saveProfileFields;
+
+  final Future<void> Function()? onActivitiesChanged;
+
+  @override
+  Future<int> pendingActivityCount() async => ActivityStore(await LocalDb.instance).pendingCount();
+
+  @override
+  Future<List<ActivitySuggestion>> pendingActivities() async =>
+      ActivityStore(await LocalDb.instance).pending();
+
+  @override
+  Future<void> discardActivity(ActivitySuggestion suggestion) async {
+    await ActivityStore(await LocalDb.instance).discard(suggestion);
+    await onActivitiesChanged?.call();
+  }
+
+  @override
+  Future<void> confirmActivity(ActivitySuggestion suggestion, {
+    int? startTs, int? endTs, String? workoutType,
+  }) async {
+    final start = startTs ?? suggestion.startTs;
+    final end = endTs ?? suggestion.endTs;
+    if (suggestion.kind == ActivityKind.workout) {
+      await _writeManualSession(startTs: start, endTs: end,
+        type: workoutType ?? suggestion.sport ?? 'other',
+        validateAgainstId: 'suggestion:${suggestion.id}',
+        sessionId: 'suggestion:${suggestion.id}', suggestion: suggestion);
+      await HealthExporter.exportWorkoutId('suggestion:${suggestion.id}');
+    } else {
+      await ActivityStore(await LocalDb.instance).confirm(suggestion,
+        startTs: start, endTs: end,
+        edited: start != suggestion.startTs || end != suggestion.endTs);
+    }
+    await onActivitiesChanged?.call();
+  }
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -2680,6 +2717,7 @@ class LocalRepositoryImpl extends LocalRepository {
     Map<String, dynamic>? existing,
     String? sessionId,
     String source = 'manual',
+    ActivitySuggestion? suggestion,
   }) async {
     // Re-check at the write seam. The form validates live, but its snapshot of
     // saved spans can be stale by the time save is tapped (a background derive
@@ -2739,7 +2777,12 @@ class LocalRepositoryImpl extends LocalRepository {
     // trace all band on the SAME ceiling this write did — `putSession` is
     // INSERT-OR-REPLACE, so omitting it would blank an edit's existing stamp.
     row['device_family'] = deviceFamily;
-    await LocalDb.putSession(row);
+    if (suggestion != null) {
+      await ActivityStore(await LocalDb.instance).confirm(suggestion,
+        startTs: startTs, endTs: endTs, session: row);
+    } else {
+      await LocalDb.putSession(row);
+    }
 
     // Retire the fragment(s) this window supersedes, so the athlete isn't
     // asked "did you work out?" about the session they just logged.

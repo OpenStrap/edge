@@ -33,11 +33,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../compute/manual_session.dart';
+import '../../models/activity_suggestion.dart';
+import 'detected_activities.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../health/health_export.dart';
 import '../../l10n/app_localizations.dart';
-import '../../notify/notification_prefs.dart';
 import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
 import '../profile/profile.dart' show SetRow, settingsGroup;
@@ -85,320 +86,17 @@ class Suggestion {
   }
 }
 
-/// [all] narrowed to the one bout the notification named, or [all] unchanged
-/// when it named none — or named one that is no longer waiting, because it was
-/// logged or dismissed between the buzz and the tap. The remaining bouts are
-/// still real, so they are shown rather than an empty screen.
-List<Suggestion> focusSuggestions(List<Suggestion> all, String? focusId) {
-  if (focusId == null) return all;
-  final one = [for (final s in all) if (s.id == focusId) s];
-  return one.isEmpty ? all : one;
-}
-
 // ══════════════════ THE REVIEW SCREEN ══════════════════
 
 /// Where "Did you work out?" lands. Every active bout, each with the two
 /// answers that are honest — it happened, or it didn't — and the third that
 /// matters more than either: the window is wrong.
-class WorkoutSuggestionScreen extends StatefulWidget {
-  const WorkoutSuggestionScreen({super.key, this.preloaded, this.focusId});
-
-  /// Injected in tests and goldens. Null means read the table.
-  final List<Suggestion>? preloaded;
-
-  /// The one bout the notification was about (`workout_suggestions.id`), from
-  /// the deep link's `?id=`. Null when the screen is opened from the Workouts
-  /// tab, which reviews everything.
-  ///
-  /// A notification that says "we spotted ~40 min" and opens a list of four is
-  /// the same broken promise as landing on the plain tab was. If the id is no
-  /// longer active — logged or dismissed between the buzz and the tap — the
-  /// rest of the list is shown rather than an empty screen, because those are
-  /// still real and still waiting.
-  final String? focusId;
-
-  @override
-  State<WorkoutSuggestionScreen> createState() =>
-      _WorkoutSuggestionScreenState();
-}
-
-class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
-  List<Suggestion>? _items;
-
-  /// Tracked SEPARATELY from [_items]. A failed query rendered as "nothing to
-  /// review" tells the user a still-active suggestion was already handled,
-  /// which is the one thing this screen must never say by accident.
-  bool _failed = false;
-  bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.preloaded != null) {
-      _items = focusSuggestions(widget.preloaded!, widget.focusId);
-    } else {
-      _load();
-    }
-  }
-
-  Future<void> _load() async {
-    setState(() => _failed = false);
-    // The switch, before the table. This screen is reachable by tapping the
-    // notification (`kRouteWorkoutSuggestion`), which does not come through
-    // the Workouts tab's already-gated read — so "auto-detect off" has to be
-    // answered here too or the one surface the user actually taps is the one
-    // the switch never reached.
-    if (!await autoDetectOn()) {
-      if (mounted) setState(() => _items = const []);
-      return;
-    }
-    try {
-      final rows = await LocalDb.activeWorkoutSuggestions();
-      if (!mounted) return;
-      final all = [for (final r in rows) ?Suggestion.from(r)];
-      setState(() => _items = focusSuggestions(all, widget.focusId));
-    } catch (_) {
-      if (mounted) setState(() => _failed = true);
-    }
-  }
-
-  /// Log it, over the window the detector proposed.
-  Future<void> _confirm(Suggestion s) async {
-    final repo = repoOf(context);
-    if (repo == null || _busy) return;
-    final l = AppLocalizations.of(context);
-    setState(() => _busy = true);
-    var message = '';
-    try {
-      final r = await repo.logManualWorkout(
-        startTs: s.startTs,
-        endTs: s.endTs,
-        type: s.activity?.typeKey ?? 'other',
-      );
-      // Every write path exports, or the health store quietly disagrees with
-      // the log (#130). No-op with health sync off; never throws.
-      await HealthExporter.exportWorkoutId(r['workout_id'] as String?);
-      // The repo retires every suggestion the saved window covers, this one
-      // included — nothing to dismiss here.
-    } on ManualWindowException catch (e) {
-      // A REFUSAL, not a failure to retry differently. The commonest is an
-      // overlap: those minutes are already in the log, so the bout is spent.
-      message = e.error.message;
-      try {
-        await LocalDb.dismissWorkoutSuggestion(s.id);
-      } catch (_) {/* the reason is already on screen */}
-    } catch (_) {
-      message = l?.logWorkoutCouldNotLog ?? 'Could not log this one — try again.';
-    }
-    if (!mounted) return;
-    setState(() => _busy = false);
-    if (message.isNotEmpty) _say(message);
-    await _afterAction();
-  }
-
-  Future<void> _dismiss(Suggestion s) async {
-    if (_busy) return;
-    final l = AppLocalizations.of(context);
-    setState(() => _busy = true);
-    try {
-      await LocalDb.dismissWorkoutSuggestion(s.id);
-    } catch (_) {
-      if (mounted) {
-        _say(l?.logWorkoutCouldNotDismiss ??
-            'Could not dismiss this one — try again.');
-      }
-    }
-    if (!mounted) return;
-    setState(() => _busy = false);
-    await _afterAction();
-  }
-
-  /// Open the form on the detected window so the athlete can widen it to the
-  /// session they actually did, then save that instead.
-  Future<void> _adjust(Suggestion s) async {
-    final nav = Navigator.of(context);
-    final l = AppLocalizations.of(context);
-    final saved = await nav.push<bool>(MaterialPageRoute<bool>(
-      builder: (_) => LogWorkout(
-        start: DateTime.fromMillisecondsSinceEpoch(s.startTs * 1000),
-        end: DateTime.fromMillisecondsSinceEpoch(s.endTs * 1000),
-        activity: s.activity,
-        title: l?.logWorkoutAdjustTimes ?? 'Adjust the times',
-      ),
-    ));
-    if (saved == true) await _afterAction();
-  }
-
-  void _say(String m) =>
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
-
-  /// Re-read, then close once there is nothing left to review — the tab
-  /// underneath is where the now-logged session is.
-  Future<void> _afterAction() async {
-    await _load();
-    if (!mounted) return;
-    bumpInsights(context);
-    if (!_failed && (_items?.isEmpty ?? false)) {
-      await Navigator.maybePop(context);
-    }
-  }
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final l = AppLocalizations.of(c);
-    final items = _items;
-    return Scaffold(
-      backgroundColor: p.bg,
-      body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(l?.logWorkoutDetectedActivityTitle ?? 'Detected activity',
-                sub: l?.logWorkoutYoursToConfirmSub ?? 'YOURS TO CONFIRM'),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
-              children: [
-                if (_failed)
-                  StatusCard(
-                    l?.logWorkoutReadFailedTitle ??
-                        'Could not read your detected activity',
-                    l?.logWorkoutReadFailedBody ??
-                        'The store did not answer. Nothing has been logged or '
-                            'dismissed.',
-                    fix: l?.logWorkoutTryAgain ?? 'Try again',
-                    icon: LucideIcons.refreshCw,
-                    onFix: _load,
-                  )
-                else if (items == null)
-                  NoData(
-                      message: l?.logWorkoutReadingSpotted ??
-                          'Reading what the band spotted…')
-                else if (items.isEmpty)
-                  StatusCard(
-                    l?.logWorkoutNothingToReviewTitle ?? 'Nothing to review',
-                    l?.logWorkoutNothingToReviewBody ??
-                        'This one may already have been logged or dismissed.',
-                    icon: LucideIcons.circleCheck,
-                  )
-                else
-                  for (final s in items) ...[
-                    _SuggestionCard(
-                      s,
-                      onConfirm: _busy ? null : () => _confirm(s),
-                      onDismiss: _busy ? null : () => _dismiss(s),
-                      onAdjust: _busy ? null : () => _adjust(s),
-                    ),
-                    const SizedBox(height: S.x3),
-                  ],
-                const SizedBox(height: S.x3),
-                StatusCard(
-                  l?.logWorkoutHardMinutesTitle ??
-                      'These are the hard minutes, not the whole session',
-                  l?.logWorkoutHardMinutesBody ??
-                      'Detection reports the sustained effort it could see, so a '
-                          'warm-up and the rest between sets fall outside it. '
-                          'Adjust the times before logging if the window is short.',
-                  icon: LucideIcons.scissors,
-                ),
-              ],
-            ),
-          ),
-        ]),
-      ),
-    );
-  }
-}
-
-/// One detected bout: what was seen, and the three answers to it.
-class _SuggestionCard extends StatelessWidget {
-  const _SuggestionCard(
-    this.s, {
-    this.onConfirm,
-    this.onDismiss,
-    this.onAdjust,
-  });
-
-  final Suggestion s;
-  final VoidCallback? onConfirm, onDismiss, onAdjust;
-
-  @override
-  Widget build(BuildContext c) {
-    final p = P.of(c);
-    final l = AppLocalizations.of(c);
-    final a = s.activity;
-    final colour = a?.color ?? C.purple;
-    return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(color: p.wash(colour), borderRadius: R.rMd),
-            child: Icon(a?.icon ?? LucideIcons.activity,
-                size: 19, color: p.on(colour)),
-          ),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                      l?.logWorkoutMinutesOfEffort(s.durationMin) ??
-                          '${s.durationMin} min of effort',
-                      style: F.body
-                          .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
-                  Text(windowLabel(s.startTs, s.endTs, l),
-                      style: F.over.copyWith(color: p.ink3)),
-                ]),
-          ),
-        ]),
-        const SizedBox(height: S.x3),
-        // What was actually measured. No strain and no calories: neither has
-        // been scored yet — the scoring happens on the write, over whatever
-        // window is finally saved, and printing one here would be a number
-        // this screen made up.
-        InlineMetrics([
-          if (s.avgBpm != null)
-            (l?.logWorkoutAvgHr ?? 'Avg HR', '${s.avgBpm} bpm', p.on(C.red)),
-          if (s.peakBpm != null)
-            (l?.logWorkoutPeakHr ?? 'Peak HR', '${s.peakBpm} bpm',
-                p.on(C.orange)),
-          if (a != null) (l?.logWorkoutLooksLike ?? 'Looks like', a.name, p.on(colour)),
-        ]),
-        const SizedBox(height: S.x4),
-        BigButton(l?.logWorkoutLogIt ?? 'Log it',
-            icon: LucideIcons.check, onTap: onConfirm),
-        const SizedBox(height: S.x2),
-        Row(children: [
-          Expanded(
-            child: BigButton(l?.logWorkoutAdjustTimes ?? 'Adjust the times',
-                icon: LucideIcons.clock,
-                color: C.blue,
-                soft: true,
-                onTap: onAdjust),
-          ),
-          const SizedBox(width: S.x2),
-          Expanded(
-            child: BigButton(l?.logWorkoutNotAWorkout ?? 'Not a workout',
-                icon: LucideIcons.x, color: C.red, soft: true, onTap: onDismiss),
-          ),
-        ]),
-      ]),
-    );
-  }
-}
-
-/// "Today · 6:30 PM – 7:31 PM". The WINDOW, never just the start — the whole
-/// reason someone opens this screen is to check whether the detector clipped
-/// it, and a start time alone cannot show that.
-String windowLabel(int startTs, int endTs, [AppLocalizations? l]) {
-  final s = DateTime.fromMillisecondsSinceEpoch(startTs * 1000);
-  final e = DateTime.fromMillisecondsSinceEpoch(endTs * 1000);
-  return '${dayLabel(s, l: l)} · ${formatMinuteOfDay(s.hour * 60 + s.minute)} – '
-      '${formatMinuteOfDay(e.hour * 60 + e.minute)}';
+class WorkoutSuggestionScreen extends DetectedActivitiesScreen {
+  WorkoutSuggestionScreen({super.key, List<Suggestion>? preloaded, super.focusId})
+      : super(preloaded: preloaded?.map((s) => ActivitySuggestion(
+          id: s.id, kind: ActivityKind.workout, startTs: s.startTs, endTs: s.endTs,
+          revision: 0, details: {'sport': s.sport, 'peak_bpm': s.peakBpm, 'avg_bpm': s.avgBpm},
+        )).toList());
 }
 
 /// Today / Yesterday / "Mon 11 Aug", against the real calendar day rather than
@@ -413,21 +111,12 @@ String dayLabel(DateTime at, {DateTime? now, AppLocalizations? l}) {
   return '${weekdayShortName(d.weekday, l)} ${d.day} ${monthShortName(d.month, l)}';
 }
 
-// ══════════════════ THE FORM ══════════════════
 
-/// Log a past session, or fix the window on one already in the log.
-///
-/// [sessionId] is the whole difference between the two: with it the save is a
-/// RETIME (`setWorkoutWindow`, same id, so the row's GPS route and its rating
-/// stay attached), without it a new manual entry (`logManualWorkout`). The
-/// type is not editable on a retime — it belongs to the row already, and this
-/// screen is about the times.
-///
-/// Pops `true` when something was written, so the caller can re-read.
 class LogWorkout extends StatefulWidget {
   const LogWorkout({
     super.key,
     this.sessionId,
+    this.suggestion,
     this.start,
     this.end,
     this.activity,
@@ -437,6 +126,7 @@ class LogWorkout extends StatefulWidget {
   });
 
   final String? sessionId;
+  final ActivitySuggestion? suggestion;
   final DateTime? start, end;
   final Activity? activity;
 
@@ -463,17 +153,19 @@ class _LogWorkoutState extends State<LogWorkout> {
   List<SessionSpan> _spans = const [];
   bool _saving = false;
   String? _wrote;
+  ActivitySuggestion? _suggestion;
 
   @override
   void initState() {
     super.initState();
+    _suggestion = widget.suggestion;
     final now = widget.now ?? DateTime.now();
     // An hour, ending on the last whole hour. A form that opens on "now to
     // now" is a form whose first state is invalid.
     final defaultEnd = DateTime(now.year, now.month, now.day, now.hour);
     _end = widget.end ?? defaultEnd;
     _start = widget.start ?? _end.subtract(Motion.tick * 3600);
-    _activity = widget.activity ?? quickStart.first;
+    _activity = widget.activity ?? (widget.suggestion != null ? const Activity('Other', LucideIcons.activity, C.domMove, Track.duration, null) : quickStart.first);
     if (widget.spans != null) {
       _spans = widget.spans!;
     } else {
@@ -512,10 +204,10 @@ class _LogWorkoutState extends State<LogWorkout> {
     final picked = await showDatePicker(
       context: context,
       initialDate: _start,
-      firstDate: DateTime(now.year - 5),
+      firstDate: DateTime(2000),
       lastDate: now,
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     final span = _end.difference(_start);
     setState(() {
       _start = DateTime(
@@ -530,7 +222,7 @@ class _LogWorkoutState extends State<LogWorkout> {
       context: context,
       initialTime: TimeOfDay(hour: at.hour, minute: at.minute),
     );
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
     setState(() {
       if (isStart) {
         final span = _end.difference(_start);
@@ -581,6 +273,12 @@ class _LogWorkoutState extends State<LogWorkout> {
       _wrote = null;
     });
     try {
+      if (_suggestion case final suggestion?) {
+        await repo.confirmActivity(suggestion, startTs: _startSec, endTs: _endSec, workoutType: _activity.typeKey);
+        app?.insightsRevision.value++;
+        if (mounted) nav.pop(true);
+        return;
+      }
       final r = widget.sessionId == null
           ? await repo.logManualWorkout(
               startTs: _startSec, endTs: _endSec, type: _activity.typeKey)
@@ -607,6 +305,22 @@ class _LogWorkoutState extends State<LogWorkout> {
         return;
       }
       nav.pop(true);
+    } on ActivityReviewException catch (e) {
+      try {
+        final pending = await repo.pendingActivities();
+        if (!mounted) return;
+        for (final latest in pending) {
+          if (latest.id != _suggestion?.id || latest.revision == _suggestion?.revision) continue;
+          _suggestion = latest;
+          _start = DateTime.fromMillisecondsSinceEpoch(latest.startTs * 1000);
+          _end = DateTime.fromMillisecondsSinceEpoch(latest.endTs * 1000);
+        }
+      } catch (_) {
+        // Keep the old revision: another save must still recheck it. A failed
+        // reload must not leave the save button permanently busy.
+      } finally {
+        if (mounted) setState(() { _saving = false; _wrote = e.message; });
+      }
     } on ManualWindowException catch (e) {
       if (mounted) setState(() { _saving = false; _wrote = e.error.message; });
     } catch (_) {
@@ -693,7 +407,9 @@ class _LogWorkoutState extends State<LogWorkout> {
                 BigButton(
                   _saving
                       ? (l?.logWorkoutSaving ?? 'Saving…')
-                      : retime
+                      : widget.suggestion != null
+                          ? (l?.activitySaveConfirm ?? 'Save and confirm')
+                          : retime
                           ? (l?.logWorkoutSaveNewTimes ?? 'Save the new times')
                           : (l?.logWorkoutLogIt ?? 'Log it'),
                   icon: LucideIcons.check,
@@ -793,23 +509,8 @@ AppState? appOf(BuildContext c) {
   }
 }
 
-/// The auto-detect switch, read once for every surface that shows a bout.
-///
-/// FAILS CLOSED. Unreadable prefs are not permission to render cards the user
-/// may have switched off — and hiding them costs nothing, since the rows stay
-/// in `workout_suggestions` and reappear the moment the switch can be read.
-Future<bool> autoDetectOn() async {
-  try {
-    return (await NotificationPrefs.load()).autoDetectEnabled;
-  } catch (_) {
-    return false;
-  }
-}
-
-/// Active suggestions for the History tab, or empty when the user has switched
-/// auto-detection off.
+/// Pending workouts for the History tab, independent of push preferences.
 Future<List<Suggestion>> activeSuggestions() async {
-  if (!await autoDetectOn()) return const [];
   try {
     return [
       for (final r in await LocalDb.activeWorkoutSuggestions())

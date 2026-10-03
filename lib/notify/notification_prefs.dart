@@ -51,17 +51,9 @@ class NotificationPrefs {
   static const int waterIntervalMinAllowed = 30;
   static const int waterIntervalMaxAllowed = 360;
 
-  /// Whether the auto-detected-workout surfaces are on: the "did you work out?"
-  /// notification and the review cards the detector feeds. Asked for twice
-  /// (issues #102, #149) and never built — the detector has never had an off
-  /// switch of any kind.
-  ///
-  /// WHAT IT DOES NOT DO: stop the detection itself. The bouts are computed
-  /// inside the day derivation and written to `workout_suggestions` there; this
-  /// switch silences every surface that shows them, which is the part the user
-  /// experiences. The rows stay, unread, and turning it back on shows them
-  /// again rather than losing a week of them.
+  /// Optional push prompts. The in-app review list is always available.
   final bool autoDetectEnabled;
+  final bool napDetectEnabled;
 
   /// The "time to move" nudge: a one-shot OS notification two hours after the
   /// last movement the band's live IMU saw, re-armed on every movement so it
@@ -145,6 +137,7 @@ class NotificationPrefs {
     this.waterEnabled = false,
     this.waterIntervalMin = 120, // every 2 hours
     this.autoDetectEnabled = true,
+    this.napDetectEnabled = false,
     this.movementEnabled = false,
     this.medsEnabled = false,
     this.checkInEnabled = false,
@@ -165,6 +158,7 @@ class NotificationPrefs {
   static const _kCriticalOverride = 'notif_critical_override';
   static const _kWater = 'notif_water';
   static const _kWaterInterval = 'notif_water_interval';
+  static const _kNapDetect = 'notif_nap_detect';
   static const _kAutoDetect = 'notif_auto_detect';
   static const _kMovement = 'notif_movement';
   static const _kMeds = 'notif_meds';
@@ -195,6 +189,7 @@ class NotificationPrefs {
       waterEnabled: p.getBool(_kWater) ?? false,
       waterIntervalMin: p.getInt(_kWaterInterval) ?? 120,
       autoDetectEnabled: p.getBool(_kAutoDetect) ?? true,
+      napDetectEnabled: p.getBool(_kNapDetect) ?? false,
       movementEnabled: p.getBool(_kMovement) ?? false,
       medsEnabled: p.getBool(_kMeds) ?? false,
       checkInEnabled: p.getBool(_kCheckIn) ?? false,
@@ -221,6 +216,7 @@ class NotificationPrefs {
     await p.setBool(_kWater, waterEnabled);
     await p.setInt(_kWaterInterval, waterIntervalMin);
     await p.setBool(_kAutoDetect, autoDetectEnabled);
+    await p.setBool(_kNapDetect, napDetectEnabled);
     await p.setBool(_kMovement, movementEnabled);
     await p.setBool(_kMeds, medsEnabled);
     await p.setBool(_kCheckIn, checkInEnabled);
@@ -244,6 +240,7 @@ class NotificationPrefs {
     bool? waterEnabled,
     int? waterIntervalMin,
     bool? autoDetectEnabled,
+    bool? napDetectEnabled,
     bool? movementEnabled,
     bool? medsEnabled,
     bool? checkInEnabled,
@@ -266,6 +263,7 @@ class NotificationPrefs {
         waterEnabled: waterEnabled ?? this.waterEnabled,
         waterIntervalMin: waterIntervalMin ?? this.waterIntervalMin,
         autoDetectEnabled: autoDetectEnabled ?? this.autoDetectEnabled,
+        napDetectEnabled: napDetectEnabled ?? this.napDetectEnabled,
         movementEnabled: movementEnabled ?? this.movementEnabled,
         medsEnabled: medsEnabled ?? this.medsEnabled,
         checkInEnabled: checkInEnabled ?? this.checkInEnabled,
@@ -309,9 +307,11 @@ class NotificationPrefs {
     // recovery channel).
     // (On the PATH: the payload carries the bout as `?id=…`, and an equality
     // check against the bare route would miss every real one.)
-    if (!autoDetectEnabled &&
-        routePath(event.route ?? '') == kRouteWorkoutSuggestion) {
-      return false;
+    final activityRoute = routePath(event.route ?? '');
+    final activityPrompt = activityRoute == kRouteDetectedActivities || activityRoute == kRouteWorkoutSuggestion;
+    if (activityPrompt) {
+      final nap = Uri.tryParse(event.route ?? '')?.queryParameters['kind'] == 'nap';
+      if (nap ? !napDetectEnabled : !autoDetectEnabled) return false;
     }
     // The movement nudge's off switch, same shape and same reason as the
     // auto-detect one above: the route identifies the event the user set THIS
@@ -336,7 +336,7 @@ class NotificationPrefs {
     // it FOR a time, usually inside the quiet window, and its off switch is
     // cancelling the alarm rather than a preference buried in settings.
     if (klass == NotifClass.alarm) return true;
-    if (!categoryEnabled(event.category)) return false;
+    if (!activityPrompt && !categoryEnabled(event.category)) return false;
     if (inQuietHours(minuteOfDay)) {
       return event.priority == NotifPriority.critical && criticalOverridesQuiet;
     }

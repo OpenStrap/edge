@@ -589,7 +589,9 @@ class AppState extends ChangeNotifier {
     final counts = await LocalDb.importFromDbFile(path);
     // Imported rows include derived day_result/metric_series → refresh rollups.
     try {
+      await refreshActivityReviews();
       await _derive.finalizeImport(_profile);
+      await LocalDb.refreshComputeFreshness();
     } catch (e) {
       importRollupError = '$e';
     }
@@ -1440,6 +1442,7 @@ class AppState extends ChangeNotifier {
     repo = LocalRepositoryImpl(
       getProfileMap: () => user,
       saveProfileFields: updateProfile,
+      onActivitiesChanged: refreshActivityReviews,
     );
     // iOS BGProcessing/BGAppRefresh wakes while the FOREGROUND app owns the band
     // skip the headless BLE path (it would fight FBP for the peripheral) — route
@@ -1557,6 +1560,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _activityReviewRetry?.cancel();
     _syncQuietTimer?.cancel();
     _syncQuietTimer = null;
     _disposed = true;
@@ -2280,11 +2284,29 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Timer? _activityReviewRetry;
+  Future<void> refreshActivityReviews() async {
+    if (_disposed) return;
+    _activityReviewRetry?.cancel();
+    bumpInsights();
+    try {
+      if (await _derive.refreshActivityReviews(_profile)) {
+        bumpInsights();
+        return;
+      }
+    } catch (e) {
+      _log('[activity-review] refresh deferred: $e');
+    }
+    if (!_disposed) {
+      _activityReviewRetry = Timer(const Duration(seconds: 2), () => unawaited(refreshActivityReviews()));
+    }
+  }
+
   /// Re-derive after a nap edit. Same machinery as a sleep-override change —
   /// nap minutes feed sleep need and sleep debt, so an edit is a recompute
   /// rather than a redraw, and the engine force-includes nap-edit days even
   /// when they are finalized.
-  Future<void> reanalyzeForNapEdit() => _reanalyzeForOverride();
+  Future<void> reanalyzeForNapEdit() => refreshActivityReviews();
 
   Future<List<Map<String, dynamic>>> dataHistoryDays() =>
       LocalDb.dataHistoryDays();
@@ -2412,6 +2434,7 @@ class AppState extends ChangeNotifier {
     await _loadProfile();
     await _refreshNightlyRhr();
     await _deriveScheduler.init();
+    unawaited(refreshActivityReviews());
     lastSynced = await LocalDb.latestSample();
     // The true data-edge frontier is the `rec_ts_hw` sync cursor, NOT
     // lastDecodedRecTs() (MAX(rec_ts) FROM decoded_onehz). decoded_onehz only

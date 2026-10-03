@@ -12,6 +12,7 @@
 // run server-side. The screen DATA layer is therefore a clean, localized seam:
 // nothing above this file references HTTP, JWT, or a backend URL anymore.
 
+import '../models/activity_suggestion.dart';
 import '../compute/manual_session.dart' show SessionSpan;
 import '../gps/route_models.dart';
 import 'journal_fields.dart';
@@ -40,6 +41,15 @@ class RepositoryException implements Exception {
 /// The local data contract for every insights screen + the AI Coach.
 /// Return types mirror the cloud ApiClient exactly (defensive Map/List blobs).
 abstract class LocalRepository {
+  Future<int> pendingActivityCount() async => (await pendingActivities()).length;
+
+  Future<List<ActivitySuggestion>> pendingActivities() =>
+      throw UnimplementedError('pendingActivities');
+  Future<void> confirmActivity(ActivitySuggestion suggestion, {
+    int? startTs, int? endTs, String? workoutType,
+  }) => throw UnimplementedError('confirmActivity');
+  Future<void> discardActivity(ActivitySuggestion suggestion) =>
+      throw UnimplementedError('discardActivity');
   // ── profile ────────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getProfile() =>
       throw UnimplementedError('re-layer: getProfile');

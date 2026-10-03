@@ -512,7 +512,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> with RevisionReload {
         fix: loc?.workoutReviewFix(n) ?? 'Review ${n == 1 ? 'it' : 'them'}',
         icon: LucideIcons.radar,
         onFix: () =>
-            _push(c, WorkoutSuggestionScreen(preloaded: d.suggestions)),
+            _push(c, WorkoutSuggestionScreen()),
       ),
       const SizedBox(height: S.x5),
     ];

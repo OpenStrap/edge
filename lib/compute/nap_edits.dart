@@ -31,11 +31,15 @@ class NapEdit {
     required this.kind,
     required this.startSec,
     required this.endSec,
+    this.snapshot,
   });
 
   final NapEditKind kind;
   final int startSec;
   final int endSec;
+
+  /// Accepted detector estimate. Manual windows deliberately have no snapshot.
+  final Map<String, dynamic>? snapshot;
 
   int get durationSec => endSec - startSec;
 
@@ -98,7 +102,10 @@ List<NapMap> applyNapEdits(List<NapMap> detected, List<NapEdit> edits) {
     for (final nap in detected)
       if (!supersedes(nap)) nap,
     for (final e in added)
-      {
+      if (e.snapshot != null)
+        {...e.snapshot!, 'start': e.startSec, 'end': e.endSec}
+      else
+        {
           'start': e.startSec,
           'end': e.endSec,
           // A logged nap has no measured sleep/wake split, so asleep and in-bed
@@ -113,9 +120,7 @@ List<NapMap> applyNapEdits(List<NapMap> detected, List<NapEdit> edits) {
           'confidence': null,
         },
   ];
-  out.sort(
-    (a, b) => (a['start'] as num).compareTo(b['start'] as num),
-  );
+  out.sort((a, b) => (a['start'] as num).compareTo(b['start'] as num));
   return out;
 }
 

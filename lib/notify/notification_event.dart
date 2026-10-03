@@ -85,7 +85,8 @@ NotifClass? classOf(NotificationEvent e) => switch (e.category) {
       // alone — which is the whole thing this case was narrowed to prevent.
       NotifCategory.reminders
           when e.priority == NotifPriority.normal &&
-              routePath(e.route ?? '') == kRouteWorkoutSuggestion =>
+              (routePath(e.route ?? '') == kRouteWorkoutSuggestion ||
+               routePath(e.route ?? '') == kRouteDetectedActivities) =>
         NotifClass.prompt,
       // Same mechanism, second route: the movement/sedentary prompt. It is a
       // report about something measured (a still stretch, a desk posture held

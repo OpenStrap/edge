@@ -1054,22 +1054,16 @@ class NotificationSettingsView extends StatelessWidget {
                         chevron: false,
                         onTap: () => set(prefs.copyWith(
                             remindersEnabled: !prefs.remindersEnabled))),
-                    // The auto-detector's off switch, asked for twice (#102,
-                    // #149) and never built: the bouts were written, the
-                    // prompt was emitted, and nothing anywhere could stop
-                    // either. The sub-line says exactly what it stops,
-                    // because it does NOT stop the detection itself.
                     SetRow(LucideIcons.radar, C.green,
-                        l?.settingsDetectedWorkoutsRowTitle ??
-                            'Detected workouts',
-                        sub: l?.settingsDetectedWorkoutsRowSub ??
-                            'Ask about efforts the band spotted that you did '
-                                'not start. Off hides the prompt and the review '
-                                'cards; the band goes on measuring either way',
-                        value: prefs.autoDetectEnabled ? on : off,
-                        chevron: false,
-                        onTap: () => set(prefs.copyWith(
-                            autoDetectEnabled: !prefs.autoDetectEnabled))),
+                        l?.settingsDetectedWorkoutsRowTitle ?? 'Detected workouts',
+                        sub: l?.activityPushHint ?? 'Push alerts only. Suggestions remain in Detected activities.',
+                        value: prefs.autoDetectEnabled ? on : off, chevron: false,
+                        onTap: () => set(prefs.copyWith(autoDetectEnabled: !prefs.autoDetectEnabled))),
+                    SetRow(LucideIcons.moon, C.blue,
+                        l?.activityNapAlerts ?? 'Detected naps',
+                        sub: l?.activityPushHint ?? 'Push alerts only. Suggestions remain in Detected activities.',
+                        value: prefs.napDetectEnabled ? on : off, chevron: false,
+                        onTap: () => set(prefs.copyWith(napDetectEnabled: !prefs.napDetectEnabled))),
                     // Off by default, and it is the switch that lets the nudge
                     // be scheduled at all — see
                     // NotificationService.schedulableIds. It had none, so it

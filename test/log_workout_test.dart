@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/manual_session.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/screens/log_workout.dart';
+import 'package:openstrap_edge/ui2/screens/detected_activities.dart';
 import 'package:openstrap_edge/ui2/ui2.dart';
 
 /// A real phone, and tall enough that nothing under test is below the fold —
@@ -52,38 +53,39 @@ void main() {
     testWidgets('draws the bout, its window and all three answers', (t) async {
       await _pump(t, WorkoutSuggestionScreen(preloaded: [_sug()]));
 
-      expect(find.text('Detected activity'), findsOneWidget);
+      expect(find.text('Detected activities'), findsOneWidget);
+      expect(find.text('Possible workout'), findsOneWidget);
       // The WINDOW, not just a start time — the whole reason to open this
       // screen is to see whether the detector clipped it.
-      expect(find.textContaining('6:30 PM – 7:31 PM'), findsOneWidget);
-      expect(find.text('61 min of effort'), findsOneWidget);
+      expect(find.textContaining('6:30 PM'), findsOneWidget);
+      expect(find.textContaining('7:31 PM'), findsOneWidget);
+      expect(find.text('61 min'), findsOneWidget);
       // Every answer is reachable, including the one that matters most.
-      expect(find.text('Log it'), findsOneWidget);
-      expect(find.text('Adjust the times'), findsOneWidget);
-      expect(find.text('Not a workout'), findsOneWidget);
+      expect(find.text('Confirm'), findsOneWidget);
+      expect(find.text('Edit'), findsOneWidget);
+      expect(find.text('Discard'), findsOneWidget);
       // and it never prints a strain or a calorie figure it has not scored
       expect(find.textContaining('strain'), findsNothing);
     });
 
     testWidgets('an empty review says so, and never as a bare dash', (t) async {
-      await _pump(t, const WorkoutSuggestionScreen(preloaded: []));
+      await _pump(t, WorkoutSuggestionScreen(preloaded: []));
       expect(find.text('Nothing to review'), findsOneWidget);
       expect(find.text('—'), findsNothing);
     });
 
-    test('the deep link narrows to its own bout, and falls back honestly', () {
-      final all = [_sug(), _sug(id: 'b')];
-      // No id (opened from the Workouts tab) — review everything.
-      expect(focusSuggestions(all, null), all);
-      // The notification named 'b': that is the one it promised.
-      expect(focusSuggestions(all, 'b').single.id, 'b');
-      // Logged or dismissed between the buzz and the tap. The others are still
-      // waiting, so they are shown — an empty screen would claim this one was
-      // handled when what happened is that a DIFFERENT one was.
-      expect(focusSuggestions(all, 'gone'), all);
+    testWidgets('a reviewed notification target leaves pending items visible', (t) async {
+      await _pump(t, WorkoutSuggestionScreen(
+        preloaded: [_sug(), _sug(id: 'b')],
+        focusId: 'gone',
+      ));
+      expect(find.text('Confirm'), findsNWidgets(2));
+      expect(find.text('Nothing to review'), findsNothing);
+      final cards = t.widgetList<ActivityProposalCard>(find.byType(ActivityProposalCard));
+      expect(cards.any((c) => c.highlighted), isFalse);
     });
 
-    testWidgets('opened from the notification, only that bout is on screen',
+    testWidgets('notification highlights the bout and keeps the other pending items',
         (t) async {
       await _pump(
         t,
@@ -92,9 +94,9 @@ void main() {
           focusId: 'b',
         ),
       );
-      expect(find.text('Log it'), findsOneWidget); // one card, not two
-      expect(find.textContaining('110'), findsOneWidget);
-      expect(find.textContaining('171'), findsNothing);
+      expect(find.text('Confirm'), findsNWidgets(2));
+      final cards = t.widgetList<ActivityProposalCard>(find.byType(ActivityProposalCard)).toList();
+      expect(cards.singleWhere((c) => c.highlighted).suggestion.id, 'b');
     });
 
     testWidgets('nothing overflows at 2x text', (t) async {

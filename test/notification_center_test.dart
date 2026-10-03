@@ -171,11 +171,11 @@ void main() {
       expect(p.shouldFireOs(e, 12 * 60), isTrue);
       // A prompt, not an alarm: 02:00 is not the time to ask about a workout.
       expect(p.shouldFireOs(e, 2 * 60), isFalse);
-      // And the Reminders channel switch turns it off like everything on it.
+      // Unrelated reminder preferences do not disable activity prompts.
       expect(
           const NotificationPrefs(remindersEnabled: false)
               .shouldFireOs(e, 12 * 60),
-          isFalse);
+          isTrue);
     });
     test('a kind that is not one of the four never fires, quiet or not', () {
       for (final minute in [2 * 60, 12 * 60]) {

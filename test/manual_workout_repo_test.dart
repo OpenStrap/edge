@@ -252,6 +252,7 @@ void main() {
     'logging a session retires the auto-detect suggestion it covers',
     () async {
       final start = sessionStart - 12 * 86400;
+      await (await LocalDb.instance).update('activity_review_meta', {'activated_at': start - 1});
       await LocalDb.putWorkoutSuggestion({
         'id': 'sug-covered',
         'date': '2026-01-01',

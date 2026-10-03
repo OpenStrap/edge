@@ -24,6 +24,10 @@ const String kRouteWater = '/water';
 /// Carries the bout it is about as `?id=<workout_suggestions.id>` — see
 /// [workoutSuggestionRoute]. The bare path still resolves (older payloads, and
 /// anything that just wants the review screen).
+const String kRouteDetectedActivities = '/activities/review';
+String activitySuggestionRoute(String id, String kind) => Uri(
+  path: kRouteDetectedActivities, queryParameters: {'id': id, 'kind': kind}).toString();
+
 const String kRouteWorkoutSuggestion = '/workouts/suggestion';
 
 /// The sedentary/movement nudges ("time to move", the desk-posture check).
@@ -152,7 +156,8 @@ const Map<String, int> _screenRoutes = {
   // still has to exist: a route absent from this table produces no screen
   // request at all, and the shell then falls back to the tab index.
   kRouteMeds: 0,
-  kRouteWorkoutSuggestion: 4,
+  kRouteWorkoutSuggestion: 0,
+  kRouteDetectedActivities: 0,
   kRouteProfile: 0,
   kRouteRecap: 1, // 1|2|3 all fold into Health — see domainForTab
   kRouteAlarm: 0,

@@ -145,7 +145,8 @@ void main() {
         kRouteAiEvening: ShellDomain.home,
         kRouteJournalCompose: ShellDomain.wellness,
         kRouteBreathing: ShellDomain.wellness,
-        kRouteWorkoutSuggestion: ShellDomain.workout,
+        kRouteWorkoutSuggestion: ShellDomain.home,
+        kRouteDetectedActivities: ShellDomain.home,
         kRouteWater: ShellDomain.nutrition,
       };
       routes.forEach((route, domain) {
@@ -177,7 +178,7 @@ void main() {
       // unreviewed bout is the same broken promise one screen further in.
       const id = '2026-08-19:1755625800';
       final route = workoutSuggestionRoute(id);
-      expect(domainForRoute(route), ShellDomain.workout);
+      expect(domainForRoute(route), ShellDomain.home);
       final screen = screenForRoute(route);
       expect(screen, isA<WorkoutSuggestionScreen>());
       expect((screen! as WorkoutSuggestionScreen).focusId, id);
