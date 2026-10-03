@@ -60,6 +60,7 @@
 	<array>
 		<string>61080001-8D6D-82B8-614A-1C8CB0F8DCC6</string>
 		<string>FD4B0001-CCE1-4033-93CE-002D5875F58A</string>
+		<string>98ED0001-A541-11E4-B6A0-0002A5D5C51B</string>
 		<!-- 16-bit SIG member UUID. Distinct from the 128-bit vendor service
 		     above, and NOT the Bluetooth-base expansion
 		     0000FD4B-0000-1000-8000-00805F9B34FB (no band advertises that).
@@ -87,7 +88,23 @@
 		<string>WHOOP 4</string>
 		<key>FD4B0001-CCE1-4033-93CE-002D5875F58A</key>
 		<string>WHOOP 5</string>
+		<key>98ED0001-A541-11E4-B6A0-0002A5D5C51B</key>
+		<string>Oura Ring</string>
 	</dict>
+	<!-- GENERATED (see above): the declared services that belong to a SENSOR
+	     paired through its own ASK picker, not to a band. AccessorySetup.swift
+	     subtracts these from the WHOOP picker. -->
+	<!-- GENERATED (see above): Bluetooth company identifiers of the ASK sensors,
+	     declared so the picker finds a sensor whose advertisement carries
+	     manufacturer data. Never set on a descriptor: that traps on iOS 27. -->
+	<key>NSAccessorySetupBluetoothCompanyIdentifiers</key>
+	<array>
+		<string>0x02B2</string>
+	</array>
+	<key>OSAskSensorServices</key>
+	<array>
+		<string>98ED0001-A541-11E4-B6A0-0002A5D5C51B</string>
+	</array>
 	<!-- The automatic-backup folder lives in the app's Documents directory.
 	     Without BOTH of these it exists but is invisible in Files, so nothing
 	     the user might sync it with (iCloud Drive, Nextcloud, a cable) can

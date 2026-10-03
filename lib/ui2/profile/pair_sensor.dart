@@ -30,19 +30,31 @@
 // recoverable by restarting the app and by nothing else, so the screen says it
 // out loud BEFORE scanning and lets the user decide, rather than discovering it
 // later as a WHOOP that cannot be paired for no visible reason.
+//
+// A SENSOR IN `kAskPickerSensors` DOES NOT SCAN AT ALL on iOS 18+. The app
+// declares `NSAccessorySetupKitSupports`, so iOS never grants it standard
+// Bluetooth access and a scan only ever sees accessories approved in an ASK
+// picker — for such a sensor the scan returned an empty list with no error
+// (#371/#372). Its "search" opens the ASK picker filtered to its own service
+// instead, and the id that comes back goes to the same [onPicked] step a
+// scanned row would. No scan runs first, so no `CBCentralManager` exists to
+// make that picker fail either.
 
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart' show BluetoothDevice;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
+import '../../ble/accessory_setup.dart';
 import '../../ble/adapters/_registry.dart';
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart'
     show BleUnavailableException, bandStatusFor, classifyBleBlocker;
 import '../../ble/hrs_link.dart';
+import '../../ble/ios_ble_restore.dart';
 import '../../data/db.dart' show LocalDb;
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
@@ -91,6 +103,10 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
 
   PairedSensor? _paired;
 
+  /// True when this sensor pairs through the iOS ASK picker instead of a scan
+  /// (iOS 18+ and [kAskPickerSensors]). Decided once, in [_load].
+  bool _viaPicker = false;
+
   @override
   void initState() {
     super.initState();
@@ -125,9 +141,14 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
         break;
       }
     }
-    final held = await HrsLink.scanHeldBackReason();
+    final viaPicker = kAskPickerSensors.any((e) => e.id == widget.entry.id) &&
+        await AccessorySetup.isSupported();
+    // No scan runs on the picker path, so the scan's iOS gate has nothing to
+    // warn about there.
+    final held = viaPicker ? null : await HrsLink.scanHeldBackReason();
     if (!mounted) return;
     setState(() {
+      _viaPicker = viaPicker;
       _paired = row == null
           ? null
           : (id: row['id'] as String, label: row['label'] as String?);
@@ -136,6 +157,7 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
   }
 
   Future<void> _scan() async {
+    if (_viaPicker) return _pairViaPicker();
     setState(() {
       _scanning = true;
       _problem = null;
@@ -168,9 +190,47 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     }
   }
 
-  Future<void> _pick(BandCandidate c) async {
+  /// The iOS 18+ path for a [kAskPickerSensors] entry: the ASK picker filtered
+  /// to this sensor's service, then the same pairing step a scanned row gets.
+  Future<void> _pairViaPicker() async {
     setState(() {
-      _busy = c.device.remoteId.str;
+      _scanning = true;
+      _problem = null;
+      _found = const [];
+    });
+    final l = AppLocalizations.of(context);
+    String? id;
+    String? failure;
+    // The picker refuses to open while a restore central is alive, so it is
+    // released first and re-created after — WITHOUT recording the ring as a
+    // band (see `IosBleRestore.reacquireCentral`).
+    await IosBleRestore.releaseCentralForPicker();
+    try {
+      id = await AccessorySetup.showSensorPicker([widget.entry.service]);
+    } on PlatformException catch (e) {
+      failure = l?.pairSensorCouldNotPair(e.message ?? e.code) ??
+          'Could not pair that device: ${e.message ?? e.code}';
+    } catch (e) {
+      failure = l?.pairSensorCouldNotPair(e.toString()) ??
+          'Could not pair that device: $e';
+    } finally {
+      await IosBleRestore.reacquireCentral();
+    }
+    if (!mounted) return;
+    setState(() {
+      _scanning = false;
+      _problem = failure;
+    });
+    if (id != null) {
+      await _pickDevice(BluetoothDevice.fromId(id), label: null);
+    }
+  }
+
+  Future<void> _pick(BandCandidate c) => _pickDevice(c.device, label: c.label);
+
+  Future<void> _pickDevice(BluetoothDevice device, {required String? label}) async {
+    setState(() {
+      _busy = device.remoteId.str;
       _problem = null;
     });
     // The injected callback (a ring's key exchange) is not this file's code
@@ -189,11 +249,11 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
     String? failure;
     try {
       failure = widget.onPicked != null
-          ? await widget.onPicked!(c.device)
+          ? await widget.onPicked!(device)
           : await HrsLink.pairNotifySensor(
               widget.entry,
-              c.device,
-              label: c.label,
+              device,
+              label: label,
             );
     } catch (e) {
       failure = l?.pairSensorCouldNotPair(e.toString()) ??
