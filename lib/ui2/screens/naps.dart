@@ -105,6 +105,9 @@ class NapsScreen extends StatefulWidget {
 class _NapsScreenState extends State<NapsScreen> {
   NapsData? _d;
   String? _day;
+  // A quick second tap on the day stepper starts a second load; the first
+  // can finish last and must not paint the old day.
+  int _loadToken = 0;
   bool _busy = false;
   String? _failed;
 
@@ -118,8 +121,9 @@ class _NapsScreenState extends State<NapsScreen> {
   Future<void> _load() async {
     final repo = repoOf(context);
     if (repo == null) return;
+    final token = ++_loadToken;
     final d = await NapsData.load(repo, want: _day);
-    if (mounted) setState(() => _d = d);
+    if (mounted && token == _loadToken) setState(() => _d = d);
   }
 
   void _goDay(String day) {

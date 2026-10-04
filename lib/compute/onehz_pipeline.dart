@@ -508,14 +508,12 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           ),
         );
 
-  // SpO2 is refused PERMANENTLY, not parked. `spo2RedRaw` and `spo2IrRaw` are
-  // one signal: `ir - red` is a fixed integer within a capture session (see
-  // protocol/records.dart — constant across 178 of 300 hours of a real export)
-  // while both drift together. Any ratio, or ratio-of-ratios, built from them
-  // is a function of one channel's baseline drift and measures that drift, not
-  // oxygenation. No firmware capture and no packet work changes that; it is a
-  // property of the bytes. The raw channels stay in the substrate because they
-  // ARE the bytes at those offsets.
+  // No SpO2 is derived from the band's red/IR channels. `spo2RedRaw` and
+  // `spo2IrRaw` are one signal: `ir - red` is a fixed integer within a capture
+  // session (see protocol/records.dart) while both drift together, so any
+  // ratio built from them measures that drift, not oxygenation. Imported WHOOP
+  // blood oxygen is a separate `spo2` metric_series key and does not pass
+  // through here.
   const kSpo2Refusal = 'refused: the red and IR channels are one signal — '
       'ir − red is a fixed offset within a session, so any ratio built from '
       'them measures baseline drift, not oxygenation';
@@ -683,9 +681,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final prof = d.profile;
   final age = (prof['age'] as num?)?.toDouble();
   final sex = (prof['sex'] as String?)?.toLowerCase();
-  // ONE definition, device-dispatched (hr_max.dart). Null on an unknown strap,
-  // which takes TRIMP/strain/zones/calories with it — deliberately: we do not
-  // know what measured this HR, so we cannot say where its ceiling is.
+  // ONE definition (hr_max.dart). Null without an age, which takes
+  // TRIMP/strain/calories with it. Zones do not need it (`zoneSet` below).
   final hrMax = estimatedMaxHr(age, d.deviceFamily);
   // TS-04 — THE zone set (hr_max.dart). Karvonen %HRR between the OBSERVED
   // ceiling and the 28-day median resting HR once both exist; %HRmax off the
@@ -719,9 +716,11 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // from a sibling.
   //
   // Same order and same vocabulary as `DerivationEngine._wakeDayFeatures` —
-  // that half recomputes all of this off the nocturnal resting HR and its
-  // answer is the one that lands on the day, so the two must not disagree about
-  // WHY.
+  // that half recomputes strain, the ceiling and calories off the nocturnal
+  // resting HR and its answer is the one that lands on the day, so the two must
+  // not disagree about WHY. The zone minutes are NOT recomputed there: `zones`
+  // and its note are this pipeline's alone, binned on `zoneSet` like
+  // `zone_timeline`, so they gate on the set and not on the age estimate.
   final ceilingAbsentNote = hrMax != null
       ? null
       : age == null
@@ -757,7 +756,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       : null;
   final zonesAbsentNote = perMin.isEmpty
       ? needInputNote('wake_hr')
-      : (hrMax == null || zoneSet == null)
+      : zoneSet == null
       ? (ceilingAbsentNote ?? kUnknownAbsenceNote)
       : null;
   Metric<double> trimp = Metric<double>.absent(
@@ -767,6 +766,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   );
   Map<String, int> hrZones = const {};
   double? caloriesKcal;
+  // Off the set, not `hrMax`: a manual or observed set needs no age.
+  if (zoneSet != null && perMin.isNotEmpty) {
+    hrZones = _wakeZoneMinutesFromSeries(wakeHr, zoneSet);
+  }
   if (hrMax != null && perMin.isNotEmpty) {
     if (rhrForTrimp != null && sex != null && dayHrValid.isNotEmpty) {
       trimp = banisterTrimp(
@@ -775,9 +778,6 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
         maxHr: hrMax,
         sex: workoutSex(sex) == 'female' ? Sex.female : Sex.male,
       );
-    }
-    if (zoneSet != null) {
-      hrZones = _wakeZoneMinutesFromSeries(wakeHr, zoneSet);
     }
     // ACTIVE energy only, over the WAKE series — the same quantity, from the
     // same series, that `DerivationEngine.wakeDayEnergy` publishes as the day's
@@ -1128,10 +1128,9 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'note': 'Baevsky Stress Index → 0–100; resting autonomic tension (PRV).',
   };
 
-  // ── SpO₂ — REFUSED, permanently. See kSpo2Refusal above: the red and IR
-  //    ADCs are one signal, so there is no oxygen metric to publish from them
-  //    at any tier, relative or otherwise. The block stays so old bundles keep
-  //    a shape, and it says why.
+  // ── SpO₂ from the band: none. See kSpo2Refusal above: the red and IR ADCs
+  //    are one signal. The block stays so old bundles keep a shape, and it
+  //    says why.
   final rejectCounts = odi.present ? odi.value!.rejectCounts : null;
   final severityCounts = odi.present ? odi.value!.severityCounts : null;
   final spo2Block = <String, dynamic>{
@@ -1349,7 +1348,7 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     'absent_notes': <String, String>{
       if (hrMax == null && ceilingAbsentNote != null)
         'max_hr_used': ceilingAbsentNote,
-      if (hrZones.isEmpty && zonesAbsentNote != null) 'zones': zonesAbsentNote,
+      if (hrZones.isEmpty) 'zones': zonesAbsentNote ?? kUnknownAbsenceNote,
       if (caloriesKcal == null && caloriesAbsentNote != null) ...{
         'calories': caloriesAbsentNote,
         'calories_total': caloriesAbsentNote,

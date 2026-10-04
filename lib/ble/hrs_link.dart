@@ -96,7 +96,10 @@ export 'adapters/host.dart' show HrsReading;
 typedef BandCandidate = ({
   BluetoothDevice device,
   String? label,
-  int rssi,
+  // NULL when the peripheral is already connected to this phone and so is not
+  // advertising: there is no signal reading to report, and inventing one would
+  // be a number nobody measured.
+  int? rssi,
   // Which registry entry's service this result matched. Only meaningful when
   // a scan covers more than one entry at once (`scanForAny`); a single-entry
   // scan (`scanFor`) always stamps its own id, so existing callers reading
@@ -230,6 +233,9 @@ class HrsLink {
   /// back sooner.
   static Future<void> stopScanIfRunning(Object owner) async {
     if (!identical(_scanOwner, owner)) return;
+    // Cleared here too, so a scan still in its iOS connected-device lookup
+    // sees the dismissal and never starts.
+    _scanOwner = null;
     try {
       await FlutterBluePlus.stopScan().timeout(_stopScanTimeout);
     } catch (e) {
@@ -260,6 +266,7 @@ class HrsLink {
   /// and a second copy of this function is how the two drift apart.
   ///
   /// [onResults] is called with the whole ranked list each time it changes —
+  /// peripherals already connected to the phone first, then the rest
   /// strongest signal first, which is very nearly "the one on your chest".
   /// Throws [BleUnavailableException] when the phone's own stack is the
   /// problem; see [scanHeldBackReason] for the iOS case that is not an error.
@@ -411,6 +418,46 @@ class HrsLink {
       }
       if (changed) onResults(_ranked(seen));
     });
+    // A peripheral already connected to this phone (the vendor's own app still
+    // holding a ring, typically) has stopped advertising, so the scan below
+    // never hears it. Ask the OS for those directly. iOS only: Android ignores
+    // the service filter here and would list every GATT link the phone has.
+    // Claimed before the iOS lookup below: it awaits, and a screen dismissed
+    // during it must be able to cancel the scan that would follow.
+    _scanOwner = owner;
+    if (Platform.isIOS) {
+      // The OS list includes links THIS app holds, an armed workout sensor
+      // among them. Listing it invites a tap whose pair-then-disconnect
+      // drops the live link, so ours are skipped.
+      final ours = {
+        for (final d in FlutterBluePlus.connectedDevices) d.remoteId.str,
+      };
+      for (final e in systemDeviceQueryOrder(entries)) {
+        try {
+          for (final d
+              in await FlutterBluePlus.systemDevices([Guid(e.service)])) {
+            final id = d.remoteId.str;
+            if (ours.contains(id)) continue;
+            confirmed.putIfAbsent(id, () => e.id);
+            seen.putIfAbsent(
+                id,
+                () => (
+                      device: d,
+                      label: cleanDeviceLabel(d.platformName),
+                      rssi: null,
+                      entryId: e.id,
+                    ));
+          }
+        } catch (err) {
+          debugPrint('[hrs] systemDevices(${e.id}) failed: $err');
+        }
+      }
+      if (seen.isNotEmpty) onResults(_ranked(seen));
+    }
+    if (!identical(_scanOwner, owner)) {
+      await sub.cancel();
+      return;
+    }
     try {
       // CLAIMED BEFORE THE START, not after it. `startScan` flips the radio on
       // partway through its own body and only THEN returns, so an owner set on
@@ -420,7 +467,7 @@ class HrsLink {
       // first cannot fail the other way either: `flutter_blue_plus` serialises
       // `startScan`/`stopScan` through one mutex, so a stop issued in the
       // window queues behind this start and takes effect on the way out.
-      _scanOwner = owner;
+      // (The claim itself is made above, before the iOS lookup.)
       await FlutterBluePlus.startScan(
         withServices: serviceGuids,
         timeout: timeout,
@@ -442,8 +489,43 @@ class HrsLink {
     onResults(_ranked(seen));
   }
 
+  /// The order [scanForAny]'s connected-device lookup asks the OS in. The
+  /// generic Heart Rate entry goes after the specific ones: the lookup matches
+  /// on a peripheral's GATT, a Coros exposes 0x180D too, and the first entry
+  /// to claim a remote id keeps it.
+  ///
+  /// Polar PMD goes after generic, not before it. Having the PMD service is
+  /// not having PPI: an H10 carries PMD for ECG/accel only, the PMD adapter
+  /// ends its session when PPI start is refused, and 0x180D works on every
+  /// Polar. A connected, silent Verity Sense lands on generic HR as a result.
+  ///
+  /// Only a service that fingerprints one board outranks generic: a 128-bit
+  /// UUID no other entry uses. A 16-bit custom service (0xfff0 and the like)
+  /// or one several boards share (the Nordic UART UUID) says nothing about
+  /// what the peripheral is, so a strap carrying one beside 0x180D stays a
+  /// heart rate strap.
+  @visibleForTesting
+  static List<BandEntry> systemDeviceQueryOrder(List<BandEntry> entries) {
+    bool generic(BandEntry e) =>
+        Guid(e.service) == Guid(kHeartRateServiceUuid);
+    bool pmd(BandEntry e) => e.id == kPolarPmd.id;
+    bool fingerprint(BandEntry e) =>
+        !e.service.toLowerCase().endsWith('-0000-1000-8000-00805f9b34fb') &&
+        entries.where((o) => Guid(o.service) == Guid(e.service)).length == 1;
+    final specific = entries.where((e) => !generic(e) && !pmd(e));
+    return [
+      ...specific.where(fingerprint),
+      ...entries.where(generic),
+      ...specific.where((e) => !fingerprint(e)),
+      ...entries.where(pmd),
+    ];
+  }
+
   static List<BandCandidate> _ranked(Map<String, BandCandidate> seen) =>
-      seen.values.toList()..sort((a, b) => b.rssi.compareTo(a.rssi));
+      // Connected-to-the-phone rows (no rssi) first: it is almost always the
+      // one the user is holding.
+      seen.values.toList()
+        ..sort((a, b) => (b.rssi ?? 0).compareTo(a.rssi ?? 0));
 
   /// Why the phone's own stack cannot scan, or null when it can.
   ///

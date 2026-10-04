@@ -418,4 +418,27 @@ void main() {
       expect(HrsLink.deriveTier('explicit', kBleHrs.id), 'explicit');
     });
   });
+
+  // A connected Coros also exposes 0x180D; asked first, the generic entry
+  // would claim it and route it past its own adapter. A Polar H10 exposes PMD
+  // without PPI, so PMD must not claim ahead of generic or it never streams.
+  test('connected-device lookup: specific, then generic hr, then polar pmd',
+      () {
+    final order = HrsLink.systemDeviceQueryOrder(
+        kBandRegistry.where((e) => !e.isFramed).toList());
+    expect(order.last.id, kPolarPmd.id);
+    expect(order.indexOf(kBleHrs), lessThan(order.indexOf(kPolarPmd)));
+    expect(order.indexOf(kCoros), lessThan(order.indexOf(kBleHrs)));
+  });
+
+  // 0xfff0 and the Nordic UART UUID are reused by unrelated boards; a strap
+  // carrying one beside 0x180D must be claimed as a heart rate strap.
+  test('connected-device lookup: shared or 16-bit services follow generic hr',
+      () {
+    final order = HrsLink.systemDeviceQueryOrder(
+        kBandRegistry.where((e) => !e.isFramed).toList());
+    for (final e in [kXWatch, kMakibesHr3, kDt78, kBangleJs]) {
+      expect(order.indexOf(kBleHrs), lessThan(order.indexOf(e)), reason: e.id);
+    }
+  });
 }

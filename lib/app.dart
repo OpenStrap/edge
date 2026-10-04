@@ -10,6 +10,7 @@ import 'l10n/app_localizations.dart';
 import 'notify/notification_service.dart';
 import 'notify/tap_router.dart';
 import 'state/app_state.dart';
+import 'state/clock_format.dart';
 import 'state/locale_controller.dart';
 import 'state/prefs.dart';
 import 'telemetry/telemetry_service.dart';
@@ -122,6 +123,8 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   Widget build(BuildContext context) {
     final theme = context.watch<ThemeController>();
     final locale = context.watch<LocaleController>();
+    final twelveHour = !context.watch<ClockFormatController>().resolve24h(
+        MediaQuery.alwaysUse24HourFormatOf(context));
     return MaterialApp(
       title: 'OpenStrap',
       debugShowCheckedModeBanner: false,
@@ -130,7 +133,11 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
       darkTheme: buildTheme(Brightness.dark),
       themeMode: theme.materialThemeMode,
       locale: locale.locale, // null = follow the OS locale
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      // First, so a 12-hour choice reaches the time pickers (see the delegate).
+      localizationsDelegates: [
+        ClockMaterialLocalizationsDelegate(twelveHour: twelveHour),
+        ...AppLocalizations.localizationsDelegates,
+      ],
       supportedLocales: AppLocalizations.supportedLocales,
       // Runs even when `locale:` above has a user override — Flutter still
       // calls this callback, just with [locale.locale] as the sole
@@ -152,10 +159,52 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
         }
         return const Locale('en');
       },
-      builder: (context, child) =>
-          ThemeSwitchOverlay(key: themeSwitchKey, child: child!),
+      builder: (context, child) => _ClockScope(
+          child: ThemeSwitchOverlay(key: themeSwitchKey, child: child!)),
       navigatorObservers: [TelemetryNavigatorObserver()],
       home: const _Gate(),
+    );
+  }
+}
+
+/// Applies the 12/24-hour choice: overrides MediaQuery for time pickers (a
+/// 12-hour dial in de/es/fr also needs [ClockMaterialLocalizationsDelegate]),
+/// hands the locale's AM/PM text to `formatClock*`, and rebuilds everything
+/// below once when either flips, since those context-free helpers can't
+/// register a dependency.
+class _ClockScope extends StatefulWidget {
+  const _ClockScope({required this.child});
+  final Widget child;
+
+  @override
+  State<_ClockScope> createState() => _ClockScopeState();
+}
+
+class _ClockScopeState extends State<_ClockScope> {
+  (bool, Locale)? _last;
+
+  @override
+  Widget build(BuildContext context) {
+    final use24 = context
+        .watch<ClockFormatController>()
+        .resolve24h(MediaQuery.alwaysUse24HourFormatOf(context));
+    bindClockLocalizations(MaterialLocalizations.of(context));
+    final now = (use24, Localizations.localeOf(context));
+    if (_last != null && _last != now) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        void mark(Element e) {
+          e.markNeedsBuild();
+          e.visitChildren(mark);
+        }
+
+        (context as Element).visitChildren(mark);
+      });
+    }
+    _last = now;
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: use24),
+      child: widget.child,
     );
   }
 }
@@ -360,12 +409,12 @@ ShellDomain domainForRoute(String route) => switch (routePath(route)) {
       // itself — the live session bar with its finish control is pinned to
       // the shell there — so screenForRoute stays null for it.
       kRouteWorkoutIdle => ShellDomain.workout,
-      // Emitted by the battery forecast (`app_state.dart`) and the weekly
-      // recap (`notification_center.dart`), and declared in `tap_router`
+      // Emitted by the battery forecast (`app_state.dart`) and the device
+      // alerts (`device_alerts.dart`), and declared in `tap_router`
       // alongside every other deep link — see the note below.
       kRouteProfile => ShellDomain.home,
-      // The two alarm safety notifications. Reached the same way as the
-      // battery/band alerts above — Profile lives on Home.
+      // The two alarm safety notifications and the alarm-fired note. Reached
+      // the same way as the battery/band alerts above — Profile lives on Home.
       kRouteAlarm => ShellDomain.home,
       // No recap screen exists. Health is where a week of sleep, strain and
       // recovery actually lives, so it is the nearest true destination — but

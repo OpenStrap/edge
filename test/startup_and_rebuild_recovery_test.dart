@@ -409,6 +409,29 @@ void main() {
       await LocalDb.close();
     });
 
+    test('the salvage list covers everything a restore carries', () {
+      // Notifications regenerate on the next derive; everything else a
+      // restore treats as the only copy is the only copy on a rebuild too.
+      expect(
+        LocalDb.restoreTablesForTest
+            .toSet()
+            .difference(LocalDb.salvageTablesForTest.toSet()),
+        {'notifications'},
+      );
+    });
+
+    test('the salvage list copies owners before the rows that name them',
+        () {
+      // A salvage cut short must not leave routes without their workout or
+      // device-keyed rows without their device.
+      final order = LocalDb.salvageTablesForTest;
+      expect(order.first, 'device');
+      expect(
+        order,
+        containsAllInOrder(['sessions', 'imported_workout', 'workout_route']),
+      );
+    });
+
     test('a garbage file is quarantined byte-for-byte and the app still opens',
         () async {
       const name = 'rebuild_garbage_test.db';

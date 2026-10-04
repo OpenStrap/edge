@@ -4,6 +4,7 @@
 //   - seedEntryFromLegacyEpoch's weekday mapping for the 49→50 migration seed.
 // No radio, no DB — everything here is deterministic.
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:openstrap_edge/state/alarm_schedule.dart';
@@ -106,6 +107,41 @@ void main() {
       expect(next, DateTime(2026, 3, 8, 6, 30));
       expect(next!.hour, 6);
       expect(next.minute, 30);
+    });
+  });
+
+  group('alarmRearmFrom', () {
+    // Wednesday 2026-08-19, a daily 07:00 schedule.
+    final schedule = fillDefaultAlarmSchedule([
+      for (var w = 0; w < 7; w++)
+        AlarmScheduleEntry(weekday: w, hour: 7, minute: 0, enabled: true),
+    ]);
+    final slot = DateTime(2026, 8, 19, 7, 0);
+    final firedEpoch = slot.millisecondsSinceEpoch ~/ 1000;
+
+    test('a fire that lands just before the slot re-arms tomorrow', () {
+      // Strap RTC a fraction of a second fast: event 57 arrives at 06:59:59.5.
+      final now = DateTime(2026, 8, 19, 6, 59, 59, 500);
+      expect(nextAlarmOccurrence(schedule, alarmRearmFrom(now, firedEpoch)),
+          DateTime(2026, 8, 20, 7, 0));
+    });
+
+    test('a fire after the slot just uses now', () {
+      final now = DateTime(2026, 8, 19, 7, 0, 3);
+      expect(alarmRearmFrom(now, firedEpoch), now);
+    });
+
+    test('an early RUN_ALARM buzz leaves the slot still due', () {
+      // Smart wake buzzed 20 min early; the fallback 07:00 must stay armed.
+      final now = DateTime(2026, 8, 19, 6, 40);
+      expect(alarmRearmFrom(now, firedEpoch), now);
+      expect(nextAlarmOccurrence(schedule, alarmRearmFrom(now, firedEpoch)),
+          slot);
+    });
+
+    test('no armed epoch at fire time just uses now', () {
+      final now = DateTime(2026, 8, 19, 6, 59, 59);
+      expect(alarmRearmFrom(now, null), now);
     });
   });
 
@@ -272,6 +308,30 @@ void main() {
       expect(result, isNotNull);
       expect(result!.windowEnd, at);
       expect(result.minutes, 20);
+    });
+  });
+
+  group('awaitAlarmLatch (headless grace window)', () {
+    // Some straps send ALARM_SET (56) ~15s after the SET write; the headless
+    // re-arm used to give up at 6s and save a latched alarm as unconfirmed.
+    bool? run(int latchAtSec) {
+      bool? out;
+      fakeAsync((fa) {
+        final start = fa.elapsed;
+        awaitAlarmLatch(() async =>
+                (fa.elapsed - start).inSeconds >= latchAtSec)
+            .then((v) => out = v);
+        fa.elapse(const Duration(seconds: 31));
+      });
+      return out;
+    }
+
+    test('a 56 arriving 15s after the write still confirms', () {
+      expect(run(15), isTrue);
+    });
+
+    test('no 56 within the 30s window stays unconfirmed', () {
+      expect(run(45), isFalse);
     });
   });
 }

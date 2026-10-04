@@ -20,6 +20,7 @@ import '../../ecg/ecg_models.dart';
 import '../../ecg/ecg_waveform_buffer.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
+import '../../state/clock_format.dart' show formatClockOf;
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../ui2.dart';
 import 'coach.dart';
@@ -62,7 +63,7 @@ String _wristLabel(AppLocalizations? l, EcgWrist w) => w == EcgWrist.left
 String _fmtWhen(int epochS) {
   final d = DateTime.fromMillisecondsSinceEpoch(epochS * 1000);
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${d.year}-${two(d.month)}-${two(d.day)} ${two(d.hour)}:${two(d.minute)}';
+  return '${d.year}-${two(d.month)}-${two(d.day)} ${formatClockOf(d)}';
 }
 
 // ═══════════════════ entry card (Health overview) ═══════════════════

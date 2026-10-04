@@ -15,6 +15,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
+import '../state/clock_format.dart';
+import 'day_label.dart';
+
 /// What a field measures, which decides how it is entered and read back.
 enum JournalFieldKind {
   /// A subjective 1–5 self-report (mood, sleep quality). Ordinal: the gap
@@ -257,7 +260,10 @@ Map<String, double> weightTrendEwma(
     if (ewma == null || prev == null) {
       ewma = v;
     } else {
-      final gap = d.difference(prev).inDays.abs().clamp(0, 3650).toDouble();
+      // Calendar days: a spring-forward day is 23 h, which inDays floors to 0
+      // and gives the new reading no weight at all.
+      final gap =
+          calendarDaysBetween(prev, d).abs().clamp(0, 3650).toDouble();
       // Weight of the new reading after `gap` days of decay. One day at a
       // 7-day half-life is ~0.094; a month is ~0.95, i.e. after a long gap the
       // trend restarts from the reading rather than dragging the old one in.
@@ -305,11 +311,6 @@ String customJournalFieldKey(String label) {
   return 'custom_$slug';
 }
 
-/// Local minutes past midnight → "7:05 AM".
-String formatMinuteOfDay(int minuteOfDay) {
-  final m = minuteOfDay % (24 * 60);
-  final h24 = m ~/ 60;
-  final mm = (m % 60).toString().padLeft(2, '0');
-  final h = h24 % 12 == 0 ? 12 : h24 % 12;
-  return '$h:$mm ${h24 < 12 ? 'AM' : 'PM'}';
-}
+/// Local minutes past midnight → "7:05 AM" or "07:05", per the user's clock
+/// format ([formatClockMinute]).
+String formatMinuteOfDay(int minuteOfDay) => formatClockMinute(minuteOfDay);

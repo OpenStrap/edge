@@ -181,6 +181,13 @@ void main() {
       expect(may1.length, 1, reason: 'one row per day, not one per version');
       expect(may1.single['onset_ts'], 1_700_000_000);
     });
+
+    test('before keeps only the nights earlier than that day', () async {
+      // A past night is compared with the nights before it, not the newest
+      // nights overall.
+      final rows = await repo.sleepWindows(days: 2, before: '2024-05-04');
+      expect(rows.map((r) => r['date']), ['2024-05-03', '2024-05-02']);
+    });
   });
 
   group('sessions.avg_hr', () {

@@ -30,6 +30,7 @@ import '../../data/db.dart';
 import '../../gps/gpx_export.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_state.dart';
+import '../../state/clock_format.dart' show formatClockOf;
 import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../charts.dart';
@@ -59,7 +60,7 @@ enum Arch { route, strength, interval, flow, laps, journey, match, basic }
 
 const _sports = {
   'Football', 'Basketball', 'Cricket', 'Tennis', 'Badminton', 'Table tennis',
-  'Squash', 'Volleyball', 'Hockey', 'Baseball', 'Rugby', 'Boxing',
+  'Squash', 'Padel', 'Volleyball', 'Hockey', 'Baseball', 'Rugby', 'Boxing',
   'Martial arts', 'Wrestling',
 };
 const _laps = {'Swimming', 'Rowing'};
@@ -501,9 +502,7 @@ String _shortDate(DateTime t) {
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
-  final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
-  return '${months[t.month - 1]} ${t.day}, ${t.year} at $h:'
-      '${t.minute.toString().padLeft(2, '0')} ${t.hour < 12 ? 'AM' : 'PM'}';
+  return '${months[t.month - 1]} ${t.day}, ${t.year} at ${formatClockOf(t)}';
 }
 
 // ── THE SUPPORTING STATS ───────────────────────────────────────────────────
@@ -1205,14 +1204,13 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   'one of them is not set. Strain above is the effort that '
                   'was measured, on its own 0–21 scale.';
     }
-    // No MET is the catch-all activity, whose figure is therefore entirely
-    // the heart-rate estimate — saying "from MET" over it would name a basis
-    // this session does not have.
+    // No MET (the catch-all, or a named sport the compendium does not price)
+    // means the figure is entirely the heart-rate estimate — saying "from MET"
+    // over it would name a basis this session does not have.
     if (met == null) {
       return l?.activitySummaryCalorieNoMet ??
           'Estimated from your heart rate and your weight. No MET is in '
-              'this figure: the session named no activity for one to apply '
-              'to.';
+              'this figure: none is published for this activity.';
     }
     return r.avgHr == null
         ? l?.activitySummaryCalorieNoHr(met) ??
@@ -1733,7 +1731,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                              exerciseByKey(top.exerciseKey)?.label ??
+                              exerciseByKey(top.exerciseKey)?.labelFor(
+                                      Localizations.localeOf(c).languageCode) ??
                                   top.exerciseKey,
                               style: F.body.copyWith(
                                   color: p.ink, fontWeight: FontWeight.w600)),
@@ -1952,7 +1951,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         return [
           for (final key in r.strength.exercises) ...[
             Section(
-              exerciseByKey(key)?.label ?? key,
+              exerciseByKey(key)
+                      ?.labelFor(Localizations.localeOf(c).languageCode) ??
+                  key,
               Surface(
                 pad: const EdgeInsets.symmetric(horizontal: S.x4),
                 child: Column(children: [
@@ -2206,4 +2207,3 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     ];
   }
 }
-

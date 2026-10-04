@@ -17,12 +17,18 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/day_label.dart';
+import 'package:openstrap_edge/data/journal_fields.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/local_repository_impl.dart';
 import 'package:openstrap_edge/data/models.dart';
+import 'package:openstrap_edge/ui2/screens/log_workout.dart' show dayLabel;
+import 'package:openstrap_edge/ui2/screens/sleep_detail.dart'
+    show correctedSleepWindow;
 import 'package:openstrap_edge/ui2/screens/workout_screen.dart'
     show lastSevenDays;
 
@@ -104,6 +110,12 @@ void main() {
       reason: 'setenv(TZ)+tzset() did not re-home the local calendar; the '
           'assertions below would be vacuous',
     );
+  }, skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null);
+
+  test('the weight trend still counts the reading after a spring-forward', () {
+    final ewma = weightTrendEwma({'2026-03-08': 80.0, '2026-03-09': 84.0});
+    // one day of decay at a 7-day half-life, not zero
+    expect(ewma['2026-03-09'], closeTo(80.4, 0.1));
   }, skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null);
 
   test('localDayEndSec is the next local midnight, not start + 86400', () {
@@ -214,6 +226,65 @@ void main() {
           },
       ];
       expect(lastSevenDays(points, end), [3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+    },
+    skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
+  );
+
+  test(
+    'the workout day label counts calendar days over a spring-forward',
+    () {
+      // Sunday 00:00 to Monday 00:00 is 23 h; `inDays` on that called
+      // Sunday's session "Today" and Saturday's "Yesterday".
+      final now = DateTime(2026, 3, 9, 12);
+      expect(dayLabel(DateTime(2026, 3, 9, 7), now: now), 'Today');
+      expect(dayLabel(DateTime(2026, 3, 8, 7), now: now), 'Yesterday');
+      expect(dayLabel(DateTime(2026, 3, 7, 7), now: now), 'Sat 7 Mar');
+    },
+    skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
+  );
+
+  test(
+    'a corrected sleep window over a spring-forward night is still one night',
+    () {
+      final (on, off) = correctedSleepWindow(DateTime(2026, 3, 8, 0, 30),
+          DateTime(2026, 3, 8, 6, 40), const TimeOfDay(hour: 23, minute: 30),
+          const TimeOfDay(hour: 7, minute: 0));
+      expect(on, DateTime(2026, 3, 7, 23, 30));
+      expect(off, DateTime(2026, 3, 8, 7, 0));
+    },
+    skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
+  );
+
+  test(
+    'an unchanged bedtime in the repeated fall-back hour keeps its instant',
+    () {
+      // 01:30 happens twice on 2026-11-01; this onset is the second one (EST).
+      // Rebuilding it from the picker's 01:30 can pick the first, an hour off.
+      final onset = DateTime.utc(2026, 11, 1, 6, 30).toLocal();
+      final (on, _) = correctedSleepWindow(onset, DateTime(2026, 11, 1, 7),
+          const TimeOfDay(hour: 1, minute: 30),
+          const TimeOfDay(hour: 7, minute: 15));
+      expect(on.millisecondsSinceEpoch, onset.millisecondsSinceEpoch);
+    },
+    skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
+  );
+
+  test(
+    'the cycle prediction counts calendar days across a fall-back',
+    () async {
+      // Gaps 28, 21, 35 -> median 28, MAD 7, last start 2026-10-10. Adding
+      // 28 x 24 h crosses 2026-11-01's extra hour and lands at 23:00 on
+      // 11-06, so the date (and the band's upper edge) came out a day early.
+      for (final d in ['2026-07-18', '2026-08-15', '2026-09-05', '2026-10-10']) {
+        await LocalDb.putCycleLog(d, 'start');
+      }
+      final repo = LocalRepositoryImpl(
+        getProfileMap: () => {'track_cycle': true},
+      );
+      final cycle = await repo.getCycle();
+      expect(cycle['predicted_next'], '2026-11-07');
+      expect(cycle['predicted_from'], '2026-10-31');
+      expect(cycle['predicted_to'], '2026-11-14');
     },
     skip: Platform.isWindows ? 'POSIX setenv/tzset only' : null,
   );

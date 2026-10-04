@@ -888,4 +888,37 @@ void main() {
       },
     );
   });
+
+  test('nightly scalars stay inside the day their delete covers', () {
+    final dayStart = DateTime(2026, 8, 2);
+    final dayEnd = DateTime(2026, 8, 3);
+    int ms(DateTime t) => t.millisecondsSinceEpoch;
+    DateTime at({required DateTime on, required DateTime off}) =>
+        healthNightlyScalarTime(
+          onsetMs: ms(on),
+          offsetMs: ms(off),
+          dayStart: dayStart,
+          dayEnd: dayEnd,
+        );
+
+    // 23:00 -> 07:00: the midpoint is already inside the day.
+    expect(
+      at(on: DateTime(2026, 8, 1, 23), off: DateTime(2026, 8, 2, 7)),
+      DateTime(2026, 8, 2, 3),
+    );
+    // 20:00 -> 03:00: the midpoint is the evening before, so use wake.
+    expect(
+      at(on: DateTime(2026, 8, 1, 20), off: DateTime(2026, 8, 2, 3)),
+      DateTime(2026, 8, 2, 3),
+    );
+    expect(
+      healthNightlyScalarTime(
+        onsetMs: null,
+        offsetMs: null,
+        dayStart: dayStart,
+        dayEnd: dayEnd,
+      ),
+      DateTime(2026, 8, 2, 12),
+    );
+  });
 }

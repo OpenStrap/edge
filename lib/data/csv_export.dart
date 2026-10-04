@@ -20,6 +20,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../ui2/activity/catalogue.dart' show exerciseByKey;
 import 'db.dart';
 
 /// One exportable table: a filename stem, a header, and the query behind it.
@@ -29,6 +30,7 @@ class CsvExportSet {
     required this.title,
     required this.columns,
     required this.sql,
+    this.addColumns,
   });
 
   /// Filename stem, e.g. `daily` → `openstrap_daily_<stamp>.csv`.
@@ -36,6 +38,9 @@ class CsvExportSet {
   final String title;
   final List<String> columns;
   final String sql;
+
+  /// Values for columns the SQL can't produce, e.g. a label held in Dart.
+  final Map<String, Object?> Function(Map<String, Object?> row)? addColumns;
 }
 
 /// What can be exported. Ordered as the picker shows them.
@@ -228,6 +233,7 @@ const kCsvExportSets = <CsvExportSet>[
       'at_ts',
       'session_id',
       'exercise',
+      'exercise_name',
       'set_index',
       'reps',
       'load_kg',
@@ -238,12 +244,15 @@ const kCsvExportSets = <CsvExportSet>[
     ],
     // Exercises live as a Dart constant (lib/ui2/activity/catalogue.dart), not
     // in `exercise_def` — nothing inserts into that table — so `exercise` is
-    // the storage key, the same deliberate fallback the habits set documents
-    // above. The LEFT JOIN that used to be here could only ever miss.
+    // the storage key and the name is filled in from the catalogue. wger lifts
+    // are keyed `wger:<uuid>`, which nobody can read back without it.
+    // A private session is out of v_sessions, so its sets stay out too.
+    addColumns: _exerciseName,
     sql: '''
       SELECT s.at_ts, s.session_id, s.exercise_key AS exercise,
              s.set_index, s.reps, s.load_kg, s.rpe, s.hold_sec, s.rest_sec, s.note
       FROM strength_set s
+      WHERE s.session_id NOT IN (SELECT id FROM sessions WHERE private = 1)
       ORDER BY s.at_ts ASC, s.session_id ASC, s.seq ASC
     ''',
   ),
@@ -284,6 +293,10 @@ const kCsvExportSets = <CsvExportSet>[
     ''',
   ),
 ];
+
+Map<String, Object?> _exerciseName(Map<String, Object?> row) => {
+  'exercise_name': exerciseByKey(row['exercise'] as String)?.label,
+};
 
 /// What CSV deliberately does NOT carry, and why. Shown to the user on the
 /// export screen, because "your data" with a silent gap in it is the same
@@ -405,7 +418,11 @@ Future<CsvExportResult> exportCsvFiles(
 
   for (final set in sets) {
     try {
-      final rows = await db.rawQuery(set.sql);
+      final add = set.addColumns;
+      final rows = [
+        for (final r in await db.rawQuery(set.sql))
+          add == null ? r : {...r, ...add(r)},
+      ];
       // No rows means no file. A header-only CSV is not "your data", and
       // emitting one made an empty database indistinguishable from a working
       // export to the caller.

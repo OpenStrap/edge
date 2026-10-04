@@ -69,10 +69,15 @@ class LocalRepositoryImpl extends LocalRepository {
   /// recovery". Fallbacks, in order: latest day with sleep → latest day with any
   /// scalars → newest decodable → null. This is what makes Today show yesterday's
   /// data when today hasn't filled yet (and the day-detail seams inherit it).
-  Future<Map<String, dynamic>?> _latestBundle() async {
+  ///
+  /// [skipDay] leaves one day out: getToday passes today when freshness says
+  /// today's night is not the overnight yet (#448), so a partial night can't
+  /// be served under the prior night's label.
+  Future<Map<String, dynamic>?> _latestBundle({String? skipDay}) async {
     final rows = await LocalDb.recentDayResults(14);
     Map<String, dynamic>? newest, withScalars;
     for (final row in rows) {
+      if (skipDay != null && row['day_id']?.toString() == skipDay) continue;
       final b = _decode(row['payload_json']);
       if (b == null) continue;
       newest ??= b;
@@ -277,17 +282,28 @@ class LocalRepositoryImpl extends LocalRepository {
     // kept serving yesterday's finished bundle as today: yesterday's steps,
     // kcal and strain on Home, yesterday's date in the greeting, and the
     // frozen headline matching so the readiness went un-flagged too.
+    //
+    // Also once a held-back night's give-up has passed: the strap that went
+    // quiet at wake never drains again, so no derive would ever refresh it.
     var todayFresh = await _freshness('today');
+    final recheckAt = (todayFresh?['overnight_recheck_at'] as num?)?.toInt();
     if (todayFresh == null ||
-        todayFresh['today_day']?.toString() != _todayLocalLabel()) {
+        todayFresh['today_day']?.toString() != _todayLocalLabel() ||
+        (todayFresh['overnight_state'] == 'building' &&
+            recheckAt != null &&
+            DateTime.now().millisecondsSinceEpoch ~/ 1000 >= recheckAt)) {
       await LocalDb.refreshComputeFreshness();
       todayFresh = await _freshness('today');
     }
     final todayDay = todayFresh?['today_day']?.toString() ?? _todayLocalLabel();
     final todayBundle = await _bundle(todayDay);
-    final overnightBundle = await _latestBundle();
     final overnightState =
         todayFresh?['overnight_state']?.toString() ?? 'missing';
+    // 'ready' means today's own row is the overnight, a settled no-sleep night
+    // included; scanning past it would serve an older night's sleep as today's.
+    final overnightBundle = overnightState == 'ready'
+        ? todayBundle
+        : await _latestBundle(skipDay: todayDay);
     final activityState =
         todayFresh?['activity_state']?.toString() ?? 'missing';
     final showingPriorOvernight =
@@ -1706,8 +1722,9 @@ class LocalRepositoryImpl extends LocalRepository {
   // ── lists / summaries ─────────────────────────────────────────────────────
 
   @override
-  Future<List<Map<String, dynamic>>> sleepWindows({int days = 60}) async {
-    final rows = await LocalDb.sleepWindowRows(days);
+  Future<List<Map<String, dynamic>>> sleepWindows(
+      {int days = 60, String? before}) async {
+    final rows = await LocalDb.sleepWindowRows(days, before: before);
     final out = <Map<String, dynamic>>[];
     for (final r in rows) {
       final date = r['day_id'] as String?;
@@ -1860,6 +1877,19 @@ class LocalRepositoryImpl extends LocalRepository {
     // 74 in the ring and 69 as today's point in the chart underneath it. One
     // day, one readiness number.
     final pin = key == 'readiness' ? await LocalDb.frozenHeadline() : null;
+    // #448: every derive writes today's readiness, partial night or not, and a
+    // held night has no pin yet. Leave today's point out while getToday holds
+    // it back, or the chart plots the number the ring above it refuses.
+    String? heldDay;
+    if (key == 'readiness') {
+      final fresh = await _freshness('today');
+      final recheckAt = (fresh?['overnight_recheck_at'] as num?)?.toInt();
+      if (recheckAt != null &&
+          _nowSec() < recheckAt &&
+          fresh?['today_day']?.toString() == _todayLocalLabel()) {
+        heldDay = _todayLocalLabel();
+      }
+    }
 
     // ONE read of metric_series_version, two consumers. `_algoBreaks` used to
     // fetch it privately; `coverage_devices` rides on the same rows because it
@@ -1883,10 +1913,11 @@ class LocalRepositoryImpl extends LocalRepository {
     return {
       'points': [
         for (final r in rows)
-          {
-            't': _dateToEpoch(r['date'] as String),
-            'v': r['date'] == pin?.day ? pin!.value : r['value'],
-          },
+          if (r['date'] != heldDay || r['date'] == pin?.day)
+            {
+              't': _dateToEpoch(r['date'] as String),
+              'v': r['date'] == pin?.day ? pin!.value : r['value'],
+            },
       ],
       // L4 — THE DENOMINATOR. Worn minutes for the same days, so a long trend
       // can be read against how much of it was actually measured instead of
@@ -1997,7 +2028,10 @@ class LocalRepositoryImpl extends LocalRepository {
       [deviceId],
     );
     final oldestTs = (oldestRow.firstOrNull?['m'] as num?)?.toInt();
-    final bounded = oldestTs != null && dayStart < oldestTs;
+    // Bounded = the whole day predates this device's oldest kept row. The
+    // prune removes whole days, so the oldest kept day is complete even though
+    // its first row lands after midnight.
+    final bounded = oldestTs != null && dayEnd <= oldestTs;
     return {
       'points': points,
       'bounded': bounded,
@@ -2615,15 +2649,46 @@ class LocalRepositoryImpl extends LocalRepository {
     required int startTs,
     required int endTs,
     required String type,
-  }) => _writeManualSession(
-    startTs: startTs,
-    endTs: endTs,
-    type: type,
+  }) async {
     // A manual row's id is derived from its start second, so re-logging the
-    // same window is an UPDATE of that row, not a collision with it. Pass
-    // the id we are about to write as the one to skip in the overlap check.
-    validateAgainstId: manualSessionId(startTs),
-  );
+    // IDENTICAL window is an update of that row, not a collision with it. A
+    // different end or type on the same start second is a different entry:
+    // skipping it in the overlap check would let REPLACE overwrite it, so it
+    // has to be refused like any other overlap.
+    //
+    // A retimed session keeps its id, so the row under that id may no longer
+    // start at this second. It is not this entry at all: give the new one its
+    // own id instead of REPLACEing (and inheriting the route of) the moved one.
+    // An entry already logged that way lives under `$id:<ms>`, so a retry of
+    // it is found there and stays an update.
+    final id = manualSessionId(startTs);
+    var prior = await LocalDb.session(id);
+    final moved =
+        prior != null && (prior['start_ts'] as num?)?.toInt() != startTs;
+    if (moved) {
+      prior = null;
+      for (final r in await LocalDb.sessionsInRange(startTs, startTs)) {
+        if ((r['id'] as String?)?.startsWith('$id:') ?? false) {
+          prior = r;
+          break;
+        }
+      }
+    }
+    final same = prior != null &&
+        (prior['end_ts'] as num?)?.toInt() == endTs &&
+        prior['type'] == type;
+    return _writeManualSession(
+      startTs: startTs,
+      endTs: endTs,
+      type: type,
+      existing: same ? prior : null,
+      sessionId:
+          moved ? '$id:${DateTime.now().millisecondsSinceEpoch}' : null,
+      validateAgainstId: same
+          ? prior['id'] as String
+          : (prior == null && !moved ? id : null),
+    );
+  }
 
   @override
   Future<Map<String, dynamic>> setWorkoutWindow(
@@ -2676,7 +2741,7 @@ class LocalRepositoryImpl extends LocalRepository {
     required int startTs,
     required int endTs,
     required String type,
-    required String validateAgainstId,
+    required String? validateAgainstId,
     Map<String, dynamic>? existing,
     String? sessionId,
     String source = 'manual',
@@ -2999,14 +3064,15 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<int> rescoreRecentSessions({int sinceDays = 3}) async {
-    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final now = DateTime.now();
+    final nowSec = now.millisecondsSinceEpoch ~/ 1000;
     var changed = 0;
     try {
       // Local-midnight bound, not `now - n * 86400`: a DST day is 23 or 25
       // hours, so a flat day-length silently moves the window by an hour.
       final fromTs =
           localDayStartSec(
-            dayLabelOf(DateTime.now().subtract(Duration(days: sinceDays))),
+            dayLabelOf(DateTime(now.year, now.month, now.day - sinceDays)),
           ) ??
           (nowSec - sinceDays * 86400);
       final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
@@ -3673,7 +3739,8 @@ class LocalRepositoryImpl extends LocalRepository {
     if (range == 'all') return null;
     final m = RegExp(r'(\d+)').firstMatch(range);
     final days = m == null ? 30 : int.parse(m.group(1)!);
-    return dayLabelOf(DateTime.now().subtract(Duration(days: days)));
+    final now = DateTime.now();
+    return dayLabelOf(DateTime(now.year, now.month, now.day - days));
   }
 
   // ── menstrual cycle — local log + honest phase/prediction ───────────────────
@@ -3755,13 +3822,18 @@ class LocalRepositoryImpl extends LocalRepository {
     String? predictedNext, predictedFrom, predictedTo;
     num? daysUntilNext;
     if (predictOk && lastStart != null && medianLength != null) {
-      final next = lastStart.add(Duration(days: medianLength.round()));
+      // Calendar days, not Duration(days:): a 25 h fall-back day inside the
+      // span lands a Duration add at 23:00 the day before.
+      DateTime plusDays(int n) =>
+          DateTime(lastStart.year, lastStart.month, lastStart.day + n);
+      final n = medianLength.round();
+      final next = plusDays(n);
       predictedNext = dayLabelOf(next);
       daysUntilNext = calendarDaysBetween(today, next);
       if (gapSpread != null) {
         final w = gapSpread.round();
-        predictedFrom = dayLabelOf(next.subtract(Duration(days: w)));
-        predictedTo = dayLabelOf(next.add(Duration(days: w)));
+        predictedFrom = dayLabelOf(plusDays(n - w));
+        predictedTo = dayLabelOf(plusDays(n + w));
       }
     }
 

@@ -20,6 +20,11 @@
          camera still installs; the scan row falls back to typing. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- The F-Droid build's camera plugin declares camera.any as required and
+         RECORD_AUDIO; neither is wanted here. -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="false"
+        tools:replace="android:required" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Edge Tracking foreground service: keeps the strap connection alive in the background. -->

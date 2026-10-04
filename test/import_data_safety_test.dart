@@ -267,6 +267,59 @@ void main() {
     });
   });
 
+  test('WHOOP absolute skin temp °C is not filed as skin_temp_z', () async {
+    const wake = '2026-04-10 07:00:00';
+    final day =
+        localDateLabel(DateTime.parse(wake).millisecondsSinceEpoch ~/ 1000);
+    final f = File(p.join(tmp.path, 'skin_temp.csv'));
+    f.writeAsStringSync(
+      'Cycle start time,Wake onset,Recovery score %,Skin temp (celsius),'
+      'Asleep duration (min)\n'
+      '$wake,$wake,50,33.4,400\n',
+    );
+    expect((await WhoopImporter.importFiles([f.path])).days, 1);
+    final payload =
+        jsonDecode((await _row(day))!['payload_json'] as String) as Map;
+    expect((payload['scalars'] as Map)['skin_temp_z'], isNull);
+  });
+
+  test('upgrading to v55 scrubs °C skin_temp_z left by older WHOOP imports',
+      () async {
+    Future<void> put(String day, Map<String, dynamic> bundle) =>
+        LocalDb.putDayResult(
+          dayId: day,
+          algoVersion: kAlgoVersion,
+          payloadJson: jsonEncode(bundle),
+          windowJson: '{}',
+        );
+    await put('2026-04-20', {
+      'date': '2026-04-20',
+      'imported': true,
+      'source': 'whoop_export',
+      'scalars': {'readiness': 50, 'skin_temp_z': 33.4},
+    });
+    await put('2026-04-21', {
+      'date': '2026-04-21',
+      'scalars': {'readiness': 60, 'skin_temp_z': 0.8},
+    });
+    // a plain reopen leaves it alone: the heal is a one-time upgrade rung
+    await LocalDb.close();
+    expect(
+        ((jsonDecode((await _row('2026-04-20'))!['payload_json'] as String)
+            as Map)['scalars'] as Map)['skin_temp_z'],
+        33.4);
+    await (await LocalDb.instance).execute('PRAGMA user_version = 54');
+    await LocalDb.close();
+
+    Future<Map> scalars(String day) async =>
+        (jsonDecode((await _row(day))!['payload_json'] as String)
+            as Map)['scalars'] as Map;
+    final imported = await scalars('2026-04-20');
+    expect(imported.containsKey('skin_temp_z'), isFalse);
+    expect(imported['readiness'], 50);
+    expect((await scalars('2026-04-21'))['skin_temp_z'], 0.8);
+  });
+
   group('CloudImporter session rows', () {
     test('skips a session with no start_ts instead of filing it at epoch 0',
         () async {

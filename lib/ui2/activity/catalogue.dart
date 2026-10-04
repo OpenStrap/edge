@@ -20,6 +20,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../l10n/app_localizations.dart';
 import '../theme.dart';
 
+part 'wger_exercises.g.dart';
+
 /// How a session is tracked — which decides which live screen it opens, and
 /// therefore which parameters the user is asked for.
 enum Track {
@@ -48,9 +50,9 @@ class Activity {
   /// Metabolic equivalent of task — the honest basis for a calorie estimate.
   /// Compendium of Physical Activities, Ainsworth et al.
   ///
-  /// NULL for a row the compendium cannot price, which is exactly one:
-  /// 'General workout' means the user did not say what they did, and the
-  /// compendium prices named activities. Every number that could go here
+  /// NULL for a row the compendium cannot price. 'General workout' means the
+  /// user did not say what they did, and the compendium prices named
+  /// activities; 'Padel' is named but has no compendium row at all. Every number that could go here
   /// would be a stand-in — which is the 'Custom activity' mistake below,
   /// whose MET of 4.0 was invented. So [kcal] returns null, the picker and
   /// the setup screen show no estimate, and the session still gets a REAL
@@ -149,6 +151,10 @@ const activityLibrary = <ActGroup>[
     Activity(
         'Table tennis', LucideIcons.volleyball, C.blue, Track.duration, 4.0),
     Activity('Squash', LucideIcons.volleyball, C.red, Track.duration, 12.0),
+    // No MET: the compendium has no padel row. Tennis doubles and paddleball
+    // are different games, and borrowing either would be a stand-in. The
+    // post-session estimate still works from heart rate.
+    Activity('Padel', LucideIcons.volleyball, C.yellow, Track.duration, null),
     Activity('Volleyball', LucideIcons.volleyball, C.orange, Track.duration, 6.0),
     Activity('Hockey', LucideIcons.target, C.blue, Track.duration, 8.0),
     Activity('Baseball', LucideIcons.target, C.red, Track.duration, 5.0),
@@ -191,6 +197,10 @@ const activityLibrary = <ActGroup>[
         gps: true),
     Activity('Skating', LucideIcons.circleDashed, C.purple, Track.distance, 7.0,
         gps: true),
+    // Compendium 15580, "skateboarding, general, moderate effort". Timed, not
+    // a route: a park session goes nowhere, and cruising is the longboard rows.
+    Activity(
+        'Skateboarding', LucideIcons.circleDashed, C.orange, Track.duration, 5.0),
     Activity('Horse riding', LucideIcons.rabbit, C.orange, Track.duration, 5.5),
   ]),
   ActGroup('Mind & body', LucideIcons.leaf, [
@@ -332,60 +342,326 @@ Activity? activityByName(String? type) =>
     type == null ? null : _byKey[type.toLowerCase().replaceAll(' ', '_')];
 
 // ── EXERCISES ──────────────────────────────────────────────────────────────
-// The strength catalogue. `muscles` is the fraction of the set's work each
-// group takes, and it is what the muscle map is drawn from — so it is a claim
-// about anatomy, not decoration. Values are the conventional prime-mover /
-// synergist split; they are approximate and the map is labelled relative.
+// The strength catalogue. The hand-written list keeps the strength_set keys
+// already in use; the generated tail is a wger snapshot (see
+// tool/update_wger_exercises.dart).
+
+class ExerciseCredit {
+  final String licenseName;
+  final String licenseUrl;
+  final String author;
+
+  const ExerciseCredit(this.licenseName, this.licenseUrl, this.author);
+}
 
 class ExerciseDef {
   final String key;
   final String label;
+  final List<String> primaryMuscles;
+  final List<String> secondaryMuscles;
+  final String category;
+  final List<String> equipment;
+  final List<String> aliases;
 
-  /// group → 0…1 share of the work. Only the primary mover is shown, as the
-  /// category label in the exercise picker — nothing paints these any more.
-  final Map<String, double> muscles;
+  /// Upstream translations for wger rows, hand-written for the core lifts;
+  /// missing falls back to [label].
+  final Map<String, String> localizedLabels;
 
   /// The plate/dumbbell increment this lift is normally loaded in, kg. A
   /// barbell moves in 2.5, a dumbbell in 2 — a single global step is what
   /// makes every strength app feel like a spreadsheet.
   final double step;
 
-  const ExerciseDef(this.key, this.label, this.muscles, {this.step = 2.5});
+  /// wger rows only. Base data and each translation carry their own credit.
+  final String? sourceId;
+  final String? sourceUpdatedAt;
+  final List<ExerciseCredit> sourceCredits;
+
+  /// Done with the body as the load. With no history to seed from, the set
+  /// starts as bodyweight instead of inheriting the last lift's kilos.
+  final bool bodyweight;
+
+  const ExerciseDef(
+    this.key,
+    this.label,
+    this.primaryMuscles, {
+    this.secondaryMuscles = const [],
+    this.category = '',
+    this.equipment = const [],
+    this.aliases = const [],
+    this.localizedLabels = const {},
+    this.step = 2.5,
+    this.sourceId,
+    this.sourceUpdatedAt,
+    this.sourceCredits = const [],
+    this.bodyweight = false,
+  });
+
+  bool get fromWger => sourceId != null;
+
+  /// The upstream record with its authors and licenses.
+  String? get sourceUrl => sourceId == null
+      ? null
+      : 'https://wger.de/api/v2/exerciseinfo/?uuid=$sourceId';
+
+  String labelFor(String languageCode) =>
+      localizedLabels[languageCode] ?? label;
+
+  bool matches(String query, String languageCode) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    return <String>{
+      labelFor(languageCode),
+      label,
+      ...localizedLabels.values,
+      ...aliases,
+      ...primaryMuscles,
+      ...secondaryMuscles,
+      ...equipment,
+      category,
+    }.any((v) => v.toLowerCase().contains(q));
+  }
 }
 
-const exerciseLibrary = <ExerciseDef>[
-  ExerciseDef('bench_press', 'Bench press',
-      {'chest': .6, 'triceps': .25, 'shoulders': .15}),
-  ExerciseDef('incline_db_press', 'Incline DB press',
-      {'chest': .5, 'shoulders': .3, 'triceps': .2},
-      step: 2),
-  ExerciseDef('cable_fly', 'Cable fly', {'chest': .8, 'shoulders': .2}),
-  ExerciseDef('overhead_press', 'Overhead press',
-      {'shoulders': .6, 'triceps': .3, 'core': .1}),
-  ExerciseDef('triceps_pushdown', 'Triceps pushdown', {'triceps': 1.0}),
-  ExerciseDef('overhead_extension', 'Overhead extension', {'triceps': 1.0}),
-  ExerciseDef('barbell_row', 'Barbell row',
-      {'back': .65, 'biceps': .25, 'core': .1}),
-  ExerciseDef('lat_pulldown', 'Lat pulldown', {'back': .7, 'biceps': .3}),
-  ExerciseDef('pull_up', 'Pull-up', {'back': .65, 'biceps': .25, 'core': .1}),
-  ExerciseDef('barbell_curl', 'Barbell curl', {'biceps': 1.0}),
-  ExerciseDef('back_squat', 'Back squat',
-      {'legs': .65, 'glutes': .25, 'core': .1}),
-  ExerciseDef('front_squat', 'Front squat',
-      {'legs': .6, 'glutes': .2, 'core': .2}),
-  ExerciseDef('deadlift', 'Deadlift',
-      {'back': .35, 'legs': .3, 'glutes': .3, 'core': .05}),
-  ExerciseDef('romanian_deadlift', 'Romanian deadlift',
-      {'glutes': .45, 'legs': .35, 'back': .2}),
-  ExerciseDef('hip_thrust', 'Hip thrust', {'glutes': .8, 'legs': .2}),
-  ExerciseDef('leg_press', 'Leg press', {'legs': .75, 'glutes': .25}),
-  ExerciseDef('plank', 'Plank', {'core': 1.0}, step: 0),
-  ExerciseDef('hanging_leg_raise', 'Hanging leg raise', {'core': 1.0}, step: 0),
+const _edgeExerciseLibrary = <ExerciseDef>[
+  ExerciseDef(
+    'bench_press',
+    'Bench press',
+    ['chest', 'triceps', 'shoulders'],
+    category: 'Chest',
+    equipment: ['Barbell', 'Bench'],
+    localizedLabels: {
+      'de': 'Bankdrücken',
+      'es': 'Press de banca',
+      'fr': 'Développé couché',
+    },
+  ),
+  ExerciseDef(
+    'incline_db_press',
+    'Incline DB press',
+    ['chest', 'shoulders', 'triceps'],
+    category: 'Chest',
+    equipment: ['Dumbbell', 'Incline bench'],
+    aliases: ['incline dumbbell press'],
+    step: 2,
+    localizedLabels: {
+      'de': 'Schrägbankdrücken mit Kurzhanteln',
+      'es': 'Press inclinado con mancuernas',
+      'fr': 'Développé incliné haltères',
+    },
+  ),
+  ExerciseDef(
+    'cable_fly',
+    'Cable fly',
+    ['chest', 'shoulders'],
+    category: 'Chest',
+    equipment: ['Cable machine'],
+    localizedLabels: {
+      'de': 'Fliegende am Kabelzug',
+      'es': 'Aperturas en polea',
+      'fr': 'Écarté à la poulie',
+    },
+  ),
+  ExerciseDef(
+    'push_up',
+    'Push-up',
+    ['chest', 'triceps', 'shoulders'],
+    category: 'Chest',
+    equipment: ['none (bodyweight exercise)'],
+    aliases: ['push up', 'push-ups', 'press-up'],
+    localizedLabels: {'de': 'Liegestütz', 'es': 'Flexión', 'fr': 'Pompe'},
+    bodyweight: true,
+  ),
+  ExerciseDef(
+    'overhead_press',
+    'Overhead press',
+    ['shoulders', 'triceps', 'core'],
+    category: 'Shoulders',
+    equipment: ['Barbell'],
+    aliases: ['OHP'],
+    localizedLabels: {
+      'de': 'Schulterdrücken',
+      'es': 'Press militar',
+      'fr': 'Développé militaire',
+    },
+  ),
+  ExerciseDef(
+    'triceps_pushdown',
+    'Triceps pushdown',
+    ['triceps'],
+    category: 'Arms',
+    equipment: ['Cable machine'],
+    localizedLabels: {
+      'de': 'Trizepsdrücken am Kabel',
+      'es': 'Extensión de tríceps en polea',
+      'fr': 'Extension des triceps à la poulie',
+    },
+  ),
+  ExerciseDef(
+    'overhead_extension',
+    'Overhead extension',
+    ['triceps'],
+    category: 'Arms',
+    aliases: ['overhead triceps extension'],
+    localizedLabels: {
+      'de': 'Trizepsstrecken über Kopf',
+      'es': 'Extensión de tríceps sobre la cabeza',
+      'fr': 'Extension des triceps au-dessus de la tête',
+    },
+  ),
+  ExerciseDef(
+    'barbell_row',
+    'Barbell row',
+    ['back', 'biceps', 'core'],
+    category: 'Back',
+    equipment: ['Barbell'],
+    localizedLabels: {
+      'de': 'Langhantelrudern',
+      'es': 'Remo con barra',
+      'fr': 'Rowing barre',
+    },
+  ),
+  ExerciseDef(
+    'lat_pulldown',
+    'Lat pulldown',
+    ['back', 'biceps'],
+    category: 'Back',
+    equipment: ['Cable machine'],
+    localizedLabels: {
+      'de': 'Latziehen',
+      'es': 'Jalón al pecho',
+      'fr': 'Tirage vertical',
+    },
+  ),
+  ExerciseDef(
+    'pull_up',
+    'Pull-up',
+    ['back', 'biceps', 'core'],
+    category: 'Back',
+    equipment: ['Pull-up bar'],
+    aliases: ['pull up', 'pull-ups'],
+    localizedLabels: {'de': 'Klimmzug', 'es': 'Dominada', 'fr': 'Traction'},
+    bodyweight: true,
+  ),
+  ExerciseDef(
+    'barbell_curl',
+    'Barbell curl',
+    ['biceps'],
+    category: 'Arms',
+    equipment: ['Barbell'],
+    localizedLabels: {
+      'de': 'Langhantelcurl',
+      'es': 'Curl con barra',
+      'fr': 'Curl barre',
+    },
+  ),
+  ExerciseDef(
+    'back_squat',
+    'Back squat',
+    ['legs', 'glutes', 'core'],
+    category: 'Legs',
+    equipment: ['Barbell'],
+    localizedLabels: {
+      'de': 'Kniebeuge',
+      'es': 'Sentadilla trasera',
+      'fr': 'Squat arrière',
+    },
+  ),
+  ExerciseDef(
+    'front_squat',
+    'Front squat',
+    ['legs', 'glutes', 'core'],
+    category: 'Legs',
+    equipment: ['Barbell'],
+    localizedLabels: {
+      'de': 'Frontkniebeuge',
+      'es': 'Sentadilla frontal',
+      'fr': 'Squat avant',
+    },
+  ),
+  ExerciseDef(
+    'deadlift',
+    'Deadlift',
+    ['back', 'legs', 'glutes', 'core'],
+    category: 'Back',
+    equipment: ['Barbell'],
+    localizedLabels: {
+      'de': 'Kreuzheben',
+      'es': 'Peso muerto',
+      'fr': 'Soulevé de terre',
+    },
+  ),
+  ExerciseDef(
+    'romanian_deadlift',
+    'Romanian deadlift',
+    ['glutes', 'legs', 'back'],
+    category: 'Legs',
+    equipment: ['Barbell'],
+    aliases: ['RDL'],
+    localizedLabels: {
+      'de': 'Rumänisches Kreuzheben',
+      'es': 'Peso muerto rumano',
+      'fr': 'Soulevé de terre roumain',
+    },
+  ),
+  ExerciseDef(
+    'hip_thrust',
+    'Hip thrust',
+    ['glutes', 'legs'],
+    category: 'Legs',
+    localizedLabels: {
+      'de': 'Hip Thrust',
+      'es': 'Empuje de cadera',
+      'fr': 'Hip thrust',
+    },
+  ),
+  ExerciseDef(
+    'leg_press',
+    'Leg press',
+    ['legs', 'glutes'],
+    category: 'Legs',
+    localizedLabels: {
+      'de': 'Beinpresse',
+      'es': 'Prensa de piernas',
+      'fr': 'Presse à cuisses',
+    },
+  ),
+  ExerciseDef(
+    'plank',
+    'Plank',
+    ['core'],
+    category: 'Abs',
+    equipment: ['none (bodyweight exercise)'],
+    step: 0,
+    localizedLabels: {'de': 'Unterarmstütz', 'es': 'Plancha', 'fr': 'Gainage'},
+    bodyweight: true,
+  ),
+  ExerciseDef(
+    'hanging_leg_raise',
+    'Hanging leg raise',
+    ['core'],
+    category: 'Abs',
+    equipment: ['Pull-up bar'],
+    step: 0,
+    localizedLabels: {
+      'de': 'Hängendes Beinheben',
+      'es': 'Elevación de piernas colgado',
+      'fr': 'Relevé de jambes suspendu',
+    },
+    bodyweight: true,
+  ),
 ];
+
+const exerciseLibrary = <ExerciseDef>[
+  ..._edgeExerciseLibrary,
+  ..._wgerExerciseLibrary,
+];
+
+final coreExerciseCount = _edgeExerciseLibrary.length;
+final wgerExerciseCount = _wgerExerciseLibrary.length;
 
 final Map<String, ExerciseDef> _exercisesByKey = {
   for (final e in exerciseLibrary) e.key: e,
 };
 
 ExerciseDef? exerciseByKey(String key) => _exercisesByKey[key];
-

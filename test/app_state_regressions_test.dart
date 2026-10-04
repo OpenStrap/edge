@@ -8,15 +8,22 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart'
+    show AndroidFlutterLocalNotificationsPlugin;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:openstrap_analytics/onehz.dart' as ana;
+import 'package:openstrap_edge/ble/ble_engine.dart';
+import 'package:openstrap_edge/compute/hr_max.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/health/health_export.dart';
 import 'package:openstrap_edge/notify/notification_center.dart';
 import 'package:openstrap_edge/notify/notification_event.dart';
+import 'package:openstrap_edge/notify/notification_service.dart';
+import 'package:openstrap_edge/state/alarm_schedule.dart';
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
 
@@ -276,7 +283,11 @@ void main() {
       // with it the only thing this line could assert on.
     });
 
-    test('the app-side EXECUTED id (58) clears it too', () async {
+    test('the app-side EXECUTED id (58) is a RUN_ALARM buzz, the arm stays',
+        () async {
+      // Smart wake / test buzz send RUN_ALARM. Treating its 58 as the slot
+      // firing cleared the arm and, inside 30 s of the slot, re-armed
+      // tomorrow over today's still-pending alarm.
       SharedPreferences.setMockInitialValues({'alarm_epoch': 1785000000});
       await silenceOsPresent();
       final app = AppState.forTesting();
@@ -286,10 +297,10 @@ void main() {
       app.debugHandleAlarmEvent(58);
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(app.alarmEpoch, isNull);
+      expect(app.alarmEpoch, 1785000000);
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
-      expect(prefs.getInt('alarm_epoch'), isNull);
+      expect(prefs.getInt('alarm_epoch'), 1785000000);
     });
 
     test('the strap-driven clear (event 59) also drops the persisted epoch',
@@ -310,6 +321,53 @@ void main() {
               'came back on the next launch');
     });
 
+    test('a fire while connected arms the schedule\'s next occurrence',
+        () async {
+      await silenceOsPresent();
+      final engine = _ArmRecordingEngine();
+      final app = AppState.forTesting(engine: engine);
+      addTearDown(app.dispose);
+      await app.setScheduleDay(weekday: 2, enabled: true); // offline: no arm
+      expect(engine.armed, isEmpty);
+      app.device.connection = 'connected';
+      app.device.alarmEpoch = 1785000000;
+
+      app.debugHandleAlarmEvent(57);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Pre-fix nothing re-armed until the next reconnect: a link that stayed
+      // up all day left the next morning unarmed and Home saying
+      // "Set an alarm" while the schedule still had the day on.
+      expect(engine.armed, hasLength(1));
+      expect(engine.armed.single.isAfter(DateTime.now()), isTrue);
+      expect(engine.armed.single.weekday, DateTime.wednesday);
+      expect(app.alarmEpoch,
+          engine.armed.single.millisecondsSinceEpoch ~/ 1000);
+    });
+
+    test('a headless re-arm shows up once the foreground connects', () async {
+      await silenceOsPresent();
+      final engine = _ArmRecordingEngine();
+      final app = AppState.forTesting(engine: engine);
+      addTearDown(app.dispose);
+      await app.setScheduleDay(weekday: 2, enabled: true); // offline: no arm
+      final next = nextAlarmOccurrence(app.alarmSchedule, DateTime.now())!;
+      final headless = next.millisecondsSinceEpoch ~/ 1000;
+      // Headless armed it under this live process; the session still holds
+      // an older optimistic epoch.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('alarm_epoch', headless);
+      await prefs.setBool('alarm_epoch_confirmed', true);
+      app.device.alarmEpoch = 1785000000;
+      app.device.connection = 'connected';
+
+      await app.setScheduleDay(weekday: 2, enabled: true);
+
+      expect(engine.armed, isEmpty, reason: 'already armed, no rewrite');
+      expect(app.alarmEpoch, headless);
+      expect(app.alarmConfirmed, isTrue);
+    });
+
     test('ALARM_SET (event 56) leaves the armed alarm alone', () async {
       SharedPreferences.setMockInitialValues({'alarm_epoch': 1785000000});
       final app = AppState.forTesting();
@@ -324,6 +382,30 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
       expect(prefs.getInt('alarm_epoch'), 1785000000);
+    });
+
+    test('ALARM_SET (event 56) re-decides the 7pm no-alarm check', () async {
+      // it was only decided on resume, so a check armed at 17:00 with nothing
+      // set went on to fire at 19:00 over an alarm the strap had confirmed.
+      SharedPreferences.setMockInitialValues({'alarm_epoch': 1785000000});
+      const ch = MethodChannel('dexterous.com/flutter/local_notifications');
+      final cancelled = <Object?>[];
+      final messenger = TestDefaultBinaryMessengerBinding
+          .instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(ch, (call) async {
+        if (call.method == 'cancel') cancelled.add((call.arguments as Map)['id']);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(ch, null));
+      AndroidFlutterLocalNotificationsPlugin.registerWith();
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      app.device.alarmEpoch = 1785000000;
+
+      app.debugHandleAlarmEvent(56);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(cancelled, contains(NotificationService.idAlarmNightCheck));
     });
   });
 
@@ -448,6 +530,97 @@ void main() {
       expect(w2.idleWatch.lastAskAt, isNull,
           reason: 'a real reading (no gate → any reading) is activity');
     });
+
+    test('a zone-1 reading below the calorie gate is not "resting" (#466)', () {
+      // RHR 60 / max 190: the calorie gate is 112 bpm, zone 1 starts at 95.
+      // A steady 100 bpm session reads ZONE 1 on the live bar, so it must not
+      // be asked "nothing above resting effort".
+      LiveWorkoutState session(String id) => LiveWorkoutState(
+            startTime: DateTime.now().subtract(const Duration(minutes: 30)),
+            targetKcal: 300,
+            workoutId: id,
+            type: 'strength',
+            hrMax: 190,
+            restingHr: 60,
+            zoneSet: ana.HeartRateZones.zonesFromMaxHr(190),
+          );
+      final app = connected(100);
+      addTearDown(app.dispose);
+      final w = session('z1');
+      app.activeWorkout = w;
+      app.debugTickWorkout();
+      expect(w.idleWatch.lastAskAt, isNull);
+
+      final rest = connected(70);
+      addTearDown(rest.dispose);
+      final w2 = session('rest');
+      rest.activeWorkout = w2;
+      rest.debugTickWorkout();
+      expect(w2.idleWatch.lastAskAt, isNotNull,
+          reason: 'below zone 1 is still quiet');
+    });
+
+    test('a high resting HR still lets the zone-1 edge win (#466)', () {
+      // RHR 72 / max 173: calorie gate 112.4, zone 1 starts at 86.5. Halfway
+      // to the gate (92.2) sat above zone 1, so 89 bpm showed ZONE 1 and was
+      // still asked "nothing above resting effort".
+      final app = connected(89);
+      addTearDown(app.dispose);
+      final w = LiveWorkoutState(
+        startTime: DateTime.now().subtract(const Duration(minutes: 30)),
+        targetKcal: 300,
+        workoutId: 'high-rhr',
+        type: 'strength',
+        hrMax: 173,
+        restingHr: 72,
+        zoneSet: ana.HeartRateZones.zonesFromMaxHr(173),
+      );
+      app.activeWorkout = w;
+      app.debugTickWorkout();
+      expect(w.idleWatch.lastAskAt, isNull);
+    });
+
+    test('a manual zone-1 edge below resting HR does not mute the watch', () {
+      // Manual bounds only need zone 1 >= 30 bpm. With zone 1 at 50 and RHR
+      // 58, capping the gate at zone 1 made a session left open overnight at
+      // 60 bpm read active every tick, so it was never asked about.
+      final app = connected(60);
+      addTearDown(app.dispose);
+      final w = LiveWorkoutState(
+        startTime: DateTime.now().subtract(const Duration(minutes: 30)),
+        targetKcal: 300,
+        workoutId: 'manual-z1',
+        type: 'strength',
+        hrMax: 190,
+        restingHr: 58,
+        zoneSet: trainingZones(manualZoneLowerBpm: [50, 100, 130, 150, 170]),
+      );
+      app.activeWorkout = w;
+      app.debugTickWorkout();
+      expect(w.idleWatch.lastAskAt, isNotNull,
+          reason: 'resting HR is quiet whatever zone 1 says');
+    });
+
+    test('a zone-1 edge just above resting HR does not mute the watch', () {
+      // Resting HR is the night's lowest 30-min mean, so sleeping HR sits a
+      // few bpm above it. Zone 1 at 50 with RHR 49 must not turn 52 bpm of
+      // sleep into activity.
+      final app = connected(52);
+      addTearDown(app.dispose);
+      final w = LiveWorkoutState(
+        startTime: DateTime.now().subtract(const Duration(minutes: 30)),
+        targetKcal: 300,
+        workoutId: 'manual-z1-near',
+        type: 'strength',
+        hrMax: 190,
+        restingHr: 49,
+        zoneSet: trainingZones(manualZoneLowerBpm: [50, 100, 130, 150, 170]),
+      );
+      app.activeWorkout = w;
+      app.debugTickWorkout();
+      expect(w.idleWatch.lastAskAt, isNotNull,
+          reason: 'sleeping HR just above RHR is quiet');
+    });
   });
 
   // ── a hard-kill relaunch mid-workout must not reset strain/calories/zone
@@ -563,4 +736,16 @@ void main() {
       expect(await LocalDb.liveWorkoutTally(id), isNull);
     });
   });
+}
+
+/// Records every SET_ALARM instead of writing to a band.
+class _ArmRecordingEngine extends BleEngine {
+  _ArmRecordingEngine() : super(onRecord: (_, _) async {}, onState: (_) {});
+  final armed = <DateTime>[];
+  @override
+  Future<DateTime?> setAlarm(DateTime when,
+      {int index = 0, List<int>? haptics}) async {
+    armed.add(when);
+    return when;
+  }
 }

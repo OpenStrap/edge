@@ -121,22 +121,26 @@ class _JournalComposeState extends State<JournalCompose> {
     }
     setState(() => _addingField = true);
     try {
-      await repo.postCustomJournalField(spec);
-    } catch (_) {
+      try {
+        await repo.postCustomJournalField(spec);
+      } catch (_) {
+        if (!mounted) return;
+        // A failed persist must not read as success — the field would vanish
+        // from the list while the user believes it saved.
+        final l = AppLocalizations.of(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(l?.journalComposeSaveFailed ??
+                  'Could not save it — check storage and retry.')),
+        );
+        return;
+      }
       if (!mounted) return;
-      // A failed persist must not read as success — the field would vanish
-      // from the list while the user believes it saved.
-      final l = AppLocalizations.of(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(l?.journalComposeSaveFailed ??
-                'Could not save it — check storage and retry.')),
-      );
-      return;
+      await _load();
+    } finally {
+      // Every exit, or one failed save disables the button for the session.
+      if (mounted) setState(() => _addingField = false);
     }
-    if (!mounted) return;
-    await _load();
-    if (mounted) setState(() => _addingField = false);
   }
 
   /// MT-06 — when the LAST one landed.
@@ -884,7 +888,7 @@ class _WeightTrendState extends State<_WeightTrend> {
     // across it.
     final days = trend.keys.toList()..sort();
     final first = DateTime.parse(days.first);
-    final span = DateTime.parse(days.last).difference(first).inDays;
+    final span = calendarDaysBetween(first, DateTime.parse(days.last));
     // The controller owns every conversion; this only asks it for the number
     // rather than the sentence, because an axis cannot print "72.4 kg".
     double show(double kg) =>

@@ -401,6 +401,14 @@ void main() {
     expect(await _count('SELECT COUNT(*) FROM raw_archive'), 12);
   });
 
+  test('prune cursor only moves forward', () async {
+    await _useFreshDb('v42_prune_cursor_test.db');
+    await LocalDb.pruneDecodedBeforeRecTs(2000, cursorName: 'pc');
+    expect(await LocalDb.getCursorInt('pc'), 2000);
+    await LocalDb.pruneDecodedBeforeRecTs(1000, cursorName: 'pc');
+    expect(await LocalDb.getCursorInt('pc'), 2000);
+  });
+
   test('band_backlog records a connect and never guesses a device', () async {
     await _useFreshDb('v42_backlog_test.db');
     await LocalDb.putBandBacklog(

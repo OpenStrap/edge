@@ -42,9 +42,11 @@ import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
 import '../../notify/notification_prefs.dart' show NotificationPrefs;
 import '../../state/app_state.dart';
+import '../../state/clock_format.dart' show formatClockOf;
 import '../../state/units_controller.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
+import '../profile/alarm.dart' show AlarmArmState, alarmArmOf, alarmDoor;
 import '../profile/devices.dart' show formatDayTime;
 import '../profile/profile.dart';
 import '../ui2.dart';
@@ -123,6 +125,16 @@ DbRebuild? dbRebuildOf(BuildContext c) {
   }
 }
 
+/// The armed alarm and its state, or null when there is no AppState above us
+/// (every golden). Read-only: Home never arms or re-arms anything.
+(DateTime?, AlarmArmState)? alarmArmOfContext(BuildContext c) {
+  try {
+    return c.select<AppState, (DateTime?, AlarmArmState)>(alarmArmOf);
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Whether a live workout is open, or false in a golden. `select`, not
 /// `watch`: AppState ticks at ~1 Hz while a session is live, and this screen
 /// only cares about the bool flipping. The bare-day card branches on it — see
@@ -178,9 +190,9 @@ DateTime? lastDataAtOf(BuildContext c) {
 /// directly above it, whatever the hour. Null (no day on screen yet) ⇒ always
 /// dated, which is the honest answer when we do not know what "today" is.
 ///
-/// Bare `HH:mm` for the day on screen, the full "Fri 4 Sep, 07:12" otherwise —
-/// a lone "07:12" against a strap not worn since Friday is the most misleading
-/// thing this line could say.
+/// Bare clock time for the day on screen, the full "Fri 4 Sep, 07:12"
+/// otherwise — a lone "07:12" against a strap not worn since Friday is the
+/// most misleading thing this line could say.
 String syncedThroughLabel(DateTime? at, String? todayId,
     [AppLocalizations? l]) {
   if (at == null) return l?.homeSyncedNever ?? 'No band data yet';
@@ -189,10 +201,7 @@ String syncedThroughLabel(DateTime? at, String? todayId,
       at.year == today.year &&
       at.month == today.month &&
       at.day == today.day;
-  final when = isToday
-      ? '${at.hour.toString().padLeft(2, '0')}:'
-          '${at.minute.toString().padLeft(2, '0')}'
-      : formatDayTime(at, l);
+  final when = isToday ? formatClockOf(at) : formatDayTime(at, l);
   return l?.homeSyncedThrough(when) ?? 'Synced through $when';
 }
 
@@ -596,17 +605,15 @@ String unitBeside(String unit) => unit == 'min' ? '' : unit;
 /// ONE clock format in the app. This used to render 24-hour while Wellness
 /// rendered the same field 12-hour, so a target bedtime read `22:40` on Home
 /// and `10:40 PM` two screens away. Both now go through the journal layer's
-/// [formatMinuteOfDay], which is the format the rest of the app already uses
-/// and the one that already has a test.
+/// [formatMinuteOfDay], which follows the user's 12/24-hour choice
+/// (`state/clock_format.dart`).
 String clock(num? minOfDay) =>
     minOfDay == null ? '' : formatMinuteOfDay(minOfDay.round());
 
-/// Epoch seconds → "11:08 PM" in the device zone.
+/// Epoch seconds → "11:08 PM" / "23:08" in the device zone.
 String clockOfTs(num? ts) {
   if (ts == null) return '';
-  final d = DateTime.fromMillisecondsSinceEpoch(ts.round() * 1000);
-  final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
-  return '$h:${d.minute.toString().padLeft(2, '0')} ${d.hour < 12 ? 'AM' : 'PM'}';
+  return formatClockOf(DateTime.fromMillisecondsSinceEpoch(ts.round() * 1000));
 }
 
 const _months = [
@@ -1609,6 +1616,12 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               onFix: sync == null ? null : () => _tapSync(sync),
             );
           }),
+        // The alarm lives on AppState too, so a load failure must not hide it.
+        if (_day == null || _day == todayLabel())
+          if (alarmArmOfContext(c) case final (DateTime?, AlarmArmState) a) ...[
+            const SizedBox(height: S.x3),
+            alarmDoor(c, a.$1, a.$2),
+          ],
       ]));
     }
 
@@ -1808,6 +1821,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
             l?.homeBreakdownSubtitle ?? 'Hour by hour',
             () => go(c, const DayTimelineScreen())),
       ],
+
+      // ── the next alarm: a door, same as the one above ──
+      if (isToday)
+        if (alarmArmOfContext(c) case final (DateTime?, AlarmArmState) a) ...[
+          const SizedBox(height: S.x3),
+          alarmDoor(c, a.$1, a.$2),
+        ],
     ]));
   }
 

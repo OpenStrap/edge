@@ -8,10 +8,15 @@
 // read during build decides once and then goes stale across midnight.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/state/clock_format.dart';
 import 'package:openstrap_edge/ui2/screens/home_screen.dart';
 
 void main() {
   const today = '2026-09-08';
+
+  // The label follows the user's clock format; these pin the 24-hour one.
+  setUp(() => ClockFormatController.seed(ClockFormat.h24));
+  tearDown(ClockFormatController.debugReset);
 
   test('a record from today shows the bare time', () {
     expect(

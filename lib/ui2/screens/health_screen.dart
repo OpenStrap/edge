@@ -15,6 +15,7 @@ import '../../data/day_label.dart';
 import '../../data/db.dart';
 import '../../data/lab_catalogue.dart';
 import '../../data/local_repository.dart';
+import '../../import/journal_csv_import.dart' show isValidDayLabel;
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
 import '../ui2.dart';
@@ -322,7 +323,14 @@ class LabsData {
 /// is how two screens end up disagreeing about what a metric is called.
 class _CatRow {
   final String key, series, blurb;
-  const _CatRow(this.key, this.series, this.blurb);
+
+  /// Only an import writes this series, so with no history the row is left
+  /// out entirely instead of being listed as not measured yet.
+  final bool importOnly;
+  const _CatRow(this.key, this.series, this.blurb, {this.importOnly = false});
+
+  bool shown(Map<String, int> counts) =>
+      !importOnly || (counts[series] ?? 0) > 0;
 }
 
 class _Cat {
@@ -334,10 +342,10 @@ class _Cat {
 /// The families, in the order a person looks for them.
 ///
 /// What is deliberately NOT here:
-/// - SpO2, ODI and anything apnea-shaped. Refused outright — a capability this
-///   app does not produce has no entry, no card and no key, and an index that
-///   listed them to explain their absence would be the exact thing the
-///   absent-forever rule forbids.
+/// - ODI and anything apnea-shaped. A capability this app does not produce
+///   has no entry, no card and no key, and an index that listed them to
+///   explain their absence would be the exact thing the absent-forever rule
+///   forbids.
 /// - Cycle. It is a Wellness tab with its own door and its own on/off switch;
 ///   a second entrance from Health would be a duplicate route, not a feature.
 /// - `rmssd_whole`, `stress_si`, `brv_slope`. Real numbers, but single-night
@@ -365,6 +373,8 @@ const _catalogue = <_Cat>[
   _Cat('Breathing', [
     _CatRow('resp_rate', 'resp_rate', 'Breaths per minute, recovered from beat timing'),
     _CatRow('brv', 'brv_cv', 'How much that rate varies across the night'),
+    _CatRow('spo2', 'spo2', "WHOOP's own derived value, carried from an import",
+        importOnly: true),
   ]),
   _Cat('Movement & load', [
     _CatRow('steps', 'steps', 'Counted by a pedometer, never modelled'),
@@ -407,6 +417,7 @@ String _rowBlurb(AppLocalizations? l, String key, String blurb) =>
       'nap_min' => l?.healthBlurbNapMin ?? blurb,
       'resp_rate' => l?.healthBlurbRespRate ?? blurb,
       'brv' => l?.healthBlurbBrv ?? blurb,
+      'spo2' => l?.healthBlurbSpo2 ?? blurb,
       'steps' => l?.healthBlurbSteps ?? blurb,
       'active_min' => l?.healthBlurbActiveMin ?? blurb,
       'calories' => l?.healthBlurbCalories ?? blurb,
@@ -1289,6 +1300,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     var have = 0, total = 0;
     for (final f in _catalogue) {
       for (final r in f.rows) {
+        if (!r.shown(e.counts)) continue;
         total++;
         if ((e.counts[r.series] ?? 0) > 0) have++;
       }
@@ -1322,7 +1334,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     ];
     final none = [
       for (final r in f.rows)
-        if ((counts[r.series] ?? 0) == 0) r,
+        if ((counts[r.series] ?? 0) == 0 && r.shown(counts)) r,
     ];
 
     return Section(
@@ -1666,100 +1678,105 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
   Future<void> _addLab(BuildContext c, LabsData l) async {
     final loc = AppLocalizations.of(c);
     var marker = l.markers.first;
-    final value = TextEditingController();
-    final now = DateTime.now();
-    final takenOn = TextEditingController(
-        text: '${now.year.toString().padLeft(4, '0')}-'
-            '${now.month.toString().padLeft(2, '0')}-'
-            '${now.day.toString().padLeft(2, '0')}');
+    // Plain strings, not controllers: the fields own theirs, so nothing here
+    // is disposed while the dialog is still animating out.
+    var valueText = '';
+    var takenOnText = todayLabel();
 
-    try {
-      final ok = await showDialog<bool>(
-        context: c,
-        builder: (dc) => StatefulBuilder(
-          builder: (dc, setLocal) => AlertDialog(
-            title: Text(loc?.healthAddAResult ?? 'Add a result'),
-            content: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                // Unlabelled it announces only its current value — a marker
-                // name, with no statement of what the field is.
-                Semantics(
-                  label: loc?.healthMarkerLabel ?? 'Marker',
-                  child: DropdownButton<LabMarker>(
-                    isExpanded: true,
-                    value: marker,
-                    items: [
-                      for (final m in l.markers)
-                        DropdownMenuItem(value: m, child: Text(m.label)),
-                    ],
-                    onChanged: (m) => setLocal(() => marker = m ?? marker),
-                  ),
+    final ok = await showDialog<bool>(
+      context: c,
+      builder: (dc) => StatefulBuilder(
+        builder: (dc, setLocal) => AlertDialog(
+          title: Text(loc?.healthAddAResult ?? 'Add a result'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              // Unlabelled it announces only its current value — a marker
+              // name, with no statement of what the field is.
+              Semantics(
+                label: loc?.healthMarkerLabel ?? 'Marker',
+                child: DropdownButton<LabMarker>(
+                  isExpanded: true,
+                  value: marker,
+                  items: [
+                    for (final m in l.markers)
+                      DropdownMenuItem(value: m, child: Text(m.label)),
+                  ],
+                  onChanged: (m) => setLocal(() => marker = m ?? marker),
                 ),
-                TextField(
-                  controller: value,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: InputDecoration(
-                      labelText: loc?.healthValueUnit(marker.unit) ??
-                          'Value (${marker.unit})'),
-                ),
-                TextField(
-                  controller: takenOn,
-                  decoration: InputDecoration(
-                      labelText: loc?.healthDateDrawn ?? 'Date drawn (YYYY-MM-DD)'),
-                ),
-              ]),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.of(dc).pop(false),
-                  child: Text(loc?.actionCancel ?? 'Cancel')),
-              TextButton(
-                  onPressed: () => Navigator.of(dc).pop(true),
-                  child: Text(loc?.actionSave ?? 'Save')),
-            ],
+              ),
+              TextFormField(
+                onChanged: (s) => valueText = s,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                    labelText: loc?.healthValueUnit(marker.unit) ??
+                        'Value (${marker.unit})'),
+              ),
+              TextFormField(
+                initialValue: takenOnText,
+                onChanged: (s) => takenOnText = s,
+                decoration: InputDecoration(
+                    labelText: loc?.healthDateDrawn ?? 'Date drawn (YYYY-MM-DD)'),
+              ),
+            ]),
           ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(dc).pop(false),
+                child: Text(loc?.actionCancel ?? 'Cancel')),
+            TextButton(
+                onPressed: () => Navigator.of(dc).pop(true),
+                child: Text(loc?.actionSave ?? 'Save')),
+          ],
         ),
-      );
+      ),
+    );
 
-      if (ok != true || !mounted) return;
-      // Blood work typed by hand is exactly the input nobody notices is missing,
-      // so nothing here fails quietly: the dialog used to close on Save and the
-      // result was dropped whenever the value carried its unit ("78 ng/mL") or
-      // the date was written the other way round.
-      final v = Typed.of(value.text);
-      final date = takenOn.text.trim();
-      if (v.value == null || DateTime.tryParse(date) == null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(v.value == null
-              ? (loc?.healthValueMustBeNumber ??
-                  'The value needs to be a number on its own, without the unit. '
-                      'Nothing was saved.')
-              : (loc?.healthDateFormatError ??
-                  'The date needs to be YYYY-MM-DD. Nothing was saved.')),
-        ));
-        return;
-      }
-      try {
-        await LocalDb.putLabResult(
-          marker: marker.key,
-          takenOn: date,
-          value: v.value!,
-          unit: marker.unit,
-        );
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(loc?.healthCouldNotSaveIt(e.toString()) ??
-                  'Could not save it: $e')));
-        }
-        return;
-      }
-      _l = null;
-      await _loadLabs();
-    } finally {
-      value.dispose();
-      takenOn.dispose();
+    if (ok != true || !mounted) return;
+    // Blood work typed by hand is exactly the input nobody notices is missing,
+    // so nothing here fails quietly: the dialog used to close on Save and the
+    // result was dropped whenever the value carried its unit ("78 ng/mL") or
+    // the date was written the other way round.
+    final v = Typed.of(valueText);
+    final date = takenOnText.trim();
+    // Strict, not DateTime.tryParse: that takes '20250101' and rolls
+    // '2026-02-30' into March, and the raw text is the sort key and half the
+    // primary key, so a compact date sorted above every dashed one.
+    // A future draw is refused like the CSV import does: it is a typo far
+    // more often than a real blood test, and as the newest row it would sit
+    // on top of every real result.
+    final error = v.value == null
+        ? (loc?.healthValueMustBeNumber ??
+            'The value needs to be a number on its own, without the unit. '
+                'Nothing was saved.')
+        : !isValidDayLabel(date)
+            ? (loc?.healthDateFormatError ??
+                'The date needs to be YYYY-MM-DD. Nothing was saved.')
+            : date.compareTo(todayLabel()) > 0
+                ? (loc?.healthDateInFuture ??
+                    'That date is after today. Nothing was saved.')
+                : null;
+    if (error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+      return;
     }
+    try {
+      await LocalDb.putLabResult(
+        marker: marker.key,
+        takenOn: date,
+        value: v.value!,
+        unit: marker.unit,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(loc?.healthCouldNotSaveIt(e.toString()) ??
+                'Could not save it: $e')));
+      }
+      return;
+    }
+    _l = null;
+    await _loadLabs();
   }
 }

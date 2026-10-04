@@ -255,7 +255,10 @@ dependencies:
       # `cmdAbortHistorical`). Also carries #70 (garmin/ultrahuman decode
       # fixes, unrelated but already an ancestor). Verified present:
       # `git show bc7d8d0:lib/src/labrador.dart | grep 'class LabradorR17'`.
-      ref: bc7d8d0df706e40a2546ffde4545263f09d0fecb
+      #
+      # REPIN: protocol #71 merge (oura `decodeSleepPhases`) @ f04931b, on top of
+      # bc7d8d0.
+      ref: f04931ba7a06d0a20dc9e5e8bd750e14fb0a9510
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

@@ -1,0 +1,64 @@
+# fdroiddata recipe draft. Copy to metadata/wtf.openstrap.openstrap_edge.yml in
+# https://gitlab.com/fdroid/fdroiddata when opening the inclusion MR.
+#
+# prebuild swaps the two google-backed seams for their floss stand-ins in
+# docs/fdroid/ (firebase -> no-op, mobile_scanner -> flutter_zxing), and points
+# geolocator's play-services-location family at microG. The release build falls
+# back to debug signing without a keystore, so that's stripped too.
+
+Categories:
+  - Sports & Health
+License: MIT
+SourceCode: https://github.com/OpenStrap/edge
+IssueTracker: https://github.com/OpenStrap/edge/issues
+
+AutoName: OpenStrap
+
+RepoType: git
+Repo: https://github.com/OpenStrap/edge.git
+
+Builds:
+  - versionName: 0.10.0
+    versionCode: 66
+    commit: v0.10.0  # TODO: bump to the first tag that has docs/fdroid
+    output: build/app/outputs/flutter-apk/app-release.apk
+    srclibs:
+      - flutter@3.41.6
+    rm:
+      - ios
+      - lib/firebase_options.dart
+    prebuild:
+      - cp docs/fdroid/firebase_bridge.floss.dart lib/telemetry/firebase_bridge.dart
+      - cp docs/fdroid/barcode_reader.floss.dart lib/scan/barcode_reader.dart
+      - |-
+        sed -i -e '/^  firebase_[a-z]*:/d' -e 's/^  mobile_scanner:.*/  flutter_zxing: ^2.4.0\n  camera: ^0.11.0/' pubspec.yaml
+      - sed -i -e 's/signingConfigs.getByName("debug")/null/' android/app/build.gradle.kts
+      - sed -i -e '/id("com.google.firebase/d' -e '/configure<com.google.firebase/,+2d' android/settings.gradle.kts android/app/build.gradle.kts
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get
+      - sed -i -e 's/com.google.android.gms:play-services-location:[0-9.]*/org.microg.gms:play-services-location:0.3.14.250932/' .pub-cache/hosted/pub.dev/geolocator_android-*/android/build.gradle
+      # heredoc has to stay the last prebuild item
+      - |
+        cat >> android/app/build.gradle.kts <<'EOF'
+        configurations.all {
+            resolutionStrategy.dependencySubstitution {
+                val microg = "0.3.14.250932"
+                for (m in listOf("location", "base", "basement", "tasks")) {
+                    substitute(module("com.google.android.gms:play-services-$m"))
+                        .using(module("org.microg.gms:play-services-$m:$microg"))
+                }
+            }
+        }
+        EOF
+    scandelete:
+      - .pub-cache
+    build:
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+UpdateCheckData: pubspec.yaml|version:\s.+\+(\d+)|.|version:\s(.+)\+
+CurrentVersion: 0.10.0
+CurrentVersionCode: 66

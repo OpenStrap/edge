@@ -8694,7 +8694,10 @@ class DrainController {
   void onLinkDown() => _linkDown = true;
 
   /// Per-offload counters reset (after the post-offload policy has read them).
-  void resetOffloadCounters() => recordsThisOffload = 0;
+  void resetOffloadCounters() {
+    recordsThisOffload = 0;
+    lastTrimAdvanced = false;
+  }
 
   /// Abandon the buffered-but-not-yet-committed chunk WITHOUT persisting (idle
   /// watchdog). These records were never ACKed, so the band re-delivers them on the
@@ -8735,7 +8738,30 @@ class DrainController {
   /// bookkeeping rolled back, and the caller MUST NOT ACK — the band keeps the
   /// chunk and re-delivers it, which is dedup-safe (decoded rows REPLACE by
   /// rec_ts).
+  ///
+  /// Commits run ONE AT A TIME. awaitComplete's timeout/idle flush fires from
+  /// a timer, outside the serialized offload processor, while the offload
+  /// keeps going. If its commit failed after a HISTORY_END commit had already
+  /// snapshotted the (now smaller) buffer, the END commit succeeded on its own
+  /// rows and the band was ACKed to trim rows that only existed in RAM again.
+  /// Queued behind the failed one, the END commit now snapshots the re-buffered
+  /// rows too, so its token never goes out ahead of them.
   Future<bool> commit(List<int>? token) async {
+    while (_commitInFlight != null) {
+      await _commitInFlight;
+    }
+    final run = _commitNow(token);
+    _commitInFlight = run;
+    try {
+      return await run;
+    } finally {
+      if (identical(_commitInFlight, run)) _commitInFlight = null;
+    }
+  }
+
+  Future<bool>? _commitInFlight;
+
+  Future<bool> _commitNow(List<int>? token) async {
     final tokenHex = token
         ?.map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join();
@@ -8748,10 +8774,15 @@ class DrainController {
     final hadDurable =
         raws.isNotEmpty || archives.isNotEmpty || ecgRaw.isNotEmpty;
     // Token changed AND we actually banked something — empty ACKs must not
-    // look like cursor progress to auto-continue / stuck-strap.
-    lastTrimAdvanced =
-        tokenHex != null && tokenHex != _lastAckedToken && hadDurable;
-    if (tokenHex != null) _lastAckedToken = tokenHex;
+    // look like cursor progress to auto-continue / stuck-strap. A tokenless
+    // commit (the HISTORY_COMPLETE tail, a flush) says nothing about the
+    // cursor and leaves the flag alone: the tail commit used to reset it to
+    // false right before _onOffloadFinished read it, so auto-continue never
+    // fired. It is cleared per offload in [resetOffloadCounters].
+    if (tokenHex != null) {
+      lastTrimAdvanced = tokenHex != _lastAckedToken && hadDurable;
+      _lastAckedToken = tokenHex;
+    }
     _raws.clear();
     _samples.clear();
     _archives.clear();

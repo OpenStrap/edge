@@ -434,9 +434,11 @@ Three rules the tab keeps:
 - A metric with zero stored days is listed as not measured yet, **with no
   cause** — this screen reads a row count, and a count of zero never says why.
   No `fix:` either; nothing here can make a locked day derive.
-- A capability this app does not produce gets **no row and no spec**. SpO2, ODI
-  and anything apnea-shaped are refused; an index entry that existed to explain
-  an absence is the thing the absent-forever rule forbids.
+- A capability this app does not produce gets **no row and no spec**. ODI and
+  anything apnea-shaped are not produced; an index entry that existed to explain
+  an absence is the thing the absent-forever rule forbids. SpO2 has a row
+  because the WHOOP importer writes a `spo2` series; it is charted like any
+  other imported metric and labelled as WHOOP's value.
 
 ---
 

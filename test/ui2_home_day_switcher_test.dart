@@ -126,6 +126,26 @@ void main() {
     expect(find.text('No data for this day'), findsOneWidget);
     expect(find.text('Sync the band'), findsNothing);
   });
+
+  testWidgets('a failed read still shows the alarm door', (t) async {
+    // The alarm lives on AppState, not HomeData, so the error card must not
+    // take it down with it.
+    final app = AppState.forTesting();
+    addTearDown(app.dispose);
+    app.repo = _FailingRepo();
+
+    await t.pumpWidget(MaterialApp(
+      theme: buildTheme(Brightness.light),
+      home: ChangeNotifierProvider<AppState>.value(
+        value: app,
+        child: const Scaffold(body: HomeScreen(hour: 9)),
+      ),
+    ));
+    await _settle(t);
+
+    expect(find.text('Today could not be read'), findsOneWidget);
+    expect(find.text('Set an alarm'), findsOneWidget);
+  });
 }
 
 /// Today has a real reading; every past day is genuinely bare (no bundle at
@@ -152,4 +172,9 @@ class _EmptyPastRepo extends LocalRepository {
   Future<Map<String, dynamic>> getDayStrain(String date) async => const {};
   @override
   Future<Map<String, dynamic>> getDaySleepV2(String date) async => const {};
+}
+
+class _FailingRepo extends _EmptyPastRepo {
+  @override
+  Future<List<String>> availableDays() async => throw StateError('read failed');
 }

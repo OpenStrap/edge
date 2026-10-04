@@ -21,6 +21,12 @@ int _dayStart(String label) {
   return DateTime(d.year, d.month, d.day).millisecondsSinceEpoch ~/ 1000;
 }
 
+/// Local midnight of the day [sec] falls in.
+int _midnightOf(int sec) {
+  final d = DateTime.fromMillisecondsSinceEpoch(sec * 1000);
+  return DateTime(d.year, d.month, d.day).millisecondsSinceEpoch ~/ 1000;
+}
+
 void main() {
   group('rawPruneCutoffSec', () {
     // A settled install: everything with raw is derived, so the plain
@@ -32,7 +38,21 @@ void main() {
         rawDayIds: const ['2026-05-01', '2026-05-02', '2026-05-03'],
         derivedDayIds: const {'2026-05-01', '2026-05-02', '2026-05-03'},
       );
-      expect(cutoff, dataNow - rawRetentionDays * 86400);
+      expect(cutoff, _midnightOf(dataNow - rawRetentionDays * 86400));
+    });
+
+    // #450: a mid-day cutoff left the edge day half-pruned, and the next
+    // rescan re-derived it from what survived — its breakdown then started
+    // wherever the cutoff had been. The cutoff must land on a local midnight.
+    test('never splits a day — the cutoff is a local midnight', () {
+      final dataNow = _dayStart('2026-05-20') + 9 * 3600 + 47 * 60;
+      final cutoff = DerivationEngine.rawPruneCutoffSec(
+        dataNowSec: dataNow,
+        rawDayIds: const ['2026-05-16', '2026-05-17', '2026-05-20'],
+        derivedDayIds: const {'2026-05-16', '2026-05-17', '2026-05-20'},
+      );
+      // 05-17 09:47 is the raw retention edge; 05-17 survives whole.
+      expect(cutoff, _dayStart('2026-05-17'));
     });
 
     test('an un-derived day holds the cutoff at ITS OWN start, not off', () {
@@ -74,7 +94,7 @@ void main() {
         derivedDayIds: const {},
       );
       // The un-derived day is newer than the retention edge, so the edge wins.
-      expect(cutoff, dataNow - rawRetentionDays * 86400);
+      expect(cutoff, _midnightOf(dataNow - rawRetentionDays * 86400));
     });
 
     test('no data edge yet — nothing is pruned', () {
@@ -85,6 +105,48 @@ void main() {
           derivedDayIds: const {},
         ),
         isNull,
+      );
+    });
+  });
+
+  group('rescanDayIds', () {
+    // The midnight cut keeps the oldest day whole but drops the evening half
+    // of its night (its derive window starts the previous noon). A rescan of
+    // it replaced the full-night result with a truncated one.
+    test('skips a day whose derive window reaches below the prune', () {
+      final dataNow = _dayStart('2026-05-20') + 9 * 3600 + 47 * 60;
+      final days = DerivationEngine.rescanDayIds(
+        rawDayIds: const ['2026-05-19', '2026-05-17', '2026-05-18'],
+        dataNowSec: dataNow,
+        prunedBeforeSec: _dayStart('2026-05-17'),
+      );
+      expect(days, ['2026-05-18', '2026-05-19']);
+    });
+
+    test('never pruned — every recent day is rescanned', () {
+      final dataNow = _dayStart('2026-05-20') + 9 * 3600;
+      final days = DerivationEngine.rescanDayIds(
+        rawDayIds: const ['2026-05-18', '2026-05-17'],
+        dataNowSec: dataNow,
+      );
+      expect(days, ['2026-05-17', '2026-05-18']);
+    });
+
+    // A user-set sleep window that starts after the cut has its whole night,
+    // so its re-derive must not be declined off the generic previous-noon
+    // search window.
+    test('a forced sleep window is judged by its own onset', () {
+      final cut = _dayStart('2026-05-17');
+      expect(DerivationEngine.windowTruncatedByPrune('2026-05-17', cut), isTrue);
+      expect(
+        DerivationEngine.windowTruncatedByPrune('2026-05-17', cut,
+            forcedOnsetSec: cut + 3600),
+        isFalse,
+      );
+      expect(
+        DerivationEngine.windowTruncatedByPrune('2026-05-17', cut,
+            forcedOnsetSec: cut - 3600),
+        isTrue,
       );
     });
   });

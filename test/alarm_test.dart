@@ -9,13 +9,20 @@
 //     driven over the engine's fake-link seam.
 // No radio and no DB — everything here is deterministic.
 
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
-import 'package:openstrap_edge/state/alarm_schedule.dart' show alarmLatchFailed;
+import 'package:openstrap_edge/state/alarm_schedule.dart'
+    show
+        alarmGraceTimerDelay,
+        alarmLatchAlertAtMs,
+        alarmLatchAlertDelay,
+        alarmLatchAlertResumeDelay,
+        alarmLatchFailed;
 import 'package:openstrap_edge/sync/sync_policy.dart' show ClockRef;
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
@@ -283,6 +290,75 @@ void main() {
       expect(a.isUnconfirmed(6000), isTrue);
     });
 
+    test('default grace covers a slow strap, and a late 56 still confirms',
+        () {
+      final a = AlarmConfirmation()..set(1750000000, 0);
+      expect(a.isPending(12500), isTrue,
+          reason: 'event 56 can arrive well after the first few seconds');
+      expect(a.isUnconfirmed(30000), isTrue);
+      expect(a.onEvent(AlarmConfirmation.kEvtSet, 90000),
+          AlarmEffect.confirmed);
+      expect(a.isUnconfirmed(90000), isFalse);
+    });
+
+    test('the retry reopens the window before it closes, so no warning flash',
+        () {
+      final a = AlarmConfirmation()..set(1750000000, 0);
+      final retryAt =
+          alarmGraceTimerDelay(a.graceMs, retryLeft: true).inMilliseconds;
+      expect(a.isPending(retryAt), isTrue,
+          reason: 'still waiting when the retry re-sets the window');
+      final lastAt =
+          alarmGraceTimerDelay(a.graceMs, retryLeft: false).inMilliseconds;
+      expect(a.isUnconfirmed(lastAt), isTrue,
+          reason: 'the final rebuild lands on the warning');
+    });
+
+    test('critical alert holds back while connected, a late 56 then wins', () {
+      final a = AlarmConfirmation()..set(1750000000, 0);
+      final alertAt = 2 * a.graceMs +
+          alarmLatchAlertDelay(connected: true).inMilliseconds;
+      expect(alertAt, greaterThan(90000),
+          reason: 'a 56 at 90s must beat the alert');
+      a.onEvent(AlarmConfirmation.kEvtSet, 90000);
+      expect(alarmLatchFailed(a, 1750000000, enabled: true), isFalse);
+      expect(alarmLatchAlertDelay(connected: false), Duration.zero);
+    });
+
+    test('a relaunch resumes the alert a killed process was holding', () {
+      const epoch = 1750000000;
+      const armedAt = epoch * 1000 - 8 * 3600 * 1000; // armed at bedtime
+      final alertAt = alarmLatchAlertAtMs(armedAt, 30000);
+      final stored = ['$epoch', '$alertAt'];
+      // Killed 2 min after the arm: the rest of the hold still runs.
+      expect(
+          alarmLatchAlertResumeDelay(stored,
+              savedEpoch: epoch, confirmed: false, nowMs: armedAt + 120000),
+          Duration(milliseconds: alertAt - armedAt - 120000));
+      // Relaunched after the hold ran out: alert now.
+      expect(
+          alarmLatchAlertResumeDelay(stored,
+              savedEpoch: epoch, confirmed: false, nowMs: alertAt + 1),
+          Duration.zero);
+      // Confirmed, a different alarm, or the alarm time already passed.
+      expect(
+          alarmLatchAlertResumeDelay(stored,
+              savedEpoch: epoch, confirmed: true, nowMs: alertAt + 1),
+          isNull);
+      expect(
+          alarmLatchAlertResumeDelay(stored,
+              savedEpoch: epoch + 60, confirmed: false, nowMs: alertAt + 1),
+          isNull);
+      expect(
+          alarmLatchAlertResumeDelay(stored,
+              savedEpoch: epoch, confirmed: false, nowMs: epoch * 1000),
+          isNull);
+      expect(
+          alarmLatchAlertResumeDelay(null,
+              savedEpoch: epoch, confirmed: false, nowMs: alertAt + 1),
+          isNull);
+    });
+
     test('event 56 confirms (and clears pending/unconfirmed)', () {
       final a = AlarmConfirmation(graceMs: 6000);
       a.set(1750000000, 0);
@@ -294,18 +370,24 @@ void main() {
       expect(a.isUnconfirmed(10000), isFalse);
     });
 
-    test('events 57/58 mark FIRED with a timestamp', () {
-      for (final id in [
-        AlarmConfirmation.kEvtStrapExecuted,
-        AlarmConfirmation.kEvtAppExecuted,
-      ]) {
-        final a = AlarmConfirmation();
-        a.set(1750000000, 0);
-        final eff = a.onEvent(id, 4242);
-        expect(eff, AlarmEffect.fired);
-        expect(a.firedAt, 4242);
-        expect(a.lastEventId, id);
-      }
+    test('event 57 marks FIRED with a timestamp', () {
+      final a = AlarmConfirmation();
+      a.set(1750000000, 0);
+      final eff = a.onEvent(AlarmConfirmation.kEvtStrapExecuted, 4242);
+      expect(eff, AlarmEffect.fired);
+      expect(a.firedAt, 4242);
+      expect(a.lastEventId, 57);
+    });
+
+    test('event 58 (RUN_ALARM buzz) does not consume the armed slot', () {
+      final a = AlarmConfirmation();
+      a.set(1750000000, 0);
+      a.onEvent(AlarmConfirmation.kEvtSet, 10);
+      final eff = a.onEvent(AlarmConfirmation.kEvtAppExecuted, 4242);
+      expect(eff, AlarmEffect.buzzed);
+      expect(a.firedAt, isNull);
+      expect(a.targetEpoch, 1750000000);
+      expect(a.confirmed, isTrue);
     });
 
     test('event 59 clears the alarm', () {
@@ -468,4 +550,27 @@ void main() {
     });
   });
 
+  test('a stale retry never escalates over a newer arm', () {
+    // AppState needs the whole plugin stack, so this pins the guard by source:
+    // a grace retry that resumes after a newer arm must not cancel that arm's
+    // grace timer, so the shared escalation checks staleness before it cancels.
+    final src = File('lib/state/app_state.dart').readAsStringSync();
+    final guard = RegExp(
+      r'void _escalateAlarmLatchFailed\(int epoch\) \{[^}]*?'
+      r'if \(_savedAlarm != epoch\) return;\s*\n\s*_alarmGraceTimer\?\.cancel\(\);',
+    );
+    expect(guard.hasMatch(src), isTrue);
+  });
+
+  test('an offline first window ends before the warning rebuild', () {
+    // The first grace timer fires 250ms before its window closes; when the
+    // link is down that window is also the last, so the escalation branch must
+    // close it itself or the row sits on "waiting" next to the alert.
+    final src = File('lib/state/app_state.dart').readAsStringSync();
+    final branch = RegExp(
+      r'if \(_alarmAutoRetried \|\| !isConnected\) \{[^}]*?'
+      r'_alarm\.setAtMs = null;\s*\n\s*notifyListeners\(\);',
+    );
+    expect(branch.hasMatch(src), isTrue);
+  });
 }

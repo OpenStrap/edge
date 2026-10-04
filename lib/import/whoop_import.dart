@@ -206,6 +206,9 @@ class WhoopImporter {
 
   // ── per-row writers ──────────────────────────────────────────────────────────
 
+  // a blank/0/garbage cell is no reading, not a 0% night.
+  static num? _pct(num? v, num lo) => v != null && v >= lo && v <= 100 ? v : null;
+
   /// Pure extraction: (date, raw field map) from one CSV row, or null when
   /// the row has no parseable anchor timestamp. No DB access — callers
   /// accumulate these across every file in the import before writing, so a
@@ -227,8 +230,7 @@ class WhoopImporter {
       'strain': n(['day strain', 'strain']),
       'calories': _kcal(get(_energyCols), row.header(_energyCols)),
       'resp': n(['respiratory rate (rpm)', 'respiratory rate']),
-      'spo2': n(['blood oxygen %', 'blood oxygen']),
-      'skinTempC': n(['skin temp (celsius)', 'skin temperature (celsius)']),
+      'spo2': _pct(n(['blood oxygen %', 'blood oxygen']), 70),
       'asleepMin': n(['asleep duration (min)', 'asleep duration (minutes)']),
       'inBedMin': n(['in bed duration (min)', 'in bed duration (minutes)']),
       'lightMin': n(['light sleep duration (min)', 'light sleep duration (minutes)']),
@@ -261,7 +263,6 @@ class WhoopImporter {
     final calories = f['calories'] as num?;
     final resp = f['resp'] as num?;
     final spo2 = f['spo2'] as num?;
-    final skinTempC = f['skinTempC'] as num?;
     final asleepMin = f['asleepMin'] as num?;
     final inBedMin = f['inBedMin'] as num?;
     final lightMin = f['lightMin'] as num?;
@@ -329,8 +330,8 @@ class WhoopImporter {
         'resp_rate': resp,
         'calories': calories,
         'spo2': spo2,
-        // WHOOP gives absolute °C; we store as a relative-ish scalar for trends.
-        'skin_temp_z': skinTempC,
+        // no skin_temp_z: WHOOP exports absolute °C and every reader of that
+        // key treats it as SDs off your own baseline (33 °C showed as +33 SD).
         'tst_min': asleepMin,
         'rem_min': remMin,
         'deep_min': deepMin,

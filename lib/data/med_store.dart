@@ -18,6 +18,7 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
+import '../state/clock_format.dart' show formatClockMinute;
 import 'day_label.dart';
 
 // ══════════════════ SCHEMA ══════════════════
@@ -165,10 +166,14 @@ class MedSlot {
   final int slotMin;
   final DoseState state;
 
-  String get timeLabel {
-    final h = (slotMin ~/ 60).toString().padLeft(2, '0');
-    final m = (slotMin % 60).toString().padLeft(2, '0');
-    return '$h:$m';
+  /// Display only, per the user's clock format — never a storage key.
+  String get timeLabel => formatClockMinute(slotMin);
+
+  /// `HH:mm` for payloads and the coach, whatever the clock format.
+  String get timeMachine {
+    final h = slotMin ~/ 60;
+    final m = slotMin % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
   }
 
   /// A slot that has passed and was neither taken nor deliberately skipped.

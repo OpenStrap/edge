@@ -21,13 +21,10 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:firebase_performance/firebase_performance.dart';
-import 'package:firebase_analytics/firebase_analytics.dart';
 
 import '../cloud/companion_client.dart';
 import 'error_classification.dart';
+import 'firebase_bridge.dart';
 import 'jank_policy.dart';
 
 /// A band-side snapshot AppState supplies (it owns the live DeviceState).
@@ -80,10 +77,8 @@ class TelemetryService {
       return;
     }
     try {
-      if (Firebase.apps.isNotEmpty) {
-        FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(value);
-        FirebasePerformance.instance.setPerformanceCollectionEnabled(value);
-        FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(value);
+      if (FirebaseBridge.isInitialized) {
+        FirebaseBridge.setCollectionEnabled(value);
       }
     } catch (_) {}
   }
@@ -138,7 +133,7 @@ class TelemetryService {
     FlutterError.onError = (FlutterErrorDetails details) {
       prior?.call(details);
       try {
-        if (Firebase.apps.isNotEmpty && _enabled) {
+        if (FirebaseBridge.isInitialized && _enabled) {
           // Flutter itself marks a FlutterErrorDetails `silent: true` for
           // errors it considers expected/non-actionable noise — e.g. an
           // image/tile network fetch that fails after the requesting widget
@@ -151,10 +146,7 @@ class TelemetryService {
           // fatal crashes (inflating crash-free-users) even though the app
           // kept running fine. Still fully captured — just filed as
           // non-fatal so it doesn't count against crash-free-rate.
-          FirebaseCrashlytics.instance.recordFlutterError(
-            details,
-            fatal: !details.silent,
-          );
+          FirebaseBridge.recordFlutterError(details, fatal: !details.silent);
         }
       } catch (_) {}
       record(
@@ -167,16 +159,12 @@ class TelemetryService {
     };
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
       try {
-        if (Firebase.apps.isNotEmpty && _enabled) {
+        if (FirebaseBridge.isInitialized && _enabled) {
           // Same reasoning as the `silent` check above, for the errors the
           // framework never sees: a dropped tile fetch or a TLS handshake that
           // died with no network is not a crash, and filing it as one both
           // understates crash-free users and buries the real crashes.
-          FirebaseCrashlytics.instance.recordError(
-            error,
-            stack,
-            fatal: !isTransientError(error),
-          );
+          FirebaseBridge.recordError(error, stack, fatal: !isTransientError(error));
         }
       } catch (_) {}
       record(kind: 'crash', level: 'error', message: '$error', stack: '$stack');
@@ -210,8 +198,8 @@ class TelemetryService {
   /// transitions (screen changes, BLE state changes, derivation passes).
   void breadcrumb(String message) {
     try {
-      if (Firebase.apps.isNotEmpty && _enabled) {
-        FirebaseCrashlytics.instance.log(message);
+      if (FirebaseBridge.isInitialized && _enabled) {
+        FirebaseBridge.log(message);
       }
     } catch (_) {}
   }
@@ -221,8 +209,8 @@ class TelemetryService {
   /// Unlike breadcrumb(), this is STATE (last-write-wins), not an event log.
   void setContext(String key, Object value) {
     try {
-      if (Firebase.apps.isNotEmpty && _enabled) {
-        FirebaseCrashlytics.instance.setCustomKey(key, value);
+      if (FirebaseBridge.isInitialized && _enabled) {
+        FirebaseBridge.setCustomKey(key, value);
       }
     } catch (_) {}
   }
@@ -232,28 +220,22 @@ class TelemetryService {
   /// vanishes into a debug console nobody in production ever reads.
   void recordNonFatal(Object error, StackTrace stack, {String? reason}) {
     try {
-      if (Firebase.apps.isNotEmpty && _enabled) {
-        FirebaseCrashlytics.instance.recordError(
-          error,
-          stack,
-          fatal: false,
-          reason: reason,
-        );
+      if (FirebaseBridge.isInitialized && _enabled) {
+        FirebaseBridge.recordError(error, stack, fatal: false, reason: reason);
       }
     } catch (_) {}
   }
 
-  final Map<String, Trace> _activeTraces = {};
+  final Map<String, FirebaseTraceHandle> _activeTraces = {};
 
   /// Wrap [body] in a named Firebase Performance trace. Safe to nest under
   /// different names; a given [name] running concurrently with itself is not
   /// supported (the later start wins) — use distinct names per call site.
   Future<T> traced<T>(String name, Future<T> Function() body) async {
-    Trace? trace;
+    FirebaseTraceHandle? trace;
     try {
-      if (Firebase.apps.isNotEmpty && _enabled) {
-        trace = FirebasePerformance.instance.newTrace(name);
-        await trace.start();
+      if (FirebaseBridge.isInitialized && _enabled) {
+        trace = await FirebaseBridge.startTrace(name);
         _activeTraces[name] = trace;
       }
     } catch (_) {
@@ -346,7 +328,7 @@ class TelemetryService {
     
     // Remote Firebase Analytics integration (only if event)
     try {
-      if (Firebase.apps.isNotEmpty && _enabled && kind == 'event' && message != null) {
+      if (FirebaseBridge.isInitialized && _enabled && kind == 'event' && message != null) {
         final params = <String, Object>{};
         if (context != null) {
           context.forEach((k, v) {
@@ -357,9 +339,9 @@ class TelemetryService {
             }
           });
         }
-        FirebaseAnalytics.instance.logEvent(
-          name: message.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_'),
-          parameters: params,
+        FirebaseBridge.logEvent(
+          message.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_'),
+          params,
         );
       }
     } catch (_) {}

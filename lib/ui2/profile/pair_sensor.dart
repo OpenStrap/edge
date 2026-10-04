@@ -484,6 +484,9 @@ class PairSensorView extends StatelessWidget {
     // which one they meant. A named one does not — the id is machine plumbing
     // and putting it on every row is noise.
     final tail = id.length <= 5 ? id : id.substring(id.length - 5);
+    final signal = cand.rssi == null
+        ? (l?.devicesConnected ?? 'Connected')
+        : '${cand.rssi} dBm';
     return SetRow(
       LucideIcons.heartPulse,
       C.blue,
@@ -491,8 +494,8 @@ class PairSensorView extends StatelessWidget {
       sub: busyRemoteId == id
           ? (l?.pairSensorPairing ?? 'Pairing…')
           : cand.label == null
-              ? '…$tail · ${cand.rssi} dBm'
-              : '${cand.rssi} dBm',
+              ? '…$tail · $signal'
+              : signal,
       chevron: !busy,
       onTap: busy || onPick == null ? null : () => onPick!(cand),
     );

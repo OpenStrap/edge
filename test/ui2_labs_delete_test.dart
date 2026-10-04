@@ -293,4 +293,49 @@ void main() {
       expect((await t.runAsync(LocalDb.labMarkerDefs))!, isEmpty);
     });
   });
+
+  testWidgets('a date that only DateTime.tryParse accepts is refused, not stored',
+      (t) async {
+    final labs = await _seed(t, const []);
+    for (final bad in const ['20250101', '2026-02-30', '2026-09-01T10:00']) {
+      await _pumpLabs(t, labs);
+      await t.ensureVisible(find.text('Add a result'));
+      await t.tap(find.text('Add a result'));
+      await t.pumpAndSettle();
+      final fields = find.descendant(
+          of: find.byType(AlertDialog), matching: find.byType(TextField));
+      await t.enterText(fields.at(0), '42');
+      await t.enterText(fields.at(1), bad);
+      await t.tap(find.text('Save'));
+      await t.pumpAndSettle();
+      expect(find.text('The date needs to be YYYY-MM-DD. Nothing was saved.'),
+          findsOneWidget,
+          reason: bad);
+      expect((await t.runAsync(LocalDb.labResults))!, isEmpty, reason: bad);
+    }
+  });
+
+  testWidgets('a draw dated after today is refused, like the csv import does',
+      (t) async {
+    final labs = await _seed(t, const []);
+    final d = DateTime.now().add(const Duration(days: 2));
+    final tomorrowish = '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    for (final bad in ['2062-09-01', tomorrowish]) {
+      await _pumpLabs(t, labs);
+      await t.ensureVisible(find.text('Add a result'));
+      await t.tap(find.text('Add a result'));
+      await t.pumpAndSettle();
+      final fields = find.descendant(
+          of: find.byType(AlertDialog), matching: find.byType(TextField));
+      await t.enterText(fields.at(0), '42');
+      await t.enterText(fields.at(1), bad);
+      await t.tap(find.text('Save'));
+      await t.pumpAndSettle();
+      expect(find.text('That date is after today. Nothing was saved.'),
+          findsOneWidget,
+          reason: bad);
+      expect((await t.runAsync(LocalDb.labResults))!, isEmpty, reason: bad);
+    }
+  });
 }

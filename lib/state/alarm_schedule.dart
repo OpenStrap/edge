@@ -173,6 +173,24 @@ DateTime? nextAlarmOccurrence(List<AlarmScheduleEntry> schedule, DateTime now) {
   return best;
 }
 
+/// The instant to compute the re-arm from right after the alarm armed for
+/// [firedEpoch] (unix sec) fired. The strap fires on its own RTC, which can
+/// run a second or more ahead of the phone (whole-second drift, sub-tolerance
+/// skew, crystal drift over a link that stays up all day), so the fire event
+/// can land just BEFORE the slot on the phone's clock. Computing from plain
+/// `now` then re-picks the slot that just fired and leaves the next day
+/// unarmed. A fire within 30 s of the armed slot is that slot, so floor past
+/// it. A fire well before the slot isn't that slot, so `now` stands. (A
+/// RUN_ALARM buzz is event 58, which never reaches here: it doesn't consume
+/// the armed slot.)
+DateTime alarmRearmFrom(DateTime now, int? firedEpoch) {
+  if (firedEpoch == null) return now;
+  final slot = DateTime.fromMillisecondsSinceEpoch(firedEpoch * 1000);
+  if (slot.difference(now) > const Duration(seconds: 30)) return now;
+  final after = slot.add(const Duration(seconds: 1));
+  return after.isAfter(now) ? after : now;
+}
+
 /// Result of [armNextScheduledOccurrence]. [epoch] is the newly-armed unix
 /// instant, or null when nothing changed on the strap (no enabled day and
 /// already unarmed, the target already matches what's armed, or the write
@@ -258,3 +276,52 @@ bool alarmArmsTonight(int? armedEpochSec, DateTime now) {
 /// unit-testable without a fake OS notification sink.
 bool alarmLatchFailed(AlarmConfirmation a, int epoch, {required bool enabled}) =>
     enabled && a.targetEpoch == epoch && !a.confirmed;
+
+/// When the grace timer fires after a SET. With the auto-retry still to come it
+/// fires just BEFORE the window closes, so the retry reopens "waiting" without
+/// the row flashing "not confirmed" in between; the last window fires just
+/// after it closes, so the UI rebuild lands on the warning.
+Duration alarmGraceTimerDelay(int graceMs, {required bool retryLeft}) =>
+    Duration(milliseconds: retryLeft ? graceMs - 250 : graceMs + 250);
+
+/// Headless half of the grace window: no AppState timer to catch a late
+/// ALARM_SET (56), so poll [latched] once a second for as long as the
+/// foreground would wait. True as soon as it latches, false once the window
+/// closes.
+Future<bool> awaitAlarmLatch(Future<bool> Function() latched,
+    {int graceMs = AlarmConfirmation.kDefaultGraceMs}) async {
+  for (var waited = 0; waited < graceMs; waited += 1000) {
+    await Future.delayed(const Duration(seconds: 1));
+    if (await latched()) return true;
+  }
+  return false;
+}
+
+/// How long after the last grace window before the critical "alarm not
+/// confirmed" alert goes out. Still connected = the strap may just be slow
+/// (event 56 can lag by minutes, and a late one still confirms), so hold the
+/// alert back; disconnected = nothing more can arrive, alert now.
+Duration alarmLatchAlertDelay({required bool connected}) =>
+    connected ? const Duration(minutes: 5) : Duration.zero;
+
+/// When the critical "alarm not confirmed" alert is due for an arm made at
+/// [armedAtMs]: both grace windows (first try + the one retry) plus the
+/// connected hold. Persisted at arm time so a relaunch can still send it.
+int alarmLatchAlertAtMs(int armedAtMs, int graceMs) =>
+    armedAtMs +
+    2 * graceMs +
+    alarmLatchAlertDelay(connected: true).inMilliseconds;
+
+/// After a relaunch, how long until the alert the dead process was holding
+/// for [savedEpoch] goes out. [stored] is the persisted `[epoch, alertAtMs]`.
+/// Null when there is nothing to resume: no stored hold, a different alarm,
+/// already confirmed, or the alarm time itself has passed.
+Duration? alarmLatchAlertResumeDelay(List<String>? stored,
+    {required int? savedEpoch, required bool confirmed, required int nowMs}) {
+  if (stored == null || stored.length != 2 || savedEpoch == null) return null;
+  if (confirmed || int.tryParse(stored[0]) != savedEpoch) return null;
+  if (savedEpoch * 1000 <= nowMs) return null;
+  final alertAtMs = int.tryParse(stored[1]);
+  if (alertAtMs == null) return null;
+  return Duration(milliseconds: alertAtMs > nowMs ? alertAtMs - nowMs : 0);
+}

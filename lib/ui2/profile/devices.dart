@@ -116,6 +116,7 @@ import '../../notify/battery_forecast.dart';
 import '../../state/prefs.dart' show Prefs;
 import '../../sync/paired_device.dart' show cleanDeviceLabel;
 import '../../state/app_state.dart';
+import '../../state/clock_format.dart' show formatClockOf;
 import '../pairing/device_picker.dart' show DevicePickerScreen;
 import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
@@ -2825,8 +2826,5 @@ String? _chargeHistory(Map<String, dynamic>? h) {
 ///
 /// It used to render `4/9, 07:12`, which a US reader reads as 9 April. The
 /// month name is the whole point; `formatDay` already writes one.
-String formatDayTime(DateTime d, [AppLocalizations? l]) {
-  final t = '${d.hour.toString().padLeft(2, '0')}:'
-      '${d.minute.toString().padLeft(2, '0')}';
-  return '${formatDay(d, l)}, $t';
-}
+String formatDayTime(DateTime d, [AppLocalizations? l]) =>
+    '${formatDay(d, l)}, ${formatClockOf(d)}';

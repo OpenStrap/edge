@@ -300,6 +300,54 @@ void main() {
     }
   });
 
+  test('the stranded reset still lands when an advance is queued ahead of it',
+      () async {
+    // Batch 1 advances the cursor, batch 2 is stranded; the reset is queued
+    // behind the advance and must still be the write that lands.
+    await LocalDb.setCursor('oura_cursor_ds:$_deviceId', '5000');
+    await OuraLink.instance.ingestForTest(
+      _deviceId,
+      _key,
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first != 0x10) return const <List<int>>[];
+        final cursor = v[2] | (v[3] << 8) | (v[4] << 16) | (v[5] << 24);
+        if (cursor == 5000) {
+          return [
+            _event(kOuraEvtTimeSync, 5000, _syncBody(1782043215)),
+            _event(kOuraEvtTempPeriod, 5100, _hex(_temp3436)),
+            _summary(2, 512),
+          ];
+        }
+        return [_summary(0, 4096)];
+      },
+      nowSeconds: () => _nowSec,
+    );
+    // The reset landed despite the advance queued ahead of it.
+    expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), 0);
+  });
+
+  test('a stranded reset invalidates the stored time anchor too', () async {
+    // The anchor was measured on the boot the reset ended.
+    await LocalDb.setCursor('oura_cursor_ds:$_deviceId', '5000');
+    await LocalDb.setCursor('oura_anchor:$_deviceId', '4000,1782043215');
+    await OuraLink.instance.ingestForTest(
+      _deviceId,
+      _key,
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first == 0x10) return [_summary(0, 4096)];
+        return const <List<int>>[];
+      },
+      nowSeconds: () => _nowSec,
+    );
+    expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), 0);
+    expect(await LocalDb.getCursor('oura_anchor:$_deviceId'), isNull,
+        reason: 'the anchor was measured on the boot the reset ended');
+  });
+
   test('the band-only readers cannot see a ring row', () async {
     await _run([
       [
@@ -366,6 +414,73 @@ void main() {
   test('nothing paired means nothing to sync', () async {
     expect(await OuraLink.pairedRingRow(), isNull);
     expect(await OuraLink.instance.sync(), isFalse);
+  });
+
+  test('a ring that answers below the bookmark never moves it', () async {
+    // Replays below the bookmark must not move it backwards.
+    await LocalDb.setCursor('oura_cursor_ds:$_deviceId', '5000');
+    await OuraLink.instance.ingestForTest(
+      _deviceId,
+      _key,
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first == 0x10) {
+          return [
+            _event(kOuraEvtTimeSync, 4900, _syncBody(1782043215)),
+            _event(kOuraEvtTempPeriod, 4999, _hex(_temp3436)),
+            _summary(2, 0),
+          ];
+        }
+        return const <List<int>>[];
+      },
+      nowSeconds: () => _nowSec,
+    );
+    expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), 5000);
+  });
+
+  test('a rebooted ring whose tail stops short of the bookmark resets it',
+      () async {
+    await LocalDb.setCursor('oura_cursor_ds:$_deviceId', '5000');
+    await OuraLink.instance.ingestForTest(
+      _deviceId,
+      _key,
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first == 0x10) {
+          return [
+            _event(kOuraEvtTimeSync, 4000, _syncBody(1782043215)),
+            _event(kOuraEvtTempPeriod, 4100, _hex(_temp3436)),
+            _summary(2, 0),
+          ];
+        }
+        return const <List<int>>[];
+      },
+      nowSeconds: () => _nowSec,
+    );
+    expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), 0);
+  });
+
+  test('a sleep-stage row stamped in the future is refused', () async {
+    await LocalDb.setCursor('oura_anchor:$_deviceId', '0,$_nowSec');
+    await _run([
+      [
+        _event(kOuraEvtSleepPhaseInformation, 10, _hex('000055aaff')),
+        _event(kOuraEvtSleepPhaseInformation, 10000000, _hex('000055aaff')),
+        _summary(2, 0),
+      ],
+    ]);
+    // Vendor scalars are banked off the commit chain; wait for them.
+    final db = await LocalDb.instance;
+    var rows = <Map<String, Object?>>[];
+    for (var i = 0; i < 200 && rows.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      rows = await db.query('observation');
+    }
+    expect(rows, hasLength(4));
+    expect(rows.every((r) => r['ts_ms'] == (_nowSec + 1) * 1000), isTrue,
+        reason: 'the stage row a million seconds out is not written');
   });
 
   group('forgetRing', () {

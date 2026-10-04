@@ -455,4 +455,51 @@ void main() {
           'an existing real result before declining to persist',
     );
   });
+
+  // 5. The prune lands on local midnight, so the oldest kept day keeps its own
+  //    rows but loses the evening half of its night (its derive window starts
+  //    the previous noon). An algo bump / Re-analyze / override re-derive of it
+  //    then had a NON-empty sleep substrate — the edge#305 shape test above
+  //    can't see it — and replaced the full-night row with partial-night
+  //    numbers, feeding the trailing baselines.
+  test('a re-derive of a day the prune cut into keeps the full-night row',
+      () async {
+    const day = '2026-05-18';
+    await seedGoodDay(day);
+    final before = await readScalars(day);
+    final midnight = DateTime(2026, 5, 18).millisecondsSinceEpoch ~/ 1000;
+    // What survived the midnight cut: 00:00-06:30 asleep, then a day awake.
+    final raws = <RawRecord>[];
+    final samples = <Sample?>[];
+    for (var t = midnight; t < midnight + 20 * 3600; t++) {
+      final asleep = t < midnight + 6 * 3600 + 1800;
+      final c = 700000 + (t - midnight);
+      raws.add(RawRecord(
+        counter: c,
+        packetType: 47,
+        hex: 'r',
+        capturedAt: t * 1000,
+        recTs: t,
+      ));
+      final wobble = (t % 7) * 0.05;
+      samples.add(Sample(
+        tsEpoch: t,
+        counter: c,
+        hr: asleep ? 50 + (t % 5) : 85 + (t % 9),
+        rrIntervalsMs: asleep ? [1180 + (t % 13) * 4] : [700 + (t % 11) * 3],
+        ax: asleep ? 0 : wobble,
+        ay: asleep ? 0 : 0.3 - wobble,
+        az: asleep ? 1 : 0.9,
+        spo2RedRaw: 1,
+        spo2IrRaw: 1,
+        skinTempRaw: 3000,
+      ));
+    }
+    await LocalDb.insertRecordsBatch(raws, samples);
+    await LocalDb.setCursor('decoded_pruned_before', '$midnight');
+
+    await DerivationEngine().runDays(const Profile(), {day}, force: true);
+
+    expect(await readScalars(day), equals(before));
+  });
 }

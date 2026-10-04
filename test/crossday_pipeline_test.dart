@@ -506,6 +506,95 @@ void _wiredFamilies() {
       // A pair's SRI is on the same 200p−100 scale as the headline.
       expect((pairs.first as Map)['sri'], isA<num>());
     });
+
+    test('a missing calendar day is a gap, not an adjacent night', () {
+      // Drop every third day, so some neighbouring rows are two days apart.
+      final all = _synthDays(30);
+      final days = [
+        for (var i = 0; i < all.length; i++)
+          if (i % 3 != 1) all[i],
+      ];
+      final reg = (buildCrossDayBundle(days, const {})['regularity'] as Map)
+          .cast<String, dynamic>();
+      final pairs = (reg['value'] as Map)['pairs'] as List;
+      expect(pairs, isNotEmpty);
+      for (final p in pairs.cast<Map>()) {
+        final prev = DateTime.parse('${p['prev_date']}T00:00:00Z');
+        final date = DateTime.parse('${p['date']}T00:00:00Z');
+        expect(date.difference(prev).inDays, 1,
+            reason: '${p['prev_date']} → ${p['date']} is not a 24 h pair');
+      }
+    });
+
+    test('padded gap days do not count toward days or confidence', () {
+      // Rows on day 1, 2 and 10: a 10-day grid with one observed pair.
+      final all = _synthDays(10);
+      final reg = (buildCrossDayBundle([all[0], all[1], all[9]], const {})[
+              'regularity'] as Map)
+          .cast<String, dynamic>();
+      expect((reg['value'] as Map)['days'], 2);
+      expect(reg['confidence'] as num, lessThanOrEqualTo(0.3));
+    });
+
+    test('a gap past the densify bound still breaks the pair', () {
+      // Two runs of nights 500 days apart. No pair may span the break.
+      final days = _synthDays(10);
+      for (var i = 5; i < 10; i++) {
+        days[i]['date'] = DateTime.utc(2025, 5, 15 + i)
+            .toIso8601String()
+            .substring(0, 10);
+      }
+      final reg = (buildCrossDayBundle(days, const {})['regularity'] as Map)
+          .cast<String, dynamic>();
+      for (final p in ((reg['value'] as Map)['pairs'] as List).cast<Map>()) {
+        final prev = DateTime.parse('${p['prev_date']}T00:00:00Z');
+        final cur = DateTime.parse('${p['date']}T00:00:00Z');
+        expect(cur.difference(prev).inDays, 1);
+      }
+      expect((reg['value'] as Map)['days'], 9);
+    });
+
+    test('unobserved minutes are not scored as sleep', () {
+      // Every night is light 23:00-03:00. After 03:00, half the nights are
+      // awake and the other half the band saw nothing. Only 23:00-03:00 is
+      // observed on both sides of any pair, and it agrees perfectly.
+      int at(int day, int h) =>
+          DateTime(2024, 3, 4 + day, h).millisecondsSinceEpoch ~/ 1000;
+      final days = [
+        for (var i = 0; i < 14; i++)
+          {
+            'date': '2024-03-${(5 + i).toString().padLeft(2, '0')}',
+            'hypnogram': [
+              {'start': at(i, 23), 'end': at(i + 1, 3), 'stage': 'light'},
+              {
+                'start': at(i + 1, 3),
+                'end': at(i + 1, 7),
+                'stage': i.isEven ? 'wake' : 'unobserved',
+              },
+            ],
+          },
+      ];
+      final reg = (buildCrossDayBundle(days, const {})['regularity'] as Map)
+          .cast<String, dynamic>();
+      expect((reg['value'] as Map)['sri'], closeTo(100, 1e-9));
+    });
+  });
+
+  group('sleep performance is last night only', () {
+    test('no TST last night → absent, not an older night\'s TST', () {
+      final days = _synthDays(30);
+      days.last['is_today'] = true;
+      days.last.remove('tst_min');
+      final coach = (buildCrossDayBundle(days, const {})['sleep_coach'] as Map);
+      expect((coach['performance'] as Map)['value'], '—');
+    });
+
+    test('TST last night → scored', () {
+      final days = _synthDays(30);
+      days.last['is_today'] = true;
+      final coach = (buildCrossDayBundle(days, const {})['sleep_coach'] as Map);
+      expect((coach['performance'] as Map)['value'], isA<Map>());
+    });
   });
 
   group('TS-12 — overreaching as two facts', () {

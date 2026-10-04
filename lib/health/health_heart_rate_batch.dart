@@ -90,11 +90,21 @@ Future<bool> exportContinuousHeartRateDay({
   required HealthConnectHeartRateWriter androidWriter,
   required Future<bool> Function(HealthHeartRateSample sample, DateTime end)
   writeGeneric,
+  required Future<bool> Function(DateTime from, DateTime to) clearGeneric,
 }) async {
   final samples = normalizeHealthHeartRateSamples(rows, start, end);
   if (samples.isEmpty) return true;
 
+  // Replace only from the first minute we still hold. The 1 Hz rows are pruned
+  // a few days behind the data edge (not on a day boundary), so a re-export of
+  // an older day has lost some or all of its substrate; clearing the whole day
+  // would delete minutes from the store that nothing can write back.
+  final from = samples.first.time;
+
   if (useAndroidBatch) {
+    // Health Connect holds the day as ONE record, so the window stays the whole
+    // day; the native writer carries the earlier minutes over from the record
+    // it replaces.
     try {
       return await androidWriter.replaceDay(start, end, samples);
     } catch (_) {
@@ -102,6 +112,7 @@ Future<bool> exportContinuousHeartRateDay({
     }
   }
 
+  if (!await clearGeneric(from, end)) return false;
   var success = true;
   for (final sample in samples) {
     try {

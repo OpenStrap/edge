@@ -191,6 +191,7 @@ class BandHost {
     await _runSub?.cancel();
     _runSub = null;
     await _commit(all: true);
+    await _vendorWrites;
     _reading.value = null;
   }
 
@@ -215,9 +216,13 @@ class BandHost {
         onNote?.call(key, value);
         onLog('[${adapter.id}] $key = $value');
       case VendorScalars():
-        unawaited(_bankVendorScalars(e));
+        // Chained, not awaited: best-effort and outside the ACK path, but
+        // [stop] waits for it so a read after stop sees the rows.
+        _vendorWrites = _vendorWrites.then((_) => _bankVendorScalars(e));
     }
   }
+
+  Future<void> _vendorWrites = Future<void>.value();
 
   /// Bank one device's vendor scalars. Returns rows written.
   ///
@@ -231,9 +236,17 @@ class BandHost {
   /// number. An observation without it is not renderable, so the adapter
   /// supplies it; the host never invents one.
   Future<int> _bankVendorScalars(VendorScalars e) async {
-    if (e.rows.isEmpty) return 0;
+    // Same plausibility gate as samples: a stale origin stamps these too.
+    final extra = _admitSample;
+    final rows = extra == null
+        ? e.rows
+        : [
+            for (final o in e.rows)
+              if (extra(o.at.millisecondsSinceEpoch ~/ 1000)) o,
+          ];
+    if (rows.isEmpty) return 0;
     try {
-      return await LocalDb.putObservations(e.rows, deviceId: deviceId);
+      return await LocalDb.putObservations(rows, deviceId: deviceId);
     } catch (err) {
       onLog('[${adapter.id}] vendor scalars not banked: $err');
       return 0;

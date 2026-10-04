@@ -33,6 +33,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../compute/manual_session.dart';
+import '../../data/day_label.dart' show calendarDaysBetween;
 import '../../data/db.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../health/health_export.dart';
@@ -405,9 +406,8 @@ String windowLabel(int startTs, int endTs, [AppLocalizations? l]) {
 /// a 24-hour subtraction — the day after a spring-forward is 23 hours long.
 String dayLabel(DateTime at, {DateTime? now, AppLocalizations? l}) {
   final n = now ?? DateTime.now();
-  final today = DateTime(n.year, n.month, n.day);
   final d = DateTime(at.year, at.month, at.day);
-  final diff = today.difference(d).inDays;
+  final diff = calendarDaysBetween(d, n);
   if (diff == 0) return l?.logWorkoutToday ?? 'Today';
   if (diff == 1) return l?.logWorkoutYesterday ?? 'Yesterday';
   return '${weekdayShortName(d.weekday, l)} ${d.day} ${monthShortName(d.month, l)}';

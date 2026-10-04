@@ -61,7 +61,10 @@ abstract class LocalRepository {
   /// double?, tier: String?}` — epoch SECONDS. A night with no detected sleep
   /// still appears, with null times; the caller decides what an absent night
   /// looks like rather than being handed a silently shorter list.
-  Future<List<Map<String, dynamic>>> sleepWindows({int days = 60}) =>
+  ///
+  /// [before] keeps only days strictly earlier than that 'YYYY-MM-DD' label.
+  Future<List<Map<String, dynamic>>> sleepWindows(
+          {int days = 60, String? before}) =>
       throw UnimplementedError('re-layer: sleepWindows');
 
   /// Saved sessions in the window, merged with unconfirmed auto-detected bouts.

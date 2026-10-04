@@ -4,7 +4,9 @@ import android.content.Context
 import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.metadata.DataOrigin
 import androidx.health.connect.client.records.metadata.Metadata
+import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -53,6 +55,14 @@ object HealthConnectHeartRateWriter {
                     false
                 } else {
                     val client = HealthConnectClient.getOrCreate(context)
+                    // The day is one record. Minutes before our first sample may
+                    // no longer exist locally (the 1 Hz rows are pruned), so carry
+                    // them over from the record we wrote last time rather than
+                    // deleting them with it.
+                    val firstNew = request.samples.first().time
+                    val kept = readOwnSamples(context, client, request.start, request.end)
+                        .filter { !it.time.isBefore(request.start) && it.time.isBefore(firstNew) }
+                    val samples = (kept + request.samples).distinctBy { it.time }
                     client.deleteRecords(
                         HeartRateRecord::class,
                         TimeRangeFilter.between(request.start, request.end),
@@ -64,7 +74,7 @@ object HealthConnectHeartRateWriter {
                                 endTime = request.end,
                                 startZoneOffset = ZoneId.systemDefault().rules.getOffset(request.start),
                                 endZoneOffset = ZoneId.systemDefault().rules.getOffset(request.end),
-                                samples = request.samples,
+                                samples = samples,
                                 metadata = Metadata(
                                     recordingMethod = Metadata.RECORDING_METHOD_AUTOMATICALLY_RECORDED,
                                 ),
@@ -79,6 +89,29 @@ object HealthConnectHeartRateWriter {
                 false
             }
         }
+    }
+
+    private suspend fun readOwnSamples(
+        context: Context,
+        client: HealthConnectClient,
+        start: Instant,
+        end: Instant,
+    ): List<HeartRateRecord.Sample> {
+        val out = ArrayList<HeartRateRecord.Sample>()
+        var pageToken: String? = null
+        do {
+            val response = client.readRecords(
+                ReadRecordsRequest(
+                    HeartRateRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(start, end),
+                    dataOriginFilter = setOf(DataOrigin(context.packageName)),
+                    pageToken = pageToken,
+                ),
+            )
+            response.records.forEach { out.addAll(it.samples) }
+            pageToken = response.pageToken
+        } while (pageToken != null)
+        return out.sortedBy { it.time }
     }
 
     private data class Request(

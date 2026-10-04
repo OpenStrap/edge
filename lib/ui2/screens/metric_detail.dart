@@ -310,6 +310,20 @@ const _specs = <String, MetricSpec>{
     citation: 'Within-user dispersion',
     requires: {InputSignal.rrIntervals},
   ),
+  // Only the WHOOP importer writes this key today; the band derive does not.
+  // The old cloud_v2 importer's relative index under the same key is kept
+  // out on read (LocalDb.metricSeries).
+  'spo2': MetricSpec(
+    chartKey: 'spo2',
+    title: 'Blood oxygen',
+    unit: '%',
+    color: C.pink,
+    icon: LucideIcons.droplet,
+    higherBetter: true,
+    method: 'WHOOP\'s own nightly value, read from the blood oxygen column of '
+        'an imported export and stored as-is.',
+    citation: 'Imported from WHOOP',
+  ),
   // Both of these were written to `metric_series` on every derive since v55 and
   // had no spec, so nothing could open them — `specOf` fell through to a
   // generic entry titled "nap min". They are 17/17 on real data.
@@ -366,7 +380,7 @@ const _specs = <String, MetricSpec>{
     citation: 'Relative only — uncalibrated ADC',
     requires: {InputSignal.skinTempRaw},
   ),
-  // `spo2`, `odi_per_hour` and `strain_effort` used to live here as cards that
+  // `odi_per_hour` and `strain_effort` used to live here as cards that
   // existed only to explain that they were empty. A metric this app does not
   // produce has no entry, no card and no key. See docs/internal/UI_ROADMAP.md.
   //

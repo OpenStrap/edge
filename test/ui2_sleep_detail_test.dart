@@ -368,4 +368,50 @@ void main() {
     expect(find.textContaining('Your need is 7h 42m'), findsOneWidget);
     expect(find.textContaining('22m down'), findsOneWidget);
   });
+
+  group('correctedSleepWindow', () {
+    test('a bedtime moved past midnight stays on the same night', () {
+      final (on, off) = correctedSleepWindow(
+        DateTime(2026, 3, 1, 23, 50),
+        DateTime(2026, 3, 2, 7, 0),
+        const TimeOfDay(hour: 0, minute: 20),
+        const TimeOfDay(hour: 7, minute: 10),
+      );
+      expect(on, DateTime(2026, 3, 2, 0, 20));
+      expect(off, DateTime(2026, 3, 2, 7, 10));
+    });
+
+    test('a bedtime moved back before midnight stays on the same night', () {
+      final (on, off) = correctedSleepWindow(
+        DateTime(2026, 3, 2, 0, 30),
+        DateTime(2026, 3, 2, 7, 0),
+        const TimeOfDay(hour: 23, minute: 40),
+        const TimeOfDay(hour: 7, minute: 0),
+      );
+      expect(on, DateTime(2026, 3, 1, 23, 40));
+      expect(off, DateTime(2026, 3, 2, 7, 0));
+    });
+
+    test('an ordinary correction only moves the clock', () {
+      final (on, off) = correctedSleepWindow(
+        DateTime(2026, 3, 1, 23, 7),
+        DateTime(2026, 3, 2, 7, 5),
+        const TimeOfDay(hour: 22, minute: 45),
+        const TimeOfDay(hour: 6, minute: 30),
+      );
+      expect(on, DateTime(2026, 3, 1, 22, 45));
+      expect(off, DateTime(2026, 3, 2, 6, 30));
+    });
+
+    test('a wake moved far later on a truncated night lands the same day', () {
+      final (on, off) = correctedSleepWindow(
+        DateTime(2026, 3, 2, 0, 30),
+        DateTime(2026, 3, 2, 1, 0),
+        const TimeOfDay(hour: 0, minute: 30),
+        const TimeOfDay(hour: 13, minute: 30),
+      );
+      expect(on, DateTime(2026, 3, 2, 0, 30));
+      expect(off, DateTime(2026, 3, 2, 13, 30));
+    });
+  });
 }

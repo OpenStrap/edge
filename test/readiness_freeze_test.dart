@@ -87,7 +87,7 @@ void main() {
     });
 
     test('a new day → the prior pin is dropped and re-pins on completion', () {
-      final day1Pin = (day: d1, value: 49);
+      final day1Pin = (day: d1, value: 49, wakeSec: null);
 
       // New day, overnight not complete yet → the day-1 pin no longer applies
       // (getToday also guards by day, but the decision drops it too).
@@ -132,6 +132,54 @@ void main() {
         current: frozen,
       );
       expect(frozen!.value, 66, reason: 'the complete-night value is pinned');
+    });
+
+    test(
+        'a later sleep block becomes the night after a long mid-night wake → '
+        're-pins on that night, not the first block', () {
+      // 22:30–01:45 settles at 02:45 (edge a margin past wake) and pins 70.
+      const firstWake = 1000000;
+      var frozen = nextFrozenHeadline(
+        today: d1,
+        overnightComplete: true,
+        liveReadiness: 70,
+        current: null,
+        wakeSec: firstWake,
+      );
+      expect(frozen!.value, 70);
+
+      // Asleep again 03:00–07:00 (75 min gap, not bridged): the new block is
+      // in progress, not settled → the old pin holds for now.
+      const realWake = firstWake + (5 * 3600 + 15 * 60);
+      frozen = nextFrozenHeadline(
+        today: d1,
+        overnightComplete: false,
+        liveReadiness: 58,
+        current: frozen,
+        wakeSec: realWake,
+      );
+      expect(frozen!.value, 70);
+
+      // The real night settles → its readiness is the headline.
+      frozen = nextFrozenHeadline(
+        today: d1,
+        overnightComplete: true,
+        liveReadiness: 58,
+        current: frozen,
+        wakeSec: realWake,
+      );
+      expect(frozen!.value, 58);
+      expect(frozen.wakeSec, realWake);
+
+      // Same night, a few minutes of wake drift on a later re-derive → holds.
+      frozen = nextFrozenHeadline(
+        today: d1,
+        overnightComplete: true,
+        liveReadiness: 52,
+        current: frozen,
+        wakeSec: realWake + 600,
+      );
+      expect(frozen!.value, 58);
     });
   });
 }

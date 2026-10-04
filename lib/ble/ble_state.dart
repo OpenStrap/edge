@@ -1307,7 +1307,7 @@ class AlarmPayloads {
 }
 
 /// Effect of a strap alarm-lifecycle event, for the caller to act on.
-enum AlarmEffect { confirmed, fired, cleared }
+enum AlarmEffect { confirmed, fired, buzzed, cleared }
 
 /// Pure state machine for alarm CONFIRMATION, driven by the strap's own event
 /// stream. This replaces the parked (and wrong) GET_ALARM readback as the display
@@ -1315,7 +1315,8 @@ enum AlarmEffect { confirmed, fired, cleared }
 ///   - [set] after a SET write → not confirmed, timer starts (PENDING)
 ///   - event 56 (ALARM_SET) → [confirmed] = true
 ///   - no 56 within the grace window → UNCONFIRMED (soft warning)
-///   - event 57/58 (EXECUTED) → fired ([firedAt] set)
+///   - event 57 (EXECUTED) → fired ([firedAt] set)
+///   - event 58 (app RUN_ALARM buzz) → buzzed, the armed slot stays armed
 ///   - event 59 (DISABLED) → cleared
 /// I/O-free + deterministic (caller supplies `nowMs`) so it is fully unit-testable.
 class AlarmConfirmation {
@@ -1326,8 +1327,11 @@ class AlarmConfirmation {
   static const int kEvtDisabled = 59;
   static const int kEvtHapticsFired = 60;
 
+  // Some straps send event 56 tens of seconds after the SET write, so a short
+  // window flags alarms that did latch. A late 56 still confirms either way.
+  static const int kDefaultGraceMs = 30000;
   final int graceMs;
-  AlarmConfirmation({this.graceMs = 6000});
+  AlarmConfirmation({this.graceMs = kDefaultGraceMs});
 
   int? targetEpoch; // the scheduled wake time (unix sec), or null when off
   bool confirmed = false; // strap emitted ALARM_SET (56)
@@ -1369,10 +1373,15 @@ class AlarmConfirmation {
         lastEventId = id;
         return AlarmEffect.confirmed;
       case kEvtStrapExecuted:
-      case kEvtAppExecuted:
         lastEventId = id;
         firedAt = nowMs;
         return AlarmEffect.fired;
+      case kEvtAppExecuted:
+        // RUN_ALARM (smart wake early buzz, test buzz). The armed SET_ALARM
+        // slot is untouched and still fires on its own, so this must not
+        // consume it.
+        lastEventId = id;
+        return AlarmEffect.buzzed;
       case kEvtDisabled:
         confirmed = false;
         targetEpoch = null;
