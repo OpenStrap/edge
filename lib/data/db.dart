@@ -383,7 +383,7 @@ class LocalDb {
   /// pass it: sqflite throws `ArgumentError('onCreate must be null if no
   /// version is specified')` BEFORE opening anything when `onCreate` is given
   /// without `version` (sqflite_common database_mixin.dart).
-  static const int schemaVersion = 58;
+  static const int schemaVersion = 59;
 
   /// SQLite caps host parameters per statement (`SQLITE_MAX_VARIABLE_NUMBER` —
   /// only 999 on the builds shipped with older Android/iOS). Any `IN (?, ?, …)`
@@ -1138,6 +1138,13 @@ class LocalDb {
           // A band's own hypnogram (`vendor_staged`). New table only.
           await _createVendorSleepEpoch(db);
         }
+        if (oldV < 59) {
+          // One-time heal of the rows every re-pairing stranded under a dead
+          // `device_id`. Here and not in `_repairOpenSchema`: pairing no longer
+          // mints a second id for a ring that already has a row, so once is
+          // enough — same reasoning as `_scrubImportedSkinTempZ`.
+          await reuniteStrandedDeviceRows(db);
+        }
       },
       onOpen: (db) async {
         await _repairOpenSchema(db);
@@ -1238,6 +1245,112 @@ class LocalDb {
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
     await _ensureCoachViews(db);
     await _dropRawStore(db);
+  }
+
+  /// v59: move rows stranded under a dead `device_id` onto the row that lived.
+  ///
+  /// Pairing minted a fresh `<family>-xxxxxxxx` every run (fixed for Oura in
+  /// `pairOuraRing`; `miband234-` and `o2ring-` still mint one per pairing), so
+  /// re-pairing ONE physical device forked it into N identities. The id is the
+  /// storage key for `decoded_onehz`, `decoded_rr`, `raw_archive` and every
+  /// other per-device table, so each earlier pairing's rows are stranded under
+  /// an id no `device` row points at — unreachable by every reader, because all
+  /// of them start from a `device` row.
+  ///
+  /// WHICH ROWS MOVE. A stranded id moves onto the surviving row of its own
+  /// FAMILY — the text up to and including the last `-`, so `oura-7e117c66`
+  /// joins `oura-a4487268` and never an `o2ring-` row. A family with no
+  /// surviving row keeps its rows where they are: there is nothing to reunite
+  /// them with, and minting a `device` row would claim a pairing that does not
+  /// exist. A family with MORE THAN ONE surviving row is skipped too — two rows
+  /// means there is no single answer to "which device is this", and picking one
+  /// would merge two devices' measurements into one history, which is a
+  /// fabricated number by a slower route.
+  ///
+  /// WHICH ROWS DO NOT. The `sync_cursor` bookmarks (`<name>:<device_id>`) are
+  /// DELETED rather than carried over. A stranded id cannot be shown to be the
+  /// same physical device — `pairOuraRing` only carries its cursor across when
+  /// `remote_id` still matches — and another device's decisecond origin would
+  /// stamp this one's seconds against the wrong wall clock. Dropping them costs
+  /// one full re-read; keeping them risks timestamps the data does not support.
+  ///
+  /// `UPDATE OR REPLACE` because these tables are keyed `(device_id, <time or
+  /// content>)`: if the same reading somehow exists under both ids it IS the
+  /// same reading, and one row must win rather than a constraint failure, which
+  /// inside `onUpgrade`'s one exclusive transaction would roll the whole ladder
+  /// back and quarantine the database (invariant 11).
+  ///
+  /// Idempotent: once a stranded id is gone nothing matches it, so a re-run
+  /// does no work. Returns how many ids were reunited.
+  @visibleForTesting
+  static Future<int> reuniteStrandedDeviceRows(Database db) async {
+    // The text up to and including the last `-`, or null when there is none.
+    // `kPrimaryDeviceId` ('') lands on null, which is the point: the primary
+    // band is never re-keyed.
+    String? familyOf(String id) {
+      final cut = id.lastIndexOf('-');
+      return cut <= 0 ? null : id.substring(0, cut + 1);
+    }
+
+    final live = <String>{
+      for (final r in await db.query('device', columns: ['id']))
+        (r['id'] as String?) ?? '',
+    };
+    final target = <String, String>{};
+    final ambiguous = <String>{};
+    for (final id in live) {
+      final fam = familyOf(id);
+      if (fam == null) continue;
+      if (target.containsKey(fam)) {
+        ambiguous.add(fam);
+      } else {
+        target[fam] = id;
+      }
+    }
+    for (final fam in ambiguous) {
+      target.remove(fam);
+    }
+    if (target.isEmpty) return 0;
+
+    // Every device-keyed table, DISCOVERED rather than listed: a hand-written
+    // list is how one table gets missed and goes on serving rows under a dead
+    // id long after the rest were healed (AGENTS.md §4.7).
+    final tables = <String>[];
+    for (final t in await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' "
+      "AND name NOT LIKE 'sqlite_%'",
+    )) {
+      final name = t['name'] as String;
+      final info = await db.rawQuery('PRAGMA table_info("$name")');
+      if (info.any((c) => c['name'] == 'device_id')) tables.add(name);
+    }
+    if (tables.isEmpty) return 0;
+
+    final stranded = <String>{};
+    for (final t in tables) {
+      for (final r
+          in await db.rawQuery('SELECT DISTINCT device_id FROM "$t"')) {
+        final id = r['device_id'] as String?;
+        if (id == null || id.isEmpty || live.contains(id)) continue;
+        if (target.containsKey(familyOf(id))) stranded.add(id);
+      }
+    }
+
+    for (final old in stranded) {
+      final to = target[familyOf(old)]!;
+      for (final t in tables) {
+        await db.rawUpdate(
+          'UPDATE OR REPLACE "$t" SET device_id = ? WHERE device_id = ?',
+          [to, old],
+        );
+      }
+      // The bookmarks, dropped and not moved — see this method's header.
+      await db
+          .delete('sync_cursor', where: 'name LIKE ?', whereArgs: ['%:$old']);
+    }
+    // The COUNT is the report. This file deliberately carries no logger of its
+    // own (see `runMaintenance`'s note) — a caller that wants a line prints it.
+    return stranded.length;
   }
 
   /// Older WHOOP CSV imports filed the export's absolute skin temp (°C) under
