@@ -290,6 +290,70 @@ const kCsvExportSets = <CsvExportSet>[
       ORDER BY d.date ASC
     ''',
   ),
+  CsvExportSet(
+    name: 'bp_research',
+    title: 'BP research captures (EXPERIMENTAL)',
+    // Cuff readings plus the band window before each. Absent stats stay
+    // empty, never 0.
+    columns: [
+      'measured_at_ms',
+      'measurement_started_at_ms',
+      'measurement_finished_at_ms',
+      'entered_at_ms',
+      'device',
+      'posture',
+      'conditions',
+      'systolic_mmhg',
+      'diastolic_mmhg',
+      'band_device_id',
+      'measurement_session_id',
+      'time_precision',
+      'window_start_ms',
+      'window_end_ms',
+      'observed_start_ms',
+      'observed_end_ms',
+      'onehz_rows',
+      'rr_beats',
+      'hr_mean',
+      'rr_ms_mean',
+      'rr_ms_min',
+      'rr_ms_max',
+      'rmssd_ms',
+      'valid_hr_seconds',
+      'valid_interval_count',
+      'valid_interval_pair_count',
+      'coverage_fraction',
+      'rejected_interval_fraction',
+      'quality_status',
+      'feature_version',
+      'snapshot_revision',
+      'meta_json',
+    ],
+    sql: '''
+      SELECT r.measured_at_ms, r.measurement_started_at_ms,
+             r.measurement_finished_at_ms,
+             r.captured_at_ms AS entered_at_ms,
+             COALESCE(r.device, '') AS device,
+             COALESCE(r.posture, '') AS posture,
+             COALESCE(r.conditions, '') AS conditions,
+             r.systolic_mmhg, r.diastolic_mmhg,
+             COALESCE(r.band_device_id, '') AS band_device_id,
+             COALESCE(r.measurement_session_id, '') AS measurement_session_id,
+             COALESCE(r.time_precision, '') AS time_precision,
+             w.window_start_ms, w.window_end_ms,
+             w.observed_start_ms, w.observed_end_ms,
+             w.onehz_rows, w.rr_beats,
+             w.hr_mean, w.rr_ms_mean, w.rr_ms_min, w.rr_ms_max, w.rmssd_ms,
+             w.valid_hr_seconds, w.valid_interval_count,
+             w.valid_interval_pair_count, w.coverage_fraction,
+             w.rejected_interval_fraction, w.quality_status,
+             w.feature_version, w.snapshot_revision,
+             COALESCE(w.meta_json, '') AS meta_json
+      FROM bp_research_reference r
+      LEFT JOIN bp_research_window w ON w.reference_id = r.id
+      ORDER BY r.measured_at_ms ASC
+    ''',
+  ),
 ];
 
 Map<String, Object?> _exerciseName(Map<String, Object?> row) => {

@@ -271,6 +271,8 @@ const _notComponents = {
   // Where the hydration notification lands: a Scaffold route that reads and
   // writes the day's journal metrics. The one control on it — FieldStepper —
   // IS in the gallery.
+  // Dev-mode BP research route: a Scaffold over its own tables.
+  'BpResearchScreen',
   // The coach chat and its BYOK setup: Scaffold routes that own an engine, a
   // 120 s network call and the keychain. `CoachFigure` — the part a gallery can
   // actually hold — IS in it.
