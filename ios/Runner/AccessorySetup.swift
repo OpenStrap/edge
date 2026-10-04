@@ -340,16 +340,19 @@ private final class Impl {
   /// Reported from the field: the ring gone from Settings › Bluetooth, with no band
   /// unpair that ever mentioned a ring.
   ///
-  /// "Band" is `provisionedIdList`'s rule, not a second one: anything whose descriptor
-  /// service is not a declared `OSAskSensorServices` entry, an accessory with no readable
-  /// service included — a band can be provisioned under the bare 0xFD4B fallback
-  /// descriptor, so "unknown" has to stay on the band side or a real band would survive
-  /// its own unpair.
+  /// "Band" = anything whose descriptor service is not a declared `OSAskSensorServices`
+  /// entry, an accessory with no readable service included — a band can be provisioned
+  /// under the bare 0xFD4B fallback descriptor, so "unknown" has to stay on the band side
+  /// or a real band would survive its own unpair. With no `OSAskSensorServices` key every
+  /// accessory is a band, i.e. exactly the old `removeAll`.
   func removeBands(_ completion: @escaping () -> Void) {
     ensureActivated()
-    let sensors = sensorServices
+    let declared = Bundle.main.infoDictionary?["OSAskSensorServices"] as? [String] ?? []
+    let sensors = Set(declared.map { $0.uppercased() })
     let bands = session.accessories.filter { a in
-      guard let svc = service(of: a) else { return true }
+      guard let svc = a.descriptor.bluetoothServiceUUID?.uuidString.uppercased() else {
+        return true
+      }
       return !sensors.contains(svc)
     }
     NSLog("[ASK] unpair: deprovisioning %ld band(s), leaving %ld sensor(s) alone",
