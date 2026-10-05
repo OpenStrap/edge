@@ -97,14 +97,14 @@ void main() {
   // foregroundActive stays true with no link and every restore wake and
   // BG-task sync skips until the user next opens the app.
   test('a failed background openSession re-arms iOS recovery', () {
-    final src = File('lib/state/app_state.dart').readAsStringSync();
+    final src = File('lib/state/sync_controller.dart').readAsStringSync();
     final start = src.indexOf('Future<void> openSession(');
     expect(start, isNot(-1));
     final body = src.substring(start, src.indexOf('\n  }\n', start));
     final fin = body.lastIndexOf('} finally {');
     expect(fin, isNot(-1));
     const rearm =
-        'if (_keepAlive && _background && !engine.isConnected) {\n'
+        'if (_keepAlive && background && !engine.isConnected) {\n'
         '        await _armRecovery();';
     expect(body.substring(fin).contains(rearm), isTrue);
   });
