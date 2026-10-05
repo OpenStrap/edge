@@ -61,6 +61,7 @@ import '../stress/breath_phases.dart';
 import '../data/auto_backup.dart' as backup show runBackupIfDue;
 import 'alarm_schedule.dart';
 import 'derive_coordinator.dart';
+import 'gesture_controller.dart';
 import 'live_stream_controller.dart';
 import 'smart_wake.dart';
 import 'prefs.dart';
@@ -92,7 +93,6 @@ import '../health/health_export.dart';
 import '../health/phone_pedometer.dart';
 import '../import/noop_import.dart';
 import '../import/whoop_import.dart';
-import '../gestures/gesture_dispatcher.dart';
 import '../platform/tasker_bridge.dart';
 import '../data/models.dart';
 import '../live/live_activity.dart';
@@ -314,7 +314,7 @@ class AppState extends ChangeNotifier {
 
   /// Band-gesture → action mapping (double-tap, etc.). Exposed for the settings UI.
   final GestureSettings gestureSettings = GestureSettings();
-  late final GestureDispatcher _gestureDispatcher;
+  late final GestureController _gestureController;
 
   /// Relay selected phone-app notifications to the strap as a buzz (Android only).
   /// Exposed for the settings UI; buzzes via the live BLE engine when connected.
@@ -1372,7 +1372,7 @@ class AppState extends ChangeNotifier {
                        lifecycle == AppLifecycleState.hidden;
     _background = isHeadless;
 
-    _gestureDispatcher = GestureDispatcher(
+    _gestureController = GestureController(
       settings: gestureSettings,
       log: _log,
       onMarkMoment: _markMomentFromGesture,
@@ -1523,7 +1523,7 @@ class AppState extends ChangeNotifier {
   AppState.forTesting({BleEngine? engine, EcgController? ecg}) {
     _background = false;
     _ecg = ecg;
-    _gestureDispatcher = GestureDispatcher(
+    _gestureController = GestureController(
       settings: gestureSettings,
       log: _log,
       onMarkMoment: _markMomentFromGesture,
@@ -2376,7 +2376,7 @@ class AppState extends ChangeNotifier {
     // device-scoped in M3's scope, and a double-tap on either band should
     // still log water.
     _handleAlarmEvent(id, ts);
-    _gestureDispatcher.onEvent(id, ts, hex);
+    _gestureController.onEvent(id, ts, hex);
   }
 
   /// Why start-up failed, or null if it did not. Drives [AppRoute.failed].
