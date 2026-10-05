@@ -181,6 +181,13 @@ bool recoveryNightSettled({
   );
 }
 
+/// One derive pass's engine call (`DerivationEngine.run`'s shape).
+typedef DeriveRunHook = Future<int> Function(
+  Profile profile, {
+  bool heavy,
+  void Function(String day, int index, int total)? onDayDone,
+});
+
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
 
@@ -1647,6 +1654,27 @@ class AppState extends ChangeNotifier {
     _workoutTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {});
   }
 
+  /// Stand-ins for the derive engine's per-pass work, so a test can hold or
+  /// fail a pass without a substrate. Null (the default) runs the real engine.
+  /// Tests only.
+  @visibleForTesting
+  DeriveRunHook? debugDeriveRun;
+  @visibleForTesting
+  Future<int> Function(Profile profile)? debugRescanRecent;
+  @visibleForTesting
+  Future<bool> Function(Profile profile)? debugRefreshActivityReviews;
+
+  /// Run one post-drain derive pass directly, as the scheduler's run callback
+  /// does. Tests only.
+  @visibleForTesting
+  Future<void> debugAfterDrain({bool heavy = false}) =>
+      _afterDrain(heavy: heavy);
+
+  /// The derive scheduler the engine callbacks and lifecycle transitions drive.
+  /// Tests only.
+  @visibleForTesting
+  DeriveScheduler get debugDeriveScheduler => _deriveScheduler;
+
   /// The live-stream owner set the engine reads right now. Tests only.
   @visibleForTesting
   LiveStreamOwners get debugLiveOwners => _liveOwners();
@@ -1674,6 +1702,13 @@ class AppState extends ChangeNotifier {
     _ingestLiveMagsAt(proto.ImuFrame(recTs ?? 0, 0, mags), atMs);
     _trackCoverage(recTs);
   }
+
+  /// Run one live frame through [_onLiveFrame], the router the engine's
+  /// `onLiveFrame` callback feeds (a `forTesting` engine is not wired to it).
+  /// Tests only.
+  @visibleForTesting
+  void debugOnLiveFrame(int pt, String hex, int? recTs) =>
+      _onLiveFrame(pt, hex, recTs);
 
   /// End the live-pedometer session (persist the coverage window) without a
   /// BLE disconnect. Tests only.
@@ -1734,15 +1769,18 @@ class AppState extends ChangeNotifier {
       TelemetryService.instance.breadcrumb('derive: $mode start');
       // Refresh the UI after EACH day so Today/trends fill in as the sweep runs,
       // not only at the end (a multi-day backfill can be many days of work).
-      await TelemetryService.instance.traced('derive_$mode', () => _derive.run(
-        _profile,
-        heavy: heavy,
-        onDayDone: (day, index, total) async {
-          if (index == total || index == 1 || index % 3 == 0) {
-            notifyListeners();
-          }
-        },
-      ));
+      await TelemetryService.instance.traced('derive_$mode', () {
+        final DeriveRunHook run = debugDeriveRun ?? _derive.run;
+        return run(
+          _profile,
+          heavy: heavy,
+          onDayDone: (day, index, total) async {
+            if (index == total || index == 1 || index % 3 == 0) {
+              notifyListeners();
+            }
+          },
+        );
+      });
       TelemetryService.instance.breadcrumb('derive: $mode done');
       // A drain can bank band coverage and a day can have rolled over since the
       // last read — both change which source owns today's steps.
@@ -1779,7 +1817,8 @@ class AppState extends ChangeNotifier {
         // while it ran would no-op and be marked done. Keeping this job
         // running holds the next one in the queue until the rescan is over.
         try {
-          final n = await _derive.rescanRecent(_profile);
+          final n = await (debugRescanRecent?.call(_profile) ??
+              _derive.rescanRecent(_profile));
           if (n > 0) {
             notifyListeners(); // screens re-read the refreshed scalars
           }
@@ -2366,7 +2405,8 @@ class AppState extends ChangeNotifier {
       bumpInsights();
     }
     try {
-      if (await _derive.refreshActivityReviews(_profile)) {
+      if (await (debugRefreshActivityReviews?.call(_profile) ??
+          _derive.refreshActivityReviews(_profile))) {
         _activityReviewAttempts = 0;
         bumpInsights();
         return;
@@ -5984,6 +6024,11 @@ class AppState extends ChangeNotifier {
   static const Duration _breathingRecomputeInterval = Duration(seconds: 20);
   bool breathingActive = false;
 
+  /// The clock a breathing session is timed by. Tests only — the app never
+  /// replaces it.
+  @visibleForTesting
+  DateTime Function() breathingNow = DateTime.now;
+
   /// The pattern the running session is pacing to. Coherence is only computed
   /// for a pattern that claims a resonance frequency — see
   /// [BreathPattern.coherenceRated].
@@ -6128,9 +6173,9 @@ class AppState extends ChangeNotifier {
       _preWindowFrames = List<String>.from(_breathingFrames);
     }
     _breathingFrames.clear();
-    _breathingStartedAt = DateTime.now();
+    _breathingStartedAt = breathingNow();
     notifyListeners();
-    unawaited(BreathingLiveActivity.start(startedAt: DateTime.now()));
+    unawaited(BreathingLiveActivity.start(startedAt: breathingNow()));
     try {
       // The session is an HR owner (see [_liveOwners]); the engine's
       // reconciler serialises this against any in-flight transition, e.g. a
@@ -6165,7 +6210,7 @@ class AppState extends ChangeNotifier {
     _breathingStartedAt = null;
     _breathingTarget = null;
     if (started != null) {
-      final ended = DateTime.now();
+      final ended = breathingNow();
       var seconds = ended.difference(started).inSeconds;
       // Clamped to what was asked for. Overshoot is always suspension, never
       // extra breathing — the pacer stops the moment the app leaves the
