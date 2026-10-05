@@ -2,8 +2,8 @@
 // session goes to Apple Health / Health Connect right away when the health
 // sync switch is on (issue #130), fire-and-forget; nothing is exported when it
 // is off, when the save failed, when the session was torn down by a delete, or
-// (today) when it lasted under a second. Seen through the Health plugin's
-// channel.
+// when its stored end is not after its start at one-second resolution. Seen
+// through the Health plugin's channel.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';

@@ -130,7 +130,8 @@ void main() {
       expect(app.dispose, throwsA(isA<FlutterError>()));
     });
 
-    test('the breathing recompute that lands after dispose is dropped',
+    test('a breathing recompute that lands after dispose is still accepted, '
+        'without notifying',
         () async {
       final probe = TimerProbe();
       await probe.run(() async {
