@@ -312,6 +312,14 @@ void main() {
         fa.flushMicrotasks();
         fa.elapse(const Duration(minutes: 30));
         expect(m.at, hasLength(11));
+
+        // The budget is still spent: a later retry-flagged call asks once and
+        // starts no new chain. A reset before the busy return would grant ten.
+        m.app.busy = false;
+        unawaited(m.app.refreshActivityReviews(retry: true));
+        fa.flushMicrotasks();
+        fa.elapse(const Duration(minutes: 30));
+        expect(m.at, hasLength(12), reason: 'one ask, no fresh retries');
         m.app.dispose();
       });
     });

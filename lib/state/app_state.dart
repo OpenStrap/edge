@@ -60,6 +60,7 @@ import '../stress/breath_phases.dart';
 // scheduler is imported under an alias rather than shadowed by it.
 import '../data/auto_backup.dart' as backup show runBackupIfDue;
 import 'alarm_schedule.dart';
+import 'derive_coordinator.dart';
 import 'smart_wake.dart';
 import 'prefs.dart';
 import '../ble/adapters/signals.dart' show InputSignal;
@@ -127,6 +128,8 @@ import 'workout_idle.dart';
 import 'zone_alert.dart';
 import 'package:uuid/uuid.dart';
 
+export 'derive_coordinator.dart' show DeriveRunHook;
+
 /// The onboarding/app gate states, in order. See [AppState.route].
 /// Flow: loading → pairing → profile (only if incomplete) → shell. The profile
 /// step collects age/weight/height/sex so the on-device analytics can
@@ -180,13 +183,6 @@ bool recoveryNightSettled({
     nowSec: nowSec,
   );
 }
-
-/// One derive pass's engine call (`DerivationEngine.run`'s shape).
-typedef DeriveRunHook = Future<int> Function(
-  Profile profile, {
-  bool heavy,
-  void Function(String day, int index, int total)? onDayDone,
-});
 
 class AppState extends ChangeNotifier {
   late final BleEngine engine;
@@ -283,12 +279,23 @@ class AppState extends ChangeNotifier {
   // constructors have already set by the time anything touches `_derive`.
   late final DerivationEngine _derive =
       DerivationEngine(log: _log, background: _background);
-  late final DeriveScheduler _deriveScheduler = DeriveScheduler(
-    run: ({required DeriveJobKind kind}) =>
-        _afterDrain(heavy: kind == DeriveJobKind.heavy),
+  late final DeriveCoordinator _deriveCoordinator = DeriveCoordinator(
+    derive: () => _derive,
+    profile: () => _profile,
+    repo: () => repo,
+    background: () => _background,
+    disposed: () => _disposed,
     log: _log,
-    onChanged: notifyListeners,
+    notify: notifyListeners,
+    refreshPhoneStepsToday: _refreshPhoneStepsToday,
+    maybeNotifyRecoveryReady: _maybeNotifyRecoveryReady,
+    runHealthExport: _runHealthExport,
+    healthSyncEnabled: () => healthSyncEnabled,
+    telemetryConsent: () => telemetryConsent,
+    healthShareConsent: () => healthShareConsent,
+    maybeReclaimDiskSpace: _maybeReclaimDiskSpace,
   );
+  DeriveScheduler get _deriveScheduler => _deriveCoordinator.scheduler;
 
   /// Profile fed to the analytics (HRmax/calories/TRIMP personalization).
   Profile get _profile => Profile.fromMap(user);
@@ -1337,7 +1344,7 @@ class AppState extends ChangeNotifier {
 
   /// Bumped whenever stored insights change so listeners can re-query without a
   /// full ChangeNotifier repaint.
-  final ValueNotifier<int> insightsRevision = ValueNotifier<int>(0);
+  ValueNotifier<int> get insightsRevision => _deriveCoordinator.insightsRevision;
   StreamSubscription<String>? _tapSub;
 
   void _handleTapRoute(String route) {
@@ -1580,7 +1587,7 @@ class AppState extends ChangeNotifier {
   /// Setting `_disposed` and checking it at each await point only covers the
   /// paths someone remembered to guard. Several notifications reach here from
   /// places that never see that flag — the derive scheduler's `onChanged`
-  /// callback, in-flight `_afterDrain()` continuations, BLE engine callbacks —
+  /// callback, in-flight derive-pass continuations, BLE engine callbacks —
   /// and notifying a disposed ChangeNotifier throws in release. Overriding the
   /// single funnel every one of them goes through makes the guard total instead
   /// of a list of remembered sites.
@@ -1592,7 +1599,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
-    _activityReviewRetry?.cancel();
+    _deriveCoordinator.cancelActivityReviewRetry();
     if (IosShortcutSync.foregroundSync == syncForShortcut) {
       IosShortcutSync.foregroundSync = null;
       IosShortcutSync.foregroundEngine = null;
@@ -1628,7 +1635,7 @@ class AppState extends ChangeNotifier {
     if (pmdId != null) _clearLiveHrTrace(pmdId);
     BandOwnership.markForegroundIntent(false);
     _releaseForegroundLease();
-    _deriveScheduler.dispose();
+    _deriveCoordinator.disposeScheduler();
     _waterBuzzer.dispose();
     _medBuzzer.dispose();
     // Owned notifiers/observers. notificationRelay in particular holds a
@@ -1638,7 +1645,7 @@ class AppState extends ChangeNotifier {
     gestureSettings.dispose();
     navRequest.dispose();
     screenRequest.dispose();
-    insightsRevision.dispose();
+    _deriveCoordinator.disposeInsightsRevision();
     super.dispose();
   }
 
@@ -1658,17 +1665,28 @@ class AppState extends ChangeNotifier {
   /// fail a pass without a substrate. Null (the default) runs the real engine.
   /// Tests only.
   @visibleForTesting
-  DeriveRunHook? debugDeriveRun;
+  DeriveRunHook? get debugDeriveRun => _deriveCoordinator.debugDeriveRun;
   @visibleForTesting
-  Future<int> Function(Profile profile)? debugRescanRecent;
+  set debugDeriveRun(DeriveRunHook? value) =>
+      _deriveCoordinator.debugDeriveRun = value;
   @visibleForTesting
-  Future<bool> Function(Profile profile)? debugRefreshActivityReviews;
+  Future<int> Function(Profile profile)? get debugRescanRecent =>
+      _deriveCoordinator.debugRescanRecent;
+  @visibleForTesting
+  set debugRescanRecent(Future<int> Function(Profile profile)? value) =>
+      _deriveCoordinator.debugRescanRecent = value;
+  @visibleForTesting
+  Future<bool> Function(Profile profile)? get debugRefreshActivityReviews =>
+      _deriveCoordinator.debugRefreshActivityReviews;
+  @visibleForTesting
+  set debugRefreshActivityReviews(Future<bool> Function(Profile profile)? value) =>
+      _deriveCoordinator.debugRefreshActivityReviews = value;
 
   /// Run one post-drain derive pass directly, as the scheduler's run callback
   /// does. Tests only.
   @visibleForTesting
   Future<void> debugAfterDrain({bool heavy = false}) =>
-      _afterDrain(heavy: heavy);
+      _deriveCoordinator.afterDrain(heavy: heavy);
 
   /// The derive scheduler the engine callbacks and lifecycle transitions drive.
   /// Tests only.
@@ -1750,113 +1768,6 @@ class AppState extends ChangeNotifier {
   /// change made in Settings would not apply until the next restart.
   Future<void> refreshBatteryThreshold(NotificationPrefs prefs) async {
     _deviceAlerts.refreshThreshold();
-  }
-
-  /// Compute trigger: kick the DerivationEngine after data is persisted.
-  /// [heavy]=false is the bounded light pass (TODAY when raw has reached today,
-  /// else the latest pending day); [heavy]=true is the foreground finalize
-  /// sweep. Best-effort + non-blocking — never throws into the BLE path.
-  /// Refreshes the UI when results land so screens re-read the fresh derived rows.
-  Future<void> _afterDrain({bool heavy = false}) async {
-    final mode = heavy ? 'heavy' : 'light';
-    try {
-      // Context for whatever crash/ANR report comes next — the derivation
-      // engine's heavy per-day compute is isolate-offloaded, but the
-      // assembly/UI-refresh wiring around it still runs on the main isolate,
-      // so this is real signal if a freeze/ANR correlates with a derive pass.
-      TelemetryService.instance.setContext('derive_mode', mode);
-      TelemetryService.instance.setContext('derive_active', true);
-      TelemetryService.instance.breadcrumb('derive: $mode start');
-      // Refresh the UI after EACH day so Today/trends fill in as the sweep runs,
-      // not only at the end (a multi-day backfill can be many days of work).
-      await TelemetryService.instance.traced('derive_$mode', () {
-        final DeriveRunHook run = debugDeriveRun ?? _derive.run;
-        return run(
-          _profile,
-          heavy: heavy,
-          onDayDone: (day, index, total) async {
-            if (index == total || index == 1 || index % 3 == 0) {
-              notifyListeners();
-            }
-          },
-        );
-      });
-      TelemetryService.instance.breadcrumb('derive: $mode done');
-      // A drain can bank band coverage and a day can have rolled over since the
-      // last read — both change which source owns today's steps.
-      unawaited(_refreshPhoneStepsToday());
-      // The drain that triggered this pass may have landed the 1 Hz window of a
-      // workout the app slept through, whose strain/calories were scored from
-      // whatever few minutes the foreground tally saw (issue #206). Re-score
-      // recent sessions against the substrate now that it is here, so the
-      // workout LIST is corrected too and not just a detail screen someone
-      // happens to open. Monotone and idempotent — see reconcileSessionScore.
-      try {
-        final fixed = await repo?.rescoreRecentSessions() ?? 0;
-        if (fixed > 0) {
-          _log('[derive] rescored $fixed session(s) from substrate');
-        }
-      } catch (e) {
-        _log('[derive] session rescore failed: $e');
-      }
-      bumpInsights();
-      notifyListeners(); // screens re-fetch from the derived store
-      // Same signal, for the surfaces that can't listen: home/lock-screen
-      // widget, Watch mirror, Siri intents (WidgetService.refresh).
-      unawaited(WidgetService.refresh(repo));
-      // "Recovery ready" push, on light passes too: it waits for the settled
-      // night (#448), and once a heavy has run before the edge passed the
-      // wake, only light drains are left to see it settle.
-      unawaited(_maybeNotifyRecoveryReady());
-      if (heavy) {
-        // Baseline-dirty rescan: new data may have shifted the rolling baseline,
-        // so refresh baseline-dependent scalars (readiness/illness/stress) on
-        // recent FINALIZED days. Cheap when the baseline is unchanged (a single
-        // signature read). Best-effort — never throws into the BLE path.
-        // Awaited: it holds the engine's run latch, so a light job drained
-        // while it ran would no-op and be marked done. Keeping this job
-        // running holds the next one in the queue until the rescan is over.
-        try {
-          final n = await (debugRescanRecent?.call(_profile) ??
-              _derive.rescanRecent(_profile));
-          if (n > 0) {
-            notifyListeners(); // screens re-read the refreshed scalars
-          }
-        } catch (e) {
-          _log('[derive] rescan failed: $e');
-        }
-      }
-      // Continuous health export: push freshly-derived days (incl. TODAY) to Apple
-      // Health / Health Connect AS SOON as they're computed — runs on BOTH the
-      // light (every drain) and heavy passes, not only on finalize. Idempotent
-      // (delete-then-write), best-effort, never throws into the BLE/derive path.
-      if (healthSyncEnabled) {
-        unawaited(() async {
-          try {
-            final n = await _runHealthExport();
-            if (n > 0) _log('[health] exported $n day(s)');
-          } catch (e) {
-            _log('[health] export failed: $e');
-          }
-        }());
-      }
-      // Companion (opt-in): flush any queued telemetry now that we're doing network
-      // work anyway, and — on a heavy (finalize) pass — consider the once/day full
-      // .db upload (itself gated on Wi-Fi + charging + >24h). Both best-effort.
-      if (telemetryConsent) unawaited(TelemetryService.instance.flush());
-      if (heavy && healthShareConsent) {
-        unawaited(HealthUploader.instance.maybeUpload(consented: true));
-      }
-      if (heavy) unawaited(_maybeReclaimDiskSpace());
-    } catch (e, st) {
-      _log('[derive] post-drain failed: $e');
-      // Was silently swallowed before — this is a real pipeline failure
-      // (derive/health-export/etc.) that Firebase never saw. Non-fatal, not
-      // fatal: the app keeps running, but this is worth knowing about.
-      TelemetryService.instance.recordNonFatal(e, st, reason: 'post_drain_failed');
-    } finally {
-      TelemetryService.instance.setContext('derive_active', false);
-    }
   }
 
   bool _vacuumedThisLaunch = false;
@@ -2393,42 +2304,9 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Timer? _activityReviewRetry;
-  int _activityReviewAttempts = 0;
-  Future<void> refreshActivityReviews({bool retry = false}) async {
-    // Backgrounded retries would run the cross-day rollup the derive
-    // scheduler defers; the resume hook picks the durable jobs back up.
-    if (_disposed || (retry && _background)) return;
-    _activityReviewRetry?.cancel();
-    if (!retry) {
-      _activityReviewAttempts = 0;
-      bumpInsights();
-    }
-    try {
-      if (await (debugRefreshActivityReviews?.call(_profile) ??
-          _derive.refreshActivityReviews(_profile))) {
-        _activityReviewAttempts = 0;
-        bumpInsights();
-        return;
-      }
-    } catch (e) {
-      _log('[activity-review] refresh deferred: $e');
-    }
-    // A long derive holds the engine; back off 2s → 30s instead of polling,
-    // and stop after a few minutes so a rollup that keeps failing is left to
-    // the next resume or review change rather than looping all day.
-    if (!_disposed && !_background && _activityReviewAttempts < 10) {
-      final delay = Duration(
-          seconds: math.min(30, 2 << math.min(_activityReviewAttempts, 4)));
-      _activityReviewAttempts++;
-      _activityReviewRetry = Timer(delay, () => unawaited(refreshActivityReviews(retry: true)));
-    }
-  }
+  Future<void> refreshActivityReviews({bool retry = false}) =>
+      _deriveCoordinator.refreshActivityReviews(retry: retry);
 
-  /// Re-derive after a nap edit. Same machinery as a sleep-override change —
-  /// nap minutes feed sleep need and sleep debt, so an edit is a recompute
-  /// rather than a redraw, and the engine force-includes nap-edit days even
-  /// when they are finalized.
   Future<void> reanalyzeForNapEdit() => refreshActivityReviews();
 
   Future<List<Map<String, dynamic>>> dataHistoryDays() =>
@@ -2997,16 +2875,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Say that the DURABLE data changed, so every screen reading it re-reads.
-  ///
-  /// Public because the writers are not all in here: the log-workout sheet
-  /// writes a session, and an import writes days, sessions and journal rows.
-  /// `notifyListeners` is NOT that signal — it also ticks at ~1 Hz with live
-  /// HR, so screens listen to this instead and re-read only when something
-  /// actually landed.
-  void bumpInsights() {
-    insightsRevision.value = insightsRevision.value + 1;
-  }
+  void bumpInsights() => _deriveCoordinator.bumpInsights();
 
   /// Called when the app goes to the background.
   ///
@@ -5343,7 +5212,7 @@ class AppState extends ChangeNotifier {
       unawaited(syncPhoneSteps());
     }
     // Fresh backoff budget per resume, so a chain that gave up earlier retries.
-    _activityReviewAttempts = 0;
+    _deriveCoordinator.resetActivityReviewAttempts();
     unawaited(refreshActivityReviews(retry: true));
     if (foreground && wasBackground && engine.isConnected) {
       IosBleRestore.foregroundActive = true;
