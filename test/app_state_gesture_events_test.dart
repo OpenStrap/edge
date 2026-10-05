@@ -91,7 +91,9 @@ void main() {
       final rig = newRig();
       await rig.map(DeviceAction.torch);
       rig.app.device.alarmEpoch = 1785000000;
-      rig.event(57);
+      // AppState judges an alarm event against the real clock (it has no
+      // clock seam there), so this one is stamped now, not on the rig's clock.
+      rig.event(57, atSec: DateTime.now().millisecondsSinceEpoch ~/ 1000);
       await untilEvents(1);
       await settleMs(50);
       expect(rig.app.alarmEpoch, isNull);
@@ -121,7 +123,7 @@ void main() {
       ResetGate.enter();
       try {
         rig.doubleTap();
-        rig.event(57);
+        rig.event(57, atSec: DateTime.now().millisecondsSinceEpoch ~/ 1000);
         await settleMs(150);
         expect(await storedEvents(), isEmpty);
         expect(channel.performed, isEmpty);

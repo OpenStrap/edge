@@ -287,6 +287,15 @@ void setLiveHr(AppState app, int? hr, {int ageMs = 0}) {
   app.device.liveHrAt = hr == null ? null : nowMs() - ageMs;
 }
 
+/// The activity review stamps its activation time with the real clock when the
+/// database first opens, and refuses an auto-detected suggestion that starts
+/// before it. Move that stamp back so a suggestion seeded in the past is
+/// accepted.
+Future<void> openActivityWindow() async {
+  final db = await LocalDb.instance;
+  await db.update('activity_review_meta', {'activated_at': 0});
+}
+
 /// The stored session row [id], or null.
 Future<Map<String, dynamic>?> sessionRow(String id) => LocalDb.session(id);
 

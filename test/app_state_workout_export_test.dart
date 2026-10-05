@@ -7,7 +7,9 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/health/health_export.dart' show kHealthSyncPref;
 import 'package:openstrap_edge/state/app_state.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/app_state_workout_harness.dart';
 
@@ -71,8 +73,8 @@ void main() {
     await finish(app);
   });
 
-  test('a session under a second is saved but not exported (end must be '
-      'after start at second resolution)', () async {
+  test('a session stopped at once is saved as done; whether it exports '
+      'depends on the second boundary, so this pins only the save', () async {
     final app = AppState.forTesting();
     app.healthSyncEnabled = true;
     app.startWorkout(workoutId: 'w4-x4', type: 'strength');
@@ -80,7 +82,31 @@ void main() {
     await app.stopWorkout();
     await settleMs(400);
     expect((await sessionRow('w4-x4'))!['status'], 'done');
+    await finish(app);
+  });
+
+  test('a stored session whose end is not after its start (second '
+      'resolution) is never exported, one a second longer is', () async {
+    SharedPreferences.setMockInitialValues({kHealthSyncPref: true});
+    final app = AppState.forTesting();
+    const start = 1760000000;
+    Future<void> row(String id, int end) => LocalDb.putSession({
+          'id': id,
+          'start_ts': start,
+          'end_ts': end,
+          'type': 'strength',
+          'status': 'done',
+          'source': 'manual',
+          'created_at': start * 1000,
+        });
+    await row('w4-x4-eq', start);
+    expect(await app.exportWorkoutToHealth('w4-x4-eq'), isFalse);
     expect(health(), isEmpty);
+    await row('w4-x4-one', start + 1);
+    expect(await app.exportWorkoutToHealth('w4-x4-one'), isTrue,
+        reason: 'the same row a second longer exports, so the equal-second '
+            'guard is what held the first back');
+    expect(health(), ['delete', 'writeWorkoutData']);
     await finish(app);
   });
 

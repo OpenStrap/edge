@@ -168,10 +168,16 @@ void main() {
         app.engine.onDataStored!();
         expect(quiet.last.cancelled, isTrue);
         final latest = timers.activeOneShot(const Duration(seconds: 6)).last;
-        await settleMs(50);
+        expect(app.syncingNow, isTrue);
+        // The window is judged against the real clock, which firing the timer
+        // does not advance: wait out its 6 s, then fire. The wait runs in the
+        // root zone, where a long timer is a real one.
+        await Zone.root.run(() => settleMs(6200));
+        expect(app.syncingNow, isFalse, reason: 'the window has closed');
         final atFire = ticks.ticks;
         latest.fire();
         expect(ticks.ticks, atFire + 1, reason: 'the window closing notifies');
+        expect(app.syncingNow, isFalse);
         expect(afterEdge, greaterThanOrEqualTo(1));
         ticks.stop();
       });

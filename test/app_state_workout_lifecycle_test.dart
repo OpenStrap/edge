@@ -414,6 +414,7 @@ void main() {
       await sessionLanded('w4-sug');
       backdate(app, const Duration(minutes: 20));
       final start = app.activeWorkout!.startTime.millisecondsSinceEpoch ~/ 1000;
+      await openActivityWindow();
       await LocalDb.putWorkoutSuggestion({
         'id': 'sug-w4',
         'date': '2026-01-01',
@@ -422,6 +423,11 @@ void main() {
         'dismissed': 0,
         'created_at': DateTime.now().millisecondsSinceEpoch,
       });
+      expect(
+          (await LocalDb.activeWorkoutSuggestions())
+              .where((s) => s['id'] == 'sug-w4'),
+          hasLength(1),
+          reason: 'the suggestion is pending before the stop');
       await app.stopWorkout();
       expect(
           (await LocalDb.activeWorkoutSuggestions())

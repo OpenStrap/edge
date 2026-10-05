@@ -78,7 +78,10 @@ void main() {
 
     test('a resumed session never reports measured steps: the relaunch left '
         'a hole in the count, so even live gait samples stay absent', () async {
-      await _live('w4-r2', ageSec: 300, type: 'treadmill');
+      // Started 5 s ago, with samples fresh and within 30 s of the start: only
+      // the relaunch latch can make the steps absent, not staleness or a
+      // late-arriving stream.
+      await _live('w4-r2', ageSec: 5, type: 'treadmill');
       final app = AppState.forTesting();
       await app.debugReconcileOrphanedLiveWorkout();
       expect(app.workoutStepsMeasured, isNull);
@@ -283,9 +286,8 @@ void main() {
     test('a finalized stale row retires the auto-detected suggestion it '
         'covers, and the notify count stays at zero', () async {
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      await _live('w4-sug', ageSec: 7 * 3600);
       final startSec = nowSec - 7 * 3600;
-      await snapshot('w4-sug', (startSec + 1800) * 1000);
+      await openActivityWindow();
       await LocalDb.putWorkoutSuggestion({
         'id': 'sug-w4',
         'date': '2026-01-01',
@@ -294,6 +296,18 @@ void main() {
         'dismissed': 0,
         'created_at': DateTime.now().millisecondsSinceEpoch,
       });
+      await _live('w4-sug', ageSec: 7 * 3600);
+      await snapshot('w4-sug', (startSec + 1800) * 1000);
+      // Writing the live row already superseded the suggestion it overlaps, so
+      // put it back to pending: the state the reconcile has to clean up.
+      await (await LocalDb.instance).update(
+          'activity_suggestions', {'status': 'pending'},
+          where: 'id = ?', whereArgs: ['sug-w4']);
+      expect(
+          (await LocalDb.activeWorkoutSuggestions())
+              .where((s) => s['id'] == 'sug-w4'),
+          hasLength(1),
+          reason: 'the suggestion is pending before the reconcile');
       final app = AppState.forTesting();
       final ticks = TickCounter(app);
       await app.debugReconcileOrphanedLiveWorkout();

@@ -279,14 +279,17 @@ void main() {
           what: 'the route tracker to listen');
       spies.emitFix(51.0, 0.0);
       await until(() => app.routeTracker!.pointCount >= 1);
-      // The last gait frame is 29.5 s old: covered now, stale half a second on.
-      final tl = _Timeline(app, frames: 700, endMs: nowMs() - 29500);
+      // Hold the database first, so nothing below spends the freshness
+      // margin. The last gait frame is 25 s old: covered when stop is called
+      // (5 s inside the 30 s window), stale once the blocked flush has waited
+      // 8 s (3 s past it).
+      final hold = await DbHold.acquire();
+      final tl = _Timeline(app, frames: 700, endMs: nowMs() - 25000);
       tl.walk(70 / 60);
       expect(app.workoutStepsMeasured, greaterThan(0));
 
-      final hold = await DbHold.acquire();
       final stopping = app.stopWorkout();
-      await settleMs(900);
+      await settleMs(8000);
       expect(app.activeWorkout, isNotNull, reason: 'stop is still tearing down');
       expect(app.workoutStepsMeasured, isNull,
           reason: 'read now, the same stream is more than 30 s old');
