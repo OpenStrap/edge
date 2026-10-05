@@ -583,6 +583,8 @@ void main() {
       await probe.run(() async {
         final engine = RecordingEngine();
         final app = AppState.forTesting(engine: engine);
+        final frozen = DateTime.utc(2026, 10, 5, 8);
+        app.breathingNow = () => frozen;
         app.device.connection = 'connected';
         await app.openBreathingWindow();
         expect(engine.reconciles, 1);
