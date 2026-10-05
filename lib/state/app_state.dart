@@ -61,6 +61,7 @@ import '../stress/breath_phases.dart';
 import '../data/auto_backup.dart' as backup show runBackupIfDue;
 import 'alarm_schedule.dart';
 import 'derive_coordinator.dart';
+import 'live_stream_controller.dart';
 import 'smart_wake.dart';
 import 'prefs.dart';
 import '../ble/adapters/signals.dart' show InputSignal;
@@ -296,6 +297,14 @@ class AppState extends ChangeNotifier {
     maybeReclaimDiskSpace: _maybeReclaimDiskSpace,
   );
   DeriveScheduler get _deriveScheduler => _deriveCoordinator.scheduler;
+
+  late final LiveStreamController _liveStreamController =
+      LiveStreamController(
+    background: () => _background,
+    activeWorkoutType: () => activeWorkout?.type,
+    breathing: () => breathingActive || breathingWindowOpen,
+    reconcileLiveStreams: () => engine.reconcileLiveStreams(),
+  );
 
   /// Profile fed to the analytics (HRmax/calories/TRIMP personalization).
   Profile get _profile => Profile.fromMap(user);
@@ -2910,7 +2919,7 @@ class AppState extends ChangeNotifier {
     // `_background` is an owner input (foreground gait IMU, the gen4 bundle,
     // the iOS keepalive): let the engine step the streams to what the
     // remaining owners call for. See [_liveOwners].
-    _nudgeLive();
+    _liveStreamController.nudge();
     if (Platform.isAndroid) {
       // Android: ensure the Edge Tracking foreground service is up (idempotent) so the
       // process + live connection survive backgrounding. The service IS the keep-alive.
@@ -2939,37 +2948,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  // ── live HR / IMU ownership (#287) ──────────────────────────────────────────
-  //
-  // A foreground connection used to be an implicit request for both the
-  // realtime-HR stream and the 100 Hz IMU stream, and every feature that
-  // needed one re-armed the whole bundle and tried to remember whether it was
-  // the one that had turned it on. The engine now owns the streams through a
-  // serialized desired-vs-applied reconciler; this side only says WHO wants
-  // WHAT ([_liveOwners]) and nudges it whenever an owner changes.
-  //
-  // Policy (gen5; `desiredLiveStreams` in ble_state.dart):
-  //   HR  ← a mounted live-HR view, any workout, a breathing session or
-  //         window. iOS background is NOT an owner any more: the 1 Hz stream
-  //         was held there purely to keep the suspended process schedulable
-  //         (~86,400 wakes/day, most of a day's battery). The band's own
-  //         HIGH_FREQ_SYNC prompt is the wake source now — see
-  //         BandPromptPolicy and _refreshHighFreqWakeWindow.
-  //   IMU ← a gait workout in the FOREGROUND, a bounded movement-sampling
-  //         window, or the passive strap-step opt-in (off).
-  //   An ordinary foreground connection owns nothing on gen5: the on-chip daily
-  //   counter is the step fallback and the phone can supply windowed steps.
-  //   Backgrounded with no owner is fully OFF on both platforms — on Android
-  //   the EdgeTracking foreground service keeps the process alive without any
-  //   inbound stream, on iOS the band's prompt wakes it; the 1 Hz stream with
-  //   no consumer was ~86,400 wakes a day either way. Liveness
-  //   is covered by the keep-alive's forced battery poll
-  //   (kNoStreamPollSilenceSeconds) and the resume paths judge freshness by
-  //   the no-stream bar. `state.wristOn`/`liveHr` simply stop updating while
-  //   nothing owns HR.
-  // gen4 keeps its previous behaviour: a foreground connection owns HR plus
-  // the R10/R11 + IMU + optical bundle (see `LiveStreamOwners.foreground`).
-
   /// A feature session (workout, breathing, ECG capture) is running — the
   /// "nothing else in flight" bar the one-off VACUUM waits for. ECG matters
   /// here specifically: a VACUUM takes an exclusive DB lock and rewrites the
@@ -2981,20 +2959,11 @@ class AppState extends ChangeNotifier {
       breathingWindowOpen ||
       (_ecg?.isCapturing ?? false);
 
-  /// Screens showing the live BPM that are mounted right now.
-  int _liveHrViewers = 0;
-
   /// A screen that displays the live heart rate is on screen: own the HR
   /// stream while it is. Pair with [releaseLiveHrView] in `dispose`.
-  void retainLiveHrView() {
-    _liveHrViewers++;
-    _nudgeLive();
-  }
+  void retainLiveHrView() => _liveStreamController.retainLiveHrView();
 
-  void releaseLiveHrView() {
-    if (_liveHrViewers > 0) _liveHrViewers--;
-    _nudgeLive();
-  }
+  void releaseLiveHrView() => _liveStreamController.releaseLiveHrView();
 
   /// A bounded movement-reminder sampling window is open (IMU-only owner).
   ///
@@ -3004,37 +2973,10 @@ class AppState extends ChangeNotifier {
   /// would let the reminder claim an uninterrupted stillness it never
   /// observed. A separately validated scheduler that can account for the gaps
   /// is the only thing that should call this.
-  void setMovementSamplingWindow(bool active) {
-    if (_movementSampling == active) return;
-    _movementSampling = active;
-    _nudgeLive();
-  }
+  void setMovementSamplingWindow(bool active) =>
+      _liveStreamController.setMovementSamplingWindow(active);
 
-  bool _movementSampling = false;
-
-  /// Passive strap-step collection: OFF by default on gen5 (#287 decision 1).
-  /// A future explicit opt-in requests IMU through this same owner.
-  static const bool _passiveStrapSteps = false;
-
-  LiveStreamOwners _liveOwners() {
-    final w = activeWorkout;
-    return LiveStreamOwners(
-      // A route is not disposed when the app backgrounds, so a mounted
-      // live-HR page must not keep the stream on behind a locked screen.
-      visibleLiveHrView: !_background && _liveHrViewers > 0,
-      activeWorkout: w != null,
-      foregroundGaitWorkout: w != null && !_background && isGaitStepType(w.type),
-      breathing: breathingActive || breathingWindowOpen,
-      movementSampling: _movementSampling,
-      passiveStrapSteps: _passiveStrapSteps,
-      foreground: !_background,
-    );
-  }
-
-  /// An owner input changed: let the engine converge. Fire-and-forget; the
-  /// engine reads [_liveOwners] inside its own loop, and its keep-alive tick
-  /// heals a nudge that was missed.
-  void _nudgeLive() => unawaited(engine.reconcileLiveStreams());
+  LiveStreamOwners _liveOwners() => _liveStreamController.owners;
 
   /// iOS recovery: release the band to the native restore central's no-timeout pending
   /// connect so the OS relaunches us when the band is reachable again.
@@ -5199,7 +5141,7 @@ class AppState extends ChangeNotifier {
     }
     if (busy) {
       if (foreground && wasBackground) {
-        _nudgeLive();
+        _liveStreamController.nudge();
         unawaited(_refreshHighFreqWakeWindow());
       }
       return;
@@ -5240,7 +5182,7 @@ class AppState extends ChangeNotifier {
         }());
         // `_background` flipped: the foreground owners (gen4 bundle, a gait
         // workout's IMU) apply again.
-        _nudgeLive();
+        _liveStreamController.nudge();
         // …and the background band prompt is dropped (the smart-wake window,
         // if open, keeps its own).
         unawaited(_refreshHighFreqWakeWindow());
@@ -5989,7 +5931,7 @@ class AppState extends ChangeNotifier {
     _preWindowFrames = null;
     _windowRowStartedAt = null;
     _breathingFrames.clear();
-    _nudgeLive(); // the window's HR ownership ends here
+    _liveStreamController.nudge(); // the window's HR ownership ends here
     notifyListeners();
     if (row == null || pre == null) return;
     final before = await _windowRmssd(pre);
@@ -6071,7 +6013,7 @@ class AppState extends ChangeNotifier {
     _breathingRecomputeTimer?.cancel();
     _breathingRecomputeTimer = null;
     breathingActive = false;
-    _nudgeLive(); // the session's HR ownership ends; an open window keeps it
+    _liveStreamController.nudge(); // the session's HR ownership ends; an open window keeps it
     unawaited(BreathingLiveActivity.end());
 
     final started = _breathingStartedAt;
@@ -6671,7 +6613,7 @@ class AppState extends ChangeNotifier {
           unawaited(PolarPmdLink.instance.arm());
           _deriveScheduler.setWorkoutActive(true);
           ScreenWake.enable();
-          _nudgeLive(); // a resumed workout owns its streams too
+          _liveStreamController.nudge(); // a resumed workout owns its streams too
         } else {
           // A stale live row has no end_ts (it was never stopped). We don't
           // know when the workout actually ended (edge#277), so this is NEVER
@@ -6885,7 +6827,7 @@ class AppState extends ChangeNotifier {
     // The workout's ownership ends: a workout stopped while backgrounded used
     // to leave FULL live armed with no consumer, and the keep-alive then
     // re-armed the 100 Hz flood every 30 s until the next lifecycle transition.
-    _nudgeLive();
+    _liveStreamController.nudge();
     // A workout often rides the live feed; if the connection blipped during it, the
     // band may hold that window in flash. Pull it now over the live connection so the
     // just-finished session isn't left with a gap.
@@ -6924,7 +6866,7 @@ class AppState extends ChangeNotifier {
     _deriveScheduler.setWorkoutActive(false);
     activeWorkout = null;
     LiveDraft.clear();
-    _nudgeLive(); // the workout's stream ownership ends with it
+    _liveStreamController.nudge(); // the workout's stream ownership ends with it
     _workoutRawBase = null;
     _workoutSawSamples = false;
     _workoutLastGaitMs = null;
