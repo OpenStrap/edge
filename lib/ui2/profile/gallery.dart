@@ -3,9 +3,9 @@
 // Two things live here, and the second is the reason for the first.
 //
 //   · [galleryCases] — every reusable component in lib/ui2, built once, with
-//     a name. `test/ui2_golden_test.dart` shoots the same map, so the picture
-//     on the phone and the picture in the goldens cannot describe two
-//     different design systems.
+//     a name. `test/ui2_component_sweep_test.dart` sweeps the same map, so
+//     the screen on the phone and the sweep cannot describe two different
+//     design systems.
 //   · [GalleryScreen] — that map on a real device, at a real text scale, in
 //     both themes. Every layout bug this project has shipped lived in one of
 //     those two dimensions, and neither is visible on a laptop at 1.0×.
@@ -62,8 +62,7 @@ import '../ui2.dart';
 import 'devices.dart';
 import 'profile.dart';
 
-/// A deterministic series — a gallery cannot depend on random data, and
-/// neither can a golden.
+/// A deterministic series — a gallery cannot depend on random data.
 final _series =
     List<double>.generate(24, (i) => 52 + (i * 37 % 23) - (i % 5) * 2.0);
 
@@ -132,7 +131,7 @@ const _ringsHeldOver = HomeData(
 
 /// Newest first, the shape `availableDays()` returns. Today leads it so the
 /// stepper's "Today" state can be photographed; the rest are FIXED dates,
-/// because a golden whose label is `DateTime.now()` fails tomorrow morning.
+/// because a case whose label is `DateTime.now()` changes tomorrow morning.
 final _navDays = [
   todayLabel(),
   '2026-05-20',
@@ -149,12 +148,11 @@ const _night = <SleepStage>[
 ];
 
 /// Everything, in the order the gallery lists it.
-Map<String, Widget> galleryCases() => {...goldenCases(), ...extraCases()};
+Map<String, Widget> galleryCases() => {...componentCases(), ...extraCases()};
 
-/// The cases the goldens photograph. Named separately from [extraCases] only
-/// because a PNG per case per theme per scale is a file somebody has to
-/// review — see the note at the bottom of the golden test.
-Map<String, Widget> goldenCases() => {
+/// The components. Listed separately from [extraCases], the primitives and
+/// painters, so the gallery screen can show them as their own scroll.
+Map<String, Widget> componentCases() => {
       // The one number the whole app is judged by, and the picture the app
       // leaves someone else's phone. Both are photographed rather than merely
       // swept: they are the two components a regression would be noticed in
@@ -216,7 +214,7 @@ Map<String, Widget> goldenCases() => {
       // A REALISTIC value, not two characters. Every card below used to be
       // shot with '52' / '38 min' / '+6', and the 2.0x tier passed because of
       // it: with a duration or a thousands separator in the same slot, six
-      // components overflowed at the very scale the goldens claimed to cover.
+      // components overflowed at that scale.
       'progress': const ProgressCard(
           'Time asleep', '1h 38m', 'of 2h 00m', .63, C.domMove,
           icon: LucideIcons.footprints),
@@ -592,8 +590,7 @@ final _finished = ActivityResult(
   const Activity('Trail running', LucideIcons.mountain, C.green,
       Track.distance, 10.5,
       gps: true),
-  // Fixed, never `DateTime.now()` — a gallery case that moves is a golden
-  // that fails on a Tuesday.
+  // Fixed, never `DateTime.now()` — a gallery case must not move.
   start: DateTime(2026, 8, 13, 18, 20),
   // `Motion.tick * seconds` rather than a literal: theme.dart is the only
   // file allowed to spell a Duration, and this is one second times N.
@@ -632,7 +629,7 @@ Widget _shareCard({required bool photo, PosterFormat format = PosterFormat.post}
 
 /// A four-pixel slab of colour, standing in for the user's photograph.
 ///
-/// Embedded rather than an asset because a golden must not depend on a file
+/// Embedded rather than an asset because a fixture must not depend on a file
 /// somebody can move, and generated rather than fetched because a gallery
 /// that needs the network is a gallery that fails on a plane. What the photo
 /// case has to show is the LAYOUT — the scrim over a real background and the
@@ -675,10 +672,9 @@ const _medSlots = <MedSlot>[
 
 // ══════════════════ the rest of the vocabulary ══════════════════
 //
-// The primitives and the painters the goldens do not photograph. They are
-// still swept for overflow and for the 44 pt minimum at every text tier by
-// the golden test, which is the half of the coverage that catches bugs
-// without adding a PNG nobody reviews.
+// The primitives and the painters. Swept for overflow and for the 44 pt
+// minimum at every text tier by `ui2_component_sweep_test.dart`, like the
+// components above.
 
 /// An out-and-back loop, normalised 0…1 in both axes — the projection is the
 /// caller's job, and here the caller is a fixture.
@@ -724,9 +720,8 @@ Map<String, Widget> extraCases() => {
           ),
         ),
       ),
-      // WHAT CHARGED AND DRAINED YOU, taken apart. Swept rather than
-      // photographed because the interesting cases are the ones a golden
-      // cannot show: a driver that moved but stayed inside its own spread, and
+      // WHAT CHARGED AND DRAINED YOU, taken apart. The interesting cases are
+      // the ones a screenshot cannot show: a driver that moved but stayed inside its own spread, and
       // one that could not be used at all. Both have to render as neither
       // helping nor holding you back — a row under "what helped" reading
       // `+0.0` is a small lie, and skin temperature is a raw ADC so its
@@ -1792,9 +1787,9 @@ Map<String, Widget> _onboardingCases() => {
 /// A REAL run, on a real park loop, so the poster can be seen doing the one
 /// thing the offline case cannot show: sitting on actual streets.
 ///
-/// Deliberately not in [galleryCases]. Every case in that map is shot by the
-/// goldens and swept for overflow at five text scales, and a case that reaches
-/// the network would make both of those a function of the wifi. This is
+/// Deliberately not in [galleryCases]. Every case in that map is swept for
+/// overflow at five text scales, and a case that reaches
+/// the network would make that a function of the wifi. This is
 /// screen-only, opt-in, and fetches nothing until it is on screen.
 final _demoRun = ActivityResult(
   activityByName('Running')!,
@@ -1879,7 +1874,7 @@ final _normalisedDemoLoop = () {
 /// Everything else in the gallery is a pure function of its fixtures. This one
 /// is not — it fetches tiles and it reads a file the user picks — which is
 /// exactly why it lives at the bottom of the screen, behind its own button,
-/// and not in the map the goldens shoot.
+/// and not in the map the sweeps run.
 class _PosterPreview extends StatefulWidget {
   const _PosterPreview();
 
@@ -2045,7 +2040,7 @@ class _PosterPreviewState extends State<_PosterPreview> {
 /// FNV-1a rather than `name.hashCode`: Dart's string hash is stable within a
 /// run and NOT across them, which is the one property a fixture must not have
 /// — a gallery that reshuffles between launches is a gallery you cannot
-/// compare two screenshots of, and a golden that fails on a Tuesday.
+/// compare two screenshots of.
 double _n(String name, int salt) {
   var h = 2166136261 ^ salt;
   for (final u in name.codeUnits) {
@@ -2340,7 +2335,7 @@ class _FlowScreen extends StatelessWidget {
                   const StatusCard(
                     'A hand-written fixture',
                     'This one carries a real loop, a heart-rate dropout and a '
-                        'named top set — the awkward cases the goldens shoot.',
+                        'named top set — the awkward cases.',
                     icon: LucideIcons.pin,
                   ),
               ],
@@ -2371,7 +2366,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   int _scale = 0;
   int _theme = 0;
 
-  /// Flows first. The component scroll is what the goldens shoot; the flow is
+  /// Flows first. The component scroll is what the sweeps cover; the flow is
   /// what a person opens the gallery to walk.
   int _mode = 0;
 

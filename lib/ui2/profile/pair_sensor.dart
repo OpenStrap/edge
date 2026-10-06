@@ -40,6 +40,10 @@
 // scanned row would. No scan runs first, so no `CBCentralManager` exists to
 // make that picker fail either — but the pairing connect after it creates one,
 // so the iOS gate's warning still shows.
+//
+// A notify-class sensor NOT in `kAskPickerSensors` (Polar PMD, Coros) has no
+// picker and no scan on iOS 18+, so the screen says so instead of running a
+// scan that returns nothing.
 
 import 'dart:async' show unawaited;
 
@@ -119,6 +123,10 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
   /// (iOS 18+ and [kAskPickerSensors]). Decided once, in [_load].
   bool _viaPicker = false;
 
+  /// True on iOS 18+ for a sensor NOT in [kAskPickerSensors]: no picker of
+  /// its own and a scan that cannot see it, so searching says so instead.
+  bool _unreachable = false;
+
   /// The key field's text, when [PairSensorScreen.onPickedWithKey] is set.
   final TextEditingController _key = TextEditingController();
 
@@ -157,14 +165,16 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
         break;
       }
     }
-    final viaPicker = kAskPickerSensors.any((e) => e.id == widget.entry.id) &&
-        await AccessorySetup.isSupported();
+    final askOn = await AccessorySetup.isSupported();
+    final viaPicker =
+        kAskPickerSensors.any((e) => e.id == widget.entry.id) && askOn;
     // Kept on the picker path too: no scan runs there, but pairing the ring
     // connects through flutter_blue_plus, which creates the same central.
     final held = await HrsLink.scanHeldBackReason();
     if (!mounted) return;
     setState(() {
       _viaPicker = viaPicker;
+      _unreachable = askOn && !viaPicker;
       _paired = row == null
           ? null
           : (id: row['id'] as String, label: row['label'] as String?);
@@ -174,6 +184,13 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
 
   Future<void> _scan() async {
     if (_viaPicker) return _pairViaPicker();
+    if (_unreachable) {
+      setState(() => _problem = 'This iPhone only lets the app reach sensors '
+          'approved in the system pairing sheet, and a ${widget.entry.label} '
+          'cannot be offered there yet: its advertisement does not carry the '
+          'service it is identified by. Pair it on Android for now.');
+      return;
+    }
     setState(() {
       _scanning = true;
       _problem = null;

@@ -112,6 +112,18 @@ void main() {
     expect(notes['firmware'], '3.0512.0');
   });
 
+  test('a watch with no Firmware Revision reports its Software Revision as '
+      'firmware', () async {
+    final events = await replay(
+      const [(1_800_000_000, kHrWithTwoRr)],
+      reads: {kSoftwareRevisionUuid: utf8Bytes('V 3.0808.0')},
+    );
+    final notes = {
+      for (final e in events.whereType<BandNote>()) e.key: e.value,
+    };
+    expect(notes['firmware'], 'V 3.0808.0');
+  });
+
   test('a watch that answers nothing for the status pull still connects and '
       'still yields HR', () async {
     final events = await replay(const [(1_800_000_000, kHrWithTwoRr)]);

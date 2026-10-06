@@ -213,6 +213,9 @@ class BandHost {
       case OffloadCheckpoint():
         unawaited(_commitThenConfirm(e));
       case BandNote(:final key, :final value):
+        if (key == 'battery' && value is int) {
+          unawaited(LocalDb.setDeviceBattery(deviceId, value).catchError((_) {}));
+        }
         onNote?.call(key, value);
         onLog('[${adapter.id}] $key = $value');
       case VendorScalars():
@@ -365,6 +368,8 @@ class BandHost {
         extraCursors: extra == null || extra.isEmpty ? null : extra,
         onCheckpoint: onLog,
       );
+      // Every device row shows when it last synced; best-effort.
+      unawaited(LocalDb.markDeviceSynced(deviceId).catchError((_) {}));
       return true;
     } catch (e) {
       // Put the snapshot back so the next flush can retry it, same shape as

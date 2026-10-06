@@ -1233,6 +1233,10 @@ class LocalDb {
     await _addColumnIfMissing(
       db, 'device', 'wearing_set_ts', 'INTEGER',
     );
+    // A paired device's last reported battery and when — additive, no
+    // version bump (same reasoning as the columns above).
+    await _addColumnIfMissing(db, 'device', 'battery_pct', 'INTEGER');
+    await _addColumnIfMissing(db, 'device', 'battery_ts', 'INTEGER');
     await _createStepCalibration(db);
     // Views LAST — they depend on metric_series / day_result / baselines / sessions
     // / notifications all existing. DROP+CREATE so a shape change takes effect.
@@ -2328,6 +2332,13 @@ class LocalDb {
     });
   }
 
+  /// End of the newest banked vendor sleep epoch, or null when none is.
+  static Future<int?> lastVendorSleepEndTs() async {
+    final db = await instance;
+    return Sqflite.firstIntValue(
+        await db.rawQuery('SELECT MAX(end_ts) FROM vendor_sleep_epoch'));
+  }
+
   /// Every banked vendor night whose onset is in [[fromSec], [toSec]).
   static Future<List<VendorNight>> vendorSleepNights(
       int fromSec, int toSec) async {
@@ -2580,6 +2591,31 @@ class LocalDb {
   /// one. `PairedDevice.save` passes it when the remote id changed and the
   /// caller does not know the new band's family. It is ignored when
   /// [adapterId] is non-null — a caller that knows wins over one that clears.
+  /// Fires whenever a paired device's row changes after pairing (a sync
+  /// committed data, or the device reported its battery), so the screens
+  /// listing devices can re-read them.
+  static final StreamController<String> deviceRowChanged =
+      StreamController<String>.broadcast();
+
+  /// A sync with [id] committed data: stamp `last_seen` now.
+  static Future<void> markDeviceSynced(String id) async {
+    if (id == kPrimaryDeviceId) return;
+    final db = await instance;
+    final n = await db.rawUpdate('UPDATE device SET last_seen = ? WHERE id = ?',
+        [DateTime.now().millisecondsSinceEpoch ~/ 1000, id]);
+    if (n > 0) deviceRowChanged.add(id);
+  }
+
+  /// [id] reported its battery level.
+  static Future<void> setDeviceBattery(String id, int pct) async {
+    if (id == kPrimaryDeviceId || pct < 0 || pct > 100) return;
+    final db = await instance;
+    final n = await db.rawUpdate(
+        'UPDATE device SET battery_pct = ?, battery_ts = ? WHERE id = ?',
+        [pct, DateTime.now().millisecondsSinceEpoch ~/ 1000, id]);
+    if (n > 0) deviceRowChanged.add(id);
+  }
+
   static Future<void> upsertDevice({
     String id = kPrimaryDeviceId,
     String? adapterId,
@@ -2784,6 +2820,28 @@ class LocalDb {
       whereArgs: [date],
       orderBy: 'attribution ASC, COALESCE(vendor_key, key) ASC',
     );
+  }
+
+  /// One device's own stored values under [key] from [fromMs] on, keyed by
+  /// timestamp — for a link carrying a running total forward across
+  /// sessions (a watch that never re-sends what it already delivered). Reads
+  /// back only what that same device wrote; never an input to a derivation.
+  static Future<Map<int, num>> deviceObservationValues(
+    String deviceId,
+    String key, {
+    int fromMs = 0,
+  }) async {
+    final db = await instance;
+    final rows = await db.query(
+      'observation',
+      columns: ['ts_ms', 'value'],
+      where: 'device_id = ? AND key = ? AND ts_ms >= ?',
+      whereArgs: [deviceId, key, fromMs],
+    );
+    return {
+      for (final r in rows)
+        if (r['value'] != null) r['ts_ms'] as int: r['value'] as num,
+    };
   }
 
   // ── IMPORTED WORKOUTS (Apple Health / Health Connect) ──────────────────────

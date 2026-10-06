@@ -35,8 +35,14 @@ import 'adapters/_registry.dart';
 import 'adapters/adapter.dart' show ReplayBandLink;
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost;
+import 'package:openstrap_protocol/openstrap_protocol.dart'
+    show PebbleFrameReassembler;
+
 import 'adapters/pebble.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
+
+/// `sync_cursor` name for the newest step minute already counted.
+String _stepsHwItem(String deviceId) => 'pebble_steps_hw:$deviceId';
 
 String _hex(List<int> b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
@@ -85,7 +91,7 @@ class PebbleLink {
 
   /// How long one connect stays open before this host tears it down on its
   /// own — see the header on why the adapter's own stream never ends.
-  static const Duration _defaultWindow = Duration(seconds: 20);
+  static const Duration _defaultWindow = Duration(seconds: 60);
 
   /// Connect to the paired watch, drive [kPebbleAdapter] for [window], then
   /// disconnect. Returns false when nothing is paired or the connect failed.
@@ -134,12 +140,8 @@ class PebbleLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
-          final host = BandHost(
-            adapter: kPebbleAdapter,
-            deviceId: deviceId,
-            onLog: (m) => debugPrint('[pebble] $m'),
-            buildArchive: _buildArchiveRow,
-          );
+          final host = await _makeHost(deviceId,
+              () => DateTime.now().millisecondsSinceEpoch ~/ 1000);
           _host = host;
           // The adapter's stream has no end of its own — see the header —
           // so the window is what ends this session, not `run()` completing.
@@ -197,29 +199,78 @@ class PebbleLink {
     );
   }
 
-  /// Replay scripted PPoGATT bytes through the REAL [kPebbleAdapter] and the
-  /// real write path. The only way in: the entry point is a BLE notification
-  /// and `flutter_blue_plus` has no simulator path.
+  /// This session's host: the adapter starts from the step totals already
+  /// stored for this watch and the newest minute already counted, so a day's
+  /// total carries forward across sessions (the watch never re-sends an
+  /// ACKed minute).
+  Future<BandHost> _makeHost(String deviceId, int Function() now) async {
+    final hw = await LocalDb.getCursorInt(_stepsHwItem(deviceId)) ?? 0;
+    final prior = <DateTime, int>{};
+    if (hw > 0) {
+      final t = DateTime.fromMillisecondsSinceEpoch(hw * 1000);
+      final day = DateTime(t.year, t.month, t.day);
+      final stored = await LocalDb.deviceObservationValues(deviceId, 'steps',
+          fromMs: day.millisecondsSinceEpoch);
+      stored.forEach((ts, v) =>
+          prior[DateTime.fromMillisecondsSinceEpoch(ts)] = v.toInt());
+    }
+    return BandHost(
+      adapter: PebbleAdapter(
+          nowSeconds: now, priorSteps: prior, stepsHighWater: hw),
+      deviceId: deviceId,
+      onLog: (m) => debugPrint('[pebble] $m'),
+      onNote: (key, value) {
+        if (key == 'pebble_steps_hw' && value is int) {
+          _hwWrites = _hwWrites
+              .then((_) => LocalDb.setCursor(_stepsHwItem(deviceId), '$value'))
+              .catchError((_) {});
+        }
+      },
+      buildArchive: _buildArchiveRow,
+      nowSeconds: now,
+    );
+  }
+
+  Future<void> _hwWrites = Future.value();
+
+  /// Replay a scripted watch through the REAL [PebbleAdapter], host and
+  /// sqlite. [arrivals] are PPoGATT packets the watch sends unprompted;
+  /// [reply] answers each inner frame the phone sends (endpoint, payload)
+  /// with more PPoGATT packets.
   @visibleForTesting
   Future<ReplayBandLink> ingestForTest(
     String deviceId,
-    List<List<int>> arrivals,
-  ) async {
+    List<List<int>> arrivals, {
+    int Function()? nowSeconds,
+    List<List<int>> Function(int endpoint, List<int> payload)? reply,
+  }) async {
+    final now = nowSeconds ?? () => 1800000000;
     final link = ReplayBandLink();
-    final host = BandHost(
-      adapter: kPebbleAdapter,
-      deviceId: deviceId,
-      onLog: (m) => debugPrint('[pebble] $m'),
-      buildArchive: _buildArchiveRow,
-    );
+    final host = await _makeHost(deviceId, now);
     _host = host;
-    final done = host.run(link);
+    var finished = false;
+    final done = host.run(link).whenComplete(() => finished = true);
     for (final value in arrivals) {
-      link.feed(kPebblePpogattReadUuid, value, atSec: 1_800_000_000);
+      link.feed(kPebblePpogattReadUuid, value, atSec: now());
+    }
+    final frames = PebbleFrameReassembler();
+    var served = 0;
+    for (var spin = 0; spin < 400 && !finished; spin++) {
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      while (served < link.writes.length) {
+        final w = link.writes[served++].$2;
+        if (w.isEmpty || (w[0] & 0x7) != 0) continue; // transport acks/resets
+        for (final (endpoint, p) in frames.add(w.sublist(1))) {
+          for (final packet in reply?.call(endpoint, p) ?? const <List<int>>[]) {
+            link.feed(kPebblePpogattReadUuid, packet, atSec: now());
+          }
+        }
+      }
     }
     await link.close();
-    await done;
+    await done.timeout(const Duration(seconds: 5), onTimeout: () {});
     await host.stop();
+    await _hwWrites;
     _host = null;
     return link;
   }

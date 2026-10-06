@@ -10,6 +10,7 @@
 // strap sends these exact bytes.
 
 import 'package:flutter/services.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' show Guid;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -172,12 +173,12 @@ void main() {
       expect(identical(HrsLink.instance.arm(), a), isFalse);
     });
 
-    test('forgetting an unrelated watch9 row leaves this strap session alone',
-        () async {
-      // Regression: forgetDevice used to fall through to the generic branch
-      // for any non-Oura row, which disarms `HrsLink.instance` — the
-      // completely unrelated chest-strap singleton — even when the row being
-      // forgotten belongs to Watch9Link's own session.
+    test(
+        'forgetting a row whose family this build no longer has deletes it '
+        'and leaves this strap session alone', () async {
+      // A device paired under a family later removed from the registry has
+      // no link of its own: forget must fall through to the plain delete,
+      // never to `disarm()` on the unrelated chest-strap singleton.
       await HrsLink.instance.ingestForTest(deviceId, const [
         (1_800_000_000, kHrWithTwoRr),
       ]);
@@ -186,7 +187,7 @@ void main() {
       const watch9Id = 'watch9-aa11bb22';
       await LocalDb.upsertDevice(
         id: watch9Id,
-        adapterId: kWatch9.id,
+        adapterId: 'watch9',
         remoteId: '11:22:33:44:55:66',
       );
       await HrsLink.forgetDevice(watch9Id);
@@ -197,7 +198,7 @@ void main() {
       final row = (await LocalDb.deviceRows())
           .where((r) => r['id'] == watch9Id)
           .toList();
-      expect(row, isEmpty, reason: 'the watch9 row itself is still forgotten');
+      expect(row, isEmpty, reason: 'the removed-family row is still forgotten');
     });
   });
 
@@ -381,27 +382,6 @@ void main() {
 
     tearDown(() async => LocalDb.close());
 
-    test(
-        'an HPlus row goes through HPlusLink.instance, not the '
-        'chest-strap disarm', () async {
-      const id = 'hplus-11223344';
-      await LocalDb.upsertDevice(
-        id: id,
-        adapterId: kHPlus.id,
-        remoteId: 'AA:BB:CC:DD:EE:00',
-        label: 'Test Band',
-      );
-
-      // No BLE plugin is registered under `flutter test`, so this only
-      // proves the dispatch: it must reach `HPlusLink.instance.stop()`
-      // (a no-op with nothing connected) rather than `HrsLink.instance
-      // .disarm()`, and it must delete the row either way.
-      await HrsLink.forgetDevice(id);
-
-      final rows = await LocalDb.deviceRows();
-      expect(rows.where((r) => r['id'] == id), isEmpty);
-    });
-
     // THE INVERSE OF WHAT THIS ONCE ASSERTED, on purpose. It used to pin that
     // forgetting a ring revoked its ASK approval. That revocation removes the
     // accessory from the SYSTEM and for every app, bond included, so it
@@ -447,11 +427,11 @@ void main() {
     });
 
     test('a band that declares no signals stays null, not inherited', () {
-      expect(HrsLink.deriveTier(null, kHPlus.id), isNull);
+      expect(HrsLink.deriveTier(null, kThermometer.id), isNull);
     });
 
     test('an explicit tier always wins over the derivation', () {
-      expect(HrsLink.deriveTier('explicit', kHPlus.id), 'explicit');
+      expect(HrsLink.deriveTier('explicit', kThermometer.id), 'explicit');
       expect(HrsLink.deriveTier('explicit', kBleHrs.id), 'explicit');
     });
   });
@@ -468,14 +448,68 @@ void main() {
     expect(order.indexOf(kCoros), lessThan(order.indexOf(kBleHrs)));
   });
 
-  // 0xfff0 and the Nordic UART UUID are reused by unrelated boards; a strap
-  // carrying one beside 0x180D must be claimed as a heart rate strap.
+  // A 16-bit SIG service says nothing about the board; a strap carrying one
+  // beside 0x180D must be claimed as a heart rate strap.
   test('connected-device lookup: shared or 16-bit services follow generic hr',
       () {
     final order = HrsLink.systemDeviceQueryOrder(
         kBandRegistry.where((e) => !e.isFramed).toList());
-    for (final e in [kXWatch, kMakibesHr3, kDt78, kBangleJs]) {
+    for (final e in [kThermometer, kMiScaleComposition, kMiScale2]) {
       expect(order.indexOf(kBleHrs), lessThan(order.indexOf(e)), reason: e.id);
     }
+  });
+
+  group('scan identity', () {
+    final hr = Guid(kHeartRateServiceUuid);
+    final notify = kBandRegistry.where((e) => !e.isFramed).toList();
+
+    // A Polar advertises 0x180D and its name, never the PMD service.
+    test('a Polar optical sensor on 0x180D is routed to PMD, not generic HR',
+        () {
+      expect(HrsLink.hintedNameMatch(notify, [hr], 'polar sense 1a2b3c4d'),
+          kPolarPmd.id);
+      expect(HrsLink.scanServiceFilter([kPolarPmd]), contains(hr));
+    });
+
+    test('an H-series chest strap and an unnamed strap stay generic HR', () {
+      expect(HrsLink.hintedNameMatch(notify, [hr], 'polar h10 1a2b3c4d'),
+          isNull);
+      expect(HrsLink.hintedNameMatch(notify, [hr], ''), isNull);
+      // A Polar name without the hint is not enough on its own.
+      expect(HrsLink.hintedNameMatch(notify, const [], 'polar oh1 1a2b'),
+          isNull);
+    });
+
+    test('a Coros is found by its name on the shared 0xFEE7 hint', () {
+      expect(
+          HrsLink.hintedNameMatch(
+              notify, [Guid(kColmiAdvertisedHint)], 'coros pace 3 a1b2'),
+          kCoros.id);
+    });
+  });
+
+  group('pair-time identity', () {
+    test('a Coros must carry its vendor service, not a Nordic UART one', () {
+      expect(
+          HrsLink.identityRefusal(kCoros,
+              services: [Guid('6e400001-b5a3-f393-e0a9-e50e24dcca9e')]),
+          isNotNull);
+      expect(
+          HrsLink.identityRefusal(kCoros, services: [Guid(kCorosService)]),
+          isNull);
+    });
+
+    test('a PMD sensor without the PPI feature bit is refused', () {
+      expect(
+          HrsLink.identityRefusal(kPolarPmd,
+              services: const [], pmdFeatures: const [0x0F, 0x05]),
+          contains('does not stream PPI'));
+      expect(
+          HrsLink.identityRefusal(kPolarPmd,
+              services: const [], pmdFeatures: const [0x0F, 0x08]),
+          isNull);
+      // No feature reply: the session's START check is left to decide.
+      expect(HrsLink.identityRefusal(kPolarPmd, services: const []), isNull);
+    });
   });
 }

@@ -17,7 +17,9 @@
 // platform config from Dart.
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/ble/accessory_setup.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 
 import '../tool/gen_ios_ask_plist.dart';
@@ -36,7 +38,7 @@ void main() {
 
   test('every framed service is declared, uppercased', () {
     for (final e in kFramedBands) {
-      expect(plist, contains('<string>${e.service.toUpperCase()}</string>'));
+      expect(plist, contains('<string>${plistUuid(e.service)}</string>'));
     }
   });
 
@@ -48,14 +50,14 @@ void main() {
     ).firstMatch(plist)?.group(1);
     expect(marked, isNotNull, reason: '$kSensorServicesKey block missing');
     for (final e in kAskPickerSensors) {
-      final svc = '<string>${e.service.toUpperCase()}</string>';
+      final svc = '<string>${plistUuid(e.service)}</string>';
       expect(plist, contains(svc));
       expect(marked, contains(svc),
           reason: '${e.id} would show up in the WHOOP picker');
     }
     // A band marked as a sensor would vanish from the WHOOP picker.
     for (final e in kFramedBands) {
-      expect(marked, isNot(contains(e.service.toUpperCase())));
+      expect(marked, isNot(contains(plistUuid(e.service))));
     }
   });
 
@@ -90,5 +92,39 @@ void main() {
     for (final e in [...kFramedBands, ...kAskPickerSensors]) {
       expect(swift, isNot(contains(e.service.toLowerCase())));
     }
+  });
+
+  test('the service Dart sends the sensor picker is one the plist declares',
+      () async {
+    // Swift compares the channel argument verbatim against OSAskSensorServices
+    // and keys OSBandLabels by it; the 128-bit expansion of 0x180D would be
+    // refused as undeclared.
+    TestWidgetsFlutterBinding.ensureInitialized();
+    const channel = MethodChannel('openstrap/accessory_setup');
+    final sent = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      sent.addAll(((call.arguments as Map)['services'] as List).cast());
+      return 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+    });
+    addTearDown(() => TestDefaultBinaryMessengerBinding
+        .instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    final marked = RegExp(
+      '<key>$kSensorServicesKey</key>\\s*<array>(.*?)</array>',
+      dotAll: true,
+    ).firstMatch(plist)!.group(1)!;
+    final labels = RegExp(
+      '<key>$kLabelsKey</key>\\s*<dict>(.*?)</dict>',
+      dotAll: true,
+    ).firstMatch(plist)!.group(1)!;
+    for (final e in kAskPickerSensors) {
+      sent.clear();
+      await AccessorySetup.showSensorPicker([e.service]);
+      expect(marked, contains('<string>${sent.single}</string>'),
+          reason: e.id);
+      expect(labels, contains('<key>${sent.single}</key>'), reason: e.id);
+    }
+    expect(plistUuid(kBleHrs.service), '180D');
   });
 }

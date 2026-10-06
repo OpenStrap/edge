@@ -448,11 +448,43 @@ SleepSessionCandidate prepareSleepSessionCandidate(
   List<({int startSec, int endSec, String dayKey})> priorSleep = const [],
   List<VendorNight> vendorNights = const [],
 }) {
+  // An UNCLAIMED device night (our rows saw under half of it) ending today IS
+  // the night: above our detection, below the user's word. It never reaches
+  // calendarDays, whose gates all measure it against data we do not have —
+  // and with no rows at all there would be no day there to gate.
+  final claimed = <VendorNight>[];
+  for (final n in vendorNights) {
+    if (override == null &&
+        n.epochs.isNotEmpty &&
+        localDateLabel(n.offsetSec) == targetDay &&
+        vendorNightUnclaimed(n, sub.tsSec)) {
+      if (vendorNightRejection(n,
+              dataStartSec: 0, dataEndSec: 0, ours: null, unclaimed: true) ==
+          null) {
+        final seg = vendorOnlySegmentation(n);
+        final win = seg.window;
+        if (seg.present && win != null) {
+          return SleepSessionCandidate(
+            dayId: targetDay,
+            confidence: seg.confidence,
+            flags: const [],
+            sleepJson: seg.toJson(),
+            hypnoStages: List<String>.from(seg.stages4),
+            sleepOnsetSec: (win.onsetMs! / 1000).round(),
+            sleepOffsetSec: (win.offsetMs! / 1000).round() + 1,
+            sleepSource: 'vendor_staged',
+          );
+        }
+      }
+      continue;
+    }
+    claimed.add(n);
+  }
   final payload = prepareDerivationPayload(sub,
       targetDay: targetDay,
       override: override,
       priorSleep: priorSleep,
-      vendorNights: vendorNights);
+      vendorNights: claimed);
   if (payload.days.isEmpty) return SleepSessionCandidate.absent(targetDay);
   final day = payload.days.first;
   return SleepSessionCandidate(

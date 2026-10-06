@@ -1,16 +1,24 @@
-// The Ultrahuman Ring Air as a [BandAdapter]: no auth, no envelope, drain its
-// history by record index, bank every byte, decode nothing into a signal.
+// The Ultrahuman Ring Air as a [BandAdapter]: no auth, no envelope. Set the
+// clock, drain the history by record index, decode each 32-byte record, bank
+// every byte.
 //
-// NOTHING HERE HAS MET HARDWARE (ASSUMPTIONS R6). Unlike Oura, this protocol
-// has no key exchange and no vendor account anywhere in it — the reason this
-// still ships EXPERIMENTAL is not a missing credential, it is that not one
-// byte of it has been checked against a real capture. HRV, activity level and
-// stress carry no documented scale; the response's two trailing bytes are an
-// unverified "likely a checksum"; and the 32-byte record's documented field
-// table only fills 30 of its bytes (see `ultrahuman.dart` in `protocol`). A
-// decoder that is confidently wrong is worse than one that stays silent, so
-// `signals` is `const {}` and every record is archived verbatim instead of
-// decoded into a [NeutralSample].
+// WHAT BECOMES WHAT (the honesty contract):
+//  * HR (one reading per record) -> [NeutralSample]s, signal `hrSparse`.
+//    Still outside derivation (`kDerivableSources`) until the decode has met
+//    a physical ring (ASSUMPTIONS R6).
+//  * Steps -> a daily `steps` observation (a comparable quantity).
+//  * HRV (RMSSD), SpO2, skin temperature -> daily-mean VENDOR observations,
+//    attributed to Ultrahuman: the ring computes them with methods nobody
+//    outside the vendor can describe. A record whose quality byte says the
+//    ring was off the finger, charging or not reading contributes steps only.
+//
+// DAY-ANCHORED BOOKMARK. A daily mean computed from one session's records
+// would overwrite the full day with a partial one, so the bookmark this
+// adapter hands back is the index of the FIRST record of the latest day it
+// saw, not the next unread index. The next session re-reads that day from its
+// start (cheap: one day of records, and re-banking is idempotent —
+// `raw_archive` is keyed on the bytes and `decoded_onehz` on the second), so
+// every day a session reports on is complete from its first record.
 //
 // FETCH-BY-INDEX, LIKE OURA'S FETCH-BY-CURSOR BUT SIMPLER. `0x04` asks for
 // recordings starting at a record index, and nothing in this protocol deletes
@@ -18,34 +26,56 @@
 // re-reading a range is idempotent. That is the "fetch-by-range: `confirm()`
 // advances the adapter's own cursor" row in [OffloadCheckpoint]'s own table.
 //
-// TERMINATION IS THE ONE WELL-DOCUMENTED SIGNAL: the result byte (`0x00` ok /
-// `0xee` empty / `0xff` fail). `0x07`/`0x08` (earliest/latest index) are used
-// only as a best-effort clamp and progress hint — their RESPONSE PAYLOAD SHAPE
-// is not documented anywhere, so this file reads it as a u16-LE index (the
-// same width the request field itself uses) and treats a failure to parse it
-// as "no hint available", never as a reason to stop draining. The drain loop
-// itself never depends on either index being known.
+// TERMINATION. One `0x04` streams the history from the requested index as
+// many notifications; how many records fit in each depends on the MTU, so
+// frame size says nothing about where the stream ends. A pull ends when a
+// record's own index reaches the ring's latest index, on `0xee` (nothing more)
+// or any other non-ok result (a failure: stop, keep the cursor), or after a
+// reply gap. `0x07`/`0x08` (earliest/latest index) are a u16-LE index at
+// offset 3 of an ok reply; a failure to read either is "no hint available",
+// never a reason to stop draining.
 //
-// NO DESTRUCTIVE COMMAND IS REACHABLE FROM HERE. Reset (`0x98`), airplane mode
-// and the power-saving toggle have no builder in `protocol`'s `ultrahuman.dart`
-// and this file writes nothing it did not get from a builder there.
+// THE INDEX IS A WRAPPING u16. The cursor is always the last received
+// record's own index + 1, mod 65536. It is re-anchored to the earliest index
+// only when it lies outside `earliest..latest+1` on a ring that has not
+// wrapped (earliest <= latest); a wrapped ring's cursor is kept as is.
+//
+// NO DESTRUCTIVE COMMAND IS REACHABLE FROM HERE. The ring's destructive
+// opcodes (device reset / shipping mode `0x17`, software reset `0x98`,
+// airplane mode `0x70`, power saving `0xd1`-`0xd4` and the rest listed in
+// `protocol`'s `ultrahuman.dart`) have no builder there, and this file writes
+// nothing it did not get from a builder there.
 
 import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
+import '../../data/observation.dart';
 import '_registry.dart';
 import 'adapter.dart';
 import 'signals.dart';
+
+/// Shown next to every value this ring computed itself.
+const String kUltrahumanAttribution = 'Ultrahuman';
+
+/// The ring's first record index, and where a drain with no bookmark starts.
+const int kUltrahumanFirstIndex = 1;
+
+/// The signals this ring supplies. Mirrored in `kAdapterSignals`. The 5-min
+/// cadence is the ring's nominal record interval.
+const Map<InputSignal, Duration> kUltrahumanSignals = {
+  InputSignal.hrSparse: Duration(minutes: 5),
+};
 
 /// One session. Not const: it holds the cursor to resume from, which belongs
 /// to the host (see `ultrahuman_link.dart`) the same way Oura's cursor and
 /// anchor do.
 class UltrahumanAdapter extends BandAdapter {
-  /// Record index to resume the drain from. 0 asks for everything the ring
-  /// still holds (or as much of it as the ring's own earliest index allows —
-  /// see the earliest-index clamp in [run]).
+  /// Record index to resume the drain from. The ring numbers its records
+  /// from 1, so the default 1 asks for everything it still holds (or as much
+  /// of it as the ring's own earliest index allows — see the re-anchor in
+  /// [run]).
   final int startIndex;
 
   /// How long to wait for a reply the ring owes us.
@@ -55,30 +85,39 @@ class UltrahumanAdapter extends BandAdapter {
   /// Expiring is SAFE: the cursor does not move, so the batch is re-read.
   final Duration confirmTimeout;
 
+  /// Wall-clock now, in Unix seconds. Injected so a replay is deterministic.
+  final int Function() nowSeconds;
+
   UltrahumanAdapter({
-    this.startIndex = 0,
+    this.startIndex = kUltrahumanFirstIndex,
     this.replyTimeout = const Duration(seconds: 5),
     this.confirmTimeout = const Duration(seconds: 30),
-  });
+    int Function()? nowSeconds,
+  }) : nowSeconds = nowSeconds ??
+            (() => DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
   @override
   BandEntry get entry => kUltrahuman;
 
-  /// NOTHING. HR, HRV, SpO2, skin temperature, activity, steps and stress are
-  /// all in the wire record and none of them is declared here — see the
-  /// module doc for why. A declared-but-absent signal is worse than a missing
-  /// one (see [BandAdapter.signals]); nothing is claimed until a decoder
-  /// exists and a real capture has met it.
   @override
-  Map<InputSignal, Duration> get signals => const {};
+  Map<InputSignal, Duration> get signals => kUltrahumanSignals;
 
-  /// A full notification carries exactly 7 records; fewer than that is the
-  /// LAST frame of one `0x04` pull, not a truncated one — there is no other
-  /// terminator inside a pull.
-  static const int _kMaxRecordsPerFrame = 7;
+  /// Records banked per checkpoint while the ring is still streaming. Not a
+  /// terminator: the next batch keeps reading the same stream without a new
+  /// request.
+  static const int _kMaxRecordsPerBatch = 700;
+
+  static int _u16(int v) => v & 0xffff;
 
   @override
   Stream<BandEvent> run(BandLink link) async* {
+    final days = _Days(nowSeconds());
+    yield* _drain(link, days);
+    final rows = days.observations();
+    if (rows.isNotEmpty) yield VendorScalars(rows);
+  }
+
+  Stream<BandEvent> _drain(BandLink link, _Days days) async* {
     final inbox = _Inbox();
     final sub = link.notify(kUltrahumanNotifyChar).listen(
           (rec) {
@@ -104,93 +143,101 @@ class UltrahumanAdapter extends BandAdapter {
     });
 
     try {
+      // The ring stamps every record against its own clock: set it first.
+      await link.write(kUltrahumanWriteChar, ultrahumanCmdSetTime(nowSeconds()));
+
       // Both best-effort and both OPTIONAL — see the module doc on why the
       // drain loop below never depends on either succeeding.
       final earliest =
           await _getIndex(link, inbox, kUltrahumanOpGetEarliestIndex);
       final latest = await _getIndex(link, inbox, kUltrahumanOpGetLatestIndex);
 
-      var cursor = startIndex;
-      if (latest != null && cursor > latest) {
-        // THE RING'S OWN COUNTER RESTARTED BELOW OUR BOOKMARK — the same
-        // shape as Oura's decisecond-uptime reboot case (see `oura.dart`).
-        // Every request from here matches nothing forever, and it looks
-        // exactly like "no new data" while the ring quietly fills up. The
-        // host's remedy is to drop the bookmark; see `ultrahuman_link.dart`.
-        link.log('ultrahuman: the bookmark ($cursor) is past the ring\'s '
-            'latest index ($latest).');
-        yield const BandNote('ultrahuman_cursor_stranded');
+      var cursor = _u16(startIndex);
+      // Checked before the re-anchor: a bookmark one past a latest of 65535
+      // is 0, which the re-anchor below would read as "below earliest".
+      if (latest != null && cursor == _u16(latest + 1)) {
+        link.log('ultrahuman: nothing new since record $latest.');
         return;
       }
-      if (earliest != null && cursor < earliest) {
-        // Old records this ring no longer holds. Not recoverable — just skip
-        // forward to what it does hold, rather than spending requests on
-        // indices it will only ever answer empty.
-        link.log('ultrahuman: bookmark ($cursor) is behind the ring\'s '
-            'earliest index ($earliest); skipping forward.');
+      if (earliest != null &&
+          latest != null &&
+          earliest <= latest &&
+          (cursor > latest + 1 || cursor < earliest)) {
+        // The bookmark is outside what this ring holds: its records aged out
+        // below it, or its counter restarted below it. Either way, start from
+        // the oldest record it still has. A wrapped ring (earliest > latest)
+        // never lands here; its cursor is kept as is.
+        link.log('ultrahuman: bookmark ($cursor) is outside the ring\'s '
+            '$earliest..$latest; starting from $earliest.');
         cursor = earliest;
       }
 
       // A misbehaving ring answering forever would otherwise spin here.
+      var request = true;
       for (var pull = 0; pull < 5000; pull++) {
-        if (!await link.write(
-            kUltrahumanWriteChar, ultrahumanCmdGetRecordings(cursor))) {
+        if (request &&
+            !await link.write(
+                kUltrahumanWriteChar, ultrahumanCmdGetRecordings(cursor))) {
           link.log('ultrahuman: history request refused; ending the drain.');
           return;
         }
-        final got = await _collectPull(inbox);
+        final got = await _collectPull(inbox, cursor, latest);
         if (pendingBatteryPct != null) {
           yield BandNote('battery', pendingBatteryPct);
           pendingBatteryPct = null;
         }
-        if (got.records.isEmpty) {
-          if (got.failed) {
-            link.log('ultrahuman: the ring reported a failure; ending the '
-                'drain.');
+
+        if (got.records.isNotEmpty) {
+          final samples = <NeutralSample>[];
+          for (final r in got.records) {
+            final hr = days.add(r);
+            if (hr != null) samples.add(hr);
+          }
+          yield SampleBatch(samples, raw: got.raw);
+
+          // The ring's own index of the last record received, not a count
+          // from where we asked: a dropped frame or a skipped index cannot
+          // make the cursor drift.
+          final newCursor = _u16(got.records.last.index + 1);
+          final done = Completer<bool>();
+          yield OffloadCheckpoint(
+            () async {
+              if (!done.isCompleted) done.complete(true);
+              return true;
+            },
+            remaining: latest == null
+                ? null
+                : got.reachedLatest
+                    ? 0
+                    : _u16(latest - newCursor + 1),
+          );
+          final confirmed =
+              await done.future.timeout(confirmTimeout, onTimeout: () => false);
+          if (!confirmed) {
+            link.log('ultrahuman: batch was not confirmed; leaving the cursor '
+                'where it is.');
             return;
           }
-          final remaining = latest == null ? null : latest - cursor + 1;
-          if (remaining != null && remaining > 0) {
-            link.log('ultrahuman: the ring answered $cursor with nothing but '
-                'reports $remaining record(s) still ahead of it.');
-            yield const BandNote('ultrahuman_cursor_stranded');
-          }
+          cursor = newCursor;
+          // Day-anchored: resume from the first record of the latest day seen.
+          yield BandNote('ultrahuman_cursor', days.latestDayStart ?? cursor);
+        }
+        if (got.failedResult != null) {
+          // Any records banked above are real; only what came after them
+          // failed. The cursor stays where they left it.
+          link.log('ultrahuman: the ring answered with result '
+              '0x${got.failedResult!.toRadixString(16)}; ending the drain.');
           return;
         }
-
-        yield SampleBatch(const [], raw: got.raw);
-
-        final newCursor = cursor + got.records.length;
-        final done = Completer<bool>();
-        yield OffloadCheckpoint(
-          () async {
-            if (!done.isCompleted) done.complete(true);
-            return true;
-          },
-          remaining: latest == null
-              ? null
-              : (latest - newCursor + 1).clamp(0, 1 << 31),
-        );
-        final confirmed =
-            await done.future.timeout(confirmTimeout, onTimeout: () => false);
-        if (!confirmed) {
-          link.log('ultrahuman: batch was not confirmed; leaving the cursor '
-              'where it is.');
+        if (got.reachedLatest) return;
+        if (got.records.isEmpty) {
+          // Empty, or a reply gap with nothing in it: stop and keep the cursor.
+          link.log('ultrahuman: nothing more from $cursor.');
           return;
         }
-        cursor = newCursor;
-        yield BandNote('ultrahuman_cursor', cursor);
-        if (got.failed) {
-          // The records already banked above are real — only the frame AFTER
-          // them failed. Advancing past them (already done, two lines up)
-          // means a retry only re-requests from the point of actual failure,
-          // instead of re-fetching and re-discarding the same good frames
-          // forever.
-          link.log('ultrahuman: the ring reported a failure after '
-              '${got.records.length} record(s) this pull; ending the drain.');
-          return;
-        }
-        if (latest != null && cursor > latest) return;
+        // Still streaming: keep reading the same answer. Otherwise the ring
+        // went quiet short of its latest index; ask again from the cursor.
+        request = !got.streaming;
       }
     } finally {
       await sub.cancel();
@@ -213,43 +260,46 @@ class UltrahumanAdapter extends BandAdapter {
     return r.payload[0] | (r.payload[1] << 8);
   }
 
-  /// Collect every `0x04` notification belonging to one request, stopping at
-  /// the first short (< 7 records) frame — the only terminator inside a pull
-  /// — or a `fail`/`empty` result, or a reply gap.
-  Future<_Pull> _collectPull(_Inbox inbox) async {
+  /// Collect `0x04` notifications from one stream, starting at [from]. Ends
+  /// when a record's own index reaches [latest], on an empty result or an ok
+  /// frame with no records, on any failure result, after a reply gap, or once
+  /// [_kMaxRecordsPerBatch] records are in hand (then [_Pull.streaming] is
+  /// set: the ring has not finished, so the caller must not ask again).
+  Future<_Pull> _collectPull(_Inbox inbox, int from, int? latest) async {
     final records = <UltrahumanRecord>[];
     final raw = <Uint8List>[];
-    // A misbehaving ring streaming full frames forever would otherwise spin
-    // here — same shape as the outer `pull < 5000` guard in [run].
-    for (var frame = 0; frame < 1000; frame++) {
+    // How far [latest] is from where this pull started, in the wrapping
+    // counter. A record at that distance or beyond is the end of history.
+    final span = latest == null ? null : _u16(latest - from);
+    while (records.length < _kMaxRecordsPerBatch) {
       final r = await inbox.next(kUltrahumanOpGetRecordings, replyTimeout);
-      if (r == null) break; // no more frames arrived — end of this pull
-      // A fail frame carries no records of its own, but anything ALREADY
-      // collected from earlier ok frames this same pull is still good data —
-      // bank it (like the empty branch below) rather than discarding it, so a
-      // ring that fails partway through a pull doesn't force the drain to
-      // re-fetch and re-discard the same good frames forever.
-      if (r.result == kUltrahumanResultFail) {
-        return _Pull(records, raw, failed: true);
-      }
-      if (r.result == kUltrahumanResultEmpty) break; // nothing from here on
-      final frameRecords = parseUltrahumanRecords(r.payload);
-      records.addAll(frameRecords);
+      if (r == null) return _Pull(records, raw); // reply gap
+      if (r.failed) return _Pull(records, raw, failedResult: r.result);
+      if (r.empty || r.count == 0) return _Pull(records, raw);
+      var reached = false;
       for (var off = 0;
           off + kUltrahumanRecordLen <= r.payload.length;
           off += kUltrahumanRecordLen) {
+        final rec = parseUltrahumanRecord(r.payload, off)!;
+        records.add(rec);
         raw.add(
             Uint8List.sublistView(r.payload, off, off + kUltrahumanRecordLen));
+        if (span != null && _u16(rec.index - from) >= span) reached = true;
       }
-      if (frameRecords.length < _kMaxRecordsPerFrame) break;
+      if (reached) return _Pull(records, raw, reachedLatest: true);
     }
-    return _Pull(records, raw);
+    return _Pull(records, raw, streaming: true);
   }
 
-  /// 7-byte device-state payload: `[battery%, 4 unknown, chargeState,
-  /// tempC]`. Only the battery percent is read — the 4 unknown bytes and the
-  /// charge/temperature fields have no confirmed layout, and archiving them
-  /// under a name that might be wrong is worse than not naming them at all.
+  /// Device-state notify, variable length (at least 7 bytes): `[0]` battery
+  /// % u8; `[1..4]` current in µA, i32 LE (the sign is the direction); `[5]`
+  /// charge state u8 (0 not charging, 3 charging, anything else unknown);
+  /// `[6]` temperature u8 (unit not stated); when 9+ bytes, `[7..8]` voltage
+  /// in mV, u16 BIG-endian; when 10+ bytes, `[9]` charger status (0 off, 1
+  /// idle, 2 pre-charge, 3 fast 1, 4 fast 2, 5 fast CV, 6 maintain, 7 maintain
+  /// done, 8 fault 1, 9 fault 2, 14 CC track, 15 suspend); `[10..13]` further
+  /// u8 status fields; 33+ bytes carry an extended block (cycles, capacity,
+  /// time to empty/full). Only `[0]` is read here.
   static int? _deviceStateBatteryPct(List<int> value) {
     if (value.length < 7) return null;
     final pct = value[0];
@@ -257,11 +307,98 @@ class UltrahumanAdapter extends BandAdapter {
   }
 }
 
+/// Per-local-day accumulation of one session's records, plus the index of the
+/// first record of the latest day seen (the next session's bookmark).
+class _Days {
+  final int nowSec;
+  _Days(this.nowSec);
+
+  /// Records stamped before this, or after now, are a ring whose clock was
+  /// never set — dropped rather than filed on 1970.
+  static final int _floorSec =
+      DateTime.utc(2020).millisecondsSinceEpoch ~/ 1000;
+
+  final _steps = <DateTime, int>{};
+  final _hrv = <DateTime, List<num>>{};
+  final _spo2 = <DateTime, List<num>>{};
+  final _temp = <DateTime, List<num>>{};
+  DateTime? _lastDay;
+  int? latestDayStart;
+
+  bool _ok(int ts) => ts >= _floorSec && ts <= nowSec + 3600;
+
+  static DateTime _day(int ts) {
+    final t = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+    return DateTime(t.year, t.month, t.day);
+  }
+
+  /// Accumulates [r]; returns its HR sample, if any.
+  NeutralSample? add(UltrahumanRecord r) {
+    if (_ok(r.tsA)) {
+      final day = _day(r.tsA);
+      if (day != _lastDay) {
+        _lastDay = day;
+        latestDayStart = r.index;
+      }
+    }
+    if (_ok(r.tsC) && r.steps > 0) {
+      final d = _day(r.tsC);
+      _steps[d] = (_steps[d] ?? 0) + r.steps;
+    }
+    if (!ultrahumanHrQualityValid(r.hrQuality)) return null;
+    if (_ok(r.tsA)) {
+      final d = _day(r.tsA);
+      if (r.hrv > 0) (_hrv[d] ??= []).add(r.hrv);
+      if (r.spo2 > 0 && r.spo2 <= 100) (_spo2[d] ??= []).add(r.spo2);
+    }
+    // The skin-facing sensor only; bytes 16-19 are the ambient one. A zero
+    // temperature quality means the ring itself does not trust the reading.
+    final t = r.skinTempC;
+    if (r.tempQuality > 0 && _ok(r.tsB) && t >= 20 && t <= 45) {
+      (_temp[_day(r.tsB)] ??= []).add(t);
+    }
+    if (!_ok(r.tsA) || r.hr < 25 || r.hr > 230) return null;
+    return NeutralSample(
+        anchor: TimeAnchor.measured, tsEpoch: r.tsA, hr: r.hr);
+  }
+
+  static double _mean(List<num> v) =>
+      v.fold<double>(0, (s, x) => s + x) / v.length;
+
+  static Observation _obs(DateTime day, num value,
+          {String? unit, String? key, String? vendorKey}) =>
+      Observation(
+        at: day,
+        sourceKind: ObservationSource.vendor,
+        key: key,
+        vendorKey: vendorKey,
+        value: value,
+        unit: unit,
+        attribution: kUltrahumanAttribution,
+      );
+
+  List<Observation> observations() => [
+        for (final MapEntry(:key, :value) in _steps.entries)
+          _obs(key, value, unit: 'steps', key: 'steps'),
+        for (final MapEntry(:key, :value) in _hrv.entries)
+          _obs(key, _mean(value), unit: 'ms', vendorKey: 'hrv_avg'),
+        for (final MapEntry(:key, :value) in _spo2.entries)
+          _obs(key, _mean(value), unit: '%', vendorKey: 'spo2_avg'),
+        for (final MapEntry(:key, :value) in _temp.entries)
+          _obs(key, _mean(value), unit: '°C', vendorKey: 'skin_temp_avg'),
+      ];
+}
+
 class _Pull {
   final List<UltrahumanRecord> records;
   final List<Uint8List> raw;
-  final bool failed;
-  const _Pull(this.records, this.raw, {this.failed = false});
+
+  /// The result byte of a failed frame, or null.
+  final int? failedResult;
+  final bool reachedLatest;
+  final bool streaming;
+  const _Pull(this.records, this.raw,
+      {this.failedResult, this.reachedLatest = false, this.streaming = false});
 }
 
 /// Response frames off the notify characteristic, buffered so a reply landing

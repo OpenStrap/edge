@@ -1779,7 +1779,8 @@ import 'vendor_sleep.dart';
 // abstains when recording resumed more than 30 s after its end. Edge-only.
 // 106 → 107: analytics main @ c0effea, #86 rmssd gate refuses noise windows, so the stored rmssd/hrv can go null or move.
 // 107 → 108: a ring's own hypnogram stages the main sleep (`vendor_staged`, above auto, below the user's override) when it passes the plausibility gate. Edge-only.
-const int kAlgoVersion = 108;
+// 108 → 109: a device night our own rows saw under half of (no primary band that night) becomes the main sleep (`vendor_staged`) instead of none, so a day with no band rows at all still derives its sleep. Edge-only.
+const int kAlgoVersion = 109;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -2999,7 +3000,11 @@ class DerivationEngine {
       ..['last_error'] = null;
     try {
       final scope = _scopeForDays(days.toList(), reason: 'selected-days');
-      final dataNowSec = await LocalDb.lastDecodedRecTs() ?? 0;
+      // No band data at all: a device's banked nights are still days to
+      // derive, so their edge stands in as "now, in data time".
+      final dataNowSec = await LocalDb.lastDecodedRecTs() ??
+          await LocalDb.lastVendorSleepEndTs() ??
+          0;
       if (dataNowSec <= 0) {
         _log('derive selected: no decoded data');
         return 0;
@@ -3357,13 +3362,15 @@ class DerivationEngine {
     final priorSleep = await _storedSleepHistory(excludeDay: dayId);
     // The band's own hypnogram, from its own table — never `observation`.
     // Gated inside calendarDays; an override outranks it, so skip the read.
-    // Only a device that owns hr1Hz over the night may stage it.
+    // Only a device that owns hr1Hz over the night may stage it — or any
+    // device, when our own rows never saw that night (an unclaimed night).
     final vendorNights = override != null
         ? const <VendorNight>[]
         : ownedVendorNights(
             await LocalDb.vendorSleepNights(range.$1, range.$2),
             searchOwnership[InputSignal.hr1Hz] ?? const [],
             primaryDeviceId: LocalDb.kPrimaryDeviceId,
+            ourTsSec: searchSub.tsSec,
           );
     // Cancellable + TIMED OUT. This site previously used a bare `Isolate.run`
     // with no timeout at all, so a hung staging pass never completed its future

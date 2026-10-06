@@ -414,4 +414,70 @@ void main() {
       expect(off, DateTime(2026, 3, 2, 13, 30));
     });
   });
+
+  group('a device\'s own staging, beside ours', () {
+    Map<String, Object?> deviceNight(String id, String label, String family,
+            Map<String, int> minutes) =>
+        {
+          'device_id': id,
+          'label': label,
+          'family': family,
+          'onset_ts': _onset,
+          'wake_ts': _onset + 480 * 60,
+          'duration_min': 460,
+          'stage_min': minutes,
+          'hypnogram': [
+            {'t': _onset, 'stage': 'light'},
+            {'t': _onset + 3600, 'stage': 'deep'},
+            {'t': _onset + 480 * 60, 'stage': 'deep'},
+          ],
+        };
+
+    testWidgets('a switcher offers OpenStrap and each device; picking one '
+        'says whose staging it is and what it cannot report', (t) async {
+      await _pump(
+        t,
+        SleepData(
+          day: '2026-05-20',
+          night: _night(),
+          deviceNights: [
+            deviceNight('mb-1', 'Mi Band', 'miband234',
+                {'light': 400, 'deep': 60, 'wake': 20}),
+            deviceNight('cm-1', 'Colmi ring', 'colmi',
+                {'light': 250, 'deep': 100, 'rem': 110, 'wake': 20}),
+          ],
+        ),
+      );
+      expect(find.text('OpenStrap'), findsOneWidget);
+      expect(find.text('Mi Band'), findsOneWidget);
+      expect(find.text('Colmi ring'), findsOneWidget);
+      expect(find.textContaining('Staged by'), findsNothing,
+          reason: 'ours is the default view');
+
+      await t.tap(find.text('Mi Band'));
+      await t.pumpAndSettle();
+      expect(find.text('Staged by Mi Band'), findsOneWidget);
+      expect(find.textContaining('Deep 1h'), findsOneWidget);
+      expect(find.textContaining('does not report REM'), findsOneWidget);
+
+      // The pill row scrolls sideways; bring the last pill into view first.
+      await t.ensureVisible(find.text('Colmi ring'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Colmi ring'));
+      await t.pumpAndSettle();
+      expect(find.text('Staged by Colmi ring'), findsOneWidget);
+      expect(find.textContaining('does not report'), findsNothing);
+
+      await t.ensureVisible(find.text('OpenStrap'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('OpenStrap'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('Staged by'), findsNothing);
+    });
+
+    testWidgets('no device night means no switcher', (t) async {
+      await _pump(t, SleepData(day: '2026-05-20', night: _night()));
+      expect(find.text('OpenStrap'), findsNothing);
+    });
+  });
 }

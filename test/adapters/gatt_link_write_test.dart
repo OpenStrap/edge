@@ -127,6 +127,20 @@ void main() {
     expect(reached, isFalse);
   });
 
+  test('a Coros link refuses every write, before the radio', () async {
+    final link = GattBandLink(
+      entry: kCoros,
+      services: const [],
+      onLog: (_) {},
+    );
+    var reached = false;
+    link.debugWriteHook = (_) async => reached = true;
+    expect(
+        await link.write('6e400002-b5a3-f393-e0a9-77656c6f6f70', [0x85, 0x00]),
+        isFalse);
+    expect(reached, isFalse);
+  });
+
   test('read() on a characteristic the peripheral does not expose returns '
       'null rather than throwing', () async {
     final link = _link();
@@ -156,7 +170,7 @@ void main() {
 
   group('raceUntilClosed', () {
     // What `notify()` actually races on a real link: a source that answers
-    // once (a write+notify band with nothing left to say, e.g. WearFit) and
+    // once (a write+notify band with nothing left to say) and
     // then never emits and never completes on its own — the shape
     // `BluetoothCharacteristic.onValueReceived` has, which `flutter_blue_plus`
     // gives no simulator to fake directly.

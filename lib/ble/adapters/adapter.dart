@@ -75,12 +75,10 @@ abstract class BandLink {
   /// dead link, or a timeout — the same failure vocabulary [write] uses.
   ///
   /// The whole surface used to be `notify`/`write`/`log`, and every band so
-  /// far only ever needed to be WRITTEN to or NOTIFIED by. RingConn's auth
-  /// needs one plain GATT read (the standard System ID characteristic, to
-  /// recover its own BLE MAC), and Coros's status pull needs several more
-  /// (battery, model, serial, firmware) — the first two bands that needed a
-  /// one-shot read where no framed band and no notify-only sensor before them
-  /// required one. See `ringconn.dart` and `coros.dart`.
+  /// far only ever needed to be WRITTEN to or NOTIFIED by. Coros's status
+  /// pull needs several plain GATT reads (battery, model, serial, firmware) —
+  /// a one-shot read no framed band and no notify-only sensor before it
+  /// required. See `coros.dart`.
   ///
   /// For a characteristic with no notify property (Device Information
   /// Service's read-only strings, say) this is the only way to reach it —

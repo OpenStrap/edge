@@ -48,6 +48,8 @@ import 'package:collection/collection.dart' show IterableExtension;
 import 'package:flutter/foundation.dart'
     show ValueListenable, ValueNotifier, debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart'
+    show polarPmdSupportsPpi;
 
 import '../data/db.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
@@ -65,25 +67,16 @@ import 'ble_state.dart'
         withScanLock,
         acquireSecondaryLinkSlot,
         releaseSecondaryLinkSlot;
-import 'banglejs_link.dart' show BangleJsLink;
 import 'colmi_link.dart' show ColmiLink;
+import 'session_link.dart' show SessionLink;
 import 'coros_link.dart' show CorosLink;
-import 'dafit_link.dart' show DafitLink;
-import 'garmin_link.dart' show GarminLink;
-import 'hplus_link.dart' show HPlusLink;
-import 'lefun_link.dart' show LefunLink;
+import 'adapters/garmin.dart' show garminMlPair;
+import 'garmin_link.dart' show GarminLink, garminMlCharsOf;
 import 'miband_link.dart' show MiBand234Link;
-import 'o2ring_link.dart' show O2RingLink;
 import 'oura_link.dart' show OuraLink;
 import 'pebble_link.dart' show PebbleLink;
 import 'polar_pmd_link.dart' show PolarPmdLink;
-import 'qhybrid_link.dart' show QHybridLink;
-import 'ring11m_link.dart' show Ring11mLink;
-import 'ringconn_link.dart' show RingConnLink;
 import 'ultrahuman_link.dart' show UltrahumanLink;
-import 'watch9_link.dart' show Watch9Link;
-import 'wearfit_link.dart' show WearFitLink;
-import 'withings_steel_hr_link.dart' show WithingsSteelHrLink;
 
 export 'adapters/host.dart' show HrsReading;
 
@@ -325,7 +318,14 @@ class HrsLink {
     if (FlutterBluePlus.isScanningNow) {
       await FlutterBluePlus.stopScan();
     }
-    final serviceGuids = [for (final e in entries) Guid(e.service)];
+    // Every entry's service, or EMPTY when an entry may not advertise its
+    // service ([BandEntry.scanByName]): the scan then hears everything, and
+    // results matching no entry by service or name are dropped below.
+    final scanFilter = scanServiceFilter(entries);
+    final hints = {
+      for (final e in entries)
+        for (final h in e.scanHints) Guid(h),
+    }..removeAll([for (final e in entries) Guid(e.service)]);
     // Which entry a matched service belongs to, or NULL when this particular
     // advertisement did not carry one of them. Services are each entry's own
     // GATT identity, so a collision here would mean two registry rows sharing
@@ -342,9 +342,9 @@ class HrsLink {
     // .nameMatcher` is the same per-entry escape hatch `transport.dart` uses
     // for a framed band whose advertisement carries its name but not a
     // matchable service UUID. It cannot rescue a device the OS-level
-    // `withServices` filter below already excluded from the scan entirely —
-    // only a real scan against real hardware settles whether that filter
-    // ever does.
+    // `withServices` filter below already excluded from the scan entirely,
+    // which is why an entry that may not advertise its service at all sets
+    // `scanByName` and the filter is dropped.
     // Split from the genuine service match on purpose: a name match is the
     // same kind of guess the comment above already warns about, and caching
     // it into `confirmed` would make it permanent the same way. Only
@@ -355,6 +355,19 @@ class HrsLink {
       for (final g in advertised) {
         for (final e in entries) {
           if (g == Guid(e.service)) return e.id;
+        }
+      }
+      return null;
+    }
+
+    // A company id or service-data UUID an entry names as its own
+    // ([BandEntry.scanCompanyIds], [BandEntry.scanServiceData]): an identity,
+    // as good as the service, so it confirms like one.
+    String? adMatchFor(AdvertisementData ad) {
+      for (final e in entries) {
+        if (e.scanCompanyIds.any(ad.manufacturerData.containsKey) ||
+            e.scanServiceData.any((u) => ad.serviceData.containsKey(Guid(u)))) {
+          return e.id;
         }
       }
       return null;
@@ -394,7 +407,15 @@ class HrsLink {
         // Re-attempted on EVERY advertisement until one confirms, then fixed:
         // a confirmed match cannot change (a peripheral does not swap GATT
         // identity mid-scan) and re-reading it would only add work.
-        final svcMatch = serviceMatchFor(r.advertisementData.serviceUuids);
+        // A name an entry claims, on an advertisement carrying one of THAT
+        // entry's hints, outranks a plain service match: a Polar optical
+        // sensor advertises 0x180D, which is [kBleHrs]'s own service. Read
+        // off the sticky [label], so an advertisement whose name has not
+        // landed yet cannot flip the row back.
+        final svcMatch = hintedNameMatch(entries,
+                r.advertisementData.serviceUuids, label?.toLowerCase() ?? '') ??
+            serviceMatchFor(r.advertisementData.serviceUuids) ??
+            adMatchFor(r.advertisementData);
         if (svcMatch != null) confirmed[id] = svcMatch;
         final match = confirmed[id] ??
             svcMatch ??
@@ -402,6 +423,16 @@ class HrsLink {
                     ? r.advertisementData.advName
                     : r.device.platformName)
                 .toLowerCase());
+        // Unfiltered scan: no OS filter vouched for this one, so a result
+        // with no match is some other peripheral, not a candidate. The same
+        // goes for one the filter let in on a shared hint alone
+        // ([BandEntry.scanHints]): every unrelated band carrying that UUID
+        // would otherwise show up as `entries.first`.
+        if (match == null &&
+            (scanFilter.isEmpty ||
+                r.advertisementData.serviceUuids.any(hints.contains))) {
+          continue;
+        }
         final now = (
           device: r.device,
           label: label,
@@ -468,8 +499,11 @@ class HrsLink {
       // `startScan`/`stopScan` through one mutex, so a stop issued in the
       // window queues behind this start and takes effect on the way out.
       // (The claim itself is made above, before the iOS lookup.)
+      final ads = scanAdFilters(entries);
       await FlutterBluePlus.startScan(
-        withServices: serviceGuids,
+        withServices: scanFilter,
+        withMsd: ads.msd,
+        withServiceData: ads.serviceData,
         timeout: timeout,
       );
       // The scan's own timeout is what stops it; this waits that out.
@@ -487,6 +521,57 @@ class HrsLink {
       await sub.cancel();
     }
     onResults(_ranked(seen));
+  }
+
+  /// The entry whose [BandEntry.nameMatcher] claims [lowercaseName] while
+  /// [advertised] carries one of that same entry's [BandEntry.scanHints], or
+  /// null. Name and hint together name the entry; either alone does not.
+  @visibleForTesting
+  static String? hintedNameMatch(List<BandEntry> entries,
+      List<Guid> advertised, String lowercaseName) {
+    for (final e in entries) {
+      if ((e.nameMatcher?.call(lowercaseName) ?? false) &&
+          e.scanHints.any((h) => advertised.contains(Guid(h)))) {
+        return e.id;
+      }
+    }
+    return null;
+  }
+
+  /// The OS-level service filter for a scan over [entries]: every entry's
+  /// service plus its [BandEntry.scanHints], or none at all when any entry
+  /// sets [BandEntry.scanByName]. Both platforms OR the filter's UUIDs.
+  @visibleForTesting
+  static List<Guid> scanServiceFilter(List<BandEntry> entries) =>
+      entries.any((e) => e.scanByName)
+          ? const <Guid>[]
+          : <Guid>{
+              for (final e in entries) ...[
+                Guid(e.service),
+                for (final h in e.scanHints) Guid(h),
+              ],
+            }.toList();
+
+  /// The advertisement filters OR'd with [scanServiceFilter]: every entry's
+  /// [BandEntry.scanCompanyIds] and [BandEntry.scanServiceData]. Empty when
+  /// the service filter is (an unfiltered scan), since any filter at all
+  /// would narrow it.
+  @visibleForTesting
+  static ({List<MsdFilter> msd, List<ServiceDataFilter> serviceData})
+      scanAdFilters(List<BandEntry> entries) {
+    if (scanServiceFilter(entries).isEmpty) {
+      return (msd: const [], serviceData: const []);
+    }
+    return (
+      msd: [
+        for (final id in {for (final e in entries) ...e.scanCompanyIds})
+          MsdFilter(id),
+      ],
+      serviceData: [
+        for (final u in {for (final e in entries) ...e.scanServiceData})
+          ServiceDataFilter(Guid(u)),
+      ],
+    );
   }
 
   /// The order [scanForAny]'s connected-device lookup asks the OS in. The
@@ -644,6 +729,37 @@ class HrsLink {
   static String? deriveTier(String? explicit, String adapterId) =>
       explicit ?? (declaredSignals(adapterId).isEmpty ? null : 'beatToBeat');
 
+  /// Why a connected peripheral that has [entry]'s characteristics is still
+  /// not [entry], as a user-facing sentence, or null when nothing says so.
+  /// [services] is what discovery found; [pmdFeatures] the PMD control
+  /// point's READ value (Polar only).
+  ///
+  /// A Coros is found by name, and its required characteristic (battery) is
+  /// one any watch has: the vendor service is the identity check, compared in
+  /// full — its 8-character prefix is the Nordic UART one.
+  ///
+  /// Having the PMD service is not having PPI: an ECG chest strap carries PMD
+  /// and refuses PPI start, so every session would end before a beat. Its own
+  /// feature bitmap says so. A reply that is not a feature bitmap is let
+  /// through; the session's START check still stands behind it.
+  @visibleForTesting
+  static String? identityRefusal(
+    BandEntry entry, {
+    required List<Guid> services,
+    List<int>? pmdFeatures,
+  }) {
+    if (entry.id == kCoros.id && !services.contains(Guid(kCorosService))) {
+      return 'That device answered, but it is not a ${entry.label}. Nothing '
+          'was saved.';
+    }
+    if (entry.id == kPolarPmd.id &&
+        polarPmdSupportsPpi(pmdFeatures ?? const <int>[]) == false) {
+      return 'This Polar sensor does not stream PPI over PMD; pair it as a '
+          '${kBleHrs.label} instead. Nothing was saved.';
+    }
+    return null;
+  }
+
   static Future<String?> pairNotifySensor(
     BandEntry entry,
     BluetoothDevice device, {
@@ -672,6 +788,25 @@ class HrsLink {
             '${entry.label} data this needs '
             '(missing ${missing.map((u) => u.substring(0, 8)).join(", ")}). '
             'Nothing was saved.';
+      }
+      // A Garmin watch's data characteristic varies, so the generic list
+      // cannot name it; its own check stands in.
+      if (entry.id == kGarmin.id &&
+          garminMlPair(garminMlCharsOf(services)) == null) {
+        link.close();
+        return 'That device answered, but it does not expose the '
+            '${entry.label} data this needs. Nothing was saved.';
+      }
+      final refusal = identityRefusal(
+        entry,
+        services: [for (final s in services) s.uuid],
+        pmdFeatures: entry.id == kPolarPmd.id
+            ? await link.read(kPolarPmdControlChar)
+            : null,
+      );
+      if (refusal != null) {
+        link.close();
+        return refusal;
       }
       // Some notify-class bands (Pebble) gate everything past this point on
       // OS-level bonding, triggered by a write here rather than by an
@@ -724,22 +859,8 @@ class HrsLink {
   /// secret this class knows nothing about — [OuraLink.forgetRing] and
   /// [MiBand234Link.forgetBand] drop the stored key and the row together, and
   /// calling `disarm()` on either here would leave that key behind while
-  /// looking like a complete forget. A Withings row has no secret to lose,
-  /// but [WithingsSteelHrLink.forgetDevice] still owns stopping ITS OWN live
-  /// session before the row goes — `disarm()` here only knows about this
-  /// class's own connection, not that one. An O2Ring row carries no secret,
-  /// but [O2RingLink.forgetRing] still tears down a live session before the
-  /// row goes — the same reason this dispatch exists at all. A RingConn row
-  /// carries no such secret either, but still needs [RingConnLink.forgetRing]
-  /// rather than this class's own `disarm()` — that call tears down a live
-  /// WORKOUT sensor session, not a RingConn `sync()` that may be mid-drain. An
-  /// HPlus row similarly has no secret, but its live connection is
-  /// [HPlusLink.instance], a separate singleton from this class's own
-  /// chest-strap session — `disarm()` here would tear down the wrong link and
-  /// leave the real one (and its `BandHost`'s flush timer) running against a
-  /// deleted device id. A Watch9 row is the same shape as HPlus:
-  /// [Watch9Link.instance] owns its own live connection, separate from this
-  /// class's chest-strap session.
+  /// looking like a complete forget. A row whose family this build no longer
+  /// supports has no link of its own and falls through to the plain delete.
   static Future<void> forgetDevice(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) {
       debugPrint('[hrs] refusing to forget the primary band from here.');
@@ -771,10 +892,6 @@ class HrsLink {
       await OuraLink.forgetRing(id);
       return;
     }
-    if (row?['adapter_id'] == kRing11m.id) {
-      await Ring11mLink.forget(id);
-      return;
-    }
     if (row?['adapter_id'] == kCoros.id) {
       await CorosLink.forget(id);
       return;
@@ -787,10 +904,6 @@ class HrsLink {
       await UltrahumanLink.forgetRing(id);
       return;
     }
-    if (row?['adapter_id'] == kWithingsSteelHr.id) {
-      await WithingsSteelHrLink.forgetDevice(id);
-      return;
-    }
     if (row?['adapter_id'] == kMiBand234.id) {
       await MiBand234Link.forgetBand(id);
       return;
@@ -799,63 +912,13 @@ class HrsLink {
       await PebbleLink.forgetPebble(id);
       return;
     }
-    if (row?['adapter_id'] == kWatch9.id) {
-      // Stop its own session before the row goes — same reasoning as the
-      // generic branch below, aimed at the link that actually owns this
-      // device instead of the unrelated ble_hrs singleton.
-      await Watch9Link.instance.stop();
-      await LocalDb.deleteDevice(id);
-      return;
-    }
-    if (row?['adapter_id'] == kDafit.id) {
-      await DafitLink.forget(id);
-      return;
-    }
-    if (row?['adapter_id'] == kO2Ring.id) {
-      await O2RingLink.forgetRing(id);
-      return;
-    }
-    if (row?['adapter_id'] == kWearFit.id) {
-      await WearFitLink.forgetDevice(id);
-      return;
-    }
-    if (row?['adapter_id'] == kRingConn.id) {
-      await RingConnLink.forgetRing(id);
-      return;
-    }
-    if (row?['adapter_id'] == kLefun.id) {
-      // No secret to drop — the envelope this device speaks has no key
-      // exchange — so this is a plain stop-and-delete, same shape as Oura's
-      // forget minus the keychain half. GATED ON THE LIVE SESSION ACTUALLY
-      // BEING THIS ROW: `LefunLink` is a singleton over potentially several
-      // paired rows, so stopping it unconditionally would drop a DIFFERENT
-      // Lefun device's in-flight sync if one happened to be live when this
-      // one was forgotten.
-      if (LefunLink.instance.currentDeviceId == id) {
-        await LefunLink.instance.stop();
-      }
-      await LocalDb.deleteDevice(id);
-      return;
-    }
-    if (row?['adapter_id'] == kHPlus.id) {
-      // HPlusLink.instance owns this band's live connection, not HrsLink's
-      // own chest-strap session — stopping the wrong one would leave the
-      // real link (and its BandHost's flush timer) running against a
-      // device_id that no longer exists.
-      await HPlusLink.instance.stop();
-      await LocalDb.deleteDevice(id);
-      return;
-    }
-    if (row?['adapter_id'] == kQHybrid.id) {
-      await QHybridLink.forget(id);
-      return;
-    }
     if (row?['adapter_id'] == kColmi.id) {
       await ColmiLink.forgetRing(id);
       return;
     }
-    if (row?['adapter_id'] == kBangleJs.id) {
-      await BangleJsLink.forget(id);
+    final session = SessionLink.forId(row?['adapter_id'] as String?);
+    if (session != null) {
+      await session.forget(id);
       return;
     }
     // Before the row goes, not after: a live session would keep writing rows
@@ -865,7 +928,7 @@ class HrsLink {
     // ON THE ROW BEING THE ARMED HRS SENSOR for the `instance` branch, not
     // called unconditionally — this fallback used to run for ANY adapter
     // without its own branch above, which would tear down a live chest-strap
-    // session while forgetting an unrelated device (e.g. a Lefun ring paired
+    // session while forgetting an unrelated device (e.g. a Colmi ring paired
     // alongside one).
     if (row?['adapter_id'] == kPolarPmd.id) {
       await PolarPmdLink.instance.disarm();

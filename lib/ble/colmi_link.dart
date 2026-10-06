@@ -1,26 +1,23 @@
 // The HOST for a paired Colmi ring: hold the `device` row, connect, drive
-// [ColmiAdapter] over the link, bank the raw frames it yields, disconnect.
+// [ColmiAdapter] over the link, commit what it decodes and bank every reply
+// verbatim, disconnect.
 //
 // THE SHAPE IS `OuraLink`'s, minus everything Oura needs that this ring does
-// not. No pairing key (this protocol has no handshake at all — see
-// `adapters/colmi.dart`'s header), no drain cursor and no time anchor (the
-// adapter walks the same small rolling window every connect; there is
-// nothing on the ring to resume from and nothing here ever computes a
-// timestamp from ring bytes). So this is a plain one-shot [ColmiLink.sync]:
-// read the `device` row, connect by `remote_id`, discover, check
-// [GattBandLink.missingCharacteristics], drive `run()`, bank, disconnect —
-// the same host work Oura does, in the same order, with the two Oura-only
-// concerns (keychain, cursor/anchor persistence) simply absent.
+// not: no pairing key (no handshake at all) and no drain cursor (the adapter
+// re-walks a rolling 7-day window every connect; the ring never deletes on
+// our say-so). One-shot [ColmiLink.sync]: read the `device` row, connect by
+// `remote_id`, discover, check [GattBandLink.missingCharacteristics], drive
+// `run()`, commit, disconnect.
 //
-// NOTHING HERE HAS MET HARDWARE (owner ruling R6). `ColmiAdapter.signals`
-// stays `const {}`, so every batch this host commits carries samples: []
-// and only the raw frames — there is no decoded number to gate behind a
-// `source` filter because none is written.
+// EXPERIMENTAL (ASSUMPTIONS R6). Decoded HR lands in `decoded_onehz` with
+// `source = 'colmi'`, which `kDerivableSources` keeps out of derivation; the
+// ring's own sleep stages and daily scalars land in their vendor tables.
 
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart' show kColmiCmdBigData;
 
 import '../data/db.dart';
 import '../data/models.dart' show ArchiveRecord;
@@ -160,24 +157,25 @@ class ColmiLink {
     if (key == 'battery' && value is int) _batteryPct = value;
   }
 
-  /// Bank one command's reply frame verbatim, undecoded (owner rulings
-  /// R1-R3). `counter` and `recTs` stay NULL: this protocol has neither a
-  /// flash-record counter nor a record time survives the wire — see
-  /// `ArchiveRecord.counter`'s own doc on why NULL, not 0, is what a band
-  /// with no counter needs.
+  /// Bank one reply verbatim (owner rulings R1-R3): a 16-byte Service A
+  /// frame or a reassembled Service B big-data reply. `counter` and `recTs`
+  /// stay NULL — this protocol has no flash-record counter, and the time a
+  /// slot belongs to is derived from its position, not carried per frame.
   ArchiveRecord? _buildArchiveRow(List<int> bytes, int capturedAtMs) {
-    if (bytes.length != 16) return null;
+    final big = bytes.length >= 6 && bytes[0] == kColmiCmdBigData;
+    if (!big && bytes.length != 16) return null;
+    String h(int b) => b.toRadixString(16).padLeft(2, '0');
     return ArchiveRecord(
       counter: null,
       hex: _hex(bytes),
       packetType: bytes[0],
       recTs: null,
       capturedAt: capturedAtMs,
-      // ONE REASON PER COMMAND ID, so a decoder written later finds its
+      // ONE REASON PER COMMAND (or big-data type), so a re-decode finds its
       // frames by name. Deliberately not in `LocalDb.redrivableArchiveReasons`
       // — that list replays a row's `hex` through the WHOOP R24 chain, which
       // would run the wrong decoder over a Colmi frame.
-      reason: 'colmi_cmd_0x${bytes[0].toRadixString(16).padLeft(2, '0')}',
+      reason: big ? 'colmi_big_0x${h(bytes[1])}' : 'colmi_cmd_0x${h(bytes[0])}',
     );
   }
 
@@ -217,15 +215,18 @@ class ColmiLink {
     var finished = false;
     final done = host.run(link).whenComplete(() => finished = true);
     var served = 0;
-    // Each of the (up to) 29 commands genuinely waits out `quietTimeout` of
-    // REAL wall-clock time before its collection ends, so — unlike Oura's
-    // handful of writes — this spin has to actually let that much real time
-    // pass rather than just yield microtasks.
+    // A walk with no reply genuinely waits out its timeout in REAL wall-clock
+    // time, so this spin has to let that time pass rather than just yield
+    // microtasks.
     for (var spin = 0; spin < 4000 && !finished; spin++) {
       await Future<void>.delayed(const Duration(milliseconds: 5));
       while (served < link.writes.length) {
-        for (final f in reply(served, link.writes[served].$2)) {
-          link.feed(kColmiNotifyChar, f, atSec: now());
+        final (char, value) = link.writes[served];
+        // A Service B request is answered on Service B's notify.
+        final notify =
+            char == kColmiCommandChar ? kColmiBigNotifyChar : kColmiNotifyChar;
+        for (final f in reply(served, value)) {
+          link.feed(notify, f, atSec: now());
         }
         served++;
       }

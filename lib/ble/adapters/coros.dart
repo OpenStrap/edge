@@ -2,9 +2,12 @@
 // one-shot status pull (battery, model, serial, firmware) at connect, then
 // the same generic 0x2A37 heart-rate parse [BleHrsAdapter] already has.
 //
-// SCOPE IS DELIBERATELY NARROW. Every standard SIG service on this watch
-// answers a plain connect with no pairing or bonding enforced — battery,
-// device information and heart rate are all documented, unencrypted GATT.
+// SCOPE IS DELIBERATELY NARROW. On a PACE 3 running 2025 firmware every
+// standard SIG service answered a plain connect with no pairing or bonding
+// enforced — battery, device information and heart rate, all documented,
+// unencrypted GATT — but only while the watch was not connected to the COROS
+// phone app. COROS has since shipped patches (no version named), so newer
+// firmware may require pairing or bonding; Apex/Vertix are unverified.
 // Recorded activity, sleep and step history ride a completely undocumented
 // proprietary channel with no public frame spec anywhere; decoding it would
 // mean inventing a physiological data format from nothing, which is exactly
@@ -13,8 +16,12 @@
 // NOTHING HERE HAS MET HARDWARE. Nobody on this project owns one, so ships
 // EXPERIMENTAL (ASSUMPTIONS R6): `signals` covers only the generic HR parse,
 // and `coros` stays absent from `kDerivableSources` like every other band —
-// see `_registry.dart`'s `kCoros` doc on the one real unknown (the exact
-// advertised service UUID) that still needs a real device to close.
+// see `_registry.dart`'s `kCoros` doc on how the watch is found (by name)
+// and checked (its vendor service, after connect).
+//
+// READ-ONLY, ENFORCED. The vendor channel accepts unauthenticated commands
+// (a factory reset among them), so `GattBandLink.write` refuses every write
+// on a Coros link; this adapter never writes.
 
 import 'dart:convert';
 
@@ -53,7 +60,10 @@ class CorosAdapter extends BandAdapter {
     if (model != null) yield BandNote('model', model);
     final serial = await _readString(link, kSerialNumberUuid);
     if (serial != null) yield BandNote('serial', serial);
-    final firmware = await _readString(link, kFirmwareRevisionUuid);
+    // 0x2A26 first, for a model that has it; a PACE 3's Device Information
+    // has no 0x2A26 and carries the firmware version in Software Revision.
+    final firmware = await _readString(link, kFirmwareRevisionUuid) ??
+        await _readString(link, kSoftwareRevisionUuid);
     if (firmware != null) yield BandNote('firmware', firmware);
 
     // No handshake for HR itself — same floor as `BleHrsAdapter`: one

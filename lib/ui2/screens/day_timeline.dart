@@ -725,9 +725,10 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
     final l = AppLocalizations.of(context);
     try {
       final d = await TimelineData.load(repo, want: _day, l: l);
+      // A device's own HR curve needs HR of either cadence: a ring's 5-minute
+      // history draws as well as a band's 1 Hz stream.
       final candidates = mounted
-          ? signalCandidates(context, context.read<AppState>(),
-              requires: {InputSignal.hr1Hz})
+          ? _anyHrCandidates(context, context.read<AppState>())
           : const <DeviceOption>[];
       if (mounted && token == _loadToken) {
         setState(() => (
@@ -1060,4 +1061,19 @@ class MomentRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Devices that can draw their own HR curve: those declaring 1 Hz HR, or
+/// sparse HR (selectable either way; the reason a device is disabled is kept
+/// only when it has neither).
+List<DeviceOption> _anyHrCandidates(BuildContext c, AppState app) {
+  final dense = signalCandidates(c, app, requires: {InputSignal.hr1Hz});
+  final sparse = signalCandidates(c, app, requires: {InputSignal.hrSparse});
+  return [
+    for (final o in dense)
+      o.selectable
+          ? o
+          : sparse.firstWhere((x) => x.deviceId == o.deviceId && x.selectable,
+              orElse: () => o),
+  ];
 }

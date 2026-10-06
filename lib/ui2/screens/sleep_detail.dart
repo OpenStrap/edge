@@ -19,6 +19,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 import 'package:provider/provider.dart';
 
+import '../../compute/vendor_sleep.dart' show vendorStagesReported;
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
@@ -26,6 +27,7 @@ import '../../state/app_state.dart';
 import '../../state/locale_controller.dart';
 import '../../state/prefs.dart';
 import '../../models/metric.dart';
+import '../profile/devices.dart' show DeviceFilter;
 import '../ui2.dart';
 import 'home_screen.dart';
 import 'investigate.dart';
@@ -214,6 +216,7 @@ class SleepData {
     this.awakenings,
     this.longestSleepMin,
     this.solMin,
+    this.deviceNights = const [],
   });
 
   bool get hasNight => night['duration_min'] is num;
@@ -221,7 +224,12 @@ class SleepData {
   /// Stage samples for the painter — the segment list resampled onto a fixed
   /// number of columns so a four-hour segment and a four-minute one stay in
   /// proportion.
-  List<SleepStage?> get stages {
+  List<SleepStage?> get stages => stagesOf(night);
+
+  /// Each paired device's own staging of this night (`getDeviceNights`).
+  final List<Map<String, Object?>> deviceNights;
+
+  static List<SleepStage?> stagesOf(Map<String, Object?> night) {
     final pts = night['hypnogram'];
     if (pts is! List || pts.length < 2) return const [];
     final ts = <int>[], st = <SleepStage?>[];
@@ -286,6 +294,12 @@ class SleepData {
     if (day == null) return SleepData(days: days);
 
     final night = await repo.getDaySleepV2(day);
+    var deviceNights = const <Map<String, Object?>>[];
+    try {
+      deviceNights = await repo.getDeviceNights(day);
+    } on UnimplementedError {
+      // A repository without per-device nights: ours only.
+    }
     final timeline = await repo.getDayTimeline(day);
     final cd = await repo.getInsights();
     final coach = cd['sleep_coach'];
@@ -336,6 +350,7 @@ class SleepData {
       awakenings: wakeups,
       longestSleepMin: longest,
       solMin: sol,
+      deviceNights: deviceNights,
     );
   }
 }
@@ -359,6 +374,10 @@ class _SleepDetailState extends State<SleepDetail> {
   String? _day;
   bool _saving = false; // an override write + its forced re-derive is in flight
   double? _scrub; // 0..1 across the night
+
+  /// Whose staging the hypnogram shows: null for ours, else a device id from
+  /// [SleepData.deviceNights].
+  String? _staging;
 
   /// Why the last correction did not take. Null when it did.
   String? _overrideFailed;
@@ -523,8 +542,35 @@ class _SleepDetailState extends State<SleepDetail> {
 
       // ── 2 · THE NIGHT ITSELF ──
       const SizedBox(height: S.x3),
-      _night(c, p, d, n),
-      if (_scrub != null) _scrubCard(c, p, d),
+      // Ours, or any paired device's own staging of the same night — shown
+      // side by side as alternatives, never merged.
+      if (d.deviceNights.isNotEmpty) ...[
+        DeviceFilter(
+          allLabel: 'OpenStrap',
+          showWithOne: true,
+          options: [
+            for (final dn in d.deviceNights)
+              (
+                deviceId: dn['device_id'] as String,
+                label: (dn['label'] as String?) ?? 'Device',
+                selectable: true,
+                reason: null,
+              ),
+          ],
+          selected: _staging,
+          onSelect: (id) => setState(() {
+            _staging = id;
+            _scrub = null;
+          }),
+        ),
+        const SizedBox(height: S.x2),
+      ],
+      if (_deviceNight(d) case final dn?)
+        _night(c, p, d, dn, device: dn)
+      else ...[
+        _night(c, p, d, n),
+        if (_scrub != null) _scrubCard(c, p, d),
+      ],
 
       // ── 2b · WHOSE WINDOW IS THIS ──
       ...?_windowCard(c, p, d, n),
@@ -845,9 +891,20 @@ class _SleepDetailState extends State<SleepDetail> {
   /// The hypnogram, as the centrepiece rather than as an illustration. The
   /// cycle count rides underneath it because it is a property of this shape,
   /// not a section of its own.
-  Widget _night(BuildContext c, P p, SleepData d, Map<String, dynamic> n) {
+  /// The selected device's night, or null when ours is shown.
+  Map<String, dynamic>? _deviceNight(SleepData d) {
+    final id = _staging;
+    if (id == null) return null;
+    for (final dn in d.deviceNights) {
+      if (dn['device_id'] == id) return Map<String, dynamic>.from(dn);
+    }
+    return null;
+  }
+
+  Widget _night(BuildContext c, P p, SleepData d, Map<String, dynamic> n,
+      {Map<String, dynamic>? device}) {
     final l = AppLocalizations.of(c);
-    final stages = d.stages;
+    final stages = device == null ? d.stages : SleepData.stagesOf(device);
     if (stages.isEmpty) {
       return StatusCard(
         l?.sleepDetailNoHypnogramTitle ?? 'No hypnogram for this night',
@@ -880,8 +937,9 @@ class _SleepDetailState extends State<SleepDetail> {
           ],
           child: _hypnogram(c, p, stages, n),
         ),
+        if (device != null) ..._deviceStaging(c, p, device),
         // Not our staging: say whose it is, wherever it is drawn.
-        if (n['sleep_source'] == 'vendor_staged') ...[
+        if (device == null && n['sleep_source'] == 'vendor_staged') ...[
           const SizedBox(height: S.x2),
           Pill(l?.sleepDetailStagedByRing ?? 'Staged by your ring', C.n500),
         ],
@@ -906,6 +964,47 @@ class _SleepDetailState extends State<SleepDetail> {
         ],
       ]),
     );
+  }
+
+  /// What a device's own staging says, in its words: whose it is, its stage
+  /// minutes, and which stages it cannot report at all.
+  List<Widget> _deviceStaging(BuildContext c, P p, Map<String, dynamic> dn) {
+    final label = (dn['label'] as String?) ?? 'Device';
+    final minutes = (dn['stage_min'] as Map?)?.cast<String, int>() ?? const {};
+    final reported = vendorStagesReported(dn['family'] as String?);
+    String name(String s) => switch (s) {
+          'wake' => 'Awake',
+          'light' => 'Light',
+          'deep' => 'Deep',
+          'rem' => 'REM',
+          _ => s,
+        };
+    final parts = [
+      for (final s in const ['deep', 'rem', 'light', 'wake'])
+        if (reported.contains(s) && minutes[s] != null)
+          '${name(s)} ${hm(minutes[s]!.toDouble())}',
+    ];
+    final missing = [
+      for (final s in const ['rem', 'wake'])
+        if (!reported.contains(s)) name(s),
+    ];
+    return [
+      const SizedBox(height: S.x2),
+      Pill('Staged by $label', C.n500),
+      if (parts.isNotEmpty) ...[
+        const SizedBox(height: S.x2),
+        Text(parts.join(' · '),
+            style: F.over.copyWith(color: p.ink2, height: 1.5)),
+      ],
+      if (missing.isNotEmpty) ...[
+        const SizedBox(height: S.x1),
+        Text(
+          '$label does not report ${missing.join(' or ')}; that time is '
+          'counted in its other stages.',
+          style: F.over.copyWith(color: p.ink3, height: 1.5),
+        ),
+      ],
+    ];
   }
 
   /// The shape of the night in one line — how broken it was, and the longest

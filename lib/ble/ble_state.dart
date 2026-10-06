@@ -2078,8 +2078,8 @@ LiveStreamIntent applyLiveStreamStep(
 /// safe-trim invariant depends on (commit-then-ACK, flash trim), and making it wait
 /// behind a chest strap would turn a sensor's 12 s connect timeout into a delayed
 /// band sync — which is exactly the regression this milestone must not ship. With
-/// today's growing list of pairable sensor kinds (kBleHrs, kOura, kLefun,
-/// kHPlus, kJyou, kPineTime, kQHybrid, kColmi, kCasio) the cap CAN be
+/// today's growing list of pairable sensor kinds (kBleHrs, kOura, kColmi,
+/// kGarmin, kMiBand234, kPebble, kUltrahuman) the cap CAN be
 /// reached — a chest strap armed for a workout holds a slot for its whole
 /// duration, and a background wake syncing more than two of the rest
 /// together wants both of what is left — but the mechanism is a queue, not

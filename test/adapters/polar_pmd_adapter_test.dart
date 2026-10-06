@@ -15,8 +15,10 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/adapter.dart';
+import 'package:openstrap_edge/ble/adapters/gatt_link.dart';
 import 'package:openstrap_edge/ble/adapters/polar_pmd.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
+import 'package:openstrap_edge/ble/polar_pmd_link.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 /// The control-point's confirmation that PPI streaming started.
@@ -139,5 +141,66 @@ void main() {
     expect(s.vendor['blocker'], isTrue);
     expect(s.vendor['skin_contact'], 0x03);
     expect(s.vendor['error_ms'], 10);
+  });
+
+  test('a blocker record keeps its HR and drops its interval', () async {
+    final events = await replay(ppiFrame([
+      [60, 0xE8, 0x03, 0x0A, 0x00, 0x01],
+    ]));
+    final s = (events.single as SampleBatch).samples.single;
+    expect(s.hr, 60);
+    expect(s.rrMs, isEmpty);
+  });
+
+  test('"contact supported, none detected" is refused; unsupported and '
+      'detected are kept', () async {
+    final events = await replay(ppiFrame([
+      [61, 0xE8, 0x03, 0x0A, 0x00, 0x04], // supported, no contact
+      [62, 0xE8, 0x03, 0x0A, 0x00, 0x06], // supported, contact
+      [63, 0xE8, 0x03, 0x0A, 0x00, 0x00], // not supported
+    ]));
+    final samples = [
+      for (final e in events)
+        if (e is SampleBatch) ...e.samples,
+    ];
+    expect(samples.map((s) => s.hr), [62, 63]);
+  });
+
+  test('the sensor stopping PPI by itself ends the session', () async {
+    final link = ReplayBandLink();
+    final done = Completer<void>();
+    final sub = kPolarPmdAdapter.run(link).listen((_) {}, onDone: done.complete);
+    await _settle();
+    link.feed(kPolarPmdControlChar, kStartOk, atSec: 1_800_000_000);
+    await _settle();
+    link.feed(kPolarPmdControlChar, const [0x01, 0x03], atSec: 1_800_000_001);
+    // No link.close(): the stop indication alone has to end run().
+    await done.future.timeout(const Duration(seconds: 2));
+    await sub.cancel();
+    expect(link.logs.any((l) => l.contains('stopped the PPI stream')), isTrue);
+    await link.close();
+  });
+
+  test('a disarm sends STOP before the link closes, skipped when the sensor '
+      'already dropped it', () async {
+    GattBandLink gatt() =>
+        GattBandLink(entry: kPolarPmd, services: const [], onLog: (_) {});
+    final sent = <List<int>>[];
+    final live = gatt()..debugWriteHook = (v) async {
+      sent.add(v);
+      return true;
+    };
+    await PolarPmdLink.stopThenClose(live, peerGone: false);
+    expect(sent, [polarPmdStopPpi()]);
+    expect(await live.write(kPolarPmdControlChar, const [0]), isFalse,
+        reason: 'closed after the STOP');
+
+    sent.clear();
+    final gone = gatt()..debugWriteHook = (v) async {
+      sent.add(v);
+      return true;
+    };
+    await PolarPmdLink.stopThenClose(gone, peerGone: true);
+    expect(sent, isEmpty);
   });
 }

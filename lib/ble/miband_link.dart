@@ -1,13 +1,14 @@
-// THE HOST for a paired Mi Band 2, 3 or 4: hold the pairing key, pair it,
-// forget it, and bank whatever [MiBand234Adapter] hands back.
+// THE HOST for a paired Mi Band 2 or 3: hold the pairing key, pair it,
+// forget it, and bank whatever [MiBand234Adapter] hands back — the stored
+// minute history (HR samples, daily steps, the band's sleep) and the raw
+// optional channels — keeping the `miband_since` resume cursor.
 //
 // NOTHING HERE HAS MET HARDWARE. Nobody on this project owns one (owner
 // ruling R6), so not one byte of this path has been exercised against a real
-// unit. The registry entry stays EXPERIMENTAL, `MiBand234Adapter.signals`
-// stays `const {}`, and nothing this file writes becomes a number: every row
-// it banks carries a non-null `source`, and every derive/export read filters
-// `source IS NULL`. That is correct behaviour for an uncalibrated decoder, not
-// a limitation to route around.
+// unit. The registry entry stays EXPERIMENTAL and `kDerivableSources` does
+// not name it: every row it banks carries a non-null `source`, and every
+// derive/export read filters `source IS NULL`. That is correct behaviour for
+// an uncalibrated decoder, not a limitation to route around.
 //
 // THE PAIRING PRECONDITION IS THE OURA RING'S, RESTATED. The band holds
 // exactly one 16-byte key and will only accept a new one while it holds
@@ -47,6 +48,9 @@ import 'adapters/host.dart' show BandHost;
 import 'adapters/miband234.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
 
+/// `sync_cursor` name for one band's activity resume point (Unix seconds).
+String _sinceItem(String deviceId) => 'miband_since:$deviceId';
+
 /// Keychain item name for one band's pairing key. Suffixed with the MINTED
 /// device id, never the BLE remote id — that rotates.
 String _keyItem(String deviceId) => 'miband234_pairing_key:$deviceId';
@@ -71,6 +75,12 @@ const String _kUnpairFirst =
     'none, so unpair it from Mi Fit or Zepp first (or use a factory-reset '
     'unit), then pair here.';
 
+/// Status 0x02: the band was in the wrong state for the command. Not a
+/// refusal of the key, so not [_kUnpairFirst]'s remedy.
+const String _kBandBusy =
+    'The band was not ready for pairing. Restart it (or put it on the charger '
+    'for a moment), keep it next to the phone, and try again.';
+
 String _hex(List<int> b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 
@@ -88,12 +98,12 @@ List<int>? _unhex(String s) {
 /// The live link to a paired Mi Band. One instance; a second concurrent band
 /// is not a thing anyone asked for.
 ///
-/// NO CURSOR, NO ANCHOR — unlike the Oura ring this band has no fetch-by-
-/// cursor history to drain (see `miband234.dart`'s own header for why that
-/// channel is never opened), so [sync] has no bookmark to persist between
-/// connections. It connects, authenticates, collects whatever the optional
-/// channels offer inside a bounded window, and disconnects — a snapshot, not
-/// a drain.
+/// ONE CURSOR: `miband_since`, where the next history fetch starts. The
+/// adapter reports it after each round and it is written in the SAME
+/// transaction as that round's rows ([BandHost]'s `extraCursors`), so a
+/// commit that fails leaves it where it was. [sync] connects, authenticates,
+/// fetches history from the cursor, collects the optional channels inside a
+/// bounded window, and disconnects.
 class MiBand234Link {
   MiBand234Link._();
   static final MiBand234Link instance = MiBand234Link._();
@@ -179,13 +189,14 @@ class MiBand234Link {
 
   bool _busy = false;
 
-  /// Connect to the paired band, collect whatever the optional channels offer
-  /// for [window], disconnect.
+  /// Connect to the paired band, fetch its stored history from the cursor,
+  /// collect whatever the optional channels offer, all within [window], then
+  /// disconnect.
   ///
   /// Returns false when nothing is paired, the key is unreadable, or the
   /// connect failed. SERIALISED: a second call while one is in flight is a
   /// no-op rather than a second radio session over the same peripheral.
-  Future<bool> sync({Duration window = const Duration(seconds: 20)}) {
+  Future<bool> sync({Duration window = const Duration(seconds: 90)}) {
     if (_busy) return Future.value(false);
     _busy = true;
     return _sync(window).whenComplete(() => _busy = false);
@@ -230,7 +241,14 @@ class MiBand234Link {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
-          final host = _makeHost(deviceId, MiBand234Adapter(key: key));
+          _pendingSince = null;
+          final host = _makeHost(
+              deviceId,
+              MiBand234Adapter(
+                key: key,
+                sinceSec: await LocalDb.getCursorInt(_sinceItem(deviceId)),
+                nowSeconds: _now,
+              ));
           _host = host;
           // `run()` never completes on its own — the optional channels have
           // no end-of-data signal, unlike the Oura ring's exhausted drain —
@@ -274,8 +292,20 @@ class MiBand234Link {
         deviceId: deviceId,
         onLog: (m) => debugPrint('[miband234] $m'),
         buildArchive: _buildArchiveRow,
+        onNote: (key, value) {
+          if (key == 'miband_since' && value is int) _pendingSince = value;
+        },
+        // Read at commit time: the cursor lands with the rows it covers, or
+        // not at all.
+        extraCursors: () {
+          final since = _pendingSince;
+          return since == null ? const {} : {_sinceItem(deviceId): '$since'};
+        },
         nowSeconds: _now,
       );
+
+  /// The newest `miband_since` the adapter reported, not yet committed.
+  int? _pendingSince;
 
   /// Bank one optional-channel notification verbatim, undecoded (owner
   /// rulings R1-R3). The leading byte is [MiBand234Adapter]'s own archive
@@ -289,6 +319,7 @@ class MiBand234Link {
       kMiBand234ArchiveBattery => 'miband234_battery',
       kMiBand234ArchiveSteps => 'miband234_steps',
       kMiBand234ArchiveHr => 'miband234_hr',
+      kMiBand234ArchiveActivity => 'miband234_activity',
       _ => 'miband234_raw',
     };
     return ArchiveRecord(
@@ -321,12 +352,15 @@ class MiBand234Link {
     List<int> key,
     List<List<int>> Function(int writeIndex, List<int> value) reply, {
     List<(String uuid, List<int> value)> extra = const [],
+    List<(String uuid, List<int> value)> Function(String uuid, List<int> value)?
+        history,
     bool needsKeyWrite = false,
     int Function()? nowSeconds,
     Duration window = const Duration(milliseconds: 200),
   }) async {
     _now = nowSeconds ?? _now;
     _deviceId = deviceId;
+    _pendingSince = null;
     final link = ReplayBandLink();
     for (final (uuid, v) in extra) {
       link.feed(uuid, v, atSec: _now());
@@ -337,6 +371,9 @@ class MiBand234Link {
         key: key,
         needsKeyWrite: needsKeyWrite,
         replyTimeout: const Duration(milliseconds: 50),
+        fetchTimeout: const Duration(milliseconds: 50),
+        sinceSec: await LocalDb.getCursorInt(_sinceItem(deviceId)),
+        nowSeconds: _now,
       ),
     );
     _host = host;
@@ -347,8 +384,17 @@ class MiBand234Link {
     while (deadline.elapsed < window && !finished) {
       await Future<void>.delayed(Duration.zero);
       while (served < link.writes.length) {
-        for (final f in reply(served, link.writes[served].$2)) {
-          link.feed(kHuami234AuthChar, f, atSec: _now());
+        final (char, value) = link.writes[served];
+        if (char == kHuami234AuthChar) {
+          for (final f in reply(served, value)) {
+            link.feed(kHuami234AuthChar, f, atSec: _now());
+          }
+        } else {
+          final answers = history?.call(char, value) ??
+              const <(String, List<int>)>[];
+          for (final (u, f) in answers) {
+            link.feed(u, f, atSec: _now());
+          }
         }
         served++;
       }
@@ -362,7 +408,7 @@ class MiBand234Link {
   }
 }
 
-/// Pair [device] as this phone's Mi Band 2, 3 or 4. Null on success, or a
+/// Pair [device] as this phone's Mi Band 2 or 3. Null on success, or a
 /// sentence the user can act on.
 ///
 /// FACTORY RESET (OR A NEVER-PAIRED UNIT) IS A PRECONDITION, NOT A
@@ -410,7 +456,7 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
               .missingCharacteristics(kMiBand234.requiredCharacteristics);
           if (missing.isNotEmpty) {
             return 'That device does not expose the service this app '
-                'speaks for a Mi Band 2, 3 or 4.';
+                'speaks for a Mi Band 2 or 3.';
           }
 
           // Install, then prove — over the real auth characteristic and
@@ -429,9 +475,10 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
             inbox.add(rec.$2);
           });
           var read = 0;
-          Future<List<int>?> waitFor(bool Function(List<int>) matches) async {
+          Future<List<int>?> waitFor(bool Function(List<int>) matches,
+              {Duration within = const Duration(seconds: 10)}) async {
             final elapsed = Stopwatch()..start();
-            while (elapsed.elapsed < const Duration(seconds: 10)) {
+            while (elapsed.elapsed < within) {
               while (read < inbox.length) {
                 final f = inbox[read++];
                 if (matches(f)) return f;
@@ -455,12 +502,18 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
               mOptions: _kMacos,
             );
             if (!await localLink
-                .write(kHuami234AuthChar, <int>[0x01, 0x08, ...key])) {
+                .write(kHuami234AuthChar, miBand234KeyInstall(key))) {
               return 'The band would not accept a command. Try again with '
                   'it on the charger and next to the phone.';
             }
+            // Up to 30 s: the band may wait for a tap to confirm the install.
             final installed = await waitFor(
-                (f) => f.length >= 3 && f[0] == 0x10 && f[1] == 0x01);
+                (f) => f.length >= 3 && f[0] == 0x10 && f[1] == 0x01,
+                within: const Duration(seconds: 30));
+            if (installed != null &&
+                installed[2] == kMiBand234AuthInvalidState) {
+              return _kBandBusy;
+            }
             // SILENCE IS A REFUSAL, NOT CONSENT — same as the ring: a band
             // that already holds a key does not necessarily answer at all,
             // and minting a `device` row on the strength of a quiet band is
@@ -469,13 +522,20 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
             if (installed == null || installed[2] != 0x01) {
               return _kUnpairFirst;
             }
-            if (!await localLink.write(kHuami234AuthChar, <int>[0x02, 0x08])) {
-              return 'The band would not accept a command. Try again with '
-                  'it on the charger and next to the phone.';
+            List<int>? challengeFrame;
+            for (final request in kMiBand234ChallengeRequests) {
+              if (!await localLink.write(kHuami234AuthChar, request)) {
+                return 'The band would not accept a command. Try again with '
+                    'it on the charger and next to the phone.';
+              }
+              final f = await waitFor(
+                  (f) => f.length >= 3 && f[0] == 0x10 && f[1] == 0x02);
+              if (f != null && f.length >= 19 && f[2] == 0x01) {
+                challengeFrame = f;
+                break;
+              }
             }
-            final challengeFrame = await waitFor(
-                (f) => f.length >= 19 && f[0] == 0x10 && f[1] == 0x02);
-            if (challengeFrame == null || challengeFrame[2] != 0x01) {
+            if (challengeFrame == null) {
               return 'The band stopped answering part-way through pairing. '
                   'Put it on the charger, keep it next to the phone, and try '
                   'again.';
@@ -483,7 +543,7 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
             final answer = miBand234AuthResponse(
                 key, challengeFrame.sublist(3, 19));
             if (!await localLink
-                .write(kHuami234AuthChar, <int>[0x03, 0x08, ...answer])) {
+                .write(kHuami234AuthChar, miBand234AuthAnswer(answer))) {
               return 'The band would not accept the pairing answer.';
             }
             final result = await waitFor(
@@ -493,8 +553,10 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
                   'Put it on the charger, keep it next to the phone, and try '
                   'again.';
             }
-            // 0x01 is the only success code; 0x04 (wrong key, or still bound
-            // elsewhere) and anything else share the same remedy.
+            // 0x01 is the only success code; 0x02 (wrong state) can clear
+            // on a retry; 0x04 (wrong key, or still bound elsewhere) and
+            // anything else share the unpair-first remedy.
+            if (result[2] == kMiBand234AuthInvalidState) return _kBandBusy;
             if (result[2] != 0x01) {
               return _kUnpairFirst;
             }
@@ -512,9 +574,9 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
             remoteId: device.remoteId.str,
             label: cleanDeviceLabel(device.platformName) ?? kMiBand234.label,
             // `tier` is left unset on purpose — it means MEASUREMENT QUALITY,
-            // and this band supplies no signal at all today
-            // (`MiBand234Adapter.signals` is `const {}`), so there is no
-            // quality to rank. NULL is a refusal, not a default.
+            // and this band's sparse HR is unverified and outside derivation
+            // (`kDerivableSources` does not name it), so there is no quality
+            // to rank. NULL is a refusal, not a default.
           );
           paired = true;
           return null;

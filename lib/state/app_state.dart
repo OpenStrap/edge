@@ -421,8 +421,13 @@ class AppState extends ChangeNotifier {
   List<Map<String, Object?>> _sensors = const [];
   List<Map<String, Object?>> get sensors => _sensors;
 
-  /// Re-read the sensor rows. Call after pairing or forgetting one.
+  StreamSubscription<String>? _deviceRowSub;
+
+  /// Re-read the sensor rows. Call after pairing or forgetting one; also runs
+  /// whenever a paired device's row changes (a sync, a battery report).
   Future<void> refreshSensors() async {
+    _deviceRowSub ??=
+        LocalDb.deviceRowChanged.stream.listen((_) => unawaited(refreshSensors()));
     final rows = await LocalDb.deviceRows();
     _sensors = [
       for (final r in rows)

@@ -32,6 +32,7 @@ import 'activity_store.dart';
 import '../models/activity_suggestion.dart';
 import '../health/health_export.dart';
 import 'journal_fields.dart';
+import '../ble/adapters/_registry.dart' show kBandRegistry;
 import 'local_repository.dart';
 import 'series_codec.dart';
 import '../gps/route_models.dart';
@@ -2134,6 +2135,51 @@ class LocalRepositoryImpl extends LocalRepository {
   @override
   Future<List<Map<String, Object?>>> getDayObservations(String date) =>
       LocalDb.observationsForDay(date);
+
+  @override
+  Future<List<Map<String, Object?>>> getDeviceNights(String date) async {
+    final dayStart = _localMidnightSec(date);
+    final dayEnd = _localDayEndSec(date);
+    final labels = {
+      for (final r in await LocalDb.deviceRows())
+        r['id']: (r['label'] as String?) ??
+            kBandRegistry
+                .where((e) => e.id == r['adapter_id'])
+                .firstOrNull
+                ?.label,
+    };
+    final families = {
+      for (final r in await LocalDb.deviceRows())
+        r['id']: r['adapter_id'] as String?,
+    };
+    final out = <Map<String, Object?>>[];
+    for (final n in await LocalDb.vendorSleepNights(dayStart - 86400, dayEnd)) {
+      // The day model: a night belongs to the day it ENDS on.
+      if (n.offsetSec < dayStart || n.offsetSec >= dayEnd) continue;
+      final minutes = <String, int>{};
+      for (final e in n.epochs) {
+        minutes[e.stage] = (minutes[e.stage] ?? 0) + (e.endSec - e.startSec) ~/ 60;
+      }
+      out.add({
+        'device_id': n.deviceId,
+        'label': labels[n.deviceId] ?? n.source,
+        'family': families[n.deviceId],
+        'onset_ts': n.onsetSec,
+        'wake_ts': n.offsetSec,
+        'duration_min': minutes.entries
+            .where((e) => e.key != 'wake')
+            .fold<int>(0, (s, e) => s + e.value),
+        'stage_min': minutes,
+        // Same point shape as our own night: each stage from its start,
+        // closed by a final point at wake.
+        'hypnogram': [
+          for (final e in n.epochs) {'t': e.startSec, 'stage': e.stage},
+          {'t': n.offsetSec, 'stage': n.epochs.last.stage},
+        ],
+      });
+    }
+    return out;
+  }
 
   @override
   Future<Map<String, dynamic>> getRecords() async {

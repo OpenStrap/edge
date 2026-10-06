@@ -145,6 +145,34 @@ void main() {
           [primary]);
       expect(ownedVendorNights([ring], const [], primaryDeviceId: ''), isEmpty);
     });
+    test('a night our own rows never saw is unclaimed: any device stages it',
+        () {
+      final primaryOwns = [(start: _at(26, 12), end: _at(27, 12), deviceId: '')];
+      // Band worn until 23:00 and from 07:00: none of the night.
+      final evening = [for (var t = _at(26, 20); t < _at(26, 23); t++) t];
+      expect(
+          ownedVendorNights([ring], primaryOwns,
+              primaryDeviceId: '', ourTsSec: evening),
+          [ring]);
+      // Band worn all night: the primary's, unchanged.
+      final night = [for (var t = _at(26, 22); t < _at(27, 8); t++) t];
+      expect(
+          ownedVendorNights([ring], primaryOwns,
+              primaryDeviceId: '', ourTsSec: night),
+          isEmpty);
+      expect(vendorNightUnclaimed(ring, const []), isTrue);
+    });
+    test('an unclaimed night skips only the checks against our data', () {
+      final n = _night(_at(26, 23), _at(27, 7));
+      expect(
+          vendorNightRejection(n,
+              dataStartSec: 0, dataEndSec: 0, ours: null, unclaimed: true),
+          isNull);
+      expect(
+          vendorNightRejection(_night(_at(26, 23), _at(27, 7), cycle: ['light']),
+              dataStartSec: 0, dataEndSec: 0, ours: null, unclaimed: true),
+          'degenerate');
+    });
     test('a ring the user ranked first for heart rate does', () {
       final spans = [
         (start: _at(26, 12), end: _at(27, 12), deviceId: 'ring-1'),

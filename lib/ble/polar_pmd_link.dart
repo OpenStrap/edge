@@ -24,10 +24,12 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart'
-    show ValueListenable, ValueNotifier, debugPrint;
+    show ValueListenable, ValueNotifier, debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart' show polarPmdStopPpi;
 
 import '../data/db.dart';
+import 'adapters/_registry.dart' show kPolarPmdControlChar;
 import 'adapters/gatt_link.dart';
 import 'adapters/host.dart' show BandHost, HrsReading;
 import 'adapters/polar_pmd.dart' show kPolarPmdAdapter;
@@ -46,6 +48,10 @@ class PolarPmdLink {
   BandHost? _host;
   bool _armed = false;
   bool _holdsSecondaryLinkSlot = false;
+
+  /// Set when the sensor dropped the link itself: a STOP write then has
+  /// nowhere to go and would only wait out the write timeout.
+  bool _peerGone = false;
 
   ValueListenable<HrsReading?> get reading => _reading;
   final ValueNotifier<HrsReading?> _reading = ValueNotifier(null);
@@ -145,7 +151,10 @@ class PolarPmdLink {
         unawaited(disarm());
       }));
       _connSub = device.connectionState.listen((s) {
-        if (s == BluetoothConnectionState.disconnected) unawaited(disarm());
+        if (s == BluetoothConnectionState.disconnected) {
+          _peerGone = true;
+          unawaited(disarm());
+        }
       });
       _armed = true;
       _reading.value = const HrsReading();
@@ -195,12 +204,27 @@ class PolarPmdLink {
     await _disarm();
   }
 
+  /// STOP the PPI stream, then close [link]. In that order: a closed link
+  /// refuses every write, so a STOP issued after `close()` (the adapter's own
+  /// `finally`, reached during `host.stop()`) never leaves the phone. The
+  /// close itself still comes before `host.stop()` — see `BandHost.stop` on
+  /// why its cancel waits for a generator parked on an open link. Skipped
+  /// when the sensor already dropped the link ([peerGone]).
+  @visibleForTesting
+  static Future<void> stopThenClose(GattBandLink link,
+      {required bool peerGone}) async {
+    if (!peerGone) await link.write(kPolarPmdControlChar, polarPmdStopPpi());
+    link.close();
+  }
+
   Future<void> _disarm() async {
     final d = _device;
     try {
-      _link?.close();
+      final link = _link;
+      if (link != null) await stopThenClose(link, peerGone: _peerGone);
       await _host?.stop();
     } finally {
+      _peerGone = false;
       await _connSub?.cancel();
       _link = null;
       _host = null;

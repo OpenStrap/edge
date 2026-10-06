@@ -53,7 +53,14 @@ class PolarPmdAdapter extends BandAdapter {
     // moment a START reply for the PPI type arrives. A misbehaving sensor
     // that never answers times out rather than hanging the session.
     final started = Completer<bool>();
+    // Completed when the sensor ends the PPI stream by itself: the session
+    // would otherwise sit armed on a silent stream until disconnect.
+    final stopped = Completer<void>();
     final controlSub = link.notify(kPolarPmdControlChar).listen((rec) {
+      if (polarPmdPpiStopped(rec.$2)) {
+        if (!stopped.isCompleted) stopped.complete();
+        return;
+      }
       final r = parsePolarPmdControlResponse(rec.$2);
       if (r != null &&
           r.reqOpcode == kPolarPmdOpRequestMeasurementStart &&
@@ -78,6 +85,11 @@ class PolarPmdAdapter extends BandAdapter {
           onDone: dataEvents.close,
           onError: dataEvents.addError,
         );
+    unawaited(stopped.future.then((_) {
+      link.log('polar_pmd: the sensor stopped the PPI stream; ending the '
+          'session.');
+      dataEvents.close();
+    }));
     try {
       if (!await link.write(kPolarPmdControlChar, polarPmdStartPpi())) {
         link.log('polar_pmd: START write refused; ending the session.');
@@ -97,20 +109,20 @@ class PolarPmdAdapter extends BandAdapter {
           for (final s in samples)
             // hr == 0 is the sensor's own "no valid beat this record" — a
             // refusal, not a low reading. Storing it would put a fabricated
-            // zero into a heart-rate series, the same rule `ble_hrs` applies
-            // to a strap reporting no skin contact.
-            if (s.hr != 0)
+            // zero into a heart-rate series. "Supported, no contact" is the
+            // same refusal `ble_hrs` applies to 0x2A37's identical bits: a
+            // sensor off the skin reports confident nonsense.
+            if (s.hr != 0 && s.contact != false)
               NeutralSample(
                 anchor: TimeAnchor.arrival,
                 tsEpoch: atSec,
                 hr: s.hr,
-                rrMs: [s.ppiMs],
+                // A blocker record's interval is marked invalid by the
+                // sensor (motion); its HR carries no such mark, so only the
+                // interval is dropped.
+                rrMs: s.blocker ? const <int>[] : [s.ppiMs],
                 vendor: {
                   'blocker': s.blocker,
-                  // Raw bits, under their own name — their real-world
-                  // polarity is not independently confirmed against
-                  // hardware, so nothing here gates on them (see
-                  // `PolarPpiSample.skinContactBits`'s own doc).
                   'skin_contact': s.skinContactBits,
                   'error_ms': s.errorEstimateMs,
                 },
@@ -119,9 +131,10 @@ class PolarPmdAdapter extends BandAdapter {
         if (neutrals.isNotEmpty) yield SampleBatch(neutrals);
       }
     } finally {
-      // Best-effort: a link that has already dropped simply refuses this
-      // write, which is fine — the sensor stops streaming on disconnect
-      // regardless.
+      // Lands only when the session ends on its own with the link still up.
+      // On a disarm the link is already closed by the time this runs and
+      // refuses it; `PolarPmdLink` sends its own STOP before closing, and
+      // the sensor stops streaming on disconnect regardless.
       unawaited(link.write(kPolarPmdControlChar, polarPmdStopPpi()));
       await controlSub.cancel();
       await dataSub.cancel();

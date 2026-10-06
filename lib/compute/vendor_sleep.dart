@@ -23,6 +23,18 @@ class VendorEpoch {
   const VendorEpoch(this.startSec, this.endSec, this.stage);
 }
 
+/// The sleep stages a device family can actually tell apart. A stage missing
+/// here is one the device folds into another (Mi Band's light sleep holds its
+/// REM), so its absence from a night is not "no REM". Unlisted families
+/// report all four.
+const Map<String, Set<String>> kVendorStagesReported = {
+  'miband234': {'wake', 'light', 'deep'},
+  'pebble': {'light', 'deep'},
+};
+
+Set<String> vendorStagesReported(String? family) =>
+    kVendorStagesReported[family] ?? const {'wake', 'light', 'deep', 'rem'};
+
 /// One night of one device's epochs, as `vendor_sleep_epoch` groups them.
 class VendorNight {
   final String deviceId;
@@ -65,23 +77,41 @@ bool vendorEdgesAgree(int aOn, int aOff, int bOn, int bOff) =>
     (aOn - bOn).abs() <= kVendorEdgeToleranceSec &&
     (aOff - bOff).abs() <= kVendorEdgeToleranceSec;
 
+/// Whether our own substrate ([ourTsSec], sorted epoch seconds of the rows
+/// admitted to derivation) saw less than half of [n]. Such a night is
+/// UNCLAIMED: nothing of ours can stage it or contradict it, so the device's
+/// own night is the only one there is.
+bool vendorNightUnclaimed(VendorNight n, List<int> ourTsSec) {
+  var seen = 0;
+  for (final t in ourTsSec) {
+    if (t >= n.offsetSec) break;
+    if (t >= n.onsetSec) seen++;
+  }
+  return seen * 2 < n.offsetSec - n.onsetSec;
+}
+
 /// The [nights] whose device owns `hr1Hz` at the night's midpoint, so a
 /// secondary ring never restages the night of the device that owns the
 /// signal. [hrOwner] is that signal's resolved spans; when none has an owner
-/// the primary owns it, the same rule the substrate masking uses.
+/// the primary owns it, the same rule the substrate masking uses. With
+/// [ourTsSec], a night [vendorNightUnclaimed] by it is kept too: the primary
+/// cannot own a night it never recorded.
 List<VendorNight> ownedVendorNights(
   List<VendorNight> nights,
   List<OwnedSpan> hrOwner, {
   required String primaryDeviceId,
+  List<int>? ourTsSec,
 }) {
   final resolved = hrOwner.any((s) => s.deviceId != null);
   return [
     for (final n in nights)
       if (n.epochs.isNotEmpty &&
-          (resolved
-                  ? spanAt(hrOwner, (n.onsetSec + n.offsetSec) ~/ 2)?.deviceId
-                  : primaryDeviceId) ==
-              n.deviceId)
+          ((resolved
+                      ? spanAt(hrOwner, (n.onsetSec + n.offsetSec) ~/ 2)
+                          ?.deviceId
+                      : primaryDeviceId) ==
+                  n.deviceId ||
+              (ourTsSec != null && vendorNightUnclaimed(n, ourTsSec))))
         n,
   ];
 }
@@ -92,11 +122,14 @@ List<VendorNight> ownedVendorNights(
 /// over; [ours] is the window our own detection (accel-led or HR-led) found,
 /// null when it found none. The decoder behind these epochs is unverified on
 /// some rings, so every check is a structural one a wrong layout would fail.
+/// An [unclaimed] night ([vendorNightUnclaimed]) skips the checks against our
+/// substrate and our window: there is none to check against.
 String? vendorNightRejection(
   VendorNight n, {
   required int dataStartSec,
   required int dataEndSec,
   required ({int onsetSec, int offsetSec})? ours,
+  bool unclaimed = false,
 }) {
   if (n.epochs.isEmpty) return 'empty';
   for (var i = 0; i < n.epochs.length; i++) {
@@ -109,9 +142,9 @@ String? vendorNightRejection(
   }
   final len = n.offsetSec - n.onsetSec;
   if (len < kVendorNightMinSec || len > kVendorNightMaxSec) return 'length';
-  if (n.onsetSec < dataStartSec ||
-      n.offsetSec > dataEndSec ||
-      n.offsetSec > n.decodedAtSec) {
+  if (n.offsetSec > n.decodedAtSec ||
+      (!unclaimed &&
+          (n.onsetSec < dataStartSec || n.offsetSec > dataEndSec))) {
     return 'outside_data';
   }
   final share = <String, int>{};
@@ -122,6 +155,7 @@ String? vendorNightRejection(
   if (share.values.reduce(math.max) >= len * kVendorDegenerateShare) {
     return 'degenerate';
   }
+  if (unclaimed) return null;
   if (ours == null) return 'no_own_sleep';
   if (!vendorEdgesAgree(
       n.onsetSec, n.offsetSec, ours.onsetSec, ours.offsetSec)) {
@@ -138,10 +172,39 @@ ana.SleepSegmentation vendorStagedSegmentation(
   VendorNight n,
 ) {
   final win = forced.window;
-  final onsetMs = win?.onsetMs;
-  if (win == null || onsetMs == null) return forced;
-  final start = onsetMs ~/ 1000;
-  final inBed = forced.stages4.length;
+  if (win == null || win.onsetMs == null) return forced;
+  return _staged(win, forced.stages4.length, n, forced.confidence);
+}
+
+/// [n] alone as the night, for an UNCLAIMED one ([vendorNightUnclaimed]): the
+/// device's window, every second its stage. Confidence is the window-length
+/// term our own windows publish (`inBed / 7 h`, clamped 0.3..0.95) with no
+/// staging term, because we staged nothing.
+ana.SleepSegmentation vendorOnlySegmentation(VendorNight n) {
+  final len = n.offsetSec - n.onsetSec;
+  return _staged(
+    ana.SleepWindow(
+      onsetIdx: 0,
+      offsetIdx: len,
+      onsetMs: n.onsetSec * 1000.0,
+      offsetMs: n.offsetSec * 1000.0,
+      immobile: const [],
+      zAngleDeg: const [],
+      sptSec: len,
+    ),
+    len,
+    n,
+    (len / (7 * 3600)).clamp(0.3, 0.95).toDouble(),
+  );
+}
+
+ana.SleepSegmentation _staged(
+  ana.SleepWindow win,
+  int inBed,
+  VendorNight n,
+  double confidence,
+) {
+  final start = win.onsetMs! ~/ 1000;
   final s4 = List<String>.filled(inBed, 'unobserved');
   for (final e in n.epochs) {
     for (var t = math.max(e.startSec, start);
@@ -209,6 +272,6 @@ ana.SleepSegmentation vendorStagedSegmentation(
     wakeSec: wake,
     sustainedAwakenings: awakenings,
     longestSleepRunSec: longest,
-    confidence: forced.confidence,
+    confidence: confidence,
   );
 }
