@@ -124,17 +124,19 @@ class _ActivitySetupState extends State<ActivitySetup> {
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(a.name),
-          ),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
-              children: [
-                Center(
-                  child: Column(children: [
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar(a.displayName(c)),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  Center(
+                    child: Column(
+                      children: [
                     Container(
                       width: 84,
                       height: 84,
@@ -142,9 +144,12 @@ class _ActivitySetupState extends State<ActivitySetup> {
                           color: p.wash(a.color), shape: BoxShape.circle),
                       child: Icon(a.icon, size: 38, color: p.on(a.color)),
                     ),
-                    const SizedBox(height: S.x4),
-                    Text(a.name, style: F.t2.copyWith(color: p.ink)),
-                    const SizedBox(height: S.x1),
+                        const SizedBox(height: S.x4),
+                        Text(
+                          a.displayName(c),
+                          style: F.t2.copyWith(color: p.ink),
+                        ),
+                        const SizedBox(height: S.x1),
                     Text(_trackLabel(a.track, l),
                         textAlign: TextAlign.center,
                         style: F.cap.copyWith(color: p.ink3)),
@@ -278,10 +283,11 @@ class _ActivitySetupState extends State<ActivitySetup> {
                     icon: LucideIcons.play,
                     color: a.color,
                     onTap: _starting ? null : _start),
-              ],
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }

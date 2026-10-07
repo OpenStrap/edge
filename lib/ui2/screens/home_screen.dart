@@ -1,3 +1,4 @@
+import '../../l10n/date_text.dart';
 // HOME — decision-oriented. "What matters today?"
 //
 // Three rings that decide the day — what the night gave back, what the day has
@@ -41,6 +42,11 @@ import '../../data/db.dart' show DbRebuild, LocalDb;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
+import '../../l10n/presentation_text.dart';
+import '../../l10n/display_text.dart';
+import '../../l10n/decimal_text.dart';
+import '../../state/locale_controller.dart';
+import 'package:intl/intl.dart';
 import '../../models/metric.dart';
 import '../../notify/notification_prefs.dart' show NotificationPrefs;
 import '../../state/app_state.dart';
@@ -554,19 +560,22 @@ StatusCard? staleInsightsCard(
 String hm(num? minutes) {
   if (minutes == null) return '';
   final m = minutes.round();
-  return m < 60 ? '${m}m' : '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m';
+  final l = lookupAppLocalizations(
+    Locale(LocaleController.displayLanguageCode),
+  );
+  return m < 60
+      ? l.supplementMinutesValue('$m')
+      : l.supplementHoursMinutesValue(
+          '${m ~/ 60}',
+          (m % 60).toString().padLeft(2, '0'),
+        );
 }
 
-String thousands(num? v) {
-  if (v == null) return '';
-  final s = v.round().abs().toString();
-  final b = StringBuffer(v < 0 ? '-' : '');
-  for (var i = 0; i < s.length; i++) {
-    if (i > 0 && (s.length - i) % 3 == 0) b.write(',');
-    b.write(s[i]);
-  }
-  return b.toString();
-}
+String thousands(num? v) => v == null
+    ? ''
+    : NumberFormat.decimalPattern(
+        LocaleController.displayLanguageCode,
+      ).format(v.round());
 
 /// A metric value at the precision its unit actually carries.
 ///
@@ -591,17 +600,22 @@ String metricValue(String unit, num? value) {
       return v.round().toString();
     case 'br/min':
     case '°':
-      return v.toStringAsFixed(1);
+      return displayFixed(v, 1);
   }
   if (v.abs() >= 100) return v.round().toString();
-  if (v.abs() >= 10) return v.toStringAsFixed(v == v.roundToDouble() ? 0 : 1);
-  return v.toStringAsFixed(1);
+  if (v.abs() >= 10) return displayFixed(v, v == v.roundToDouble() ? 0 : 1);
+  return displayFixed(v, 1);
 }
 
 /// The unit to print BESIDE [metricValue]'s output, which is empty when the
 /// format already carries it: `metricValue('min', 443)` is "7h 23m", and a
 /// `min` label next to that reads "7h 23m min".
-String unitBeside(String unit) => unit == 'min' ? '' : unit;
+String unitBeside(String unit) => unit == 'min'
+    ? ''
+    : localizedText(
+        lookupAppLocalizations(Locale(LocaleController.displayLanguageCode)),
+        unit,
+      );
 
 /// Minute-of-day → "10:40 PM".
 ///
@@ -622,10 +636,6 @@ String clockOfTs(num? ts) {
 const _months = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
-];
-const _weekdays = [
-  'Monday', 'Tuesday', 'Wednesday', 'Thursday',
-  'Friday', 'Saturday', 'Sunday',
 ];
 
 String monthName(int month, AppLocalizations? l) {
@@ -654,15 +664,6 @@ String monthShortName(int month, AppLocalizations? l) {
   ][month - 1];
 }
 
-String _weekdayName(int weekday, AppLocalizations? l) {
-  if (l == null) return _weekdays[weekday - 1];
-  return [
-    l.homeWeekdayMonday, l.homeWeekdayTuesday, l.homeWeekdayWednesday,
-    l.homeWeekdayThursday, l.homeWeekdayFriday, l.homeWeekdaySaturday,
-    l.homeWeekdaySunday,
-  ][weekday - 1];
-}
-
 const _weekdaysShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 /// Abbreviated weekday for `DateTime.weekday` (1 = Monday), e.g. "Thu 4 Sep"
@@ -680,7 +681,11 @@ String weekdayShortName(int weekday, AppLocalizations? l) {
 String prettyDay(String? dayId, [AppLocalizations? l]) {
   final d = dayId == null ? null : DateTime.tryParse(dayId);
   if (d == null) return '';
-  return '${_weekdayName(d.weekday, l)}, ${d.day} ${monthName(d.month, l)}';
+  return localizedDate(
+    d,
+    l?.localeName ?? LocaleController.displayLanguageCode,
+    weekday: true,
+  );
 }
 
 /// The readiness band. `readiness_glassbox` carries no label of its own, so the
@@ -866,9 +871,10 @@ class RingTrio extends StatelessWidget {
               ),
               Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
             ]),
-          ),
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 
@@ -1116,19 +1122,26 @@ class _RingText extends StatelessWidget {
     return Column(crossAxisAlignment: cross, children: [
       Text(r.label.toUpperCase(),
           style: F.over.copyWith(color: p.ink3), textAlign: align),
-      const SizedBox(height: S.x1),
-      // Absent reads as words, never as a dash and never as a zero — so it
-      // takes the sentence weight rather than the numeral one.
-      Text(r.value,
+        const SizedBox(height: S.x1),
+        // Absent reads as words, never as a dash and never as a zero — so it
+        // takes the sentence weight rather than the numeral one.
+        Text(
+          presentationText(AppLocalizations.of(c), r.value),
           style: r.measured
               ? F.n24.copyWith(color: p.ink)
               : F.body.copyWith(color: p.ink2),
-          textAlign: align),
-      if (r.sub.isNotEmpty) ...[
-        const SizedBox(height: 2),
-        Text(r.sub, style: F.cap.copyWith(color: p.ink3), textAlign: align),
+          textAlign: align,
+        ),
+        if (r.sub.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            presentationText(AppLocalizations.of(c), r.sub),
+            style: F.cap.copyWith(color: p.ink3),
+            textAlign: align,
+          ),
+        ],
       ],
-    ]);
+    );
   }
 }
 
@@ -1149,23 +1162,34 @@ class _GapRow extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x2),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(r.icon, size: 15, color: p.ink3),
-          const SizedBox(width: S.x2),
-          Expanded(
-            child: Text.rich(
-              TextSpan(children: [
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(r.icon, size: 15, color: p.ink3),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  children: [
                 TextSpan(
                     text: '${r.label} · ',
                     style: F.cap.copyWith(
                         color: p.ink2, fontWeight: FontWeight.w600)),
-                TextSpan(text: r.why, style: F.cap.copyWith(color: p.ink3)),
-              ]),
+                    TextSpan(
+                      text: presentationText(
+                        AppLocalizations.of(c),
+                        r.why ?? '',
+                      ),
+                      style: F.cap.copyWith(color: p.ink3),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-          const SizedBox(width: S.x2),
-          Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
-        ]),
+            const SizedBox(width: S.x2),
+            Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
+          ],
+        ),
       ),
     );
   }
@@ -1484,7 +1508,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         setState(() => (_d = d, _days = days, _loading = false, _failed = false));
       }
     } catch (_) {
-      if (stillNewest(#home, t)) setState(() => (_loading = false, _failed = true));
+      if (stillNewest(#home, t)) {
+        setState(() => (_loading = false, _failed = true));
+      }
     }
   }
 
@@ -2069,9 +2095,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               Expanded(child: cards[i + 1]),
             ]),
           ),
+        ],
+        for (final s in absent) ...[const SizedBox(height: S.x3), s],
       ],
-      for (final s in absent) ...[const SizedBox(height: S.x3), s],
-    ]);
+    );
   }
 
 
@@ -2190,7 +2217,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       c,
       LucideIcons.sparkles,
       l?.homeBriefingTitle ?? 'Briefing',
-      cached?.oneLiner ?? (l?.homeBriefingSubtitleEmpty ?? 'Tap to write today\'s summary'),
+      cached?.oneLiner == 'Nothing stood out tonight.'
+          ? uiText(c, cached!.oneLiner)
+          : cached?.oneLiner ?? (l?.homeBriefingSubtitleEmpty ?? 'Tap to write today\'s summary'),
       () async {
         // Resolved fresh at tap time via _resolveBriefingNow, not read from
         // the value above — see that method's doc for why.

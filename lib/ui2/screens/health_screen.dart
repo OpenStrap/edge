@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // HEALTH — observation-oriented. "What is happening, what is changing, is
 // anything unusual?"
 //
@@ -688,7 +689,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     // the Trends tab one tap away correctly said "as of 4 days ago" about the
     // same numbers.
     final night = heldOverNightOf(d.today);
-    String ofNight(String s) => night == null ? s : '$s · ${prettyDay(night)}';
+    String ofNight(String s) =>
+        night == null ? s : '$s · ${prettyDay(night, l)}';
 
     final sleepMin = d.sleepMin;
 
@@ -723,14 +725,24 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                 'Read only from sleep, and no night was scored.')
             : '');
 
-    row(sleepMin, LucideIcons.moon, C.blue, l?.healthRowSleep ?? 'Sleep',
-        night == null ? (l?.healthSubLastNight ?? 'Last night') : prettyDay(night),
-        hm(sleepMin.value), '', d.spark('sleep', 24), 'sleep',
-        // More sleep is the direction this app coaches towards — `sleepNeed`
-        // exists to say you are short of it, never over it.
-        rising: Rising.good,
+    row(
+      sleepMin,
+      LucideIcons.moon,
+      C.blue,
+      l?.healthRowSleep ?? 'Sleep',
+      night == null
+          ? (l?.healthSubLastNight ?? 'Last night')
+          : prettyDay(night, l),
+      hm(sleepMin.value),
+      '',
+      d.spark('sleep', 24),
+      'sleep',
+      // More sleep is the direction this app coaches towards — `sleepNeed`
+      // exists to say you are short of it, never over it.
+      rising: Rising.good,
         whyAbsent: l?.healthWhySleepNotLongEnough ??
-            'No sleep period long enough to score was recorded.');
+            'No sleep period long enough to score was recorded.',
+    );
 
     final stressBlock = d.today['stress'];
     final stressScore =
@@ -804,8 +816,8 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                 : (illnessBehind == null || illnessBehind <= 0
                     ? (l?.healthIllnessLastNightTitle ??
                         'Last night sat outside your normal range')
-                    : (l?.healthIllnessDayTitle(prettyDay(illnessDay)) ??
-                        '${prettyDay(illnessDay)} sat outside your normal range')),
+                      : (l?.healthIllnessDayTitle(prettyDay(illnessDay, l)) ??
+                            '${prettyDay(illnessDay, l)} sat outside your normal range')),
             // The RUN is what is above baseline — the accumulator only clears
             // after two nights back under. The stored z is the LATEST night's
             // own deviation and can be negative while the run is still up,
@@ -876,21 +888,21 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         ),
       ],
 
-      // NAPS — the display and the correction, which are one feature. The
-      // section is here on a day with no naps too, because the door to logging
-      // one has to exist on exactly the day the detector found nothing.
-      Section(
-        l?.healthNapsTitle ?? 'Naps',
-        d.napCount == null
-            // `napDay` defaults to '' and `prettyDay` returns '' for anything
-            // it cannot parse, so this printed "No nap reading for" with the
-            // sentence hanging off the end of the word "for". Name the day only
-            // when there is one to name.
-            ? StatusCard(
-                prettyDay(d.napDay).isEmpty
-                    ? (l?.healthNoNapReading ?? 'No nap reading')
-                    : (l?.healthNoNapReadingFor(prettyDay(d.napDay)) ??
-                        'No nap reading for ${prettyDay(d.napDay)}'),
+        // NAPS — the display and the correction, which are one feature. The
+        // section is here on a day with no naps too, because the door to logging
+        // one has to exist on exactly the day the detector found nothing.
+        Section(
+          l?.healthNapsTitle ?? 'Naps',
+          d.napCount == null
+              // `napDay` defaults to '' and `prettyDay` returns '' for anything
+              // it cannot parse, so this printed "No nap reading for" with the
+              // sentence hanging off the end of the word "for". Name the day only
+              // when there is one to name.
+              ? StatusCard(
+                  prettyDay(d.napDay, l).isEmpty
+                      ? (l?.healthNoNapReading ?? 'No nap reading')
+                      : (l?.healthNoNapReadingFor(prettyDay(d.napDay, l)) ??
+                            'No nap reading for ${prettyDay(d.napDay, l)}'),
                 l?.healthNapsBody ??
                     'Naps come off the same second-by-second recording as the '
                         'rest of the day, and this day does not have enough of '
@@ -906,18 +918,18 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
                   // A MEASURED zero, not a dash: the day was judged and held
                   // no nap. The two are different answers and read as two.
                   d.napCount == 0 ? (l?.healthValueNone ?? 'None') : hm(d.napMin),
-                  sub: d.napCount == 0
-                      ? (l?.healthNoneDetectedOn(prettyDay(d.napDay)) ??
-                          'None detected · ${prettyDay(d.napDay)}')
-                      : '${l?.healthNapCountLabel(d.napCount!) ?? '${d.napCount} '
+                    sub: d.napCount == 0
+                        ? (l?.healthNoneDetectedOn(prettyDay(d.napDay, l)) ??
+                              'None detected · ${prettyDay(d.napDay, l)}')
+                        : '${l?.healthNapCountLabel(d.napCount!) ?? '${d.napCount} '
                               'nap${d.napCount == 1 ? '' : 's'}'} · '
-                          '${prettyDay(d.napDay)}',
-                  onTap: () => go(c, NapsScreen(day: d.napDay)),
+                              '${prettyDay(d.napDay, l)}',
+                    onTap: () => go(c, NapsScreen(day: d.napDay)),
+                  ),
                 ),
-              ),
-        action: l?.healthAddOrCorrect ?? 'Add or correct',
-        onAction: () => go(c, NapsScreen(day: d.napDay)),
-      ),
+          action: l?.healthAddOrCorrect ?? 'Add or correct',
+          onAction: () => go(c, NapsScreen(day: d.napDay)),
+        ),
 
       // THERE IS NO "BODY COMPOSITION" SECTION, AND THE NEXT PERSON SHOULD NOT
       // BUILD ONE. It used to print the onboarding weight scalar, and the ask
@@ -1099,11 +1111,12 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             30,
             l?.healthDaysWithRecord ??
                 'Days with a derived record in the last 30 days',
-            C.domHealth,
+              C.domHealth,
+            ),
           ),
         ),
-      ),
-    ]);
+      ],
+    );
   }
 
   String _hoursHm(num h) {
@@ -1132,7 +1145,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     // day the loader had fallen back to, which after a sync gap is days ago.
     final behind = _behind(v.day);
     final isToday = behind == null || behind <= 0;
-    final dayWord = isToday ? (l?.healthToday ?? 'Today') : prettyDay(v.day);
+    final dayWord = isToday ? (l?.healthToday ?? 'Today') : prettyDay(v.day, l);
     // Skin temperature comes off the latest OVERNIGHT bundle, not the day the
     // other three rows describe, so it gets its own night when they differ.
     final tempNight = heldOverNightOf(d.today);
@@ -1171,19 +1184,22 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         // heart rate in bpm, so it read as °C; and the sleep scrub's
         // "temperature" is a THIRD quantity again (raw ADC minus that day's
         // median), which is why neither may go unlabelled.
-        MetricRow(LucideIcons.thermometer, C.orange,
-            l?.healthRowSkinTemp ?? 'Skin temperature',
+        MetricRow(
+          LucideIcons.thermometer,
+          C.orange,
+          l?.healthRowSkinTemp ?? 'Skin temperature',
             '${skinTemp.value! >= 0 ? '+' : '−'}'
                 '${skinTemp.value!.abs().toStringAsFixed(2)}',
-            sub: tempNight == null
-                ? (l?.healthVsOwnNights ?? 'vs your own nights')
-                : (l?.healthVsOwnNightsOn(prettyDay(tempNight)) ??
-                    'vs your own nights · ${prettyDay(tempNight)}'),
-            unit: 'SD',
-            // Both this row and the wear row below it carry a FULL, written,
-            // cited spec in `metric_detail.dart` that no tap in the app opened.
-            // The number was on screen and its method was unreachable.
-            onTap: () => go(c, const MetricDetail('skin_temp'))),
+          sub: tempNight == null
+              ? (l?.healthVsOwnNights ?? 'vs your own nights')
+              : (l?.healthVsOwnNightsOn(prettyDay(tempNight, l)) ??
+                    'vs your own nights · ${prettyDay(tempNight, l)}'),
+          unit: 'SD',
+          // Both this row and the wear row below it carry a FULL, written,
+          // cited spec in `metric_detail.dart` that no tap in the app opened.
+          // The number was on screen and its method was unreachable.
+          onTap: () => go(c, const MetricDetail('skin_temp')),
+        ),
       if (worn != null)
         MetricRow(LucideIcons.watch, C.green, l?.healthRowWearTime ?? 'Wear time',
             hm(worn),
@@ -1312,12 +1328,13 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             l?.healthMeasuresWithHistory ??
                 'Measures with stored history on this device',
             C.domHealth,
-            unit: l?.healthMeasuresUnit ?? 'measures'),
-      ),
-      const SizedBox(height: S.x3),
-      // Not a promise of insight — a statement of what a tap gets you. Every
-      // row below opens the same drill-down: the chart, your own range, the
-      // method in full, and the paper it came from.
+            unit: 'measures',
+          ),
+        ),
+        const SizedBox(height: S.x3),
+        // Not a promise of insight — a statement of what a tap gets you. Every
+        // row below opens the same drill-down: the chart, your own range, the
+        // method in full, and the paper it came from.
       Text(
           l?.healthEachOneOpens ??
               'Each one opens its chart, your own range, and how it is worked out.',
@@ -1339,56 +1356,68 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
 
     return Section(
       _catTitle(l, f.title),
-      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        if (have.isNotEmpty)
-          Surface(
-            pad: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: Column(children: [
-              for (var i = 0; i < have.length; i++) ...[
-                if (i > 0) Divider(color: p.line, height: 1),
-                Builder(builder: (c) {
-                  final r = have[i];
-                  final s = specOf(r.key);
-                  // NO NUMBER IN THE VALUE SLOT, on purpose.
-                  //
-                  // This used to print the day count. It read as a score: nine
-                  // days of breathing rate beside seventeen of resting HR looks
-                  // like the app is worse at breathing, when what it means is
-                  // that the estimator abstains more — which is the behaviour
-                  // we want. It also collapsed three different causes into one
-                  // number: genuinely rare, key shipped last week, substrate
-                  // pruned. `midsleep_sec` is forward-only and can never be
-                  // backfilled, so it would sit at 1 next to everything else's
-                  // 17 and mean nothing of the sort.
-                  //
-                  // And it was redundant. Rows with history sort above rows
-                  // without, and the empty ones are named in the StatusCard
-                  // below. Has / hasn't is the only thing an index owes you,
-                  // and the layout already says it.
-                  return MetricRow(s.icon, s.color, s.title, '',
-                      sub: _rowBlurb(l, r.key, r.blurb),
-                      onTap: () => go(c, MetricDetail(r.key)));
-                }),
-              ],
-            ]),
-          ),
-        if (none.isNotEmpty) ...[
-          if (have.isNotEmpty) const SizedBox(height: S.x3),
-          StatusCard(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (have.isNotEmpty)
+            Surface(
+              pad: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: Column(
+                children: [
+                  for (var i = 0; i < have.length; i++) ...[
+                    if (i > 0) Divider(color: p.line, height: 1),
+                    Builder(
+                      builder: (c) {
+                        final r = have[i];
+                        final s = specOf(r.key);
+                        // NO NUMBER IN THE VALUE SLOT, on purpose.
+                        //
+                        // This used to print the day count. It read as a score: nine
+                        // days of breathing rate beside seventeen of resting HR looks
+                        // like the app is worse at breathing, when what it means is
+                        // that the estimator abstains more — which is the behaviour
+                        // we want. It also collapsed three different causes into one
+                        // number: genuinely rare, key shipped last week, substrate
+                        // pruned. `midsleep_sec` is forward-only and can never be
+                        // backfilled, so it would sit at 1 next to everything else's
+                        // 17 and mean nothing of the sort.
+                        //
+                        // And it was redundant. Rows with history sort above rows
+                        // without, and the empty ones are named in the StatusCard
+                        // below. Has / hasn't is the only thing an index owes you,
+                        // and the layout already says it.
+                        return MetricRow(
+                          s.icon,
+                          s.color,
+                          uiText(c, s.title),
+                          '',
+                          sub: _rowBlurb(l, r.key, r.blurb),
+                          onTap: () => go(c, MetricDetail(r.key)),
+                        );
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          if (none.isNotEmpty) ...[
+            if (have.isNotEmpty) const SizedBox(height: S.x3),
+            StatusCard(
             have.isEmpty
                 ? (l?.healthNothingMeasuredHere ?? 'Nothing measured here yet')
                 : (l?.healthNotMeasuredYet ?? 'Not measured yet'),
-            // No cause is named, because none is known here: this screen reads
-            // a row count, and a count of zero says the day never produced one
-            // — never why. No `fix:` either; there is no button that makes a
-            // derive happen for a night that has already been scored.
-            '${none.map((r) => specOf(r.key).title).join(' · ')}. '
+              // No cause is named, because none is known here: this screen reads
+              // a row count, and a count of zero says the day never produced one
+              // — never why. No `fix:` either; there is no button that makes a
+              // derive happen for a night that has already been scored.
+              '${none.map((r) => uiText(c, specOf(r.key).title)).join(' · ')}. '
                 '${l?.healthNoDayProduced ?? 'No day on this device has '
                     'produced one yet.'}',
-            icon: LucideIcons.chartLine,
-          ),
+              icon: LucideIcons.chartLine,
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 
@@ -1476,6 +1505,12 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     ]);
   }
 
+  String _markerName(LabMarker? m, String fallback) => m == null
+      ? fallback
+      : m.custom
+      ? m.label
+      : uiText(context, m.label);
+
   Widget _lab(P p, LabMarker? m, Map<String, dynamic> r, String? sex,
       VoidCallback onRemove) {
     final l = AppLocalizations.of(context);
@@ -1489,8 +1524,11 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     // the difference between a row that fits and one that overflows.
     return Pressable(
       onTap: onRemove,
-      semanticLabel: l?.healthRemoveMarkerFrom(
-              (m?.label ?? r['marker']).toString(), r['taken_on'].toString()) ??
+      semanticLabel:
+          l?.healthRemoveMarkerFrom(
+            _markerName(m, r['marker'].toString()),
+            r['taken_on'].toString(),
+          ) ??
           'Remove ${m?.label ?? r['marker']} from ${r['taken_on']}',
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
@@ -1503,14 +1541,18 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
               color: inRange == null
                   ? p.ink3
                   : (inRange ? p.on(C.green) : p.on(C.orange)),
-              shape: BoxShape.circle,
+                shape: BoxShape.circle,
+              ),
             ),
-          ),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(m?.label ?? r['marker'].toString(),
-                  style: F.body.copyWith(color: p.ink)),
+            const SizedBox(width: S.x3),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _markerName(m, r['marker'].toString()),
+                    style: F.body.copyWith(color: p.ink),
+                  ),
               Text(
                   range == null
                       ? (l?.healthNoReferenceInterval(r['taken_on'].toString()) ??
@@ -1550,7 +1592,7 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
     final loc = AppLocalizations.of(context);
     final marker = r['marker'].toString();
     final takenOn = r['taken_on'].toString();
-    final label = m?.label ?? marker;
+    final label = _markerName(m, marker);
     final v = (r['value'] as num).toDouble();
     final unit = (r['unit'] ?? m?.unit ?? '').toString();
     // The row on screen is the NEWEST draw of its marker, so an earlier one
@@ -1689,21 +1731,26 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
         builder: (dc, setLocal) => AlertDialog(
           title: Text(loc?.healthAddAResult ?? 'Add a result'),
           content: SingleChildScrollView(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              // Unlabelled it announces only its current value — a marker
-              // name, with no statement of what the field is.
-              Semantics(
-                label: loc?.healthMarkerLabel ?? 'Marker',
-                child: DropdownButton<LabMarker>(
-                  isExpanded: true,
-                  value: marker,
-                  items: [
-                    for (final m in l.markers)
-                      DropdownMenuItem(value: m, child: Text(m.label)),
-                  ],
-                  onChanged: (m) => setLocal(() => marker = m ?? marker),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Unlabelled it announces only its current value — a marker
+                // name, with no statement of what the field is.
+                Semantics(
+                  label: loc?.healthMarkerLabel ?? 'Marker',
+                  child: DropdownButton<LabMarker>(
+                    isExpanded: true,
+                    value: marker,
+                    items: [
+                      for (final m in l.markers)
+                        DropdownMenuItem(
+                          value: m,
+                          child: Text(_markerName(m, m.label)),
+                        ),
+                    ],
+                    onChanged: (m) => setLocal(() => marker = m ?? marker),
+                  ),
                 ),
-              ),
               TextFormField(
                 onChanged: (s) => valueText = s,
                 keyboardType:

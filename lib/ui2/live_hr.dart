@@ -30,6 +30,7 @@ import 'dart:math' as math;
 
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
+import '../l10n/app_localizations.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
@@ -79,6 +80,7 @@ class LiveHrCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final l = AppLocalizations.of(c);
     final hr = _preview ? _hr : c.select<AppState, int?>((a) => a.liveHr);
     if (hr == null) {
       if (_preview) return _absent(paired: true, connected: true);
@@ -103,51 +105,63 @@ class LiveHrCard extends StatelessWidget {
     }
 
     return Surface(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // At 3.1x text an n48 number plus a pill does not fit a phone width, so
-        // the number is allowed to scale down inside the space that is left
-        // rather than the row overflowing. The pill keeps its size: it is two
-        // short words and shrinking it is how a label becomes unreadable.
-        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-          Icon(LucideIcons.heart, size: 26, color: p.on(C.red)),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text('$hr', style: F.n48.copyWith(color: p.ink)),
-                  const SizedBox(width: S.x2),
-                  Text('bpm', style: F.body.copyWith(color: p.ink3)),
-                ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // At 3.1x text an n48 number plus a pill does not fit a phone width, so
+          // the number is allowed to scale down inside the space that is left
+          // rather than the row overflowing. The pill keeps its size: it is two
+          // short words and shrinking it is how a label becomes unreadable.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(LucideIcons.heart, size: 26, color: p.on(C.red)),
+              const SizedBox(width: S.x3),
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text('$hr', style: F.n48.copyWith(color: p.ink)),
+                      const SizedBox(width: S.x2),
+                      Text(
+                        AppLocalizations.of(c)?.activityLiveBpmUnit ?? 'bpm',
+                        style: F.body.copyWith(color: p.ink3),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: S.x2),
-          // WHOSE PULSE THIS IS, only when two devices are streaming. Below
-          // that the row is byte-identical to today's: same Pill, same
-          // position, no Pressable in the tree at all.
-          if (!_preview && c.select<AppState, bool>((a) => a.liveHrMultiDevice))
-            Builder(builder: (c) {
-              final app = c.read<AppState>();
-              final ranked = rankSources(liveSources(app));
-              final id = app.liveHrDeviceId;
-              final label = id == null
-                  ? 'LIVE'
-                  : ranked.firstWhereOrNull((s) => deviceIdOf(s) == id)?.name ??
-                      'LIVE';
-              return Pressable(
+              const SizedBox(width: S.x2),
+              // WHOSE PULSE THIS IS, only when two devices are streaming. Below
+              // that the row is byte-identical to today's: same Pill, same
+              // position, no Pressable in the tree at all.
+              if (!_preview && c.select<AppState, bool>((a) => a.liveHrMultiDevice))
+                Builder(
+                  builder: (c) {
+                    final app = c.read<AppState>();
+                    final ranked = rankSources(liveSources(app));
+                    final id = app.liveHrDeviceId;
+                    final label = id == null
+                        ? (l?.devicesLive ?? 'LIVE')
+                        : ranked.firstWhereOrNull((s) => deviceIdOf(s) == id)?.name ??
+                              (l?.devicesLive ?? 'LIVE');
+                    return Pressable(
                 onTap: () => app.showLiveHrFrom(_nextDevice(app, ranked, id)),
-                semanticLabel: 'Showing $label. Tap to switch device.',
-                child: Pill(label, C.red, icon: LucideIcons.radio),
-              );
-            })
-          else
-            const Pill('LIVE', C.red, icon: LucideIcons.radio),
-        ]),
+                      semanticLabel:
+                          l?.liveHrShowingDeviceSemantics(label) ??
+                          'Showing $label. Tap to switch device.',
+                      child: Pill(label, C.red, icon: LucideIcons.radio),
+                    );
+                  },
+                )
+              else
+                Pill(l?.devicesLive ?? 'LIVE', C.red, icon: LucideIcons.radio),
+            ],
+          ),
         if (trace.length > 2) ...[
           const SizedBox(height: S.x3),
           SizedBox(

@@ -1,3 +1,4 @@
+import '../../l10n/date_text.dart';
 // WHOOP MG ECG — the Heart Screener entry (history + Take ECG), the capture
 // screen and the reading detail.
 //
@@ -6,6 +7,7 @@
 // the MG connected and READY. Everything shown as a result is the band's own
 // category — labelled so — never a phone-side classification.
 
+import '../../l10n/display_text.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -60,10 +62,9 @@ String _wristLabel(AppLocalizations? l, EcgWrist w) => w == EcgWrist.left
     ? (l?.ecgWristLeft ?? 'Left wrist')
     : (l?.ecgWristRight ?? 'Right wrist');
 
-String _fmtWhen(int epochS) {
+String ecgDisplayWhen(int epochS, AppLocalizations? l) {
   final d = DateTime.fromMillisecondsSinceEpoch(epochS * 1000);
-  String two(int n) => n.toString().padLeft(2, '0');
-  return '${d.year}-${two(d.month)}-${two(d.day)} ${formatClockOf(d)}';
+  return '${localizedDate(d, l?.localeName ?? 'en')} ${formatClockOf(d)}';
 }
 
 // ═══════════════════ entry card (Health overview) ═══════════════════
@@ -227,7 +228,7 @@ class EcgReadingRow extends StatelessWidget {
     return Pressable(
       onTap: onTap,
       semanticLabel:
-          '$cat, ${hr == null ? '' : '$hr bpm, '}${_fmtWhen(reading.startTs)}',
+          '$cat, ${hr == null ? '' : '$hr ${uiText(c, 'bpm')}, '}${ecgDisplayWhen(reading.startTs, l)}',
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: S.x4, vertical: S.x3),
         child: Row(
@@ -239,7 +240,7 @@ class EcgReadingRow extends StatelessWidget {
                   Text(cat, style: F.body.copyWith(color: p.ink)),
                   const SizedBox(height: S.x1),
                   Text(
-                    '${_fmtWhen(reading.startTs)} · ${_wristLabel(l, reading.wrist)}',
+                    '${ecgDisplayWhen(reading.startTs, l)} · ${_wristLabel(l, reading.wrist)}',
                     style: F.cap.copyWith(color: p.ink3),
                   ),
                 ],
@@ -247,7 +248,8 @@ class EcgReadingRow extends StatelessWidget {
             ),
             if (hr != null) Text('$hr', style: F.n24.copyWith(color: p.ink)),
             if (hr != null) const SizedBox(width: S.x1),
-            if (hr != null) Text('bpm', style: F.cap.copyWith(color: p.ink3)),
+            if (hr != null)
+              Text(uiText(c, 'bpm'), style: F.cap.copyWith(color: p.ink3)),
             const SizedBox(width: S.x2),
             Icon(LucideIcons.chevronRight, size: 16, color: p.ink3),
           ],
@@ -585,7 +587,7 @@ class EcgCaptureBody extends StatelessWidget {
                 if (s.liveHr != null) ...[
                   Text('${s.liveHr}', style: F.n24.copyWith(color: p.ink)),
                   const SizedBox(width: S.x1),
-                  Text('bpm', style: F.cap.copyWith(color: p.ink3)),
+                  Text(uiText(c, 'bpm'), style: F.cap.copyWith(color: p.ink3)),
                 ],
               ],
             ),
@@ -596,7 +598,7 @@ class EcgCaptureBody extends StatelessWidget {
               buffer: live,
               scheduler: scheduler,
               label: l?.ecgLivePreview ?? 'Live signal preview',
-              unit: 'µV',
+              unit: uiText(c, 'µV'),
             ),
           ],
         ],
@@ -867,7 +869,10 @@ class _EcgDetailScreenState extends State<EcgDetailScreen> {
                 const SizedBox(height: S.x1),
                 Text(cat, style: F.t2.copyWith(color: p.ink)),
                 const SizedBox(height: S.x1),
-                Text(_fmtWhen(r.startTs), style: F.cap.copyWith(color: p.ink3)),
+                Text(
+                  ecgDisplayWhen(r.startTs, l),
+                  style: F.cap.copyWith(color: p.ink3),
+                ),
                 if (r.status == EcgReadingStatus.inconclusive ||
                     r.category == EcgCategory.unreadable) ...[
                   const SizedBox(height: S.x2),
@@ -903,7 +908,7 @@ class _EcgDetailScreenState extends State<EcgDetailScreen> {
                         Row(
                           children: [
                             Text(
-                              '±${EcgWaveformPainter.rangeFor(packets)} µV',
+                              '±${EcgWaveformPainter.rangeFor(packets)} ${uiText(c, 'µV')}',
                               style: F.cap.copyWith(color: p.ink3),
                             ),
                             const Spacer(),
@@ -965,6 +970,7 @@ class _EcgDetailScreenState extends State<EcgDetailScreen> {
                       ],
                     ),
                   ),
+            wrapTitle: true,
           ),
           const SizedBox(height: S.x4),
           Surface(
@@ -972,13 +978,16 @@ class _EcgDetailScreenState extends State<EcgDetailScreen> {
               children: [
                 kv(
                   l?.ecgAvgHr ?? 'Average heart rate',
-                  r.avgHr == null ? '—' : '${r.avgHr} bpm',
+                  r.avgHr == null ? '—' : '${r.avgHr} ${uiText(c, 'bpm')}',
                 ),
                 kv(
                   l?.ecgQuality ?? 'Signal quality',
                   r.quality == null ? '—' : '${r.quality}',
                 ),
-                kv(l?.ecgDuration ?? 'Duration', '${r.durationS} s'),
+                kv(
+                  l?.ecgDuration ?? 'Duration',
+                  '${r.durationS} ${uiText(c, 's')}',
+                ),
                 kv(
                   l?.ecgInterruptions ?? 'Interruptions',
                   '${r.interruptions}',

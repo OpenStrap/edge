@@ -11,7 +11,25 @@ class LocaleController extends ChangeNotifier {
   static const String _kLocale = 'locale_override'; // language code, e.g. 'es'
 
   String? _code;
+  static LocaleController? _active;
   LocaleController._(this._code);
+
+  /// Bind the controller actually provided to the app, not a bootstrap probe.
+  void useForPresentation() {
+    _active = this;
+  }
+
+  /// The app root binds its controller once per UI isolate. Creating another
+  /// controller (including a late bootstrap) does not change this override.
+  /// This affects presentation only; storage and calculation units stay invariant.
+  static String get displayLanguageCode {
+    final code =
+        _active?._code ??
+        WidgetsBinding.instance.platformDispatcher.locale.languageCode;
+    return AppLocalizations.supportedLocales.any((l) => l.languageCode == code)
+        ? code
+        : 'en';
+  }
 
   factory LocaleController.seed(String? code) => LocaleController._(code);
 
@@ -21,11 +39,18 @@ class LocaleController extends ChangeNotifier {
     // A locale dropped from AppLocalizations.supportedLocales (or from a
     // stale build) has no row in the picker — fall back to system default
     // rather than showing a selection nothing matches.
-    final code = AppLocalizations.supportedLocales
-            .any((l) => l.languageCode == stored)
+    final code =
+        AppLocalizations.supportedLocales.any((l) => l.languageCode == stored)
         ? stored
         : null;
     return LocaleController._(code);
+  }
+
+  @override
+  void dispose() {
+    // An older test/app instance must not clear a newer controller's override.
+    if (identical(_active, this)) _active = null;
+    super.dispose();
   }
 
   /// null = system default.

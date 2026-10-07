@@ -1,3 +1,4 @@
+import '../../l10n/presentation_text.dart';
 // READINESS — the one composite, taken apart.
 //
 // Two producers meet on this screen and the copy says so rather than blending
@@ -409,13 +410,17 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
               ),
             ],
           ],
+          ),
         ),
-      ),
-      if (fallbackReason != null) ...[
-        const SizedBox(height: S.x3),
-        Text(fallbackReason, style: F.cap.copyWith(color: p.ink3, height: 1.5)),
+        if (fallbackReason != null) ...[
+          const SizedBox(height: S.x3),
+          Text(
+            presentationText(l, fallbackReason),
+            style: F.cap.copyWith(color: p.ink3, height: 1.5),
+          ),
+        ],
       ],
-    ]);
+    );
   }
 
   Widget _breakdown(BuildContext c, P p, ReadinessData d) {
@@ -487,7 +492,8 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
                 color: p.on(contribution >= 0 ? C.green : C.orange)),
           ),
         ],
-      ]),
+        ],
+      ),
     );
   }
 }
