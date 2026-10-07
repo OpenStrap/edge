@@ -3629,7 +3629,9 @@
   "@dayTimelineDeviceBounded": {
     "description": "Copy shown instead of a per-device curve when the day is outside decoded_onehz retention.",
     "placeholders": {
-      "oldest": {"type": "String"}
+      "oldest": {
+        "type": "String"
+      }
     }
   },
   "dayTimelineTitle": "Breakdown of your day",
@@ -5624,15 +5626,21 @@
   "@metricDetailUsingForX": {
     "description": "Which device currently feeds one metric, under the device filter row.",
     "placeholders": {
-      "device": {"type": "String"},
-      "metric": {"type": "String"}
+      "device": {
+        "type": "String"
+      },
+      "metric": {
+        "type": "String"
+      }
     }
   },
   "metricDetailPreferX": "Prefer {device}",
   "@metricDetailPreferX": {
     "description": "Button: make the selected device win this metric's signal(s).",
     "placeholders": {
-      "device": {"type": "String"}
+      "device": {
+        "type": "String"
+      }
     }
   },
   "metricDetailHistoryKeepsSource": "Days already finished keep the source they were calculated with.",
@@ -12213,7 +12221,7 @@
   "@signalSkinTempRaw": {
     "description": "Human name for the skinTempRaw input signal."
   },
-  "signalVendorScalars": "The device\u2019s own numbers",
+  "signalVendorScalars": "The device’s own numbers",
   "@signalVendorScalars": {
     "description": "Human name for the vendorScalars input signal."
   },
@@ -12261,7 +12269,9 @@
   "@devicesSensorLimit": {
     "description": "Refusal shown when the paired-sensor cap is already reached.",
     "placeholders": {
-      "count": { "type": "int" }
+      "count": {
+        "type": "int"
+      }
     }
   },
   "devicesOrderNotSaved": "That order could not be saved. Nothing changed.",
@@ -12662,7 +12672,7 @@
   "devicesWornOtherSub": "A pocket or bag. The band cannot see gait well there.",
   "@devicesWornOtherSub": {
     "description": "Step calibration wearing-location setting"
-    },
+  },
   "tabHome": "Home",
   "tabHealth": "Health",
   "tabNutrition": "Nutrition",
@@ -12670,5 +12680,1715 @@
   "tabWellness": "Wellness",
   "@tabHome": {
     "description": "Bottom tab bar labels (tabHome..tabWellness). Keep short; the five must read as different words."
-  }
+  },
+  "activityCatalogueName": "{key, select, other{{name}}}",
+  "@activityCatalogueName": {
+    "description": "Display name only. Never persist translated activity or group names.",
+    "placeholders": {
+      "key": {
+        "type": "String"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementSmartWindowMinutes": "{m} min before wake time",
+  "@supplementSmartWindowMinutes": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "m": {
+        "type": "int"
+      }
+    }
+  },
+  "supplementGoalValue": "Goal {target}",
+  "@supplementGoalValue": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementOfCountUnit": "of {n} {unit}",
+  "@supplementOfCountUnit": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      },
+      "unit": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementZoneStartsAt": "Z{n} · {name} starts at",
+  "@supplementZoneStartsAt": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementClimbedExport": "+{m} m elevation",
+  "@supplementClimbedExport": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "m": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementLapsExport": "{n} laps",
+  "@supplementLapsExport": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "n": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementReasonCount": "{reason} There were {have}, and it needs {need}.",
+  "@supplementReasonCount": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      },
+      "have": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementNeedNights": "Need {n} more nights",
+  "@supplementNeedNights": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "supplementNeedDays": "Wear {n} more days to unlock",
+  "@supplementNeedDays": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "supplementCountOf": "{have} of {need} {unit}",
+  "@supplementCountOf": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "have": {
+        "type": "String"
+      },
+      "need": {
+        "type": "String"
+      },
+      "unit": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementOutOf": "of {value}",
+  "@supplementOutOf": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementMinutesValue": "{m}m",
+  "@supplementMinutesValue": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "m": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementHoursMinutesValue": "{h}h {m}m",
+  "@supplementHoursMinutesValue": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "h": {
+        "type": "String"
+      },
+      "m": {
+        "type": "String"
+      }
+    }
+  },
+  "exerciseCatalogueName": "{key, select, other{{name}}}",
+  "@exerciseCatalogueName": {
+    "description": "Display only. Original exercise keys, labels, credits and licences are unchanged.",
+    "placeholders": {
+      "key": {
+        "type": "String"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementUnreadableFields": "{fields} are not numbers. Nothing was saved.",
+  "@supplementUnreadableFields": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "fields": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementGoalSemantic": "{label}, {current} toward {target}. {rate}",
+  "@supplementGoalSemantic": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "current": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "rate": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementObservationSemantic": "Health observation. {headline}. {detail}. {advice}",
+  "@supplementObservationSemantic": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "headline": {
+        "type": "String"
+      },
+      "detail": {
+        "type": "String"
+      },
+      "advice": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementUnavailable": "{label}, unavailable",
+  "@supplementUnavailable": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementChartLatest": "Latest {value}",
+  "@supplementChartLatest": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementChartRange": "ranging {lo} to {hi}",
+  "@supplementChartRange": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "lo": {
+        "type": "String"
+      },
+      "hi": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementChartSteady": "roughly level across {n} readings",
+  "@supplementChartSteady": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "supplementChartChange": "{direction} {value} across {n} readings",
+  "@supplementChartChange": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "direction": {
+        "type": "String"
+      },
+      "value": {
+        "type": "String"
+      },
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "supplementMeasuredIn": "measured in {unit}",
+  "@supplementMeasuredIn": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "unit": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementChartFromTo": "from {start} to {end}",
+  "@supplementChartFromTo": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementChartLegend": "Key: {labels}",
+  "@supplementChartLegend": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "labels": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementBandOffSpan": "Your band was off your wrist {start} – {end}.",
+  "@supplementBandOffSpan": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementNavBack": "Back",
+  "@supplementNavBack": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {}
+  },
+  "supplementHoursValue": "{h}h",
+  "@supplementHoursValue": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "h": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementSweepAbove": "above your usual range",
+  "@supplementSweepAbove": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {}
+  },
+  "supplementSweepBelow": "below your usual range",
+  "@supplementSweepBelow": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {}
+  },
+  "supplementSweepHighest": "the highest in {count} days",
+  "@supplementSweepHighest": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementSweepLowest": "the lowest in {count} days",
+  "@supplementSweepLowest": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementSweepFinding": "{value} — {direction} (usually {range})",
+  "@supplementSweepFinding": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "value": {
+        "type": "String"
+      },
+      "direction": {
+        "type": "String"
+      },
+      "range": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementSweepPair": "{first} and {second} — both outside your usual range on the same day, which is worth noticing but is not a measured relationship between them",
+  "@supplementSweepPair": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "first": {
+        "type": "String"
+      },
+      "second": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementProteinShort": "P",
+  "@supplementProteinShort": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {}
+  },
+  "supplementCarbsShort": "C",
+  "@supplementCarbsShort": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {}
+  },
+  "supplementFatShort": "F",
+  "@supplementFatShort": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {}
+  },
+  "supplementCoachJournal": "Add journal for {date}: tags {tags}, note \"{note}\".",
+  "@supplementCoachJournal": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "tags": {
+        "type": "String"
+      },
+      "note": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachPeriod": "Log a period start on {date}.",
+  "@supplementCoachPeriod": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachStart": "Start a {type} session now.",
+  "@supplementCoachStart": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "type": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachFood": "Add \"{name}\" to {meal} on {date}.",
+  "@supplementCoachFood": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "meal": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachFoodEnergy": "Add \"{name}\" to {meal} on {date} ({kcal} kcal).",
+  "@supplementCoachFoodEnergy": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "meal": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      },
+      "kcal": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachFields": "Record {fields} for {date}.",
+  "@supplementCoachFields": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "fields": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachCompleted": "Save a {minutes}-minute {type} starting {time} on {date}.",
+  "@supplementCoachCompleted": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "minutes": {
+        "type": "String"
+      },
+      "type": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachMedication": "Schedule {name} at {time}, {days}. This app does not check interactions.",
+  "@supplementCoachMedication": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      },
+      "days": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachDose": "Record {name} on {date} as {state}.",
+  "@supplementCoachDose": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      },
+      "state": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachStepGoal": "Set your daily step goal to {goal}.",
+  "@supplementCoachStepGoal": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "goal": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachProviderError": "Provider error ({code}): {detail}",
+  "@supplementCoachProviderError": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      },
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachModelsError": "Models request failed ({code}): {detail}",
+  "@supplementCoachModelsError": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "code": {
+        "type": "String"
+      },
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachOversize": "That request grew to {size} KB, over the {limit} KB safety limit for data leaving this device. Start a new chat or ask a narrower question (aggregate with AVG/MIN/MAX/COUNT instead of selecting every row).",
+  "@supplementCoachOversize": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementCoachRendering": "Rendering {kind}…",
+  "@supplementCoachRendering": {
+    "description": "Presentation-only text; interpolated values remain unchanged.",
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      }
+    }
+  },
+  "supplementADeviationNotATemperaturefc109f": "A deviation, not a temperature. Imported nights carry different units, so they are not charted together.",
+  "@supplementADeviationNotATemperaturefc109f": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementADoseIsDue1543e3": "A dose is due.",
+  "@supplementADoseIsDue1543e3": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementALocalModelCanTake62d4a8": "A local model can take a while to load before its first reply. Default is 5 minutes (300s). Cloud providers use a fixed 2-minute timeout and are not affected by this.",
+  "@supplementALocalModelCanTake62d4a8": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementALowConfidenceOverlayA9fbabe": "A low-confidence overlay: a wrist sensor cannot see slow-wave activity, so deep sleep here is heart-rate flatness inside NREM.",
+  "@supplementALowConfidenceOverlayA9fbabe": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAMinuteOfNotesTonightac2cf6": "A minute of notes tonight teaches OpenStrap what actually moves your recovery.",
+  "@supplementAMinuteOfNotesTonightac2cf6": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAPossibleNapIsReady84b3cf": "A possible nap is ready to review.",
+  "@supplementAPossibleNapIsReady84b3cf": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAPossibleWorkoutIsReady2861bb": "A possible workout is ready to review.",
+  "@supplementAPossibleWorkoutIsReady2861bb": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAStepGoalOf500f44746": "A step goal of 500–100,000 is a real one. Nothing was saved.",
+  "@supplementAStepGoalOf500f44746": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAWeightedCompositeOfA8941a5": "A weighted composite of a handful of inputs, each scored against your own history. Every input's weight, and whether last night had enough history to use it, is listed on the Readiness screen. Missing inputs are re-weighted, never zero-filled.",
+  "@supplementAWeightedCompositeOfA8941a5": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAASMSleepAccountingDefinitions79c9d9": "AASM sleep-accounting definitions",
+  "@supplementAASMSleepAccountingDefinitions79c9d9": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAN2554PedometerPhonePedometer79c0a4": "AN-2554 pedometer · phone pedometer (HealthKit / Health Connect)",
+  "@supplementAN2554PedometerPhonePedometer79c0a4": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAboutYourBedtimeLogYourb7f0e2": "About your bedtime — log your day",
+  "@supplementAboutYourBedtimeLogYourb7f0e2": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAddAMedicationef7260": "Add a medication",
+  "@supplementAddAMedicationef7260": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAlreadySyncing7ed158": "Already syncing.",
+  "@supplementAlreadySyncing7ed158": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAwakeMin81d9ac": "Awake min",
+  "@supplementAwakeMin81d9ac": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementBaevskyStressIndexOverA037465": "Baevsky stress index over a resting window: a histogram measure of how tightly beat intervals cluster. There is deliberately no fallback when the resting window is missing.",
+  "@supplementBaevskyStressIndexOverA037465": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementBandBatteryAndCharging0d7f7d": "Band battery and charging",
+  "@supplementBandBatteryAndCharging0d7f7d": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementBanisterTRIMPFamilyLogCompressed553d36": "Banister TRIMP family · log-compressed",
+  "@supplementBanisterTRIMPFamilyLogCompressed553d36": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementBedtimee3cb8b": "Bedtime",
+  "@supplementBedtimee3cb8b": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementBloodOxygen8cd845": "Blood oxygen",
+  "@supplementBloodOxygen8cd845": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementBreathingRateRecoveredFromRespiratory66461f": "Breathing rate recovered from respiratory sinus arrhythmia — the periodic modulation breathing imposes on beat timing — over a grid of candidate rates.",
+  "@supplementBreathingRateRecoveredFromRespiratory66461f": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementBreathingVariability99a552": "Breathing variability",
+  "@supplementBreathingVariability99a552": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementCardiovascularLoadOverTheDayd6c4f3": "Cardiovascular load over the day, compressed onto a 0–21 scale.",
+  "@supplementCardiovascularLoadOverTheDayd6c4f3": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementChargeYourStrapBeforeBedcb17aa": "Charge your strap before bed",
+  "@supplementChargeYourStrapBeforeBedcb17aa": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementCharging5f99fe": "Charging",
+  "@supplementCharging5f99fe": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementCoefficientOfVariationOfPerc71989": "Coefficient of variation of per-window respiratory rate across the night.",
+  "@supplementCoefficientOfVariationOfPerc71989": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementColeKripkeWakeSpineHRVcd5f37": "Cole–Kripke wake spine + HRV overlay",
+  "@supplementColeKripkeWakeSpineHRVcd5f37": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementCountedNeverModelledAStepc66896": "Counted, never modelled. A step count comes from a gait-capable counter: the band's 100 Hz pedometer while it streams, or your phone's. Each stretch of the day is counted by whichever of the two was actually recording it, and a stretch both covered is counted once, so a session never takes the day from the sensor that carried the rest of it. There is no 1 Hz estimate — walking cadence sits above what one sample a second can resolve, so a day with no counter behind it reports no steps rather than a guess.",
+  "@supplementCountedNeverModelledAStepc66896": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementCreatinined3029a": "Creatinine",
+  "@supplementCreatinined3029a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementDailyRecoveryReadinessFromYourf995c0": "Daily recovery readiness from your own data",
+  "@supplementDailyRecoveryReadinessFromYourf995c0": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementDeepMin28f1fc": "Deep min",
+  "@supplementDeepMin28f1fc": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementDeviceAlerts608f4f": "Device alerts",
+  "@supplementDeviceAlerts608f4f": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementDidYouNapccbced": "Did you nap?",
+  "@supplementDidYouNapccbced": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementDidYouWorkOut9601b8": "Did you work out?",
+  "@supplementDidYouWorkOut9601b8": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementENMOOverAPersonalDynamice858c1": "ENMO over a personal dynamic-range floor",
+  "@supplementENMOOverAPersonalDynamice858c1": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementEditDailyStepGoal3f9637": "Edit daily step goal",
+  "@supplementEditDailyStepGoal3f9637": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementElevatedRestingHRSuppressedHRVfaf9cb": "Elevated resting HR + suppressed HRV over recent nights.",
+  "@supplementElevatedRestingHRSuppressedHRVfaf9cb": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementEmptyResponseFromProvider2db057": "Empty response from provider.",
+  "@supplementEmptyResponseFromProvider2db057": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementEndTheActiveWorkout37ce3f": "End the active workout.",
+  "@supplementEndTheActiveWorkout37ce3f": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementEndWorkout3e8d62": "End workout",
+  "@supplementEndWorkout3e8d62": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementFastingGlucose5433f3": "Fasting glucose",
+  "@supplementFastingGlucose5433f3": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementFastingInsulincf8459": "Fasting insulin",
+  "@supplementFastingInsulincf8459": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementFerritin3c7c47": "Ferritin",
+  "@supplementFerritin3c7c47": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementFolatec66dfd": "Folate",
+  "@supplementFolatec66dfd": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementFreeT4f89836": "Free T4",
+  "@supplementFreeT4f89836": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementGoal9fe00a": "Goal",
+  "@supplementGoal9fe00a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementGood61dedc": "Good",
+  "@supplementGood61dedc": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHDLCholesterold579f5": "HDL cholesterol",
+  "@supplementHDLCholesterold579f5": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHEALTHOBSERVATION4f314b": "HEALTH OBSERVATION",
+  "@supplementHEALTHOBSERVATION4f314b": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHRRecovery1b0d16": "HR recovery",
+  "@supplementHRRecovery1b0d16": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHRVStabilitydfdddc": "HRV stability",
+  "@supplementHRVStabilitydfdddc": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHaematocrit2a11fb": "Haematocrit",
+  "@supplementHaematocrit2a11fb": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHaemoglobinc80789": "Haemoglobin",
+  "@supplementHaemoglobinc80789": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHardMinutes9feee8": "Hard minutes",
+  "@supplementHardMinutes9feee8": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHealthAlerts1de231": "Health alerts",
+  "@supplementHealthAlerts1de231": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHeartRateRecoveryfdc20e": "Heart-rate recovery",
+  "@supplementHeartRateRecoveryfdc20e": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHeartRateToEnergyRegression1e01ee": "Heart-rate-to-energy regression over the waking span, anchored on your weight, age and sex. An estimate, and sensitive to all three.",
+  "@supplementHeartRateToEnergyRegression1e01ee": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHighb1a595": "High",
+  "@supplementHighb1a595": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHowFarSleepingHeartRatee471ae": "How far sleeping heart rate falls below the waking average.",
+  "@supplementHowFarSleepingHeartRatee471ae": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHowWasToday812df3": "How was today?",
+  "@supplementHowWasToday812df3": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementHrvRmssdf7982b": "Hrv rmssd",
+  "@supplementHrvRmssdf7982b": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementIllnessUnusualPhysiologyAndTemperatureda080b": "Illness, unusual physiology and temperature signals",
+  "@supplementIllnessUnusualPhysiologyAndTemperatureda080b": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementImportedFromWHOOPbb12b5": "Imported from WHOOP",
+  "@supplementImportedFromWHOOPbb12b5": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementIrregularHeartRhythmScreene259c5": "Irregular heart rhythm — screen",
+  "@supplementIrregularHeartRhythmScreene259c5": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementKeytel2005HarrisBenedictMifflind13096": "Keytel 2005 · Harris–Benedict / Mifflin BMR floor",
+  "@supplementKeytel2005HarrisBenedictMifflind13096": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementLDLCholesterol097ebc": "LDL cholesterol",
+  "@supplementLDLCholesterol097ebc": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementLastNightIsStillBeinga75a55": "Last night is still being worked out.",
+  "@supplementLastNightIsStillBeinga75a55": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementLogAWorkout6929de": "Log a workout",
+  "@supplementLogAWorkout6929de": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementLogHowTheDayWent0af477": "Log how the day went",
+  "@supplementLogHowTheDayWent0af477": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementLogJournal7b63e0": "Log journal",
+  "@supplementLogJournal7b63e0": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementLogPeriod9fe2f6": "Log period",
+  "@supplementLogPeriod9fe2f6": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementLowa12494": "Low",
+  "@supplementLowa12494": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementLowBatteryc5b099": "Low battery",
+  "@supplementLowBatteryc5b099": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementLowReadinessTodayfcb16c": "Low readiness today",
+  "@supplementLowReadinessTodayfcb16c": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMagnesiume6a692": "Magnesium",
+  "@supplementMagnesiume6a692": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMarkADoseebc759": "Mark a dose",
+  "@supplementMarkADoseebc759": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMedication36da83": "Medication",
+  "@supplementMedication36da83": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMinutesOfSleepDetectedOUTSIDE0e1868": "Minutes of sleep detected OUTSIDE the main night: the same wrist z-angle window detector the night uses, confirmed by a heart-rate dip. Naps are counted separately and never folded into time asleep.",
+  "@supplementMinutesOfSleepDetectedOUTSIDE0e1868": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMinutesWhoseAccelerationSitsAbovee173ee": "Minutes whose acceleration sits above a movement floor. That floor is pooled from your own recent days once there are enough of them, and a population one before that. This is activity VOLUME, not locomotion: steps are counted by a pedometer and are never derived from it.",
+  "@supplementMinutesWhoseAccelerationSitsAbovee173ee": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMinutesWithABandRecord3ca74f": "Minutes with a band record present. The band logs to flash only while it is on a wrist, so record presence IS wear.",
+  "@supplementMinutesWithABandRecord3ca74f": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementModerateea8b09": "Moderate",
+  "@supplementModerateea8b09": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMoodEnergyStressAMinute54d5f9": "Mood, energy, stress — a minute of it.",
+  "@supplementMoodEnergyStressAMinute54d5f9": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMorningBriefing0da62b": "Morning briefing",
+  "@supplementMorningBriefing0da62b": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMorningCortisolc31c55": "Morning cortisol",
+  "@supplementMorningCortisolc31c55": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMotionCoprocessord1ef3c": "Motion coprocessor",
+  "@supplementMotionCoprocessord1ef3c": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMovementMinutes4670da": "Movement minutes",
+  "@supplementMovementMinutes4670da": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNightToNightCoefficientOf0cae4a": "Night-to-night coefficient of variation of RMSSD.",
+  "@supplementNightToNightCoefficientOf0cae4a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNightlySweepe95625": "Nightly sweep",
+  "@supplementNightlySweepe95625": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNoAlarmSetForTonight1dd33d": "No alarm set for tonight",
+  "@supplementNoAlarmSetForTonight1dd33d": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNoMotionWasRecordedAlongside2b680c": "No motion was recorded alongside the heart rate.",
+  "@supplementNoMotionWasRecordedAlongside2b680c": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNoNightLongEnoughTo022959": "No night long enough to score was recorded.",
+  "@supplementNoNightLongEnoughTo022959": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNoReadiness723eb1": "No readiness",
+  "@supplementNoReadiness723eb1": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNoTargetYeta4b21a": "No target yet",
+  "@supplementNoTargetYeta4b21a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNoWakingHeartRateWase66108": "No waking heart rate was recorded for this day.",
+  "@supplementNoWakingHeartRateWase66108": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNocturnalHRDipf94b8c": "Nocturnal HR dip",
+  "@supplementNocturnalHRDipf94b8c": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNocturnalDippingLiteraturePersonalBaseline63f775": "Nocturnal dipping literature; personal baseline",
+  "@supplementNocturnalDippingLiteraturePersonalBaseline63f775": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNocturnalHeartRateMinimumPersonal5237e7": "Nocturnal heart-rate minimum; personal baseline, not population",
+  "@supplementNocturnalHeartRateMinimumPersonal5237e7": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNotEnoughHistoryYetTo635525": "Not enough history yet to know what normal looks like for you.",
+  "@supplementNotEnoughHistoryYetTo635525": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNotEnoughNightsOfRestingce7af6": "Not enough nights of resting heart rate behind the reserve yet.",
+  "@supplementNotEnoughNightsOfRestingce7af6": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNothingFromLastNightHas71866a": "Nothing from last night has reached the app yet.",
+  "@supplementNothingFromLastNightHas71866a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNothingRecordedSaysWhyThis97026a": "Nothing recorded says why this is missing.",
+  "@supplementNothingRecordedSaysWhyThis97026a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNothingStoodOutTonight468e67": "Nothing stood out tonight.",
+  "@supplementNothingStoodOutTonight468e67": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementOffe3de5a": "Off",
+  "@supplementOffe3de5a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementPairedSensor0ff7bd": "Paired sensor",
+  "@supplementPairedSensor0ff7bd": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementPlews2013LnRMSSDHopkinsSmallestdd73bd": "Plews 2013 (lnRMSSD) · Hopkins smallest-worthwhile-change gate",
+  "@supplementPlews2013LnRMSSDHopkinsSmallestdd73bd": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementPlotting351c45": "Plotting…",
+  "@supplementPlotting351c45": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementPosesbcddeb": "Poses",
+  "@supplementPosesbcddeb": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementPossibleIllnessOnset9dccbc": "Possible illness onset",
+  "@supplementPossibleIllnessOnset9dccbc": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementProviderReturnedANonJSON31ec8d": "Provider returned a non-JSON response. Check the API base URL — it must point at an OpenAI-compatible /chat/completions endpoint.",
+  "@supplementProviderReturnedANonJSON31ec8d": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementProviderReturnedAnUnsupportedResponse711ef9": "Provider returned an unsupported response shape (no message/delta). Streaming-only endpoints are not supported — use a standard OpenAI-compatible /chat/completions endpoint.",
+  "@supplementProviderReturnedAnUnsupportedResponse711ef9": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementQueryingYourData547061": "Querying your data…",
+  "@supplementQueryingYourData547061": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementREMSleepd0c12b": "REM sleep",
+  "@supplementREMSleepd0c12b": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementRMSSDOverTheLongestArtefact4d9ff2": "RMSSD over the longest artefact-free window during sleep. Beat timing is recovered from the band's 1 Hz records and corrected by the Lipponen–Tarvainen method before any statistic is taken. Pulse-derived, so this is PRV: real and trendable, but not ECG HRV.",
+  "@supplementRMSSDOverTheLongestArtefact4d9ff2": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementReadingYourFoodLog4efdaa": "Reading your food log…",
+  "@supplementReadingYourFoodLog4efdaa": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementReadingYourMedications855987": "Reading your medications…",
+  "@supplementReadingYourMedications855987": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementRecommendedBedtime4cba4c": "Recommended bedtime",
+  "@supplementRecommendedBedtime4cba4c": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementRecordPresenceNotHeartRate83be2e": "Record-presence, not heart-rate validity",
+  "@supplementRecordPresenceNotHeartRate83be2e": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementRelativeOnlyUncalibratedADC306a93": "Relative only — uncalibrated ADC",
+  "@supplementRelativeOnlyUncalibratedADC306a93": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementRemMin0d0cd5": "Rem min",
+  "@supplementRemMin0d0cd5": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementReps702045": "Reps",
+  "@supplementReps702045": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementRequestTimeoutSeconds1c1975": "Request timeout (seconds)",
+  "@supplementRequestTimeoutSeconds1c1975": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementRestingHrdfb52f": "Resting hr",
+  "@supplementRestingHrdfb52f": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSaveStepGoalf99049": "Save step goal",
+  "@supplementSaveStepGoalf99049": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSetStepGoalb12cf1": "Set step goal",
+  "@supplementSetStepGoalb12cf1": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementShownTonightOnVitalsa1d4ef": "Shown tonight on Vitals",
+  "@supplementShownTonightOnVitalsa1d4ef": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSkinTemperatureElevated8165c1": "Skin temperature elevated",
+  "@supplementSkinTemperatureElevated8165c1": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSleepDebtMin0cdfc7": "Sleep debt min",
+  "@supplementSleepDebtMin0cdfc7": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSleepEfficiency9c3cbc": "Sleep efficiency",
+  "@supplementSleepEfficiency9c3cbc": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSleepEfficiencyPctc39ed5": "Sleep efficiency pct",
+  "@supplementSleepEfficiencyPctc39ed5": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSleepMin16cd5b": "Sleep min",
+  "@supplementSleepMin16cd5b": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSmartWakeOff20d2dc": "Smart wake off",
+  "@supplementSmartWakeOff20d2dc": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSmartWakeOnTheBand381ebf": "Smart wake on — the band still buzzes at the wake time either way",
+  "@supplementSmartWakeOnTheBand381ebf": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSmartWakeWindowb1483d": "Smart wake window",
+  "@supplementSmartWakeWindowb1483d": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSomethingStoodOutToday463b39": "Something stood out today",
+  "@supplementSomethingStoodOutToday463b39": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementStagedFromBeatTimingVariabilityb83d0c": "Staged from beat-timing variability and movement. A wrist sensor separates REM from light sleep only approximately.",
+  "@supplementStagedFromBeatTimingVariabilityb83d0c": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementStartWorkoutd0f3f2": "Start workout",
+  "@supplementStartWorkoutd0f3f2": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementStepGoalReached03be1a": "Step goal reached",
+  "@supplementStepGoalReached03be1a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementStillWorkingOut5f72c7": "Still working out?",
+  "@supplementStillWorkingOut5f72c7": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSustainedRiseVsYourBaseline67c853": "Sustained rise vs your baseline — a possible illness signal.",
+  "@supplementSustainedRiseVsYourBaseline67c853": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSyncing221ca6": "Syncing…",
+  "@supplementSyncing221ca6": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTalkItThrough88a9d2": "Talk it through",
+  "@supplementTalkItThrough88a9d2": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTapForLastNightS6fe212": "Tap for last night's sleep, recovery and what it means for today.",
+  "@supplementTapForLastNightS6fe212": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTapToLogAGlass879bad": "Tap to log a glass.",
+  "@supplementTapToLogAGlass879bad": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTellItAboutYourDay129cfd": "Tell it about your day — it proposes tags and a note, you decide what to keep.",
+  "@supplementTellItAboutYourDay129cfd": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTellItAboutYourDayef23a5": "Tell it about your day…",
+  "@supplementTellItAboutYourDayef23a5": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementThatNightHasNoSleepa8ce2d": "That night has no sleep efficiency behind it.",
+  "@supplementThatNightHasNoSleepa8ce2d": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementThatNightHasNoTotalb1cf0a": "That night has no total sleep time behind it.",
+  "@supplementThatNightHasNoTotalb1cf0a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementThatNightHasNoWake1fabdf": "That night has no wake time behind it.",
+  "@supplementThatNightHasNoWake1fabdf": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTheBandDidNotConfirmb7159e": "The band did not confirm this alarm — check the strap.",
+  "@supplementTheBandDidNotConfirmb7159e": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTheBandHasNotYet9773f2": "The band has not yet held a high enough heart rate through a hard effort to measure a ceiling from.",
+  "@supplementTheBandHasNotYet9773f2": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTheDropInHeartRate80433d": "The drop in heart rate over the 60 seconds after a bout ends, averaged across the day's bouts.",
+  "@supplementTheDropInHeartRate80433d": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTheHighestHeartRateHeldc1c878": "The highest heart rate held so far sits well below what your age predicts, so it reads as an effort that was never maximal rather than as your ceiling — the zones stay on the age estimate until the band sees a harder one.",
+  "@supplementTheHighestHeartRateHeldc1c878": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTheLowestSustainedSleepingHeart72e5dd": "The lowest sustained sleeping heart rate of the night, taken over a rolling window of the overnight series. Not a spot reading, and not a daytime minimum.",
+  "@supplementTheLowestSustainedSleepingHeart72e5dd": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTheNightSMeanRaw25e383": "The night's mean raw sensor reading, expressed as distance from your own recent nights. There is no conversion to degrees anywhere in the path.",
+  "@supplementTheNightSMeanRaw25e383": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTheRatioOfLowTo817781": "The ratio of low- to high-frequency power in beat-interval variability, from a Lomb–Scargle periodogram (the series is unevenly sampled, so an FFT would be wrong).",
+  "@supplementTheRatioOfLowTo817781": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementThereIsNoRestingHeart36a9ca": "There is no resting heart rate from a scored night to measure against.",
+  "@supplementThereIsNoRestingHeart36a9ca": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementThereIsNoScoredNight5d353d": "There is no scored night to read this from.",
+  "@supplementThereIsNoScoredNight5d353d": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTheseRecordingsAreNotStamped66b52f": "These recordings are not stamped with which strap made them, and this number has to be calibrated per strap, so it is withheld rather than guessed.",
+  "@supplementTheseRecordingsAreNotStamped66b52f": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementThisDayCameFromAn2dc4b2": "This day came from an imported export, which carries the night only — nothing was recorded for the waking day, and there is no raw behind it to work one out from.",
+  "@supplementThisDayCameFromAn2dc4b2": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTimeAsleepAsAFraction516f7f": "Time asleep as a fraction of time in bed.",
+  "@supplementTimeAsleepAsAFraction516f7f": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTimeToMove7afe98": "Time to move",
+  "@supplementTimeToMove7afe98": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTodayHasNotProducedAnyf103a0": "Today has not produced any activity to read yet — nothing has reached the app for it.",
+  "@supplementTodayHasNotProducedAnyf103a0": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTooFewCleanBeatTo5c2edf": "Too few clean beat-to-beat intervals to work this out.",
+  "@supplementTooFewCleanBeatTo5c2edf": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTooFewHalfHourStretchesbe11a5": "Too few half-hour stretches of clean breathing through the night to compare against each other.",
+  "@supplementTooFewHalfHourStretchesbe11a5": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTooFewHeartRateSamples412047": "Too few heart-rate samples were recorded to work this out.",
+  "@supplementTooFewHeartRateSamples412047": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTooFewRecordedSessionsTofa71f6": "Too few recorded sessions to describe a pattern rather than noise.",
+  "@supplementTooFewRecordedSessionsTofa71f6": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTotalCholesterol175f97": "Total cholesterol",
+  "@supplementTotalCholesterol175f97": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTotalSleepTimeFromThee13b95": "Total sleep time from the wrist z-angle sleep window, staged by a combined actigraphy and heart-rate model.",
+  "@supplementTotalSleepTimeFromThee13b95": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTotalTestosterone9e1b98": "Total testosterone",
+  "@supplementTotalTestosterone9e1b98": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTrainingImpulseTimeInEachcd2945": "Training impulse: time in each heart-rate zone, weighted by the physiological cost of that zone.",
+  "@supplementTrainingImpulseTimeInEachcd2945": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTransferrinSaturation31bc19": "Transferrin saturation",
+  "@supplementTransferrinSaturation31bc19": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTriglycerides95ae7f": "Triglycerides",
+  "@supplementTriglycerides95ae7f": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementUnexpectedResponseFromProvider8b5e12": "Unexpected response from provider.",
+  "@supplementUnexpectedResponseFromProvider8b5e12": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementUnknownSensor98a1f7": "Unknown sensor",
+  "@supplementUnknownSensor98a1f7": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementUnusualForYou770b0d": "Unusual for you",
+  "@supplementUnusualForYou770b0d": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementUnusualOvernightPhysiology69c322": "Unusual overnight physiology",
+  "@supplementUnusualOvernightPhysiology69c322": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementUnusualTogether4ca5cd": "Unusual together",
+  "@supplementUnusualTogether4ca5cd": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementVO2maxEst25e886": "VO2max (est.)",
+  "@supplementVO2maxEst25e886": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementViewData9a8de9": "View data",
+  "@supplementViewData9a8de9": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementVitaminB12be7c1e": "Vitamin B12",
+  "@supplementVitaminB12be7c1e": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementVitaminD25OHacb2ca": "Vitamin D (25-OH)",
+  "@supplementVitaminD25OHacb2ca": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWHOOPSOwnNightlyValue5e1394": "WHOOP's own nightly value, read from the blood oxygen column of an imported export and stored as-is.",
+  "@supplementWHOOPSOwnNightlyValue5e1394": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWebsterColeKripkeRescoringHRV378025": "Webster / Cole–Kripke rescoring + HRV staging",
+  "@supplementWebsterColeKripkeRescoringHRV378025": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWindDown1d651a": "Wind down",
+  "@supplementWindDown1d651a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWindDownMovementNudgesGoalsc032fa": "Wind-down, movement nudges, goals and weekly recaps",
+  "@supplementWindDownMovementNudgesGoalsc032fa": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWithheld96ac7e": "Withheld",
+  "@supplementWithheld96ac7e": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWithinUserDispersion6ba4c5": "Within-user dispersion",
+  "@supplementWithinUserDispersion6ba4c5": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWorking13b7bf": "Working…",
+  "@supplementWorking13b7bf": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYouHaveNoWakeAlarmaf3d5a": "You have no wake alarm armed for tonight.",
+  "@supplementYouHaveNoWakeAlarmaf3d5a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYouHaveSetYourZones535d10": "You have set your zones manually, so there is no measured reserve anchor to plot a distribution against.",
+  "@supplementYouHaveSetYourZones535d10": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYouVeBeenStillForbb79a9": "You've been still for a couple of hours.",
+  "@supplementYouVeBeenStillForbb79a9": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourAgeIsNotOn9fe209": "Your age is not on file, and this is worked out from it.",
+  "@supplementYourAgeIsNotOn9fe209": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourBandHasnTSynced0a4dfd": "Your band hasn't synced in a while",
+  "@supplementYourBandHasnTSynced0a4dfd": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourBeatToBeatPatternfed8f0": "Your beat-to-beat pattern looked irregular today. This is a screen, not a diagnosis — see a clinician if you have symptoms.",
+  "@supplementYourBeatToBeatPatternfed8f0": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourHeightIsNotOn733908": "Your height is not on file, and this is worked out from it.",
+  "@supplementYourHeightIsNotOn733908": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourMorningBriefingIsReadydd0ae8": "Your morning briefing is ready",
+  "@supplementYourMorningBriefingIsReadydd0ae8": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourNightlySignalsDeviateFromc8d20a": "Your nightly signals deviate from your personal baseline.",
+  "@supplementYourNightlySignalsDeviateFromc8d20a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourRating83cd62": "Your rating",
+  "@supplementYourRating83cd62": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourRecoveryIsReadya1734c": "Your recovery is ready",
+  "@supplementYourRecoveryIsReadya1734c": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourRecoveryMarkersAreBelow2fc2f7": "Your recovery markers are below your usual range — ease off.",
+  "@supplementYourRecoveryMarkersAreBelow2fc2f7": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourRestingHRHasFallenca6165": "Your resting HR has fallen noticeably versus your recent baseline.",
+  "@supplementYourRestingHRHasFallenca6165": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourRestingHRHasRisen59f637": "Your resting HR has risen noticeably versus your recent baseline.",
+  "@supplementYourRestingHRHasRisen59f637": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourRestingHeartRateTrend8eccb6": "Your resting heart-rate trend shifted",
+  "@supplementYourRestingHeartRateTrend8eccb6": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourSexIsNotOn676db8": "Your sex is not on file, and the formula behind this needs it.",
+  "@supplementYourSexIsNotOn676db8": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourStrapAlarmJustFiredd366d3": "Your strap alarm just fired.",
+  "@supplementYourStrapAlarmJustFiredd366d3": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourWeekInReviewabd176": "Your week in review",
+  "@supplementYourWeekInReviewabd176": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYourWeightIsNotOn4ae5a6": "Your weight is not on file, and this is worked out from it.",
+  "@supplementYourWeightIsNotOn4ae5a6": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementYouVeBeenInA933b2c": "You’ve been in a typing posture for over 90 minutes without walking.",
+  "@supplementYouVeBeenInA933b2c": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAlcoholUnitsea84fd": "alcohol units",
+  "@supplementAlcoholUnitsea84fd": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementAnImprovement00aad0": "an improvement",
+  "@supplementAnImprovement00aad0": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementBrMin0041f9": "br/min",
+  "@supplementBrMin0041f9": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementBreakfast9e3a82": "breakfast",
+  "@supplementBreakfast9e3a82": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementCaffeineMgf15138": "caffeine mg",
+  "@supplementCaffeineMgf15138": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementCme283e1": "cm",
+  "@supplementCme283e1": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementDinner78cbc7": "dinner",
+  "@supplementDinner78cbc7": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementDown77346d": "down",
+  "@supplementDown77346d": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementEnergy173d91": "energy",
+  "@supplementEnergy173d91": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementEveryDaya3fd74": "every day",
+  "@supplementEveryDaya3fd74": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementFiguref85bdc": "figure",
+  "@supplementFiguref85bdc": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementG54fd17": "g",
+  "@supplementG54fd17": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementIOSCanOnlyShowThe2139b2": "iOS can only show the system pairing sheet before the app has used Bluetooth. Close OpenStrap completely, then reopen it — the sheet appears on its own.",
+  "@supplementIOSCanOnlyShowThe2139b2": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementKcal72037b": "kcal",
+  "@supplementKcal72037b": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementKg138984": "kg",
+  "@supplementKg138984": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementKm08ec69": "km",
+  "@supplementKm08ec69": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementLunch094530": "lunch",
+  "@supplementLunch094530": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementM6b0d31": "m",
+  "@supplementM6b0d31": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMinb6c935": "min",
+  "@supplementMinb6c935": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMissed09f750": "missed",
+  "@supplementMissed09f750": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementMood89b9fb": "mood",
+  "@supplementMood89b9fb": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNoTrendYetNotEnoughc23fe5": "no trend yet, not enough days recorded",
+  "@supplementNoTrendYetNotEnoughc23fe5": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNotTaken3d2bc8": "not_taken",
+  "@supplementNotTaken3d2bc8": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementNothing0feca7": "nothing",
+  "@supplementNothing0feca7": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementReadinesseb830b": "readiness",
+  "@supplementReadinesseb830b": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementRestingHeartRatec5adc7": "resting heart rate",
+  "@supplementRestingHeartRatec5adc7": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementScore75ebcb": "score",
+  "@supplementScore75ebcb": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementScreensMinab5656": "screens min",
+  "@supplementScreensMinab5656": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSleepEfficiency548fe0": "sleep efficiency",
+  "@supplementSleepEfficiency548fe0": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSleepQualitya146dc": "sleep quality",
+  "@supplementSleepQualitya146dc": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSnack1ba61a": "snack",
+  "@supplementSnack1ba61a": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSoreness91da9e": "soreness",
+  "@supplementSoreness91da9e": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementSteady0c69e7": "steady",
+  "@supplementSteady0c69e7": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementStrain26d10f": "strain",
+  "@supplementStrain26d10f": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementStress165bd3": "stress",
+  "@supplementStress165bd3": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTimeAsleep78b642": "time asleep",
+  "@supplementTimeAsleep78b642": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTrendingDownfc2716": "trending down",
+  "@supplementTrendingDownfc2716": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementTrendingUp34094b": "trending up",
+  "@supplementTrendingUp34094b": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementUp7c0a25": "up",
+  "@supplementUp7c0a25": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementVanHees2015WindowDetectionbef776": "van Hees 2015 window detection + nocturnal HR dip",
+  "@supplementVanHees2015WindowDetectionbef776": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementVanHees2015WebsterCole3d69f8": "van Hees 2015 · Webster / Cole–Kripke rescoring",
+  "@supplementVanHees2015WebsterCole3d69f8": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWaterMl7902c6": "water ml",
+  "@supplementWaterMl7902c6": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWeightKge50726": "weight kg",
+  "@supplementWeightKge50726": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWorkoutc87292": "workout",
+  "@supplementWorkoutc87292": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWorseThanUsual06f439": "worse than usual",
+  "@supplementWorseThanUsual06f439": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "supplementWristOptical06ad7e": "wrist optical",
+  "@supplementWristOptical06ad7e": {
+    "description": "Presentation-only text for existing interface, exports or notifications."
+  },
+  "presentationBluetoothHeartRateSensor": "Bluetooth heart rate sensor",
+  "presentationGarminWatch": "Garmin watch",
+  "presentationPolarSensor": "Polar sensor",
+  "presentationCorosWatch": "Coros watch",
+  "presentationCOROSWatch": "COROS watch",
+  "presentationSmartRingR11MR10M": "Smart ring (R11M/R10M)",
+  "presentationDaFitMOYOUNGWatch": "DaFit / MOYOUNG watch",
+  "presentationWearFitBand": "WearFit band",
+  "presentationSmartRingBandLefunProtocol": "Smart ring/band (Lefun protocol)",
+  "presentationHPlusHRBand": "HPlus HR band",
+  "presentationFossilSkagenHybridSmartwatch": "Fossil/Skagen Hybrid Smartwatch",
+  "presentationColmiRing": "Colmi ring",
+  "presentationNoSleepWasScoredForThisDayRestingHR": "no sleep was scored for this day — resting HR is only ever measured over a sleep window, never over waking hours.",
+  "presentationBaevskyStressIndex0100RestingAutonomicTensionPRV": "Baevsky Stress Index → 0–100; resting autonomic tension (PRV).",
+  "presentationNoReadinessInputsPresentNeverImputed": "no readiness inputs present — \"—\" (never imputed).",
+  "presentationMETValueYourWeightRefinedByHeartRateOr": "MET value × your weight, refined by heart rate — or heart rate alone, for an activity that carries no MET.",
+  "presentationMood": "Mood",
+  "presentationSleepQuality": "Sleep quality",
+  "presentationHeightCm": "Height (cm)",
+  "presentationHeightIn": "Height (in)",
+  "presentationWeightLb": "Weight (lb)",
+  "presentationS": "s",
+  "presentationV": "µV",
+  "presentationReadsTheRingDirectlyNoAccountNoKeyExchange": "Reads the ring directly — no account, no key exchange.",
+  "presentationPebble2OrPebble2SEOnlyPairsOnly": "Pebble 2 or Pebble 2 SE only. Pairs only for now — nothing is read or stored yet.",
+  "presentationTheOriginalFossilSkagenHybridSmartwatchNotTheNewer": "The original Fossil/Skagen hybrid smartwatch, not the newer Hybrid HR. Pairs and connects; nothing derives from it yet.",
+  "presentationABudgetActivityBandPairsAndBanksItsRaw": "A budget activity band. Pairs and banks its raw data, but nothing is derived from it yet.",
+  "presentationPairsAndBanksItsRawDataNothingIsDecoded": "Pairs and banks its raw data — nothing is decoded yet.",
+  "presentationAGenericRingOrBandSoldUnderManyStorefront": "A generic ring or band sold under many storefront names. Pairs and connects; reports nothing yet.",
+  "presentationAGenericHPlusFamilyHRBandPairsAndBanks": "A generic HPlus-family HR band. Pairs and banks its history; nothing is decoded into a number yet.",
+  "presentationPairsAndBanksItsRawDataInTheBackground": "Pairs and banks its raw data in the background, but does not derive anything from it yet.",
+  "presentationAnUnbrandedDaFitMOYOUNGStyleWatchPairsAndBanks": "An unbranded DaFit/MOYOUNG-style watch. Pairs and banks its own data; nothing derives from it yet.",
+  "presentationAnUnbrandedMakibesHR3BoardPairsAndBanksIts": "An unbranded Makibes HR3 board. Pairs and banks its raw data; nothing is derived from it yet.",
+  "presentationAnUnbrandedID115BoardPairsAndBanksItsRaw": "An unbranded ID115 board. Pairs and banks its raw data; nothing is derived from it yet.",
+  "presentationAnUnbrandedXWatchBoardPairsAndBanksItsRaw": "An unbranded XWatch board. Pairs and banks its raw data; nothing is derived from it yet.",
+  "presentationAnUnbrandedWatch9BoardPairsAndBanksItsRaw": "An unbranded Watch9 board. Pairs and banks its raw data; nothing is derived from it yet.",
+  "presentationAnSMAQ2OSSSmartwatchPairsAndBanksIts": "An SMA-Q2-OSS smartwatch. Pairs and banks its raw data; nothing is derived from it yet.",
+  "presentationATLW64OrNO1F1FitnessBandPairsAnd": "A TLW64 or NO1 F1 fitness band. Pairs and banks its raw data; nothing is derived from it yet.",
+  "presentationCaffeine": "Caffeine",
+  "presentationAlcohol": "Alcohol",
+  "presentationMeasurementsOf": "{have} of {total} measures",
+  "@presentationMeasurementsOf": {
+    "placeholders": {
+      "have": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "presentationAveragePulse": "{value} bpm avg",
+  "@presentationAveragePulse": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "presentationSoreness": "Soreness",
+  "presentationScreensBeforeBed": "Screens before bed",
+  "presentationIn": "in",
+  "presentationLb": "lb",
+  "presentationMl": "ml",
+  "presentationMg": "mg",
+  "presentationUnits": "units",
+  "presentationWeightRepsLogged": "{weight} {unit} × {reps} logged",
+  "@presentationWeightRepsLogged": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      },
+      "unit": {
+        "type": "String"
+      },
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "presentationVolumeUnit": "{unit} volume",
+  "@presentationVolumeUnit": {
+    "placeholders": {
+      "unit": {
+        "type": "String"
+      }
+    }
+  },
+  "journalTagCaffeine": "caffeine",
+  "journalTagAlcohol": "alcohol",
+  "journalTagLateMeal": "late meal",
+  "journalTagStress": "stress",
+  "journalTagPoorSleep": "poor sleep",
+  "journalTagTravel": "travel",
+  "journalTagScreensLate": "screens late",
+  "journalTagMeds": "meds",
+  "journalTagSick": "sick",
+  "journalTagSauna": "sauna",
+  "journalTagColdPlunge": "cold plunge",
+  "journalTagSocial": "social",
+  "journalTagWorkout": "workout",
+  "journalTagRestDay": "rest day",
+  "liveHrShowingDeviceSemantics": "Showing {label}. Tap to switch device.",
+  "@liveHrShowingDeviceSemantics": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesResetSourceSemantics": "Reset {signal} to the default order",
+  "@devicesResetSourceSemantics": {
+    "placeholders": {
+      "signal": {
+        "type": "String"
+      }
+    }
+  },
+  "metricDetailStepsGoalValue": "{count, plural, other{{value} steps}}",
+  "@metricDetailStepsGoalValue": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "scrubberNothingSelected": "Nothing selected"
 }
