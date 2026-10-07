@@ -23,12 +23,14 @@ class LocaleController extends ChangeNotifier {
   /// controller (including a late bootstrap) does not change this override.
   /// This affects presentation only; storage and calculation units stay invariant.
   static String get displayLanguageCode {
-    final code =
-        _active?._code ??
-        WidgetsBinding.instance.platformDispatcher.locale.languageCode;
-    return AppLocalizations.supportedLocales.any((l) => l.languageCode == code)
-        ? code
-        : 'en';
+    final supported = AppLocalizations.supportedLocales
+        .map((l) => l.languageCode).toSet();
+    final override = _active?._code;
+    if (override != null) return supported.contains(override) ? override : 'en';
+    for (final locale in WidgetsBinding.instance.platformDispatcher.locales) {
+      if (supported.contains(locale.languageCode)) return locale.languageCode;
+    }
+    return 'en';
   }
 
   factory LocaleController.seed(String? code) => LocaleController._(code);

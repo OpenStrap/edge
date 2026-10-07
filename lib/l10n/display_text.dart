@@ -35,6 +35,12 @@ String localizedJournalTag(AppLocalizations? l, String tag) {
 String localizedText(AppLocalizations? l, String text) {
   if (l == null || l.localeName == 'en') return text;
   return switch (text) {
+    "Warm-up" => l.activityZonesNameWarmUp,
+    "Easy" => l.activityZonesNameEasy,
+    "Aerobic" => l.activityZonesNameAerobic,
+    "Threshold" => l.activityZonesNameThreshold,
+    "Max effort" => l.activityZonesNameMaxEffort,
+
     "units" => l.presentationUnits,
     "mg" => l.presentationMg,
     "ml" => l.presentationMl,

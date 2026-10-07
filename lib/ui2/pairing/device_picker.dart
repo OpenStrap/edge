@@ -263,7 +263,7 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
                 uiText(c, e.label),
                 uiText(c, deviceCategoryBlurb(l, e)),
               ) ||
-              _matches(e.label, deviceCategoryBlurb(l, e))))
+              _matches(e.label, deviceCategoryBlurb(null, e))))
             (
               entry: e,
               blurb: deviceCategoryBlurb(l, e),

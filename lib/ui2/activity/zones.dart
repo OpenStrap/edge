@@ -1,4 +1,5 @@
 import '../../l10n/date_text.dart';
+import '../../l10n/display_text.dart';
 // HEART-RATE ZONES — the ceiling, the two anchors, and (only sometimes) the
 // 28-day distribution. TS-03 / TS-04 / TS-05.
 //
@@ -249,7 +250,7 @@ class _ZonesDetailState extends State<ZonesDetail> {
               OsTextField(
                 controller: ctrls[i],
                 label:
-                    l?.supplementZoneStartsAt(i + 1, names[i]) ??
+                    l?.supplementZoneStartsAt(i + 1, localizedText(l, names[i])) ??
                     'Z${i + 1} · ${names[i]} starts at',
                 hint: l?.activityZonesBpmUnit ?? 'bpm',
                 keyboard: TextInputType.number,

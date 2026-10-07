@@ -14390,5 +14390,18 @@
       }
     }
   },
-  "scrubberNothingSelected": "Nothing selected"
+  "scrubberNothingSelected": "Nothing selected",
+  "supplementUnreadableField": "{field} is not a number. Nothing was saved.",
+  "@supplementUnreadableField": {
+    "placeholders": {
+      "field": {
+        "type": "String"
+      }
+    }
+  },
+  "activityZonesNameWarmUp": "Warm-up",
+  "activityZonesNameEasy": "Easy",
+  "activityZonesNameAerobic": "Aerobic",
+  "activityZonesNameThreshold": "Threshold",
+  "activityZonesNameMaxEffort": "Max effort"
 }

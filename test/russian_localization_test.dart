@@ -158,8 +158,8 @@ void main() {
     () async {
       SharedPreferences.setMockInitialValues({});
       final binding = TestWidgetsFlutterBinding.ensureInitialized();
-      binding.platformDispatcher.localeTestValue = const Locale('en');
-      addTearDown(binding.platformDispatcher.clearLocaleTestValue);
+      binding.platformDispatcher.localesTestValue = const [Locale('en')];
+      addTearDown(binding.platformDispatcher.clearLocalesTestValue);
       final first = LocaleController.seed('ru');
       expect(LocaleController.displayLanguageCode, 'en');
       first.useForPresentation();
@@ -172,12 +172,12 @@ void main() {
       expect(displayFixed(1.5, 1), '1,5');
       await second.setCode(null);
       expect(LocaleController.displayLanguageCode, 'en');
-      binding.platformDispatcher.localeTestValue = const Locale('ru');
+      binding.platformDispatcher.localesTestValue = const [Locale('ru')];
       expect(LocaleController.displayLanguageCode, 'ru');
       await second.setCode('en');
       second.dispose();
       expect(LocaleController.displayLanguageCode, 'ru');
-      binding.platformDispatcher.localeTestValue = const Locale('xx');
+      binding.platformDispatcher.localesTestValue = const [Locale('xx')];
       expect(LocaleController.displayLanguageCode, 'en');
     },
   );

@@ -992,9 +992,7 @@ List<HealthSource> liveSources(AppState app,
               bandLabelFor(r['adapter_id'] as String?) ??
               'Paired sensor',
       kind: bandLabelFor(r['adapter_id'] as String?) ?? 'Unknown sensor',
-      nameIsFallback:
-          r['label'] == null &&
-          bandLabelFor(r['adapter_id'] as String?) == null,
+      nameIsFallback: r['label'] == null,
       // Null when the column is blank (a source with nothing to rank) or
       // names a rung this build does not have. Either way it is a refusal,
       // never the nearest rung we happen to know.

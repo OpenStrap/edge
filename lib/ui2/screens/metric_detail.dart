@@ -1683,6 +1683,8 @@ class _MetricDetailState extends State<MetricDetail> {
         return '$n.';
       case 'es':
         return '$nº';
+      case 'ru':
+        return '$n';
       case 'hi':
       case 'zh':
         // Neither language marks the ordinal with a suffix here — the

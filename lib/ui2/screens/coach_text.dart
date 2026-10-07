@@ -78,7 +78,10 @@ String coachActionSummary(BuildContext context, ActionRequest request) {
         l.wellnessSun,
       ];
       final days = a['weekdays'];
-      final description = days is! List || days.isEmpty || days.length == 7
+      final validDays = days is List
+          ? days.whereType<int>().where((d) => d >= 1 && d <= 7).toSet()
+          : <int>{};
+      final description = days is! List || days.isEmpty || validDays.length == 7
           ? localizedText(l, 'every day')
           : days
                 .map(

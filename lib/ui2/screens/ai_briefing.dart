@@ -63,7 +63,7 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
         final l = AppLocalizations.of(context);
         setState(
           () => _error = e is CoachException
-              ? coachPresentationText(l, e.message)
+              ? e.message
               : (l?.aiBriefingFailedGeneric('$e') ?? 'It failed: $e'),
         );
       }
@@ -156,7 +156,7 @@ class _AiBriefingScreenState extends State<AiBriefingScreen> {
                     const SizedBox(height: S.x3),
                     StatusCard(
                       l?.aiBriefingFailedTitle ?? 'That did not go through',
-                      _error!,
+                      coachPresentationText(l, _error!),
                       icon: LucideIcons.triangleAlert,
                     ),
                   ],

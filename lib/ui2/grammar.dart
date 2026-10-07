@@ -525,6 +525,7 @@ class TrendCard extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final displayUnit = uiText(c, unit);
     final j = good;
     // The arrow says which WAY, the colour says whether that is good news, and
     // those are independent: "HRV down" and "resting heart rate down" draw the
@@ -558,7 +559,7 @@ class TrendCard extends StatelessWidget {
     return Surface(
       onTap: onTap,
       semanticLabel:
-          '$label, $value $unit, $delta $window${judgement.isEmpty ? '' : ', $judgement'}'
+          '$label, $value $displayUnit, $delta $window${judgement.isEmpty ? '' : ', $judgement'}'
               .trim(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -576,7 +577,7 @@ class TrendCard extends StatelessWidget {
               runSpacing: S.x1,
               children: [
                 Text(value, style: F.n34.copyWith(color: p.ink)),
-                Text(uiText(c, unit), style: F.cap.copyWith(color: p.ink3)),
+                Text(displayUnit, style: F.cap.copyWith(color: p.ink3)),
                 change,
               ],
             )
@@ -599,7 +600,7 @@ class TrendCard extends StatelessWidget {
                 // split the row 50/50 and a long reading ellipsised at half
                 // width with empty space beside it. A Spacer does the shoving
                 // and the unit goes back to its own size.
-                Text(uiText(c, unit), style: F.cap.copyWith(color: p.ink3)),
+                Text(displayUnit, style: F.cap.copyWith(color: p.ink3)),
                 const Spacer(),
                 if (j != null) ...[
                   Icon(
@@ -1219,6 +1220,7 @@ class MetricRow extends StatelessWidget {
   @override
   Widget build(BuildContext c) {
     final p = P.of(c);
+    final displayUnit = uiText(c, unit);
     final title = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1248,7 +1250,7 @@ class MetricRow extends StatelessWidget {
         ),
         if (unit.isNotEmpty) ...[
           const SizedBox(width: 2),
-          Text(uiText(c, unit), style: F.over.copyWith(color: p.ink3)),
+          Text(displayUnit, style: F.over.copyWith(color: p.ink3)),
         ],
       ],
     );
@@ -1289,7 +1291,7 @@ class MetricRow extends StatelessWidget {
       // is not on screen — a row reading 'ON TRACK' told a screen reader
       // 'trending up'.
       semanticLabel:
-          '$name, $value $unit ${status ?? uiText(c, _trendWord(trend))}'
+          '$name, $value $displayUnit ${status ?? uiText(c, _trendWord(trend))}'
               .replaceAll(RegExp(r'\s+'), ' ')
               .trim(),
       child: Padding(
@@ -1694,7 +1696,7 @@ void sayUnreadable(BuildContext c, List<String> fields) {
         fields.length == 1
             ? AppLocalizations.of(
                     c,
-                  )?.supplementUnreadableFields(fields.first) ??
+                  )?.supplementUnreadableField(fields.first) ??
                   '${fields.first} is not a number. Nothing was saved.'
             : AppLocalizations.of(
                     c,

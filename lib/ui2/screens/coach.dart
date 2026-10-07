@@ -214,10 +214,7 @@ class _CoachScreenState extends State<CoachScreen> {
           _items.add(
             CoachItem.error(
               e is CoachException
-                  ? coachPresentationText(
-                      AppLocalizations.of(context),
-                      e.message,
-                    )
+                  ? e.message
                   : (AppLocalizations.of(context)?.coachSomethingWrong('$e') ??
                       'Something went wrong: $e'),
             ),
@@ -933,7 +930,7 @@ class _CoachSetupState extends State<CoachSetup> {
       final l = AppLocalizations.of(context);
       setState(
         () => _msg = e is CoachException
-            ? coachPresentationText(AppLocalizations.of(context), e.message)
+            ? e.message
             : (l?.coachEndpointUnreachable('$e') ?? 'Could not reach that endpoint: $e'),
       );
     } finally {
@@ -1105,7 +1102,7 @@ class _CoachSetupState extends State<CoachSetup> {
                   ),
                   if (_msg != null) ...[
                     const SizedBox(height: S.x3),
-                    Text(_msg!, style: F.cap.copyWith(color: p.ink3)),
+                    Text(coachPresentationText(l, _msg!), style: F.cap.copyWith(color: p.ink3)),
                   ],
                   const SizedBox(height: S.x4),
                   OsTextField(

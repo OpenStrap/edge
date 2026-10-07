@@ -476,7 +476,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> {
       child: Row(children: [
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(driverLabel(key), style: F.body.copyWith(color: p.ink)),
+            Text(driverLabel(key, l), style: F.body.copyWith(color: p.ink)),
             Text(parts.join(' · '),
                 style: F.over.copyWith(color: p.ink3)),
           ]),

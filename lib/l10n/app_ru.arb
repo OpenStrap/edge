@@ -6773,5 +6773,18 @@
       }
     }
   },
-  "scrubberNothingSelected": "Ничего не выбрано"
+  "scrubberNothingSelected": "Ничего не выбрано",
+  "supplementUnreadableField": "В поле «{field}» должно быть число. Ничего не сохранено.",
+  "@supplementUnreadableField": {
+    "placeholders": {
+      "field": {
+        "type": "String"
+      }
+    }
+  },
+  "activityZonesNameWarmUp": "Разминка",
+  "activityZonesNameEasy": "Лёгкая нагрузка",
+  "activityZonesNameAerobic": "Аэробная нагрузка",
+  "activityZonesNameThreshold": "Пороговая нагрузка",
+  "activityZonesNameMaxEffort": "Максимальная нагрузка"
 }
