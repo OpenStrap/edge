@@ -23,6 +23,7 @@ import 'package:openstrap_edge/ui2/profile/devices.dart';
 import 'package:openstrap_edge/ui2/screens/coach.dart';
 import 'package:openstrap_edge/ui2/screens/coach_text.dart';
 import 'package:openstrap_edge/ui2/screens/metric_detail.dart';
+import 'package:openstrap_edge/ui2/screens/home_screen.dart' show axisDay;
 import 'package:openstrap_edge/ui2/screens/journal_compose.dart'
     show OsTextField;
 import 'package:openstrap_edge/ui2/screens/readiness_detail.dart';
@@ -81,7 +82,15 @@ void main() {
             : (fields.length == 1
                   ? 'В поле «$joined» должно быть число. Ничего не сохранено.'
                   : 'В полях «$joined» должны быть числа. Ничего не сохранено.');
-        expect(find.text(expected), findsOneWidget);
+        expect(
+          find.text(expected),
+          findsOneWidget,
+          reason: t
+              .widgetList<Text>(find.byType(Text))
+              .map((w) => w.data)
+              .where((s) => s?.contains('процентил') ?? false)
+              .join('\n'),
+        );
       });
     }
   }
@@ -432,9 +441,9 @@ void main() {
     },
   );
 
-  testWidgets('Russian percentile numbers have no English suffix', (t) async {
+  testWidgets('Russian percentile numbers use the dative ordinal', (t) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    for (final n in [1, 2, 3, 11, 12, 21, 22, 100]) {
+    for (final n in [1, 2, 3, 11, 12, 21, 22, 23, 100]) {
       await t.pumpWidget(
         page(
           MetricDetail(
@@ -449,12 +458,142 @@ void main() {
       );
       await t.pumpAndSettle();
       expect(
-        find.text(ru.metricDetailPercentileTodayNoBand('$n')),
+        find.text(ru.metricDetailPercentileTodayNoBand('$n-му')),
         findsOneWidget,
       );
       expect(t.takeException(), isNull);
     }
   });
+
+  for (final today in [true, false]) {
+    for (final hasBand in [false, true]) {
+      testWidgets('Russian percentile message today=$today band=$hasBand', (
+        t,
+      ) async {
+        final now = DateTime.now();
+        final at = today ? now : DateTime(now.year, now.month, now.day - 2, 12);
+        final ts = at.millisecondsSinceEpoch ~/ 1000;
+        const band = 'Original provider label';
+        await t.pumpWidget(
+          page(
+            MetricDetail(
+              'resting_hr',
+              data: MetricData(
+                series: [(t: ts, v: 60.0)],
+                daysAvailable: 7,
+                percentile: {
+                  'percentile_of_you': 12,
+                  if (hasBand) 'label': band,
+                },
+              ),
+            ),
+          ),
+        );
+        await t.pumpAndSettle();
+        if (!today) {
+          await t.tap(find.text(ru.metricDetailRange7Days));
+          await t.pumpAndSettle();
+        }
+        final expected = today
+            ? (hasBand
+                  ? ru.metricDetailPercentileTodayBand('12-му', band)
+                  : ru.metricDetailPercentileTodayNoBand('12-му'))
+            : (hasBand
+                  ? ru.metricDetailPercentileFromBand(
+                      axisDay(ts),
+                      '12-му',
+                      band,
+                    )
+                  : ru.metricDetailPercentileFromNoBand(axisDay(ts), '12-му'));
+        expect(
+          expected,
+          contains('соответствует 12-му процентилю вашей истории'),
+        );
+        expect(find.text(expected), findsOneWidget);
+        expect(t.takeException(), isNull);
+      });
+    }
+  }
+
+  for (final scale in [1.0, 2.0]) {
+    testWidgets('SubTabs reveal stays horizontal at ${scale}x text', (t) async {
+      t.view.physicalSize = const Size(320, 700);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      final vertical = ScrollController(initialScrollOffset: 200);
+      addTearDown(vertical.dispose);
+      var index = 4;
+      late StateSetter update;
+      const labels = [
+        'Обзор',
+        'Подробнее',
+        'Динамика',
+        'Показатели',
+        'Анализы',
+      ];
+      await t.pumpWidget(
+        page(
+          Scaffold(
+            body: SingleChildScrollView(
+              controller: vertical,
+              child: Column(
+                children: [
+                  const SizedBox(height: 600),
+                  StatefulBuilder(
+                    builder: (c, setState) {
+                      update = setState;
+                      return SubTabs(
+                        labels,
+                        index,
+                        (i) => setState(() => index = i),
+                        disabled: const {2},
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 900),
+                ],
+              ),
+            ),
+          ),
+          scale: scale,
+        ),
+      );
+      await t.pumpAndSettle();
+      final tabs = find.byType(SubTabs);
+      final strip = find.descendant(
+        of: tabs,
+        matching: find.byType(SingleChildScrollView),
+      );
+      final horizontal = t.widget<SingleChildScrollView>(strip).controller!;
+      void checkVisible(String label) {
+        final viewport = t.getRect(strip);
+        final selected = t.getRect(find.text(label));
+        expect(selected.left, greaterThanOrEqualTo(viewport.left));
+        expect(selected.right, lessThanOrEqualTo(viewport.right));
+        expect(vertical.offset, 200);
+      }
+
+      expect(horizontal.offset, greaterThan(0));
+      checkVisible(labels.last);
+      update(() => index = 0);
+      await t.pumpAndSettle();
+      checkVisible(labels.first);
+      update(() => index = 4);
+      await t.pumpAndSettle();
+      checkVisible(labels.last);
+      final disabled = find.ancestor(
+        of: find.text(labels[2]),
+        matching: find.byType(Pressable),
+      );
+      expect(t.widget<Pressable>(disabled).onTap, isNull);
+      expect(
+        t.widget<Pressable>(disabled).semanticLabel,
+        ru.supplementUnavailable(labels[2]),
+      );
+      await t.pumpWidget(const SizedBox());
+      expect(t.takeException(), isNull);
+    });
+  }
 
   testWidgets(
     'readiness breakdown localizes input labels without changing keys',

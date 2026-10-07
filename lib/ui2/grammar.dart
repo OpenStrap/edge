@@ -35,6 +35,7 @@ import '../l10n/presentation_text.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../data/journal_fields.dart' show formatMinuteOfDay;
@@ -1788,13 +1789,22 @@ class SubTabs extends StatefulWidget {
 
 class _SubTabsState extends State<SubTabs> {
   final _keys = <int, GlobalKey>{};
+  final _scroll = ScrollController();
 
   void _reveal() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final selected = _keys[widget.index]?.currentContext;
+      if (!mounted || !_scroll.hasClients) return;
+      final selected = _keys[widget.index]?.currentContext?.findRenderObject();
       if (selected != null) {
-        Scrollable.ensureVisible(selected, alignment: 0.4);
+        final viewport = RenderAbstractViewport.maybeOf(selected);
+        if (viewport == null) return;
+        final position = _scroll.position;
+        final offset = viewport
+            .getOffsetToReveal(selected, 0.4, axis: Axis.horizontal)
+            .offset
+            .clamp(position.minScrollExtent, position.maxScrollExtent)
+            .toDouble();
+        _scroll.jumpTo(offset);
       }
     });
   }
@@ -1814,6 +1824,12 @@ class _SubTabsState extends State<SubTabs> {
   }
 
   @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext c) {
     final p = P.of(c);
     final items = widget.items;
@@ -1828,6 +1844,7 @@ class _SubTabsState extends State<SubTabs> {
       // while the row fits, and scales with how much is left to scroll.
       child: ScrollHint(
         child: SingleChildScrollView(
+          controller: _scroll,
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.only(right: S.x10),
           child: Row(

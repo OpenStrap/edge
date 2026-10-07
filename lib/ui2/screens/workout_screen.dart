@@ -2019,33 +2019,31 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
             steps: (r['steps'] as num?)?.toInt(),
             zoneMinutes: _decodeZoneMinutes(r['zone_min']),
             private: r['private'] == true,
-          ),
-        );
+          ));
+        }
       }
+    } catch (_) {
+      // leave `past` as-is
     }
-  } catch (_) {
-    // leave `past` as-is
-  }
-  // Workouts another app recorded, on the SAME window the band's own list
-  // uses. The store is read 90 days back (30 on Android) because that is the
-  // most history worth carrying, but showing three months of imports beside
-  // one month of sessions would read as a band that stopped measuring.
-  try {
-    final since = end.subtract(Motion.tick * 86400 * 31);
-    for (final r in await LocalDb.importedWorkouts(limit: 200)) {
-      final ts = (r['start_ts'] as num?)?.toInt();
-      final endTs = (r['end_ts'] as num?)?.toInt();
-      final src = (r['source'] as String?)?.trim();
-      // `source` is NOT NULL in the table for exactly this reason: a workout
-      // shown without the app that recorded it is a workout this app is
-      // implicitly claiming. No source, no row.
-      if (ts == null || endTs == null || endTs <= ts) continue;
-      if (src == null || src.isEmpty) continue;
-      final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
-      if (at.isBefore(since)) continue;
-      final title = importedWorkoutTitle(r['kind']);
-      past.add(
-        _PastWorkout(
+    // Workouts another app recorded, on the SAME window the band's own list
+    // uses. The store is read 90 days back (30 on Android) because that is the
+    // most history worth carrying, but showing three months of imports beside
+    // one month of sessions would read as a band that stopped measuring.
+    try {
+      final since = end.subtract(Motion.tick * 86400 * 31);
+      for (final r in await LocalDb.importedWorkouts(limit: 200)) {
+        final ts = (r['start_ts'] as num?)?.toInt();
+        final endTs = (r['end_ts'] as num?)?.toInt();
+        final src = (r['source'] as String?)?.trim();
+        // `source` is NOT NULL in the table for exactly this reason: a workout
+        // shown without the app that recorded it is a workout this app is
+        // implicitly claiming. No source, no row.
+        if (ts == null || endTs == null || endTs <= ts) continue;
+        if (src == null || src.isEmpty) continue;
+        final at = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+        if (at.isBefore(since)) continue;
+        final title = importedWorkoutTitle(r['kind']);
+        past.add(_PastWorkout(
           (r['uuid'] as String?) ?? '',
           // The icon and colour only, when the catalogue happens to know the
           // type. The NAME always comes from the store — `activityByName`
@@ -2064,13 +2062,12 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
           importedFrom: src,
           importedTitle: title,
           distanceM: (r['distance_m'] as num?)?.toDouble(),
-        ),
-      );
+        ));
+      }
+    } catch (_) {
+      // Nothing imported is the normal state, and an unreadable table must not
+      // take the band's own history down with it.
     }
-  } catch (_) {
-    // Nothing imported is the normal state, and an unreadable table must not
-    // take the band's own history down with it.
-  }
 
     past.sort((a, b) => b.start.compareTo(a.start));
 

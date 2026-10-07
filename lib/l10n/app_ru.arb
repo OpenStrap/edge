@@ -2590,7 +2590,7 @@
       }
     }
   },
-  "metricDetailPercentileTodayNoBand": "Сегодняшнее значение соответствует процентилю {ordinal} вашей истории.",
+  "metricDetailPercentileTodayNoBand": "Сегодняшнее значение соответствует {ordinal} процентилю вашей истории.",
   "@metricDetailPercentileTodayNoBand": {
     "placeholders": {
       "ordinal": {
@@ -2598,7 +2598,7 @@
       }
     }
   },
-  "metricDetailPercentileTodayBand": "Сегодняшнее значение соответствует процентилю {ordinal} вашей истории — {band}.",
+  "metricDetailPercentileTodayBand": "Сегодняшнее значение соответствует {ordinal} процентилю вашей истории — {band}.",
   "@metricDetailPercentileTodayBand": {
     "placeholders": {
       "ordinal": {
@@ -2609,7 +2609,7 @@
       }
     }
   },
-  "metricDetailPercentileFromNoBand": "Значение за {date} соответствует процентилю {ordinal} вашей истории.",
+  "metricDetailPercentileFromNoBand": "Значение за {date} соответствует {ordinal} процентилю вашей истории.",
   "@metricDetailPercentileFromNoBand": {
     "placeholders": {
       "date": {
@@ -2620,7 +2620,7 @@
       }
     }
   },
-  "metricDetailPercentileFromBand": "Значение за {date} соответствует процентилю {ordinal} вашей истории — {band}.",
+  "metricDetailPercentileFromBand": "Значение за {date} соответствует {ordinal} процентилю вашей истории — {band}.",
   "@metricDetailPercentileFromBand": {
     "placeholders": {
       "date": {
