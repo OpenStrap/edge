@@ -7,7 +7,8 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
-import 'package:openstrap_edge/health/health_export.dart' show kHealthSyncPref;
+import 'package:openstrap_edge/health/health_export.dart'
+    show HealthExporter, healthActivityForType, kHealthSyncPref;
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -55,7 +56,10 @@ void main() {
     expect(health(), ['delete', 'writeWorkoutData']);
     final row = (await sessionRow('w4-x2'))!;
     final write = spies.health.last.args as Map;
-    expect(write['activityType'], 'STRENGTH_TRAINING');
+    // Apple Health and Health Connect name strength differently; the host
+    // running the test picks the branch (macOS is Apple).
+    expect(write['activityType'],
+        healthActivityForType('strength', ios: HealthExporter.isApple).name);
     expect(write['startTime'], (row['start_ts'] as int) * 1000);
     expect(write['endTime'], (row['end_ts'] as int) * 1000);
     expect(write['totalEnergyBurned'], isNull,
