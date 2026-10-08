@@ -116,10 +116,12 @@ void main() {
     await db.close();
   });
 
-  // The collision the UPDATE OR REPLACE exists for: a constraint failure here
-  // would roll back onUpgrade's one exclusive transaction and quarantine the
-  // database (invariant 11).
-  test('a colliding key replaces instead of aborting the ladder', () async {
+  // The collision the UPDATE OR IGNORE + delete exists for: a constraint
+  // failure here would roll back onUpgrade's one exclusive transaction and
+  // quarantine the database (invariant 11). The surviving id's row wins, so a
+  // value already on screen never changes.
+  test('a colliding key keeps the surviving row instead of aborting',
+      () async {
     final db = await _open();
     await db.insert('device', {'id': 'oura-a4487268', 'adapter_id': 'oura'});
     await db.insert('decoded_onehz',
@@ -131,6 +133,35 @@ void main() {
     final rows = await db.query('decoded_onehz');
     expect(rows.length, 1);
     expect(rows.single['device_id'], 'oura-a4487268');
+    expect(rows.single['hr'], 55);
+    await db.close();
+  });
+
+  test('only the stranded id\'s own bookmarks are dropped', () async {
+    final db = await _open();
+    await db.insert('device', {'id': 'oura-a4487268', 'adapter_id': 'oura'});
+    await db.insert('decoded_onehz',
+        {'device_id': 'oura-7e117c66', 'ts_ms': 1000, 'hr': 55});
+    for (final name in [
+      'oura_cursor_ds:oura-7e117c66',
+      'oura_cursor_ds:oura-a4487268',
+      'oura_cursor_ds:xoura-7e117c66',
+      'oura_cursor_ds:OURA-7E117C66',
+    ]) {
+      await db.insert('sync_cursor', {'name': name, 'value': '1'});
+    }
+
+    expect(await LocalDb.reuniteStrandedDeviceRows(db), 1);
+    expect(
+      (await db.query('sync_cursor', orderBy: 'name'))
+          .map((r) => r['name'])
+          .toList(),
+      [
+        'oura_cursor_ds:OURA-7E117C66',
+        'oura_cursor_ds:oura-a4487268',
+        'oura_cursor_ds:xoura-7e117c66',
+      ],
+    );
     await db.close();
   });
 }

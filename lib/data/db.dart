@@ -1274,11 +1274,15 @@ class LocalDb {
   /// stamp this one's seconds against the wrong wall clock. Dropping them costs
   /// one full re-read; keeping them risks timestamps the data does not support.
   ///
-  /// `UPDATE OR REPLACE` because these tables are keyed `(device_id, <time or
-  /// content>)`: if the same reading somehow exists under both ids it IS the
-  /// same reading, and one row must win rather than a constraint failure, which
-  /// inside `onUpgrade`'s one exclusive transaction would roll the whole ladder
-  /// back and quarantine the database (invariant 11).
+  /// `UPDATE OR IGNORE` then a delete of what stayed behind, because these
+  /// tables are keyed `(device_id, <time, content or setting>)`: when the same
+  /// key exists under both ids one row must win rather than a constraint
+  /// failure, which inside `onUpgrade`'s one exclusive transaction would roll
+  /// the whole ladder back and quarantine the database (invariant 11). The
+  /// SURVIVING id's row wins. It is the one every reader already serves, so a
+  /// collision never changes a value on screen, and a per-device setting such
+  /// as a `signal_priority` rank the user set on the current pairing is never
+  /// overwritten by the stale one (`OR REPLACE` would let the stranded row win).
   ///
   /// Idempotent: once a stranded id is gone nothing matches it, so a re-run
   /// does no work. Returns how many ids were reunited.
@@ -1291,6 +1295,16 @@ class LocalDb {
       final cut = id.lastIndexOf('-');
       return cut <= 0 ? null : id.substring(0, cut + 1);
     }
+
+    // A ladder that starts below the rung creating `device` reaches here
+    // without it (`_repairOpenSchema` only adds it in onOpen, AFTER this). No
+    // `device` row means nothing to reunite with, and querying the missing
+    // table would throw inside `onUpgrade` and quarantine the database.
+    final hasDevice = (await db.rawQuery(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='device'",
+    ))
+        .isNotEmpty;
+    if (!hasDevice) return 0;
 
     final live = <String>{
       for (final r in await db.query('device', columns: ['id']))
@@ -1340,13 +1354,20 @@ class LocalDb {
       final to = target[familyOf(old)]!;
       for (final t in tables) {
         await db.rawUpdate(
-          'UPDATE OR REPLACE "$t" SET device_id = ? WHERE device_id = ?',
+          'UPDATE OR IGNORE "$t" SET device_id = ? WHERE device_id = ?',
           [to, old],
         );
+        // Only rows whose key the surviving id already holds are left here.
+        await db.delete(t, where: 'device_id = ?', whereArgs: [old]);
       }
-      // The bookmarks, dropped and not moved — see this method's header.
-      await db
-          .delete('sync_cursor', where: 'name LIKE ?', whereArgs: ['%:$old']);
+      // The bookmarks, dropped and not moved — see this method's header. An
+      // exact suffix match, not LIKE: LIKE treats `_` as a wildcard and ignores
+      // ASCII case, so it could drop a bookmark that belongs to another id.
+      await db.delete(
+        'sync_cursor',
+        where: 'substr(name, ?) = ?',
+        whereArgs: [-(old.length + 1), ':$old'],
+      );
     }
     // The COUNT is the report. This file deliberately carries no logger of its
     // own (see `runMaintenance`'s note) — a caller that wants a line prints it.
