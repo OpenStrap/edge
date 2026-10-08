@@ -343,43 +343,32 @@ class WorkoutController {
     }
   }
 
-  void startWorkout({
-    double targetKcal = 300,
-    String? workoutId,
-    String type = 'other',
-  }) {
-    if (activeWorkout != null) return;
-    // A new session owns no draft yet. One left in Prefs belongs to a session
-    // that ended without clearing it (finalized as stale on relaunch), and its
-    // pause would hold this session's clock. Setup opens the fresh one after.
-    LiveDraft.clear();
-    final start = DateTime.now();
-    final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
-    _workoutRawBase = _liveRaw();
+  /// Clears the active workout's step-tracking state. Start sites then set
+  /// [_workoutRawBase] (and, on a resume, [_workoutStepsGap]).
+  void _resetWorkoutStepState() {
+    _workoutRawBase = null;
     _workoutSawSamples = false;
     _workoutLastGaitMs = null;
     _workoutStepsGap = false;
     _workoutMinuteSteps.clear();
-    _zoneAlert = _zoneAlertEnabled()
-        ? ZoneCrossingAlert(targetZone: _zoneAlertTargetZone())
-        : null;
-    // A first night may have been derived since init. This read finishes
-    // after the session below is constructed, so it back-fills the anchor on
-    // `activeWorkout` when it lands rather than blocking the start.
-    unawaited(_refreshNightlyRhr());
-    // Hold heavy derivation for the session — an isolate spawn mid-ride
-    // competes with GPS, the live map and the BLE drain (see
-    // DeriveScheduler.setWorkoutActive).
-    _setWorkoutActive(true);
-    // Hold the display for EVERY live session, not just route-eligible ones.
-    // Arming this from _maybeStartRouteTracking meant an indoor workout, a
-    // location-denied run, and a resumed non-route session all watched the
-    // screen sleep mid-set. Released unconditionally on both teardown paths.
-    ScreenWake.hold('workout');
-    activeWorkout = LiveWorkoutState(
-      startTime: start,
+  }
+
+  /// A fresh live session pinned to the profile, strap and zone set in force
+  /// now. Shared by [startWorkout] and the relaunch resume so the two cannot
+  /// drift: a field one of them lacked left a resumed session with a null
+  /// `hrMax` (the idle watch then counted ANY positive reading as active) and a
+  /// null `zoneSet` (`_zoneFor` returned 0 for every reading, so the
+  /// Time-in-Zones bar and the zone-crossing alert tracked nothing).
+  LiveWorkoutState _newLiveSession({
+    required DateTime startTime,
+    required double targetKcal,
+    required String workoutId,
+    required String type,
+  }) {
+    return LiveWorkoutState(
+      startTime: startTime,
       targetKcal: targetKcal,
-      workoutId: id,
+      workoutId: workoutId,
       type: type,
       age: (_user()?['age'] as num?)?.round(),
       // Score against the profile the session is performed under.
@@ -406,6 +395,44 @@ class WorkoutController {
         manualZoneLowerBpm: manualZoneBoundsFromProfile(_user()),
       ),
       restingHr: _liveRestingHr(),
+    );
+  }
+
+  void startWorkout({
+    double targetKcal = 300,
+    String? workoutId,
+    String type = 'other',
+  }) {
+    if (activeWorkout != null) return;
+    // A new session owns no draft yet. One left in Prefs belongs to a session
+    // that ended without clearing it (finalized as stale on relaunch), and its
+    // pause would hold this session's clock. Setup opens the fresh one after.
+    LiveDraft.clear();
+    final start = DateTime.now();
+    final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
+    _resetWorkoutStepState();
+    _workoutRawBase = _liveRaw();
+    _zoneAlert = _zoneAlertEnabled()
+        ? ZoneCrossingAlert(targetZone: _zoneAlertTargetZone())
+        : null;
+    // A first night may have been derived since init. This read finishes
+    // after the session below is constructed, so it back-fills the anchor on
+    // `activeWorkout` when it lands rather than blocking the start.
+    unawaited(_refreshNightlyRhr());
+    // Hold heavy derivation for the session — an isolate spawn mid-ride
+    // competes with GPS, the live map and the BLE drain (see
+    // DeriveScheduler.setWorkoutActive).
+    _setWorkoutActive(true);
+    // Hold the display for EVERY live session, not just route-eligible ones.
+    // Arming this from _maybeStartRouteTracking meant an indoor workout, a
+    // location-denied run, and a resumed non-route session all watched the
+    // screen sleep mid-set. Released unconditionally on both teardown paths.
+    ScreenWake.hold('workout');
+    activeWorkout = _newLiveSession(
+      startTime: start,
+      targetKcal: targetKcal,
+      workoutId: id,
+      type: type,
     );
     // The workout is now an owner (HR; plus IMU for a foreground gait type —
     // the live step count rides the 100 Hz stream). AFTER the assignment: the
@@ -577,35 +604,11 @@ class WorkoutController {
           resumed = true;
           final startMs = startSec! * 1000;
           final id = row['id'] as String? ?? 'w$startMs';
-          activeWorkout = LiveWorkoutState(
+          activeWorkout = _newLiveSession(
             startTime: DateTime.fromMillisecondsSinceEpoch(startMs),
             targetKcal: 300,
             workoutId: id,
             type: (row['type'] as String?) ?? 'other',
-            age: (_user()?['age'] as num?)?.round(),
-            profile: Profile.fromMap(_user()),
-            // The same ceiling startWorkout pins. Without it the resumed
-            // session's idle gate is null, and WorkoutIdleWatch then counts
-            // ANY positive reading as active — a forgotten session idling at
-            // resting heart rate would never be asked about after a restart,
-            // the exact case the watch exists for.
-            hrMax: estimatedMaxHr(
-              (_user()?['age'] as num?),
-              _linkDeviceFamily(),
-            ),
-            // Same TS-04 zone set `startWorkout` pins, missing here — without
-            // it `w.zoneSet` was null for every resumed session, `_zoneFor`
-            // then returns 0 for every reading regardless of HR, and the
-            // Time-in-Zones bar (and now the zone-crossing alert) silently
-            // tracked nothing for the rest of a resumed workout.
-            zoneSet: trainingZones(
-              age: (_user()?['age'] as num?),
-              deviceFamily: _linkDeviceFamily(),
-              observedCeilingBpm: _observedCeilingBpm(),
-              restingHrHistory: _rhr28(),
-              manualZoneLowerBpm: manualZoneBoundsFromProfile(_user()),
-            ),
-            restingHr: _liveRestingHr(),
           );
           // Restore the per-second tallies a PREVIOUS process snapshotted
           // before it was killed — without this, strain/calories/zone
@@ -649,14 +652,12 @@ class WorkoutController {
           // flowing — CodeRabbit caught this. Mirrors startWorkout()'s own
           // snapshot: steps count from zero going forward, same as
           // calories/strain/zone-minutes already (honestly) do here.
+          _resetWorkoutStepState();
           _workoutRawBase = _liveRaw();
-          _workoutSawSamples = false;
-          _workoutLastGaitMs = null;
           // The steps before the relaunch are gone, so a count from here
           // would be only part of the session: it stays unmeasured rather
           // than banking as the total (see [_workoutStepsGap]).
           _workoutStepsGap = true;
-          _workoutMinuteSteps.clear();
           _zoneAlert = _zoneAlertEnabled()
               ? ZoneCrossingAlert(targetZone: _zoneAlertTargetZone())
               : null;
@@ -858,11 +859,7 @@ class WorkoutController {
     // Activity or a double-tap, a paused draft used to outlive it and freeze
     // the next session's tick.
     LiveDraft.clear();
-    _workoutRawBase = null;
-    _workoutSawSamples = false;
-    _workoutLastGaitMs = null;
-    _workoutStepsGap = false;
-    _workoutMinuteSteps.clear();
+    _resetWorkoutStepState();
     _zoneAlert = null;
     _notify();
     _log(
@@ -914,11 +911,7 @@ class WorkoutController {
     activeWorkout = null;
     LiveDraft.clear();
     _nudgeLive(); // the workout's stream ownership ends with it
-    _workoutRawBase = null;
-    _workoutSawSamples = false;
-    _workoutLastGaitMs = null;
-    _workoutStepsGap = false;
-    _workoutMinuteSteps.clear();
+    _resetWorkoutStepState();
     _zoneAlert = null;
     LiveActivity.end();
   }
