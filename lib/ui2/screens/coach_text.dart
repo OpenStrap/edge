@@ -79,7 +79,7 @@ String coachActionSummary(BuildContext context, ActionRequest request) {
       ];
       final days = a['weekdays'];
       final validDays = days is List
-          ? days.whereType<int>().where((d) => d >= 1 && d <= 7).toSet()
+          ? days.whereType<num>().map((d) => d.round()).where((d) => d >= 1 && d <= 7).toSet()
           : <int>{};
       final description = days is! List || days.isEmpty || validDays.length == 7
           ? localizedText(l, 'every day')
