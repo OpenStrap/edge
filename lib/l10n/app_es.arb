@@ -177,6 +177,10 @@
   "@devicesOuraProtocolTimeout": {
     "description": "Aviso: la sincronización de Oura falló — tiempo de espera agotado / respuesta incompleta."
   },
+  "devicesOuraWriteRefused": "No se pudo enviar un comando al anillo. Vuelve a sincronizar.",
+  "@devicesOuraWriteRefused": {
+    "description": "Aviso: la sincronización de Oura falló — la conexión rechazó un comando."
+  },
   "devicesOuraCheckpointUnconfirmed": "No se pudo completar la sincronización. Vuelve a sincronizar.",
   "devicesSyncingTheRing": "Sincronizando el anillo…",
   "devicesSynced": "Sincronizado.",
@@ -1331,7 +1335,7 @@
   "healthCatMovementLoad": "Movimiento y carga",
   "healthCatBodyWear": "Cuerpo y uso",
   "healthBlurbRestingHr": "El ritmo sostenido más bajo de la noche",
-  "healthBlurbHrv": "RMSSD medio de las ventanas de 5 minutos de la noche",
+  "healthBlurbHrv": "RMSSD de los intervalos latido a latido durante el sueño",
   "healthBlurbHrvCv": "SDNN como fracción del intervalo medio entre latidos, dentro de una noche",
   "healthBlurbLfHf": "Dónde se concentra la potencia del ritmo cardíaco entre frecuencias",
   "healthBlurbDip": "Cuánto baja tu frecuencia cardíaca mientras duermes",

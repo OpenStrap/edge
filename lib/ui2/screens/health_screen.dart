@@ -357,7 +357,7 @@ class _Cat {
 const _catalogue = <_Cat>[
   _Cat('Heart & rhythm', [
     _CatRow('resting_hr', 'rhr', 'The lowest sustained rate of the night'),
-    _CatRow('hrv', 'rmssd', 'Mean RMSSD across the night\'s 5-minute windows'),
+    _CatRow('hrv', 'rmssd', 'RMSSD of beat-to-beat intervals during sleep'),
     _CatRow('hrv_cv', 'hrv_cv',
         'SDNN as a share of the average beat interval, within one night'),
     _CatRow('lf_hf', 'lf_hf', 'Where beat-timing power sits across frequencies'),

@@ -177,6 +177,10 @@
   "@devicesOuraProtocolTimeout": {
     "description": "स्नैकबार: Oura सिंक विफल — प्रोटोकॉल टाइमआउट / अपूर्ण उत्तर।"
   },
+  "devicesOuraWriteRefused": "रिंग को कमांड नहीं भेजा जा सका। कृपया फिर से सिंक करें।",
+  "@devicesOuraWriteRefused": {
+    "description": "स्नैकबार: Oura सिंक विफल — लिंक ने कमांड लिखना अस्वीकार किया।"
+  },
   "devicesOuraCheckpointUnconfirmed": "सिंक पूर्ण नहीं हो पाई। कृपया फिर से सिंक करें।",
   "devicesSyncingTheRing": "रिंग सिंक हो रही है…",
   "devicesSynced": "सिंक हो गया।",
@@ -1331,7 +1335,7 @@
   "healthCatMovementLoad": "गतिविधि और भार",
   "healthCatBodyWear": "शरीर और पहनावा",
   "healthBlurbRestingHr": "रात की सबसे कम स्थिर दर",
-  "healthBlurbHrv": "रात की 5-मिनट की खिड़कियों पर औसत RMSSD",
+  "healthBlurbHrv": "नींद के दौरान धड़कन-दर-धड़कन अंतराल का RMSSD",
   "healthBlurbHrvCv": "एक रात के भीतर, औसत धड़कन-अंतराल के अनुपात में SDNN",
   "healthBlurbLfHf": "धड़कन-समय की ऊर्जा विभिन्न आवृत्तियों में कहाँ है",
   "healthBlurbDip": "सोते समय आपकी हृदय गति कितनी गिरती है",

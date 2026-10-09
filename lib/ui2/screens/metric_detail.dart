@@ -121,7 +121,9 @@ const _specs = <String, MetricSpec>{
         'median, are dropped first. On a night whose beat timing looks noisy, '
         'only windows that pass the jitter check on their own, or that sit on '
         'a steady breathing line, count; a window, or a night, whose beats '
-        'add up to more time than passed is left out. '
+        'add up to more time than passed is left out. Older nights whose raw '
+        'beats are gone keep the value an earlier version of this method gave '
+        'them. '
         'Pulse-derived, so this is PRV: real and trendable, but not ECG HRV.',
     citation: 'Task Force 1996 · 20% local-median ectopic filter, after Malik',
     requires: {InputSignal.rrIntervals},

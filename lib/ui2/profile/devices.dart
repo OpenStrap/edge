@@ -2030,10 +2030,12 @@ Future<void> _syncRing(BuildContext c, String? family) async {
             (l?.devicesOuraProtocolTimeout ??
                 'The ring stopped answering mid-sync. Please try syncing '
                     'again.'),
+          // A refused write does not say WHY (range, another app, transport),
+          // so the message claims only that the command was not sent.
           OuraSyncCategory.writeRefused =>
-            (l?.devicesCouldNotReachRing ??
-                'Could not reach the ring. It has to be nearby, and not '
-                    'connected to another app.'),
+            (l?.devicesOuraWriteRefused ??
+                'Could not send a command to the ring. Please try syncing '
+                    'again.'),
           _ => (l?.devicesCouldNotReachRing ??
               'Could not reach the ring. It has to be nearby, and not '
                   'connected to another app.'),
