@@ -19,6 +19,10 @@
 // numbers, next to its name, and are never summed into ours: two devices'
 // calorie models added together is one number neither of them would agree with.
 //
+// The one way across (#325): tapping an import re-logs its window as a band
+// session scored from our own 1 Hz heart rate, and that session REPLACES the
+// import (`LocalDb.supersedeImportedWorkout`), so nothing is counted twice.
+//
 // The refusal is structural, not a filter someone has to remember: these rows
 // live in their own table (see db.dart `_createImportedWorkout`), so nothing
 // that reads `sessions` can reach them by accident. The screen opts a row IN,

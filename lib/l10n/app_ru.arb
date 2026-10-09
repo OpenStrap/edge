@@ -1504,6 +1504,8 @@
   "logWorkoutWindowInvalidTitle": "Не удаётся сохранить этот период",
   "logWorkoutTimesUpdatedTitle": "Время обновлено",
   "logWorkoutLoggedTitle": "Тренировка записана",
+  "logWorkoutScoreWithBand": "Оценить по пульсу с браслета",
+  "logWorkoutImportedHrGone": "Пульс за эту тренировку больше не хранится, поэтому браслет не может её оценить.",
   "logWorkoutUnscoredSaved": "Сохранено. В этом отрезке пульс не записывался, поэтому нагрузка и калории не рассчитаны — сохранено только время.",
   "logWorkoutCouldNotSave": "Не удалось сохранить. Повторите попытку.",
   "logWorkoutScoredTitle": "Рассчитано по записи браслета",

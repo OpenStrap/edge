@@ -3358,6 +3358,14 @@
   "@logWorkoutLoggedTitle": {
     "description": "Status card title after successfully logging a new workout"
   },
+  "logWorkoutScoreWithBand": "Score with band heart rate",
+  "@logWorkoutScoreWithBand": {
+    "description": "Title of the log form when scoring an imported workout from the band's own heart rate."
+  },
+  "logWorkoutImportedHrGone": "Heart rate for this workout is no longer stored, so the band cannot score it.",
+  "@logWorkoutImportedHrGone": {
+    "description": "Shown when an imported workout's window has no stored band heart rate left to score."
+  },
   "logWorkoutUnscoredSaved": "Saved. No heart rate was recorded over that window, so it has no strain and no calorie figure — the times are all this one carries.",
   "@logWorkoutUnscoredSaved": {
     "description": "Status card body when a saved workout has no heart-rate data so it could not be scored"

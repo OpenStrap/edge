@@ -654,6 +654,8 @@
   "logWorkoutWindowInvalidTitle": "यह समय-सीमा सेव नहीं होगी",
   "logWorkoutTimesUpdatedTitle": "समय अपडेट किया गया",
   "logWorkoutLoggedTitle": "वर्कआउट लॉग किया गया",
+  "logWorkoutScoreWithBand": "बैंड की हृदय गति से स्कोर करें",
+  "logWorkoutImportedHrGone": "इस वर्कआउट की हृदय गति अब संग्रहीत नहीं है, इसलिए बैंड इसे स्कोर नहीं कर सकता।",
   "logWorkoutUnscoredSaved": "सेव कर दिया गया। उस समय-सीमा में कोई हृदय गति दर्ज नहीं हुई, इसलिए इसमें न कोई एक्सर्शन स्कोर है न कैलोरी — केवल समय ही दर्ज है।",
   "logWorkoutCouldNotSave": "सेव नहीं हो सका — फिर से कोशिश करें।",
   "logWorkoutScoredTitle": "बैंड द्वारा दर्ज डेटा से स्कोर किया गया",

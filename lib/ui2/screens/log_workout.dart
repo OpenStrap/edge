@@ -39,6 +39,7 @@ import 'detected_activities.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../health/health_export.dart';
+import '../../health/health_workout_import.dart' show rememberDeletedUuid;
 import '../../l10n/app_localizations.dart';
 import '../../l10n/date_text.dart';
 import '../../state/app_state.dart';
@@ -126,6 +127,7 @@ class LogWorkout extends StatefulWidget {
     this.title,
     this.spans,
     this.now,
+    this.importedUuid,
   });
 
   final String? sessionId;
@@ -144,6 +146,10 @@ class LogWorkout extends StatefulWidget {
 
   /// Injected in tests so "that hasn't happened yet" is deterministic.
   final DateTime? now;
+
+  /// Set when this scores an imported workout (#325): the saved session
+  /// replaces that import, so the workout is not listed and counted twice.
+  final String? importedUuid;
 
   @override
   State<LogWorkout> createState() => _LogWorkoutState();
@@ -287,10 +293,17 @@ class _LogWorkoutState extends State<LogWorkout> {
               startTs: _startSec, endTs: _endSec, type: _activity.typeKey)
           : await repo.setWorkoutWindow(widget.sessionId!,
               startTs: _startSec, endTs: _endSec);
-      // Both branches: a new session and a RETIMED one both change what the
-      // health store should hold for that window (#130).
-      await HealthExporter.exportWorkoutId(
-          (r['workout_id'] ?? widget.sessionId) as String?);
+      if (widget.importedUuid case final uuid?) {
+        // The original already sits in the health store; exporting ours too
+        // would put the same workout there twice.
+        await rememberDeletedUuid(uuid);
+        await LocalDb.supersedeImportedWorkout(uuid, r['workout_id'] as String);
+      } else {
+        // Both branches: a new session and a RETIMED one both change what the
+        // health store should hold for that window (#130).
+        await HealthExporter.exportWorkoutId(
+            (r['workout_id'] ?? widget.sessionId) as String?);
+      }
       // Say what was actually banked. A window with no 1 Hz substrate left
       // behind it — anything past the `rawRetentionDays` retention, or a
       // stretch the band was off — is saved UNSCORED, and a screen that pops
@@ -524,6 +537,42 @@ AppState? appOf(BuildContext c) {
   } catch (_) {
     return null;
   }
+}
+
+/// Tapping an imported workout (#325): score its window from the band's own
+/// 1 Hz heart rate through the ordinary manual-log form, or say plainly that
+/// the heart rate behind it is gone. [hasHr] is injected in tests.
+Future<void> scoreImportedWorkout(
+  BuildContext c, {
+  required String uuid,
+  required DateTime start,
+  required DateTime end,
+  required Activity activity,
+  Future<bool> Function(int startSec, int endSec)? hasHr,
+}) async {
+  final l = AppLocalizations.of(c);
+  final s = start.millisecondsSinceEpoch ~/ 1000;
+  final e = end.millisecondsSinceEpoch ~/ 1000;
+  final stored = await (hasHr ??
+      (s, e) async => (await LocalDb.hrSamplesInRange(s, e)).isNotEmpty)(s, e);
+  if (!c.mounted) return;
+  if (!stored) {
+    ScaffoldMessenger.of(c).showSnackBar(SnackBar(
+      content: Text(l?.logWorkoutImportedHrGone ??
+          'Heart rate for this workout is no longer stored, so the band '
+              'cannot score it.'),
+    ));
+    return;
+  }
+  await Navigator.of(c).push(MaterialPageRoute<void>(
+    builder: (_) => LogWorkout(
+      start: start,
+      end: end,
+      activity: activity,
+      importedUuid: uuid,
+      title: l?.logWorkoutScoreWithBand ?? 'Score with band heart rate',
+    ),
+  ));
 }
 
 /// Pending workouts for the History tab, independent of push preferences.

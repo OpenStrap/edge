@@ -654,6 +654,8 @@
   "logWorkoutWindowInvalidTitle": "该时间段无法保存",
   "logWorkoutTimesUpdatedTitle": "时间已更新",
   "logWorkoutLoggedTitle": "训练已记录",
+  "logWorkoutScoreWithBand": "用手环心率评分",
+  "logWorkoutImportedHrGone": "这次训练的心率已不再保存，手环无法为其评分。",
   "logWorkoutUnscoredSaved": "已保存。该时间段内没有记录到心率，因此没有用力值和卡路里数据——只保留了时间信息。",
   "logWorkoutCouldNotSave": "保存失败，请重试。",
   "logWorkoutScoredTitle": "根据手环记录的数据计算",

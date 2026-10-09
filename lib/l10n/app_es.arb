@@ -654,6 +654,8 @@
   "logWorkoutWindowInvalidTitle": "Esa ventana no se puede guardar",
   "logWorkoutTimesUpdatedTitle": "Horarios actualizados",
   "logWorkoutLoggedTitle": "Entrenamiento registrado",
+  "logWorkoutScoreWithBand": "Puntuar con el pulso de la pulsera",
+  "logWorkoutImportedHrGone": "El pulso de este entrenamiento ya no está guardado, así que la pulsera no puede puntuarlo.",
   "logWorkoutUnscoredSaved": "Guardado. No se registró frecuencia cardíaca en esa ventana, así que no tiene esfuerzo ni calorías: los horarios son todo lo que conserva.",
   "logWorkoutCouldNotSave": "No se pudo guardar. Inténtalo de nuevo.",
   "logWorkoutScoredTitle": "Calculado a partir de lo que registró la banda",
