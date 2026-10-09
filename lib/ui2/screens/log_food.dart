@@ -182,12 +182,24 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
     });
   }
 
+  /// Set while a write is in flight and kept through the pop that follows:
+  /// a second tap before the sheet closes would otherwise insert the same
+  /// meal twice under a fresh id.
+  bool _writing = false;
+
   Future<void> _write(FoodEntry e) async {
-    final db = await LocalDb.instance;
-    if (_editing != null) {
-      await NutritionDb.update(db, e);
-    } else {
-      await NutritionDb.put(db, e);
+    if (_writing) return;
+    _writing = true;
+    try {
+      final db = await LocalDb.instance;
+      if (_editing != null) {
+        await NutritionDb.update(db, e);
+      } else {
+        await NutritionDb.put(db, e);
+      }
+    } catch (_) {
+      _writing = false;
+      rethrow;
     }
     if (mounted) Navigator.of(context).pop(true);
   }

@@ -117,6 +117,17 @@ void main() {
         'Food 0');
   });
 
+  test('recent(query) reads % and _ as text, not wildcards', () async {
+    await NutritionDb.put(db, _e('a', 'Milk 50% less fat', kcal: 10));
+    await NutritionDb.put(db, _e('b', 'Milk 500 ml', kcal: 10));
+    await NutritionDb.put(db, _e('c', 'a_b bar', kcal: 10));
+    await NutritionDb.put(db, _e('d', 'axb bar', kcal: 10));
+    expect((await NutritionDb.recent(db, query: '50%')).single.label,
+        'Milk 50% less fat');
+    expect((await NutritionDb.recent(db, query: 'a_b')).single.label,
+        'a_b bar');
+  });
+
   testWidgets('the log sheet searches past foods', (t) async {
     await t.runAsync(() async {
       for (var i = 0; i < 8; i++) {

@@ -204,7 +204,8 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           goal, l?.nutritionAddNumbersFix ?? 'Add the numbers to an occasion',
           0, C.red, rateDown: false);
     }
-    final left = (target - v).round();
+    // Rounded up: 99.6 of 100 g is still 1 g to go, never "reached".
+    final left = (target - v).ceil();
     return GoalTrajectory(
       label,
       '${day.protein.isFloor ? (l?.nutritionAtLeastPrefix ?? 'at least ') : ''}'

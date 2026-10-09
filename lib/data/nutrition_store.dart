@@ -533,9 +533,14 @@ class NutritionDb {
     final rows = await db.rawQuery(
       'SELECT * FROM food_entry WHERE id IN '
       '(SELECT MAX(id) FROM food_entry GROUP BY label) '
-      '${q.isEmpty ? '' : 'AND label LIKE ? '}'
+      "${q.isEmpty ? '' : r"AND label LIKE ? ESCAPE '\' "}"
       'ORDER BY created_at DESC LIMIT ?',
-      [if (q.isNotEmpty) '%$q%', limit],
+      [
+        // `%` and `_` are literal text in a food name, not wildcards.
+        if (q.isNotEmpty)
+          '%${q.replaceAllMapped(RegExp(r'[\\%_]'), (m) => '\\${m[0]}')}%',
+        limit,
+      ],
     );
     return [for (final r in rows) FoodEntry.fromRow(r)];
   }
