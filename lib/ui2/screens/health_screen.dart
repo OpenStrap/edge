@@ -19,6 +19,7 @@ import '../../data/local_repository.dart';
 import '../../import/journal_csv_import.dart' show isValidDayLabel;
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
+import '../../models/payloads.dart' show todayHeadlineOf;
 import '../ui2.dart';
 import 'circadian_detail.dart';
 import 'ecg.dart' show EcgEntryCard, pairedIsMaverickOf;
@@ -860,6 +861,13 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
       if (pairedIsMaverickOf(c)) ...[
         const EcgEntryCard(),
         const SizedBox(height: S.x3),
+      ],
+      // Where today's recovery stands, in Home's words: the overnight rows
+      // below can be a held-over night while Home greys today's own number.
+      if (recoveryStateLine(todayHeadlineOf(d.today), l) case final note?) ...[
+        Text('${l?.homeRingRecovery ?? 'Recovery'} · $note',
+            style: F.cap.copyWith(color: p.ink3)),
+        const SizedBox(height: S.x2),
       ],
       if (rows.isNotEmpty)
         Surface(

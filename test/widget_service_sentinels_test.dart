@@ -341,6 +341,28 @@ void main() {
       expect(written['ring_recovery_why'], '');
     });
 
+    test('a provisional night publishes its own number greyed, the held-over '
+        'prior night never', () async {
+      await WidgetService.push(TodayData.fromJson({
+        'daily': {
+          'readiness': 61, // the prior night, held over
+          'readiness_provisional': 27.6,
+        },
+        'status': {
+          'today_day': todayLabel(),
+          'overnight_state': 'building',
+          'recovery_state': 'provisional',
+          'showing_prior_overnight': true,
+          'overnight_day': '2000-01-01',
+        },
+      }));
+      expect(written['ring_recovery_state'], 1); // drawn muted natively
+      expect(written['ring_recovery_value'], '28');
+      expect(written['ring_recovery_sub'], 'Finishing up');
+      // Watch / Siri read the bare int: nothing until it is final.
+      expect(written['readiness'], -1);
+    });
+
     // The one absence that is PROGRESS rather than a gap, and the only one a
     // ring may honestly draw an arc for.
     test('a baseline still filling is calibration progress, not a low score',

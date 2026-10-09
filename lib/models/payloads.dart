@@ -150,6 +150,17 @@ class TodayData {
         : null;
   }
 
+  /// Today's own number while its night is `provisional` (wake confirmed, the
+  /// band still draining past it), else null. Surfaces that can grey a value
+  /// show it greyed; the rest show nothing until it is final.
+  int? get provisionalReadinessScore {
+    final h = todayHeadlineOf(
+        {'daily': _daily, 'sleep': _sleep, 'status': ?_status});
+    return h['recovery_state'] == 'provisional'
+        ? (h['recovery'] as num?)?.round()
+        : null;
+  }
+
   Metric get fitness => metricOf(_daily, 'fitness');
   Metric get form => metricOf(_daily, 'form');
   Metric get strain => metricOf(_daily, 'strain');

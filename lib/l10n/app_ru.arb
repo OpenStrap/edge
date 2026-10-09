@@ -6834,5 +6834,22 @@
   "devicesOuraCheckpointUnconfirmed": "Не удалось завершить синхронизацию. Попробуйте синхронизировать ещё раз.",
   "investigateRmssdNightly": "RMSSD, ночной (среднее по 5-минутным окнам)",
   "investigateRmssdStored": "RMSSD, ночной (прежняя оценка)",
-  "devicesOuraWriteRefused": "Не удалось отправить команду кольцу. Попробуйте синхронизировать ещё раз."
+  "devicesOuraWriteRefused": "Не удалось отправить команду кольцу. Попробуйте синхронизировать ещё раз.",
+  "homeRecoverySleeping": "Сон…",
+  "homeRecoveryAfterWake": "Восстановление оценивается после пробуждения.",
+  "homeRecoveryFinishingUp": "Почти готово",
+  "homeRecoveryUpdated": "Обновлено {time} · {from} → {to}",
+  "@homeRecoveryUpdated": {
+    "placeholders": {
+      "time": {"type": "String"},
+      "from": {"type": "int"},
+      "to": {"type": "int"}
+    }
+  },
+  "dataRecoveryChanged": "Восстановление изменилось: {list}",
+  "@dataRecoveryChanged": {
+    "placeholders": {
+      "list": {"type": "String"}
+    }
+  }
 }

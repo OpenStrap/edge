@@ -792,6 +792,20 @@ class CoachEngine {
   Future<String> debugRunTool(String name, Map<String, dynamic> args) =>
       _runTool(name, args, onItem: (_) {}, confirm: (_) async => false);
 
+  /// Today's readiness under the headline rule, for run_sql's views: the
+  /// final number or nothing. Null (views untouched) if today can't be read.
+  Future<({String day, num? readiness})?> _todayReadiness() async {
+    try {
+      final h = todayHeadlineOf(await api.getToday());
+      return (
+        day: '${h['day'] ?? todayLabel()}',
+        readiness: h['recovery_state'] == 'final' ? h['recovery'] as num? : null,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ── tool execution ───────────────────────────────────────────────────────────
   Future<String> _runTool(
     String name,
@@ -803,7 +817,8 @@ class CoachEngine {
       switch (name) {
         // data — one read-only SQL tool over the derived views
         case 'run_sql':
-          return await CoachDb.runCoachSql('${args['sql'] ?? ''}');
+          return await CoachDb.runCoachSql('${args['sql'] ?? ''}',
+              today: await _todayReadiness());
 
         // data — the two stores that are NOT in the SQL views. Widening
         // `coach_db`'s allow-list to reach them would trade a structural btree
@@ -1059,7 +1074,7 @@ class CoachEngine {
     _fn('get_today',
         'TODAY\'s recovery, strain and sleep EXACTLY as the Home screen shows '
         'them. Use this, not v_daily, for any question about today: v_daily\'s '
-        'today row can be a night still syncing. recovery_state: final | '
+        'today readiness is NULL until the night is final. recovery_state: final | '
         'provisional (still finishing, may move) | night_in_progress (asleep, '
         'no score yet) | none.', {}),
     _fn('get_medications',

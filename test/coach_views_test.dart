@@ -66,4 +66,41 @@ void main() {
     final badDec = jsonDecode(bad) as Map<String, dynamic>;
     expect(badDec.containsKey('error'), isTrue);
   });
+
+  test("today's readiness in v_daily / v_metric follows the headline rule",
+      () async {
+    final db = await LocalDb.instance;
+    // Mid-sync the last derive wrote a partial night's 2 for today.
+    await db.insert('metric_series',
+        {'date': '2026-10-08', 'key': 'readiness', 'value': 2.0});
+    await db.insert('metric_series',
+        {'date': '2026-10-07', 'key': 'readiness', 'value': 40.0});
+    Future<Map<String, Object?>> rows(String sql,
+        ({String day, num? readiness})? today) async {
+      final out = jsonDecode(await CoachDb.runCoachSql(sql, today: today))
+          as Map<String, dynamic>;
+      expect(out.containsKey('error'), isFalse, reason: '$out');
+      return {
+        for (final r in (out['rows'] as List).cast<Map>())
+          r['date'] as String: r.values.last,
+      };
+    }
+
+    const daily =
+        'SELECT date, readiness FROM v_daily WHERE readiness IS NOT NULL '
+        'OR date >= \'2026-10-07\' ORDER BY date';
+    const metric =
+        "SELECT date, value FROM v_metric WHERE key='readiness' ORDER BY date";
+    // Not final yet: no number for today, earlier days untouched.
+    const pending = (day: '2026-10-08', readiness: null);
+    expect((await rows(daily, pending))['2026-10-08'], isNull);
+    expect((await rows(daily, pending))['2026-10-07'], 40.0);
+    expect((await rows(metric, pending))['2026-10-08'], isNull);
+    // Final: the headline's number (the pin), not the series value.
+    const done = (day: '2026-10-08', readiness: 28);
+    expect((await rows(daily, done))['2026-10-08'], 28);
+    expect((await rows(metric, done))['2026-10-08'], 28);
+    // No headline read: the stored views as before.
+    expect((await rows(daily, null))['2026-10-08'], 2.0);
+  });
 }

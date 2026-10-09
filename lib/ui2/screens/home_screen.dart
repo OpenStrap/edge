@@ -859,18 +859,9 @@ class RingTrio extends StatelessWidget {
           Divider(color: p.line, height: 1),
           _GapRow(r, onTap: _open(r.kind)),
         ],
-        if (d.readinessUpdate
-            case {
-              'from': final int from,
-              'to': final int to,
-              'at': final int at,
-            }) ...[
+        if (recoveryUpdatedLine(d.readinessUpdate, l) case final note?) ...[
           const SizedBox(height: S.x2),
-          Text(
-            l?.homeRecoveryUpdated(_updatedAt(at), from, to) ??
-                'Updated ${_updatedAt(at)} · $from → $to',
-            style: F.cap.copyWith(color: p.ink3),
-          ),
+          Text(note, style: F.cap.copyWith(color: p.ink3)),
         ],
         if (d.readiness.value != null && d.drivers.isNotEmpty) ...[
           const SizedBox(height: S.x3),
@@ -907,8 +898,29 @@ class RingTrio extends StatelessWidget {
   }
 }
 
-String _updatedAt(int ms) =>
-    formatClockOf(DateTime.fromMillisecondsSinceEpoch(ms));
+/// "Updated 8:12 · 2 → 28" off a `todayHeadlineOf` `recovery_update`, or null.
+String? recoveryUpdatedLine(Object? update, AppLocalizations? l) {
+  if (update case {
+    'from': final int from,
+    'to': final int to,
+    'at': final int at,
+  }) {
+    final time = formatClockOf(DateTime.fromMillisecondsSinceEpoch(at));
+    return l?.homeRecoveryUpdated(time, from, to) ??
+        'Updated $time · $from → $to';
+  }
+  return null;
+}
+
+/// The short line every screen showing today's recovery puts beside it when
+/// it is not simply final: still asleep, finishing up, or changed since shown.
+/// Read off one `todayHeadlineOf` result so Home, Readiness and Health agree.
+String? recoveryStateLine(Map<String, dynamic> head, AppLocalizations? l) =>
+    switch (head['recovery_state']) {
+      'night_in_progress' => l?.homeRecoverySleeping ?? 'Sleeping…',
+      'provisional' => l?.homeRecoveryFinishingUp ?? 'Finishing up',
+      _ => recoveryUpdatedLine(head['recovery_update'], l),
+    };
 
 /// Which ring. The three the app can stand behind on a home screen: what the
 /// night gave back, what the day has cost, and what the night was made of.

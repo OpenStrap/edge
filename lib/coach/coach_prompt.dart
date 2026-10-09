@@ -97,7 +97,8 @@ results cap at 200. If a query is rejected, read the reason and fix it.
   band's. The waveform is in `get_ecg_reading(reading_id)`.
 
 TODAY's recovery, strain and sleep: call `get_today()`. It is exactly what the
-Home screen shows; v_daily's row for today can be a night that is still syncing.
+Home screen shows. Today's readiness in v_daily/v_metric is that same final
+number, or NULL while last night is still syncing; get_today says which.
 Food and medications are NOT in SQL. Use `get_nutrition(date)` and
 `get_medications()`.
 

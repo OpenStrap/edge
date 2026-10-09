@@ -8,7 +8,10 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/state/app_state.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
+import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -16,6 +19,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 int sec(DateTime d) => d.millisecondsSinceEpoch ~/ 1000;
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   // Local wall-clock times, so the 03:00 guard reads the same in any TZ.
   const day = '2026-10-08';
   final onset = sec(DateTime(2026, 10, 8, 1, 5));
@@ -144,6 +148,19 @@ void main() {
       await LocalDb.setFrozenHeadline(day, 28, wakeSec: wake + 600);
       expect(await LocalDb.headlinePinFor(day), 28);
       expect(await LocalDb.headlinePinFor('2026-10-07'), isNull);
+    });
+
+    test('a manual re-analyse releases today\'s pin so the re-derive re-pins',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      // A same-night pin would hold the old number through the re-derive
+      // while the re-analysis summary reported the new one.
+      await LocalDb.setFrozenHeadline(todayLabel(), 2, wakeSec: wake);
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      await app.reanalyzeAll();
+      // Nothing here to re-derive, so nothing re-pins; the stale 2 is gone.
+      expect(await LocalDb.frozenHeadline(), isNull);
     });
 
     test('a changed final headline is remembered as from → to', () async {

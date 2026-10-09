@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/coach/coach_config.dart';
 import 'package:openstrap_edge/coach/coach_engine.dart';
 import 'package:openstrap_edge/data/local_repository.dart';
+import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/models/metric.dart';
 import 'package:openstrap_edge/state/clock_format.dart' show formatClockOf;
 import 'package:openstrap_edge/ui2/screens/screens.dart';
@@ -103,6 +104,51 @@ void main() {
           'overnight_day': '2026-10-07',
         },
       }, 27.6);
+    });
+  });
+
+  group('Readiness detail and Health say what Home says', () {
+    Future<void> pumpDetail(WidgetTester t, ReadinessData d) =>
+        t.pumpWidget(MaterialApp(
+          theme: buildTheme(Brightness.light),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: ReadinessDetail(data: d),
+        ));
+
+    testWidgets('provisional: the number, finishing up', (t) async {
+      await pumpDetail(
+          t,
+          const ReadinessData(
+              head: {'recovery_state': 'provisional', 'recovery': 27.6},
+              readiness: Metric(value: 27.6, confidence: .8)));
+      await t.pumpAndSettle();
+      expect(find.text('28'), findsOneWidget);
+      expect(find.text('Finishing up'), findsOneWidget);
+    });
+
+    testWidgets('final with a changed number: the update note', (t) async {
+      final at = DateTime(2026, 10, 8, 8, 12).millisecondsSinceEpoch;
+      await pumpDetail(
+          t,
+          ReadinessData(head: {
+            'recovery_state': 'final',
+            'recovery': 28,
+            'recovery_update': {'from': 2, 'to': 28, 'at': at},
+          }, readiness: const Metric(value: 28, confidence: .8)));
+      await t.pumpAndSettle();
+      final clock = formatClockOf(DateTime.fromMillisecondsSinceEpoch(at));
+      expect(find.text('Updated $clock · 2 → 28'), findsOneWidget);
+      expect(find.text('Finishing up'), findsNothing);
+    });
+
+    test('the shared line (Health reads it too) per state', () {
+      expect(recoveryStateLine({'recovery_state': 'night_in_progress'}, null),
+          'Sleeping…');
+      expect(recoveryStateLine({'recovery_state': 'provisional'}, null),
+          'Finishing up');
+      expect(recoveryStateLine({'recovery_state': 'final'}, null), isNull);
+      expect(recoveryStateLine({'recovery_state': 'none'}, null), isNull);
     });
   });
 }
