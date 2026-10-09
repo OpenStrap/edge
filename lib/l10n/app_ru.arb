@@ -7238,6 +7238,30 @@
     }
   },
   "pairSensorUnreachableIos": "Этот iPhone разрешает приложению подключаться только к датчикам, одобренным в системном окне сопряжения, а {label} пока нельзя там предложить: в его объявлении нет службы, по которой он определяется. Пока выполните сопряжение на Android.",
+  "@pairSensorUnreachableIos": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
   "sleepDetailStagedBy": "Фазы по данным {label}",
-  "sleepDetailDeviceMissingStages": "{label} не сообщает {stages}; это время учтено в других его фазах."
+  "@sleepDetailStagedBy": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
+  "sleepDetailDeviceMissingStages": "{label} не сообщает {stages}; это время учтено в других его фазах.",
+  "@sleepDetailDeviceMissingStages": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      },
+      "stages": {
+        "type": "String"
+      }
+    }
+  }
 }

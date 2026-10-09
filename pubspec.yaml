@@ -262,7 +262,7 @@ dependencies:
       # REPIN: protocol feat/multidevice-verified-decoders head (multi-device
       # decoders; WHOOP decode untouched, pinned by whoop_freeze_golden_test).
       # Re-point at the merge commit once it lands on protocol main.
-      ref: a00a70297502eaa0d7e8c9cabdbc3feb45dbe507
+      ref: 7cd6e3e182195d3ee06eeea0a9520c04a909a088
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
@@ -509,7 +509,7 @@ dependencies:
       # feat/multidevice-analytics head: main @ b7d5819 plus the rings'
       # provisional skin-temp settle band (no WHOOP family touched). Re-point
       # at the merge commit once it lands on analytics main.
-      ref: f16906cbae73b767a746f36846b0aea5e30967c9
+      ref: ad6384746d36a2e6b7b964658d308e40de403c8a
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

@@ -1978,7 +1978,7 @@ const int kAlgoVersion = 111;
 // REPIN @ c0effea: analytics main, #79 + #86 (rmssd gate), for v105.
 // REPIN: feat/multidevice-analytics head (ring settle band), WHOOP output
 // unchanged; re-point at the analytics main merge commit.
-const String kAnalyticsPin = 'f16906cbae73b767a746f36846b0aea5e30967c9';
+const String kAnalyticsPin = 'ad6384746d36a2e6b7b964658d308e40de403c8a';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both
@@ -2018,7 +2018,7 @@ const String kAnalyticsPin = 'f16906cbae73b767a746f36846b0aea5e30967c9';
 // REPIN: protocol main @ ecb512b (#72-#77).
 // REPIN: feat/multidevice-verified-decoders head; re-point at the protocol
 // main merge commit.
-const String kProtocolPin = 'a00a70297502eaa0d7e8c9cabdbc3feb45dbe507';
+const String kProtocolPin = '7cd6e3e182195d3ee06eeea0a9520c04a909a088';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see
