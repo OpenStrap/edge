@@ -42,6 +42,13 @@ band at a time.
 Prefer to sideload the unsigned IPA instead of using TestFlight? That still
 works — see [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md).
 
+TestFlight gets new builds first. The Android APK on Releases is cut less often, so
+it can trail TestFlight by a version or two.
+
+**F-Droid:** not listed yet. A build recipe that swaps out the Google-backed pieces
+(Firebase, ML Kit barcode scanning, Play Services location) is drafted in
+[`docs/fdroid/`](docs/fdroid/), but it hasn't been submitted.
+
 ---
 
 <div align="center">
@@ -116,14 +123,24 @@ Every screenshot above is real output from a WHOOP 4.0.
 - **WHOOP 4, WHOOP 5, MG** — full support. Everything below is computed from these.
 - **Any standard Bluetooth heart-rate strap** — pairs for workout tracking today (heart
   rate + beat timing, stored and shown). Feeding it into recovery/strain is on the roadmap.
-- **Oura Ring** — protocol groundwork exists in the codebase; not pairable in the app yet.
-  When it lands it will pair with the key the ring already holds, so there is no factory
-  reset and the Oura app keeps working — [how to get that key](docs/OURA_KEY.md).
+- **Oura Ring** — experimental. Pairs with the key the ring already holds, so there is
+  no factory reset and the Oura app keeps working ([how to get that key](docs/OURA_KEY.md)),
+  then syncs the ring's history to the phone. That history is stored but doesn't feed
+  any score yet; nobody on the project has checked its decoding against a ring in hand.
+
+The pairing screen also lists a handful of other watches and rings marked
+**Experimental**. Those have never been tested on real hardware. They can pair and store
+what they send, but none of it becomes a number in the app until someone has confirmed
+the decoding on an actual device. More wearables are in development.
 
 ## What works
 
 **Health** — heart rate, HRV, sleep staging, recovery/readiness, strain, stress, an HRV
-spot-check, VO2max estimate, real-time breathing coherence.
+spot-check, VO2max estimate, real-time breathing coherence. Strain is scored against
+your own quiet waking heart rate, not a population constant, so a workout counts the
+same for a fit person with a low resting HR as for anyone else. It needs three days of
+your data before it shows a number. Nightly HRV is RMSSD from one estimator, and a
+night where the beat detector over-counts is refused rather than scored.
 
 **Activity** — auto-detected workouts, live workout tracking with GPS routes, heart-rate
 zones you can edit manually, GPX export.
@@ -145,7 +162,11 @@ reconnects.
 ("what actually moves your numbers"), lab-result CSV import, cycle tracking, a
 deterministic coach, a shareable weekly recap, a BYOK AI assistant, home-screen widgets,
 iOS Live Activities, Siri shortcuts, a smart alarm that buzzes the band with a weekly
-repeating schedule and a smart wake window that catches you in light sleep.
+repeating schedule and a smart wake window that catches you in light sleep (the next
+alarm shows on Home). Scheduled local backups, and on Android you can point them at a
+folder of your choice.
+
+**Languages** — English, German, Spanish, French, Hindi, Russian and Chinese.
 
 ## What doesn't work (yet, or maybe ever)
 
@@ -162,6 +183,10 @@ repeating schedule and a smart wake window that catches you in light sleep.
   you hit one.
 
 ## Run it
+
+Needs Flutter **3.41.6** (the version CI builds with; newer 3.x releases aren't
+supported yet). The `protocol` and `analytics` packages are pulled from git, pinned
+to exact commits in `pubspec.yaml`, so `pub get` fetches them for you.
 
 ```bash
 git clone https://github.com/OpenStrap/edge.git
@@ -216,7 +241,9 @@ turn on yourself:
   it back off stops collection immediately. Never includes health data.
 - **OTA/announcement pointer** — checks whether there's a newer build.
 - **Legacy account import** — one-time, only if you had an old OpenStrap cloud account.
-- **BYOK AI assistant** — only if you configure a provider. Your key, your account. Be
+- **BYOK AI assistant** — only if you configure a provider. Your key, your account. It
+  also works with any OpenAI-compatible server you run yourself (Ollama and the like) on
+  your own network or over Tailscale, in which case nothing leaves your machines. Be
   aware that **the prompts contain your health data**: to answer "why is my recovery
   low", the assistant is given your metrics to read. That data goes to whichever
   provider you chose, under their policies, not ours.
@@ -236,6 +263,7 @@ lib/coach/     read-only SQL coach over allow-listed views
 lib/compute/   runs the analytics pipeline, writes results
 lib/data/      local storage + the repository seam the UI reads from
 lib/debug/     debug-mode flags
+lib/ecg/       WHOOP MG ECG readings
 lib/gestures/  device action / gesture dispatch
 lib/gps/       GPS route tracking for outdoor activities
 lib/health/    HealthKit / Health Connect import + export
@@ -245,7 +273,8 @@ lib/live/      Live Activity / breathing session
 lib/models/    shared data models (Metric, payloads, app status)
 lib/notify/    the single notification emitter + alert policies
 lib/platform/  platform-channel glue (app icon, Tasker, device actions)
-lib/state/     AppState, the one source of truth
+lib/scan/      barcode scanning (swapped for a FOSS reader in the F-Droid build)
+lib/state/     AppState, the one source of truth, plus its sync/workout/live controllers
 lib/stress/    guided-breathing session logic
 lib/sync/      background/headless sync policies
 lib/telemetry/ opt-in error + usage telemetry
@@ -265,7 +294,9 @@ Protocol decoding and analytics live in their own repos —
 
 - [`guides/IOS_INSTALLATION.md`](guides/IOS_INSTALLATION.md) — building and installing on an iPhone.
 - [`guides/IOS_SIDELOAD.md`](guides/IOS_SIDELOAD.md) — sideloading without a paid developer account.
+- [`guides/IOS_SHORTCUTS.md`](guides/IOS_SHORTCUTS.md) — syncing the band from Shortcuts, on demand or on a schedule.
 - [`guides/WATCH_SETUP.md`](guides/WATCH_SETUP.md) — the Apple Watch companion app.
+- [`docs/OURA_KEY.md`](docs/OURA_KEY.md) — getting the key an Oura ring already holds.
 - [`guides/AI_COACH.md`](guides/AI_COACH.md) — bring-your-own-key AI coach, briefings, and journal.
 - [`guides/TASKER_INTEGRATION.md`](guides/TASKER_INTEGRATION.md) — buzzing the strap from Tasker/automation.
 - [`guides/BUZZ_MEANINGS.md`](guides/BUZZ_MEANINGS.md) — what each buzz pattern means.
