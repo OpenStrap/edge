@@ -1803,6 +1803,10 @@ class LocalRepositoryImpl extends LocalRepository {
       'resp': respLine,
       'skin_temp': tempLine,
       'activity': b['activity_curve'] ?? const [],
+      // Who owned each stretch of the merged HR curve (only on a day more
+      // than one device measured) — the zoomed chart's per-second read keeps
+      // the same device per second the stored curve did.
+      'hr_owner': (_sub(b, 'series')?['coverage'] as Map?)?['hr1Hz'],
       // The DISPLAYED day (bundle date) — when a partial "today" fell back to
       // the latest complete day this differs from the requested date, and the
       // screen must window/axis by THIS date, not "now".

@@ -1783,7 +1783,8 @@ import 'vendor_sleep.dart';
 // 107 → 108: a ring's own hypnogram stages the main sleep (`vendor_staged`, above auto, below the user's override) when it passes the plausibility gate. Edge-only.
 // 108 → 109: analytics main @ 27b0ba4, #87: at low resting hr a breathing line that stays steady in Hz across the night lets rmssd publish (floor confidence) where the jitter gate refused it.
 // 109 → 110: analytics main @ b7d5819, #78 #88-#91. Sleep detection no longer bridges unobserved recording gaps; bridges capped at 90 min. rmssd is one nightly estimator, the mean of the sleep session's 5-min windows, absent when the RR stream banks more beat-time than elapsed or no window has 20 clean differences; the RSA respiratory rate survives sensor gaps; strain (and the new trimp_net) is priced against the user's own quiet-waking level (quiet_hrr, median of 28 prior days, abstains under 3). Days derived before 110 keep their stored values.
-const int kAlgoVersion = 110;
+// 110 → 111 (#315): new scalar `sdnn_window`, the mean of 5-min-window SDNNs over the sleep NN (windows under 21 beats left out); the Apple Health HRV SDNN sample now carries it instead of the drift-inflated whole-night `sdnn`, which is unchanged. Edge-only.
+const int kAlgoVersion = 111;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///

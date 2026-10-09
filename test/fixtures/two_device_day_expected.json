@@ -3895,6 +3895,7 @@
       "skin_temp_coverage_frac": 1.0,
       "skin_temp_settled_frac": 1.0,
       "sdnn": 14.14213555551533,
+      "sdnn_window": 14.164940954653554,
       "prsa_dc": 15.0,
       "prsa_dc_anchors": 2879.0,
       "dip_pct": -0.0008820870178887956,

@@ -452,7 +452,7 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
       // install id, the stored API key and the home-screen widget standing.
       // It now removes all of that, so it can say so.
       content: Text(
-        l?.settingsResetBody ??
+        withIosUninstallWarning(c, l?.settingsResetBody ??
             'This permanently deletes this app\'s data on this device:\n\n'
                 '· every measured day, sleep, workout and route\n'
                 '· every lab result, meal, medication dose, habit, breathing session '
@@ -463,7 +463,7 @@ Future<void> _confirmReset(BuildContext c, AppState app) async {
                 'Exported copies and backups in previous or unavailable folders '
                 'may remain. Delete those separately.\n\n'
                 'The band is unpaired, and it cannot re-send history it has already '
-                'handed over. Export from Your data first if you want a copy.',
+                'handed over. Export from Your data first if you want a copy.'),
       ),
       actions: [
         TextButton(
