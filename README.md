@@ -163,8 +163,9 @@ reconnects.
 deterministic coach, a shareable weekly recap, a BYOK AI assistant, home-screen widgets,
 iOS Live Activities, Siri shortcuts, a smart alarm that buzzes the band with a weekly
 repeating schedule and a smart wake window that catches you in light sleep (the next
-alarm shows on Home). Scheduled local backups, and on Android you can point them at a
-folder of your choice.
+alarm shows on Home). Scheduled local backups, which run when you open the app and one
+is due (there is no background scheduler); on Android you can point them at a folder of
+your choice.
 
 **Languages** — English, German, Spanish, French, Hindi, Russian and Chinese.
 
