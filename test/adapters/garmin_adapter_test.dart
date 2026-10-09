@@ -352,7 +352,11 @@ void main() {
       sessionWindow: const Duration(milliseconds: 20),
     );
     final link = ReplayBandLink();
-    final events = await replay(quick, link);
+    // The link stays open past the ack timeout: a closed replay link refuses
+    // writes, so closing at once would refuse REGISTER_ML.
+    final events = await replay(quick, link,
+        whileRunning: (_) => Future<void>.delayed(
+            const Duration(milliseconds: 100)));
     expect(events, isEmpty);
     expect(link.writes, hasLength(2)); // CLOSE_ALL, then REGISTER_ML
     expect(link.writes[1].$2.sublist(0, 2), [0, 0x00]);

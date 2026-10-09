@@ -1,3 +1,5 @@
+import '../../l10n/presentation_text.dart';
+import '../../l10n/display_text.dart';
 // DAY TIMELINE — what happened, in the order it happened.
 //
 // Every screen in this app answers "how much" for one number over many days.
@@ -106,10 +108,10 @@ Map<int, (String, IconData)> _events(AppLocalizations? l) => {
 /// forty that mean the strap moved.
 const int kMinOffWristMin = 15;
 
-String _dur(num? minutes) {
+String _dur(num? minutes, AppLocalizations? l) {
   if (minutes == null) return '';
   final m = minutes.round();
-  return m < 60 ? '${m}m' : '${m ~/ 60}h ${m % 60}m';
+  return presentationText(l, m < 60 ? '${m}m' : '${m ~/ 60}h ${m % 60}m');
 }
 
 String _span(int from, int? to) =>
@@ -140,28 +142,32 @@ List<Moment> dayMoments({
     if (s is! Map) continue;
     final on = asInt(s['onset_ts']), off = asInt(s['wake_ts']);
     if (on == null || off == null) continue;
-    out.add(Moment(
-      at: on,
-      until: off,
-      title: l?.dayTimelineAsleep ?? 'Asleep',
-      detail: '${_span(on, off)} · ${_dur((off - on) / 60)}',
-      icon: LucideIcons.moon,
-      color: C.blue,
-    ));
+    out.add(
+      Moment(
+        at: on,
+        until: off,
+        title: l?.dayTimelineAsleep ?? 'Asleep',
+        detail: '${_span(on, off)} · ${_dur((off - on) / 60, l)}',
+        icon: LucideIcons.moon,
+        color: C.blue,
+      ),
+    );
   }
 
   for (final n in (timeline['naps'] as List?) ?? const []) {
     if (n is! Map) continue;
     final on = asInt(n['start']), off = asInt(n['end']);
     if (on == null) continue;
-    out.add(Moment(
-      at: on,
-      until: off,
-      title: l?.dayTimelineNap ?? 'Nap',
-      detail: '${_span(on, off)} · ${_dur(n['duration_min'] as num?)}',
-      icon: LucideIcons.bedDouble,
-      color: C.indigo,
-    ));
+    out.add(
+      Moment(
+        at: on,
+        until: off,
+        title: l?.dayTimelineNap ?? 'Nap',
+        detail: '${_span(on, off)} · ${_dur(n['duration_min'] as num?, l)}',
+        icon: LucideIcons.bedDouble,
+        color: C.indigo,
+      ),
+    );
   }
 
   for (final s in (timeline['sessions'] as List?) ?? const []) {
@@ -172,13 +178,15 @@ List<Moment> dayMoments({
     final act = activityByName(type);
     final bits = <String>[
       _span(on, asInt(s['end_ts'])),
-      if (s['duration_min'] != null) _dur(s['duration_min'] as num?),
-      if (s['avg_hr'] != null) '${s['avg_hr']} bpm avg',
+      if (s['duration_min'] != null) _dur(s['duration_min'] as num?, l),
+      if (s['avg_hr'] != null) presentationText(l, '${s['avg_hr']} bpm avg'),
     ];
-    out.add(Moment(
-      at: on,
-      until: asInt(s['end_ts']),
-      title: act?.name ??
+    out.add(
+      Moment(
+        at: on,
+        until: asInt(s['end_ts']),
+        title:
+            act?.localizedName(l) ??
           (type == null
               ? (l?.dayTimelineWorkout ?? 'Workout')
               : type.replaceAll('_', ' ')),
@@ -196,13 +204,15 @@ List<Moment> dayMoments({
     final on = asInt(w['start']), off = asInt(w['end']);
     final len = (w['len_min'] as num?) ?? (on != null && off != null ? (off - on) / 60 : null);
     if (on == null || len == null || len < kMinOffWristMin) continue;
-    out.add(Moment(
-      at: on,
-      until: off,
-      title: l?.dayTimelineBandOffWrist ?? 'Band off your wrist',
-      detail: '${_span(on, off)} · ${_dur(len)}',
-      icon: LucideIcons.watch,
-    ));
+    out.add(
+      Moment(
+        at: on,
+        until: off,
+        title: l?.dayTimelineBandOffWrist ?? 'Band off your wrist',
+        detail: '${_span(on, off)} · ${_dur(len, l)}',
+        icon: LucideIcons.watch,
+      ),
+    );
   }
 
   // The day's extremes. NOT anomalies — the highest and lowest reading a day
@@ -250,19 +260,21 @@ List<Moment> dayMoments({
     final t = m.atTs;
     if (t == null) continue;
     final kcal = m.kcal;
-    out.add(Moment(
-      at: t,
-      title: m.label.isEmpty ? m.meal : m.label,
-      detail: [
-        clockOfTs(t),
-        if (m.meal.isNotEmpty) m.meal,
-        // A bare occasion is complete as a log. It just has no energy on it,
-        // and printing "0 kcal" for one is the fabrication this app refuses.
-        if (kcal != null) '${kcal.round()} kcal',
-      ].join(' · '),
-      icon: LucideIcons.utensils,
-      color: C.domFood,
-    ));
+    out.add(
+      Moment(
+        at: t,
+        title: m.label.isEmpty ? localizedText(l, m.meal) : m.label,
+        detail: [
+          clockOfTs(t),
+          if (m.meal.isNotEmpty) localizedText(l, m.meal),
+          // A bare occasion is complete as a log. It just has no energy on it,
+          // and printing "0 kcal" for one is the fabrication this app refuses.
+          if (kcal != null) '${kcal.round()} kcal',
+        ].join(' · '),
+        icon: LucideIcons.utensils,
+        color: C.domFood,
+      ),
+    );
   }
 
   for (final d in doses) {
@@ -291,16 +303,23 @@ List<Moment> dayMoments({
     final d = DateTime.fromMillisecondsSinceEpoch(dayStart * 1000);
     final at =
         DateTime(d.year, d.month, d.day, 0, min).millisecondsSinceEpoch ~/ 1000;
-    out.add(Moment(
-      at: at,
-      title: spec?.label ?? key.replaceAll('_', ' '),
-      // "last one at" is the stored meaning, and saying just "at" would turn a
-      // total plus one timestamp into a single event that never happened.
-      detail: '$n${spec == null || spec.unit.isEmpty ? '' : ' ${spec.unit}'} · '
-          '${l?.dayTimelineLastAt(clockOfTs(at)) ?? 'last at ${clockOfTs(at)}'}',
-      icon: LucideIcons.notebookPen,
-      color: C.domMind,
-    ));
+    out.add(
+      Moment(
+        at: at,
+        title: spec == null
+            ? key.replaceAll('_', ' ')
+            : spec.custom
+            ? spec.label
+            : localizedText(l, spec.label),
+        // "last one at" is the stored meaning, and saying just "at" would turn a
+        // total plus one timestamp into a single event that never happened.
+        detail:
+            '$n${spec == null || spec.unit.isEmpty ? '' : ' ${spec.custom ? spec.unit : localizedText(l, spec.unit)}'} · '
+            '${l?.dayTimelineLastAt(clockOfTs(at)) ?? 'last at ${clockOfTs(at)}'}',
+        icon: LucideIcons.notebookPen,
+        color: C.domMind,
+      ),
+    );
   });
 
   out.sort((a, b) => a.at.compareTo(b.at));
@@ -327,11 +346,13 @@ List<DayNote> dayNotes({
       if (j is List) tags.addAll([for (final t in j) t.toString()]);
     } catch (_) {/* a malformed row loses its tags, not the note */}
     if (note.isEmpty && tags.isEmpty) continue;
-    out.add(DayNote(
-      note.isEmpty ? (l?.dayTimelineTaggedTitle ?? 'Tagged') : note,
-      tags.join(' · '),
-      LucideIcons.notebookPen,
-    ));
+    out.add(
+      DayNote(
+        note.isEmpty ? (l?.dayTimelineTaggedTitle ?? 'Tagged') : note,
+        tags.map((t) => localizedJournalTag(l, t)).join(' · '),
+        LucideIcons.notebookPen,
+      ),
+    );
   }
   final specs = {for (final f in fields) f.key: f};
   journal.forEach((key, v) {
@@ -340,22 +361,30 @@ List<DayNote> dayNotes({
     final n = v.value == v.value.roundToDouble()
         ? v.value.round().toString()
         : v.value.toStringAsFixed(1);
-    out.add(DayNote(
-      spec?.label ?? key.replaceAll('_', ' '),
-      '$n${spec == null || spec.unit.isEmpty ? '' : ' ${spec.unit}'}',
-      LucideIcons.clipboardList,
-    ));
+    out.add(
+      DayNote(
+        spec == null
+            ? key.replaceAll('_', ' ')
+            : spec.custom
+            ? spec.label
+            : localizedText(l, spec.label),
+        '$n${spec == null || spec.unit.isEmpty ? '' : ' ${spec.custom ? spec.unit : localizedText(l, spec.unit)}'}',
+        LucideIcons.clipboardList,
+      ),
+    );
   });
   for (final m in meals) {
     if (m.atTs != null) continue;
-    out.add(DayNote(
-      m.label.isEmpty ? m.meal : m.label,
-      [
-        if (m.meal.isNotEmpty) m.meal,
-        if (m.kcal != null) '${m.kcal!.round()} kcal',
-      ].join(' · '),
-      LucideIcons.utensils,
-    ));
+    out.add(
+      DayNote(
+        m.label.isEmpty ? localizedText(l, m.meal) : m.label,
+        [
+          if (m.meal.isNotEmpty) localizedText(l, m.meal),
+          if (m.kcal != null) '${m.kcal!.round()} kcal',
+        ].join(' · '),
+        LucideIcons.utensils,
+      ),
+    );
   }
   return out;
 }
@@ -947,16 +976,17 @@ Widget? dayGraphCard(BuildContext c, DayGraph g) {
             ),
           ),
         ),
-        Positioned.fill(
-          child: CustomPaint(
-            size: Size.infinite,
-            // No fill under the line: the area would swallow the bands behind
-            // it, and the bands are the half of this picture the curve cannot
-            // say on its own.
-            painter: LineChart(g.hr, p.on(C.red), fill: false, axis: axis),
+          Positioned.fill(
+            child: CustomPaint(
+              size: Size.infinite,
+              // No fill under the line: the area would swallow the bands behind
+              // it, and the bands are the half of this picture the curve cannot
+              // say on its own.
+              painter: LineChart(g.hr, p.on(C.red), fill: false, axis: axis),
+            ),
           ),
-        ),
-      ]),
+        ],
+      ),
     ),
   );
 }

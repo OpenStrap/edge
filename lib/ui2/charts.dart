@@ -38,6 +38,9 @@
 //    the drawn envelope is pixel-identical to the full series and every spike
 //    survives. Naive stride decimation would drop them.
 
+import '../l10n/app_localizations.dart';
+import '../l10n/decimal_text.dart';
+import '../state/locale_controller.dart';
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' show PointMode;
@@ -308,12 +311,17 @@ String axisInt(double v) => v.round().toString();
 /// `7h 30m`, `45m`, `8h` — for an axis measured in MINUTES.
 String axisHm(double minutes) {
   final t = minutes.round(), h = t ~/ 60, m = t % 60;
-  if (h == 0) return '${m}m';
-  return m == 0 ? '${h}h' : '${h}h ${m}m';
+  final l = lookupAppLocalizations(
+    Locale(LocaleController.displayLanguageCode),
+  );
+  if (h == 0) return l.supplementMinutesValue('$m');
+  return m == 0
+      ? l.supplementHoursValue('$h')
+      : l.supplementHoursMinutesValue('$h', '$m');
 }
 
 /// One decimal — skin temperature, kilograms, pace.
-String axisFixed(double v) => v.toStringAsFixed(1);
+String axisFixed(double v) => displayFixed(v, 1);
 
 /// [axisInt] when the number is whole enough to be read that way, [axisFixed]
 /// otherwise. For prose rather than for a gridline: a spoken summary has no

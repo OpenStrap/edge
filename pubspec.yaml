@@ -6,7 +6,7 @@ publish_to: 'none'
 # Watch App" targets in ios/Runner.xcodeproj/project.pbxproj — they aren't wired
 # to FLUTTER_BUILD_NAME/FLUTTER_BUILD_NUMBER. See guides/IOS_INSTALLATION.md
 # "Version Numbers".
-version: 0.10.0+67
+version: 0.10.2+70
 
 environment:
   sdk: ^3.11.4
@@ -259,7 +259,10 @@ dependencies:
       # REPIN: protocol #71 merge (oura `decodeSleepPhases`) @ f04931b, on top of
       # bc7d8d0.
       # REPIN: protocol main @ ecb512b (#72-#77).
-      ref: ecb512b710fbfa5fffce999f939a64aa7c486ee0
+      # REPIN: protocol feat/multidevice-verified-decoders head (multi-device
+      # decoders; WHOOP decode untouched, pinned by whoop_freeze_golden_test).
+      # Re-point at the merge commit once it lands on protocol main.
+      ref: bc1603e22d4d2c587dbd6c2df26f71a0ddced920
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git
@@ -500,7 +503,13 @@ dependencies:
       #      grep -n 'varTot == 0\|diffN == 0'`
       # analytics main @ 4fc2b12: adds #80 (band-state night end) plus #81-#85.
       # analytics main @ c0effea: adds #79 (catalog) and #86 (rmssd gate).
-      ref: c0effea9a7f3113009ebec902f456ace56b774ca
+      # analytics main @ b7d5819: adds #88 (rr over-count gate), #89 (20-difference
+      # window floor), #90 (gap-aware rsa respiration), #91 (personal quiet level),
+      # #78 (sleep detection no longer bridges unobserved gaps; bridges capped at 90 min).
+      # feat/multidevice-analytics head: main @ b7d5819 plus the rings'
+      # provisional skin-temp settle band (no WHOOP family touched). Re-point
+      # at the merge commit once it lands on analytics main.
+      ref: 9e0f3d919ca3f581f97792d0ba0db975cefc4dff
 
   # BLE — flutter_blue_plus is the maintained cross-platform GATT client.
   flutter_blue_plus: ^1.36.8

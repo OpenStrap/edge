@@ -55,6 +55,15 @@ class ImportOutcome {
   /// complete one.
   final Set<String> corruptTables;
 
+  /// Days of stored raw sensor history in the backup that this build could
+  /// not read (a newer archive format), so they were not merged.
+  final int archiveBucketsSkipped;
+
+  /// Days of stored raw sensor history (archive buckets) the backup added or
+  /// filled in. Its own counter: a re-import of days this phone already
+  /// finalized can land only these, and that is not "nothing imported".
+  final int archiveBucketsRestored;
+
   /// Journal days written by the hand-entered CSV path (csv-reimport). Its own
   /// counter: those rows REPLACE the journal for the dates they name, which is
   /// a different promise from "a day the band measured is never overwritten",
@@ -88,6 +97,8 @@ class ImportOutcome {
     this.lateRows = 0,
     this.strandedDays = 0,
     this.corruptTables = const {},
+    this.archiveBucketsSkipped = 0,
+    this.archiveBucketsRestored = 0,
     this.journalRows = 0,
     this.labRows = 0,
     this.rejectedRows = const [],
@@ -97,12 +108,20 @@ class ImportOutcome {
   });
 
   bool get lostSomething =>
-      lateRows > 0 || strandedDays > 0 || corruptTables.isNotEmpty;
+      lateRows > 0 ||
+      strandedDays > 0 ||
+      corruptTables.isNotEmpty ||
+      archiveBucketsSkipped > 0;
 
   /// Nothing at all landed. A zero under a green tick is a no-op that reads as
   /// a success, which is the one thing an import report must never do.
   bool get nothingLanded =>
-      days == 0 && workouts == 0 && skippedDays == 0 && journalRows == 0 && labRows == 0;
+      days == 0 &&
+      workouts == 0 &&
+      skippedDays == 0 &&
+      journalRows == 0 &&
+      labRows == 0 &&
+      archiveBucketsRestored == 0;
 }
 
 /// Raised when an encrypted backup was picked and the user closed the
@@ -310,6 +329,7 @@ Future<ImportOutcome> runImport(
   var journalRows = 0;
   var labRows = 0;
   final corruptTables = <String>{};
+  var archiveSkipped = 0, archiveRestored = 0;
   final rejected = <String>[];
   String? rollupError;
   String? cryptoError;
@@ -374,6 +394,8 @@ Future<ImportOutcome> runImport(
       // reporting the row count alone claims a success the user does not have
       // — which is exactly what this path did until now.
       rollupError ??= app.importRollupError;
+      archiveSkipped += app.lastImportArchiveSkipped;
+      archiveRestored += app.lastImportArchiveRestored;
     }
   } finally {
     // The decrypted copy is the whole health record in plaintext. It exists
@@ -475,6 +497,8 @@ Future<ImportOutcome> runImport(
     lateRows: late,
     strandedDays: stranded,
     corruptTables: corruptTables,
+    archiveBucketsSkipped: archiveSkipped,
+    archiveBucketsRestored: archiveRestored,
     journalRows: journalRows,
     labRows: labRows,
     rejectedRows: rejected,
@@ -640,7 +664,7 @@ class ImportReport extends StatelessWidget {
     }
     // A zero is not a success. Same tick, same words, nothing in the database.
     if (o.nothingLanded) {
-      return StatusCard(
+      final nothing = StatusCard(
         l?.welcomeNothingWasImported ?? 'Nothing was imported',
         // Every row refused is its own answer to "why is it empty?", and it
         // has to survive the empty case or the validation is invisible.
@@ -655,6 +679,22 @@ class ImportReport extends StatelessWidget {
         fix: l?.actionTryAnotherFile ?? 'Try another file',
         icon: LucideIcons.fileWarning,
       );
+      // A re-import of days this phone already finalized lands nothing — and
+      // can still have skipped archive buckets it could not read. That is the
+      // one part of the answer the user can act on, so it is not swallowed
+      // by the empty case.
+      if (o.archiveBucketsSkipped == 0) return nothing;
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        nothing,
+        const SizedBox(height: S.x3),
+        StatusCard(
+          l?.welcomePartOfFileNotUsedTitle ??
+              'Part of that file could not be used',
+          _archiveSkipped(o, l),
+          fix: l?.actionUpdateApp ?? 'Update the app',
+          icon: LucideIcons.fileWarning,
+        ),
+      ]);
     }
     // A journal or lab CSV writes no days, so the old headline read "0 days
     // imported" over a successful import of 300 notes / results.
@@ -684,11 +724,17 @@ class ImportReport extends StatelessWidget {
             '${o.skippedDays} day${o.skippedDays == 1 ? '' : 's'} already measured '
                 'here and left alone'
         : null;
-    final headline = [days, journal, labs, workouts, skipped].firstWhere((c) => c != null)!;
+    final archive = o.archiveBucketsRestored > 0
+        ? l?.welcomeArchiveRestored(o.archiveBucketsRestored) ??
+            'Raw sensor history restored or extended for '
+                '${o.archiveBucketsRestored} day'
+                '${o.archiveBucketsRestored == 1 ? '' : 's'}'
+        : null;
+    final headline = [days, journal, labs, workouts, skipped, archive].firstWhere((c) => c != null)!;
     // journal is NEVER folded in here — when it isn't the headline, days > 0
     // means it gets its own "N journal days REPLACED" line below instead (a
     // different fact: a journal CSV always replaces, on any day it names).
-    final also = [labs, workouts, skipped].whereType<String>().where((c) => c != headline).toList();
+    final also = [labs, workouts, skipped, archive].whereType<String>().where((c) => c != headline).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Surface(
         child: Row(children: [
@@ -766,16 +812,30 @@ class ImportReport extends StatelessWidget {
               '${o.corruptTables.join(', ')} could not be read — SQLite '
                   'reported the file itself as corrupted for those tables. '
                   'Every other table imported normally.',
+            if (o.archiveBucketsSkipped > 0) _archiveSkipped(o, l),
           ].join(' '),
           fix: o.corruptTables.isNotEmpty
               ? (l?.actionTryAnotherFile ?? 'Try another file')
-              : (l?.welcomeExportAgainInDateOrder ??
-                  'Export again in date order'),
+              : (o.lateRows > 0 || o.strandedDays > 0)
+              ? (l?.welcomeExportAgainInDateOrder ??
+                    'Export again in date order')
+              : (l?.actionUpdateApp ?? 'Update the app'),
           icon: LucideIcons.fileWarning,
         ),
       ],
     ]);
   }
+}
+
+/// Archive buckets a backup import could not use. Shared by the empty and
+/// the partial report so the two can never say different things.
+String _archiveSkipped(ImportOutcome o, AppLocalizations? l) {
+  final n = o.archiveBucketsSkipped;
+  return l?.welcomeArchiveSkipped(n) ??
+      '$n day${n == 1 ? '' : 's'} of stored raw sensor history could not be '
+          'merged, because this version cannot read ${n == 1 ? 'its' : 'their'} '
+          'format. Update the app and import the backup again to bring '
+          '${n == 1 ? 'it' : 'them'} in.';
 }
 
 /// The first few refusals, with a count for the rest. Six is where a

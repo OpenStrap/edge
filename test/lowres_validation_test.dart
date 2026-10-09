@@ -168,6 +168,13 @@ Future<void> _freshDb(String? name) async {
   if (name == null) return;
   LocalDb.dbName = name;
   await databaseFactory.deleteDatabase(p.join(dir, name));
+  // Strain is priced against at least three prior days' quiet-waking levels
+  // (analytics `personalQuietWakingHrr`), so a four-day subject would price
+  // it on its last day only. Three seeded days before the first, the same
+  // level for the 1 Hz reference and the device, price every day.
+  for (final d in ['2026-09-28', '2026-09-29', '2026-09-30']) {
+    await LocalDb.putMetricSeriesValue(d, 'quiet_hrr', 0.2);
+  }
 }
 
 /// The days' 1 Hz samples, contiguous, as a WHOOP drain commits them (each

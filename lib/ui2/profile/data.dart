@@ -17,6 +17,7 @@ import 'dart:isolate';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -81,6 +82,7 @@ class _DataScreenState extends State<DataScreen> {
       _note = null;
       _outcome = null;
     });
+    final l = AppLocalizations.of(context);
     try {
       final (text, failed) = await job();
       _say(text, failed: failed);
@@ -88,7 +90,7 @@ class _DataScreenState extends State<DataScreen> {
       // Closing the passphrase prompt is a decision. "Failed:" over it would
       // report the user's own choice back to them as a fault.
     } catch (e) {
-      _say(AppLocalizations.of(context)?.dataFailed(e.toString()) ?? 'Failed: $e',
+      _say(l?.dataFailed(e.toString()) ?? 'Failed: $e',
           failed: true);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -183,8 +185,36 @@ class _DataScreenState extends State<DataScreen> {
     if (outcome.error != null) {
       return (l?.dataBackupFailed(outcome.error!) ?? 'Backup failed: ${outcome.error}', true);
     }
-    if (!outcome.succeeded) return (l?.dataBackupSkipped ?? 'Backup skipped.', false);
+    if (!outcome.succeeded) {
+      return (l?.dataBackupSkipped ?? 'Backup skipped.', false);
+    }
     return (l?.dataBackedUpTo(outcome.path!) ?? 'Backed up to ${outcome.path}', false);
+  }
+
+  Future<_Note> _chooseBackupFolder(AppState app) async {
+    final l = AppLocalizations.of(context);
+    final folder = await AndroidBackupStorage.pick();
+    if (folder == null) return ('', false);
+    // The grant is already persisted; save it even if the screen closed, and
+    // hand it back if saving fails so no unreferenced grant is left behind.
+    final current = app.backupFolder?.uri;
+    try {
+      await app.setBackupFolder(folder);
+    } catch (_) {
+      if (folder.uri != current) {
+        try {
+          await AndroidBackupStorage.release(folder);
+        } catch (_) {}
+      }
+      rethrow;
+    }
+    return (l?.dataBackupFolderSaved ?? 'Backup folder saved.', false);
+  }
+
+  Future<_Note> _useDefaultBackupFolder(AppState app) async {
+    final l = AppLocalizations.of(context);
+    await app.setBackupFolder(null);
+    return (l?.dataBackupFolderSaved ?? 'Backup folder saved.', false);
   }
 
   Future<_Note> _import(AppState app) async {
@@ -218,6 +248,13 @@ class _DataScreenState extends State<DataScreen> {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
     final last = app.lastBackupAt;
+    final folder = app.backupFolder;
+    final backupError = app.lastBackupError;
+    final folderLabel = folder == null
+        ? (l?.dataBackupFolderDefault ?? 'App folder (default)')
+        : folder.name.isEmpty
+            ? (l?.dataBackupFolder ?? 'Backup folder')
+            : folder.name;
     final o = _outcome;
     final rebuilt = dbRebuiltCard(app.dbRebuild);
     return Scaffold(
@@ -285,20 +322,38 @@ class _DataScreenState extends State<DataScreen> {
                       // a file written by an older build — defaulting the
                       // automatic copy to a format that might not open is
                       // worse than the plaintext it replaced.
-                      sub: l?.dataHowOftenSub(kBackupDirName, kBackupsKept) ??
+                      sub: l?.dataHowOftenSub(folder == null ? kBackupDirName : folderLabel, kBackupsKept) ??
                           'Writes a compressed, unencrypted copy to '
-                              '$kBackupDirName, keeping the last $kBackupsKept',
+                              '${folder == null ? kBackupDirName : folderLabel}, keeping the last $kBackupsKept',
                       value: app.backupCadence.label,
                       onTap: _busy
                           ? null
-                          : () => app.setBackupCadence(_nextCadence(
-                              app.backupCadence))),
+                          : () => _run(() async {
+                              await app.setBackupCadence(_nextCadence(app.backupCadence));
+                              return ('', false);
+                            })),
+                  if (defaultTargetPlatform == TargetPlatform.android)
+                    SetRow(LucideIcons.folder, C.purple,
+                        l?.dataBackupFolder ?? 'Backup folder',
+                        sub: '$folderLabel\n${l?.dataBackupFolderSub ?? 'Choose where new backups are saved. Existing backups stay where they are'}',
+                        onTap: _busy ? null : () => _run(() => _chooseBackupFolder(app))),
+                  if (defaultTargetPlatform == TargetPlatform.android && folder != null)
+                    SetRow(LucideIcons.folderClosed, C.n500,
+                        l?.dataBackupFolderUseDefault ?? 'Use default folder',
+                        onTap: _busy ? null : () => _run(() => _useDefaultBackupFolder(app))),
                   SetRow(LucideIcons.clock, C.n500,
                       l?.dataLastBackup ?? 'Last backup',
                       value: last == null
                           ? (l?.dataNever ?? 'Never')
                           : _stamp(last),
                       chevron: false),
+                  if (backupError != null)
+                    SetRow(LucideIcons.triangleAlert, C.orange,
+                        l?.dataBackupFailed(backupError) ?? 'Backup failed: $backupError',
+                        sub: defaultTargetPlatform == TargetPlatform.android
+                            ? (l?.dataBackupFolderRetry ?? 'Retry with Back up now, or choose another folder')
+                            : (l?.dataBackUpNow ?? 'Back up now'),
+                        chevron: false),
                   SetRow(LucideIcons.hardDriveDownload, C.teal,
                       l?.dataBackUpNow ?? 'Back up now',
                       onTap: _busy ? null : () => _run(() => _backupNow(app))),

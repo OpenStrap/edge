@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // Pair a second sensor: scan, pick one, write the `device` row.
 //
 // WHY THIS EXISTS. The whole decode-and-store path for a standard Bluetooth
@@ -326,19 +327,19 @@ class _PairSensorScreenState extends State<PairSensorScreen> {
 
   @override
   Widget build(BuildContext c) => PairSensorView(
-        entryLabel: widget.entry.label,
-        adapterId: widget.entry.id,
-        candidates: _found,
-        scanning: _scanning,
-        heldBack: _heldBack,
-        problem: _problem,
-        paired: _paired,
-        busyRemoteId: _busy,
-        keyController: widget.onPickedWithKey == null ? null : _key,
-        onScan: _scan,
-        onPick: _pick,
-        onForget: _forget,
-      );
+    entryLabel: uiText(c, widget.entry.label),
+    adapterId: widget.entry.id,
+    candidates: _found,
+    scanning: _scanning,
+    heldBack: _heldBack,
+    problem: _problem,
+    paired: _paired,
+    busyRemoteId: _busy,
+    keyController: widget.onPickedWithKey == null ? null : _key,
+    onScan: _scan,
+    onPick: _pick,
+    onForget: _forget,
+  );
 }
 
 /// The pure half — everything this screen draws, from values, so a test can
@@ -581,8 +582,9 @@ class PairSensorView extends StatelessWidget {
               focusedBorder: UnderlineInputBorder(
                   borderSide: BorderSide(color: p.on(C.green))),
             ),
-          ),
-        ]),
+            ),
+          ],
+        ),
       ),
     );
   }

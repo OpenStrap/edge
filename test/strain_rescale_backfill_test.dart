@@ -95,6 +95,7 @@ void main() {
         trimp: 177.80394321843846,
         wakeMinutes: 611,
         female: false,
+        quietHrr: 0.20,
       );
       expect(s, isNotNull);
       expect(s!, closeTo(9.03, 0.05));
@@ -104,7 +105,7 @@ void main() {
       // Real bundle 2026-07-10: 23 steps, 135 wake minutes.
       expect(
         rescaledStrain(trimp: 23.416868457643158, wakeMinutes: 135,
-            female: false),
+            female: false, quietHrr: 0.20),
         0.0,
       );
     });
@@ -114,35 +115,45 @@ void main() {
       // −15..+22 min. It is small but it is not nothing: 22 minutes of extra
       // quiet-waking allowance is a real slice of a light day's headline.
       final measured = rescaledStrain(
-          trimp: 177.80394321843846, wakeMinutes: 611, female: false)!;
+          trimp: 177.80394321843846, wakeMinutes: 611, female: false, quietHrr: 0.20)!;
       final guessed = rescaledStrain(
-          trimp: 177.80394321843846, wakeMinutes: 633, female: false)!;
+          trimp: 177.80394321843846, wakeMinutes: 633, female: false, quietHrr: 0.20)!;
       expect(guessed, lessThan(measured));
     });
 
     test('abstains rather than guessing when an input is missing', () {
       // No TRIMP → nothing to rescale from. Must leave the day alone, not zero it.
       expect(
-        rescaledStrain(trimp: null, wakeMinutes: 611, female: false),
+        rescaledStrain(trimp: null, wakeMinutes: 611, female: false, quietHrr: 0.20),
         isNull,
       );
       // No curve in the bundle → no window to price the baseline over. The old
       // code reached for `worn_min − tst_min` here; abstaining is the fix.
       expect(
-        rescaledStrain(trimp: 177.8, wakeMinutes: null, female: false),
+        rescaledStrain(trimp: 177.8, wakeMinutes: null, female: false, quietHrr: 0.20),
         isNull,
       );
       expect(
-        rescaledStrain(trimp: 177.8, wakeMinutes: 0, female: false),
+        rescaledStrain(trimp: 177.8, wakeMinutes: 0, female: false, quietHrr: 0.20),
+        isNull,
+      );
+    });
+
+    test('abstains without this user\'s quiet-waking level', () {
+      // The 0.20 population reference used to be passed here. No level, no
+      // rescale — the day keeps its old value rather than a stand-in one.
+      expect(
+        rescaledStrain(
+            trimp: 177.8, wakeMinutes: 611, female: false, quietHrr: null),
         isNull,
       );
     });
 
     test('sex changes the baseline, matching how the TRIMP was scored', () {
       final male = rescaledStrain(
-          trimp: 300, wakeMinutes: 900, female: false)!;
+          trimp: 300, wakeMinutes: 900, female: false, quietHrr: 0.20)!;
       final female = rescaledStrain(
-          trimp: 300, wakeMinutes: 900, female: true)!;
+          trimp: 300, wakeMinutes: 900, female: true, quietHrr: 0.20)!;
       // The female quiet-waking allowance is larger (0.86·e^0.334 vs
       // 0.64·e^0.384), so the same TRIMP nets less strain.
       expect(female, lessThan(male));
@@ -150,6 +161,23 @@ void main() {
   });
 
   group('backfillStrainScale — the stored history', () {
+    test('waits, UNMARKED, until a quiet-waking level exists', () async {
+      await seedDay('2026-07-09',
+          trimp: 177.80394321843846, strain: 12.790964777435558,
+          wornMin: 827, tstMin: 216, wakeMin: 611);
+      final r = await backfillStrainScale(female: false);
+      expect(r.didWork, isFalse);
+      // Not marked done: the one-shot must run once a level exists.
+      expect(await LocalDb.computeFreshness(kStrainRescaleKey), isNull);
+      expect(await seriesValue('strain', '2026-07-09'),
+          closeTo(12.790964777435558, 1e-9));
+      // A settled week at the reference level, so the rescaled values below
+      // stay comparable with the pure tests.
+      for (var d = 1; d <= 7; d++) {
+        await LocalDb.putMetricSeriesValue('2026-05-0$d', 'quiet_hrr', 0.20);
+      }
+    });
+
     test('rescales a raw-pruned historical day in series AND bundle', () async {
       // worn − tst would be 611 here too, but the curve is what counts and it
       // is seeded at 611 to keep the pinned 9.03 comparable with the pure test.

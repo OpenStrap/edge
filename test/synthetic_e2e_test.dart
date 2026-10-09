@@ -105,8 +105,13 @@ SYNTHETIC DAY $_dayId — derived vs truth
     if (resp != null) {
       expect((resp - SyntheticDay.sleepRespRate).abs(), lessThanOrEqualTo(2));
     }
-    expect((s['strain'] as num?) ?? 0, greaterThan(0),
-        reason: 'a 40-minute run at 150 bpm is real load');
+    // A single day has no prior quiet-waking levels, and strain is priced
+    // against at least three of them: it abstains rather than price being
+    // awake at a population constant.
+    expect(s['strain'], isNull,
+        reason: 'strain abstains on a cold start');
+    expect(((full['absent_notes'] as Map?)?['strain'] as String?) ?? '',
+        startsWith('need_baseline:'));
   });
 
   test('Colmi, Ultrahuman, Mi Band and Garmin data reach the app and leave '

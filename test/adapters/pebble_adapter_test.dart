@@ -47,6 +47,8 @@ Future<(List<BandEvent>, ReplayBandLink, List<(int, List<int>)>)> drive(
   for (var i = 0; i < 50; i++) {
     await Future<void>.delayed(const Duration(milliseconds: 2));
   }
+  // Answer before closing: a closed link refuses the ACK write.
+  await pumpEventQueue();
   await link.close();
   await done.future.timeout(const Duration(seconds: 2), onTimeout: () {});
   await sub.cancel();

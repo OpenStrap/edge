@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // The one door into pairing.
 //
 // WHY THIS EXISTS. There used to be three: onboarding's `PairingScreen`
@@ -219,8 +220,9 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
         // see `pairOuraRingWithKey`.
         onPickedWithKey:
             sensor.entry.id == kOura.id ? pairOuraRingWithTypedKey : null,
+        ),
       ),
-    ));
+    );
     if (mounted) await _afterPair();
   }
 
@@ -257,10 +259,14 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       busyRemoteId: _busy,
       categories: [
         for (final e in entries)
-          if (_matches(e.label, _categoryBlurb(c, e)))
+          if ((_matches(
+                uiText(c, e.label),
+                uiText(c, deviceCategoryBlurb(l, e)),
+              ) ||
+              _matches(e.label, deviceCategoryBlurb(null, e))))
             (
               entry: e,
-              blurb: _categoryBlurb(c, e),
+              blurb: deviceCategoryBlurb(l, e),
               icon: _categoryIcon(e),
             ),
       ],
@@ -269,45 +275,6 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       onOpenEntry: _openEntry,
       onSkip: widget.onSkip,
     );
-  }
-
-  /// Takes a [BuildContext] for the same reason [signalDisplayName] does:
-  /// this is user-facing prose on a first-run screen, and the rest of the
-  /// file already reads it from [AppLocalizations].
-  static String _categoryBlurb(BuildContext c, BandEntry e) {
-    final l = AppLocalizations.of(c);
-    return switch (e.id) {
-      'gen4' || 'gen5' => l?.devicePickerBlurbBand ??
-          'The strap this app is built around. WHOOP 4 or 5.',
-      'oura' => l?.devicePickerBlurbRing ??
-          'Reads the ring directly — no Oura account or subscription.',
-      'polar_pmd' => l?.devicePickerBlurbPolarPmd ??
-          'A Polar Verity Sense or OH1. Beat timing measured optically, '
-              'streamed during a workout, same as a chest strap.',
-      'coros' => l?.devicePickerBlurbCoros ??
-          'A sports watch. Reads battery and live heart rate — recorded '
-              'activities stay on the watch.',
-      'ultrahuman' => l?.devicePickerBlurbUltrahuman ??
-          'Reads the ring directly — no account, no key exchange.',
-      'miband234' => l?.devicePickerBlurbMiband234 ??
-          'A Mi Band 2 or 3. Unpair it from Mi Fit or Zepp first (or '
-              'factory-reset it): it only takes a new key while it holds '
-              'none. Syncs its stored heart rate, steps and sleep. '
-              'If the band buzzes while pairing, tap it to confirm.',
-      'pebble' => l?.devicePickerBlurbPebble ??
-          'Pebble 2 or Pebble 2 SE only. Syncs steps and sleep, and heart '
-              'rate on a Pebble 2 (the SE has no heart-rate sensor).',
-      'thermometer' => 'Saves each reading as a body temperature.',
-      'miscale_bc' => 'Saves each settled weight and bio-impedance, '
-          'including stored ones.',
-      'miscale2' => 'Saves each settled weight, including stored ones.',
-      'colmi' => l?.devicePickerBlurbColmi ??
-          'A Colmi ring. Syncs heart rate, sleep stages, steps, SpO2, HRV '
-              "and stress; values the ring computes itself are labelled as "
-              "Colmi's. Experimental.",
-      _ => l?.devicePickerBlurbSensor ??
-          'A chest strap or armband, for beat timing during a workout.',
-    };
   }
 
   static IconData _categoryIcon(BandEntry e) =>
@@ -395,29 +362,31 @@ class DevicePickerView extends StatelessWidget {
                     icon: LucideIcons.circleAlert,
                   ),
                 ],
-                if (categories.isNotEmpty)
-                  Section(
-                    l?.devicePickerBrowseByCategory ?? 'Browse by category',
-                    Surface(
-                      pad: const EdgeInsets.symmetric(horizontal: S.x4),
-                      child: Column(children: [
-                        for (var i = 0; i < categories.length; i++) ...[
-                          SetRow(
-                            categories[i].icon,
-                            C.blue,
-                            categories[i].entry.label,
-                            sub: categories[i].blurb,
+                  if (categories.isNotEmpty)
+                    Section(
+                      l?.devicePickerBrowseByCategory ?? 'Browse by category',
+                      Surface(
+                        pad: const EdgeInsets.symmetric(horizontal: S.x4),
+                        child: Column(
+                          children: [
+                            for (var i = 0; i < categories.length; i++) ...[
+                              SetRow(
+                                categories[i].icon,
+                                C.blue,
+                                uiText(c, categories[i].entry.label),
+                                sub: uiText(c, categories[i].blurb),
                             onTap: busy
                                 ? null
                                 : () => onOpenEntry?.call(categories[i].entry),
                           ),
                           if (i < categories.length - 1)
                             Divider(color: p.line, height: 1),
-                        ],
-                      ]),
+                            ],
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                const SizedBox(height: S.x5),
+                  const SizedBox(height: S.x5),
                 Surface(
                   color: p.card2,
                   child: Row(children: [
@@ -445,10 +414,11 @@ class DevicePickerView extends StatelessWidget {
                     style: F.cap.copyWith(color: p.ink3),
                   ),
                 ],
-              ],
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -571,7 +541,7 @@ class _NearbySection extends StatelessWidget {
           // One tap pairs a Mi Band 2/3, so its unpair-first step shows on
           // the row before that tap, not only on the category list.
           : cand.entryId == kMiBand234.id
-              ? '$idle\n${_DevicePickerScreenState._categoryBlurb(c, kMiBand234)}'
+              ? '$idle\n${deviceCategoryBlurb(AppLocalizations.of(c), kMiBand234)}'
               : idle,
       chevron: !busy,
       onTap: busy || onTap == null ? null : () => onTap!(cand),
@@ -579,7 +549,45 @@ class _NearbySection extends StatelessWidget {
   }
 }
 
+/// The one-line description under each device in the picker, localised.
+String deviceCategoryBlurb(AppLocalizations? l, BandEntry e) {
+  return localizedText(l, switch (e.id) {
+      'gen4' || 'gen5' => l?.devicePickerBlurbBand ??
+          'The strap this app is built around. WHOOP 4 or 5.',
+      'oura' => l?.devicePickerBlurbRing ??
+          'Reads the ring directly — no Oura account or subscription.',
+      'polar_pmd' => l?.devicePickerBlurbPolarPmd ??
+          'A Polar Verity Sense or OH1. Beat timing measured optically, '
+              'streamed during a workout, same as a chest strap.',
+      'coros' => l?.devicePickerBlurbCoros ??
+          'A sports watch. Reads battery and live heart rate — recorded '
+              'activities stay on the watch.',
+      'ultrahuman' => l?.devicePickerBlurbUltrahuman ??
+          'Reads the ring directly — no account, no key exchange.',
+      'miband234' => l?.devicePickerBlurbMiband234 ??
+          'A Mi Band 2 or 3. Unpair it from Mi Fit or Zepp first (or '
+              'factory-reset it): it only takes a new key while it holds '
+              'none. Syncs its stored heart rate, steps and sleep. '
+              'If the band buzzes while pairing, tap it to confirm.',
+      'pebble' => l?.devicePickerBlurbPebble ??
+          'Pebble 2 or Pebble 2 SE only. Syncs steps and sleep, and heart '
+              'rate on a Pebble 2 (the SE has no heart-rate sensor).',
+      'thermometer' => l?.devicePickerBlurbThermometer ??
+          'Saves each reading as a body temperature.',
+      'miscale_bc' => l?.devicePickerBlurbMiscaleBc ??
+          'Saves each settled weight and bio-impedance, including stored ones.',
+      'miscale2' => l?.devicePickerBlurbMiscale2 ??
+          'Saves each settled weight, including stored ones.',
+      'colmi' => l?.devicePickerBlurbColmi ??
+          'A Colmi ring. Syncs heart rate, sleep stages, steps, SpO2, HRV '
+              "and stress; values the ring computes itself are labelled as "
+              "Colmi's. Experimental.",
+      _ => l?.devicePickerBlurbSensor ??
+          'A chest strap or armband, for beat timing during a workout.',
+  });
+}
+
 /// Test seam for the category blurbs: each one localised.
 @visibleForTesting
 String debugCategoryBlurb(BuildContext c, BandEntry e) =>
-    _DevicePickerScreenState._categoryBlurb(c, e);
+    deviceCategoryBlurb(AppLocalizations.of(c), e);

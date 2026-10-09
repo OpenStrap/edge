@@ -38,6 +38,12 @@ class _Repo extends LocalRepository {
   }
 
   @override
+  Future<int> pendingActivityCount() async {
+    if (fail) throw StateError('offline database');
+    return items.length;
+  }
+
+  @override
   Future<List<SessionSpan>> savedSessionSpans() async => [];
   @override
   Future<void> discardActivity(ActivitySuggestion s) async {
@@ -65,7 +71,7 @@ void main() {
   setUp(
     () => SharedPreferences.setMockInitialValues({'notify_auto_detect': false}),
   );
-  Future<_Repo> pump(WidgetTester t, {bool fail = false}) async {
+  Future<_Repo> pump(WidgetTester t, {bool fail = false, Widget? home}) async {
     t.view.physicalSize = const Size(1170, 6000);
     t.view.devicePixelRatio = 3;
     addTearDown(t.view.reset);
@@ -84,7 +90,7 @@ void main() {
         ],
         child: MaterialApp(
           theme: buildTheme(Brightness.light),
-          home: const DetectedActivitiesScreen(),
+          home: home ?? const DetectedActivitiesScreen(),
         ),
       ),
     );
@@ -175,5 +181,11 @@ void main() {
     await t.tap(find.text('Save and confirm'));
     await t.pumpAndSettle();
     expect(repo.items.single.id, 'nap');
+  });
+
+  testWidgets('home card stays up when the count fails to load', (t) async {
+    await pump(t, fail: true, home: const Scaffold(body: DetectedActivitiesCard()));
+    expect(find.text('Detected activities'), findsOneWidget);
+    expect(find.text('Could not load activities. Try again.'), findsOneWidget);
   });
 }

@@ -166,8 +166,19 @@ void main() {
       return const [];
     });
     expect(link.writes.any((w) => w.$2.first == 0x10), isFalse);
-    expect(events, isEmpty);
+    expect(events.map((e) => (e as BandNote).key), ['oura_auth_refused']);
     expect(link.logs.any((l) => l.contains('authentication refused')), isTrue);
+  });
+
+  test('a ring that never answers the key is NOT reported as a refusal',
+      () async {
+    final (events, link) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      return const [];
+    });
+    expect(link.writes.any((w) => w.$2.first == 0x10), isFalse);
+    expect(events, isEmpty,
+        reason: 'silence must not drive the re-pair remedy');
   });
 
   test('every event frame reaches raw, decoded or not', () async {
@@ -232,6 +243,124 @@ void main() {
     expect(
       events.whereType<BandNote>().any((n) => n.key == 'oura_cursor_stranded'),
       isTrue,
+    );
+  });
+
+  test('a drain that reaches the ring\'s end says so, exactly once', () async {
+    // The three honest ends of a drain: an empty up-to-date answer, a replay
+    // tail that stops at the cursor, and a batch with nothing left. Each must
+    // end the session with `oura_drain_ok` — the host\'s only signal that
+    // "connected" also means "synced".
+    final (empty, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) return [_summary(0, 0)];
+      return const [];
+    });
+    expect(
+      empty.whereType<BandNote>().where((n) => n.key == 'oura_drain_ok'),
+      hasLength(1),
+    );
+
+    // A replayed tail that stops exactly at the cursor (maxDs + 1 == cursor)
+    // with nothing left is an up-to-date ring, not a stranded one.
+    final (replayed, _) = await _drive(_adapter(startCursorDs: 5000), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) {
+        return [
+          _event(kOuraEvtTempPeriod, 4999, _hex('6c0d')),
+          _summary(1, 0),
+        ];
+      }
+      return const [];
+    });
+    expect(
+      replayed
+          .whereType<BandNote>()
+          .where((n) => n.key == 'oura_drain_ok'),
+      hasLength(1),
+    );
+    expect(
+      replayed.whereType<BandNote>().any((n) => n.key == 'oura_cursor_stranded'),
+      isFalse,
+    );
+  });
+
+  test('an unconfirmed batch never claims the drain reached its end',
+      () async {
+    // Speicherfehler-Analogon: the host never confirms the checkpoint (its
+    // durable commit failed or never landed), so the cursor stays put and
+    // the session ends WITHOUT `oura_drain_ok` — the data is not lost (the
+    // next sync re-reads), but this session must not report success.
+    final (events, link) = await _drive(
+      _adapter(),
+      (i, v) {
+        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+        if (v.first == 0x10) {
+          return [
+            _event(kOuraEvtTempPeriod, 100, _hex('6c0d')),
+            _summary(1, 0),
+          ];
+        }
+        return const [];
+      },
+      confirmBatches: false,
+    );
+    expect(
+      events.whereType<BandNote>().any((n) => n.key == 'oura_drain_ok'),
+      isFalse,
+      reason: 'the batch was never confirmed — no durable commit, no success',
+    );
+    // The ADAPTER-level truth: with no confirmation and no host error
+    // observation available at this seam, the only honest note is the
+    // generic unconfirmed-checkpoint one — the commit's own outcome is
+    // not named here (the host reports that separately when it has it).
+    expect(
+      events.whereType<BandNote>().any((n) => n.key == 'oura_batch_unconfirmed'),
+      isTrue,
+      reason: 'no confirm and no observed host error leaves the generic '
+          'unconfirmed note as the honest report',
+    );
+    // And the cursor note never moved either: partial data stays banked,
+    // the bookmark stays put.
+    expect(
+      events.whereType<BandNote>().any((n) => n.key == 'oura_cursor_ds'),
+      isFalse,
+    );
+    expect(link.writes, isNotEmpty);
+  });
+
+  test('a drain that ends early never claims it reached the end', () async {
+    // A refused notify-flags write, an unanswered history request and a
+    // refused authentication all end `run()` without `oura_drain_ok` — the
+    // host must be able to tell "synced to the end" from "connected and
+    // got nothing".
+    final link = ReplayBandLink()..writeSucceeds = false;
+    final events = <BandEvent>[];
+    final done = Completer<void>();
+    final sub = _adapter()
+        .run(link)
+        .listen(events.add, onDone: done.complete);
+    await done.future.timeout(const Duration(seconds: 2), onTimeout: () {});
+    await sub.cancel();
+    expect(
+      events.whereType<BandNote>().any((n) => n.key == 'oura_drain_ok'),
+      isFalse,
+      reason: 'every write refused — nothing was synced',
+    );
+
+    final (silent, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      // 0x1c = notify-flags write: never answered, 0x10 times out.
+      return const [];
+    });
+    expect(
+      silent.whereType<BandNote>().any((n) => n.key == 'oura_drain_ok'),
+      isFalse,
+      reason: 'the history request never came back',
     );
   });
 
@@ -549,6 +678,117 @@ void main() {
     final requests = link.writes.where((w) => w.$2.first == 0x10).toList();
     expect(requests[1].$2.sublist(2, 6), <int>[5, 0, 0, 0]);
   });
+
+  // ── Notification boundaries ─────────────────────────────────────────
+  test(
+      'a frame split across two notifications is NOT reassembled — the '
+      'documented boundary is the notification',
+      () async {
+    // NO REASSEMBLY ACROSS NOTIFICATIONS, pinned as today's documented
+    // behaviour: one notification carries exactly one frame, and no capture
+    // in this project shows a frame split across notifications. A split
+    // header or payload is therefore an UNRECOGNISED delivery: the first
+    // fragment banks nothing (its declared length runs past the end), and
+    // the second fragment, starting mid-payload, is not a frame either.
+    // If a real capture ever shows cross-notification fragmentation, the
+    // fix is a session-local continuation buffer in `run()`'s notify
+    // listener — THIS test is what flips then.
+    const syncUnix = 1782043215;
+    final whole = _event(kOuraEvtTimeSync, 1000, _syncBody(syncUnix));
+    // Split the frame mid-payload: header + first two body bytes, then the
+    // remaining three.
+    final head = whole.sublist(0, 6);
+    final tail = whole.sublist(6);
+    final (events, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) return [head, tail];
+      return const [];
+    });
+    expect(events.whereType<SampleBatch>(), isEmpty,
+        reason: 'a split frame banks nothing — no invented sample');
+    expect(
+      events.whereType<BandNote>().where((n) => n.key == 'oura_drain_ok'),
+      isEmpty,
+        reason: 'the drain never reached its end on split frames');
+  });
+
+  test('a summary split across two notifications never ends the batch',
+      () async {
+    // The batch summary is a frame like any other: split, it is not a
+    // summary. The batch honestly times out instead of ending on a
+    // mis-parsed half.
+    const syncUnix = 1782043215;
+    final anchor = _event(kOuraEvtTimeSync, 1000, _syncBody(syncUnix));
+    final whole = _summary(1, 0);
+    final (events, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) {
+        return [
+          [anchor, whole.sublist(0, 4)].expand((x) => x).toList(),
+          [whole.sublist(4)].expand((x) => x).toList(),
+        ];
+      }
+      return const [];
+    });
+    expect(events.whereType<SampleBatch>(), isEmpty);
+    expect(
+      events.whereType<BandNote>().where((n) => n.key == 'oura_drain_ok'),
+      isEmpty);
+  });
+
+  test('an unknown opcode banks nothing, decodes nothing', () async {
+    // Unknown opcodes below the event range are command responses; the
+    // parser accepts a WELL-FORMED unknown frame (length honest) and the
+    // batch machinery ignores it: no sample, no batch, no invented
+    // interpretation. A frame whose length LIES (declared length past the
+    // end) is refused by the parser itself: same refusal, different line.
+    final (events, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) {
+        return [
+          // Well-formed but unknown: parseable, ignored downstream.
+          _frame(0x3f, _hex('010203')),
+        ];
+      }
+      return const [];
+    });
+    expect(events.whereType<SampleBatch>(), isEmpty);
+    expect(events.whereType<BandNote>().where((n) => n.key == 'oura_drain_ok'),
+        isEmpty);
+  });
+
+  test(
+      'a truncated frame does not desync the NEXT notification — each '
+      'notification is parsed from byte zero',
+      () async {
+    // There is no continuation buffer (see the split-frame test): a
+    // notification whose one frame declares more bytes than were delivered
+    // is banked verbatim but not decoded, and the next notification is
+    // parsed from byte zero.
+    const syncUnix = 1782043215;
+    final anchor = _event(kOuraEvtTimeSync, 1000, _syncBody(syncUnix));
+    final temp = _event(kOuraEvtTempPeriod, 1100, _hex('6c0d'));
+    final cut = <int>[0x69, 0x05, 0x01, 0x02]; // length 5, only 2 delivered
+    final (events, _) = await _drive(_adapter(), (i, v) {
+      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
+      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
+      if (v.first == 0x10) return [anchor, cut, temp, _summary(2, 0)];
+      return const [];
+    });
+    final batch = events.whereType<SampleBatch>().single;
+    expect(batch.samples, hasLength(1),
+        reason: 'the frame after the cut banks — the cut desyncs nothing');
+    expect(batch.raw, hasLength(3),
+        reason: 'the cut notification is banked as delivered, not decoded');
+    expect(
+      events.whereType<BandNote>().where((n) => n.key == 'oura_drain_ok'),
+      hasLength(1));
+  });
+
+  // ── The ring's own sleep staging, banked as vendor scalars ──────────────
 
   test('an empty batch with bytes left steps the cursor one decisecond and '
       'asks again before anything is reset', () async {

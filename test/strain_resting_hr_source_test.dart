@@ -76,6 +76,9 @@ Map<String, dynamic> _runDayActivity({
     dayCalendarEndSec: sub.tsSec.last + 1,
     dataNowSec: sub.tsSec.last + 1,
     restingHr: restingHr,
+    // A settled week of prior quiet levels, so the resting-HR gate is the only
+    // thing deciding presence here (strain_quiet_level_test covers the level).
+    quietHrrHistory: List<double>.filled(7, 0.20),
   );
   return scalars;
 }

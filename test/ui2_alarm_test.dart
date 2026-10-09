@@ -8,6 +8,7 @@
 // The screen is otherwise a rendering of AppState, and its layout is covered
 // by the profile goldens.
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -84,6 +85,56 @@ void main() {
           now: DateTime(2026, 8, 22, 9));
       expect(find.textContaining('Confirmed'), findsNothing);
       expect(find.textContaining('Sat 07:30 · In the past'), findsOneWidget);
+    });
+  });
+
+  group('the at-a-glance tile', () {
+    setUp(() => ClockFormatController.seed(ClockFormat.h24));
+    tearDown(ClockFormatController.debugReset);
+
+    Future<void> pump(WidgetTester t, DateTime? at, AlarmArmState s,
+            {DateTime? now}) =>
+        t.pumpWidget(MaterialApp(
+            home: Scaffold(
+                body: Builder(
+                    builder: (c) => alarmGlanceCard(c, at, s,
+                        now: now ?? DateTime(2026, 8, 21, 22))))));
+
+    testWidgets('no alarm says it is not set', (t) async {
+      await pump(t, null, AlarmArmState.none);
+      expect(find.text('Not set'), findsOneWidget);
+      expect(find.text('Set an alarm'), findsOneWidget);
+    });
+
+    testWidgets('an armed alarm shows its time, day and real state',
+        (t) async {
+      await pump(t, DateTime(2026, 8, 22, 7, 30), AlarmArmState.unknown);
+      expect(find.text('07:30'), findsOneWidget);
+      expect(find.text('Tomorrow · Not confirmed'), findsOneWidget);
+    });
+
+    testWidgets('a spent alarm does not pass as the next one', (t) async {
+      await pump(t, DateTime(2026, 8, 22, 7, 30), AlarmArmState.confirmed,
+          now: DateTime(2026, 8, 22, 9));
+      expect(find.textContaining('Confirmed'), findsNothing);
+      expect(find.text('Fired or missed'), findsOneWidget);
+    });
+
+    // Home rebuilds only on new data or a changed alarm. With the band out of
+    // range neither comes, so the tile has to notice the time passing itself.
+    testWidgets('turns to fired or missed when the alarm passes on screen',
+        (t) async {
+      final at = clock.now().add(const Duration(minutes: 5));
+      await t.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Builder(
+                  builder: (c) =>
+                      alarmGlanceCard(c, at, AlarmArmState.confirmed)))));
+      expect(find.textContaining('Confirmed'), findsOneWidget);
+
+      await t.pump(const Duration(minutes: 6));
+      expect(find.textContaining('Confirmed'), findsNothing);
+      expect(find.text('Fired or missed'), findsOneWidget);
     });
   });
 }

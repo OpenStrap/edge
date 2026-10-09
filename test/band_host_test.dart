@@ -6,9 +6,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/adapters/adapter.dart';
 import 'package:openstrap_edge/ble/adapters/ble_hrs.dart';
 import 'package:openstrap_edge/ble/adapters/host.dart';
+import 'package:openstrap_edge/ble/adapters/signals.dart';
 import 'package:openstrap_edge/data/db.dart';
 
 const List<int> kBpmOnly = <int>[0x00, 61];
@@ -133,4 +135,100 @@ void main() {
     expect(await LocalDb.getCursorInt('rec_ts_hw'), isNull,
         reason: 'the primary\'s bare cursor key must be untouched');
   });
+
+  test('a failed batch commit reports host_commit_failed and never '
+      'confirms the checkpoint', () async {
+    // The checkpoint contract: `confirm()` only after a durable commit.
+    // A minimal adapter that yields a batch AND a checkpoint makes the
+    // confirm call directly observable; the injected commit failure must
+    // emit `host_commit_failed`, never confirm, and leave nothing stored.
+    final notes = <String>[];
+    var confirmed = false;
+    final adapter = _CheckpointAdapter(() async {
+      confirmed = true;
+      return true;
+    });
+    final host = BandHost(
+      adapter: adapter,
+      deviceId: deviceId,
+      onNote: (key, _) => notes.add(key),
+      faultCommitForTest: (commit) async {
+        throw StateError('injected durable commit failure');
+      },
+    );
+    final link = ReplayBandLink();
+    final future = host.run(link);
+    await link.close();
+    await future;
+    await host.stop();
+
+    expect(notes, contains('host_commit_failed'),
+        reason: 'the host observed the failed durable commit itself');
+    expect(confirmed, isFalse,
+        reason: 'confirm() must never run for a batch that did not land');
+    final db = await LocalDb.instance;
+    expect(
+      await db.query('decoded_onehz',
+          where: 'device_id = ?', whereArgs: [deviceId]),
+      isEmpty,
+      reason: 'nothing from the failed transaction reached the table',
+    );
+  });
+
+  test('the control case: a landed commit confirms and emits no '
+      'host_commit_failed', () async {
+    final notes = <String>[];
+    var confirmed = false;
+    final adapter = _CheckpointAdapter(() async {
+      confirmed = true;
+      return true;
+    });
+    final host = BandHost(
+      adapter: adapter,
+      deviceId: deviceId,
+      onNote: (key, _) => notes.add(key),
+    );
+    final link = ReplayBandLink();
+    final future = host.run(link);
+    await link.close();
+    await future;
+    await host.stop();
+
+    expect(notes, isNot(contains('host_commit_failed')));
+    expect(confirmed, isTrue,
+        reason: 'the landed commit must confirm the checkpoint');
+    final db = await LocalDb.instance;
+    expect(
+      await db.query('decoded_onehz',
+          where: 'device_id = ?', whereArgs: [deviceId]),
+      isNotEmpty,
+      reason: 'the successful commit durably stored its rows',
+    );
+  });
+}
+
+/// Minimal adapter for the checkpoint-contract tests: one batch with one
+/// sample, then one checkpoint whose confirm is observable. `kBleHrs`'s own
+/// entry is reused so the stored family/source keys stay realistic.
+class _CheckpointAdapter extends BandAdapter {
+  final Future<bool> Function() _confirm;
+  _CheckpointAdapter(this._confirm);
+
+  @override
+  BandEntry get entry => kBleHrs;
+
+  @override
+  Map<InputSignal, Duration> get signals => const {};
+
+  @override
+  Stream<BandEvent> run(BandLink link) async* {
+    yield SampleBatch([
+      NeutralSample(
+        anchor: entry.timeAnchor,
+        tsEpoch: 1_800_000_060,
+        hr: 100,
+      ),
+    ]);
+    yield OffloadCheckpoint(_confirm);
+  }
 }

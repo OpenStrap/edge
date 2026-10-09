@@ -29,6 +29,7 @@ import '../../ai/briefing_engine.dart' show collectSweepSeries;
 import '../../ai/nightly_sweep.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
+import '../../l10n/sweep_text.dart';
 import '../ui2.dart';
 import 'day_timeline.dart' show DayTimelineScreen;
 import 'home_screen.dart' show go, repoOf;
@@ -213,7 +214,10 @@ List<Widget> whatChangedBody(BuildContext c, WhatChangedData d) {
         Surface(
           color: p.card2,
           elevation: 0,
-          child: Text(pairing, style: F.cap.copyWith(color: p.ink2, height: 1.5)),
+          child: Text(
+            sweepText(l, pairing),
+            style: F.cap.copyWith(color: p.ink2, height: 1.5),
+          ),
         ),
       ],
       const SizedBox(height: S.x3),
@@ -240,9 +244,7 @@ List<Widget> whatChangedBody(BuildContext c, WhatChangedData d) {
   ];
 }
 
-/// One finding, as the sweep wrote it. The sentence is not reformatted here:
-/// it already carries its own evidence and its own window, and a screen that
-/// rewrote it would be a second author of the same claim.
+/// One finding, translated for display with its evidence and window intact.
 class SweepFindingRow extends StatelessWidget {
   const SweepFindingRow(this.f, {super.key});
   final SweepFinding f;
@@ -268,8 +270,10 @@ class SweepFindingRow extends StatelessWidget {
           ),
           const SizedBox(width: S.x3),
           Expanded(
-            child: Text(f.text,
-                style: F.body.copyWith(color: p.ink, height: 1.45)),
+            child: Text(
+              sweepText(AppLocalizations.of(c), f.text),
+              style: F.body.copyWith(color: p.ink, height: 1.45),
+            ),
           ),
         ],
       ),

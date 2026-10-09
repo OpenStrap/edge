@@ -1,3 +1,4 @@
+import '../../l10n/date_text.dart';
 // HOME — decision-oriented. "What matters today?"
 //
 // Three rings that decide the day — what the night gave back, what the day has
@@ -34,6 +35,12 @@ import 'package:provider/provider.dart';
 
 import '../../ai/briefing.dart'
     show Briefing, BriefingPeriod, BriefingStore, currentBriefingPeriod, resolveBriefingToShow;
+import '../../compute/findings.dart'
+    show
+        isRecentFindingDate,
+        kReadinessEasyBelow,
+        kReadinessGoodFrom,
+        kReadinessRestBelow;
 import '../../data/day_label.dart' show todayLabel, calendarDaysBetween;
 import '../../compute/onehz_pipeline.dart'
     show readinessInputShortfallNote, readinessUnstableBaselineNote;
@@ -41,6 +48,11 @@ import '../../data/db.dart' show DbRebuild, LocalDb;
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
+import '../../l10n/presentation_text.dart';
+import '../../l10n/display_text.dart';
+import '../../l10n/decimal_text.dart';
+import '../../state/locale_controller.dart';
+import 'package:intl/intl.dart';
 import '../../models/metric.dart';
 import '../../notify/notification_prefs.dart' show NotificationPrefs;
 import '../../state/app_state.dart';
@@ -48,7 +60,8 @@ import '../../state/clock_format.dart' show formatClockOf;
 import '../../state/units_controller.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
-import '../profile/alarm.dart' show AlarmArmState, alarmArmOf, alarmDoor;
+import '../profile/alarm.dart'
+    show AlarmArmState, alarmArmOf, alarmDoor, alarmGlanceCard;
 import '../profile/devices.dart' show formatDayTime;
 import '../profile/profile.dart';
 import '../profile/wearable_numbers.dart'
@@ -556,19 +569,22 @@ StatusCard? staleInsightsCard(
 String hm(num? minutes) {
   if (minutes == null) return '';
   final m = minutes.round();
-  return m < 60 ? '${m}m' : '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m';
+  final l = lookupAppLocalizations(
+    Locale(LocaleController.displayLanguageCode),
+  );
+  return m < 60
+      ? l.supplementMinutesValue('$m')
+      : l.supplementHoursMinutesValue(
+          '${m ~/ 60}',
+          (m % 60).toString().padLeft(2, '0'),
+        );
 }
 
-String thousands(num? v) {
-  if (v == null) return '';
-  final s = v.round().abs().toString();
-  final b = StringBuffer(v < 0 ? '-' : '');
-  for (var i = 0; i < s.length; i++) {
-    if (i > 0 && (s.length - i) % 3 == 0) b.write(',');
-    b.write(s[i]);
-  }
-  return b.toString();
-}
+String thousands(num? v) => v == null
+    ? ''
+    : NumberFormat.decimalPattern(
+        LocaleController.displayLanguageCode,
+      ).format(v.round());
 
 /// A metric value at the precision its unit actually carries.
 ///
@@ -593,17 +609,22 @@ String metricValue(String unit, num? value) {
       return v.round().toString();
     case 'br/min':
     case '°':
-      return v.toStringAsFixed(1);
+      return displayFixed(v, 1);
   }
   if (v.abs() >= 100) return v.round().toString();
-  if (v.abs() >= 10) return v.toStringAsFixed(v == v.roundToDouble() ? 0 : 1);
-  return v.toStringAsFixed(1);
+  if (v.abs() >= 10) return displayFixed(v, v == v.roundToDouble() ? 0 : 1);
+  return displayFixed(v, 1);
 }
 
 /// The unit to print BESIDE [metricValue]'s output, which is empty when the
 /// format already carries it: `metricValue('min', 443)` is "7h 23m", and a
 /// `min` label next to that reads "7h 23m min".
-String unitBeside(String unit) => unit == 'min' ? '' : unit;
+String unitBeside(String unit) => unit == 'min'
+    ? ''
+    : localizedText(
+        lookupAppLocalizations(Locale(LocaleController.displayLanguageCode)),
+        unit,
+      );
 
 /// Minute-of-day → "10:40 PM".
 ///
@@ -624,10 +645,6 @@ String clockOfTs(num? ts) {
 const _months = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
-];
-const _weekdays = [
-  'Monday', 'Tuesday', 'Wednesday', 'Thursday',
-  'Friday', 'Saturday', 'Sunday',
 ];
 
 String monthName(int month, AppLocalizations? l) {
@@ -656,15 +673,6 @@ String monthShortName(int month, AppLocalizations? l) {
   ][month - 1];
 }
 
-String _weekdayName(int weekday, AppLocalizations? l) {
-  if (l == null) return _weekdays[weekday - 1];
-  return [
-    l.homeWeekdayMonday, l.homeWeekdayTuesday, l.homeWeekdayWednesday,
-    l.homeWeekdayThursday, l.homeWeekdayFriday, l.homeWeekdaySaturday,
-    l.homeWeekdaySunday,
-  ][weekday - 1];
-}
-
 const _weekdaysShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 /// Abbreviated weekday for `DateTime.weekday` (1 = Monday), e.g. "Thu 4 Sep"
@@ -682,7 +690,11 @@ String weekdayShortName(int weekday, AppLocalizations? l) {
 String prettyDay(String? dayId, [AppLocalizations? l]) {
   final d = dayId == null ? null : DateTime.tryParse(dayId);
   if (d == null) return '';
-  return '${_weekdayName(d.weekday, l)}, ${d.day} ${monthName(d.month, l)}';
+  return localizedDate(
+    d,
+    l?.localeName ?? LocaleController.displayLanguageCode,
+    weekday: true,
+  );
 }
 
 /// The readiness band. `readiness_glassbox` carries no label of its own, so the
@@ -713,8 +725,10 @@ String prettyDay(String? dayId, [AppLocalizations? l]) {
 ///   score = 100 / (1 + exp(-0.65 · Φ⁻¹(p)))
 ///     p=.05 → 26   p=.20 → 37   p=.75 → 61
 ///
-/// which lands 5 % of nights on "Rest today", 15 % on "Take it easy", 55 % on
-/// "Steady" and 25 % on "Good to go". The median night is now the neutral band,
+/// (`kReadinessRestBelow` / `kReadinessEasyBelow` / `kReadinessGoodFrom` in
+/// findings.dart, shared with the push and the log), which lands 5 % of nights
+/// on "Rest today", 15 % on "Take it easy", 55 % on "Steady" and 25 % on
+/// "Good to go". The median night is now the neutral band,
 /// which is the whole point. Under the old cut-offs the same distribution read
 /// 27 / 47 / 25 / 2.
 ///
@@ -727,13 +741,13 @@ String prettyDay(String? dayId, [AppLocalizations? l]) {
   if (v == null) {
     return (label: l?.homeReadinessNotScored ?? 'Not scored', color: C.n400, tier: -1);
   }
-  if (v >= 61) {
+  if (v >= kReadinessGoodFrom) {
     return (label: l?.homeReadinessGoodToGo ?? 'Good to go', color: C.green, tier: 3);
   }
-  if (v >= 37) {
+  if (v >= kReadinessEasyBelow) {
     return (label: l?.homeReadinessSteady ?? 'Steady', color: C.green, tier: 2);
   }
-  if (v >= 26) {
+  if (v >= kReadinessRestBelow) {
     return (label: l?.homeReadinessTakeItEasy ?? 'Take it easy', color: C.orange, tier: 1);
   }
   return (label: l?.homeReadinessRestToday ?? 'Rest today', color: C.red, tier: 0);
@@ -868,9 +882,10 @@ class RingTrio extends StatelessWidget {
               ),
               Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
             ]),
-          ),
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 
@@ -1118,19 +1133,26 @@ class _RingText extends StatelessWidget {
     return Column(crossAxisAlignment: cross, children: [
       Text(r.label.toUpperCase(),
           style: F.over.copyWith(color: p.ink3), textAlign: align),
-      const SizedBox(height: S.x1),
-      // Absent reads as words, never as a dash and never as a zero — so it
-      // takes the sentence weight rather than the numeral one.
-      Text(r.value,
+        const SizedBox(height: S.x1),
+        // Absent reads as words, never as a dash and never as a zero — so it
+        // takes the sentence weight rather than the numeral one.
+        Text(
+          presentationText(AppLocalizations.of(c), r.value),
           style: r.measured
               ? F.n24.copyWith(color: p.ink)
               : F.body.copyWith(color: p.ink2),
-          textAlign: align),
-      if (r.sub.isNotEmpty) ...[
-        const SizedBox(height: 2),
-        Text(r.sub, style: F.cap.copyWith(color: p.ink3), textAlign: align),
+          textAlign: align,
+        ),
+        if (r.sub.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            presentationText(AppLocalizations.of(c), r.sub),
+            style: F.cap.copyWith(color: p.ink3),
+            textAlign: align,
+          ),
+        ],
       ],
-    ]);
+    );
   }
 }
 
@@ -1151,23 +1173,34 @@ class _GapRow extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x2),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(r.icon, size: 15, color: p.ink3),
-          const SizedBox(width: S.x2),
-          Expanded(
-            child: Text.rich(
-              TextSpan(children: [
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(r.icon, size: 15, color: p.ink3),
+            const SizedBox(width: S.x2),
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  children: [
                 TextSpan(
                     text: '${r.label} · ',
                     style: F.cap.copyWith(
                         color: p.ink2, fontWeight: FontWeight.w600)),
-                TextSpan(text: r.why, style: F.cap.copyWith(color: p.ink3)),
-              ]),
+                    TextSpan(
+                      text: presentationText(
+                        AppLocalizations.of(c),
+                        r.why ?? '',
+                      ),
+                      style: F.cap.copyWith(color: p.ink3),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-          const SizedBox(width: S.x2),
-          Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
-        ]),
+            const SizedBox(width: S.x2),
+            Icon(LucideIcons.chevronRight, size: 15, color: p.ink3),
+          ],
+        ),
       ),
     );
   }
@@ -1397,7 +1430,12 @@ class HomeScreen extends StatefulWidget {
   /// reads it off AppState via [workoutLiveOf].
   final bool? workoutLive;
 
-  const HomeScreen({super.key, this.data, this.hour, this.workoutLive});
+  /// The wall clock, injected only by tests. The illness watch ages by the
+  /// calendar, so a test of "a day later" needs to move it.
+  final DateTime? now;
+
+  const HomeScreen(
+      {super.key, this.data, this.hour, this.workoutLive, this.now});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -1486,7 +1524,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         setState(() => (_d = d, _days = days, _loading = false, _failed = false));
       }
     } catch (_) {
-      if (stillNewest(#home, t)) setState(() => (_loading = false, _failed = true));
+      if (stillNewest(#home, t)) {
+        setState(() => (_loading = false, _failed = true));
+      }
     }
   }
 
@@ -1633,7 +1673,6 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         ],
         const SizedBox(height: S.x3),
         const DetectedActivitiesCard(),
-        const SizedBox(height: S.x3),
         if (_loading)
           const Center(child: CircularProgressIndicator())
         else if (_failed)
@@ -1710,7 +1749,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       // them — the watch comes off the CROSSDAY rollup, so it can carry a real
       // state on a morning whose own bundle has not derived yet, which is
       // exactly the morning you would most want to be told.
-      ...?_bodyWatch(c, d),
+      ...?_bodyWatch(c, d, todayLabel(widget.now)),
       // ── greeting ──
       Padding(
         padding: const EdgeInsets.only(top: S.x3, bottom: S.x5),
@@ -1787,7 +1826,6 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
 
       if (bare) ...[
         const DetectedActivitiesCard(),
-        const SizedBox(height: S.x3),
       ],
       ...dayNavRow(_day ?? d.dayId, _days, _goDay),
       // The active wearable's day, cell by cell. Nothing on a WHOOP-only
@@ -1864,14 +1902,14 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
 
         const SizedBox(height: S.x3),
         const DetectedActivitiesCard(),
-        const SizedBox(height: S.x3),
         const CommunityNudge(),
 
         // ── the rollup was withheld, not absent ──
         if (stale != null) ...[const SizedBox(height: S.x3), stale],
 
         // ── at a glance ──
-        Section(l?.homeAtAGlance ?? 'At a glance', _glance(c, d)),
+        Section(l?.homeAtAGlance ?? 'At a glance',
+            _glance(c, d, isToday: isToday)),
 
         // ── today's plan: only what the app can actually stand behind ──
         // Skipped on a past day — "3,000 steps left" or "aim for 11.4
@@ -1894,7 +1932,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       ],
 
       // ── the next alarm: a door, same as the one above ──
-      if (isToday)
+      // Only on a bare day: otherwise it is a tile in "At a glance", and the
+      // same alarm twice on one screen is one too many.
+      if (isToday && bare)
         if (alarmArmOfContext(c) case final (DateTime?, AlarmArmState) a) ...[
           const SizedBox(height: S.x3),
           alarmDoor(c, a.$1, a.$2),
@@ -1914,37 +1954,46 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// series, so the honest answer to "why are you telling me this" is to show
   /// it. Health keeps its own fuller card; this is not a duplicate route to the
   /// same words, it is a shorter road to the number underneath them.
-  static List<Widget>? _bodyWatch(BuildContext c, HomeData d) {
+  ///
+  /// [today] is the WALL-CLOCK day at build time, not the loaded payload's: a
+  /// payload loaded yesterday and rebuilt today with no new sync has aged a
+  /// day all the same.
+  static List<Widget>? _bodyWatch(BuildContext c, HomeData d, String today) {
     final state = d.illnessState;
     if (state == null || state == 'green') return null;
+    // The watch publishes the newest SETTLED night, which after days off the
+    // wrist is days old, and the red title carries no date. Same freshness
+    // rule as the push: older verdicts live in Observations, not on Home.
+    final day = d.illnessDay;
+    if (day == null || !isRecentFindingDate(day, today: today)) return null;
     final l = AppLocalizations.of(c);
 
-    final sameNight = d.illnessDay == null || d.illnessDay == d.dayId;
+    final sameNight = day == today;
     final z = d.illnessZ;
     final zAbs = z == null ? '' : z.abs().toStringAsFixed(1);
 
     return [
       Observation(
         state == 'red'
-            ? (l?.homeIllnessRedTitle ?? 'Several nights in a row are away from your normal')
+            ? (l?.homeIllnessRedTitle ?? 'Recent nights add up to a raised resting heart rate')
             : sameNight
                 ? (l?.homeIllnessAmberSameNight ?? 'Last night sat outside your normal range')
                 : (l?.homeIllnessAmberOtherNight(prettyDay(d.illnessDay, l)) ??
                     '${prettyDay(d.illnessDay, l)} sat outside your normal range'),
         z == null
             ? (l?.homeIllnessBodyNoZ ??
-                'Your nocturnal resting heart rate has been running above your own '
-                'baseline. This reads one signal. It names a pattern, and it does '
-                'not name a cause.')
+                'Your recent nocturnal resting heart rates add up to a rise above '
+                'your own baseline. This reads one signal. It names a pattern, and '
+                'it does not name a cause.')
             : (z >= 0
                 ? (l?.homeIllnessBodyAbove(zAbs) ??
-                    'Your nocturnal resting heart rate has been running above your own '
-                    'baseline; that night sat $zAbs standardised deviations above it. '
+                    'Your recent nocturnal resting heart rates add up to a rise above '
+                    'your own baseline; that night sat $zAbs standardised deviations above it. '
                     'This reads one signal. It names a pattern, and it does not name '
                     'a cause.')
                 : (l?.homeIllnessBodyBelow(zAbs) ??
-                    'Your nocturnal resting heart rate has been running above your own '
-                    'baseline; that night sat $zAbs standardised deviations below it. '
+                    'Your recent nocturnal resting heart rates add up to a rise above '
+                    'your own baseline; that night sat $zAbs standardised deviations below it. '
                     'This reads one signal. It names a pattern, and it does not name '
                     'a cause.')),
         advice: l?.homeIllnessAdvice ?? 'Worth noting if it continues past a couple of days.',
@@ -1960,7 +2009,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   Widget _refreshable(Widget list) =>
       RefreshIndicator(onRefresh: _load, child: list);
 
-  Widget _glance(BuildContext c, HomeData d) {
+  Widget _glance(BuildContext c, HomeData d, {required bool isToday}) {
     final l = AppLocalizations.of(c);
     final cards = <Widget>[];
     final absent = <Widget>[];
@@ -2057,6 +2106,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       // for an entirely different reason that the card never asked for.
       () => StatusCard.forMetric(l?.homeNoEnergyEstimate ?? 'No energy estimate', d.calories),
     );
+    // The next alarm is not a reading of the day, so only today carries it —
+    // "Tomorrow 07:30" under a day already over would be about a different day.
+    if (isToday) {
+      if (alarmArmOfContext(c) case final (DateTime?, AlarmArmState) a) {
+        cards.add(alarmGlanceCard(c, a.$1, a.$2));
+      }
+    }
 
     return Column(children: [
       for (var i = 0; i < cards.length; i += 2) ...[
@@ -2078,9 +2134,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               Expanded(child: cards[i + 1]),
             ]),
           ),
+        ],
+        for (final s in absent) ...[const SizedBox(height: S.x3), s],
       ],
-      for (final s in absent) ...[const SizedBox(height: S.x3), s],
-    ]);
+    );
   }
 
 
@@ -2203,7 +2260,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       c,
       LucideIcons.sparkles,
       l?.homeBriefingTitle ?? 'Briefing',
-      cached?.oneLiner ?? (l?.homeBriefingSubtitleEmpty ?? 'Tap to write today\'s summary'),
+      cached?.oneLiner == 'Nothing stood out tonight.'
+          ? uiText(c, cached!.oneLiner)
+          : cached?.oneLiner ?? (l?.homeBriefingSubtitleEmpty ?? 'Tap to write today\'s summary'),
       () async {
         // Resolved fresh at tap time via _resolveBriefingNow, not read from
         // the value above — see that method's doc for why.

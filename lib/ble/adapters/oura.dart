@@ -275,7 +275,17 @@ class OuraAdapter extends BandAdapter {
           onError: (Object _) => inbox.close(),
         );
     try {
-      if (!await _authenticate(link, inbox)) return;
+      final auth = await _authenticate(link, inbox);
+      if (auth != _AuthOutcome.ok) {
+        if (auth == _AuthOutcome.refused) {
+          // The user-facing category: the ring rejected the key. Deliberately
+          // NOT emitted for silence — a ring that never answered is a
+          // transport/timeout case, and telling that user to re-pair would be
+          // exactly the wrong remedy.
+          yield const BandNote('oura_auth_refused');
+        }
+        return;
+      }
 
       // Both writes are documented preconditions of a history drain rather than
       // housekeeping. The clock set is also what makes a later `time_sync`
@@ -291,6 +301,10 @@ class OuraAdapter extends BandAdapter {
       // earlier session covers it.
       if (!await link.write(kOuraCommandChar, ouraCmdSetNotifyFlags(0x3f))) {
         link.log('oura: notify-flag write refused; ending the drain.');
+        // The user-facing category: the link took the write refusal. A
+        // subscription/setup failure is not "could not reach the ring" and
+        // not a key problem — the ring was reachable and answered nothing.
+        yield const BandNote('oura_write_refused');
         return;
       }
       // FORCED ONLY WITH NO ORIGIN AT ALL (first pairing, or after a reset
@@ -317,13 +331,18 @@ class OuraAdapter extends BandAdapter {
         final req = ouraCmdGetEvents(cursor, maxEvents: _kMaxEventsPerBatch);
         if (!await link.write(kOuraCommandChar, req)) {
           link.log('oura: history request refused; ending the drain.');
+          yield const BandNote('oura_write_refused');
           return;
         }
         final got = await _collectBatch(link, inbox);
         // No summary = the batch never ended. Leave the cursor put; the next
         // sync re-reads from the last confirmed boundary. `_collectBatch`
-        // already logged why.
-        if (got == null) return;
+        // already logged why. The user-facing category: a protocol timeout /
+        // incomplete answer, the ring connected and authenticated.
+        if (got == null) {
+          yield const BandNote('oura_no_batch_summary');
+          return;
+        }
         final s = got.summary;
 
         // A full batch may have been cut inside its last decisecond, which the
@@ -367,6 +386,8 @@ class OuraAdapter extends BandAdapter {
             link.log('oura: the ring replayed ${got.events.length} event(s); '
                 'nothing new after $cursor.');
           }
+          // Nothing left and nothing new: the drain reached its honest end.
+          yield const BandNote('oura_drain_ok');
           return;
         }
 
@@ -393,6 +414,11 @@ class OuraAdapter extends BandAdapter {
             .timeout(confirmTimeout, onTimeout: () => false);
         if (!confirmed) {
           link.log('oura: batch was not confirmed; leaving the cursor put.');
+          // The checkpoint was not confirmed within the allowed wait. This
+          // note alone does not identify the persistence outcome; a commit
+          // failure the host actually observed is reported separately via
+          // `host_commit_failed` and keeps priority in `OuraLink`.
+          yield const BandNote('oura_batch_unconfirmed');
           return;
         }
         // THE CURSOR FOLLOWS DELIVERY ORDER: the LAST event delivered, not the
@@ -416,6 +442,7 @@ class OuraAdapter extends BandAdapter {
           await Future<void>.delayed(analysisPollDelay);
           continue;
         }
+        yield const BandNote('oura_drain_ok');
         return;
       }
     } finally {
@@ -423,41 +450,54 @@ class OuraAdapter extends BandAdapter {
     }
   }
 
-  /// Nonce, encrypt, answer. False on any refusal — a session that carries on
-  /// unauthenticated gets `auth required` to every command and looks identical
-  /// to a dead link.
-  Future<bool> _authenticate(BandLink link, _Inbox inbox) async {
-    if (!await link.write(kOuraCommandChar, ouraCmdAuthNonce())) return false;
+  /// Nonce, encrypt, answer. [ok] is the only way a session may carry on —
+  /// a session that continues unauthenticated gets `auth required` to every
+  /// command and looks identical to a dead link. [refused] is the ring's
+  /// OWN explicit rejection of the key, kept apart from [silent]: a refused
+  /// key and a ring that never answered have different remedies, and the
+  /// host's user-facing category hangs off exactly that difference. A ring
+  /// that answers auth as unsupported (0x2f) did not judge the key, so that
+  /// is [silent] too: re-pairing would be the wrong remedy.
+  Future<_AuthOutcome> _authenticate(BandLink link, _Inbox inbox) async {
+    if (!await link.write(kOuraCommandChar, ouraCmdAuthNonce())) {
+      return _AuthOutcome.silent;
+    }
     final challenge = await inbox.firstWhere(
         (f) => ouraAuthNonce(f) != null || ouraIsUnsupported(f, 0x2f),
         replyTimeout);
     if (challenge == null) {
       link.log('oura: no authentication challenge.');
-      return false;
+      return _AuthOutcome.silent;
     }
     if (ouraIsUnsupported(challenge, 0x2f)) {
       link.log('oura: ring rejected auth (0x2f) as unsupported.');
-      return false;
+      return _AuthOutcome.silent;
     }
     final answer = ouraAuthResponse(key, ouraAuthNonce(challenge)!);
     if (!await link.write(kOuraCommandChar, ouraCmdAuthenticate(answer))) {
-      return false;
+      return _AuthOutcome.silent;
     }
     final reply = await inbox.firstWhere(
         (f) => ouraAuthResult(f) != null || ouraIsUnsupported(f, 0x2f),
         replyTimeout);
     if (reply != null && ouraIsUnsupported(reply, 0x2f)) {
       link.log('oura: ring rejected auth (0x2f) as unsupported.');
-      return false;
+      return _AuthOutcome.silent;
     }
-    final result = reply == null ? null : ouraAuthResult(reply);
+    if (reply == null) {
+      // No verdict inside the reply window is silence, not a refusal: the
+      // re-pair remedy that `refused` drives would be the wrong one.
+      link.log('oura: no authentication result.');
+      return _AuthOutcome.silent;
+    }
+    final result = ouraAuthResult(reply);
     if (result != 0) {
       // Worth naming, because the remedies differ: a wrong key needs re-pairing
       // and a ring in factory reset needs its key installed first.
-      link.log('oura: authentication refused (result ${result ?? "none"}).');
-      return false;
+      link.log('oura: authentication refused (result $result).');
+      return _AuthOutcome.refused;
     }
-    return true;
+    return _AuthOutcome.ok;
   }
 
   /// Read frames until the batch summary arrives. Null (after logging why)
@@ -854,6 +894,20 @@ class _Inbox {
     }
     return null;
   }
+}
+
+/// How the authentication handshake ended — the difference the host's
+/// user-facing error category hangs off.
+enum _AuthOutcome {
+  /// The ring accepted the key.
+  ok,
+
+  /// The ring EXPLICITLY rejected the key (its own refusal frame).
+  refused,
+
+  /// No answer, a refused write, a missing challenge: everything that is NOT
+  /// the ring's own verdict.
+  silent,
 }
 
 /// The ring's 2-bit stage code in our `stages4` words, or null for a code we

@@ -98,7 +98,7 @@ class CoachDb {
     'session_score_mask', 'session_sensor',
     // raw / decoded substrate
     'raw_records', 'raw_archive', 'decoded_onehz', 'decoded_rr', 'samples',
-    'events', 'band_events', 'band_battery',
+    'events', 'band_events', 'band_battery', 'substrate_archive',
     'device_coverage', 'signal_priority',
     // WHOOP MG ECG. `ecg_reading` is a base table of an allowed view, so the
     // structural gate would admit its btree — this token-level block is what

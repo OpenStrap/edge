@@ -9,6 +9,7 @@
 // the ceiling exists so one mis-tap cannot enter forty coffees and dominate
 // every correlation that field appears in for months.
 
+import '../../l10n/display_text.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -333,7 +334,7 @@ class _JournalComposeState extends State<JournalCompose> {
                                         : _tags.add(t),
                                   ),
                                   child: Pill(
-                                    t,
+                                    journalTagText(c, t),
                                     _tags.contains(t) ? C.domMind : C.n400,
                                     icon: _tags.contains(t)
                                         ? LucideIcons.check
@@ -523,7 +524,10 @@ class FieldStepper extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(spec.label, style: F.body.copyWith(color: p.ink)),
+                Text(
+                  spec.custom ? spec.label : uiText(c, spec.label),
+                  style: F.body.copyWith(color: p.ink),
+                ),
                 Text(
                   v == null
                       ? (l?.journalComposeNotLogged ?? 'Not logged')
@@ -532,7 +536,10 @@ class FieldStepper extends StatelessWidget {
                 ),
                 if (v != null && v > 0 && onTime != null)
                   Pressable(
-                    semanticLabel: l?.journalComposeWhenWasLastField(spec.label) ??
+                    semanticLabel:
+                        l?.journalComposeWhenWasLastField(
+                          spec.custom ? spec.label : uiText(c, spec.label),
+                        ) ??
                         'When was the last ${spec.label}',
                     onTap: onTime,
                     child: Text(
@@ -786,7 +793,9 @@ class _WeightRow extends StatelessWidget {
           children: [
             OsTextField(
               controller: ctrl,
-              label: u?.weightLabel ?? (l?.journalComposeWeightKgLabel ?? 'Weight (kg)'),
+              label: u == null
+                  ? (l?.journalComposeWeightKgLabel ?? 'Weight (kg)')
+                  : uiText(dc, u.weightLabel),
               hint: imperial ? '154' : '70.0',
               keyboard: const TextInputType.numberWithOptions(decimal: true),
             ),
@@ -819,8 +828,11 @@ class _WeightRow extends StatelessWidget {
               // A typo is not a blank. Nothing is saved from an unreadable
               // field, and the form says which one rather than storing a hole.
               if (Typed.of(ctrl.text).bad) {
-                sayUnreadable(
-                    dc, [u?.weightLabel ?? (l?.journalComposeWeightLabel ?? 'Weight')]);
+                sayUnreadable(dc, [
+                  u == null
+                      ? (l?.journalComposeWeightLabel ?? 'Weight')
+                      : uiText(dc, u.weightLabel),
+                ]);
                 return;
               }
               final kgIn = u == null
@@ -1084,8 +1096,10 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
                 decoration: BoxDecoration(color: p.line, borderRadius: R.rSm),
               ),
               const SizedBox(height: S.x3),
-              Text('Talk it through',
-                  style: F.head.copyWith(color: p.ink)),
+              Text(
+                uiText(c, 'Talk it through'),
+                style: F.head.copyWith(color: p.ink),
+              ),
               const SizedBox(height: S.x2),
               Expanded(
                 child: _turns.isEmpty
@@ -1093,8 +1107,10 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
                         child: Padding(
                           padding: const EdgeInsets.all(S.x4),
                           child: Text(
-                            'Tell it about your day — it proposes tags and a '
-                            'note, you decide what to keep.',
+                            uiText(
+                              c,
+                              'Tell it about your day — it proposes tags and a note, you decide what to keep.',
+                            ),
                             textAlign: TextAlign.center,
                             style: F.body.copyWith(color: p.ink3),
                           ),
@@ -1138,7 +1154,10 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
                   child: Wrap(
                     spacing: S.x2,
                     runSpacing: S.x2,
-                    children: [for (final t in last.tags) Pill(t, C.domMind)],
+                    children: [
+                      for (final t in last.tags)
+                        Pill(journalTagText(c, t), C.domMind),
+                    ],
                   ),
                 ),
               if (_error != null)
@@ -1157,7 +1176,7 @@ class _JournalAiSheetState extends State<_JournalAiSheet> {
                         onSubmitted: (_) => unawaited(_send()),
                         decoration: InputDecoration(
                           isDense: true,
-                          hintText: 'Tell it about your day…',
+                          hintText: uiText(c, 'Tell it about your day…'),
                           border: OutlineInputBorder(borderRadius: R.rMd),
                         ),
                       ),

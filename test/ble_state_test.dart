@@ -844,4 +844,97 @@ void main() {
       await Future.wait(futures);
     });
   });
+
+  group('FirstStartWatchdogPolicy', () {
+    test('gen5 START and COMPLETE satisfy; END and data do not', () {
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: true,
+            isStartOrComplete: true,
+            isEnd: false,
+            isHistoricalData: false),
+        isTrue,
+      );
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: true,
+            isStartOrComplete: false,
+            isEnd: true,
+            isHistoricalData: false),
+        isFalse,
+        reason: 'a pre-START END is the previous task\'s straggler',
+      );
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: true,
+            isStartOrComplete: false,
+            isEnd: false,
+            isHistoricalData: true),
+        isFalse,
+        reason: 'pre-START data is dropped, so it proves nothing',
+      );
+    });
+
+    test('gen4 accepts any history traffic', () {
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: false,
+            isStartOrComplete: false,
+            isEnd: true,
+            isHistoricalData: false),
+        isTrue,
+      );
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: false,
+            isStartOrComplete: false,
+            isEnd: false,
+            isHistoricalData: true),
+        isTrue,
+      );
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: false,
+            isStartOrComplete: false,
+            isEnd: false,
+            isHistoricalData: false),
+        isFalse,
+        reason: 'console/event chatter is not an answer',
+      );
+    });
+  });
+
+  group('ForeignHistoryWindow', () {
+    test('a fresh window is not live', () {
+      expect(ForeignHistoryWindow().isLive(0), isFalse);
+    });
+
+    test('a marker keeps it live for the quiet window, not past it', () {
+      final w = ForeignHistoryWindow()..mark(100);
+      expect(w.isLive(109.9), isTrue);
+      expect(w.isLive(110), isFalse);
+    });
+
+    test('re-offered ENDs alone keep it only until the stall bound', () {
+      final w = ForeignHistoryWindow()..mark(0, progress: true);
+      for (var t = 5.0; t <= 65; t += 5) {
+        w.mark(t);
+      }
+      expect(w.isLive(57), isTrue);
+      expect(w.isLive(61), isFalse,
+          reason: 'no START or record for 60 s: abandoned');
+    });
+
+    test('the first sighting counts as progress (joined mid-transfer)', () {
+      final w = ForeignHistoryWindow()..mark(100);
+      expect(w.isLive(101), isTrue);
+    });
+
+    test('a foreign COMPLETE closes it immediately', () {
+      final w = ForeignHistoryWindow()
+        ..mark(100)
+        ..ended();
+      expect(w.isLive(101), isFalse);
+    });
+  });
 }

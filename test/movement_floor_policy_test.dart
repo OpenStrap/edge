@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/compute/movement_floor_policy.dart';
+import 'package:openstrap_edge/data/day_label.dart' show dayLabelBefore;
 
 /// The frozen movement floor is ONE shared scalar that every day of a derive
 /// sweep reads and can write. `DerivationEngine.run()` dispatches days
@@ -50,6 +51,20 @@ void main() {
       expect(
         wearGapDays(have: {'2026-03-08'}, dayId: '2026-03-10'),
         1,
+      );
+    });
+
+    test('walks bare day labels across month and year boundaries', () {
+      // `dayLabelBefore` now lives in day_label.dart with its strict
+      // `YYYY-MM-DD` parse; the engine's only caller passes bare labels, and
+      // this pins that its answer is unchanged.
+      expect(
+        wearGapDays(have: {'2025-12-30'}, dayId: '2026-01-02'),
+        2, // 01-01, 12-31 missing; 12-30 present -> stop
+      );
+      expect(
+        wearGapDays(have: {'2024-02-28'}, dayId: '2024-03-01'),
+        1, // 02-29 (leap day) missing
       );
     });
 

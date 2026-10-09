@@ -117,10 +117,10 @@ BleEngine createHeadlessSyncEngine({
     onState: (_) {},
     // This path drains exactly the one paired band (PairedDevice.load()),
     // so kPrimaryDeviceId is the correct value here, not a placeholder.
-    onEvent: (id, ts, hex) async {
+    onEvent: (id, ts, hex, profile) async {
       if (ResetGate.active) return;
       await LocalDb.insertEvent(id, ts, hex,
-          deviceId: LocalDb.kPrimaryDeviceId);
+          deviceId: LocalDb.kPrimaryDeviceId, profile: profile);
       await handleHeadlessAlarmEvent(id);
     },
     log: (l) => debugPrint('[bgsync] $l'),
@@ -308,8 +308,11 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
 
     // connect() subscribes → SET_CLOCK → INIT, so the historical offload is already
     // streaming when this returns. We then await it reaching HISTORY_COMPLETE.
-    final connected = await engine.connectToRemoteId(paired.remoteId,
-        generationHint: paired.generation);
+    final connected = await connectHeadless(
+      engine,
+      () => engine.connectToRemoteId(paired.remoteId,
+          generationHint: paired.generation),
+    );
     if (!connected) {
       debugPrint(
         '[bgsync] strap not reachable this cycle — will catch up next time.',
@@ -320,14 +323,16 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
     try {
       await prepareHeadlessLink(engine, paired);
       // Await the full backlog (default timeout): a phone-free run/sleep can leave a
-      // large offline backlog on the band's flash. We never abort — if iOS cuts the
-      // background window short, the offload persists what it got (flush-before-ACK)
-      // and the next wake resumes from the (now-advanced) cursor. No live streams
-      // (battery): connect → listen → store → ACK → derive → disconnect.
+      // large offline backlog on the band's flash. The wait itself never aborts —
+      // if iOS cuts the background window short, the offload persists what it got
+      // (flush-before-ACK) and the next wake resumes from the (now-advanced)
+      // cursor. Only once the wait is over does [finishHeadlessDrain] end a task
+      // still running, before the alarm writes. No live streams (battery):
+      // connect → listen → store → ACK → derive → disconnect.
       await engine.runSync();
-      await rearmHeadlessAlarm(engine);
+      await finishHeadlessDrain(engine);
     } finally {
-      await engine.disconnect();
+      await disconnectHeadless(engine);
     }
     // Within the SAME background wake slot: capture raw AND derive the fresh
     // window (bounded LIGHT pass — newest affected day only — so we stay inside
@@ -431,6 +436,69 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
 // signals here), independent of THIS cycle's outcome: it reads the durable
 // `rec_ts_hw` cursor, which reflects the full sync history, not just this run.
 const String _kLastStalenessNotifiedMs = 'last_staleness_notified_ms';
+
+/// The tail of a headless drain: settle the link's history, THEN write the
+/// alarm (gen5: SET_CLOCK + SET_ALARM). runSync() only stopped WAITING; the
+/// band may still be transmitting, and a retry armed by an earlier terminal,
+/// an auto-continue or a periodic/prompt trigger could put opcode 22 between
+/// those writes. So the running task is ended (one abort; the band keeps its
+/// checkpoint, nothing un-ACKed is lost) and history is held on this link
+/// until it closes — unconditionally, since no offload in flight does not
+/// mean no retry pending. The `finally` in [runHeadlessSync] disconnects,
+/// which ends the hold. [rearm] is a seam for tests.
+///
+/// Only this path settles. A Shortcut sync re-arms right after connect and
+/// then keeps draining on the same link, so holding history there would stop
+/// its own drain; its connect-time writes overlap the INIT drain like the
+/// foreground app's do.
+@visibleForTesting
+Future<void> finishHeadlessDrain(
+  BleEngine engine, {
+  Future<void> Function(BleEngine) rearm = rearmHeadlessAlarm,
+}) async {
+  if (engine.offloadActive) {
+    debugPrint('[bgsync] drain still active after the wait — ending the '
+        'history task before configuration writes.');
+  }
+  await engine.endHistoryForLink(reason: 'headless_config_writes');
+  await rearm(engine);
+}
+
+/// Connect a headless engine. A connect that FAILS can still have taken in
+/// another client's records before the step that failed (setup subscribes
+/// to notifications first), and the failed link's final bank of them runs
+/// detached — so before the run gives up, wait for it exactly as
+/// [disconnectHeadless] does. [connect] is the connect attempt itself.
+Future<bool> connectHeadless(
+  BleEngine engine,
+  Future<bool> Function() connect, {
+  Duration bound = const Duration(seconds: 12),
+}) async {
+  var connected = false;
+  try {
+    connected = await connect();
+    return connected;
+  } finally {
+    if (!connected) await engine.settleShutdownBanks(bound: bound);
+  }
+}
+
+/// Close a headless link and wait — bounded — for the rows another client's
+/// transfer left on it to be stored: disconnect does not wait for that final
+/// bank (a reconnect must not), but a headless run is done when it returns
+/// and its process may be suspended right after, before rows that are not
+/// durable yet could be. Used by every headless entry point (the
+/// background sync and the Shortcut sync).
+Future<void> disconnectHeadless(
+  BleEngine engine, {
+  Duration bound = const Duration(seconds: 12),
+}) async {
+  try {
+    await engine.disconnect();
+  } finally {
+    await engine.settleShutdownBanks(bound: bound);
+  }
+}
 
 /// [allowPermissionPrompt] defaults to `false` because this function's
 /// PRIMARY callers (below, inside [runHeadlessSync]) run headless — see

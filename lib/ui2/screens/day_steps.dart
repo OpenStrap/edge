@@ -462,7 +462,7 @@ class _DayStepsDetailState extends State<DayStepsDetail> {
                 // The session's own name, when the stretch sat inside one.
                 // Never invented for a stretch that did not: steps in an hour
                 // are steps, not a walk we watched.
-                ?activityByName(s.activity)?.name,
+                ?activityByName(s.activity)?.displayName(c),
               ].join(' · '),
             ),
         ],

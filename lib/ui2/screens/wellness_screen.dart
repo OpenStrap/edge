@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // Wellness — softer than Health, same system.
 //
 // Health tells you what your body did. Wellness is where you tell it back, and
@@ -390,7 +391,9 @@ class _WellnessScreenState extends State<WellnessScreen> with RevisionReload {
     // Not `.toLowerCase()`: these are user-entered/localized field labels
     // (acronyms like HRV, or nouns a language capitalizes) — lowercasing
     // them here would corrupt content the join has no business rewriting.
-    final names = [for (final f in _fields) f.label];
+    final names = [
+      for (final f in _fields) f.custom ? f.label : localizedText(l, f.label),
+    ];
     if (names.isEmpty) {
       return l?.wellnessJournalDefaultSubtitle ??
           'Anything you want to remember about today';

@@ -217,7 +217,7 @@ void main() {
         _day(date: 'c', temp: true),
         _day(date: 'd'),
       ]);
-      expect(f, contains('possible illness onset ×2'));
+      expect(f, contains('resting heart rate raised ×2'));
       expect(f, contains('elevated skin temperature ×1'));
     });
 

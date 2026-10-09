@@ -61,12 +61,23 @@ Line counts drift constantly; don't trust a number here, `wc -l` the file.
 - Also `ai/` (BYOK), `gps/`, `health/` (HealthKit/Health Connect export),
   `telemetry/` (opt-in), `widget/` (App-Group snapshot for WidgetKit/watch).
 
-**Storage.** Durable ledger: `decoded_onehz` (1 Hz, `UNIQUE(rec_ts)`,
-INSERT-OR-REPLACE) + `decoded_rr` (beats, cascades on eviction) + `raw_archive`
-(never pruned; undecodable/unknown-version records) + `raw_records` (retained as
-replay/debug ledger and upgrade fallback) + `events`/`band_events`. Derived
-output: versioned **immutable** `day_result` (PK `day_id, algo_version`) and
-`metric_series` (PK `date,key`, REPLACE).
+**Storage.** Durable ledger: `decoded_onehz` (1 Hz; PK `(device_id, ts_ms)` since
+schema v47 with `ts_ms = rec_ts*1000` and `device_id ''` = the primary band;
+INSERT-OR-REPLACE newest-wins) + `decoded_rr` (beats; same key + `beat_index`;
+re-writing a second replaces its beats in the same batch). Both are PRUNED
+`rawRetentionDays` behind the data edge, cut at a local midnight
+(`_pruneOldDecoded` → `LocalDb.pruneDecodedBeforeRecTs`, which records the cut
+in the `decoded_pruned_before` cursor). A day not yet finalized pulls the cut
+back to its derive window, but never further than `_maxRawHoldDays` behind the
+data edge. `raw_archive` holds undecodable records and is kept, except
+`undecodable_rec_v20` rows: those whose `counter % rawArchiveKeepEvery != 0`
+are deleted once their RECEIVE time (`captured_at`) falls behind the same
+cutoff (a NULL counter is kept). `raw_records` no longer exists (dropped at v19
+and by `_repairOpenSchema` on every open). `events`/`samples` prune at the cutoff;
+`band_events` keeps wear/charge transitions. Derived output: versioned
+**immutable** `day_result` (PK `day_id, algo_version`) and `metric_series`
+(PK `date,key`, REPLACE). Consequence: a `kAlgoVersion` bump re-derives only
+days whose substrate is still on disk; older days keep their version.
 
 **Bug-density hotspots** (fix-titled commit churn, last 300 commits):
 `state/app_state.dart` 30 · `data/db.dart` 25 · `compute/derivation_engine.dart`
@@ -82,9 +93,15 @@ a hotspot.
    `buildHistoryResultOk` echoes the verbatim 8-byte HISTORY_END token. The band
    trims flash on ACK. Reordering, or echoing a regenerated/mangled token, causes
    permanent data loss or an infinite re-flood. Never ACK a partial chunk.
-2. **`decoded_onehz` stays INSERT-OR-REPLACE keyed on `rec_ts`.** INSERT-OR-IGNORE
-   breaks counter-reset recovery. Evicting a row must delete that counter's
-   `decoded_rr` beats in the same batch.
+2. **`decoded_onehz` stays INSERT-OR-REPLACE on its key `(device_id, ts_ms)`.**
+   Newest wins: with INSERT-OR-IGNORE a stale or failed decode would
+   permanently shadow a fresh re-offload of the same second. A write that
+   replaces a second must replace that `(device_id, ts_ms)`'s `decoded_rr`
+   beats in the same batch, never another device's (`_queueRrBeats` via
+   `_queueDecodedOneHz`, and `_queueNeutralOneHz`). Known gap: the restore
+   merge in `_mergeFromDbFile` only clears beats for seconds the import
+   carries beats for. Every path that deletes 1 Hz rows (the prune,
+   `deleteDays`) must delete their beats with them.
 3. **Never fabricate a metric.** Absent input ⇒ null / `Metric.absent` / "—". No
    imputation, no substituted defaults, no deriving one metric from another as a
    fallback. Most-violated rule in the repo (§4.1).
@@ -105,10 +122,14 @@ a hotspot.
 8. **One source per concern.** One raw decode point (`substrate.dart`), one sleep
    segmentation, one readiness, one frame-ingest path (`RecordGate`), one
    notification emitter (`NotificationCenter.emit`). A second path is the bug.
-9. **Never prune raw/decoded for a day that is not fully derived.** `day_result`
+9. **Never prune raw/decoded for a day that is not yet finalized.** `day_result`
    has a `partial` column because days with good headline scalars but a failed
-   second-half compute were finalized and pruned — unrecoverable. `raw_archive`
-   is never pruned.
+   second-half compute were finalized and pruned — unrecoverable. The bounded
+   hold (`_maxRawHoldDays`) is the one place the code prunes a pending day
+   anyway, so one stuck day cannot switch pruning off; that is a known open
+   risk (a `partial` day past it loses its substrate for good), not a licence.
+   `raw_archive` is kept except the documented `undecodable_rec_v20` thinning
+   (`_thinRawArchiveVia`).
 10. **Heavy compute never on the UI isolate.** Staging/derivation goes through
     `Isolate.run`; analytics ambient globals do not cross the boundary and must
     be re-armed inside the closure.
@@ -212,9 +233,10 @@ pinned the pre-fix analytics commit, requiring a manual merge-order gate; and
 the release uninstallable.
 `pubspec_overrides.yaml` redirects siblings to `../analytics` / `../protocol` and
 is gitignored — committing a path override fails CI `flutter pub get` (exit 66).
-Note the tracked `pubspec.lock` currently records `source: path` for both
-siblings, so it provides **no** pin guarantee; `pubspec.yaml` is the source of
-truth. `version:` must always keep its `+BUILD` suffix, and the iOS widget/watch
+The tracked `pubspec.lock` records `source: git` + `resolved-ref` for both
+siblings, and `.github/scripts/check_sibling_pins.sh` fails CI if it ever
+records `path`. `pubspec.yaml` stays the source of truth. `version:` must
+always keep its `+BUILD` suffix, and the iOS widget/watch
 `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` are bumped manually and drift.
 
 ### 4.10 Duplicated / inconsistent values across screens

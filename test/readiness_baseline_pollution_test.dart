@@ -264,4 +264,80 @@ void main() {
     expect(window.last, 40.0 + 9);
     expect(window.every((v) => v < 40.0 + 10), isTrue);
   });
+
+  test('quiet_hrr rides the sweep: prior measured days only', () async {
+    // Strain is priced on the median of these. The day itself (its own level
+    // feeds LATER days, never itself) and an imported day are both out.
+    await LocalDb.putMetricSeriesValue('2026-12-01', 'quiet_hrr', 0.11);
+    await LocalDb.putMetricSeriesValue('2026-12-02', 'quiet_hrr', 0.12);
+    await LocalDb.putDayResult(
+      dayId: '2026-12-03',
+      algoVersion: 1,
+      payloadJson: '{"date":"2026-12-03","imported":true,"source":"whoop_export"}',
+      windowJson: '{}',
+      finalized: true,
+      source: 'whoop_export',
+      series: {'quiet_hrr': 0.13},
+    );
+    await LocalDb.putMetricSeriesValue('2026-12-04', 'quiet_hrr', 0.14);
+    final window =
+        (await debugSweepBaselineWindows('quiet_hrr', ['2026-12-04'])).single;
+    expect(window, [0.11, 0.12]);
+    // The non-sweep read (sessions, live gauge) sees the same window.
+    expect(
+        await LocalDb.trailingSeriesValues('quiet_hrr', 28, before: '2026-12-04'),
+        [0.11, 0.12]);
+  });
+
+  test('the rescan signature sees a quiet level move under ONE day\'s window',
+      () async {
+    // Chronological [.10, .10, .20, .20, .20, .15, .30]: changing the sixth
+    // day .15 → .25 keeps the count (7) and the overall median (.20) — all a
+    // count-and-median signature saw — but the seventh day's strictly-prior
+    // window goes from median .175 to .20, so that day's strain moves and the
+    // rescan must not skip it.
+    final db = await LocalDb.instance;
+    await db.delete('metric_series', where: 'key = ?', whereArgs: ['quiet_hrr']);
+    const dates = [
+      '2027-01-01', '2027-01-02', '2027-01-03', '2027-01-04', //
+      '2027-01-05', '2027-01-06', '2027-01-07',
+    ];
+    const values = [0.10, 0.10, 0.20, 0.20, 0.20, 0.15, 0.30];
+    for (var i = 0; i < dates.length; i++) {
+      await LocalDb.putMetricSeriesValue(dates[i], 'quiet_hrr', values[i]);
+    }
+    final before = await debugBaselineSignature();
+    expect(await debugBaselineSignature(), before,
+        reason: 'stable when nothing moved — a rescan costs nothing then');
+    final whole = await debugBaselineWindow('quiet_hrr');
+    final todayBefore =
+        (await debugSweepBaselineWindows('quiet_hrr', ['2027-01-07'])).single;
+
+    await LocalDb.putMetricSeriesValue('2027-01-06', 'quiet_hrr', 0.25);
+    final wholeAfter = await debugBaselineWindow('quiet_hrr');
+    final todayAfter =
+        (await debugSweepBaselineWindows('quiet_hrr', ['2027-01-07'])).single;
+    // What the old signature term read did not move…
+    expect(wholeAfter.length, whole.length);
+    expect(ana.median(wholeAfter), ana.median(whole));
+    expect(ana.median(whole), closeTo(0.20, 1e-9));
+    // …while the window the day is actually priced on did.
+    expect(ana.median(todayBefore), closeTo(0.175, 1e-9));
+    expect(ana.median(todayAfter), closeTo(0.20, 1e-9));
+    expect(await debugBaselineSignature(), isNot(before));
+
+    // The NEWEST level (normally today's, rewritten as its wake series grows)
+    // sits in no earlier day's window, so moving it must not trigger a rescan.
+    final stable = await debugBaselineSignature();
+    await LocalDb.putMetricSeriesValue('2027-01-07', 'quiet_hrr', 0.12);
+    expect(await debugBaselineSignature(), stable);
+
+    // …until a LATER day exists that wrote no level of its own (too few wake
+    // minutes) and may already be finalized: it was priced on the newest
+    // level, so moving that level must re-price it.
+    await LocalDb.putMetricSeriesValue('2027-01-08', 'rhr', 52);
+    final withLater = await debugBaselineSignature();
+    await LocalDb.putMetricSeriesValue('2027-01-07', 'quiet_hrr', 0.14);
+    expect(await debugBaselineSignature(), isNot(withLater));
+  });
 }

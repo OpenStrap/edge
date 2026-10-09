@@ -37,7 +37,9 @@ import 'onehz_pipeline.dart' show needInputNote;
 ///
 /// Returns a JSON-safe map of the latest/aggregate cross-day results. Every
 /// absent family serializes its honest `Metric.absent` envelope (value "—",
-/// confidence 0) or null — never a fabricated number.
+/// confidence 0) or null — never a fabricated number. `illness`, `anomaly` and
+/// `temp_illness` are each the newest SETTLED night that family could score
+/// (its inputs present), carrying that night's own `date` (null when none).
 /// [cycleStartDates] are the user's own logged cycle-start days (`YYYY-MM-DD`,
 /// any order). They are a CALENDAR log, never a detection: everything derived
 /// from them says "the second half of your logged cycle", never "your luteal
@@ -66,8 +68,9 @@ Map<String, dynamic> buildCrossDayBundle(
     for (final d in days) _numOrNull(d['skin_temp_z']),
   ];
 
-  // A day flagged `unsettled` (today, still syncing / not finalized) is a
-  // truncated reading, not a physiological signal — it must not drive an
+  // A day flagged `unsettled` (today, until it was derived from a complete
+  // overnight: the data edge at least an hour past wake) is a truncated
+  // reading, not a physiological signal — it must not drive an
   // illness/anomaly/temperature ALERT. It stays in `days` for everything else
   // (readiness, RHR trend, load, sleep debt, `recent`), which is why this is a
   // per-input null rather than dropping the row from the list.
@@ -204,6 +207,8 @@ Map<String, dynamic> buildCrossDayBundle(
   // elsewhere. This call is kept only for glassBoxReadiness's percentile-of-you
   // breakdown and deterministic narrative, which readinessComposite does not
   // produce, and for back-compat with the stored "readiness_glassbox" key.
+  // It feeds no notification: the low-readiness push reads the ring's own
+  // composite.
   //
   // Migrating this to readinessComposite is a deliberate open decision, not an
   // oversight: it changes user-visible numbers, so it needs a kAlgoVersion bump
@@ -462,10 +467,36 @@ Map<String, dynamic> buildCrossDayBundle(
   // as a number — not in years, not in mL/kg/min, and not as a trend — and a
   // submaximal estimate is 13-15 % MAPE, i.e. the same class of thing.
 
-  // ── latest per-family flags + JSON-safe assembly ───────────────────────────
-  final latestIllness = illness.isEmpty ? null : illness.last;
-  final latestAnomaly = anomaly.isEmpty ? null : anomaly.last;
-  final latestTemp = tempIllness.isEmpty ? null : tempIllness.last;
+  // ── the entry every ALERT surface reads: the newest SCORED night ─────────
+  // `.last` is today's row, whose alert inputs `settled()` withholds until its
+  // overnight is complete — and a withheld night is green / unflagged / normal
+  // by construction, so publishing `.last` published "nothing to report" on
+  // every pass. The same holds for a settled day with no overnight inputs (a
+  // day worn only in daytime): each family holds it at its quiet state, and
+  // publishing it would hide a run that is still open. So each family
+  // publishes the newest settled night that carried ITS inputs (illness: the
+  // nightly RHR; anomaly: the ≥2 features it needs to score a night;
+  // temperature: the skin-temperature z). Outputs are parallel to `dates`.
+  // The entry carries its OWN `date`; consumers must date findings with it,
+  // never with `recent.last`.
+  int? newestScored(bool Function(int i) hasInput) {
+    for (var i = n - 1; i >= 0; i--) {
+      if (!unsettled[i] && hasInput(i)) return i;
+    }
+    return null; // nothing settled and scored → no verdict, not a green one
+  }
+
+  T? at<T>(List<T> out, int? i) => (i == null || i >= out.length) ? null : out[i];
+  final latestIllness = at(illness, newestScored((i) => rhrList[i] != null));
+  final latestAnomaly = at(
+    anomaly,
+    newestScored((i) =>
+        [rhrList[i], rmssdList[i], tempList[i], respList[i]]
+            .where((v) => v != null)
+            .length >=
+        2),
+  );
+  final latestTemp = at(tempIllness, newestScored((i) => tempList[i] != null));
 
   // per-day flags (for notifications / trends): asleep/illness/anomaly/temp,
   // plus the nightly RESTING HR the "your resting HR trend shifted" CUSUM

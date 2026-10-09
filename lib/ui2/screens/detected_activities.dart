@@ -325,20 +325,23 @@ class _DetectedActivitiesCardState extends State<DetectedActivitiesCard>
 
   @override
   Widget build(BuildContext c) {
+    // nothing pending (or not loaded yet) = no card on home. a failed load
+    // isn't "nothing", so that still shows with the retry text.
+    final n = _count;
+    if (!_failed && (n == null || n <= 0)) return const SizedBox.shrink();
     final l = AppLocalizations.of(c);
-    return ActionCard(
-      l?.activityReviewTitle ?? 'Detected activities',
-      _failed
-          ? (l?.activityLoadFailed ?? 'Could not load activities. Try again.')
-          : _count == null
-          ? (l?.activityLoading ?? 'Loading…')
-          : _count == 0
-          ? (l?.activityNothing ?? 'Nothing to review')
-          : (l?.activityPending(_count!) ?? '$_count to review'),
-      l?.activityReview ?? 'Review',
-      LucideIcons.radar,
-      C.domHome,
-      onTap: () => go(c, const DetectedActivitiesScreen()),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: S.x3),
+      child: ActionCard(
+        l?.activityReviewTitle ?? 'Detected activities',
+        _failed
+            ? (l?.activityLoadFailed ?? 'Could not load activities. Try again.')
+            : (l?.activityPending(n!) ?? '$n to review'),
+        l?.activityReview ?? 'Review',
+        LucideIcons.radar,
+        C.domHome,
+        onTap: () => go(c, const DetectedActivitiesScreen()),
+      ),
     );
   }
 }

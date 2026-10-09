@@ -16,6 +16,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:openstrap_edge/coach/coach_config.dart';
 import 'package:openstrap_edge/coach/coach_engine.dart';
 
@@ -36,8 +37,13 @@ Future<Map<String, dynamic>> _post(CoachConfig cfg, http.Client c) =>
     }, client: c);
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late CoachConfig cfg;
-  setUp(() => cfg = CoachConfig());
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    cfg = CoachConfig();
+    await cfg.save(api: CoachApi.chatCompletions);
+  });
 
   group('postChat response shapes', () {
     test('standard message shape is returned', () async {
@@ -95,6 +101,7 @@ void main() {
       },
       'no choices key at all': <String, dynamic>{},
       'empty choices list': {'choices': <dynamic>[]},
+      'choices that is not a list': {'choices': 'invalid'},
       'top-level JSON array': <dynamic>[1, 2, 3],
     }.entries) {
       test('throws CoachException (never a TypeError) for ${entry.key}',
@@ -127,6 +134,31 @@ void main() {
             (e) => e.toString(), 'message', contains('invalid api key'))),
       );
     });
+  });
+
+  group('postChat malformed request history', () {
+    for (final entry in <String, Object?>{
+      'missing messages': null,
+      'messages that is not a list': 'invalid',
+      'a message that is not an object': ['invalid'],
+    }.entries) {
+      test('${entry.key} fails before contacting the provider', () async {
+        var called = false;
+        final client = MockClient((_) async {
+          called = true;
+          return http.Response('{}', 200);
+        });
+
+        await expectLater(
+          CoachEngine.postChat(cfg, {
+            'model': 'gpt-4o-mini',
+            if (entry.value != null) 'messages': entry.value,
+          }, client: client),
+          throwsA(isA<CoachException>()),
+        );
+        expect(called, isFalse);
+      });
+    }
   });
 
   group('postChat request size ceiling', () {

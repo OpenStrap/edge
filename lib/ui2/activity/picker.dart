@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // Choose an activity.
 //
 // Two ways in, because there are two kinds of user: the one who does the same
@@ -70,7 +71,9 @@ class _ActivityPickerState extends State<ActivityPicker> {
     final results = searching
         ? [
             for (final a in allActivities)
-              if (a.name.toLowerCase().contains(needle)) a,
+              if (a.displayName(c).toLowerCase().contains(needle) ||
+                  a.name.toLowerCase().contains(needle))
+                a,
           ]
         : const <Activity>[];
 
@@ -82,11 +85,11 @@ class _ActivityPickerState extends State<ActivityPicker> {
             padding: const EdgeInsets.symmetric(horizontal: S.x4),
             child: NavBar(l?.activityPickerTitle ?? 'Choose activity'),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: Container(
-              constraints: const BoxConstraints(minHeight: S.tap),
+            Padding(
               padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: Container(
+                constraints: const BoxConstraints(minHeight: S.tap),
+                padding: const EdgeInsets.symmetric(horizontal: S.x4),
               decoration:
                   BoxDecoration(color: p.card2, borderRadius: R.rMd),
               child: Row(children: [
@@ -111,20 +114,21 @@ class _ActivityPickerState extends State<ActivityPicker> {
                           hintStyle: F.body.copyWith(color: p.ink3)),
                     ),
                   ),
+                    ),
+                  ],
                 ),
-              ]),
+              ),
             ),
-          ),
-          const SizedBox(height: S.x4),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
-              children: [
-                if (searching)
-                  if (results.isEmpty)
-                    // No `fix`: the 'Custom activity' row it pointed at is
-                    // gone (it carried an invented MET), and a fix string
-                    // paints a call to action that cannot be tapped.
+            const SizedBox(height: S.x4),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x10),
+                children: [
+                  if (searching)
+                    if (results.isEmpty)
+                      // No `fix`: the 'Custom activity' row it pointed at is
+                      // gone (it carried an invented MET), and a fix string
+                      // paints a call to action that cannot be tapped.
                     StatusCard(
                       l?.activityPickerNoMatchTitle ??
                           'No activity matches that',
@@ -184,10 +188,13 @@ class _ActivityPickerState extends State<ActivityPicker> {
                         child: Row(children: [
                           Icon(activityLibrary[gi].icon,
                               size: 18, color: p.ink2),
-                          const SizedBox(width: S.x3),
-                          Expanded(
-                              child: Text(activityLibrary[gi].name,
-                                  style: F.head.copyWith(color: p.ink))),
+                              const SizedBox(width: S.x3),
+                              Expanded(
+                                child: Text(
+                                  activityLibrary[gi].displayName(c),
+                                  style: F.head.copyWith(color: p.ink),
+                                ),
+                              ),
                           Text('${activityLibrary[gi].items.length}',
                               style: F.cap.copyWith(color: p.ink3)),
                           const SizedBox(width: S.x2),
@@ -197,9 +204,10 @@ class _ActivityPickerState extends State<ActivityPicker> {
                             child: Icon(LucideIcons.chevronRight,
                                 size: 18, color: p.ink3),
                           ),
-                        ]),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
                     AnimatedCrossFade(
                       duration: motion(c, Motion.base),
                       crossFadeState: group == gi
@@ -233,15 +241,16 @@ class _ActivityPickerState extends State<ActivityPicker> {
                     StatusCard(
                       l?.activityPickerCalorieEstimatesTitle ??
                           'Calorie figures are estimates',
-                      kCalorieWhy,
-                      icon: LucideIcons.flame,
-                    ),
+                        uiText(c, kCalorieWhy),
+                        icon: LucideIcons.flame,
+                      ),
+                    ],
                   ],
                 ],
-              ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -274,13 +283,16 @@ class ActivityRow extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: S.x3),
-        child: Row(children: [
-          Icon(a.icon, size: 18, color: p.on(a.color)),
-          const SizedBox(width: S.x3),
-          Expanded(
-            child: Row(children: [
-              Flexible(
-                  child: Text(a.name,
+        child: Row(
+          children: [
+            Icon(a.icon, size: 18, color: p.on(a.color)),
+            const SizedBox(width: S.x3),
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      a.displayName(c),
                       style: F.body.copyWith(color: p.ink),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis)),
@@ -326,7 +338,7 @@ class _Quick extends StatelessWidget {
     final p = P.of(c);
     return Pressable(
       onTap: onTap,
-      semanticLabel: a.name,
+      semanticLabel: a.displayName(c),
       child: Container(
         width: 84,
         decoration: BoxDecoration(
@@ -339,10 +351,11 @@ class _Quick extends StatelessWidget {
                 BoxDecoration(color: p.wash(a.color), borderRadius: R.rMd),
             child: Icon(a.icon, size: 18, color: p.on(a.color)),
           ),
-          const SizedBox(height: S.x2),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x1),
-            child: Text(a.name,
+            const SizedBox(height: S.x2),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x1),
+              child: Text(
+                a.displayName(c),
                 style: F.over.copyWith(color: p.ink2),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),

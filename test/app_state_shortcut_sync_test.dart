@@ -72,6 +72,37 @@ class _TwoSessionEngine extends _ConnectedEngine {
   }
 }
 
+/// The task outlives the first two waits: the first banks a batch, the
+/// second gets nothing new while the band is still on the task, the third
+/// sees it complete.
+class _LongTaskEngine extends _ConnectedEngine {
+  bool active = true;
+
+  @override
+  bool get offloadActive => active;
+
+  @override
+  int? get strapHistoryNewestTs => 1000000;
+
+  @override
+  Future<SyncReport> runSync({
+    Duration timeout = const Duration(seconds: 600),
+  }) async {
+    runs++;
+    switch (runs) {
+      case 1:
+        await LocalDb.setCursor('rec_ts_hw', '500');
+        return SyncReport(42, 3, false);
+      case 2:
+        return SyncReport(0, 0, false);
+      default:
+        await LocalDb.setCursor('rec_ts_hw', '1000000');
+        active = false;
+        return SyncReport(7, 1, true);
+    }
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -97,14 +128,14 @@ void main() {
   // foregroundActive stays true with no link and every restore wake and
   // BG-task sync skips until the user next opens the app.
   test('a failed background openSession re-arms iOS recovery', () {
-    final src = File('lib/state/app_state.dart').readAsStringSync();
+    final src = File('lib/state/sync_controller.dart').readAsStringSync();
     final start = src.indexOf('Future<void> openSession(');
     expect(start, isNot(-1));
     final body = src.substring(start, src.indexOf('\n  }\n', start));
     final fin = body.lastIndexOf('} finally {');
     expect(fin, isNot(-1));
     const rearm =
-        'if (_keepAlive && _background && !engine.isConnected) {\n'
+        'if (_keepAlive && background && !engine.isConnected) {\n'
         '        await _armRecovery();';
     expect(body.substring(fin).contains(rearm), isTrue);
   });
@@ -299,6 +330,21 @@ void main() {
     expect(report.records, 42);
     expect(report.batches, 3);
     expect(report.complete, isFalse);
+  });
+
+  test('a wait with nothing new while the task still runs keeps waiting',
+      () async {
+    await LocalDb.deleteCursor('rec_ts_hw');
+    final engine = _LongTaskEngine();
+    final app = AppState.forTesting(engine: engine)..initialized = true;
+    addTearDown(app.dispose);
+    final report = await app.syncForShortcut(
+      ShortcutSyncTask('long', const Duration(seconds: 5)),
+    );
+    expect(engine.runs, 3, reason: 'only the ended task stops the burst');
+    expect(report.records, 49);
+    expect(report.batches, 4);
+    expect(report.complete, isTrue);
   });
 
   test('opening the app during an in-flight session foregrounds it', () async {

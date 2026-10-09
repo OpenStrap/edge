@@ -316,6 +316,15 @@ void main() {
     test('maintenance traffic runs when offload is inactive', () {
       expect(shouldPauseMaintenanceTraffic(offloadActive: false), isFalse);
     });
+
+    test('maintenance traffic is paused while another client transfers '
+        'history on this band', () {
+      expect(
+        shouldPauseMaintenanceTraffic(
+            offloadActive: false, foreignHistoryLive: true),
+        isTrue,
+      );
+    });
   });
 
   group('INIT drain gate', () {

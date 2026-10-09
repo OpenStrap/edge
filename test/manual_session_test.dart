@@ -253,6 +253,7 @@ void main() {
         profile: _profile,
         hrMax: _hrMax,
         restingHr: 55,
+        quietHrr: 0.20,
       );
       expect(s.isUnscored, isTrue);
       expect(s.hrSampleCount, 0);
@@ -271,6 +272,7 @@ void main() {
         profile: _profile,
         hrMax: _hrMax,
         restingHr: null,
+        quietHrr: 0.20,
       );
       // Banister carries RHR as a term in the formula — absent it, abstain.
       expect(s.strain, isNull);
@@ -295,6 +297,7 @@ void main() {
         profile: const Profile(weightKg: 75, heightCm: 180, sex: 'm'),
         hrMax: null,
         restingHr: 55,
+        quietHrr: 0.20,
       );
       expect(s.strain, isNull);
       expect(s.calories, isNull);
@@ -312,6 +315,7 @@ void main() {
         profile: const Profile(ageYears: 30, heightCm: 180, sex: 'm'),
         hrMax: _hrMax,
         restingHr: 55,
+        quietHrr: 0.20,
       );
       expect(s.calories, isNull);
       expect(s.strain, isNotNull);
@@ -325,6 +329,7 @@ void main() {
         profile: _profile,
         hrMax: _hrMax,
         restingHr: 55,
+        quietHrr: 0.20,
       );
       expect(s.isUnscored, isFalse);
       expect(s.avgHr, 150);
@@ -343,6 +348,7 @@ void main() {
             profile: _profile,
             hrMax: _hrMax,
             restingHr: 55,
+            quietHrr: 0.20,
           );
       // THE WHOLE POINT of the feature: correcting 25 min → 60 min must
       // actually move the number the athlete came here to fix.
@@ -360,6 +366,7 @@ void main() {
         profile: _profile,
         hrMax: _hrMax,
         restingHr: 55,
+        quietHrr: 0.20,
       );
       expect(s.avgHr, 150);
       expect(s.hrSampleCount, 60);
@@ -375,6 +382,7 @@ void main() {
         profile: _profile,
         hrMax: _hrMax,
         restingHr: 55,
+        quietHrr: 0.20,
       );
       expect(s.calories, wornOnly.calories);
       expect(s.strain, wornOnly.strain);
@@ -391,7 +399,7 @@ void main() {
     test('a hard hour scores on-scale, nowhere near the old accrual', () {
       final perMin = List<double>.filled(60, 150);
       final s = strainFromPerMinuteHr(perMin,
-          profile: _profile, restingHr: 55, hrMax: _hrMax)!;
+          profile: _profile, restingHr: 55, hrMax: _hrMax, quietHrr: 0.20)!;
 
       // The canonical figure for this effort.
       expect(s, closeTo(11.62, 0.05));
@@ -409,7 +417,7 @@ void main() {
     test('never exceeds 21, even for an absurdly long maximal effort', () {
       // 12 h pinned at 190 bpm — the old accrual would read into the hundreds.
       final s = strainFromPerMinuteHr(List<double>.filled(720, 190),
-          profile: _profile, restingHr: 55, hrMax: _hrMax)!;
+          profile: _profile, restingHr: 55, hrMax: _hrMax, quietHrr: 0.20)!;
       expect(s, lessThanOrEqualTo(21.0));
     });
 
@@ -418,7 +426,7 @@ void main() {
           List<double>.filled(minutes, bpm),
           profile: _profile,
           restingHr: 55,
-          hrMax: _hrMax)!;
+          hrMax: _hrMax, quietHrr: 0.20)!;
       expect(at(60, 150), greaterThan(at(30, 150)));
       expect(at(60, 165), greaterThan(at(60, 150)));
     });
@@ -428,24 +436,55 @@ void main() {
       // No resting HR.
       expect(
           strainFromPerMinuteHr(perMin,
-              profile: _profile, restingHr: null, hrMax: _hrMax),
+              profile: _profile, restingHr: null, hrMax: _hrMax, quietHrr: 0.20),
           isNull);
       // No ceiling — no age, OR a strap with no calibrated HRmax (TS-03a: an
       // unknown/unstamped device family REFUSES rather than borrowing gen4's).
       expect(
           strainFromPerMinuteHr(perMin,
-              profile: _profile, restingHr: 55, hrMax: null),
+              profile: _profile, restingHr: 55, hrMax: null, quietHrr: 0.20),
           isNull);
       // No sex → no Banister weighting constant.
       expect(
           strainFromPerMinuteHr(perMin,
               profile: const Profile(ageYears: 30), restingHr: 55,
-              hrMax: _hrMax),
+              hrMax: _hrMax, quietHrr: 0.20),
           isNull);
       // No HR at all.
       expect(
           strainFromPerMinuteHr(const [],
-              profile: _profile, restingHr: 55, hrMax: _hrMax),
+              profile: _profile, restingHr: 55, hrMax: _hrMax, quietHrr: 0.20),
+          isNull);
+    });
+
+    test('abstains without this user\'s quiet-waking level', () {
+      // The 0.20 population reference used to stand in here. A session is
+      // priced on the quiet level of the day it sits in, or not at all.
+      final w = _flat(0, 45, 150);
+      final none = computeManualSessionStats(
+        hrTs: w.ts,
+        hrBpm: w.bpm,
+        profile: _profile,
+        hrMax: _hrMax,
+        restingHr: 55,
+        quietHrr: null,
+      );
+      expect(none.strain, isNull);
+      // Everything else about the session is still scored.
+      expect(none.avgHr, 150);
+      expect(none.calories, isNotNull);
+      final priced = computeManualSessionStats(
+        hrTs: w.ts,
+        hrBpm: w.bpm,
+        profile: _profile,
+        hrMax: _hrMax,
+        restingHr: 55,
+        quietHrr: 0.20,
+      );
+      expect(priced.strain, isNotNull);
+      expect(
+          strainFromPerMinuteHr(List<double>.filled(60, 150),
+              profile: _profile, restingHr: 55, hrMax: _hrMax, quietHrr: null),
           isNull);
     });
 
@@ -458,9 +497,10 @@ void main() {
         profile: _profile,
         hrMax: _hrMax,
         restingHr: 55,
+        quietHrr: 0.20,
       ).strain;
       final direct = strainFromPerMinuteHr(hrPerMinute(w.ts, w.bpm),
-          profile: _profile, restingHr: 55, hrMax: _hrMax);
+          profile: _profile, restingHr: 55, hrMax: _hrMax, quietHrr: 0.20);
       expect(viaStats, direct);
     });
   });
@@ -472,6 +512,7 @@ void main() {
       profile: _profile,
       hrMax: _hrMax,
       restingHr: 55,
+      quietHrr: 0.20,
     );
 
     test('a new entry is done/manual with a start-keyed id', () {

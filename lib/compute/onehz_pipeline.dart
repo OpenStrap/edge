@@ -288,11 +288,12 @@ class DayBundleInput {
   final List<double> rhrHistory;
   final List<double> respHistory;
 
-  /// Trailing robust nocturnal RMSSD means (ms) — the SAME `rmssd` series the
-  /// engine writes to metric_series (NREM-restricted, median-of-5-min). Used as
-  /// the history for the EWMA hrv baseline so its center and today's value are the
-  /// SAME metric (was previously reconstructed from ln(whole-window RMSSD), a
-  /// definition mismatch that made the z spuriously large).
+  /// Trailing nightly RMSSD (ms) — the SAME `rmssd` series the engine writes to
+  /// metric_series (the sleep-session mean of 5-min-window RMSSDs; absent when
+  /// that estimator abstains). Used as the history for the EWMA hrv baseline so
+  /// its center and today's value are the SAME metric (was previously
+  /// reconstructed from ln(whole-window RMSSD), a definition mismatch that made
+  /// the z spuriously large).
   final List<double> rmssdHistory;
 
   /// Trailing RAW nightly skin-temp ADC means (NOT z-scores). The personal
@@ -300,6 +301,12 @@ class DayBundleInput {
   /// ADC is z-scored against THIS series. Must be raw ADC means so the unit
   /// matches today's raw mean (the old z-vs-z series was a unit mismatch bug).
   final List<double> skinTempAdcHistory;
+
+  /// Trailing per-day quiet-waking levels (`quiet_hrr`, %HRR fraction),
+  /// strictly before this day, oldest→newest. Strain is priced against their
+  /// median ([personalQuietWakingHrr]) — never against this day's own level,
+  /// which would subtract the day's own living from itself.
+  final List<double> quietHrrHistory;
 
   /// TS-03 — the highest heart rate the band has OBSERVED (held >=15 s with
   /// corroborating motion, `observed_max_hr.dart`) on any day STRICTLY BEFORE
@@ -358,6 +365,7 @@ class DayBundleInput {
     this.respHistory = const [],
     this.rmssdHistory = const [],
     this.skinTempAdcHistory = const [],
+    this.quietHrrHistory = const [],
     this.observedHrCeilingBpm,
     this.dayConfidence = 0,
     this.dayFlags = const [],
@@ -389,6 +397,7 @@ class DayBundleInput {
     'resp_history': respHistory,
     'rmssd_history': rmssdHistory,
     'skin_temp_adc_history': skinTempAdcHistory,
+    'quiet_hrr_history': quietHrrHistory,
     'observed_hr_ceiling_bpm': observedHrCeilingBpm,
     'day_confidence': dayConfidence,
     'day_flags': dayFlags,
@@ -439,6 +448,7 @@ class DayBundleInput {
       respHistory: dbls('resp_history'),
       rmssdHistory: dbls('rmssd_history'),
       skinTempAdcHistory: dbls('skin_temp_adc_history'),
+      quietHrrHistory: dbls('quiet_hrr_history'),
       observedHrCeilingBpm: (m['observed_hr_ceiling_bpm'] as num?)?.toDouble(),
       dayConfidence: (m['day_confidence'] as num?)?.toDouble() ?? 0,
       dayFlags: strs('day_flags'),
@@ -507,6 +517,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final nn = corrected.nn;
   final nnTimes = corrected.nnTimesMs;
   final artifactFraction = (1.0 - corrected.cleanFraction).clamp(0.0, 1.0);
+  // Σ RR ÷ wall span of the raw sleep RR: above 1.10 the stream holds more
+  // beat-time than elapsed (duplicated or interleaved beats), and every RMSSD
+  // below refuses it. Null under 10 min of span.
+  final rrCov = rrCoverage(d.sleepRrMs, d.sleepRrTsMs);
 
   final hasSleep = (d.sleepJson['tst_sec']) != null;
 
@@ -545,20 +559,21 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // Whole-window time-domain HRV is kept for SDNN / detail rows only. The
   // nightly headline HRV is the mean of 5-min cleaned-window RMSSDs across the
   // detected sleep session, not one RMSSD over the whole night's NN stream.
-  final hrvT = hrvTime(nn, nnTimesMs: nnTimes);
+  final hrvT = hrvTime(nn, nnTimesMs: nnTimes, coverage: rrCov);
   // Keep the robust estimator as a secondary detail only; the canonical nightly
   // RMSSD follows the sleep-session windowed formulation.
   final nremMask = _nremMaskAlignedToNn(d, nnTimes, d.sleepRrTsMs);
-  final robustRmssd = nocturnalRmssd(nn, nnTimes, stageMaskPerSec: nremMask);
-  final sleepSessionRmssdMetric = sleepSessionWindowedRmssd(
+  final robustRmssd = nocturnalRmssd(nn, nnTimes,
+      stageMaskPerSec: nremMask, coverage: rrCov);
+  final sleepSessionRmssdMetric = sleepSessionRmssdDetail(
     d.sleepRrMs,
     d.sleepRrTsMs,
     startSec: d.sleepOnsetSec,
     endSec: d.sleepOffsetSec,
   );
-  final sleepSessionRmssd = sleepSessionRmssdMetric.present
-      ? sleepSessionRmssdMetric.value
-      : null;
+  final sessionDetail = sleepSessionRmssdMetric.value;
+  final sleepSessionRmssd =
+      sleepSessionRmssdMetric.present ? sessionDetail!.rmssd : null;
   final hrvF = nn.length >= 20
       ? hrvFreq(nn, nnTimes, artifactFraction: artifactFraction)
       : Metric<HrvFreq>.absent(
@@ -886,6 +901,11 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // TRIMP, HR zones, and calories so all three see the same wake series).
   final wakeHr = _perMinuteWakeSeries(d);
   final perMin = [for (final p in wakeHr) p.hr];
+  // THIS user's quiet-waking level: the median of the trailing days' own
+  // levels, strictly before today. Absent below three days — strain then
+  // abstains with the baseline grammar rather than pricing being awake at a
+  // population constant.
+  final quiet = personalQuietWakingHrr(d.quietHrrHistory);
   // ── WHY the activity family is absent, named AT THE GATE THAT CAUSED IT ────
   //
   // These four figures — strain/TRIMP, the zone minutes, the ceiling they were
@@ -920,6 +940,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       ? needInputNote('resting_hr')
       : sex == null
       ? needInputNote('sex')
+      : !quiet.present
+      ? (quiet.note ?? kUnknownAbsenceNote)
       : null;
   final caloriesAbsentNote = perMin.isEmpty
       ? needInputNote('wake_hr')
@@ -1013,26 +1035,25 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
     }
   }
 
-  // HEADLINE STRAIN = 0–21 map of the TRIMP earned ABOVE the quiet-waking
-  // baseline; raw TRIMP kept as a detail. `perMin` is the wake window the TRIMP
-  // was accumulated over, so it sets the baseline that gets subtracted.
-  final rawTrimp = trimp.present ? trimp.value : null;
-  final strainMetric = strainScoreMetric(
-    rawTrimp,
-    wakeMinutes: perMin.isEmpty ? null : perMin.length.toDouble(),
-    // THE REFERENCE LEVEL, NOT THIS USER'S (edge#226 is still open). analytics
-    // stopped defaulting the quiet-waking level so every caller has to state
-    // which one it means; `quietWakingHrr` is the constant the anchor table was
-    // generated at, so passing it reproduces the strain this app ships today
-    // and nobody's number moves on this commit. The real level is
-    // `dailyQuietWakingHrr` fed through a rolling personal median — a trait,
-    // not a day, and the workout scorers need the same one the day uses or a
-    // bout subtracts its own effort away. That plumbing is edge#226.
-    // ponytail: population constant, swap for the rolling personal median when
-    // edge#226 lands — see the same comment at the other four call sites.
-    quietHrr: quietWakingHrr,
-    female: workoutSex(sex) == 'female',
-  );
+  // HEADLINE STRAIN = 0–21 map of the TRIMP earned ABOVE this user's
+  // quiet-waking level, exercise minutes (≥ 40 % HRR) never offset by quiet
+  // ones; raw TRIMP kept as a detail. Same analytics arithmetic as the curve
+  // below and the engine's recompute, so the three cannot disagree.
+  final sexEnum = workoutSex(sex) == 'female' ? Sex.female : Sex.male;
+  final strainMetric = strainAbsentNote != null || !quiet.present
+      ? Metric<double>.absent(
+          tier: Tier.estimate,
+          inputs_used: const ['hr_1hz', 'profile', 'quiet_waking_hrr_history'],
+          note: strainAbsentNote ?? kUnknownAbsenceNote,
+        )
+      : strainScoreFromSeries(
+          perMin,
+          restingHr: rhrForTrimp,
+          maxHr: hrMax,
+          quietHrr: quiet.value!.hrr,
+          sex: sexEnum,
+          quietSettled: quiet.value!.settled,
+        );
 
   // ── curve series for the UI ────────────────────────────────────────────────
   final hrCurve = _downsampleHr(d.dayTsSec, d.dayHr);
@@ -1045,7 +1066,10 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   final hrvOriginMs = (d.sleepRrTsMs.isEmpty || d.sleepRrMs.isEmpty)
       ? null
       : d.sleepRrTsMs.first - d.sleepRrMs.first;
-  final hrvTimeline = _hrvTimeline(nn, nnTimes, hrvOriginMs);
+  // A rolling RMSSD of the same beats: none on an over-counted stream.
+  final hrvTimeline = rrCov?.overCounted == true
+      ? const <Map<String, num>>[]
+      : _hrvTimeline(nn, nnTimes, hrvOriginMs);
   // CV-06 — the SHAPE of the night: per-bin RMSSD over the same cleaned NN the
   // headline uses, so the curve and the number can never disagree. Bins that
   // fall under the beat floor stay in the series as HOLES on purpose — dropping
@@ -1059,12 +1083,15 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   // `startSec` is seconds from the FIRST BEAT, not an epoch — `origin_ms` is
   // the wall-clock instant that clock starts at, the same `hrvOriginMs` the
   // timeline above is placed on.
-  final nightShape = nightHrvShape(nn, nnTimes);
+  // Every bin is an RMSSD of the same beats: absent with them on an
+  // over-counted stream.
+  final nightShape = nightHrvShape(nn, nnTimes, coverage: rrCov);
   final strainCurve = _strainCurve(
     wakeHr,
     restingHr: rhrForTrimp,
     maxHr: hrMax,
     sex: sex,
+    quietHrr: quiet.value?.hrr,
   );
   final zoneTimeline = zoneSet == null
       ? const <Map<String, num>>[]
@@ -1127,6 +1154,20 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'tier': Tier.high,
       'inputs_used': const ['rr_sleep_window'],
       'note': sleepSessionRmssdMetric.note,
+      // Diagnostics of the same estimate; null when it is absent (the
+      // whole-night `hrv_time` envelope still carries diff_acf1).
+      'windows': sessionDetail?.windows,
+      'diff_acf1': sessionDetail?.diffAcf1 == null
+          ? null
+          : _round(sessionDetail!.diffAcf1!, 4),
+      'rr_coverage': sessionDetail?.rrCoverage == null
+          ? null
+          : _round(sessionDetail!.rrCoverage!, 4),
+      'overcounted_windows': sessionDetail?.overCountedWindows,
+      // Windows under the floor of clean successive differences, and that
+      // floor: how much of the night the mean does NOT rest on.
+      'thin_windows': sessionDetail?.thinWindows,
+      'min_diffs_per_window': sessionDetail?.minDiffsPerWindow,
     },
     'rmssd_nocturnal': robustRmssd.toJson(),
     'hrv_freq': hrvF.toJson((v) => v.toJson()),
@@ -1261,16 +1302,14 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
   };
 
   // Indexed scalars (also surfaced to metric_series by the engine).
-  // HEADLINE RMSSD = mean of 5-min cleaned-window RMSSDs across the detected
-  // sleep session. Fall back to the robust estimator, then the whole-window
-  // RMSSD only when the canonical sleep-session value is absent.
-  final rmssdScalar =
-      sleepSessionRmssd ??
-      (robustRmssd.present
-          ? robustRmssd.value
-          : ((hrvT.present && hrvT.value!.rmssd != null)
-                ? hrvT.value!.rmssd
-                : null));
+  // ONE ESTIMATOR. `rmssd` is the sleep-session mean of 5-min-window RMSSDs —
+  // the same number `ln_rmssd` (→ readiness) is the log of — or it is absent.
+  // The NREM median (`clinical.rmssd_nocturnal`) and the whole-night RMSSD
+  // (`scalars.rmssd_whole`, `clinical.hrv_time`) stay published under their
+  // own keys; they are different statistics over differently-cleaned beats and
+  // never stand in for this one (AGENTS §3.3). The fallback used to keep the
+  // chart unbroken by mixing three estimators into one series.
+  final rmssdScalar = sleepSessionRmssd;
   // Whole-window RMSSD kept available as a secondary detail (NOT the headline).
   final rmssdWholeScalar = (hrvT.present && hrvT.value!.rmssd != null)
       ? hrvT.value!.rmssd
@@ -1583,6 +1622,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       'nn_clean': nn.length,
       'clean_fraction': _round(corrected.cleanFraction, 4),
       'sleep_seconds': inBedSec ?? 0,
+      'rr_coverage': rrCov == null ? null : _round(rrCov.coverage, 4),
+      'rr_duplicate_beats': rrCov?.duplicateBeats,
     },
     'readiness_absent_diag': ?readinessAbsentDiag,
     'scalars': {
@@ -1596,7 +1637,8 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
       // every stored bundle.
       'rhr': rhrToday,
       'rhr_nocturnal': rhrToday,
-      // Headline RMSSD (robust nocturnal, NREM). Whole-window kept separately.
+      // Headline RMSSD (sleep-session mean of 5-min windows; no fallback).
+      // Whole-night RMSSD kept separately.
       'rmssd': rmssdScalar,
       'rmssd_whole': rmssdWholeScalar,
       'readiness': readinessScalar,
@@ -1900,50 +1942,25 @@ List<Map<String, num>> _strainCurve(
   required double? restingHr,
   required double? maxHr,
   required String? sex,
+  required double? quietHrr,
 }) {
-  if (wakeHr.isEmpty ||
-      restingHr == null ||
-      maxHr == null ||
-      maxHr <= restingHr ||
-      sex == null) {
-    return const [];
-  }
-  // Banister's sex constants, via the ONE shared weighting factor. This used to
-  // inline `exp(b·hrr)` and drop the 0.64/0.86 scale coefficient entirely, so
-  // the curve accumulated a TRIMP 1.5625× the day's own — the curve and the
-  // headline were never on the same scale. It matters more now: the headline
-  // subtracts a baseline priced with `banisterY`, so a curve accumulating
-  // without it would be netted against an allowance from a different formula.
-  final female = workoutSex(sex) == 'female';
-  final reserve = maxHr - restingHr;
-  var trimp = 0.0;
-  var wakeMin = 0.0;
-  final out = <Map<String, num>>[];
-  for (final p in wakeHr) {
-    var hrr = (p.hr - restingHr) / reserve;
-    if (hrr < 0) hrr = 0;
-    if (hrr > 1) hrr = 1;
-    trimp += hrr * StrainScorer.banisterY(hrr, female: female);
-    // The baseline grows with the wake window ALREADY elapsed, so the curve
-    // stays flat through quiet waking and climbs only on real effort — rather
-    // than charging a whole day's allowance against the first minute.
-    wakeMin += 1;
-    out.add({
-      't': p.tsSec,
-      'v': _round(
-        strainScore(
-          trimp,
-          wakeMinutes: wakeMin,
-          // Reference level, not this user's — see onehz_pipeline's
-          // `strainMetric` for why, and edge#226 for the fix.
-          quietHrr: quietWakingHrr,
-          female: female,
-        ),
-        2,
-      ),
-    });
-  }
-  return out;
+  if (wakeHr.isEmpty || sex == null) return const [];
+  // The headline's own arithmetic, minute by minute (`strainCurveFromSeries`),
+  // so the last point IS the headline and exercise already banked never falls
+  // back out through a quiet afternoon. Null — no level, or bad anchors —
+  // leaves the curve empty, which the strain screen explains from the note.
+  final curve = strainCurveFromSeries(
+    [for (final p in wakeHr) p.hr],
+    restingHr: restingHr,
+    maxHr: maxHr,
+    quietHrr: quietHrr,
+    sex: workoutSex(sex) == 'female' ? Sex.female : Sex.male,
+  );
+  if (curve == null) return const [];
+  return [
+    for (var i = 0; i < wakeHr.length; i++)
+      {'t': wakeHr[i].tsSec, 'v': _round(curve[i], 2)},
+  ];
 }
 
 double? _mean(List<double> xs) {

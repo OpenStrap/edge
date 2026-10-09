@@ -13,7 +13,7 @@ import 'package:flutter/services.dart';
 import '../data/local_repository.dart';
 import '../models/metric.dart';
 import '../models/payloads.dart';
-import '../ui2/screens/home_screen.dart' show hm, readinessBand;
+import '../ui2/screens/home_screen.dart' show readinessBand;
 
 class WidgetService {
   static const _platform = MethodChannel('openstrap/ios_config');
@@ -273,8 +273,8 @@ class WidgetService {
             ? _gapRing('sleep', sleep, 'No sleep',
                 fallbackWhy: 'No night long enough to score was recorded.')
             : _Ring('sleep',
-                value: hm(sleep.value),
-                sub: needMin <= 0 ? 'No target yet' : 'of ${hm(need.value)}',
+                value: _hm(sleep.value),
+                sub: needMin <= 0 ? 'No target yet' : 'of ${_hm(need.value)}',
                 frac: needMin <= 0 || sleep.isEmpty
                     ? null
                     : sleep.value! / need.value!),
@@ -657,4 +657,13 @@ class _Ring {
       this.why = '',
       double? frac})
       : frac = frac == null ? -1 : frac.clamp(0.0, 1.0);
+}
+
+/// The native widget is not localized yet and may be pushed from a background
+/// isolate that never binds the app's language override, so its durations stay
+/// in the same fixed English format as the rest of its labels.
+String _hm(num? minutes) {
+  if (minutes == null) return '';
+  final m = minutes.round();
+  return m < 60 ? '${m}m' : '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m';
 }

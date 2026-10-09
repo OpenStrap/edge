@@ -38,6 +38,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
@@ -61,7 +62,11 @@ int u32(Uint8List b, int o) =>
 typedef SampleSink = Future<void> Function(Sample? sample, RawRecord raw);
 typedef StateSink = void Function(DeviceState state);
 typedef LogSink = void Function(String line);
-typedef EventSink = void Function(int eventId, int tsEpoch, String hex);
+/// [profile] is the band the event came off. The event-id space is not shared
+/// across generations (109 is BATTERY_PACK_INFO on gen5 only), so whoever
+/// persists the hex has to decode it the way the live parse did.
+typedef EventSink =
+    void Function(int eventId, int tsEpoch, String hex, BandProfile profile);
 typedef BatchSink =
     Future<void> Function(List<RawRecord> raws, List<Sample?> samples);
 
@@ -83,10 +88,11 @@ typedef CommitSyncBatchSink =
       String? deviceFamily,
     });
 
-/// Persist an UNDECODABLE historical record (unknown/unsupported version) to the
-/// durable archive (never pruned). Used only by the pre-setup fallback path; the
-/// drain path archives inside the SAME transaction as the batch commit so the
-/// safe-trim invariant holds (see [CommitSyncBatchSink]).
+/// Persist an UNDECODABLE historical record (unknown/unsupported version) to
+/// the durable archive (kept, except the thinning in
+/// `LocalDb.thinRawArchiveBefore`). Used only by the pre-setup fallback path;
+/// the drain path archives inside the SAME transaction as the batch commit so
+/// the safe-trim invariant holds (see [CommitSyncBatchSink]).
 typedef ArchiveSink = Future<void> Function(ArchiveRecord archive);
 
 // ── WHOOP MG ECG (Labrador) ─────────────────────────────────────────────────
@@ -372,8 +378,9 @@ bool isBurstCountMemberType(int packetType) =>
 bool shouldPauseMaintenanceTraffic({
   required bool offloadActive,
   bool ecgLeased = false,
+  bool foreignHistoryLive = false,
 }) =>
-    offloadActive || ecgLeased;
+    offloadActive || ecgLeased || foreignHistoryLive;
 
 /// Whether a HISTORY_END burst's packet accounting matches what the band
 /// reported sending (`expectedPacketCount`, from the metadata frame).
@@ -610,11 +617,10 @@ class _Session {
   BluetoothCharacteristic? cmdTo;
 
   /// Set synchronously at the top of `_teardownSession`, before any await.
-  /// The generation bump happens there too, but `_session` is nulled only
-  /// after the subscription cancels have been awaited — so for that window
-  /// the dying session is still the current one and still `connected`, and a
-  /// live-stream pass that just discarded a stale completion would otherwise
-  /// capture the NEW generation and write to the link being closed.
+  /// The session is still `connected` until its own teardown runs, so
+  /// anything holding a reference to it — a live-stream pass that just
+  /// discarded a stale completion, a receive callback already in flight —
+  /// checks this to stay off the link being closed. Ingress is frozen on it.
   bool closing = false;
 
   /// Which registered band this link speaks. Defaults to gen4 (WHOOP 4) and is
@@ -657,6 +663,47 @@ class _Session {
   Timer? periodicBackfill; // 900s: re-trigger the historical offload
   Timer? idleWatchdog; // 60s: strap went silent mid-offload
   Timer? historicalRetry; // explicit abort→retry settle
+  /// Armed once opcode 22 went out; ended by the band's first answer for that
+  /// task (see [FirstStartWatchdogPolicy]). The idle watchdog only arms on
+  /// received traffic, so without this an unanswered request stays "active"
+  /// — refusing every later trigger — for as long as the link lives.
+  Timer? firstStartWatchdog;
+  /// First-START retries this session ([kHistoryNoStartRetriesPerSession]).
+  /// Reset by an accepted HISTORY_START.
+  int noStartRetries = 0;
+  /// Banks the foreign buffer once another client's transfer goes quiet
+  /// ([BleEngine._flushForeignBuffer]); re-armed per drained batch with a
+  /// foreign record in it.
+  Timer? foreignFlushTimer;
+  /// Re-requests history once another client's transfer goes quiet, after a
+  /// claim of ours stood down for it ([BleEngine._armForeignRetrigger]).
+  Timer? foreignRetrigger;
+  /// History markers seen for transfers this engine did not request
+  /// (diagnostics; the first one logs).
+  int foreignMarkersSeen = 0;
+  /// The history task generation THIS link requested (opcode 22 / INIT), or
+  /// null while no task of ours is open. Compared to the engine's task
+  /// generation, so every terminal that bumps it ends ownership without a
+  /// reset call; bound to the session, so a reconnect starts with none.
+  int? ownedTaskGen;
+  /// The generation whose HISTORY_COMPLETE has ARRIVED on this link (set at
+  /// receipt, before its handler runs). Until the next claim or abort bumps
+  /// the generation, an END may be that task re-offered.
+  int? completeReceivedGen;
+  /// Our last task on this link is over (its COMPLETE arrived, or it ended
+  /// by abort) and no new request of ours has gone out since. Until one
+  /// does, the band may still re-offer that task's END or deliver its last
+  /// in-flight records — across a claim's pre-request waits too — so they
+  /// must not read as another client starting.
+  bool ownTaskTail = false;
+  /// Another client's transfer on THIS link, judged from the markers we did
+  /// not request. Dies with the link like the rest of the ownership state.
+  final ForeignHistoryWindow foreignHistory = ForeignHistoryWindow();
+  /// No further history task may start on this link
+  /// ([BleEngine.endHistoryForLink]): its owner is about to write
+  /// configuration and close it. Session-scoped, so the next link starts
+  /// unheld without a reset path to forget.
+  bool historyHeld = false;
   /// Abort→retry attempts THIS session. The cycle re-arms the 60 s idle
   /// watchdog, which can re-fire the abort, so without a cap a band that
   /// connects but never drains cycles at a fixed period for the life of the
@@ -727,6 +774,11 @@ class _Session {
 
   _Session(this.device);
 
+  void cancelFirstStartWatchdog() {
+    firstStartWatchdog?.cancel();
+    firstStartWatchdog = null;
+  }
+
   Future<void> teardown() async {
     heartbeat?.cancel();
     heartbeat = null;
@@ -738,6 +790,11 @@ class _Session {
     idleWatchdog = null;
     historicalRetry?.cancel();
     historicalRetry = null;
+    cancelFirstStartWatchdog();
+    foreignFlushTimer?.cancel();
+    foreignFlushTimer = null;
+    foreignRetrigger?.cancel();
+    foreignRetrigger = null;
     for (final s in subs) {
       await s.cancel();
     }
@@ -1109,15 +1166,41 @@ class BleEngine {
   /// opcode 20 afterwards — this is ownership, not the abort itself.
   Future<void> ecgCancelHistory(EcgLease lease) async {
     if (!ecgLeaseValid(lease)) return;
-    final session = lease._owner as _Session;
+    await endHistoryTask(reason: 'ecg_preempted');
+  }
+
+  /// End this engine's running history task, if any, with the one best-effort
+  /// abort, and wait for its lifecycle to go quiescent. For a caller about to
+  /// take the transport or write configuration (alarm, clock) after it stopped
+  /// waiting on the drain. The band keeps its checkpoint; whatever was not
+  /// acknowledged is offered again to the next task. No-op when no task runs.
+  Future<void> endHistoryTask({required String reason}) async {
+    final session = _session;
+    if (session == null || _sessionIsStale(session)) return;
     if (_offloadActive && !session.historyTaskEnded) {
       await _endHistoryTaskWithAbort(
         session: session,
         kind: _HpsTerminalKind.preempted,
-        reason: 'ecg_preempted',
+        reason: reason,
       );
     }
     await _awaitHistoryLifecycleQuiescence();
+  }
+
+  /// [endHistoryTask], and from here no history task starts on THIS link
+  /// again: a pending abort→retry is cancelled and every refresh trigger
+  /// (periodic, band prompt, auto-continue, retry, manual) is refused. For a
+  /// caller about to write configuration and then close the link — ending
+  /// the running task alone would let a retry armed by an earlier terminal
+  /// put opcode 22 on the wire in the middle of those writes. Released when
+  /// the link goes away; the next link drains normally.
+  Future<void> endHistoryForLink({required String reason}) async {
+    final session = _session;
+    if (session == null || _sessionIsStale(session)) return;
+    session.historyHeld = true;
+    session.historicalRetry?.cancel();
+    session.historicalRetry = null;
+    await endHistoryTask(reason: reason);
   }
 
   static List<_EcgMember> _ecgPrepareMembers(WristSelection wrist) => [
@@ -1689,6 +1772,7 @@ class BleEngine {
     CommitSyncBatchSink? onCommit,
     bool listening = false,
     bool? liveReady,
+    bool armDrains = true,
   }) {
     final session = _Session(
       BluetoothDevice(remoteId: const DeviceIdentifier('AA:BB:CC:DD:EE:FF')),
@@ -1700,7 +1784,19 @@ class BleEngine {
     if (listening) _phase = BleConnState.listening;
     _liveReady = liveReady ?? listening;
     debugWriteHook = onWrite;
+    // armDrains false: the state a real link is in before its connect
+    // sequence builds the controllers (see _armForeignBuffer).
+    _drain = null;
+    _foreignDrain = null;
+    if (!armDrains) return;
     _drain = DrainController(
+      onRecord: _storeRecord,
+      onRecordsBatch: null,
+      onCommit: onCommit,
+      onArchive: onArchive,
+      log: _log,
+    );
+    _foreignDrain = DrainController(
       onRecord: _storeRecord,
       onRecordsBatch: null,
       onCommit: onCommit,
@@ -1954,7 +2050,17 @@ class BleEngine {
   // Each queued frame carries the history-task generation it arrived under, so
   // the serialized drainer can refuse to process an OLD task's leftovers as
   // part of its replacement (see [_drainOffloadFrames]).
-  final List<({Frame frame, int taskGen})> _offloadFrames = [];
+  // `owned`: whether the frame was ours at ARRIVAL ([_arrivesOwned]) — a
+  // task of ours open, its SEND_HISTORICAL_DATA already out, its COMPLETE not
+  // yet in. That is also what makes a frame eligible to be the band's answer:
+  // judged at arrival, not when the drainer reaches it, since a marker
+  // handler can hold the queue while the next request goes out. A record
+  // that arrived while no task of ours was open belongs to another client's
+  // transfer whatever claim happens before the drainer reaches it.
+  final List<({Frame frame, int taskGen, bool owned})> _offloadFrames = [];
+  // The drainer's current batch and how far it got (see _drainOffloadFrames).
+  List<({Frame frame, int taskGen, bool owned})>? _drainBatch;
+  int _drainBatchNext = 0;
   bool _drainingOffloadFrames = false;
 
   /// The history-task generation: bumped when a task is claimed
@@ -1965,6 +2071,90 @@ class BleEngine {
   /// generation is no longer current belongs to a task that is over, and it
   /// must neither ACK, abort, clear state nor consume the new task's frames.
   int _historyTaskGen = 0;
+
+  /// The task generation the band has ANSWERED (see [FirstStartWatchdogPolicy]).
+  /// A generation compare, not a bool, so a stale answer can never satisfy a
+  /// newer task and no reset path can be forgotten.
+  int? _historyTaskAnsweredGen;
+
+  /// The task generation whose SEND_HISTORICAL_DATA is about to go out (set
+  /// right before the write). Only traffic after that point can be the band
+  /// answering it: a claim bumps the generation before its range/clock/floor
+  /// waits, and a straggler landing in them must not disarm the watchdog of
+  /// a request that has not been sent yet.
+  int? _historyRequestedGen;
+  int _firstStartTimeouts = 0; // diagnostics
+
+  /// Whether a task of ours is open on the current link (see
+  /// [_Session.ownedTaskGen]).
+  bool get _historyTaskOwned {
+    final g = _session?.ownedTaskGen;
+    return g != null && g == _historyTaskGen;
+  }
+
+  /// THE ownership classifier for an inbound history frame, applied at
+  /// ARRIVAL by every ingest path (the serialized queue tags each entry with
+  /// it; the immediate path acts on it directly): ours only while a task of
+  /// ours is open on [session], its SEND_HISTORICAL_DATA is going out (a
+  /// claim waits on range/clock/floor first, and nothing in that gap can be
+  /// the band answering a request it has not been sent), AND its
+  /// HISTORY_COMPLETE has not arrived yet. Ownership itself clears only once
+  /// that COMPLETE's handler has banked the tail; anything arriving in
+  /// between belongs to someone else.
+  ///
+  /// A band's notifications on a shared link reach every client that enabled
+  /// them, so another app's history transfer is visible here frame for frame.
+  /// Two clients answering one transfer is the trim-cursor race described at
+  /// [_bandOwners]; only a task this engine asked for is ever answered.
+  bool _arrivesOwned(_Session session) {
+    final g = session.ownedTaskGen;
+    return g != null &&
+        g == _historyTaskGen &&
+        _historyRequestedGen == _historyTaskGen &&
+        session.completeReceivedGen != _historyTaskGen;
+  }
+
+  /// Records of transfers this engine did not request, buffered apart from
+  /// [_drain] and banked with NO trim token — never followed by a result, so
+  /// nothing edge writes can make the band trim them on its behalf. One per
+  /// link, like [_drain].
+  DrainController? _foreignDrain;
+  /// Whether another client's transfer is live on the current link.
+  bool get _foreignHistoryLive =>
+      _session?.foreignHistory.isLive(_monotonicSecs()) ?? false;
+  int _foreignRecordsBanked = 0; // diagnostics
+  int _foreignClaimsDeferred = 0; // diagnostics
+  int _foreignRowsLostAtShutdown = 0; // diagnostics
+
+  /// Final foreign banks of closed links still running ([_bankAtShutdown]).
+  final Set<Future<void>> _shutdownBanks = {};
+
+  /// Wait — at most [bound] — for the final foreign banks of closed links to
+  /// settle. Disconnect does not wait for them (a reconnect must not), so a
+  /// caller about to finish its OWN work on the band — a headless run whose
+  /// process may be suspended the moment it returns — awaits them here.
+  /// Returns whether they settled within [bound].
+  Future<bool> settleShutdownBanks({
+    Duration bound = const Duration(seconds: 12),
+  }) async {
+    if (_shutdownBanks.isEmpty) return true;
+    try {
+      await Future.wait(List.of(_shutdownBanks)).timeout(bound);
+      return true;
+    } on TimeoutException {
+      _log('[SYNC] foreign-transfer rows from the closed link still not '
+          'banked after ${bound.inSeconds}s — not waiting longer.');
+      return false;
+    }
+  }
+
+  /// Foreign rows buffered before a size-triggered bank. A burst's worth; the
+  /// markers and the quiet timer bank the rest.
+  static const int _foreignFlushThreshold = 256;
+
+  /// How long another client's transfer may stay silent before its buffered
+  /// records are banked anyway.
+  static const Duration _foreignFlushQuiet = Duration(seconds: 5);
 
   /// The awaited opcode-20 write of the most recent task-ending abort, while
   /// it is still in flight. Every task start waits this out (see
@@ -2018,6 +2208,11 @@ class BleEngine {
   /// user's alarm may not actually be armed. Never used for display.
   int? _strapAlarmEpoch;
   bool? _strapAlarmActive;
+
+  /// Strap timestamp of the newest battery-pack reading or removal applied to
+  /// [DeviceState.batteryPackPct]. An older one arriving later is the past,
+  /// whatever the freshness gate says.
+  int? _batteryPackEventTs;
 
   /// Why the last running haptics pattern stopped (HAPTICS_TERMINATED(100),
   /// `expired`, `error` or `user_double_tap`. The double tap is the
@@ -2256,7 +2451,9 @@ class BleEngine {
   // auto-continue run ceiling in particular). Started once and never reset;
   // callers diff two readings of it, same shape as _wallSecs so they compose
   // with existing double-seconds call sites like AutoContinueRun's.
-  final Stopwatch _monotonic = Stopwatch()..start();
+  // package:clock's stopwatch is the system one in production; under
+  // fakeAsync it follows fake time, so the windows read off it are testable.
+  final Stopwatch _monotonic = clock.stopwatch()..start();
   double _monotonicSecs() => _monotonic.elapsedMicroseconds / 1e6;
 
   // Wall-clock of the last BLE notification received on ANY characteristic. iOS
@@ -2375,6 +2572,12 @@ class BleEngine {
   void _setPhase(BleConnState p) {
     _phase = p;
     state.connection = connStringFor(p);
+    // Removal is only heard over a live link, so off one the pack reading is
+    // no longer known to be true. The next 109 brings it back.
+    if (p != BleConnState.listening) {
+      state.batteryPackPct = null;
+      _batteryPackEventTs = null;
+    }
     onState(state);
   }
 
@@ -2435,6 +2638,20 @@ class BleEngine {
     // absorbed since — the ended-task counterpart of the stuck counters.
     'history_task_ended': _session?.historyTaskEnded ?? false,
     'ended_markers_dropped': _session?.endedMarkersDropped ?? 0,
+    // Opcode-22 requests the band never answered (see
+    // kHistoryFirstStartTimeoutSeconds) and the retry budget spent on them.
+    'first_start_timeouts': _firstStartTimeouts,
+    'no_start_retries': _session?.noStartRetries ?? 0,
+    'first_start_watchdog_armed': _session?.firstStartWatchdog != null,
+    'history_held': _session?.historyHeld ?? false,
+    // Transfers another client on this band ran while we were connected:
+    // observed, banked tokenless, never answered.
+    'history_task_owned': _historyTaskOwned,
+    'foreign_markers_seen': _session?.foreignMarkersSeen ?? 0,
+    'foreign_records_banked': _foreignRecordsBanked,
+    'foreign_history_live': _foreignHistoryLive,
+    'foreign_claims_deferred': _foreignClaimsDeferred,
+    'foreign_rows_lost_at_shutdown': _foreignRowsLostAtShutdown,
     // Band-reboot signal — see CounterRegressionDetector. Observability only;
     // recovery already happens automatically at the DB layer.
     'counter_regressions_total': _counterRegression.regressions,
@@ -2800,6 +3017,7 @@ class BleEngine {
         return false;
       }
       _setPhase(BleConnState.subscribing);
+      _armForeignBuffer();
       // Null only for a band whose entry does not require the characteristic —
       // the `missing` gate above has already aborted for one that does.
       if (cmdFrom != null) await _subscribe(session, cmdFrom, 'cmd_from');
@@ -2881,6 +3099,7 @@ class BleEngine {
             shouldPauseMaintenanceTraffic(
               offloadActive: _offloadActive,
               ecgLeased: _ecgLease != null,
+              foreignHistoryLive: _foreignHistoryLive,
             )) {
           return;
         }
@@ -2923,7 +3142,7 @@ class BleEngine {
       _drain = DrainController(
         onRecord: _storeRecord,
         onRecordsBatch: onRecordsBatch == null ? null : _storeRecordsBatch,
-        onCommit: onCommitBatch == null ? null : _commitBatch,
+        onCommit: _commitSinkFor(linkDeviceFamily),
         onArchive: onArchiveRecord,
         log: _log,
       );
@@ -2966,6 +3185,37 @@ class BleEngine {
     }
   }
 
+  /// THE task claim. Both claim paths and the test seam run exactly this, and
+  /// it stays synchronous: callers rely on "the first one through the guards
+  /// takes the task".
+  ///
+  /// The validation-failure tally and the waiter generation belong to the TASK
+  /// ([DrainController.startFreshTask]); the previous task's terminal latch
+  /// lifts because this task's markers are live traffic; no burst is active
+  /// until this task's first HISTORY_START, so an END before it is a
+  /// previous task's straggler; and the generation bump
+  /// makes every leftover of a previous task (queued frames, parked
+  /// continuations) provably stale.
+  int _claimHistoryTask(_Session session, {required bool drains}) {
+    _drain?.startFreshTask();
+    if (drains) session.historyTaskEnded = false;
+    _historyTaskGen++;
+    _historyAwaitingFirstStart = drains;
+    session.ownedTaskGen = drains ? _historyTaskGen : null;
+    session.cancelFirstStartWatchdog();
+    _setOffloadActive(drains);
+    return _historyTaskGen;
+  }
+
+  /// Claim a history task exactly as INIT/refresh do, without the writes —
+  /// the state a link is in right after opcode 22 went out.
+  @visibleForTesting
+  int debugClaimHistoryTask() {
+    final s = _session!;
+    s.ownTaskTail = false;
+    return _historyRequestedGen = _claimHistoryTask(s, drains: true);
+  }
+
   /// The INIT drain claim — the tail of [_doConnect], lifted out so its
   /// lifecycle rules are testable: wait for the previous task's quiescence,
   /// re-check the session, arm the task state, fire INIT, and roll back if
@@ -2973,20 +3223,9 @@ class BleEngine {
   /// false only when [session] died along the way (no INIT traffic goes out
   /// then; the disconnect path owns the cleanup).
   Future<bool> _startInitDrain(_Session session) async {
-    // INIT seq4 IS SEND_HISTORICAL_DATA, so it needs the SAME data-safety gate
-    // as _startHistoricalRefresh — without it every fresh connection drains
-    // and trims under exactly the untrustworthy phone clock we refuse to drain
-    // under there, which is the common case (a dead-battery reboot lands a bad
-    // clock and a reconnect together).
-    final drainOnInit = !_deferForClock;
-    if (!drainOnInit) {
-      _clockPausedOffloads++;
-      _log(
-        '[SYNC] INIT drain DEFERRED — phone clock appears wrong relative to '
-        'the strap RTC; not draining history until they agree '
-        '(deferred_total=$_clockPausedOffloads).',
-      );
-    }
+    // Bank whatever another client's transfer left in the foreign buffer
+    // BEFORE the barrier, so the barrier → claim step below stays one turn.
+    await _flushForeignBuffer(reason: 'claim');
     // The INIT drain is a new task like any other claim, so it goes behind
     // the same lifecycle barrier: a previous session's task-ending abort or
     // a marker handler still parked in a commit must finish unwinding
@@ -3003,19 +3242,37 @@ class BleEngine {
           'the previous history task to unwind.');
       return false;
     }
+    // INIT seq4 IS SEND_HISTORICAL_DATA, so it needs the SAME data-safety gate
+    // as _startHistoricalRefresh — without it every fresh connection drains
+    // and trims under exactly the untrustworthy phone clock we refuse to drain
+    // under there, which is the common case (a dead-battery reboot lands a bad
+    // clock and a reconnect together).
+    // Decided HERE, after both waits and right before the synchronous claim:
+    // another client may have started a transfer while we waited. Same rule
+    // as _startHistoricalRefresh — never start a transfer into one another
+    // client on this band is running; INIT then sends only its non-drain
+    // packets, exactly like the clock deferral.
+    final foreignLive = _foreignHistoryLive;
+    final drainOnInit = !_deferForClock && !foreignLive;
+    if (_deferForClock) {
+      _clockPausedOffloads++;
+      _log(
+        '[SYNC] INIT drain DEFERRED — phone clock appears wrong relative to '
+        'the strap RTC; not draining history until they agree '
+        '(deferred_total=$_clockPausedOffloads).',
+      );
+    } else if (foreignLive) {
+      _foreignClaimsDeferred++;
+      _log('[SYNC] INIT drain DEFERRED — another client is transferring '
+          'history on this band; not starting a competing transfer.');
+      _armForeignRetrigger(session);
+    }
     // Leftovers of a previous session's task (queued frames, parked
     // continuations) are stale from here — session binding already refuses
-    // most of them, the generation closes the rest. Doc 05: no burst is
-    // active until this task's first HISTORY_START.
-    _historyTaskGen++;
-    // Same claim as _startHistoricalRefresh's task boundary: the failure
-    // tally and the waiter generation belong to the TASK, not to the
-    // controller's lifetime. On a fresh connect the controller is already
-    // new and this is a no-op; it matters once a caller reuses an existing
-    // controller (debugStartInitDrain(), or a future one).
-    _drain?.startFreshTask();
-    _historyAwaitingFirstStart = drainOnInit;
-    _setOffloadActive(drainOnInit);
+    // most of them, the generation closes the rest. On a fresh connect the
+    // controller is already new and its startFreshTask is a no-op; it
+    // matters once a caller reuses an existing controller.
+    final taskGen = _claimHistoryTask(session, drains: drainOnInit);
     // Only a real drain spends the backfill floor; a deferred one leaves it
     // open so a foreground trigger can retry as soon as the phone corrects.
     final floorBeforeInit = _lastBackfillAt;
@@ -3025,7 +3282,15 @@ class BleEngine {
     // there is no flood: hand the state back, or `_offloadActive` stays set
     // on a strap that was never asked for history and every later refresh
     // stops at the already-transmitting guard.
-    final initOk = await sendInit(drain: drainOnInit);
+    var drainDeferred = false;
+    final initOk = await sendInit(
+      drain: drainOnInit,
+      // Immediately before the opcode-22 write: another client may have
+      // started a transfer during INIT's earlier packets. Its traffic was
+      // not ours (nothing is until this point), so it opened the window.
+      beforeDrainRequest: _historyRequestGate(session, taskGen,
+          onForeign: () => drainDeferred = true),
+    );
     // UNCONDITIONAL staleness re-check — not only on a failed INIT. The last
     // write can succeed and the link die before this continuation resumes;
     // reporting success then hands the caller a READY verdict for a dead
@@ -3036,14 +3301,32 @@ class BleEngine {
           'writes; not reporting connect success for a dead session.');
       return false;
     }
-    if (!initOk) {
+    if (!initOk || drainDeferred) {
+      // A task that ended while its request was queued had the request
+      // withheld; its terminal (or a replacement) owns this state now.
+      if (_historyTaskGen != taskGen) return true;
+      // The gate marks a request as gone out before the transport write; if
+      // that write failed nothing went out, and no straggler may answer it.
+      _historyRequestedGen = null;
       _historyAwaitingFirstStart = false;
+      if (session.ownedTaskGen == taskGen) session.ownedTaskGen = null;
+      session.idleWatchdog?.cancel();
       _setOffloadActive(false);
       _lastBackfillAt = floorBeforeInit;
-      _log(
-        '[SYNC] INIT did not fully write — no history was requested; '
-        'clearing offload state so a later refresh can retry.',
-      );
+      if (drainDeferred) {
+        _foreignClaimsDeferred++;
+        _log('[SYNC] INIT drain DEFERRED — another client started '
+            'transferring history during INIT; not sending the drain '
+            'request into it.');
+        _armForeignRetrigger(session);
+      } else {
+        _log(
+          '[SYNC] INIT did not fully write — no history was requested; '
+          'clearing offload state so a later refresh can retry.',
+        );
+      }
+    } else if (drainOnInit && _historyTaskGen == taskGen) {
+      _armFirstStartWatchdog(session, taskGen);
     }
     return true;
   }
@@ -3205,6 +3488,7 @@ class BleEngine {
         return _Gen5ConnectOutcome.failed;
       }
       _setPhase(BleConnState.subscribing);
+      _armForeignBuffer();
       // Serial registration in the retained official fixture order: command
       // response → optional Memfault → data → events (that order is one
       // client fixture, not a protocol requirement — but matching it costs
@@ -3806,6 +4090,7 @@ class BleEngine {
     if (shouldPauseMaintenanceTraffic(
               offloadActive: _offloadActive,
               ecgLeased: _ecgLease != null,
+              foreignHistoryLive: _foreignHistoryLive,
             )) {
       return;
     }
@@ -4013,6 +4298,13 @@ class BleEngine {
     // claim below is synchronous, so the first one through takes the task and
     // the rest fall out at the already-transmitting guard: at most ONE next
     // task.
+    //
+    // Bank another client's leftover records first: the await belongs BEFORE
+    // the barrier, never between the barrier and the synchronous claim. The
+    // foreign buffer is its own controller, so anything that lands while we
+    // wait can never ride into this task's token commit — the quiet flush
+    // banks it.
+    await _flushForeignBuffer(reason: 'claim');
     if (_historyAbortInFlight != null || _historyMarkerInFlight != null) {
       _log('[SYNC] refresh($reason) — waiting for the previous history '
           'task\'s abort/handler to finish before starting a new one.');
@@ -4040,9 +4332,25 @@ class BleEngine {
       }
       return false;
     }
+    if (session.historyHeld) {
+      _log('[SYNC] refresh($reason) refused — history is held on this link '
+          'until it closes (configuration writes in progress).');
+      return false;
+    }
     if (_ecgLeaseHeldFor(session)) {
       _log('[SYNC] refresh($reason) refused — the ECG owner holds the '
           'transport; history resumes after the reading.');
+      return false;
+    }
+    // Another client on this band is mid-transfer. Starting ours now would
+    // put a second request into its session; the window closes on its
+    // COMPLETE or after [kForeignHistoryQuietSeconds] without a marker, and
+    // [_armForeignRetrigger] re-requests once it has.
+    if (_foreignHistoryLive) {
+      _foreignClaimsDeferred++;
+      _log('[SYNC] refresh($reason) deferred — another client is transferring '
+          'history on this band; not starting a competing transfer.');
+      _armForeignRetrigger(session);
       return false;
     }
     if (_offloadActive && !d._complete) {
@@ -4085,27 +4393,21 @@ class BleEngine {
     // task must never inherit the previous task's failure slack. The
     // previous task's terminal latch lifts for the same reason: ITS
     // stragglers had to stay inert, but this task's markers are live traffic.
-    d.startFreshTask();
-    // The previous task's terminal latch, in case this claim never becomes a
-    // task (deferred for clock, or the SEND_HISTORICAL_DATA write fails) —
-    // then it must go back so that task's stragglers stay inert instead of
-    // re-arming the idle watchdog under the current generation.
+    //
+    // The previous task's terminal latch is kept aside in case this claim
+    // never becomes a task (deferred for clock, or the SEND_HISTORICAL_DATA
+    // write fails) — then it must go back so that task's stragglers stay
+    // inert instead of re-arming the idle watchdog under the current
+    // generation.
     final endedBeforeClaim = session.historyTaskEnded;
-    session.historyTaskEnded = false;
-    // Doc 05: the new task has no active burst until the strap's first
-    // HISTORY_START — until then a HISTORY_END is a duplicate and data
-    // packets are dropped (gen5).
-    _historyAwaitingFirstStart = true;
     // Claiming IS the generation bump: from here, leftovers of any previous
     // task (queued frames, parked continuations) are provably stale.
-    _historyTaskGen++;
-    final taskGen = _historyTaskGen;
+    final taskGen = _claimHistoryTask(session, drains: true);
     // True once this claim is no longer the engine's live task — either the
     // link was replaced or a terminal (idle watchdog above all) ended the task
     // while this method was parked on an await. A stale claim must simply
     // stop: the state it would "clean up" belongs to someone else now.
     bool claimStale() => _sessionIsStale(session) || _historyTaskGen != taskGen;
-    _setOffloadActive(true);
     if (refreshRange) {
       _log('[SYNC] refresh($reason) — polling GET_DATA_RANGE before 0x16.');
       await _sendGetDataRange(owner: session);
@@ -4136,6 +4438,8 @@ class BleEngine {
       // hand the previous task's terminal latch back.
       session.historyTaskEnded = endedBeforeClaim;
       _historyAwaitingFirstStart = false;
+      session.ownedTaskGen = null;
+      session.idleWatchdog?.cancel();
       _setOffloadActive(false);
       return false;
     }
@@ -4151,22 +4455,58 @@ class BleEngine {
       await Future.delayed(Duration(milliseconds: (wait * 1000).ceil()));
       if (claimStale()) return false;
     }
+    // Last look before the request: another client may have started a
+    // transfer during the waits above. Its traffic was not ours (nothing is
+    // until the request goes out), so it opened the window.
+    if (_foreignHistoryLive) {
+      _foreignClaimsDeferred++;
+      _log('[SYNC] refresh($reason) deferred — another client started '
+          'transferring history while this request was being prepared; not '
+          'sending it.');
+      session.historyTaskEnded = endedBeforeClaim;
+      _historyAwaitingFirstStart = false;
+      session.ownedTaskGen = null;
+      session.idleWatchdog?.cancel();
+      _setOffloadActive(false);
+      _armForeignRetrigger(session);
+      return false;
+    }
     _log('[SYNC] refresh($reason) — sending SEND_HISTORICAL_DATA.');
     // `_send` swallows write failures and reports them as false. Claiming
     // success anyway leaves the strap with no request, `_offloadActive` stuck
     // true — so later refreshes bounce off the "already transmitting" guard —
     // and both rate-limit floors spent on a command that never left the phone.
-    if (!await _sendHistoricalData(owner: session)) {
+    var withheld = false;
+    if (!await _sendHistoricalData(
+      owner: session,
+      // Answerable — ours — from the moment the bytes go out, not from when
+      // the write was queued behind earlier ones; and not sent at all if
+      // another client started a transfer while it was queued.
+      beforeTransport: _historyRequestGate(session, taskGen,
+          onForeign: () => withheld = true),
+    )) {
+      if (withheld) {
+        _foreignClaimsDeferred++;
+        _log('[SYNC] refresh($reason) deferred — another client started '
+            'transferring history while this request was queued; not '
+            'sending it.');
+      }
       // A claim that went stale UNDER the write must not clear the state the
       // replacement task now owns.
       if (!claimStale()) {
         session.historyTaskEnded = endedBeforeClaim;
+        // Nothing went out (see the INIT rollback): nothing answers it.
+        _historyRequestedGen = null;
         _historyAwaitingFirstStart = false;
+        session.ownedTaskGen = null;
+        session.idleWatchdog?.cancel();
         _setOffloadActive(false);
+        if (withheld) _armForeignRetrigger(session);
       }
       return false;
     }
     _lastHistoricalSendAt = _wallSecs();
+    if (!claimStale()) _armFirstStartWatchdog(session, taskGen);
     return true;
   }
 
@@ -4177,72 +4517,98 @@ class BleEngine {
   ) async {
     await c.setNotifyValue(true).timeout(_notifySetupTimeout);
     session.subs.add(
-      c.onValueReceived.listen((chunk) {
-        // Ignore notifications from a session we've already torn down.
-        if (_session != session || !session.connected) return;
-        _lastRx = DateTime.now();
-        // A malformed/corrupt chunk (framer bug on an unusual firmware
-        // revision) must not become an uncaught async error that silently
-        // stops this characteristic's whole notification stream — degrade
-        // by dropping this chunk and logging, same discipline as every other
-        // failure path in this file.
-        try {
-        for (final frame in session.asm[role]!.feed(chunk)) {
-          if (frame.decodable) {
-            _onFrame(role, frame, session);
-          } else if (frame.valid) {
-            // Both CRCs pass but the frame revision is one this decoder does
-            // not understand, so packetType/seq/opcode sit at unknown offsets:
-            // routing it would read a BODY byte as the opcode and dispatch on
-            // it, silently, with no CRC failure to point at. Counted apart
-            // from CRC corruption so a firmware revision bump is loud.
-            _frameRevRejectsTotal++;
-            // ARCHIVE, don't drop. These are intact bytes from a firmware we
-            // don't speak yet — exactly what raw_archive is for. Dropping them
-            // while still ACKing the burst let the band trim records that
-            // existed nowhere. The counter is forensic only (its offset is a
-            // guess under an unknown revision); raw_archive keys on the hex.
-            //
-            // Only while an offload is running: that is the only window where
-            // an ACK can make the band delete these bytes, and we cannot tell a
-            // record from a 100 Hz live frame under an unknown revision —
-            // archiving those (raw_archive is never pruned) would bloat the DB
-            // exactly the way live frames are kept out of raw_records for.
-            if (_offloadActive) {
-              _archiveHistoricalFrame(
-                frame,
-                _counterFromInner(frame.inner),
-                reason: 'undecodable_frame_rev',
-              );
-            }
-          } else {
-            // Previously silent: a degrading radio corrupting frames looked
-            // identical to a healthy one everywhere. Now counted (surfaced in
-            // offloadSnapshot) and fed to an independent corruption-rate
-            // detector below, alongside RecordGate.dropped for plausibility
-            // rejections.
-            _crcFailuresTotal++;
-            _crcFailuresThisSession++;
-          }
-          if (_frameCorruption.feed(frame.valid)) {
-            state.standardHrFallback = true;
-            onState(state);
-            _log(
-              '[RECONNECT] frame-corruption tripped '
-              '($_crcFailuresThisSession CRC failures this session) — '
-              'standard-HR fallback enabled.',
-            );
-            // The fallback is an input to the desired live state: drop an
-            // applied IMU bundle now rather than on a keep-alive tick that
-            // returns early for the whole of an offload.
-            unawaited(_reconcileLive());
-          }
-        }
-        } catch (e, st) {
-          _log('[BLE] notify handler threw on role=$role: $e\n$st');
-        }
-      }),
+      c.onValueReceived.listen((chunk) => _onChunk(session, role, chunk)),
     );
+  }
+
+  /// One notification's bytes on [role]: reassemble, then route each frame.
+  void _onChunk(_Session session, String role, List<int> chunk) {
+    // Ignore notifications from a session we've already torn down — or are
+    // tearing down: ingress is frozen from the first line of the teardown.
+    if (_session != session || !session.connected || session.closing) return;
+    _lastRx = DateTime.now();
+    // A malformed/corrupt chunk (framer bug on an unusual firmware
+    // revision) must not become an uncaught async error that silently
+    // stops this characteristic's whole notification stream — degrade
+    // by dropping this chunk and logging, same discipline as every other
+    // failure path in this file.
+    try {
+    for (final frame in session.asm[role]!.feed(chunk)) {
+      if (frame.decodable) {
+        _onFrame(role, frame, session);
+      } else if (frame.valid) {
+        // Both CRCs pass but the frame revision is one this decoder does
+        // not understand, so packetType/seq/opcode sit at unknown offsets:
+        // routing it would read a BODY byte as the opcode and dispatch on
+        // it, silently, with no CRC failure to point at. Counted apart
+        // from CRC corruption so a firmware revision bump is loud.
+        _frameRevRejectsTotal++;
+        // ARCHIVE, don't drop. These are intact bytes from a firmware we
+        // don't speak yet — exactly what raw_archive is for. Dropping them
+        // while still ACKing the burst let the band trim records that
+        // existed nowhere. The counter is forensic only (its offset is a
+        // guess under an unknown revision); raw_archive keys on the hex.
+        //
+        // Only while an offload is running: that is the only window where
+        // an ACK can make the band delete these bytes, and we cannot tell a
+        // record from a 100 Hz live frame under an unknown revision —
+        // archiving those (raw_archive is kept, except the thinning in
+        // `LocalDb.thinRawArchiveBefore`) would bloat the DB exactly the
+        // way live frames were kept out of the old raw_records ledger.
+        // Another client's transfer counts too: its ACK trims these
+        // bytes just the same, so they go to the foreign buffer. Which
+        // buffer is the arrival classifier's call, as for every frame.
+        if (_offloadActive && _arrivesOwned(session)) {
+          _archiveHistoricalFrame(
+            frame,
+            _counterFromInner(frame.inner),
+            reason: 'undecodable_frame_rev',
+          );
+        } else if (_foreignHistoryLive && _foreignDrain != null) {
+          _archiveHistoricalFrame(
+            frame,
+            _counterFromInner(frame.inner),
+            reason: 'undecodable_frame_rev',
+            into: _foreignDrain,
+          );
+          _scheduleForeignBank(session);
+        }
+      } else {
+        // Previously silent: a degrading radio corrupting frames looked
+        // identical to a healthy one everywhere. Now counted (surfaced in
+        // offloadSnapshot) and fed to an independent corruption-rate
+        // detector below, alongside RecordGate.dropped for plausibility
+        // rejections.
+        _crcFailuresTotal++;
+        _crcFailuresThisSession++;
+      }
+      if (_frameCorruption.feed(frame.valid)) {
+        state.standardHrFallback = true;
+        onState(state);
+        _log(
+          '[RECONNECT] frame-corruption tripped '
+          '($_crcFailuresThisSession CRC failures this session) — '
+          'standard-HR fallback enabled.',
+        );
+        // The fallback is an input to the desired live state: drop an
+        // applied IMU bundle now rather than on a keep-alive tick that
+        // returns early for the whole of an offload.
+        unawaited(_reconcileLive());
+      }
+    }
+    } catch (e, st) {
+      _log('[BLE] notify handler threw on role=$role: $e\n$st');
+    }
+  }
+
+  /// Feed raw notification bytes through the real reassembly path
+  /// ([_onChunk]) — the only path that sees intact frames of an unknown
+  /// revision.
+  @visibleForTesting
+  void debugReceiveChunk(List<int> chunk, {String role = 'data'}) {
+    final session = _session;
+    if (session == null) return;
+    _onChunk(session, role, chunk);
   }
 
   /// Collect the OPTIONAL Memfault characteristic's bytes as diagnostics.
@@ -4449,10 +4815,16 @@ class BleEngine {
   /// `dangerousCmds` on purpose (persistent config writes) and are sent only
   /// behind an explicit user opt-in with a restore-defaults companion. Pass it
   /// nowhere else without the same justification.
+  ///
+  /// [beforeTransport] runs inside the queued write, after its guards and
+  /// immediately before the bytes go to the transport (the chain may hold
+  /// this write behind earlier ones for a while); returning false skips the
+  /// write, which then reports false.
   Future<bool> _write(
     Uint8List raw, {
     _Session? owner,
     bool allowDangerous = false,
+    bool Function()? beforeTransport,
   }) {
     final session = _session;
     // The dangerous-opcode block lives HERE, at the one write every command
@@ -4483,6 +4855,7 @@ class BleEngine {
           _log('write skipped: it belongs to a session that is no longer live.');
           return false;
         }
+        if (beforeTransport != null && !beforeTransport()) return false;
         final hook = debugWriteHook;
         if (hook != null) return await hook(raw);
         final cmd = session.cmdTo;
@@ -4575,11 +4948,17 @@ class BleEngine {
   /// [owner] pins the write to one session (see [_write]) — offload commands
   /// issued from a long-parked task start pass theirs so a claim that went
   /// stale mid-await cannot put its command onto a replacement link.
-  Future<bool> _send(int opcode, List<int> payload, {_Session? owner}) async {
+  Future<bool> _send(
+    int opcode,
+    List<int> payload, {
+    _Session? owner,
+    bool Function()? beforeTransport,
+  }) async {
     if (_refuseDangerousOpcode(opcode)) return false;
     final frame = buildCommand(
         _seq.nextLive(), opcode, payload, _session?.band ?? BandProfile.gen4);
-    final ok = await _write(frame, owner: owner);
+    final ok =
+        await _write(frame, owner: owner, beforeTransport: beforeTransport);
     if (!ok) {
       _log('WRITE FAILED for opcode 0x${opcode.toRadixString(16)} — '
           'command not delivered.');
@@ -4654,8 +5033,14 @@ class BleEngine {
 
   Future<bool> _sendGetDataRange({_Session? owner}) =>
       _send(Cmd.getDataRange, _offloadPayload, owner: owner);
-  Future<bool> _sendHistoricalData({_Session? owner}) =>
-      _send(Cmd.sendHistoricalData, _offloadPayload, owner: owner);
+  /// [beforeTransport]: see [_write] — where a request becomes the one the
+  /// band's traffic can answer.
+  Future<bool> _sendHistoricalData({
+    _Session? owner,
+    bool Function()? beforeTransport,
+  }) =>
+      _send(Cmd.sendHistoricalData, _offloadPayload,
+          owner: owner, beforeTransport: beforeTransport);
 
   /// Ask the strap to prompt more frequent history syncs around a wake time.
   ///
@@ -4868,10 +5253,23 @@ class BleEngine {
       // Fall through to decodeFrame so the UI gets live telemetry (state.liveHr).
     }
     if (pt == PacketType.historicalData) {
+      // Same ownership rule as the queued path: a transfer this engine did
+      // not request is banked apart and never touches the task's terminal
+      // diagnostics, watchdogs or offload claim.
+      final fs = _session;
+      if (fs == null || !_arrivesOwned(fs)) {
+        if (fs != null) _noteForeignMarkerReceipt(frame, fs);
+        _ingestForeignHistoricalFrame(frame);
+        return;
+      }
       // Same doc-05 rule as the queued path: data packets before the task's
       // first HISTORY_START are the previous task's stragglers — drop them
       // (un-ACKed, the band re-delivers) instead of ingesting them into a
       // burst window that has not opened.
+      final s = _session;
+      if (s != null && _historyRequestedGen == _historyTaskGen) {
+        _noteHistoryAnswer(s, frame);
+      }
       if (_dropPreStartHistory) return;
       // Historical data flowing while no offload is marked active is a terminal
       // worth recording (an unsolicited drain / lost START marker).
@@ -4906,13 +5304,11 @@ class BleEngine {
       _log('[EVENT] ${_innerHex(frame.inner)}');
       // The profile matters: protocol keeps the gen5-scoped event bodies
       // (29/100/109/123) numeric and un-decoded on a gen4 link.
-      final e = parseEvent(
-        frame.inner,
-        profile: _session?.band ?? BandProfile.gen4,
-      );
+      final profile = _session?.band ?? BandProfile.gen4;
+      final e = parseEvent(frame.inner, profile: profile);
       if (e != null) {
         _handleEventInfo(e);
-        onEvent?.call(e.eventId, e.tsEpoch, _innerHex(frame.inner));
+        onEvent?.call(e.eventId, e.tsEpoch, _innerHex(frame.inner), profile);
       }
     }
     final entry = _session?.entry ?? kWhoopGen4;
@@ -4933,12 +5329,26 @@ class BleEngine {
   }
 
   void _enqueueOffloadFrame(Frame frame, _Session session) {
-    if (_session != session || !session.connected) return; // stale session
-    _offloadFrames.add((frame: frame, taskGen: _historyTaskGen));
+    if (_session != session || !session.connected || session.closing) {
+      return; // stale or closing session
+    }
+    final owned = _arrivesOwned(session);
+    _offloadFrames.add((frame: frame, taskGen: _historyTaskGen, owned: owned));
+    if (owned) {
+      if (frame.packetType == PacketType.metadata &&
+          parseMetadata(frame.inner)?.sub == SyncMeta.historyComplete) {
+        session.completeReceivedGen = _historyTaskGen;
+        session.ownTaskTail = true;
+      }
+    } else {
+      _noteForeignMarkerReceipt(frame, session);
+    }
     // A straggler historical frame from a task that ended through the abort
     // boundary must not re-raise the offload — that is exactly the "duplicate
-    // terminals hold the offload open" wedge.
-    if ((_offloadActive || frame.packetType == PacketType.historicalData) &&
+    // terminals hold the offload open" wedge. Nor may a frame of a transfer
+    // this engine did not request: only our own claim raises it.
+    if (frame.packetType == PacketType.historicalData &&
+        owned &&
         !session.historyTaskEnded) {
       _setOffloadActive(true);
     }
@@ -4969,6 +5379,11 @@ class BleEngine {
         final count = _offloadFrames.length > 64 ? 64 : _offloadFrames.length;
         final batch = _offloadFrames.sublist(0, count);
         _offloadFrames.removeRange(0, count);
+        // Visible to teardown while this loop is parked on a marker handler:
+        // the entries not reached yet are dropped with the link, and another
+        // client's records among them must still be banked.
+        _drainBatch = batch;
+        _drainBatchNext = 0;
         // Records are flowing → the strap is still draining. Armed per drained
         // batch (bounded rate) instead of per record — same watchdog semantics,
         // no Timer churn at flood rates. Markers re-arm it in _handleSyncMarker.
@@ -4978,12 +5393,15 @@ class BleEngine {
         // keep a genuinely stalled offload alive past the timeout forever.
         // Stale-generation leftovers count for nothing here either.
         if (batch.any((e) =>
+            e.owned &&
             e.taskGen == _historyTaskGen &&
             e.frame.packetType == PacketType.historicalData)) {
           _armIdleWatchdog();
         }
-        for (final entry in batch) {
+        for (var i = 0; i < batch.length; i++) {
           if (_sessionIsStale(session)) return;
+          _drainBatchNext = i + 1;
+          final entry = batch[i];
           final frame = entry.frame;
           // An OLD task's queued frames must never be processed as part of a
           // new one: they were counted/collected for a burst window that is
@@ -4994,11 +5412,31 @@ class BleEngine {
           // replacement task it never belonged to). The awaitComplete()
           // waiter it used to release is resolved at the abort boundary
           // instead (DrainController.onTaskTerminal).
-          if (entry.taskGen != _historyTaskGen) continue;
+          if (entry.taskGen != _historyTaskGen) {
+            // Except a record that arrived while no task of ours was open
+            // (another client's, or a straggler of ours after its abort):
+            // it was never part of any task of ours, so a claim taken
+            // since must not discard it. Banked apart, tokenless, as if it
+            // had been processed on arrival.
+            if (!entry.owned &&
+                frame.packetType == PacketType.historicalData) {
+              _ingestForeignHistoricalFrame(frame);
+            } else if (!entry.owned &&
+                frame.packetType == PacketType.metadata) {
+              final m = parseMetadata(frame.inner);
+              if (m != null) await _observeForeignMarker(m, session);
+            }
+            continue;
+          }
+          // Classified at arrival ([_arrivesOwned]) — and still ours only
+          // while that ownership holds (a rolled-back claim gives it up
+          // without a generation bump).
+          final ours = entry.owned && _historyTaskOwned;
+          if (ours) _noteHistoryAnswer(session, frame);
           if (frame.packetType == PacketType.metadata) {
             // Published while awaited so a task start can wait out a handler
             // parked mid-commit — see _awaitHistoryLifecycleQuiescence.
-            final handling = _handleSyncMarker(frame, session);
+            final handling = _handleSyncMarker(frame, session, ours: ours);
             _historyMarkerInFlight = handling;
             try {
               await handling;
@@ -5008,19 +5446,26 @@ class BleEngine {
               }
             }
           } else if (frame.packetType == PacketType.historicalData) {
+            // Not ours (no task claimed, or ours already ended): bank it
+            // apart, never into the drain a token commit reads.
+            if (!ours) {
+              _ingestForeignHistoricalFrame(frame);
+              continue;
+            }
             // Doc 05: the processor drops data packets until the task's first
             // HISTORY_START — a straggler record from the previous task must
             // not be ingested (or tallied) into the new one. Un-ACKed, so the
             // band re-delivers it under a real burst.
             if (_dropPreStartHistory) continue;
             _ingestHistoricalFrame(frame);
-          } else {
+          } else if (ours) {
             // A count member that was already processed inline
             // ([FrameRoute.immediateAndCount]) and is here only to have its
             // burst count applied in arrival order.
             _countQueuedBurstMember(frame);
           }
         }
+        if (identical(_drainBatch, batch)) _drainBatch = null;
         if (_offloadFrames.isNotEmpty) {
           await Future<void>.delayed(Duration.zero);
         }
@@ -5082,9 +5527,9 @@ class BleEngine {
   /// (plausibility + frontier via [RecordGate]) → storage enqueue. Keeping one
   /// path is deliberate: the previous duplicate had drifted, silently losing
   /// the plausibility gate and freezing the frontier the stuck-strap /
-  /// auto-continue policies read.
-  /// Set a historical frame aside in `raw_archive` — the never-pruned store for
-  /// bytes this build could not fully turn into a [Sample].
+  /// auto-continue policies read. Set a historical frame aside in `raw_archive`
+  /// — the kept store (except the thinning in `LocalDb.thinRawArchiveBefore`)
+  /// for bytes this build could not fully turn into a [Sample].
   ///
   /// Routed through the drain when one is active so the write lands inside the
   /// SAME transaction as the batch commit (safe-trim invariant: nothing the
@@ -5093,6 +5538,7 @@ class BleEngine {
     Frame frame,
     int counter, {
     required String reason,
+    DrainController? into,
   }) {
     final archive = ArchiveRecord(
       counter: counter,
@@ -5101,7 +5547,7 @@ class BleEngine {
       capturedAt: DateTime.now().millisecondsSinceEpoch,
       reason: reason,
     );
-    final d = _drain;
+    final d = into ?? _drain;
     if (d != null) {
       d.onUndecodableRecord(archive);
     } else {
@@ -5109,7 +5555,11 @@ class BleEngine {
     }
   }
 
-  void _ingestHistoricalFrame(Frame frame) {
+  /// [into] is the controller the record lands in — [_drain] for this
+  /// engine's own task, [_foreignDrain] for a transfer it did not request.
+  /// Everything else (decode, gate, archive rules, R16) is the same code.
+  void _ingestHistoricalFrame(Frame frame, {DrainController? into}) {
+    final target = into ?? _drain;
     final pt = frame.packetType;
     if (pt != PacketType.historicalData) return;
     // Where the record-version byte sits is registry data, not a literal.
@@ -5142,7 +5592,7 @@ class BleEngine {
     // archive path below, which keeps the bytes.
     if (isGen5 && recType == Record.r16) {
       final r16 = LabradorR16Raw.tryParse(frame.inner);
-      final d = _drain;
+      final d = target;
       if (r16 != null && d != null && d.supportsSafeTrim) {
         d.onEcgRawPacket(
           EcgRawPacket(
@@ -5233,7 +5683,7 @@ class BleEngine {
       // SLP-05 sizes does not exist on real data.
       //
       // Worse, routing it here would be a REGRESSION: `_queueDecodedOneHz`
-      // writes REPLACE on the rec_ts key, so a v25 record arriving for a
+      // writes REPLACE on the second's key, so a v25 record arriving for a
       // second a v24 record already holds would evict it — deleting that
       // second's HR, R-R, optical and thermal readings and leaving an
       // HR-less row behind. That is 49% of v25 records.
@@ -5321,6 +5771,7 @@ class BleEngine {
         frame,
         counter,
         reason: 'undecodable_rec_v$recType',
+        into: target,
       );
       return;
     }
@@ -5345,7 +5796,8 @@ class BleEngine {
       // They are NOT re-timed later: the offset-and-snap salvage that used to
       // promise it would collapse 300 one-second records onto one rec_ts (see
       // sync_policy.dart), so it is gone. The day keeps an honest hole.
-      _archiveHistoricalFrame(frame, counter, reason: kGateDroppedReason);
+      _archiveHistoricalFrame(frame, counter,
+          reason: kGateDroppedReason, into: target);
       return;
     }
     final raw = RawRecord(
@@ -5359,7 +5811,7 @@ class BleEngine {
     // HISTORY_END flush, which persists raw-first BEFORE we ACK). The controller
     // is armed for the whole connection, so this is always present; the fallback
     // just stores directly if a frame somehow arrives before setup completed.
-    final d = _drain;
+    final d = target;
     if (d != null) {
       d.onHistoricalRecord(raw, sample, recType);
     } else {
@@ -5420,6 +5872,36 @@ class BleEngine {
       final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       if (BatteryPolicy.acceptsEventReading(batteryTs, wallNow)) {
         state.batteryPct = (f['battery_pct'] as num).toDouble();
+        onState(state);
+      }
+    }
+    // The battery pack's own charge, relayed by the strap in
+    // BATTERY_PACK_INFO(109) as tenths of a percent, and its removal (22).
+    // Newest event wins: a 109 or 22 older than the last one applied is
+    // ignored, so a late replay cannot bring back a removed pack or clear a
+    // re-attached one. Attach (21) sets nothing: the 109 after it carries the
+    // level.
+    final packTs = (f['ts_epoch'] as num?)?.toInt();
+    final packEventIsNewest = packTs != null &&
+        (_batteryPackEventTs == null || packTs >= _batteryPackEventTs!);
+    if (f.containsKey('pack_battery_raw') && packEventIsNewest) {
+      // Same freshness gate as the strap's level above: a replayed 109 is the
+      // pack's charge hours ago. A raw value past 1000 is not a percentage and
+      // is dropped rather than clamped.
+      final raw = (f['pack_battery_raw'] as num).toInt();
+      final wallNow = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      if (raw <= 1000 && BatteryPolicy.acceptsEventReading(packTs, wallNow)) {
+        _batteryPackEventTs = packTs;
+        state.batteryPackPct = raw / 10.0;
+        onState(state);
+      }
+    }
+    // Removal needs no freshness gate — forgetting a reading never claims
+    // anything — only to be newer than the reading it would clear.
+    if (f['pack_connected'] == false && packEventIsNewest) {
+      _batteryPackEventTs = packTs;
+      if (state.batteryPackPct != null) {
+        state.batteryPackPct = null;
         onState(state);
       }
     }
@@ -5609,10 +6091,200 @@ class BleEngine {
     }
   }
 
+  /// A history marker for a transfer this engine did not request — another
+  /// client on the same band. Never answered (no result, abort, request or
+  /// clock write), never arms a watchdog, never raises the offload claim and
+  /// never runs the post-offload policy. Its records are banked without
+  /// acknowledgement.
+  Future<void> _observeForeignMarker(MetaMarker m, _Session session) async {
+    session.foreignMarkersSeen++;
+    if (session.foreignMarkersSeen == 1) {
+      _log('[SYNC] history marker for a transfer this app did not request — '
+          'another client is syncing this band. Observing only; its records '
+          'are stored without acknowledging them.');
+    }
+    // The window itself was updated on arrival ([_noteForeignMarkerReceipt]).
+    if (m.sub == SyncMeta.historyStart) _foreignDrain?.rearm();
+    if (m.sub == SyncMeta.historyEnd || m.sub == SyncMeta.historyComplete) {
+      await _flushForeignBuffer(reason: 'foreign_marker');
+    }
+  }
+
+  /// Record another client's transfer activity the moment its marker ARRIVES,
+  /// not when the serialized drainer reaches it: a claim taken in between
+  /// (after a parked commit, say) would otherwise find the window closed and
+  /// start a competing transfer, and the generation it bumps would make the
+  /// queued marker stale before anyone looked at it. Also ahead of the
+  /// ended-task latch, which keeps markers inert for answering but must not
+  /// hide a transfer that starts while our own retry is pending.
+  ///
+  /// History RECORDS count too: joining another client's transfer mid-burst
+  /// shows data before any marker, and claiming into it would make its END
+  /// look like ours.
+  ///
+  /// After our own task ended (abort latch) or its COMPLETE arrived, the
+  /// band may still re-offer that task's END or deliver its last in-flight
+  /// records, so only a START (a new transfer) opens the window then; an END
+  /// or a record only keeps an already-open one alive. Under the Stuck latch
+  /// nothing is recorded — those re-offers are ours, and every claim is
+  /// refused anyway. Callers pass only frames that were not ours at arrival.
+  void _noteForeignMarkerReceipt(Frame frame, _Session session) {
+    final isData = frame.packetType == PacketType.historicalData;
+    if (frame.packetType != PacketType.metadata && !isData) return;
+    if (session.historyStuckActive) return;
+    final sub = isData ? null : parseMetadata(frame.inner)?.sub;
+    final now = _monotonicSecs();
+    final ourTail = session.ownTaskTail;
+    final live = session.foreignHistory.isLive(now);
+    if (sub == SyncMeta.historyComplete) {
+      session.foreignHistory.ended();
+      // A claim of ours waiting this transfer out need not sit out the quiet
+      // period: re-request after the usual settle.
+      if (session.foreignRetrigger != null) {
+        _armForeignRetrigger(session,
+            after: const Duration(seconds: kHistoricalAbortRetryDelaySeconds));
+      }
+    } else if (sub == SyncMeta.historyStart) {
+      session.foreignHistory.mark(now, progress: true);
+      // A START identifies a NEW transfer: our own task's tail is over as far
+      // as this window is concerned, so this transfer's later records and
+      // ENDs may re-open it even after a pause. EXCEPT inside a claim's
+      // pre-request waits: a START there may be the late answer to our own
+      // aborted request (the retry's case), so its re-offered ENDs must not
+      // keep re-opening the window the claim is waiting out.
+      final claimPending = session.ownedTaskGen == _historyTaskGen &&
+          _historyRequestedGen != _historyTaskGen;
+      if (!claimPending) session.ownTaskTail = false;
+    } else if (isData && (!ourTail || live)) {
+      session.foreignHistory.mark(now, progress: true);
+    } else if (sub == SyncMeta.historyEnd && (!ourTail || live)) {
+      session.foreignHistory.mark(now);
+    }
+  }
+
+  /// Build this link's foreign buffer BEFORE its notifications are enabled:
+  /// another client's transfer can be running the moment we subscribe, and
+  /// the band trims what that client acknowledges whether or not we kept it.
+  /// (Our own [_drain] is armed later, at READY — nothing of ours flows
+  /// before INIT.) Kept across a gen5 connect attempt that falls back to the
+  /// legacy order on the same link; teardown drops it with the link.
+  void _armForeignBuffer() {
+    _foreignDrain ??= DrainController(
+      onRecord: _storeRecord,
+      onRecordsBatch: null,
+      onCommit: _commitSinkFor(linkDeviceFamily),
+      onArchive: onArchiveRecord,
+      log: _log,
+    );
+  }
+
+  /// The durable-commit sink for a controller built for THIS link, with the
+  /// link's device family captured now: a commit queued behind another can
+  /// run after the next link — possibly another generation — is up, and must
+  /// still be stamped with the family of the band that sent the rows.
+  CommitSyncBatchSink? _commitSinkFor(String? family) => onCommitBatch == null
+      ? null
+      : (raws, samples, token, {archives, ecgRawPackets, deviceFamily}) =>
+          _commitBatch(raws, samples, token,
+              archives: archives,
+              ecgRawPackets: ecgRawPackets,
+              deviceFamily: deviceFamily ?? family);
+
+  void _ingestForeignHistoricalFrame(Frame frame) {
+    final f = _foreignDrain;
+    if (f == null) return;
+    _ingestHistoricalFrame(frame, into: f);
+    final s = _session;
+    if (s != null) _scheduleForeignBank(s);
+  }
+
+  /// Every append to the foreign buffer (record or archive) goes through
+  /// here: a size-triggered bank, one at a time — while the store keeps
+  /// failing the rows stay buffered for the next marker or timer instead of
+  /// every further record queueing another doomed commit — and the timer
+  /// that banks within [_foreignFlushQuiet].
+  void _scheduleForeignBank(_Session session) {
+    final f = _foreignDrain;
+    if (f == null) return;
+    if (_foreignThresholdFlush == null &&
+        f.bufferedTotal >= _foreignFlushThreshold) {
+      final run = _flushForeignBuffer(reason: 'threshold');
+      _foreignThresholdFlush = run;
+      unawaited(run.whenComplete(() {
+        if (identical(_foreignThresholdFlush, run)) {
+          _foreignThresholdFlush = null;
+        }
+      }));
+    }
+    _armForeignFlushTimer(session);
+  }
+
+  Future<void>? _foreignThresholdFlush;
+
+  /// Bank buffered foreign rows within [_foreignFlushQuiet] of the first one
+  /// that is not banked yet. Armed once, not re-armed per record: at flood
+  /// rates a restarted timer is churn on the UI isolate and would never fire.
+  void _armForeignFlushTimer(_Session session) {
+    if (session.foreignFlushTimer?.isActive ?? false) return;
+    session.foreignFlushTimer = Timer(_foreignFlushQuiet, () {
+      session.foreignFlushTimer = null;
+      if (_sessionIsStale(session)) return;
+      unawaited(_flushForeignBuffer(reason: 'quiet'));
+    });
+  }
+
+  Future<void> _flushForeignBuffer({required String reason}) async {
+    final f = _foreignDrain;
+    if (f != null) await _bankForeign(f, reason: reason);
+  }
+
+  /// Bank [f] durably WITHOUT a trim token. Never followed by a result write:
+  /// `strap_trim` only moves with a token, so nothing here can make the band
+  /// trim. Counts exactly the rows the successful commit made durable; a
+  /// failed commit keeps them buffered for the next attempt.
+  Future<void> _bankForeign(DrainController f, {required String reason}) async {
+    if (f.bufferedTotal == 0) return;
+    final n = await f.flushCounted();
+    if (n != null) {
+      _foreignRecordsBanked += n;
+    } else {
+      _log('[SYNC] foreign-transfer rows not banked ($reason) — kept '
+          'buffered.');
+    }
+  }
+
+  /// The final bank of a closed link's foreign buffer, detached from the
+  /// teardown so nothing in it can touch a replacement session: wait for the
+  /// banks already in flight (a failed one puts its rows back), then store
+  /// the rest through the sink captured — with its band's family — when the
+  /// buffer was built. If that fails too the rows are logged, counted and
+  /// let go: nothing is carried across links or past a reset.
+  Future<void> _bankAtShutdown(DrainController f) async {
+    try {
+      await f.settle();
+      final n = f.bufferedTotal;
+      if (n == 0) return;
+      final stored = await f.flushCounted();
+      if (stored != null) {
+        _foreignRecordsBanked += stored;
+        return;
+      }
+      _foreignRowsLostAtShutdown += n;
+      _log('[SYNC] $n foreign-transfer row(s) could not be banked as the '
+          'link closed — not retained.');
+    } catch (e) {
+      _log('[SYNC] foreign-transfer bank at shutdown failed: $e');
+    }
+  }
+
   /// (Re)arm the 60s idle watchdog. Called on every offload frame (records +
   /// markers). If the strap goes silent mid-offload, the open (un-ACKed) chunk is
   /// abandoned so we never ACK a partial — the band re-delivers it next offload.
   void _armIdleWatchdog() {
+    // One choke point for all three callers: traffic of a transfer this
+    // engine did not request — or that arrived before our request went out —
+    // must never start the abort/retry machinery.
+    if (!_historyTaskOwned || _historyRequestedGen != _historyTaskGen) return;
     final session = _session;
     if (session == null || !session.connected) return;
     // A terminal task has nothing left to wait for: stragglers from it (the
@@ -5620,15 +6292,173 @@ class BleEngine {
     // the ended task's retry machinery alive.
     if (session.historyTaskEnded) return;
     session.idleWatchdog?.cancel();
+    final armedGen = _historyTaskGen;
     session.idleWatchdog = Timer(
       const Duration(seconds: kBackfillIdleTimeoutSeconds),
       () {
+        // Re-validated when it fires: the task it watched must still be the
+        // one we own and requested (a rolled-back claim gives up ownership
+        // without a generation bump).
+        if (_historyTaskGen != armedGen ||
+            !_historyTaskOwned ||
+            _historyRequestedGen != armedGen) {
+          return;
+        }
         _log(
           '[SYNC] idle watchdog: strap silent ${kBackfillIdleTimeoutSeconds}s '
           'mid-offload — aborting historical sync and scheduling a retry.',
         );
         _drain?.discardOpenChunk();
         unawaited(_abortAndRetryHistorical(reason: 'idle_watchdog'));
+      },
+    );
+  }
+
+  /// The `beforeTransport` gate of task [taskGen]'s SEND_HISTORICAL_DATA:
+  /// marks the request as gone out (ours from here), or withholds it — when
+  /// the task ended while the write sat queued (the band must not be asked
+  /// to drain for a task nothing will ACK), or when another client started
+  /// a transfer meanwhile ([onForeign] runs).
+  bool Function() _historyRequestGate(
+    _Session session,
+    int taskGen, {
+    required void Function() onForeign,
+  }) =>
+      () {
+        if (_historyTaskGen != taskGen) {
+          _log('[SYNC] SEND_HISTORICAL_DATA withheld — its task ended while '
+              'the write was queued.');
+          return false;
+        }
+        if (_foreignHistoryLive) {
+          onForeign();
+          return false;
+        }
+        _historyRequestedGen = taskGen;
+        session.ownTaskTail = false;
+        return true;
+      };
+
+  /// Arm the first-START watchdog for task [taskGen]. Only ever called AFTER
+  /// the SEND_HISTORICAL_DATA write reported success, so the range/clock/floor
+  /// waits that precede the write can never consume the budget.
+  void _armFirstStartWatchdog(_Session session, int taskGen) {
+    session.cancelFirstStartWatchdog();
+    if (_sessionIsStale(session) || _historyTaskGen != taskGen) return;
+    // The band can answer before the write future resolves.
+    if (_historyTaskAnsweredGen == taskGen) return;
+    session.firstStartWatchdog = Timer(
+      const Duration(seconds: kHistoryFirstStartTimeoutSeconds),
+      () {
+        session.firstStartWatchdog = null;
+        unawaited(_onFirstStartTimeout(session, taskGen));
+      },
+    );
+  }
+
+  /// Record that the band answered the CURRENT task, if [frame] is an answer.
+  /// Called on both ingest paths, only for current-generation frames that
+  /// ARRIVED after this task's request went out.
+  void _noteHistoryAnswer(_Session session, Frame frame) {
+    if (!_historyTaskOwned) return;
+    // An ended task answers nothing: its stragglers (a START landing just
+    // after the deadline above all) are dropped by the marker handler and
+    // must not touch the watchdog state either.
+    if (session.historyTaskEnded || session.historyStuckActive) return;
+    if (_historyTaskAnsweredGen == _historyTaskGen) return;
+    final isMeta = frame.packetType == PacketType.metadata;
+    final sub = isMeta ? parseMetadata(frame.inner)?.sub : null;
+    if (!FirstStartWatchdogPolicy.satisfiedBy(
+      isGen5: session.band.isGen5,
+      isStartOrComplete:
+          sub == SyncMeta.historyStart || sub == SyncMeta.historyComplete,
+      isEnd: sub == SyncMeta.historyEnd,
+      isHistoricalData: frame.packetType == PacketType.historicalData,
+    )) {
+      return;
+    }
+    _historyTaskAnsweredGen = _historyTaskGen;
+    session.cancelFirstStartWatchdog();
+  }
+
+  /// The band never answered this task's SEND_HISTORICAL_DATA. End the task
+  /// through the ordinary abort boundary (no burst of this task exists, so
+  /// there is no open chunk to protect or discard) and retry at most
+  /// [kHistoryNoStartRetriesPerSession] times this session.
+  Future<void> _onFirstStartTimeout(_Session session, int taskGen) async {
+    if (_sessionIsStale(session) ||
+        _historyTaskGen != taskGen ||
+        session.historyTaskEnded ||
+        _historyTaskAnsweredGen == taskGen) {
+      return;
+    }
+    _firstStartTimeouts++;
+    final retry = session.noStartRetries < kHistoryNoStartRetriesPerSession;
+    if (retry) session.noStartRetries++;
+    _log('[SYNC] no answer to SEND_HISTORICAL_DATA within '
+        '${kHistoryFirstStartTimeoutSeconds}s — ending the request with one '
+        'abort${retry ? '; one retry after settle' : '; no further retry this session'}.');
+    session.historicalRetry?.cancel();
+    // The terminal owns everything else: historyTaskEnded latch, generation
+    // bump, waiter release, abort write, offload release in its finally.
+    await _endHistoryTaskWithAbort(
+      session: session,
+      kind: _HpsTerminalKind.timeout,
+      reason: 'no_history_start',
+    );
+    if (!retry || _sessionIsStale(session)) return;
+    _armHistoricalRetry(session, reason: 'no_history_start');
+  }
+
+  /// Arm the one abort→retry settle timer. Shared by every terminal that
+  /// retries, and it replaces — never orphans — a timer armed while the
+  /// caller's abort was in flight, so at most one retry is ever pending.
+  void _armHistoricalRetry(_Session session, {required String reason}) {
+    session.historicalRetry?.cancel();
+    session.historicalRetry = Timer(
+      const Duration(seconds: kHistoricalAbortRetryDelaySeconds),
+      () {
+        session.historicalRetry = null;
+        if (_sessionIsStale(session)) return;
+        _log(
+          '[SYNC] abort($reason) — retrying historical refresh after settle.',
+        );
+        unawaited(
+          _startHistoricalRefresh(
+            trigger: BackfillTrigger.strap,
+            reason: 'abort_retry:$reason',
+            refreshRange: true,
+          ),
+        );
+      },
+    );
+  }
+
+  /// A claim of ours stood down for another client's transfer. Nothing else
+  /// re-asks soon (an abort retry's budget may already be spent; periodic is
+  /// 15 min away), so re-request once that transfer is over — on its COMPLETE
+  /// (after the settle) or once its window closes. One timer per link; while
+  /// the window is live it re-checks every quiet period, so it never spins,
+  /// and a request that defers again re-arms it through the same path.
+  void _armForeignRetrigger(_Session session, {Duration? after}) {
+    if (_sessionIsStale(session)) return;
+    session.foreignRetrigger?.cancel();
+    session.foreignRetrigger = Timer(
+      after ?? const Duration(seconds: kForeignHistoryQuietSeconds),
+      () {
+        session.foreignRetrigger = null;
+        if (_sessionIsStale(session)) return;
+        if (session.foreignHistory.isLive(_monotonicSecs())) {
+          _armForeignRetrigger(session);
+          return;
+        }
+        _log('[SYNC] the other client\'s transfer is over — re-requesting '
+            'the history this link deferred.');
+        unawaited(_startHistoricalRefresh(
+          trigger: BackfillTrigger.strap,
+          reason: 'foreign_quiet',
+          refreshRange: true,
+        ));
       },
     );
   }
@@ -5713,8 +6543,10 @@ class BleEngine {
     if (_sessionIsStale(session)) return;
     if (session.historyTaskEnded) return; // one abort per terminal
     session.historyTaskEnded = true;
+    session.ownTaskTail = true;
     // Nothing further is coming that may keep this task alive.
     session.idleWatchdog?.cancel();
+    session.cancelFirstStartWatchdog();
     // The ended task's parked continuations (a commit mid-await, queued
     // frames, ACK retries) are stale from this moment.
     _historyTaskGen++;
@@ -5785,6 +6617,7 @@ class BleEngine {
     if (session == null || !session.connected) return;
     session.idleWatchdog?.cancel();
     session.historicalRetry?.cancel();
+    session.cancelFirstStartWatchdog();
     // The drain ended on the clock, not on a HISTORY_COMPLETE — the boundary
     // records the `timeout` terminal, which used to be attempted in
     // `_onOffloadFinished` behind a `!complete` flag no call site ever passed,
@@ -5812,22 +6645,7 @@ class BleEngine {
           'The strap is not draining; the reconnect path takes it from here.');
       return;
     }
-    session.historicalRetry = Timer(
-      const Duration(seconds: kHistoricalAbortRetryDelaySeconds),
-      () {
-        if (_session != session || !session.connected) return;
-        _log(
-          '[SYNC] abort($reason) — retrying historical refresh after settle.',
-        );
-        unawaited(
-          _startHistoricalRefresh(
-            trigger: BackfillTrigger.strap,
-            reason: 'abort_retry:$reason',
-            refreshRange: true,
-          ),
-        );
-      },
-    );
+    _armHistoricalRetry(session, reason: reason);
   }
 
   /// Best-effort write for the sync_ledger diagnostics (sync-diagnostics
@@ -6209,7 +7027,11 @@ class BleEngine {
     }
   }
 
-  Future<void> _handleSyncMarker(Frame frame, _Session session) async {
+  Future<void> _handleSyncMarker(
+    Frame frame,
+    _Session session, {
+    required bool ours,
+  }) async {
     if (_sessionIsStale(session)) return;
     // The task this marker belongs to. Re-checked after every await below: a
     // terminal (idle watchdog, failed result write) that fires while this
@@ -6230,6 +7052,13 @@ class BleEngine {
     // post-offload policy for a task that ended in an abort. The waiter is
     // released at the abort boundary now (DrainController.onTaskTerminal), so
     // the exemption's one job is gone.
+    // A latched link still banks another client's records at its burst
+    // boundaries; the marker itself stays unanswered either way.
+    if (!ours &&
+        (session.historyStuckActive || session.historyTaskEnded) &&
+        (m.sub == SyncMeta.historyEnd || m.sub == SyncMeta.historyComplete)) {
+      await _flushForeignBuffer(reason: 'foreign_marker');
+    }
     if (session.historyStuckActive) {
       session.stuckMarkersDropped++;
       if (session.stuckMarkersDropped == 1) {
@@ -6258,6 +7087,10 @@ class BleEngine {
       }
       return;
     }
+    if (!ours) {
+      await _observeForeignMarker(m, session);
+      return;
+    }
     _armIdleWatchdog();
     _log(
       '[SYNC] META sub=${m.sub} inner='
@@ -6275,6 +7108,13 @@ class BleEngine {
         d.discardOpenChunk();
       }
       _session?.historicalRetry?.cancel();
+      // A START that ANSWERS our request proves the band answers this link:
+      // the first-START retry budget refills here and nowhere else. Reaching
+      // this branch at all means the START was ours at arrival — it came
+      // after our request went out; one from before (a late answer to an
+      // earlier, aborted request, landing in the retry's own waits) is not
+      // ours and is only observed.
+      session.noStartRetries = 0;
       // The task's first burst is declared — HISTORY_END and data frames are
       // live traffic from here.
       _historyAwaitingFirstStart = false;
@@ -6748,8 +7588,12 @@ class BleEngine {
         ));
       }
       d.onComplete();
+      // Our task is over: a re-offered marker from here is not ours to
+      // answer. An auto-continue below re-claims through _claimHistoryTask.
+      session.ownedTaskGen = null;
       _historyCompletions++;
       _session?.idleWatchdog?.cancel();
+      _session?.cancelFirstStartWatchdog();
       await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
         status: 'complete',
         metaPatch: {
@@ -6850,10 +7694,23 @@ class BleEngine {
       // waiting on _historyMarkerInFlight here would deadlock on our own
       // future, and the handler is already past every controller-mutating
       // await.
-      await _triggerBackfill(
+      final genBefore = _historyTaskGen;
+      final sent = await _triggerBackfill(
         BackfillTrigger.autoContinue,
         fromMarkerHandler: true,
       );
+      // Refused before claiming anything (ECG lease, Stuck latch, link gone):
+      // no task owns the offload now, and the idle watchdog was cancelled at
+      // COMPLETE — release the claim HISTORY_START raised, or it is orphaned.
+      // A claim always bumps the generation before any rollback, so "not sent
+      // and unchanged" means "refused before the claim".
+      final s = _session;
+      if (!sent &&
+          _historyTaskGen == genBefore &&
+          s != null &&
+          !_sessionIsStale(s)) {
+        _setOffloadActive(false);
+      }
     } else {
       _autoContinue.end();
       // nothing left to continue - this offload cycle is genuinely done
@@ -6926,7 +7783,14 @@ class BleEngine {
   /// failed write means no history was ever requested, and leaving
   /// `_offloadActive` set behind it wedges every later refresh on the
   /// already-transmitting guard.
-  Future<bool> sendInit({bool drain = true}) async {
+  /// [beforeDrainRequest] runs inside the queued SEND_HISTORICAL_DATA write,
+  /// immediately before its bytes reach the transport — only from then on can
+  /// traffic be the band's answer to it — and returns whether to send it
+  /// (false: the drain request is withheld; the caller knows why).
+  Future<bool> sendInit({
+    bool drain = true,
+    bool Function()? beforeDrainRequest,
+  }) async {
     // Every INIT write is pinned to the session current when INIT began — a
     // link swap mid-sequence must stop the tail from landing on the
     // replacement (`_write(owner:)`) and report the INIT as not written.
@@ -6989,7 +7853,10 @@ class BleEngine {
         if (!drain) {
           _log('gen5 INIT: skipping the drain (phone clock suspect).');
         } else if (ok) {
-          ok = await _sendHistoricalData(owner: session);
+          ok = await _sendHistoricalData(
+            owner: session,
+            beforeTransport: beforeDrainRequest,
+          );
         }
         if (!ok) {
           _log('gen5 INIT write failed — abandoning the remaining packets.');
@@ -7008,7 +7875,12 @@ class BleEngine {
     var allWritten = true;
     try {
       for (final pkt in pkts) {
-        if (!await _write(pkt, owner: session)) {
+        final isDrainRequest = drain && identical(pkt, pkts.last);
+        if (!await _write(
+          pkt,
+          owner: session,
+          beforeTransport: isDrainRequest ? beforeDrainRequest : null,
+        )) {
           // Stop at the first failure: the packets are a sequence, and the
           // strap will not act on the tail of one whose head never arrived.
           allWritten = false;
@@ -7052,8 +7924,8 @@ class BleEngine {
   }
 
   /// Await the CURRENT historical offload reaching HISTORY_COMPLETE (or link-down /
-  /// the safety timeout). Does NOT change the connection phase and NEVER aborts —
-  /// listening is continuous; this just lets a caller block until the band's
+  /// the safety timeout). Does NOT change the connection phase, NEVER aborts, and
+  /// never releases the offload claim — listening is continuous; this just lets a caller block until the band's
   /// backlog is fully handed over (e.g. so a foreground finalize derive runs over a
   /// complete day). The offload itself was already kicked by [_doConnect]'s INIT.
   ///
@@ -7068,16 +7940,13 @@ class BleEngine {
       _log('runSync: no live link — nothing to await.');
       return SyncReport(0, 0, false);
     }
-    // Captured BEFORE awaitComplete: if a replacement task claims this
-    // controller while we're parked in the await, drain.taskGeneration moves
-    // on and this waiter's own generation is what tells the difference below.
-    final waiterGen = drain.taskGeneration;
     final report = await drain.awaitComplete(
       isLinkUp: () => session.connected,
       timeout: timeout,
     );
     _lastSyncReport = report;
-    await LocalDb.upsertSyncLedgerEntry(
+    // Diagnostics only — a ledger failure must not throw out of the wait.
+    await _bestEffortLedgerWrite(() => LocalDb.upsertSyncLedgerEntry(
       status: report.complete
           ? 'complete'
           : report.records > 0
@@ -7098,13 +7967,12 @@ class BleEngine {
         'strap_history_oldest_ts': _strapHistoryOldestTs,
         'strap_history_newest_ts': _strapHistoryNewestTs,
       },
-    );
-    // Only the task this waiter belonged to may release the offload claim —
-    // a replacement task has already pre-armed `_offloadActive` for its own
-    // drain by the time a superseded waiter's tick resolves.
-    if (!report.complete && drain.taskGeneration == waiterGen) {
-      _setOffloadActive(false);
-    }
+    ));
+    // NO offload release here. This method only WAITS. The task that raised
+    // the claim is ended by its own terminals — HISTORY_COMPLETE, the idle and
+    // first-START watchdogs, the abort boundary, link down — and only those
+    // may release it. A waiter that stops waiting while the band is still
+    // sending must leave the transfer exactly as it found it.
     // OUTBOUND automation event (Android only — see TaskerBridge.emitEvent for
     // why iOS gets no equivalent). Only on a COMPLETE offload: "sync finished"
     // must mean the strap actually drained, not that a link dropped mid-drain.
@@ -8084,8 +8952,15 @@ class BleEngine {
     final session = _session;
     if (session == null) return;
     session.intentionalClose = intentional;
-    // SYNCHRONOUSLY, before any await: see `_Session.closing`.
+    // SYNCHRONOUSLY, before any await: see `_Session.closing`. Ingress freezes
+    // here — the receive guards drop anything for a closing session, and the
+    // notification subscriptions are cancelled before anything is awaited —
+    // so a frame either reached the routing below or is dropped, never
+    // half-routed.
     session.closing = true;
+    for (final sub in session.subs) {
+      unawaited(sub.cancel());
+    }
     // Live arming is per-connection: applied clears now, the owners' intent
     // survives and is re-applied on the next link's first reconcile. A fresh
     // link's high-rate bundle is unknown again (gen4's R10/R11 OFF persists on
@@ -8124,6 +8999,29 @@ class BleEngine {
     onEcgEvent?.call(EcgLinkDownEvent(endedGeneration));
     _drain?.onLinkDown();
     _drain = null;
+    // Bank the foreign remainder rather than drop it: the other client's ACK
+    // is what trims it from the band, not ours, so it may be gone from the
+    // band already. The commit does not need the link.
+    final foreign = _foreignDrain;
+    _foreignDrain = null;
+    _foreignThresholdFlush = null;
+    if (foreign != null) {
+      // Including another client's records the drainer has not reached yet —
+      // in the batch it holds and in the queue, both dropped with the link.
+      final pending = [
+        ...?_drainBatch?.skip(_drainBatchNext),
+        ..._offloadFrames,
+      ];
+      for (final e in pending) {
+        if (!e.owned && e.frame.packetType == PacketType.historicalData) {
+          _ingestHistoricalFrame(e.frame, into: foreign);
+        }
+      }
+      final bank = _bankAtShutdown(foreign);
+      _shutdownBanks.add(bank);
+      unawaited(bank.whenComplete(() => _shutdownBanks.remove(bank)));
+    }
+    _drainBatch = null;
     // Fire a final derive for anything stored-but-not-yet-derived, then disarm the
     // debounce timer so it doesn't fire into a dead connection.
     _deriveTimer?.cancel();
@@ -8133,7 +9031,10 @@ class BleEngine {
       onDataStored?.call();
     }
     final device = session.device;
-    await session.teardown();
+    // Every piece of ENGINE state this link owned is released here, before
+    // the first await: a replacement session can be connected while the
+    // awaits below are pending, and nothing that resumes after them may touch
+    // it. Only this dying session object and its radio are awaited on.
     _session = null;
     // The strap-RTC↔wall correlation belongs to the session that measured it —
     // drop it so it can't leak into the next connection's alarm arming before a
@@ -8148,6 +9049,7 @@ class BleEngine {
     // permanently downgraded live streams on the evidence of a session that
     // never armed the raw flood.
     _armTime = null;
+    await session.teardown();
     // ALWAYS drop the radio link, not just on an intentional disconnect. Every
     // self-initiated bounce (liveness fuse, ACK-exhausted, commit-failed) tears
     // the session down non-intentionally and expects a NEW GATT connection —
@@ -8160,6 +9062,21 @@ class BleEngine {
     } catch (_) {}
   }
 
+  /// The offload claim. Only a history task's own lifecycle may move it —
+  /// never a waiter ([runSync] only waits). Every raise has its releases:
+  ///
+  /// | raised at                      | ended by                                  |
+  /// |--------------------------------|-------------------------------------------|
+  /// | [_startInitDrain] (drain)      | INIT rollback · first-START watchdog ·    |
+  /// |                                | idle watchdog · COMPLETE · link teardown  |
+  /// | [_startHistoricalRefresh]      | clock deferral · write-failure rollback · |
+  /// |                                | first-START watchdog · idle watchdog ·    |
+  /// |                                | COMPLETE · abort terminal                 |
+  /// | HISTORY_START                  | idle watchdog · END-path terminals ·      |
+  /// |                                | COMPLETE ([_onOffloadFinished], incl. a   |
+  /// |                                | refused auto-continue) · link teardown    |
+  /// | [_enqueueOffloadFrame] type-47 | the idle watchdog armed by the same drain |
+  /// |                                | batch · terminals                         |
   void _setOffloadActive(bool active) {
     if (_offloadActive == active) return;
     _offloadActive = active;
@@ -8373,6 +9290,11 @@ class DrainController {
   // ACKed a batch would report progress for every later pull that got nothing.
   int _recordsThisTask = 0;
   int _batchesThisTask = 0;
+  // How much of this task a waiter has already reported. A waiter that gives
+  // up does not end the task, so the next one reports only the rest —
+  // including anything that arrived before it started waiting.
+  int _reportedRecords = 0;
+  int _reportedBatches = 0;
   DateTime _lastProgressAt = DateTime.now();
   bool _complete = false;
   bool _linkDown = false;
@@ -8380,6 +9302,7 @@ class DrainController {
   int get bufferedRecords => _raws.length;
   int get bufferedArchives => _archives.length;
   int get bufferedEcgRaw => _ecgRaw.length;
+  int get bufferedTotal => _raws.length + _archives.length + _ecgRaw.length;
 
   /// A raw ECG record for this chunk. Genuine, ACKable progress and a burst
   /// count member (the band counts every type-47 frame it sent). Only the
@@ -8692,10 +9615,14 @@ class DrainController {
   /// after the state it snapshots has been wiped.
   void startFreshTask() {
     _supersededTaskReport[_taskGeneration] = SyncReport(
-        _recordsThisTask, _batchesThisTask, _complete && !_taskTerminal);
+        _recordsThisTask - _reportedRecords,
+        _batchesThisTask - _reportedBatches,
+        _complete && !_taskTerminal);
     _supersededTaskReport.removeWhere((g, _) => g + 8 < _taskGeneration);
     _recordsThisTask = 0;
     _batchesThisTask = 0;
+    _reportedRecords = 0;
+    _reportedBatches = 0;
     consecutiveValidationFailures = 0;
     _taskTerminal = false;
     _taskGeneration++;
@@ -8765,7 +9692,23 @@ class DrainController {
   /// rows and the band was ACKed to trim rows that only existed in RAM again.
   /// Queued behind the failed one, the END commit now snapshots the re-buffered
   /// rows too, so its token never goes out ahead of them.
-  Future<bool> commit(List<int>? token) async {
+  Future<bool> commit(List<int>? token) async =>
+      await _serializedCommit(token) != null;
+
+  /// A tokenless commit that reports how many buffered rows THIS commit made
+  /// durable (null: it failed and re-buffered them). The count is the
+  /// commit's own snapshot, so overlapping flushes never count a row twice.
+  Future<int?> flushCounted() => _serializedCommit(null);
+
+  /// Resolves once no commit is in flight (a failed one has re-buffered its
+  /// rows by then).
+  Future<void> settle() async {
+    while (_commitInFlight != null) {
+      await _commitInFlight;
+    }
+  }
+
+  Future<int?> _serializedCommit(List<int>? token) async {
     while (_commitInFlight != null) {
       await _commitInFlight;
     }
@@ -8778,9 +9721,10 @@ class DrainController {
     }
   }
 
-  Future<bool>? _commitInFlight;
+  Future<int?>? _commitInFlight;
 
-  Future<bool> _commitNow(List<int>? token) async {
+  /// The committed row count on success, null on failure.
+  Future<int?> _commitNow(List<int>? token) async {
     final tokenHex = token
         ?.map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join();
@@ -8824,7 +9768,7 @@ class DrainController {
         await commit(raws, samples, tokenHex,
             archives: archives, ecgRawPackets: ecgRaw);
       }
-      return true;
+      return raws.length + archives.length + ecgRaw.length;
     } catch (e) {
       // Put the snapshot back at the FRONT: records that arrived during the
       // await are already appended behind it, so this preserves arrival order.
@@ -8839,7 +9783,7 @@ class DrainController {
           '${archives.length} archived + ${ecgRaw.length} raw ECG '
           're-buffered; the caller MUST NOT ACK '
           'this chunk (the band still holds it).');
-      return false;
+      return null;
     }
   }
 
@@ -8858,11 +9802,24 @@ class DrainController {
     final start = DateTime.now();
     final waiterGen = _taskGeneration;
     final done = Completer<SyncReport>();
-    // A claim can land while flush() is awaiting the commit; the counters
-    // then belong to the replacement task, so report the recorded outcome.
-    SyncReport reportAfterFlush(bool complete) => _taskGeneration != waiterGen
-        ? _supersededTaskReport[waiterGen] ?? SyncReport(0, 0, false)
-        : SyncReport(_recordsThisTask, _batchesThisTask, complete);
+    // The task's progress no waiter has reported yet. A waiter that gave up
+    // does not end the task, so a caller can wait on the same task again:
+    // each report hands over the rest exactly once — nothing counted twice,
+    // and nothing that arrived before or between waits dropped. A claim can
+    // land while flush() awaits the commit; the counters then belong to the
+    // replacement task, so the superseded task's recorded remainder is used.
+    SyncReport unreported(bool complete) {
+      if (_taskGeneration != waiterGen) {
+        final r = _supersededTaskReport[waiterGen] ?? SyncReport(0, 0, false);
+        _supersededTaskReport[waiterGen] = SyncReport(0, 0, r.complete);
+        return r;
+      }
+      final r = SyncReport(_recordsThisTask - _reportedRecords,
+          _batchesThisTask - _reportedBatches, complete);
+      _reportedRecords = _recordsThisTask;
+      _reportedBatches = _batchesThisTask;
+      return r;
+    }
     Timer.periodic(const Duration(seconds: 1), (t) async {
       if (done.isCompleted) {
         t.cancel();
@@ -8876,9 +9833,7 @@ class DrainController {
       if (_taskTerminal || _taskGeneration != waiterGen) {
         // A superseded waiter reports ITS task's counts, never the
         // replacement's.
-        final report = _taskGeneration != waiterGen
-            ? _supersededTaskReport[waiterGen] ?? SyncReport(0, 0, false)
-            : SyncReport(_recordsThisTask, _batchesThisTask, false);
+        final report = unreported(false);
         final complete = report.complete;
         t.cancel();
         // Deliberately NO flush here. A superseded waiter's task is over and
@@ -8910,13 +9865,13 @@ class DrainController {
         t.cancel();
         await flush();
         log('[SYNC] idle timeout — no offload progress for 60s.');
-        done.complete(reportAfterFlush(false));
+        done.complete(unreported(false));
         return;
       }
       t.cancel();
       await flush();
       log('[SYNC] await stop=$stop.');
-      done.complete(reportAfterFlush(stop == DrainStop.complete));
+      done.complete(unreported(stop == DrainStop.complete));
     });
     return done.future;
   }

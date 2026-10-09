@@ -577,7 +577,7 @@ class NotificationCenter {
     final anomaly = days.where((d) => d['anomaly'] == true).length;
     final temp = days.where((d) => d['temp'] == true).length;
     final parts = <String>[];
-    if (illness > 0) parts.add('possible illness onset ×$illness');
+    if (illness > 0) parts.add('resting heart rate raised ×$illness');
     if (anomaly > 0) parts.add('unusual physiology ×$anomaly');
     if (temp > 0) parts.add('elevated skin temperature ×$temp');
     if (parts.isNotEmpty) {

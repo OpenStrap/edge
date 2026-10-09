@@ -40,6 +40,7 @@ import '../../data/db.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../health/health_export.dart';
 import '../../l10n/app_localizations.dart';
+import '../../l10n/date_text.dart';
 import '../../state/app_state.dart';
 import '../activity/catalogue.dart';
 import '../profile/profile.dart' show SetRow, settingsGroup;
@@ -108,7 +109,9 @@ String dayLabel(DateTime at, {DateTime? now, AppLocalizations? l}) {
   final diff = calendarDaysBetween(d, n);
   if (diff == 0) return l?.logWorkoutToday ?? 'Today';
   if (diff == 1) return l?.logWorkoutYesterday ?? 'Yesterday';
-  return '${weekdayShortName(d.weekday, l)} ${d.day} ${monthShortName(d.month, l)}';
+  return l?.localeName.startsWith('ru') == true
+      ? localizedDate(d, l!.localeName, pattern: 'EEE d MMM')
+      : '${weekdayShortName(d.weekday, l)} ${d.day} ${monthShortName(d.month, l)}';
 }
 
 
@@ -310,7 +313,9 @@ class _LogWorkoutState extends State<LogWorkout> {
         final pending = await repo.pendingActivities();
         if (!mounted) return;
         for (final latest in pending) {
-          if (latest.id != _suggestion?.id || latest.revision == _suggestion?.revision) continue;
+          if (latest.id != _suggestion?.id || latest.revision == _suggestion?.revision) {
+            continue;
+          }
           _suggestion = latest;
           _start = DateTime.fromMillisecondsSinceEpoch(latest.startTs * 1000);
           _end = DateTime.fromMillisecondsSinceEpoch(latest.endTs * 1000);
@@ -319,10 +324,14 @@ class _LogWorkoutState extends State<LogWorkout> {
         // Keep the old revision: another save must still recheck it. A failed
         // reload must not leave the save button permanently busy.
       } finally {
-        if (mounted) setState(() { _saving = false; _wrote = e.message; });
+        if (mounted) {
+          setState(() { _saving = false; _wrote = e.message; });
+        }
       }
     } on ManualWindowException catch (e) {
-      if (mounted) setState(() { _saving = false; _wrote = e.error.message; });
+      if (mounted) {
+        setState(() { _saving = false; _wrote = e.error.message; });
+      }
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -360,7 +369,9 @@ class _LogWorkoutState extends State<LogWorkout> {
                   if (!retime)
                     SetRow(_activity.icon, _activity.color,
                         l?.logWorkoutActivityLabel ?? 'Activity',
-                        value: _activity.name, onTap: _pickActivity),
+                        value: _activity.displayName(c),
+                        onTap: _pickActivity,
+                      ),
                   SetRow(LucideIcons.calendar, C.blue,
                       l?.logWorkoutDateLabel ?? 'Date',
                       value: dayLabel(_start, now: widget.now, l: l),
@@ -415,10 +426,11 @@ class _LogWorkoutState extends State<LogWorkout> {
                   icon: LucideIcons.check,
                   onTap: bad == null && !_saving ? _save : null,
                 ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -444,7 +456,9 @@ class _TypeSheetState extends State<_TypeSheet> {
         ? allActivities
         : [
             for (final a in allActivities)
-              if (a.name.toLowerCase().contains(q)) a,
+              if (a.displayName(c).toLowerCase().contains(q) ||
+                  a.name.toLowerCase().contains(q))
+                a,
           ];
     return SafeArea(
       child: Padding(
@@ -476,13 +490,16 @@ class _TypeSheetState extends State<_TypeSheet> {
                         message: l?.logWorkoutNoActivityByName ??
                             'No activity by that name'),
                   )
-                : ListView.builder(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x6),
-                    itemCount: items.length,
-                    itemBuilder: (_, i) {
-                      final a = items[i];
-                      return SetRow(a.icon, a.color, a.name,
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.fromLTRB(S.x4, 0, S.x4, S.x6),
+                      itemCount: items.length,
+                      itemBuilder: (_, i) {
+                        final a = items[i];
+                        return SetRow(
+                          a.icon,
+                          a.color,
+                          a.displayName(c),
                           chevron: false,
                           onTap: () => Navigator.of(c).pop(a));
                     },

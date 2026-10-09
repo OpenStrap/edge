@@ -253,11 +253,11 @@ void main() {
     const old = 1000;
     // Two transitions and one chatty event, all well behind the cutoff.
     await LocalDb.insertEvent(proto.EventId.wristOff, old, 'aa01',
-        deviceId: LocalDb.kPrimaryDeviceId);
+        deviceId: LocalDb.kPrimaryDeviceId, profile: proto.BandProfile.gen4);
     await LocalDb.insertEvent(proto.EventId.wristOn, old + 100, 'aa02',
-        deviceId: LocalDb.kPrimaryDeviceId);
+        deviceId: LocalDb.kPrimaryDeviceId, profile: proto.BandProfile.gen4);
     await LocalDb.insertEvent(33, old + 50, 'aa03',
-        deviceId: LocalDb.kPrimaryDeviceId);
+        deviceId: LocalDb.kPrimaryDeviceId, profile: proto.BandProfile.gen4);
 
     await LocalDb.pruneDecodedBeforeRecTs(old + 10000);
 

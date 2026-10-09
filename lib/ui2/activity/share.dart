@@ -26,6 +26,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../l10n/display_text.dart';
 import '../../state/units_controller.dart';
 import '../grammar.dart';
 import '../profile/profile.dart' show SetRow;
@@ -483,4 +484,16 @@ List<(String, String)> _available(ActivityResult r, [UnitsController? u]) => [
           : (grouped(r.swimMetres!), 'm', '${r.lapCount} laps'),
     Arch.interval || Arch.flow || Arch.match || Arch.basic => fallback,
   };
+}
+
+String localizedExportCaption(BuildContext c, ActivityResult r, String text) {
+  final l = AppLocalizations.of(c);
+  if (text == r.activity.name) return r.activity.displayName(c);
+  final elevation = RegExp(r'^\+(.*?) m elevation$').firstMatch(text);
+  if (elevation != null) {
+    return l?.supplementClimbedExport(elevation[1]!) ?? text;
+  }
+  final laps = RegExp(r'^(.*?) laps$').firstMatch(text);
+  if (laps != null) return l?.supplementLapsExport(laps[1]!) ?? text;
+  return uiText(c, text);
 }
