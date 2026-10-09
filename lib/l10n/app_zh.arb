@@ -2489,5 +2489,15 @@
   "dataBackupFolderSub": "选择新备份的保存位置。现有备份仍保留在原位置",
   "dataBackupFolderUseDefault": "使用默认文件夹",
   "dataBackupFolderSaved": "已保存备份文件夹。",
-  "dataBackupFolderRetry": "点击立即备份重试，或选择其他文件夹"
+  "dataBackupFolderRetry": "点击立即备份重试，或选择其他文件夹",
+  "logFoodEditTitle": "编辑这条记录",
+  "logFoodDateLabel": "日期",
+  "logFoodTimeLabel": "时间",
+  "logFoodSearchLabel": "搜索你的食物",
+  "logFoodSearchHint": "你记录过的任何食物",
+  "logFoodSearchNoMatch": "你的记录里没有匹配的内容。",
+  "logFoodRemoveEntry": "删除这条记录",
+  "nutritionProteinToday": "今日蛋白质",
+  "nutritionProteinToGo": "还差 {grams} 克",
+  "nutritionTargetReached": "已达目标"
 }

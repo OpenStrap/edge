@@ -2608,5 +2608,15 @@
   "dataBackupFolderSub": "Wähle, wo neue Sicherungen gespeichert werden. Vorhandene Sicherungen bleiben an ihrem bisherigen Ort",
   "dataBackupFolderUseDefault": "Standardordner verwenden",
   "dataBackupFolderSaved": "Sicherungsordner gespeichert.",
-  "dataBackupFolderRetry": "Versuche es mit Jetzt sichern erneut oder wähle einen anderen Ordner"
+  "dataBackupFolderRetry": "Versuche es mit Jetzt sichern erneut oder wähle einen anderen Ordner",
+  "logFoodEditTitle": "Eintrag bearbeiten",
+  "logFoodDateLabel": "Datum",
+  "logFoodTimeLabel": "Uhrzeit",
+  "logFoodSearchLabel": "Deine Lebensmittel durchsuchen",
+  "logFoodSearchHint": "Alles, was du erfasst hast",
+  "logFoodSearchNoMatch": "Nichts, was du erfasst hast, passt dazu.",
+  "logFoodRemoveEntry": "Eintrag entfernen",
+  "nutritionProteinToday": "Protein heute",
+  "nutritionProteinToGo": "Noch {grams} g",
+  "nutritionTargetReached": "Ziel erreicht"
 }

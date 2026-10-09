@@ -2489,5 +2489,15 @@
   "dataBackupFolderSub": "Choisissez où enregistrer les nouvelles sauvegardes. Les sauvegardes existantes restent à leur emplacement",
   "dataBackupFolderUseDefault": "Utiliser le dossier par défaut",
   "dataBackupFolderSaved": "Dossier de sauvegarde enregistré.",
-  "dataBackupFolderRetry": "Réessayez avec Sauvegarder maintenant ou choisissez un autre dossier"
+  "dataBackupFolderRetry": "Réessayez avec Sauvegarder maintenant ou choisissez un autre dossier",
+  "logFoodEditTitle": "Modifier cette entrée",
+  "logFoodDateLabel": "Date",
+  "logFoodTimeLabel": "Heure",
+  "logFoodSearchLabel": "Rechercher vos aliments",
+  "logFoodSearchHint": "Tout ce que vous avez noté",
+  "logFoodSearchNoMatch": "Rien de ce que vous avez noté ne correspond.",
+  "logFoodRemoveEntry": "Supprimer cette entrée",
+  "nutritionProteinToday": "Protéines aujourd’hui",
+  "nutritionProteinToGo": "Encore {grams} g",
+  "nutritionTargetReached": "Objectif atteint"
 }

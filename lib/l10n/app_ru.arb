@@ -6836,6 +6836,23 @@
   "investigateRmssdNightly": "RMSSD, ночной (среднее по 5-минутным окнам)",
   "investigateRmssdStored": "RMSSD, ночной (прежняя оценка)",
   "devicesOuraWriteRefused": "Не удалось отправить команду кольцу. Попробуйте синхронизировать ещё раз.",
+  "logFoodEditTitle": "Изменить запись",
+  "logFoodDateLabel": "Дата",
+  "logFoodTimeLabel": "Время",
+  "logFoodSearchLabel": "Поиск по вашей еде",
+  "logFoodSearchHint": "Всё, что вы записывали",
+  "logFoodSearchNoMatch": "Среди ваших записей ничего не нашлось.",
+  "logFoodRemoveEntry": "Удалить запись",
+  "nutritionProteinToday": "Белок сегодня",
+  "nutritionProteinToGo": "Осталось {grams} г",
+  "@nutritionProteinToGo": {
+    "placeholders": {
+      "grams": {
+        "type": "int"
+      }
+    }
+  },
+  "nutritionTargetReached": "Цель достигнута",
   "dayTimelineZoomNoHr": "На этом отрезке нет данных о пульсе",
   "dayTimelineZoomPerMinute": "Средние за минуту. Потяните ползунки, чтобы приблизить; при окне до двух часов показывается каждая секунда, пока она хранится.",
   "dayTimelineZoomPerMinuteOnly": "Средние за минуту. Посекундные данные для этого отрезка уже не хранятся.",
