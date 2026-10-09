@@ -177,6 +177,10 @@
   "@devicesOuraProtocolTimeout": {
     "description": "快讯条：Oura 同步失败 — 协议超时 / 回应不完整。"
   },
+  "devicesOuraWriteRefused": "无法向戒指发送指令。请重新同步。",
+  "@devicesOuraWriteRefused": {
+    "description": "快讯条：Oura 同步失败 — 连接拒绝了指令写入。"
+  },
   "devicesOuraCheckpointUnconfirmed": "同步无法完成。请重新同步。",
   "devicesSyncingTheRing": "正在同步戒指…",
   "devicesSynced": "已同步。",
@@ -1331,7 +1335,7 @@
   "healthCatMovementLoad": "运动与负荷",
   "healthCatBodyWear": "身体与佩戴",
   "healthBlurbRestingHr": "整夜持续保持的最低心率",
-  "healthBlurbHrv": "整晚各 5 分钟窗口 RMSSD 的平均值",
+  "healthBlurbHrv": "睡眠期间逐搏间期的 RMSSD",
   "healthBlurbHrvCv": "单晚内 SDNN 占平均心跳间期的比例",
   "healthBlurbLfHf": "心跳间期功率在各频段的分布",
   "healthBlurbDip": "睡眠期间心率下降的幅度",

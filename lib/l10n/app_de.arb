@@ -183,6 +183,10 @@
   "@devicesOuraProtocolTimeout": {
     "description": "Snackbar: Oura-Sync fehlgeschlagen — Protokoll-Timeout / unvollständige Antwort."
   },
+  "devicesOuraWriteRefused": "Ein Befehl konnte nicht an den Ring gesendet werden. Bitte synchronisiere erneut.",
+  "@devicesOuraWriteRefused": {
+    "description": "Snackbar: Oura-Sync fehlgeschlagen — die Verbindung hat einen Befehl abgelehnt."
+  },
   "devicesOuraCheckpointUnconfirmed": "Die Synchronisation konnte nicht abgeschlossen werden. Bitte synchronisiere erneut.",
   "devicesSyncingTheRing": "Ring wird synchronisiert…",
   "devicesSynced": "Synchronisiert.",
@@ -1375,7 +1379,7 @@
   "healthCatMovementLoad": "Bewegung & Belastung",
   "healthCatBodyWear": "Körper & Tragezeit",
   "healthBlurbRestingHr": "Der niedrigste anhaltende Puls der Nacht",
-  "healthBlurbHrv": "Mittlerer RMSSD über die 5-Minuten-Fenster der Nacht",
+  "healthBlurbHrv": "RMSSD der Schlag-zu-Schlag-Intervalle im Schlaf",
   "healthBlurbHrvCv": "SDNN als Anteil des mittleren Schlagintervalls, innerhalb einer Nacht",
   "healthBlurbLfHf": "Wie sich die Herzschlag-Variabilität auf die Frequenzbereiche verteilt",
   "healthBlurbDip": "Wie stark deine Herzfrequenz im Schlaf sinkt",

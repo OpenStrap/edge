@@ -177,6 +177,10 @@
   "@devicesOuraProtocolTimeout": {
     "description": "Snackbar : échec de la synchronisation Oura — délai dépassé / réponse incomplète."
   },
+  "devicesOuraWriteRefused": "Impossible d'envoyer une commande à la bague. Resynchronisez.",
+  "@devicesOuraWriteRefused": {
+    "description": "Snackbar : échec de la synchronisation Oura — la liaison a refusé une commande."
+  },
   "devicesOuraCheckpointUnconfirmed": "La synchronisation n'a pas pu être terminée. Resynchronisez.",
   "devicesSyncingTheRing": "Synchronisation de la bague…",
   "devicesSynced": "Synchronisé.",
@@ -1331,7 +1335,7 @@
   "healthCatMovementLoad": "Mouvement et charge",
   "healthCatBodyWear": "Corps et port",
   "healthBlurbRestingHr": "Le rythme soutenu le plus bas de la nuit",
-  "healthBlurbHrv": "RMSSD moyen sur les fenêtres de 5 minutes de la nuit",
+  "healthBlurbHrv": "RMSSD des intervalles battement à battement pendant le sommeil",
   "healthBlurbHrvCv": "SDNN en proportion de l'intervalle moyen entre battements, sur une nuit",
   "healthBlurbLfHf": "Où se situe la puissance du rythme cardiaque selon les fréquences",
   "healthBlurbDip": "De combien votre fréquence cardiaque baisse pendant votre sommeil",

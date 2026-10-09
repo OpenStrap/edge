@@ -780,6 +780,10 @@
   "@devicesOuraProtocolTimeout": {
     "description": "Snackbar: Oura sync failed — protocol timeout / incomplete answer."
   },
+  "devicesOuraWriteRefused": "Could not send a command to the ring. Please try syncing again.",
+  "@devicesOuraWriteRefused": {
+    "description": "Snackbar: Oura sync failed — the link refused a command write."
+  },
   "devicesOuraCheckpointUnconfirmed": "The sync could not be completed. Please try syncing again.",
   "@devicesOuraCheckpointUnconfirmed": {
     "description": "Snackbar: Oura sync failed — a batch checkpoint was not confirmed in time."
@@ -6803,7 +6807,7 @@
   "@healthBlurbRestingHr": {
     "description": "Explore catalogue one-line description for resting heart rate"
   },
-  "healthBlurbHrv": "Mean RMSSD across the night's 5-minute windows",
+  "healthBlurbHrv": "RMSSD of beat-to-beat intervals during sleep",
   "@healthBlurbHrv": {
     "description": "Explore catalogue one-line description for HRV: the nightly mean of the RMSSDs of the sleep session's 5-minute windows"
   },
