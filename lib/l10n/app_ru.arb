@@ -3127,7 +3127,7 @@
   "healthCatMovementLoad": "Движение и нагрузка",
   "healthCatBodyWear": "Тело и ношение",
   "healthBlurbRestingHr": "Наименьший устойчивый пульс за ночь",
-  "healthBlurbHrv": "RMSSD за самый чистый период сна",
+  "healthBlurbHrv": "RMSSD интервалов между ударами сердца во сне",
   "healthBlurbHrvCv": "Изменения между ночами",
   "healthBlurbLfHf": "Распределение мощности колебаний межударных интервалов по частотам",
   "healthBlurbDip": "Насколько снижается пульс во сне",
@@ -6833,5 +6833,6 @@
   "devicesOuraProtocolTimeout": "Кольцо перестало отвечать во время синхронизации. Попробуйте синхронизировать ещё раз.",
   "devicesOuraCheckpointUnconfirmed": "Не удалось завершить синхронизацию. Попробуйте синхронизировать ещё раз.",
   "investigateRmssdNightly": "RMSSD, ночной (среднее по 5-минутным окнам)",
-  "investigateRmssdStored": "RMSSD, ночной (прежняя оценка)"
+  "investigateRmssdStored": "RMSSD, ночной (прежняя оценка)",
+  "devicesOuraWriteRefused": "Не удалось отправить команду кольцу. Попробуйте синхронизировать ещё раз."
 }
