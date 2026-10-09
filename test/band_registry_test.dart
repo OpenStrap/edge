@@ -137,7 +137,7 @@ void main() {
     expect(kWhoopGen4.timeAnchor, TimeAnchor.measured);
     expect(kWhoopGen5.timeAnchor, TimeAnchor.measured);
     expect(kBleHrs.timeAnchor, TimeAnchor.arrival);
-    expect(kPebble.timeAnchor, TimeAnchor.arrival);
+    expect(kPebble.timeAnchor, TimeAnchor.measured);
   });
 
   test('Pebble 2 / Pebble 2 SE — one scan-filter service, five required '

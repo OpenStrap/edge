@@ -243,6 +243,13 @@ const _notComponents = {
   // (there is nothing today to hand it — every install has one device); add
   // one and a gallery case together if that changes.
   'SignalPriorityScreen',
+  // A wearable's numbers for today: a Scaffold route that reads the active
+  // wearable, the day and the device's observations. `WearableDayView` is
+  // the pure half and is what `wearable_numbers_test.dart` pumps.
+  'WearableDayScreen', 'WearableDayView',
+  // Home and Health's loader for the active wearable's cells: it reads the
+  // database. `WearableCellsCard` is its pure half, and has a gallery case.
+  'WearableCells',
   // The double-tap picker. A Scaffold route whose whole content is decided by
   // what the OS answered to a method channel, so a gallery case would be a
   // photograph of a fixture rather than of the screen. Rendered instead by

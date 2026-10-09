@@ -707,6 +707,61 @@ void main() {
           reason: 'the new session ticks');
     });
 
+    test('a stopped workout keeps its sensors for the recovery tail',
+        () async {
+      // Heart-rate recovery is read off the minutes after the end, so a
+      // strap disarmed at the stop never records it.
+      await Prefs.ensureLoaded();
+      final app = connected(150);
+      addTearDown(app.dispose);
+      addTearDown(LiveDraft.clear);
+      app.startWorkout(type: 'other');
+      expect(app.strapTailRunning, isFalse);
+      await app.stopWorkout();
+      expect(app.strapTailRunning, isTrue,
+          reason: 'armed until the tail is recorded');
+      app.startWorkout(type: 'other');
+      expect(app.strapTailRunning, isFalse,
+          reason: 'the next workout carries the sensors on');
+      await app.stopWorkout();
+    });
+
+    test('a banked tail disarms and asks for the derive that reads it',
+        () async {
+      await Prefs.ensureLoaded();
+      final app = connected(150);
+      addTearDown(app.dispose);
+      addTearDown(LiveDraft.clear);
+      var derives = 0;
+      app
+        ..strapTailFor = const Duration(milliseconds: 20)
+        ..onStrapTailBanked = () => derives++;
+      app.startWorkout(type: 'other');
+      await app.stopWorkout();
+      expect(derives, 0, reason: 'the tail is not recorded yet');
+      for (var i = 0; i < 100 && derives == 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(app.strapTailRunning, isFalse, reason: 'disarmed at its end');
+      expect(derives, 1, reason: 'HRR is read off the tail once it is banked');
+    });
+
+    test('a workout deleted inside its tail disarms at once', () async {
+      await Prefs.ensureLoaded();
+      final app = connected(150);
+      addTearDown(app.dispose);
+      addTearDown(LiveDraft.clear);
+      var derives = 0;
+      app.onStrapTailBanked = () => derives++;
+      app.startWorkout(type: 'other');
+      final id = app.activeWorkout!.workoutId!;
+      await app.stopWorkout();
+      expect(app.strapTailRunning, isTrue);
+      await app.deleteWorkout(id);
+      expect(app.strapTailRunning, isFalse, reason: 'nothing to record for');
+      expect(derives, 0);
+    });
+
     test('resuming after a long pause does not ask "still working out?"',
         () async {
       await Prefs.ensureLoaded();

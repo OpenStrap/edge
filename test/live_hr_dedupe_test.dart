@@ -3,6 +3,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:openstrap_edge/ble/adapters/_registry.dart' show kBleHrs;
 import 'package:openstrap_edge/ble/hrs_link.dart';
 import 'package:openstrap_edge/data/db.dart' show LocalDb;
 import 'package:openstrap_edge/data/models.dart';
@@ -91,6 +92,8 @@ void main() {
         () async {
       final app = AppState.forTesting();
       addTearDown(app.dispose);
+      LocalDb.sessionSensorSources = {kBleHrs.id};
+      addTearDown(() => LocalDb.sessionSensorSources = const {});
       app.device.connection = 'connected';
       app.debugFeedEngineState(
           '', _state(58, DateTime.now().millisecondsSinceEpoch));
@@ -108,6 +111,80 @@ void main() {
       await HrsLink.instance.disarm();
       expect(app.liveHrTrace(sensorId), isEmpty);
       expect(app.liveHrMultiDevice, isFalse);
+    });
+
+    // Rule R6: a workout the strap scored live is stamped with it, so its
+    // score is served empty once the flag is off, its raw pruned or not.
+    test('a workout the strap scored live is stamped with the strap',
+        () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      LocalDb.sessionSensorSources = {kBleHrs.id};
+      addTearDown(() => LocalDb.sessionSensorSources = const {});
+      await HrsLink.instance.ingestForTest(sensorId, [
+        (DateTime.now().millisecondsSinceEpoch ~/ 1000, bpmOnly),
+      ]);
+      addTearDown(HrsLink.instance.disarm);
+      app.showLiveHrFrom(sensorId);
+      expect(app.liveHrDeviceId, sensorId);
+      final start = DateTime.now().subtract(const Duration(minutes: 5));
+      app.activeWorkout = LiveWorkoutState(
+          startTime: start, targetKcal: 0, workoutId: 'w-strap', type: 'run');
+      app.debugTickWorkout();
+      final db = await LocalDb.instance;
+      // Durable mid-workout: a relaunch loses the in-memory latch.
+      for (var i = 0;
+          i < 100 && (await db.query('session_sensor')).isEmpty;
+          i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(await db.query('session_sensor'), [
+        {'session_id': 'w-strap', 'source': kBleHrs.id},
+      ], reason: 'stamped as it latched, before the stop');
+      await app.stopWorkout();
+
+      expect(await db.query('session_sensor'), [
+        {'session_id': 'w-strap', 'source': kBleHrs.id},
+      ]);
+      await db.delete('decoded_onehz');
+      final from = start.millisecondsSinceEpoch ~/ 1000;
+      Future<Map<String, dynamic>> served() async =>
+          (await LocalDb.sessionsInRange(from - 1, from + 1)).single;
+      expect((await served())['zone_min_json'], isNotNull);
+      LocalDb.sessionSensorSources = const {};
+      expect((await served())['zone_min_json'], isNull);
+    });
+
+    // Rule R6: a strap whose flag is off is never the live device, so a
+    // workout tick banks no peak, zone seconds, strain or calories from it.
+    test('a flag-off strap is never the live device', () async {
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      addTearDown(() => LocalDb.sessionSensorSources = const {});
+      await HrsLink.instance.ingestForTest(sensorId, [
+        (DateTime.now().millisecondsSinceEpoch ~/ 1000, bpmOnly),
+      ]);
+      addTearDown(HrsLink.instance.disarm);
+      app.showLiveHrFrom(sensorId);
+
+      LocalDb.sessionSensorSources = {kBleHrs.id};
+      expect(app.liveHrDeviceId, sensorId);
+      expect(app.liveHr, 61);
+
+      LocalDb.sessionSensorSources = const {};
+      expect(app.liveHrDeviceId, isNull);
+      expect(app.liveHr, isNull);
+      expect(app.liveHrTrace(sensorId), [61],
+          reason: 'still recorded; it just scores nothing');
+
+      // Nor is it offered by the card's pill: the override would be refused.
+      app.device.connection = 'connected';
+      app.debugFeedEngineState(
+          '', _state(58, DateTime.now().millisecondsSinceEpoch));
+      expect(app.liveHrMultiDevice, isFalse);
+      expect(app.liveHrSelectable(sensorId), isFalse);
+      LocalDb.sessionSensorSources = {kBleHrs.id};
+      expect(app.liveHrMultiDevice, isTrue);
     });
   });
 }

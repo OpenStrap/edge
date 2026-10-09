@@ -448,7 +448,9 @@ class HealthExporter {
       if (prefs.getBool(kHealthSyncPref) != true) return false;
       final row = await LocalDb.session(id);
       if (row == null) return false;
-      return await shared.exportWorkout(row);
+      // Rule R6: a flag-off sensor's score is not exported either.
+      return await shared
+          .exportWorkout((await LocalDb.withoutFlagOffScores([row])).first);
     } catch (e) {
       debugPrint('[health] exportWorkoutId $id: $e');
       return false;

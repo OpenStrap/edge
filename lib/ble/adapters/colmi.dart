@@ -10,17 +10,24 @@
 //  * HR history (5-min slots by default; the walk's page 0 says) ->
 //    [NeutralSample]s, signal `hrSparse`. A real
 //    measured quantity, the only thing here our own analytics could ever
-//    consume. Still gated out of derivation by `kDerivableSources` until the
-//    decode has met a real ring.
+//    consume. Derived only as the active wearable with its R6 flag on
+//    (`inputs/colmi_inputs.dart`); never on the primary band's read path.
 //  * The ring's own sleep stages -> [VendorHypnogram], plus per-night stage
-//    minutes as vendor observations for display. Naps are a `nap_min`
-//    observation and never join the night. A ring whose SetTime reply says
-//    it has no big-data sleep is asked per day on Service A instead; those
-//    rows are banked but not decoded into stages (the mapping is unknown).
-//  * Steps -> a daily `steps` observation (a comparable quantity).
-//  * Stress, HRV, SpO2, skin temperature -> daily-mean VENDOR observations.
-//    The ring computes all four with methods nobody outside the vendor can
-//    describe, so they are shown attributed and never fed to a baseline.
+//    minutes as vendor observations for display, stamped at the start of the
+//    day the night ended (the ring keeps one night per day), so a night the
+//    ring reports again with a later end replaces its rows instead of adding
+//    a second set. Naps are a `nap_min` observation and never join the
+//    night. A ring whose SetTime reply says it has no big-data sleep is asked
+//    per day on Service A instead; those rows are banked but not decoded into
+//    stages (the mapping is unknown).
+//  * Steps -> a daily `steps` observation (a comparable quantity); calories
+//    -> a daily `calories` VENDOR observation (the ring's own figure).
+//  * HRV, SpO2, skin temperature -> VENDOR observations, each the mean over
+//    the ring's own night, on the day it ended: our values beside them are
+//    the night's, so the ring's are too. No staged night, none. Stress ->
+//    a daily-mean VENDOR observation. The ring computes all four with
+//    methods nobody outside the vendor can describe, so they are shown
+//    attributed and never fed to a baseline.
 //
 // TIME. The ring keeps the local wall-clock time we set (no zone) and reports
 // history as "N days ago" + minute-of-day. A paged walk's page 1 names the
@@ -118,7 +125,8 @@ class ColmiAdapter extends BandAdapter {
 
       final samples = <NeutralSample>[];
       final steps = <DateTime, int>{};
-      final hrv = <DateTime, List<int>>{};
+      final calories = <DateTime, int>{};
+      final hrv = <(DateTime, num)>[];
       final stress = <DateTime, List<int>>{};
       final raw = <Uint8List>[];
 
@@ -144,9 +152,12 @@ class ColmiAdapter extends BandAdapter {
               continue;
             }
             final s = colmiActivitySlot(f, caloriesX10: x10);
-            if (s == null || s.steps == 0) continue;
+            if (s == null) continue;
             final day = DateTime(s.year, s.month, s.day);
-            steps[day] = (steps[day] ?? 0) + s.steps;
+            if (s.steps > 0) steps[day] = (steps[day] ?? 0) + s.steps;
+            if (s.calories > 0) {
+              calories[day] = (calories[day] ?? 0) + s.calories;
+            }
           }
         }
 
@@ -183,9 +194,9 @@ class ColmiAdapter extends BandAdapter {
         }
 
         // ── HRV and stress: same paged layout, page 1 names the day ──
-        for (final (cmd, req, into) in [
-          (kColmiCmdHrvHistory, colmiHrvRequest(d), hrv),
-          (kColmiCmdStressHistory, colmiStressRequest(d), stress),
+        for (final (cmd, req) in [
+          (kColmiCmdHrvHistory, colmiHrvRequest(d)),
+          (kColmiCmdStressHistory, colmiStressRequest(d)),
         ]) {
           if (!await link.write(kColmiWriteChar, req)) continue;
           final w = await _paged(a, cmd, 30, link.log);
@@ -201,8 +212,13 @@ class ColmiAdapter extends BandAdapter {
                 ? colmiHrvPoints(f, slotMinutes: w.slotMinutes)
                 : colmiStressPoints(f, slotMinutes: w.slotMinutes);
             for (final p in points) {
-              if (at(day, p.minuteOfDay).isAfter(now)) continue;
-              (into[at(day, 0)] ??= []).add(p.value);
+              final t = at(day, p.minuteOfDay);
+              if (t.isAfter(now)) continue;
+              if (cmd == kColmiCmdHrvHistory) {
+                hrv.add((t, p.value));
+              } else {
+                (stress[at(day, 0)] ??= []).add(p.value);
+              }
             }
           }
         }
@@ -247,43 +263,72 @@ class ColmiAdapter extends BandAdapter {
         }
       }
 
-      final spo2 = <DateTime, List<double>>{};
-      final temp = <DateTime, List<double>>{};
+      final spo2 = <(DateTime, num)>[];
+      final temp = <(DateTime, num)>[];
       final epochs = <VendorEpoch>[];
       final stageRows = <Observation>[];
+      final nights = <(DateTime, DateTime)>[];
       for (final r in replies) {
         switch (r[1]) {
           case kColmiBigSpo2:
             for (final h in colmiSpo2Hours(r)) {
-              if (at(h.daysAgo, h.hour * 60).isAfter(now)) continue;
-              (spo2[at(h.daysAgo, 0)] ??= []).add((h.min + h.max) / 2);
+              final t = at(h.daysAgo, h.hour * 60);
+              if (t.isAfter(now)) continue;
+              spo2.add((t, (h.min + h.max) / 2));
             }
           case kColmiBigTemperature:
-            for (final t in colmiTemperatures(r)) {
-              if (at(t.daysAgo, t.minuteOfDay).isAfter(now)) continue;
-              (temp[at(t.daysAgo, 0)] ??= []).add(t.celsius);
+            for (final x in colmiTemperatures(r)) {
+              final t = at(x.daysAgo, x.minuteOfDay);
+              if (t.isAfter(now)) continue;
+              temp.add((t, x.celsius));
             }
           case kColmiBigSleep:
           case kColmiBigNap:
             for (final n in colmiSleepNights(r)) {
-              _night(n, at, epochs, stageRows);
+              final span = _night(n, at, epochs, stageRows);
+              if (span != null) nights.add(span);
             }
         }
       }
       if (replies.isNotEmpty) yield SampleBatch(const [], raw: replies);
-      if (epochs.isNotEmpty) yield VendorHypnogram('colmi', epochs);
+      if (epochs.isNotEmpty) yield VendorHypnogram('colmi', epochs, wholeNights: true);
+
+      // The ring's night values: each point inside one of its nights, the
+      // mean on the day that night ended. A night that began before [from]
+      // (the first day these points cover) is skipped: its mean
+      // would be a half night, and replacing the full mean an earlier sync
+      // stored for the same day.
+      Map<DateTime, List<num>> overNights(List<(DateTime, num)> points,
+          {DateTime? from}) {
+        final out = <DateTime, List<num>>{};
+        if (points.isEmpty) return out;
+        from ??=
+            points.map((p) => p.$1).reduce((a, b) => a.isBefore(b) ? a : b);
+        from = DateTime(from.year, from.month, from.day);
+        for (final (start, end) in nights) {
+          if (start.isBefore(from)) continue;
+          for (final (t, v) in points) {
+            if (t.isBefore(start) || !t.isBefore(end)) continue;
+            (out[DateTime(end.year, end.month, end.day)] ??= []).add(v);
+          }
+        }
+        return out;
+      }
 
       final rows = <Observation>[
         ...stageRows,
         for (final MapEntry(:key, :value) in steps.entries)
           _obs(key, value, unit: 'steps', key: 'steps'),
-        for (final MapEntry(:key, :value) in hrv.entries)
+        for (final MapEntry(:key, :value) in calories.entries)
+          _obs(key, value, unit: 'kcal', vendorKey: 'calories'),
+        for (final MapEntry(:key, :value)
+            in overNights(hrv, from: at(kColmiHistoryDays - 1, 0)).entries)
           _obs(key, _mean(value), unit: 'ms', vendorKey: 'hrv_avg'),
         for (final MapEntry(:key, :value) in stress.entries)
           _obs(key, _mean(value), vendorKey: 'stress_avg'),
-        for (final MapEntry(:key, :value) in spo2.entries)
+        for (final MapEntry(:key, :value) in overNights(spo2).entries)
           _obs(key, _mean(value), unit: '%', vendorKey: 'spo2_avg'),
-        for (final MapEntry(:key, :value) in temp.entries)
+        for (final MapEntry(:key, :value) in overNights(temp).entries)
           _obs(key, _mean(value), unit: '°C', vendorKey: 'skin_temp_avg'),
       ];
       if (rows.isNotEmpty) yield VendorScalars(rows);
@@ -293,13 +338,17 @@ class ColmiAdapter extends BandAdapter {
     }
   }
 
-  /// One night into hypnogram epochs + per-stage minute totals, or one nap
-  /// into a `nap_min` row (naps never join the night's hypnogram).
+  /// One night into hypnogram epochs + per-stage minute totals, returning
+  /// its (start, end); or one nap into a `nap_min` row (naps never join the
+  /// night's hypnogram), returning null.
   ///
   /// A night is anchored at its end and starts the sum of its blocks before
   /// it, which is how the ring lays its own data out; the start field is not
-  /// used. A nap runs forward from its start field.
-  static void _night(
+  /// used. A nap runs forward from its start field. The stage minutes are
+  /// stamped at the start of the night's day, not at its end: the ring
+  /// keeps one night per day, and a re-sync that finds it ending later must
+  /// overwrite the rows, never sit beside them (the day's minutes are a sum).
+  static (DateTime, DateTime)? _night(
     ColmiSleepNight n,
     DateTime Function(int, int) at,
     List<VendorEpoch> epochs,
@@ -310,8 +359,11 @@ class ColmiAdapter extends BandAdapter {
           .where((b) => b.stage != 0)
           .fold(0, (s, b) => s + b.minutes);
       if (asleep > 0) {
+        // Stamped at its start, not its end: a re-report that finds the
+        // same nap longer must overwrite its row, never sit beside it (the
+        // day's nap minutes are a sum).
         rows.add(Observation(
-          at: at(n.daysAgo, n.startMinute + n.totalMinutes),
+          at: at(n.daysAgo, n.startMinute),
           sourceKind: ObservationSource.vendor,
           vendorKey: 'nap_min',
           value: asleep,
@@ -319,11 +371,11 @@ class ColmiAdapter extends BandAdapter {
           attribution: kColmiAttribution,
         ));
       }
-      return;
+      return null;
     }
     final end = at(n.daysAgo, n.endMinute);
     final start = end.subtract(Duration(minutes: n.totalMinutes));
-    if (!end.isAfter(start)) return;
+    if (!end.isAfter(start)) return null;
     final endSec = end.millisecondsSinceEpoch ~/ 1000;
     var t = start.millisecondsSinceEpoch ~/ 1000;
     final minutes = <String, int>{};
@@ -337,16 +389,21 @@ class ColmiAdapter extends BandAdapter {
       t = stop;
       if (t >= endSec) break;
     }
-    for (final MapEntry(:key, :value) in minutes.entries) {
+    // Every stage, 0 for one this report has none of: a re-report that
+    // drops a stage must overwrite its old minutes, not leave them standing.
+    for (final key in minutes.isEmpty
+        ? const <String>[]
+        : const ['light', 'deep', 'rem', 'wake']) {
       rows.add(Observation(
-        at: end,
+        at: at(n.daysAgo, 0),
         sourceKind: ObservationSource.vendor,
         vendorKey: 'sleep_${key}_min',
-        value: value,
+        value: minutes[key] ?? 0,
         unit: 'min',
         attribution: kColmiAttribution,
       ));
     }
+    return (start, end);
   }
 
   static String? _stage(int code) => switch (code) {
@@ -453,6 +510,12 @@ class ColmiAdapter extends BandAdapter {
 /// The signals this ring supplies. Mirrored in `kAdapterSignals`.
 const Map<InputSignal, Duration> kColmiSignals = {
   InputSignal.hrSparse: Duration(minutes: 5),
+  InputSignal.steps: Duration(days: 1),
+  InputSignal.skinTempC: Duration(minutes: 30),
+  InputSignal.deviceHrv: Duration(days: 1),
+  InputSignal.deviceStages: Duration.zero,
+  InputSignal.deviceSpo2: Duration(days: 1),
+  InputSignal.deviceStress: Duration(days: 1),
 };
 
 /// The single instance. Holds no per-ring state.

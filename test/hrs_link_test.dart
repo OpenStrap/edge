@@ -18,6 +18,8 @@ import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/ble_state.dart'
     show acquireSecondaryLinkSlot, releaseSecondaryLinkSlot;
 import 'package:openstrap_edge/ble/hrs_link.dart';
+import 'package:openstrap_edge/compute/inputs/canonical.dart'
+    show wearableEnabledCursor;
 import 'package:openstrap_edge/data/db.dart';
 
 /// Frames as the three common flag shapes put them on the wire.
@@ -82,10 +84,11 @@ void main() {
       expect(rr.map((r) => r['beat_index']), [0, 1]);
       expect(rr.first['device_id'], deviceId);
       expect(rr.first['source'], 'ble_hrs');
-      // THE LOAD-BEARING ONE. `beat_ts_ms` means "where the beat actually
-      // was"; this source has no clock, so we do not know. An arrival anchor
-      // written there would be a measured claim we cannot make.
-      expect(rr.first['beat_ts_ms'], isNull);
+      // Each beat keeps its own time: the strap has no clock, but its beats
+      // are contiguous, so they chain off one another exactly (488 ms apart
+      // here), anchored mid-arrival-second when a chain starts.
+      expect(rr.map((r) => r['beat_ts_ms']),
+          [1_800_000_000_000, 1_800_000_000_500]);
       expect(rr.first['rr_ts_ms'], 1_800_000_000 * 1000,
           reason: 'the arrival second, which is all the anchor there is');
     });
@@ -227,6 +230,9 @@ void main() {
         label: 'Test Strap',
         tier: 'beatToBeat',
       );
+      // Flag on: an arm with it off returns before the slot these tests park
+      // it on.
+      await LocalDb.setCursor(wearableEnabledCursor(kBleHrs.id), '1');
     });
 
     tearDown(() async {
@@ -254,6 +260,18 @@ void main() {
       releaseSecondaryLinkSlot();
       releaseSecondaryLinkSlot();
     }
+
+    test('a sensor whose flag is off is never armed', () async {
+      await LocalDb.setCursor(wearableEnabledCursor(kBleHrs.id), '0');
+      await takeBothSlots();
+      // Answered before the slot: with both held, an arm that went on to
+      // acquire one would park here, not answer.
+      expect(
+          await HrsLink.instance.arm().timeout(const Duration(seconds: 2)),
+          isFalse);
+      releaseSecondaryLinkSlot();
+      releaseSecondaryLinkSlot();
+    });
 
     test('arm → disarm → arm inside one window gives a FRESH attempt',
         () async {

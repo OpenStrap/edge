@@ -2,13 +2,15 @@
 // hold the time anchor, connect, drive [OuraAdapter] over the link, and bank
 // what comes back.
 //
-// NOTHING HERE HAS MET HARDWARE. Nobody on this project owns a ring (owner
-// ruling R6), so not one byte of this path has been exercised against one. The
-// registry entry stays EXPERIMENTAL, `OuraAdapter.signals` stays `const {}`,
-// and nothing this file writes becomes a number: its rows carry a non-null
-// `source`, and every derive/export read filters `source IS NULL`. That is
-// correct behaviour for an uncalibrated decoder, not a limitation to route
-// around.
+// THE DRAIN HAS NOT MET HARDWARE. Discovery and first connect have met a real
+// ring (see `kOura`'s doc); nothing past them has (owner ruling R6). The
+// registry entry stays EXPERIMENTAL; `OuraAdapter.signals` declares what the
+// ring supplies (`kOuraSignals`). Its rows carry a non-null `source`, so the
+// band's derive/export reads (`source IS NULL`) never see them. They become
+// numbers through the ring's own column (compute/inputs/oura_inputs.dart)
+// only while the per-wearable flag is on and the ring is the active
+// wearable. A ranking never puts it ahead of the band on a band day: those
+// reads cannot load its rows, so it owns no window there.
 //
 // THE SHAPE, AND WHY IT IS NOT `HrsLink`'s. A heart-rate strap is a live
 // session armed by a workout; the ring is a FETCH-BY-CURSOR store. So this is
@@ -52,9 +54,13 @@
 // bulk-sampler erase. This file writes NOTHING it did not get from a builder in
 // the protocol package's Oura wire format, that module has no builder for any
 // of them, and `oura_link_test.dart` asserts that every byte this host puts on
-// the wire came from a builder that exists. The one command here that writes
-// ring state is the key install, and it writes a credential rather than
-// erasing anything.
+// the wire came from a builder that exists. Three commands here write ring
+// state, and none erases anything. The key install (0x24, pairing only, never
+// on the existing-key path) writes a credential. On every sync, after auth,
+// `OuraAdapter.run` also writes SetNotification (0x1c, notify mask 0x3f) and
+// SyncTime (0x12, the RTC set to now with the phone's UTC offset); both are
+// preconditions of a history drain. The pairing handshake on the existing-key
+// path writes nothing but the auth exchange.
 
 import 'dart:async';
 import 'dart:convert' show base64;
@@ -114,6 +120,12 @@ const String _kResetFirst =
     'upright and wait for red, upside-down again for purple, and upright a '
     'final time for yellow — yellow means the reset has started, and a '
     'blinking blue LED a few minutes later means it is done.';
+
+/// Key-install status 5. Not [_kResetFirst]: resetting does not fix it.
+const String _kProductionTestsMissing =
+    'The ring reports that its factory production tests were never '
+    'completed, so it will not accept a pairing key. A factory reset does not '
+    'change that. Contact the seller or Oura about this ring.';
 
 String _hex(List<int> b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
@@ -503,6 +515,10 @@ class OuraLink {
         deviceId: deviceId,
         onLog: (m) => debugPrint('[oura] $m'),
         onNote: _handleNote,
+        // The night's hypnogram and stage minutes bank off the commit chain:
+        // a confirm (and so the cursor) waits for them and never follows one
+        // that failed, so a night whose rows did not land is read again.
+        notesAfterVendorWrites: true,
         admitSample: _isPlausibleSecond,
         buildArchive: _buildArchiveRow,
         // The anchor is folded into the SAME commit transaction as the rows it
@@ -519,14 +535,17 @@ class OuraLink {
     switch (key) {
       case 'oura_cursor_ds':
         // Emitted only AFTER the host confirmed, which is only after the
-        // commit landed. Persisting it here is therefore always behind the
-        // durable data, never ahead of it.
+        // commit and every vendor write before it landed. Persisting it here
+        // is therefore always behind the durable data, never ahead of it.
         if (value is int) _writeCursor(value);
       case 'oura_anchor':
         // The origin the adapter measured. Read back by `_makeHost`'s
         // `extraCursors` at the NEXT commit, so an origin can never survive a
-        // commit its own rows did not.
-        if (value is String) _anchor = value;
+        // commit its own rows did not. NULL is the adapter dropping the origin
+        // at a ring reboot: stored as '' (which `_parseAnchor` reads as "no
+        // origin") so the clear is committed too, rather than the dead boot's
+        // anchor surviving because nothing was written over it.
+        _anchor = value is String ? value : '';
       case 'oura_cursor_stranded':
         // The bookmark points past everything the ring holds, which happens
         // when the ring reboots and its decisecond counter restarts below
@@ -562,13 +581,17 @@ class OuraLink {
     return true;
   }
 
-  /// Bank one frame verbatim, decoded or not (owner rulings R1-R3): the beat
-  /// intervals, SpO2 and the steps are all in here undecoded and the bytes
-  /// are banked now so a decoder written when someone owns a ring can be run
+  /// Bank one frame verbatim, decoded or not (owner rulings R1-R3): the
+  /// steps, motion and raw PPG are in here undecoded, and the bytes are
+  /// banked now so a decoder written once their layout is known can be run
   /// over them.
   ArchiveRecord? _buildArchiveRow(List<int> bytes, int capturedAtMs) {
-    final f = parseOuraFrame(bytes);
-    if (f == null) return null;
+    // One row per notification, tagged by its first frame. Walked rather than
+    // read as one frame: an extended event's byte 1 is a CRC, not a length.
+    // A notification with no trusted frame is still banked, under its first
+    // byte: nothing decodes it, and that is no reason to lose it.
+    final tag = parseOuraFrames(bytes).firstOrNull?.tag ?? bytes.firstOrNull;
+    if (tag == null) return null;
     return ArchiveRecord(
       hex: _hex(bytes),
       // NULL, not 0. This band has no flash-record counter, and `counter` is
@@ -579,7 +602,7 @@ class OuraLink {
       // The frame TAG. `packet_type` is documented as a WHOOP inner[0], and
       // this is the same thing one layer over — safe to share the column
       // because `reason` below is what every reader of this table selects on.
-      packetType: f.tag,
+      packetType: tag,
       // NULL, and it stays NULL. `rec_ts` would be this frame's wall-clock
       // second, which is exactly the thing that may not be knowable.
       recTs: null,
@@ -591,7 +614,7 @@ class OuraLink {
       // `_decodeOneHzSample`, which is the WHOOP R24 chain. Handing it an
       // Oura frame would run the wrong decoder over the right bytes, which is
       // the one failure this project treats as worse than an absent number.
-      reason: 'oura_evt_0x${f.tag.toRadixString(16).padLeft(2, '0')}',
+      reason: 'oura_evt_0x${tag.toRadixString(16).padLeft(2, '0')}',
     );
   }
 
@@ -687,6 +710,7 @@ class OuraLink {
         anchor: _parseAnchor(_anchor),
         nowSeconds: _now,
         replyTimeout: timeouts,
+        firstFrameTimeout: timeouts,
         confirmTimeout: timeouts,
       ),
     );
@@ -933,8 +957,7 @@ Future<OuraPairAttempt> ouraPairHandshake(
   // three replies, once, during pairing.
   final inbox = <OuraFrame>[];
   final sub = link.notify(kOuraNotifyChar).listen((rec) {
-    final f = parseOuraFrame(rec.$2);
-    if (f != null) inbox.add(f);
+    inbox.addAll(parseOuraFrames(rec.$2));
   });
   var read = 0;
   Future<OuraFrame?> waitFor(bool Function(OuraFrame) matches) async {
@@ -959,11 +982,17 @@ Future<OuraPairAttempt> ouraPairHandshake(
             'the charger and next to the phone.');
       }
       final installed = await waitFor((f) => ouraSetAuthKeyResult(f) != null);
+      final status = installed == null ? null : ouraSetAuthKeyResult(installed);
+      // NOT A RESET CASE. The ring's factory production tests were never
+      // completed, so it refuses every key, and a reset does not change that.
+      if (status == kOuraSetAuthKeyProductionTestsMissing) {
+        return const OuraPairAttempt.failed(_kProductionTestsMissing);
+      }
       // SILENCE IS A REFUSAL, NOT CONSENT. A ring that already holds a key is
       // the case that matters here and it does not necessarily answer at all —
       // and carrying on to mint a `device` row on the strength of a quiet ring
       // is how a user spends a factory reset and ends up with nothing working.
-      if (installed == null || ouraSetAuthKeyResult(installed) != 0) {
+      if (status != 0) {
         return const OuraPairAttempt.rejected(_kResetFirst);
       }
       onKeyInstalled?.call();
@@ -1270,9 +1299,9 @@ Future<String?> _pairOuraRing(
               label: cleanDeviceLabel(device.platformName) ?? kOura.label,
               // `tier` is left unset on purpose. It means MEASUREMENT QUALITY
               // and it is what decides precedence between two sources — and
-              // this ring supplies no signal at all today
-              // (`OuraAdapter.signals` is `const {}`), so there is no quality
-              // to rank. NULL is a refusal, not a default.
+              // the signals this ring declares (`kOuraSignals`) have never
+              // been checked against a real ring (rule R6), so there is no
+              // quality to rank yet. NULL is a refusal, not a default.
             );
             paired = true;
             return null;

@@ -405,6 +405,7 @@ Future<CsvExportResult> exportCsvFiles(
   DateTime? now,
 }) async {
   final db = await LocalDb.instance;
+  await LocalDb.refreshSessionScoreMask();
   final root = await getTemporaryDirectory();
   final parent = Directory(p.join(root.path, _csvDirName));
   await parent.create(recursive: true);

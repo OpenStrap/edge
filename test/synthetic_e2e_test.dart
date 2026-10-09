@@ -21,6 +21,8 @@ import 'package:openstrap_edge/ble/garmin_link.dart';
 import 'package:openstrap_edge/ble/miband_link.dart';
 import 'package:openstrap_edge/ble/ultrahuman_link.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
+import 'package:openstrap_edge/compute/inputs/canonical.dart'
+    show wearableEnabledCursor;
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
 import 'package:openstrap_edge/data/db.dart';
@@ -220,8 +222,8 @@ SYNTHETIC DAY $_dayId — derived vs truth
         reason: "the band's own deep-sleep minutes, as it reported them");
     expect(
         await LocalDb.getCursorInt('miband_since:miband-synthetic'),
-        SyntheticDay.sec(DateTime(2026, 10, 3)),
-        reason: 'resume from the start of the day before the last minute');
+        SyntheticDay.sec(DateTime(2026, 10, 4)),
+        reason: 'resume from the start of the first day not read whole');
 
     // SHOWING: every device row now says when it last synced, Colmi its
     // battery (the device detail screen and the list row read these), and
@@ -245,10 +247,20 @@ SYNTHETIC DAY $_dayId — derived vs truth
         containsAll(['Colmi', 'Ultrahuman', 'Mi Band', 'Garmin']),
         reason: 'the day timeline notes, as the screen reads them');
 
-    // THE SLEEP SCREEN'S DEVICE SWITCHER reads each device's own night.
+    // THE SLEEP SCREEN'S DEVICE SWITCHER reads each device's own night, and
+    // only a flag-on device's (rule R6).
+    expect(await repo.getDeviceNights(_dayId), isEmpty,
+        reason: 'every flag is off: no device night is offered');
+    const families = ['colmi', 'miband234', 'garmin'];
+    for (final f in families) {
+      await LocalDb.setCursor(wearableEnabledCursor(f), '1');
+    }
     final nights = {
       for (final n in await repo.getDeviceNights(_dayId)) n['device_id']: n,
     };
+    for (final f in families) {
+      await LocalDb.setCursor(wearableEnabledCursor(f), '0');
+    }
     expect(nights.keys,
         containsAll(['colmi-synthetic', 'miband-synthetic', 'garmin-synthetic']));
     for (final id in ['colmi-synthetic', 'garmin-synthetic']) {

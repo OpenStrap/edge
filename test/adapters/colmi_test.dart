@@ -28,8 +28,9 @@ List<int> _big(int type, List<int> payload) =>
     colmiBigDataRequest(type, payload);
 
 /// A ring that holds: today 2 activity slots + a stale HR slot from the
-/// future; yesterday HR, HRV, SpO2 and temperature; stress today; one night
-/// that began yesterday evening. Every other day answers "no data".
+/// future; yesterday HR; HRV, SpO2 and temperature both inside and outside
+/// the night; stress today; one night, yesterday 23:00 to 06:00 today.
+/// Every other day answers "no data".
 List<List<int>> _ring(List<int> w, {bool splitBig = true, bool badCrc = false}) {
   final cmd = w[0];
   final day = cmd == kColmiCmdBigData ? 0 : w[1];
@@ -69,11 +70,13 @@ List<List<int>> _ring(List<int> w, {bool splitBig = true, bool badCrc = false}) 
       }
       return [colmiFrame(cmd, [0xff])];
     case kColmiCmdHrvHistory:
-      if (w[1] != 1) return [colmiFrame(cmd, [0xff])];
+      if (w[1] != 0) return [colmiFrame(cmd, [0xff])];
+      // 00:00 and 00:30 inside the night; 06:00 (page 2's first slot) is
+      // the night's end, outside it.
       return [
         colmiFrame(cmd, [0, 3, 30]),
-        colmiFrame(cmd, [1, 1, 40, 42]),
-        colmiFrame(cmd, [2]),
+        colmiFrame(cmd, [1, 0, 40, 42]),
+        colmiFrame(cmd, [2, 90]),
       ];
     case kColmiCmdStressHistory:
       if (w[1] != 0) return [colmiFrame(cmd, [0xff])];
@@ -86,9 +89,10 @@ List<List<int>> _ring(List<int> w, {bool splitBig = true, bool badCrc = false}) 
       final List<int> r;
       switch (w[1]) {
         case kColmiBigSpo2:
+          // 03:00 yesterday (outside the night) and today (inside it).
           r = _big(kColmiBigSpo2, [
-            1, for (var h = 0; h < 24; h++) ...(h == 3 ? [95, 98] : [0, 0]),
-            0, for (var h = 0; h < 24; h++) ...[0, 0],
+            1, for (var h = 0; h < 24; h++) ...(h == 3 ? [80, 80] : [0, 0]),
+            0, for (var h = 0; h < 24; h++) ...(h == 3 ? [95, 98] : [0, 0]),
           ]);
         case kColmiBigSleep:
           // daysAgo 0: 23:00 the evening before -> 06:00.
@@ -98,12 +102,15 @@ List<List<int>> _ring(List<int> w, {bool splitBig = true, bool badCrc = false}) 
             kColmiStageAwake, 30, kColmiStageLight, 150,
           ]);
         case kColmiBigTemperature:
-          // One reply per day: yesterday's readings, then an empty today.
+          // One reply per day: 02:00/02:30 yesterday (outside the night),
+          // then 02:00/02:30 today (inside it).
           final days = [
             _big(kColmiBigTemperature, [
-              1, 30, for (var k = 0; k < 48; k++) k == 4 ? 150 : (k == 5 ? 160 : 0),
+              1, 30, for (var k = 0; k < 48; k++) k == 4 ? 100 : (k == 5 ? 100 : 0),
             ]),
-            _big(kColmiBigTemperature, [0, 30, for (var k = 0; k < 48; k++) 0]),
+            _big(kColmiBigTemperature, [
+              0, 30, for (var k = 0; k < 48; k++) k == 4 ? 150 : (k == 5 ? 160 : 0),
+            ]),
           ];
           return [
             for (final d in days)
@@ -173,7 +180,15 @@ void main() {
   });
 
   test('declares hrSparse and kAdapterSignals mirrors it', () {
-    expect(kColmiAdapter.signals.keys, [InputSignal.hrSparse]);
+    expect(kColmiAdapter.signals.keys, [
+      InputSignal.hrSparse,
+      InputSignal.steps,
+      InputSignal.skinTempC,
+      InputSignal.deviceHrv,
+      InputSignal.deviceStages,
+      InputSignal.deviceSpo2,
+      InputSignal.deviceStress,
+    ]);
     expect(kAdapterSignals['colmi'], kColmiAdapter.signals);
   });
 
@@ -214,11 +229,24 @@ void main() {
     expect(o.value, 500);
   });
 
-  test('ring-computed values are vendor-keyed daily means, attributed', () {
-    expect(_row(events, 'hrv_avg', _at(1, 0)).value, 41);
+  test("calories: the ring's daily total, vendor-keyed", () {
+    final o = _row(events, 'calories', _at(0, 0));
+    expect(o.vendorKey, 'calories');
+    expect(o.value, 10, reason: '5 + 5 over the two slots');
+    expect(o.unit, 'kcal');
+  });
+
+  test('HRV, SpO2 and skin temperature are means over the ring\'s night, '
+      'on the day it ended; stress is the daily mean, attributed', () {
+    expect(_row(events, 'hrv_avg', _at(0, 0)).value, 41,
+        reason: '06:00 is the night\'s end, not in it');
     expect(_row(events, 'stress_avg', _at(0, 0)).value, 40);
-    expect(_row(events, 'spo2_avg', _at(1, 0)).value, 96.5);
-    expect(_row(events, 'skin_temp_avg', _at(1, 0)).value, closeTo(35.5, 1e-9));
+    expect(_row(events, 'spo2_avg', _at(0, 0)).value, 96.5);
+    expect(_row(events, 'skin_temp_avg', _at(0, 0)).value, closeTo(35.5, 1e-9));
+    for (final key in ['hrv_avg', 'spo2_avg', 'skin_temp_avg']) {
+      expect(_rows(events).where((o) => o.vendorKey == key), hasLength(1),
+          reason: '$key: yesterday\'s daytime readings are no night\'s');
+    }
     for (final o in _rows(events)) {
       expect(o.sourceKind, ObservationSource.vendor);
       expect(o.attribution, kColmiAttribution);
@@ -226,7 +254,8 @@ void main() {
     }
   });
 
-  test('sleep: hypnogram from the evening before, stage minutes at wake', () {
+  test('sleep: hypnogram from the evening before, stage minutes on the day '
+      'the night ended', () {
     final h = events.whereType<VendorHypnogram>().single;
     expect(h.source, 'colmi');
     expect(h.epochs.first.startSec, _sec(_at(1, 23 * 60)));
@@ -236,10 +265,12 @@ void main() {
     for (var i = 1; i < h.epochs.length; i++) {
       expect(h.epochs[i].startSec, h.epochs[i - 1].endSec);
     }
-    final wake = _at(0, 6 * 60);
-    expect(_row(events, 'sleep_light_min', wake).value, 270);
-    expect(_row(events, 'sleep_deep_min', wake).value, 60);
-    expect(_row(events, 'sleep_wake_min', wake).value, 30);
+    // At the day's start, not the night's end: a re-sync that finds the
+    // night ending later overwrites these instead of adding to them.
+    final day = _at(0, 0);
+    expect(_row(events, 'sleep_light_min', day).value, 270);
+    expect(_row(events, 'sleep_deep_min', day).value, 60);
+    expect(_row(events, 'sleep_wake_min', day).value, 30);
   });
 
   test('every reply is archived: service A frames and whole big replies', () {
@@ -255,7 +286,7 @@ void main() {
   test('a big reply with a CRC mismatch is kept, decoded and logged',
       () async {
     final r = await _run(badCrc: true);
-    expect(_row(r.events, 'spo2_avg', _at(1, 0)).value, 96.5);
+    expect(_row(r.events, 'spo2_avg', _at(0, 0)).value, 96.5);
     expect(r.link.logs.any((m) => m.contains('CRC mismatch')), isTrue);
     expect(r.events.whereType<VendorHypnogram>(), hasLength(1));
   });
@@ -278,15 +309,14 @@ void main() {
       if (w[0] != kColmiCmdBigData || w[1] != kColmiBigTemperature) {
         return null;
       }
+      // 23:00 yesterday and 00:00 today, both inside the night.
       return [
-        for (final (ago, b) in [(2, 140), (1, 150)])
-          _big(kColmiBigTemperature, [ago, 60, b]),
+        _big(kColmiBigTemperature, [1, 60, for (var k = 0; k < 24; k++) k == 23 ? 140 : 0]),
+        _big(kColmiBigTemperature, [0, 60, 150]),
       ];
     });
-    expect(_row(r.events, 'skin_temp_avg', _at(2, 0)).value,
-        closeTo(34.0, 1e-9));
-    expect(_row(r.events, 'skin_temp_avg', _at(1, 0)).value,
-        closeTo(35.0, 1e-9));
+    expect(_row(r.events, 'skin_temp_avg', _at(0, 0)).value,
+        closeTo(34.5, 1e-9));
   });
 
   test('HR slot interval comes from page 0, not a fixed 5 minutes', () async {
@@ -311,15 +341,16 @@ void main() {
 
   test('a walk is dated by the day its page 1 names', () async {
     final r = await _run(override: (w) {
-      if (w[0] != kColmiCmdHrvHistory) return null;
+      if (w[0] != kColmiCmdStressHistory) return null;
       if (w[1] != 1) return [colmiFrame(w[0], [0xff])];
       // Asked for yesterday, answered for the day before.
       return [colmiFrame(w[0], [0, 2, 30]), colmiFrame(w[0], [1, 2, 40, 42])];
     });
-    expect(_row(r.events, 'hrv_avg', _at(2, 0)).value, 41);
-    expect(_rows(r.events).where((o) => o.vendorKey == 'hrv_avg'),
+    expect(_row(r.events, 'stress_avg', _at(2, 0)).value, 41);
+    expect(_rows(r.events).where((o) => o.vendorKey == 'stress_avg'),
         hasLength(1));
-    expect(r.link.logs.any((m) => m.contains('HRV for 1 days ago')), isTrue);
+    expect(r.link.logs.any((m) => m.contains('stress for 1 days ago')),
+        isTrue);
   });
 
   test('an HR walk is dated by the stamp on its page 1', () async {
@@ -367,10 +398,11 @@ void main() {
     final h = r.events.whereType<VendorHypnogram>().single;
     expect(h.epochs.first.startSec, _sec(_at(1, 23 * 60)));
     expect(h.epochs.last.endSec, _sec(_at(0, 6 * 60)));
-    final nap = _row(r.events, 'nap_min', _at(0, 13 * 60 + 60));
+    // At its start: a re-report finding it longer overwrites the row.
+    final nap = _row(r.events, 'nap_min', _at(0, 13 * 60));
     expect(nap.value, 40);
     // The nap reply did not swallow the temperature reply after it.
-    expect(_row(r.events, 'skin_temp_avg', _at(1, 0)).value,
+    expect(_row(r.events, 'skin_temp_avg', _at(0, 0)).value,
         closeTo(35.5, 1e-9));
   });
 
@@ -387,6 +419,12 @@ void main() {
     final h = r.events.whereType<VendorHypnogram>().single;
     expect(h.epochs.single.startSec, _sec(_at(0, 5 * 60)));
     expect(h.epochs.single.endSec, _sec(_at(0, 6 * 60)));
+    // A stage this report has none of is written as 0, so an earlier
+    // report's minutes for it are overwritten, not left standing.
+    expect(_row(r.events, 'sleep_deep_min', _at(0, 0)).value, 60);
+    for (final st in ['light', 'rem', 'wake']) {
+      expect(_row(r.events, 'sleep_${st}_min', _at(0, 0)).value, 0);
+    }
   });
 
   test('a ring without big-data sleep is asked per day on Service A',
@@ -409,5 +447,40 @@ void main() {
         [for (var d = 0; d < kColmiHistoryDays; d++) d]);
     final raw = [for (final b in r.events.whereType<SampleBatch>()) ...?b.raw];
     expect(raw.where((f) => f[0] == kColmiCmdSleepDetails), isNotEmpty);
+  });
+
+  test('the oldest night, which began before the HRV walk\'s first day, '
+      'writes no half-night HRV mean', () async {
+    final oldest = kColmiHistoryDays - 1;
+    final r = await _run(override: (w) {
+      // HRV on every walked day: 40 at 00:00/00:30, nothing the evening
+      // before, which for the oldest day is never asked for.
+      if (w[0] == kColmiCmdHrvHistory) {
+        return [
+          colmiFrame(w[0], [0, 3, 30]),
+          colmiFrame(w[0], [1, w[1], 40, 40]),
+        ];
+      }
+      if (w[0] == kColmiCmdBigData && w[1] == kColmiBigSleep) {
+        // Two nights, 23:00 to 06:00: one ending today, one ending on the
+        // oldest walked day (so it began the evening before it).
+        return [
+          _big(kColmiBigSleep, [
+            2, //
+            0, 8, 0x64, 0x05, 0x68, 0x01, //
+            kColmiStageLight, 210, kColmiStageLight, 210, //
+            oldest, 8, 0x64, 0x05, 0x68, 0x01, //
+            kColmiStageLight, 210, kColmiStageLight, 210,
+          ]),
+        ];
+      }
+      return null;
+    });
+    expect(_row(r.events, 'hrv_avg', _at(0, 0)).value, 40);
+    expect(
+        _rows(r.events).where(
+            (o) => o.vendorKey == 'hrv_avg' && o.at == _at(oldest, 0)),
+        isEmpty,
+        reason: 'only its post-midnight half was walked');
   });
 }

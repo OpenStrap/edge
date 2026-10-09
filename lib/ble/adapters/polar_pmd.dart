@@ -102,32 +102,42 @@ class PolarPmdAdapter extends BandAdapter {
             'session.');
         return;
       }
+      // Time covered by records whose interval was not banked since the last
+      // banked one: the next banked beat carries it as its gap.
+      var gapMs = 0;
       await for (final (atSec, value) in dataEvents.stream) {
         final samples = parsePolarPmdPpiFrame(value);
         if (samples == null) continue;
-        final neutrals = [
-          for (final s in samples)
-            // hr == 0 is the sensor's own "no valid beat this record" — a
-            // refusal, not a low reading. Storing it would put a fabricated
-            // zero into a heart-rate series. "Supported, no contact" is the
-            // same refusal `ble_hrs` applies to 0x2A37's identical bits: a
-            // sensor off the skin reports confident nonsense.
-            if (s.hr != 0 && s.contact != false)
-              NeutralSample(
-                anchor: TimeAnchor.arrival,
-                tsEpoch: atSec,
-                hr: s.hr,
-                // A blocker record's interval is marked invalid by the
-                // sensor (motion); its HR carries no such mark, so only the
-                // interval is dropped.
-                rrMs: s.blocker ? const <int>[] : [s.ppiMs],
-                vendor: {
-                  'blocker': s.blocker,
-                  'skin_contact': s.skinContactBits,
-                  'error_ms': s.errorEstimateMs,
-                },
-              ),
-        ];
+        final neutrals = <NeutralSample>[];
+        for (final s in samples) {
+          // hr == 0 is the sensor's own "no valid beat this record" — a
+          // refusal, not a low reading. Storing it would put a fabricated
+          // zero into a heart-rate series. "Supported, no contact" is the
+          // same refusal `ble_hrs` applies to 0x2A37's identical bits: a
+          // sensor off the skin reports confident nonsense.
+          // A blocker record's interval is marked invalid by the sensor
+          // (motion); its HR carries no such mark, so only the interval is
+          // dropped. Either way the time still passed.
+          final dropped = s.hr == 0 || s.contact == false;
+          if (dropped || s.blocker) {
+            gapMs += s.ppiMs;
+            if (dropped) continue;
+          }
+          final banked = !s.blocker;
+          neutrals.add(NeutralSample(
+            anchor: TimeAnchor.arrival,
+            tsEpoch: atSec,
+            hr: s.hr,
+            rrMs: banked ? [s.ppiMs] : const <int>[],
+            gapMs: banked ? gapMs : 0,
+            vendor: {
+              'blocker': s.blocker,
+              'skin_contact': s.skinContactBits,
+              'error_ms': s.errorEstimateMs,
+            },
+          ));
+          if (banked) gapMs = 0;
+        }
         if (neutrals.isNotEmpty) yield SampleBatch(neutrals);
       }
     } finally {

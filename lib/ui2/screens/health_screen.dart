@@ -18,6 +18,8 @@ import '../../data/local_repository.dart';
 import '../../import/journal_csv_import.dart' show isValidDayLabel;
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart';
+import '../profile/wearable_numbers.dart'
+    show WearableCells, kHealthWearableRows;
 import '../ui2.dart';
 import 'circadian_detail.dart';
 import 'ecg.dart' show EcgEntryCard, pairedIsMaverickOf;
@@ -848,6 +850,9 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
           ]),
         ),
       for (final g in gaps) ...[const SizedBox(height: S.x3), g],
+      // The active wearable's heart rows, each with its class, source line
+      // and reason. Nothing on a WHOOP-only install, nor when handed data.
+      if (widget.data == null) const WearableCells(kHealthWearableRows),
 
       // OBSERVATIONS — the illness watch, wrapped, plus a door to the other
       // three detectors.
@@ -1175,10 +1180,14 @@ class _HealthScreenState extends State<HealthScreen> with RevisionReload {
             l?.healthRowSkinTemp ?? 'Skin temperature',
             '${skinTemp.value! >= 0 ? '+' : '−'}'
                 '${skinTemp.value!.abs().toStringAsFixed(2)}',
-            sub: tempNight == null
-                ? (l?.healthVsOwnNights ?? 'vs your own nights')
-                : (l?.healthVsOwnNightsOn(prettyDay(tempNight)) ??
-                    'vs your own nights · ${prettyDay(tempNight)}'),
+            sub: [
+              if ((d.today['skin_temp'] as Map?)?['provisional'] == true)
+                l?.wearableProvisional ?? 'Provisional',
+              tempNight == null
+                  ? (l?.healthVsOwnNights ?? 'vs your own nights')
+                  : (l?.healthVsOwnNightsOn(prettyDay(tempNight)) ??
+                      'vs your own nights · ${prettyDay(tempNight)}'),
+            ].join(' · '),
             unit: 'SD',
             // Both this row and the wear row below it carry a FULL, written,
             // cited spec in `metric_detail.dart` that no tap in the app opened.

@@ -191,6 +191,13 @@ class SleepSessionCandidate {
   final int sleepOffsetSec;
   final String sleepSource;
 
+  /// Staged off a paired device's records, not the primary band's rows: such
+  /// a night is re-staged rather than served or kept from the cache.
+  final bool deviceNight;
+
+  /// The paired device whose records staged a [deviceNight], when known.
+  final String? deviceId;
+
   const SleepSessionCandidate({
     required this.dayId,
     required this.confidence,
@@ -200,6 +207,8 @@ class SleepSessionCandidate {
     required this.sleepOnsetSec,
     required this.sleepOffsetSec,
     this.sleepSource = 'auto',
+    this.deviceNight = false,
+    this.deviceId,
   });
 
   bool get present => sleepJson['tst_sec'] != null;
@@ -213,6 +222,8 @@ class SleepSessionCandidate {
     'sleep_onset_sec': sleepOnsetSec,
     'sleep_offset_sec': sleepOffsetSec,
     'sleep_source': sleepSource,
+    if (deviceNight) 'device_night': true,
+    if (deviceId != null) 'device_id': deviceId,
   };
 
   static SleepSessionCandidate fromJson(Map<String, dynamic> m) {
@@ -227,6 +238,8 @@ class SleepSessionCandidate {
       sleepOnsetSec: (m['sleep_onset_sec'] as num?)?.toInt() ?? 0,
       sleepOffsetSec: (m['sleep_offset_sec'] as num?)?.toInt() ?? 0,
       sleepSource: m['sleep_source'] as String? ?? 'auto',
+      deviceNight: m['device_night'] == true,
+      deviceId: m['device_id'] as String?,
     );
   }
 
@@ -472,7 +485,16 @@ SleepSessionCandidate prepareSleepSessionCandidate(
             hypnoStages: List<String>.from(seg.stages4),
             sleepOnsetSec: (win.onsetMs! / 1000).round(),
             sleepOffsetSec: (win.offsetMs! / 1000).round() + 1,
-            sleepSource: 'vendor_staged',
+            // A night we staged ourselves off a ring's records
+            // (inputs/ultrahuman_inputs.dart) is ours, not the device's.
+            // Our HR-led window alone is the HR fallback's night.
+            sleepSource: switch (n.source) {
+              kOurRingNightSource => 'auto',
+              kHrWindowNightSource => 'auto_fallback',
+              _ => 'vendor_staged',
+            },
+            deviceNight: true,
+            deviceId: n.deviceId,
           );
         }
       }

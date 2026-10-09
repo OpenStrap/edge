@@ -68,12 +68,22 @@ class CorosAdapter extends BandAdapter {
 
     // No handshake for HR itself — same floor as `BleHrsAdapter`: one
     // subscription, no clock, no INIT.
+    // Refused notifications' beats still took time: carried as the next
+    // banked beat's gap, as in `ble_hrs.dart`.
+    var gapMs = 0;
     await for (final (atSec, value) in link.notify(kHeartRateMeasurementUuid)) {
       final s = parseHeartRateMeasurement(value);
       if (s == null) continue;
       // The sensor's own "no skin contact" is a REFUSAL, not a low reading —
       // see `ble_hrs.dart`'s identical guard.
-      if (s.contact == false) continue;
+      if (s.contact == false) {
+        for (final rr in s.rrMs) {
+          gapMs += rr;
+        }
+        continue;
+      }
+      final gap = s.rrMs.isEmpty ? 0 : gapMs;
+      if (s.rrMs.isNotEmpty) gapMs = 0;
       yield SampleBatch(
         [
           NeutralSample(
@@ -82,6 +92,7 @@ class CorosAdapter extends BandAdapter {
             tsEpoch: atSec,
             hr: s.hr,
             rrMs: s.rrMs,
+            gapMs: gap,
             vendor: s.contact == null ? const {} : {'contact': s.contact},
           ),
         ],

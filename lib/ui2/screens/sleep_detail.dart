@@ -142,7 +142,9 @@ String _pts(double v) => '${v.round()} points';
 
 /// SLP-13 — the three staged figures of a night, as the intervals they are.
 ///
-/// Null when the night published no stage split. The half-widths come from
+/// Null when the night published no stage split. A night with no REM figure
+/// (a band that folds REM into light) still has its light/deep split; its REM
+/// interval is then not a measurement and is not shown. The half-widths come from
 /// `stageIntervals`, which scales them by THIS night's own segmentation
 /// confidence — a well-covered night gets a narrow range and one scraping the
 /// observed floor gets a wide one. A missing confidence is the widest case, not
@@ -153,11 +155,11 @@ String _pts(double v) => '${v.round()} points';
   final d = (n['deep_min'] as num?)?.round();
   final r = (n['rem_min'] as num?)?.round();
   final t = (n['duration_min'] as num?)?.round();
-  if (l == null || d == null || r == null || t == null) return null;
+  if (l == null || d == null || t == null) return null;
   return ana.stageIntervals(
     lightSec: l * 60,
     deepSec: d * 60,
-    remSec: r * 60,
+    remSec: (r ?? 0) * 60,
     tstSec: t * 60,
     confidence: (n['stages_confidence'] as num?)?.toDouble() ?? 0.0,
   );
@@ -736,7 +738,7 @@ class _SleepDetailState extends State<SleepDetail> {
                         ? (l?.sleepDetailWindowFallback ??
                             'This window was inferred from heart rate')
                         : vendor
-                        ? (l?.sleepDetailStagedByRing ?? 'Staged by your ring')
+                        ? (l?.sleepDetailStagedByRing ?? 'Staged by your device')
                         : (l?.sleepDetailWindowAuto ??
                             'This window was staged from the signals'),
                 style: F.body.copyWith(color: p.ink),
@@ -941,7 +943,7 @@ class _SleepDetailState extends State<SleepDetail> {
         // Not our staging: say whose it is, wherever it is drawn.
         if (device == null && n['sleep_source'] == 'vendor_staged') ...[
           const SizedBox(height: S.x2),
-          Pill(l?.sleepDetailStagedByRing ?? 'Staged by your ring', C.n500),
+          Pill(l?.sleepDetailStagedByRing ?? 'Staged by your device', C.n500),
         ],
         const SizedBox(height: S.x2),
         Text(
@@ -1249,11 +1251,22 @@ class _SleepDetailState extends State<SleepDetail> {
   /// precision this item removes.
   Widget _stages(BuildContext c, P p, Map<String, dynamic> n) {
     final l = AppLocalizations.of(c);
-    final r = _ranges(n);
+    // A device-staged night: the device counted its stages, so its own
+    // minutes, not our estimator's ranges.
+    final vendor = n['sleep_source'] == 'vendor_staged';
+    final r = vendor ? null : _ranges(n);
+    String? exact(String k) =>
+        vendor && n[k] is num ? hm((n[k] as num).toDouble()) : null;
     final awake = n['awake_min'] as num?;
     final rows = <(String, String, Color)>[
+      if (exact('deep_min') case final v?) (l?.sleepDetailDeep ?? 'Deep', v, C.blue),
+      if (exact('rem_min') case final v?)
+        (l?.sleepDetailStageRem ?? 'REM', v, C.teal),
+      if (exact('light_min') case final v?)
+        (l?.sleepDetailLight ?? 'Light', v, C.sky),
       if (r != null) (l?.sleepDetailDeep ?? 'Deep', _rangeText(r.deep), C.blue),
-      if (r != null) (l?.sleepDetailStageRem ?? 'REM', _rangeText(r.rem), C.teal),
+      if (r != null && n['rem_min'] != null)
+        (l?.sleepDetailStageRem ?? 'REM', _rangeText(r.rem), C.teal),
       if (r != null) (l?.sleepDetailLight ?? 'Light', _rangeText(r.light), C.sky),
       if (awake != null)
         (l?.sleepDetailStageAwake ?? 'Awake', hm(awake), C.orange),
@@ -1332,8 +1345,23 @@ class _SleepDetailState extends State<SleepDetail> {
     // interval sits outside the band, and it drops the magnitude, because the
     // size of a gap between one fuzzy number and a band of fuzzy numbers is the
     // most confident thing on the card and the least supported.
-    final deepRange = _ranges(n)?.deep;
-    if (deepRange != null) {
+    final deepRange =
+        n['sleep_source'] == 'vendor_staged' ? null : _ranges(n)?.deep;
+    if (n['sleep_source'] == 'vendor_staged' && n['deep_min'] is num) {
+      // The device's own count: no estimator interval to blur it by.
+      final deep = (n['deep_min'] as num).toDouble();
+      rows.add(_Compare(
+        label: l?.sleepDetailStageDeep ?? 'Deep sleep',
+        value: hm(deep),
+        tonight: deep,
+        history: d.deepHistory,
+        color: C.blue,
+        low: l?.sleepDetailLessThanUsual ?? 'less than usual',
+        high: l?.sleepDetailMoreThanUsual ?? 'more than usual',
+        fmt: (v) => hm(v),
+        dfmt: (v) => hm(v),
+      ));
+    } else if (deepRange != null) {
       final deep = deepRange.pointSec / 60;
       rows.add(_Compare(
         label: l?.sleepDetailStageDeep ?? 'Deep sleep',

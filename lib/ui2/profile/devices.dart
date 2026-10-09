@@ -59,7 +59,7 @@ import '../../ble/adapters/_registry.dart'
         kThermometer,
         kUltrahuman,
         declaredSignals;
-import '../../ble/adapters/signals.dart' show InputSignal;
+import '../../ble/adapters/signals.dart' show InputSignal, kRankedSignals;
 import '../../ble/colmi_link.dart' show ColmiLink;
 import '../../ble/coros_link.dart' show CorosLink;
 import '../../ble/garmin_link.dart' show GarminLink;
@@ -72,6 +72,7 @@ import '../../ble/session_link.dart' show SessionLink;
 import '../../ble/ultrahuman_link.dart' show UltrahumanLink;
 import '../../ble/band_status_l10n.dart' show localizedBandStatus;
 import '../../ble/ble_state.dart' show BandStatus, kMaxConcurrentSecondaryLinks;
+import '../../compute/inputs/canonical.dart' show columnFor, flagOnOrPrimary;
 import '../../data/db.dart' show LocalDb;
 import '../../data/step_calibration.dart';
 import '../../l10n/app_localizations.dart';
@@ -85,6 +86,7 @@ import '../onboarding/profile_setup.dart' show formatDay;
 import '../ui2.dart';
 import 'profile.dart';
 import 'settings.dart' show backToRoot;
+import 'wearable_numbers.dart' show WearableDayScreen;
 
 /// Measurement quality, which is the ONLY thing that decides precedence.
 enum SourceTier {
@@ -454,8 +456,20 @@ String signalDisplayName(BuildContext c, InputSignal s) {
     InputSignal.ppgGreen => l?.signalPpgGreen ?? 'Green PPG',
     InputSignal.ppgRedIr => l?.signalPpgRedIr ?? 'Red/infrared PPG',
     InputSignal.skinTempRaw => l?.signalSkinTempRaw ?? 'Skin temperature',
+    InputSignal.steps => l?.signalSteps ?? 'Steps',
+    InputSignal.skinTempC => l?.signalSkinTempC ?? 'Skin temperature (°C)',
+    InputSignal.activityLevel => l?.signalActivityLevel ?? 'Activity',
+    InputSignal.deviceHrv => l?.signalDeviceHrv ?? 'The device’s own HRV',
+    InputSignal.deviceStages =>
+      l?.signalDeviceStages ?? 'The device’s own sleep stages',
+    InputSignal.deviceResp =>
+      l?.signalDeviceResp ?? 'The device’s own breathing rate',
+    InputSignal.deviceSpo2 => l?.signalDeviceSpo2 ?? 'The device’s own SpO2',
+    InputSignal.deviceStress =>
+      l?.signalDeviceStress ?? 'The device’s own stress',
     InputSignal.vendorScalars =>
       l?.signalVendorScalars ?? 'The device’s own numbers',
+
   };
 }
 
@@ -490,6 +504,21 @@ String missingSignalReason(BuildContext c, Set<InputSignal> missing) {
           l?.missingSignalPpgRedIr ?? 'no red/infrared PPG',
         InputSignal.skinTempRaw =>
           l?.missingSignalSkinTempRaw ?? 'no temperature sensor',
+        InputSignal.steps => l?.missingSignalSteps ?? 'no step count',
+        InputSignal.skinTempC =>
+          l?.missingSignalSkinTempC ?? 'no skin temperature',
+        InputSignal.activityLevel =>
+          l?.missingSignalActivityLevel ?? 'no activity record',
+        InputSignal.deviceHrv =>
+          l?.missingSignalDeviceHrv ?? 'no HRV of its own',
+        InputSignal.deviceStages =>
+          l?.missingSignalDeviceStages ?? 'no sleep stages of its own',
+        InputSignal.deviceResp =>
+          l?.missingSignalDeviceResp ?? 'no breathing rate of its own',
+        InputSignal.deviceSpo2 =>
+          l?.missingSignalDeviceSpo2 ?? 'no SpO2 of its own',
+        InputSignal.deviceStress =>
+          l?.missingSignalDeviceStress ?? 'no stress of its own',
         InputSignal.vendorScalars =>
           l?.missingSignalVendorScalars ?? 'reports nothing of its own',
       };
@@ -544,12 +573,12 @@ List<DeviceOption> candidatesFromSources(
     // never be a candidate here.
     final id = deviceIdOf(s);
     if (id == null) continue;
-    final declared = declaredSignals(s.family);
+    final declared = rankableSignals(s);
     // A device declaring NOTHING is not a candidate for anything — never
-    // shown, not even disabled. `OuraAdapter.signals == const {}` is exactly
-    // this case (§0): the ring is not "missing everything", it is out of
-    // scope for every metric, and a permanent disabled pill on every screen
-    // would be the noise §0 promises a WHOOP + ring user never sees.
+    // shown, not even disabled. A device behind a flag that is off is this
+    // case (rule R6): it is out of scope for every metric, and a permanent
+    // disabled pill on every screen would be the noise §0 promises a
+    // WHOOP + ring user never sees.
     if (declared.isEmpty) continue;
     final missing = requires.difference(declared);
     out.add((
@@ -561,6 +590,11 @@ List<DeviceOption> candidatesFromSources(
   }
   return out;
 }
+
+/// What [s] may be ranked for: its declared signals, or none while its
+/// flag is off (rule R6).
+Set<InputSignal> rankableSignals(HealthSource s) =>
+    s.flagOff ? const {} : declaredSignals(s.family);
 
 /// The devices that DECLARE [sig], in the physics ladder's order.
 ///
@@ -576,7 +610,7 @@ List<String> declaringDeviceIds(List<HealthSource> sources, InputSignal sig) => 
         // nothing to rank, and `!` here would throw the day one declares a
         // contended signal.
         if (deviceIdOf(s) case final id?)
-          if (declaredSignals(s.family).contains(sig)) id,
+          if (rankableSignals(s).contains(sig)) id,
     ];
 
 /// Who currently wins each of [requires] — `{signal: deviceId}`, in
@@ -653,15 +687,16 @@ Future<Map<InputSignal, String?>> signalWinners(
     // the primary device owns this window, never "let every covering device
     // in unranked" — a customized-but-narrower order still gets the coverage
     // union below, only a NEVER-customized one gets this fixed default.
+    // Flag-off devices dropped, as the engine does (rule R6).
     final order = rawPriority.isEmpty
         ? const [LocalDb.kPrimaryDeviceId]
-        : [
+        : await flagOnOrPrimary([
             ...rawPriority,
             ...{for (final iv in coverageBySig[sig] ?? const []) iv.deviceId}
                 .difference(rawPriority.toSet())
                 .toList()
               ..sort(),
-          ];
+          ]);
     String? winner;
     for (final id in order) {
       if (declaring.contains(id)) {
@@ -698,11 +733,16 @@ List<InputSignal> contendedSignalsOf(List<HealthSource> sources) {
   for (final s in sources) {
     final id = deviceIdOf(s);
     if (id == null) continue;
-    for (final sig in declaredSignals(s.family)) {
+    for (final sig in rankableSignals(s)) {
       n[sig] = (n[sig] ?? 0) + 1;
     }
   }
-  return [for (final s in InputSignal.values) if ((n[s] ?? 0) >= 2) s];
+  // Only what a derive arbitrates: two watches both declaring steps or
+  // stages do not contend, since neither is ever resolved by rank.
+  return [
+    for (final s in InputSignal.values)
+      if (kRankedSignals.contains(s) && (n[s] ?? 0) >= 2) s,
+  ];
 }
 
 /// Bands the owner has personally held and cross-confirmed. Everything else is
@@ -763,10 +803,8 @@ class HealthSource {
   /// Where this source sits on the quality ladder, or NULL when it has no
   /// place on it.
   ///
-  /// Null is not "unknown", it is "none". The Oura ring is the case: it holds
-  /// a pairing key, drains history and banks every frame it is sent, and it
-  /// supplies no decoded signal at all (`OuraAdapter.signals` is `const {}`),
-  /// so there is no measurement quality to rank. Filing it under the phone's
+  /// Null is not "unknown", it is "none": a device whose `tier` column is
+  /// blank has no measurement quality to rank. Filing it under the phone's
   /// rung would have told someone their ring was reporting steps.
   final SourceTier? tier;
   final IconData icon;
@@ -800,6 +838,10 @@ class HealthSource {
   /// metric looks its own constants up under, and null is a refusal.
   final String? family;
 
+  /// A paired sensor behind a flag that is off (rule R6): listed, but ranked
+  /// for no signal ([rankableSignals]).
+  final bool flagOff;
+
   /// Publicly EXPERIMENTAL — this band is decoded but the owner has never held
   /// one (see [kOwnerConfirmedBandIds]). Not a quality tier and not a
   /// confidence: it says who has checked, not how good the numbers are.
@@ -823,6 +865,7 @@ class HealthSource {
     this.isBand = false,
     this.deviceId,
     this.family,
+    this.flagOff = false,
   });
 }
 
@@ -949,6 +992,7 @@ List<HealthSource> liveSources(AppState app,
           isBand: false,
           deviceId: r['id'] as String?,
           family: r['adapter_id'] as String?,
+          flagOff: app.flagOffSensorIds.contains(r['id']),
         ),
       if (app.phoneStepsEnabled)
         HealthSource(
@@ -1063,8 +1107,9 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     blurb: 'Reads the ring directly, with no Oura account and no subscription. '
         'Either factory reset the ring FIRST (remove/unpair it in the Oura '
         'app) so this app can give it a key of its own, or paste the key the '
-        'Oura app already uses and pair without a reset. Close the Oura app '
-        'before pairing here.',
+        'Oura app already uses and pair without a reset. Pairing with a new '
+        'key replaces the Oura app\'s key, so that app stops working with the '
+        'ring. Close the Oura app before pairing here.',
     pick: pairOuraRing,
   ),
   (
@@ -1111,7 +1156,9 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
         'its own Settings → Sensors & Accessories → Phone → Pair Phone '
         'screen — it will not accept a new connection otherwise. Reads its '
         'model, firmware and battery, and the health files it stores: heart '
-        'rate, steps, sleep stages and HRV status.',
+        'rate, steps, sleep stages and HRV status. On iPhone the watch is '
+        'found only if it advertises its Garmin service; if the list stays '
+        'empty, this watch cannot be paired here yet.',
     // Null means the plain notify-class pairing — no key exchange this pass
     // implements. The Multi-Link/GFDI handshake runs inside the adapter's
     // own session, once connected.
@@ -1139,7 +1186,8 @@ final List<({BandEntry entry, String blurb, Future<String?> Function(BluetoothDe
     entry: kPebble,
     blurb: 'Pebble 2 or Pebble 2 SE only — older Pebbles need Bluetooth '
         'Classic, which this app cannot reach. Syncs the watch\'s health log: '
-        'heart rate, steps and sleep.',
+        'steps and sleep, and heart rate on a Pebble 2 (the SE has no '
+        'heart-rate sensor).',
     // Same generic notify-class pairing as the chest strap above — no key,
     // no pre-pairing step.
     pick: null,
@@ -1809,7 +1857,8 @@ Future<void> _syncGarminWatch(BuildContext c) async {
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
         ? (l?.devicesSynced ?? 'Synced.')
-        : (l?.devicesCouldNotReachRing ??
+        // The device-neutral string: the ring's names a ring.
+        : (l?.devicesCouldNotReachCorosWatch ??
             'Could not reach it. It has to be nearby, and not connected to '
                 'another app.')),
   ));
@@ -1854,20 +1903,22 @@ Future<void> _syncMiband(BuildContext c) async {
   ));
 }
 
-/// Drain the watch, now, because the user asked. Nothing decodes yet — see
-/// `pebble.dart`'s header — so a successful sync only ever means "bytes were
-/// banked to raw_archive", never a new reading anywhere on screen.
+/// Drain the watch, now, because the user asked: one bounded window (see
+/// `pebble_link.dart`), whose HR, steps and sleep land like any wearable's.
 Future<void> _syncPebble(BuildContext c) async {
   final l = AppLocalizations.of(c);
   final messenger = ScaffoldMessenger.maybeOf(c);
-  messenger?.showSnackBar(const SnackBar(content: Text('Syncing the watch…')));
+  messenger?.showSnackBar(
+      SnackBar(content: Text(l?.devicesSyncing ?? 'Syncing')));
   final ok = await PebbleLink.instance.sync();
   if (!c.mounted) return;
   messenger?.showSnackBar(SnackBar(
     content: Text(ok
         ? (l?.devicesSynced ?? 'Synced.')
-        : 'Could not reach the watch. It has to be nearby, and not '
-            'connected to another app.'),
+        // The device-neutral string.
+        : (l?.devicesCouldNotReachCorosWatch ??
+            'Could not reach it. It has to be nearby, and not connected to '
+                'another app.')),
   ));
 }
 
@@ -2160,8 +2211,9 @@ class DeviceDetailView extends StatelessWidget {
                 // nothing to buzz — and it has the one thing a user needs
                 // before they trust the row at all: what is captured, and what
                 // is calculated from it. Today the answer to the second is
-                // NOTHING, for every sensor, and that has to be on the screen
-                // rather than inferred from a metric quietly still abstaining.
+                // "nothing unless its experimental flag is on" (R6), and that
+                // has to be on the screen rather than inferred from a metric
+                // quietly still abstaining.
                 if (!s.isBand && s.deviceId != null) ...[
                   Surface(
                     pad: const EdgeInsets.symmetric(horizontal: S.x4),
@@ -2177,14 +2229,18 @@ class DeviceDetailView extends StatelessWidget {
                       SetRow(LucideIcons.database, C.teal,
                           l?.devicesWhatItDoes ?? 'What it does',
                           sub: s.tier == null
-                              ? (l?.devicesWhatItDoesUnranked ??
+                              ? (l?.devicesWhatItDoesStored ??
                                   'Everything it sends is stored and attributed '
-                                      'to it. Nothing in the app is calculated '
-                                      'from it yet.')
-                              : (l?.devicesWhatItDoesRanked ??
-                                  'Beat timing is stored and attributed to it '
-                                      'during a workout. Nothing in the app is '
-                                      'calculated from it yet.'),
+                                      'to it. Numbers worked out from it are '
+                                      'experimental, and off until it has been '
+                                      'checked against the hardware.')
+                              : (l?.devicesWhatItDoesBeats ??
+                                  'Beat timing is stored and attributed to '
+                                      'it. It records while a workout runs, '
+                                      'and a few minutes after it ends. '
+                                      'Scoring a workout from it is '
+                                      'experimental, and off until checked '
+                                      'against the hardware.'),
                           chevron: false),
                       Divider(color: p.line, height: 1),
                       SetRow(LucideIcons.refreshCw, C.purple,
@@ -2194,6 +2250,23 @@ class DeviceDetailView extends StatelessWidget {
                               ? (l?.devicesNothingBankedYet ?? 'Nothing banked yet')
                               : '',
                           chevron: false),
+                      // A wearable with a column in the metric x device
+                      // table: what we measure from it, and its own values.
+                      // Developer mode only, as the wearable flags are (R6).
+                      if (columnFor(s.family) != null &&
+                          Prefs.getBool(Prefs.devMode, false)) ...[
+                        Divider(color: p.line, height: 1),
+                        SetRow(LucideIcons.chartColumn, C.green,
+                            l?.wearableDayTitle ?? "Today's numbers",
+                            sub: l?.wearableDayRowSub ??
+                                'What we measure from it, beside its own '
+                                    'values',
+                            onTap: () => goto(
+                                c,
+                                WearableDayScreen(
+                                    deviceId: s.deviceId!,
+                                    adapterId: s.family!))),
+                      ],
                       // MANUAL, and only for a sensor that holds history.
                       // A strap has no flash and nothing to fetch; a ring
                       // does, and putting it on a schedule would have it

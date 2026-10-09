@@ -24,8 +24,8 @@
 // NOTHING ON THE WATCH CHANGES. The archive flag is never sent; the watch
 // keeps every file and this app remembers which ones it read.
 //
-// WHAT BECOMES WHAT: monitoring HR -> sparse samples (outside derivation,
-// ASSUMPTIONS R6); steps -> a daily `steps` observation; the watch's sleep
+// WHAT BECOMES WHAT: monitoring HR -> sparse samples (the day's substrate
+// only while the watch is the enabled active wearable, rule R6); steps -> a daily `steps` observation; the watch's sleep
 // stages -> its hypnogram plus stage minutes; HRV status, resting HR, SpO2,
 // respiration and stress -> attributed vendor observations.
 //
@@ -36,6 +36,7 @@
 // in compact form is answered with its transaction id.
 
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:openstrap_protocol/openstrap_protocol.dart';
@@ -93,10 +94,18 @@ String garminEncodeReadFiles(Map<int, (int, int)> m) =>
     [for (final MapEntry(:key, value: (t, n)) in m.entries) '$key:$t:$n']
         .join(',');
 
-/// The signals this watch supplies: monitoring HR, about once a minute.
+/// The signals this watch supplies: monitoring HR, about once a minute; its
+/// daily step total; its own sleep levels (variable-length periods); its
+/// own nightly HRV and respiration; its own SpO2 and stress, as daily means.
 /// Mirrored in `kAdapterSignals`.
 const Map<InputSignal, Duration> kGarminSignals = {
   InputSignal.hrSparse: Duration(minutes: 1),
+  InputSignal.steps: Duration(days: 1),
+  InputSignal.deviceStages: Duration.zero,
+  InputSignal.deviceHrv: Duration(days: 1),
+  InputSignal.deviceResp: Duration(days: 1),
+  InputSignal.deviceSpo2: Duration(days: 1),
+  InputSignal.deviceStress: Duration(days: 1),
 };
 
 /// Shown next to every value the watch computed itself.
@@ -135,6 +144,12 @@ class GarminAdapter extends BandAdapter {
   /// The multi-link characteristics this watch exposes (see [garminMlPair]).
   final List<String> mlChars;
 
+  /// The step totals already stored for this watch, by local day. A day's
+  /// steps are one row whoever writes it last, and an earlier file of the
+  /// day read again (one a past session failed on) holds a smaller running
+  /// count than a later file already read: the day keeps the larger.
+  final Map<DateTime, int> priorSteps;
+
   /// Bytes one GATT write may carry (ATT MTU - 3). An outbound COBS stream
   /// is cut into pieces of one byte less, each behind the handle byte.
   final int maxWrite;
@@ -151,6 +166,7 @@ class GarminAdapter extends BandAdapter {
     this.readFiles = '',
     this.mlChars = const [kGarminNotifyChar, kGarminWriteChar],
     this.maxWrite = 20,
+    this.priorSteps = const {},
   });
 
   @override
@@ -204,6 +220,7 @@ class GarminAdapter extends BandAdapter {
     // ── file sync state ──
     var syncStarted = false;
     final read = garminDecodeReadFiles(readFiles);
+    final steps = {...priorSteps};
     final queue = <GarminFileEntry>[];
     GarminFileEntry? entry; // null while the directory is being read
     int? fileSize;
@@ -270,7 +287,7 @@ class GarminAdapter extends BandAdapter {
           ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
         link.log('garmin: ${queue.length} health file(s) to read.');
       } else if (!events.isClosed) {
-        for (final ev in _decodeFit(link, bytes)) {
+        for (final ev in _decodeFit(link, bytes, steps)) {
           events.add(ev);
         }
         // The read-file note rides the checkpoint's commit: the host writes
@@ -544,8 +561,10 @@ const GarminAdapter kGarminAdapter = GarminAdapter();
 
 /// One downloaded FIT file into events: HR samples (banked with the file's
 /// bytes), and the watch's own numbers as attributed observations. A file
-/// that is not valid FIT is banked raw and decoded no further.
-List<BandEvent> _decodeFit(BandLink link, Uint8List bytes) {
+/// that is not valid FIT is banked raw and decoded no further. [steps] is
+/// the largest total seen per day, this file's folded in.
+List<BandEvent> _decodeFit(
+    BandLink link, Uint8List bytes, Map<DateTime, int> steps) {
   final List<FitMessage> m;
   try {
     m = parseFit(bytes);
@@ -571,15 +590,25 @@ List<BandEvent> _decodeFit(BandLink link, Uint8List bytes) {
         attribution: kGarminAttribution,
       );
 
+  // One mean per day per FILE, stamped at the file's first sample of that
+  // day: a file the watch appends to and is read again keeps its stamp, so
+  // it re-states its row, and another file for the same day lands beside it
+  // rather than over it. The day's value is the mean of those rows
+  // (`dayCells`).
+  // ponytail: unweighted across files; carry the sample count if files of
+  // very different lengths turn out to share a day.
   List<Observation> dailyMeans(
       List<(int, num)> xs, String name, String unit) {
-    final byDay = <DateTime, List<num>>{};
-    for (final (t, v) in xs) {
-      (byDay[dayOf(t)] ??= []).add(v);
+    final byDay = <DateTime, List<(int, num)>>{};
+    for (final x in xs) {
+      (byDay[dayOf(x.$1)] ??= []).add(x);
     }
     return [
-      for (final MapEntry(:key, :value) in byDay.entries)
-        obs(key, name, value.fold<double>(0, (a, b) => a + b) / value.length,
+      for (final day in byDay.values)
+        obs(
+            at(day.map((x) => x.$1).reduce((a, b) => a < b ? a : b)),
+            name,
+            day.fold<double>(0, (a, x) => a + x.$2) / day.length,
             unit),
     ];
   }
@@ -592,7 +621,8 @@ List<BandEvent> _decodeFit(BandLink link, Uint8List bytes) {
   final stages = fitSleepStages(m);
   final rows = <Observation>[
     for (final MapEntry(:key, :value) in fitDailySteps(m).entries)
-      obs(key, 'steps', value, 'steps', ours: true),
+      obs(key, 'steps', steps[key] = math.max(value, steps[key] ?? 0),
+          'steps', ours: true),
     for (final (t, v) in fitHrvLastNight(m)) obs(at(t), 'hrv_last_night_avg', v, 'ms'),
     for (final (t, v) in fitRestingHr(m)) obs(dayOf(t), 'resting_hr', v, 'bpm'),
     ...dailyMeans(fitSpo2(m), 'spo2_avg', '%'),
@@ -604,9 +634,16 @@ List<BandEvent> _decodeFit(BandLink link, Uint8List bytes) {
     for (final (a, b, st) in stages) {
       minutes[st] = (minutes[st] ?? 0) + (b - a) ~/ 60;
     }
-    final wake = at(stages.last.$2);
+    // Stamped off the night's ONSET, which a re-read of the file as it grows
+    // never moves (its end does), so the new minutes replace the old rather
+    // than adding to them. A night begun in the evening is the next date's.
+    // ponytail: 18:00 cutoff; a sleep begun earlier stays on its own date.
+    final onset = at(stages.first.$1);
+    final stamp = onset.hour >= 18
+        ? DateTime(onset.year, onset.month, onset.day + 1)
+        : onset;
     for (final MapEntry(:key, :value) in minutes.entries) {
-      rows.add(obs(wake, 'sleep_${key}_min', value, 'min'));
+      rows.add(obs(stamp, 'sleep_${key}_min', value, 'min'));
     }
   }
   return [

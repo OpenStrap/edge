@@ -30,10 +30,22 @@ class VendorEpoch {
 const Map<String, Set<String>> kVendorStagesReported = {
   'miband234': {'wake', 'light', 'deep'},
   'pebble': {'light', 'deep'},
+  kHrWindowNightSource: {},
 };
 
 Set<String> vendorStagesReported(String? family) =>
     kVendorStagesReported[family] ?? const {'wake', 'light', 'deep', 'rem'};
+
+/// [VendorNight.source] of a night WE staged off a ring's own records
+/// (inputs/ultrahuman_inputs.dart): it stages the day as ours ('auto'), not
+/// as the device's.
+const String kOurRingNightSource = 'hr_5min_stager';
+
+/// [VendorNight.source] of a night that is our HR-led window alone, off a
+/// ring that gives HR and nothing to stage by (inputs/colmi_inputs.dart): one
+/// epoch, no stages ([kVendorStagesReported]). Ours, from the HR fallback
+/// ('auto_fallback'), not the device's.
+const String kHrWindowNightSource = 'hr_5min_window';
 
 /// One night of one device's epochs, as `vendor_sleep_epoch` groups them.
 class VendorNight {
@@ -152,7 +164,10 @@ String? vendorNightRejection(
     share.update(e.stage, (s) => s + e.endSec - e.startSec,
         ifAbsent: () => e.endSec - e.startSec);
   }
-  if (share.values.reduce(math.max) >= len * kVendorDegenerateShare) {
+  // A source that tells no sleep stages apart holds one stage by definition.
+  final staged =
+      vendorStagesReported(n.source).where((s) => s != 'wake').length > 1;
+  if (staged && share.values.reduce(math.max) >= len * kVendorDegenerateShare) {
     return 'degenerate';
   }
   if (unclaimed) return null;
@@ -249,6 +264,11 @@ ana.SleepSegmentation _staged(
     }
   }
   final observed = inBed - unobserved;
+  // A device that reports no wake stages every second of its night as sleep:
+  // efficiency would read 100 and awakenings 0 every night by construction,
+  // which is no measurement. Those figures stay null for it.
+  final reported = vendorStagesReported(n.source);
+  final seesWake = reported.contains('wake');
   return ana.SleepSegmentation(
     window: win,
     stages: [
@@ -261,16 +281,22 @@ ana.SleepSegmentation _staged(
     ],
     stages4: s4,
     tstSec: tst,
-    wasoSec: waso,
+    wasoSec: seesWake ? waso : null,
     inBedSec: inBed,
     unobservedSec: unobserved,
-    efficiencyPct: observed > 0 ? 100.0 * tst / observed : null,
-    nremSec: light + deep,
-    lightSec: light,
-    deepSec: deep,
-    remSec: rem,
-    wakeSec: wake,
-    sustainedAwakenings: awakenings,
+    efficiencyPct: seesWake && observed > 0 ? 100.0 * tst / observed : null,
+    // A night with no stages told apart (our HR-led window alone) has its
+    // sleep time and no stage figures: its 'light' only means asleep.
+    nremSec: reported.contains('light') || reported.contains('deep')
+        ? light + deep
+        : null,
+    lightSec: reported.contains('light') ? light : null,
+    deepSec: reported.contains('deep') ? deep : null,
+    // Same for REM on a device that folds it into light: 0 would be served
+    // as the device's measured REM.
+    remSec: reported.contains('rem') ? rem : null,
+    wakeSec: seesWake ? wake : null,
+    sustainedAwakenings: seesWake ? awakenings : null,
     longestSleepRunSec: longest,
     confidence: confidence,
   );

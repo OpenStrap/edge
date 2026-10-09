@@ -287,15 +287,16 @@ class _DevicePickerScreenState extends State<DevicePickerScreen> {
       'coros' => l?.devicePickerBlurbCoros ??
           'A sports watch. Reads battery and live heart rate — recorded '
               'activities stay on the watch.',
-      // No l10n key: this is the one new category blurb that has not gone
-      // through translation yet — see the PR notes rather than the other
-      // localised branches above for why.
-      'ultrahuman' => 'Reads the ring directly — no account, no key exchange.',
+      'ultrahuman' => l?.devicePickerBlurbUltrahuman ??
+          'Reads the ring directly — no account, no key exchange.',
       'miband234' => l?.devicePickerBlurbMiband234 ??
-          'A Mi Band 2 or 3. Syncs its stored heart rate, steps and sleep. '
+          'A Mi Band 2 or 3. Unpair it from Mi Fit or Zepp first (or '
+              'factory-reset it): it only takes a new key while it holds '
+              'none. Syncs its stored heart rate, steps and sleep. '
               'If the band buzzes while pairing, tap it to confirm.',
-      'pebble' => 'Pebble 2 or Pebble 2 SE only. Syncs heart rate, steps '
-          'and sleep.',
+      'pebble' => l?.devicePickerBlurbPebble ??
+          'Pebble 2 or Pebble 2 SE only. Syncs steps and sleep, and heart '
+              'rate on a Pebble 2 (the SE has no heart-rate sensor).',
       'thermometer' => 'Saves each reading as a body temperature.',
       'miscale_bc' => 'Saves each settled weight and bio-impedance, '
           'including stored ones.',
@@ -555,21 +556,30 @@ class _NearbySection extends StatelessWidget {
     final signal = cand.rssi == null
         ? (l?.devicesConnected ?? 'Connected')
         : '${cand.rssi} dBm';
+    final idle = cand.label == null ? '…$tail · $signal' : signal;
     return SetRow(
       sensorIcon(cand.entryId),
       C.green,
       cand.label ?? cand.entryId,
       sub: busyRemoteId == id
           // A Mi Band 2/3 may wait up to 30 s for a tap on the band, and this
-          // path opens no screen of its own to say so. Not localised yet.
+          // path opens no screen of its own to say so.
           ? (cand.entryId == kMiBand234.id
-              ? 'Pairing… If the band buzzes, tap it to confirm.'
+              ? (l?.pairSensorPairingMiband234 ??
+                  'Pairing… If the band buzzes, tap it to confirm.')
               : (l?.pairSensorPairing ?? 'Pairing…'))
-          : cand.label == null
-              ? '…$tail · $signal'
-              : signal,
+          // One tap pairs a Mi Band 2/3, so its unpair-first step shows on
+          // the row before that tap, not only on the category list.
+          : cand.entryId == kMiBand234.id
+              ? '$idle\n${_DevicePickerScreenState._categoryBlurb(c, kMiBand234)}'
+              : idle,
       chevron: !busy,
       onTap: busy || onTap == null ? null : () => onTap!(cand),
     );
   }
 }
+
+/// Test seam for the category blurbs: each one localised.
+@visibleForTesting
+String debugCategoryBlurb(BuildContext c, BandEntry e) =>
+    _DevicePickerScreenState._categoryBlurb(c, e);

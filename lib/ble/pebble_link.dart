@@ -4,13 +4,14 @@
 //
 // NOTHING HERE HAS MET HARDWARE. Nobody on this project owns a Pebble (owner
 // ruling R6), so not one byte of this path has been exercised against one. The
-// registry entry stays EXPERIMENTAL and `PebbleAdapter.signals` stays
-// `const {}` — nothing this file writes becomes a decoded number.
+// registry entry stays EXPERIMENTAL and its wearable flag stays off by
+// default; with the flag on, what the adapter decodes (HR, steps, the
+// watch's sleep periods) is banked and derived like any wearable's.
 //
-// THE SHAPE, AND WHY IT IS NOT `OuraLink`'s. There is no key, no drain cursor,
-// no time anchor: `pebble.dart` archives raw PPoGATT payloads verbatim and
-// decodes nothing, so there is nothing this host needs to remember between
-// sessions beyond the `device` row itself.
+// THE SHAPE, AND WHY IT IS NOT `OuraLink`'s. There is no key and no time
+// anchor. What carries between sessions is the adapter's own state (the
+// step high-water mark and recent sleep periods), read back here from the
+// `sync_cursor` rows the host writes with the rows they describe.
 //
 // THE ONE THING THIS HOST DOES OWN THAT OURA'S DOES NOT: the session window.
 // `OuraLink.sync` drains to a natural end-of-history the ring itself reports;
@@ -41,8 +42,9 @@ import 'package:openstrap_protocol/openstrap_protocol.dart'
 import 'adapters/pebble.dart';
 import 'ble_state.dart' show withSecondaryLinkSlot;
 
-/// `sync_cursor` name for the newest step minute already counted.
-String _stepsHwItem(String deviceId) => 'pebble_steps_hw:$deviceId';
+/// `sync_cursor` names, as the host namespaces the adapter's cursors.
+String _stepsHwItem(String deviceId) => '$kPebbleStepsHwCursor:$deviceId';
+String _overlaysItem(String deviceId) => '$kPebbleOverlaysCursor:$deviceId';
 
 String _hex(List<int> b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
@@ -180,11 +182,9 @@ class PebbleLink {
     }
   }
 
-  /// Bank one PPoGATT payload verbatim, undecoded — the whole of what
-  /// `pebble.dart` promises. No inner frame tag survives this layer (SCOPE IS
-  /// PPoGATT ONLY, see that file's header), so there is no per-tag `reason`
-  /// to give it the way Oura's archive rows get one; every row here carries
-  /// the same reason and `packetType: 0` because nothing decoded a type.
+  /// Bank one inner frame verbatim beside what was decoded from it. Every
+  /// row carries the same reason and `packetType: 0`; the endpoint and tag
+  /// are in the bytes.
   ArchiveRecord? _buildArchiveRow(List<int> bytes, int capturedAtMs) {
     return ArchiveRecord(
       hex: _hex(bytes),
@@ -200,9 +200,9 @@ class PebbleLink {
   }
 
   /// This session's host: the adapter starts from the step totals already
-  /// stored for this watch and the newest minute already counted, so a day's
-  /// total carries forward across sessions (the watch never re-sends an
-  /// ACKed minute).
+  /// stored for this watch, the newest minute already counted and the recent
+  /// sleep periods, so a day's total and a night carry forward across
+  /// sessions (the watch never re-sends an ACKed message).
   Future<BandHost> _makeHost(String deviceId, int Function() now) async {
     final hw = await LocalDb.getCursorInt(_stepsHwItem(deviceId)) ?? 0;
     final prior = <DateTime, int>{};
@@ -216,22 +216,20 @@ class PebbleLink {
     }
     return BandHost(
       adapter: PebbleAdapter(
-          nowSeconds: now, priorSteps: prior, stepsHighWater: hw),
+          nowSeconds: now,
+          priorSteps: prior,
+          stepsHighWater: hw,
+          priorOverlays: decodePebbleOverlays(
+              await LocalDb.getCursor(_overlaysItem(deviceId)))),
       deviceId: deviceId,
       onLog: (m) => debugPrint('[pebble] $m'),
-      onNote: (key, value) {
-        if (key == 'pebble_steps_hw' && value is int) {
-          _hwWrites = _hwWrites
-              .then((_) => LocalDb.setCursor(_stepsHwItem(deviceId), '$value'))
-              .catchError((_) {});
-        }
-      },
+      // An ACK deletes the message on the watch: none goes out before the
+      // message's steps and sleep rows landed, or after one failed.
+      notesAfterVendorWrites: true,
       buildArchive: _buildArchiveRow,
       nowSeconds: now,
     );
   }
-
-  Future<void> _hwWrites = Future.value();
 
   /// Replay a scripted watch through the REAL [PebbleAdapter], host and
   /// sqlite. [arrivals] are PPoGATT packets the watch sends unprompted;
@@ -270,7 +268,6 @@ class PebbleLink {
     await link.close();
     await done.timeout(const Duration(seconds: 5), onTimeout: () {});
     await host.stop();
-    await _hwWrites;
     _host = null;
     return link;
   }

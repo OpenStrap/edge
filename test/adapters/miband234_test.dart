@@ -24,7 +24,10 @@ import 'package:openstrap_edge/ble/adapters/adapter.dart';
 import 'package:openstrap_edge/ble/adapters/miband234.dart';
 import 'package:openstrap_edge/ble/adapters/signals.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart'
-    show kHuamiActivityControlChar, kHuamiActivityDataChar;
+    show
+        kHuamiActivityControlChar,
+        kHuamiActivityDataChar,
+        kHuamiKindLightSleep;
 
 /// Any 16 bytes. The replay band answers a scripted result rather than
 /// actually verifying the AES block, so the VALUE of the key is not what is
@@ -88,10 +91,72 @@ List<List<int>> _reconnectReply(int i, List<int> v) {
   return const [];
 }
 
+/// One session from [from] (local midnight) that the band answers with three
+/// days announced but is cut after two whole days and 100 minutes: what
+/// [BandHost.stop] does when the sync window closes. [kindAt] gives each
+/// minute's activity kind (default awake).
+Future<List<BandEvent>> _cutSession(DateTime from, int nowSec,
+    {int Function(int minute)? kindAt}) async {
+  final startSec = from.millisecondsSinceEpoch ~/ 1000;
+  final adapter = MiBand234Adapter(
+    key: _kKey,
+    replyTimeout: const Duration(milliseconds: 50),
+    // Long: the band is still sending when the session is cut.
+    fetchTimeout: const Duration(seconds: 30),
+    sinceSec: startSec,
+    nowSeconds: () => nowSec,
+  );
+  const announced = 3 * 1440;
+  const sent = 2 * 1440 + 100; // the cut comes partway through day 3
+  final samples = [
+    for (var m = 0; m < sent; m++) ...[kindAt?.call(m) ?? 1, 10, 2, 60],
+  ];
+  final tz = (from.timeZoneOffset.inMinutes ~/ 15) & 0xff;
+  final link = ReplayBandLink();
+  final events = <BandEvent>[];
+  final sub = adapter.run(link).listen(events.add);
+  var served = 0;
+  for (var spin = 0;
+      spin < 300 && events.whereType<BandNote>().length < 2;
+      spin++) {
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    while (served < link.writes.length) {
+      final (char, v) = link.writes[served++];
+      if (char == kHuami234AuthChar) {
+        for (final f in _reconnectReply(served, v)) {
+          link.feed(kHuami234AuthChar, f, atSec: 1786000000);
+        }
+      } else if (char == kHuamiActivityControlChar && v[0] == 0x01) {
+        link.feed(kHuamiActivityControlChar, [
+          0x10, 0x01, 0x01, announced & 0xff, announced >> 8, 0, 0, //
+          from.year & 0xff, from.year >> 8, from.month, from.day,
+          0, 0, 0, tz,
+        ], atSec: 1786000000);
+      } else if (char == kHuamiActivityControlChar && v[0] == 0x02) {
+        for (var i = 0, c = 0; i < samples.length; i += 16, c++) {
+          link.feed(kHuamiActivityDataChar,
+              [c & 0xff, ...samples.sublist(i, i + 16)],
+              atSec: 1786000000);
+        }
+      }
+    }
+  }
+  // Nothing the adapter yields after the cancel reaches the host. Closing
+  // the link only lets the parked generator unwind.
+  final cancelled = sub.cancel();
+  await link.close();
+  await cancelled;
+  return events;
+}
+
 void main() {
   test('declares hrSparse (one stored HR per minute) and the registry '
       'mirrors it', () {
-    expect(_adapter().signals.keys, [InputSignal.hrSparse]);
+    expect(_adapter().signals.keys, [
+      InputSignal.hrSparse,
+      InputSignal.steps,
+      InputSignal.deviceStages,
+    ]);
     expect(kAdapterSignals['miband234'], _adapter().signals);
   });
 
@@ -286,6 +351,52 @@ void main() {
         if (e is BandNote) 'note' else if (e is OffloadCheckpoint) 'checkpoint',
     ];
     expect(order, ['note', 'checkpoint']);
+  });
+
+  test('a round cut short still banks each whole day it delivered: HR, '
+      'steps and the cursor', () async {
+    final start = DateTime(2026, 10, 1);
+    final startSec = start.millisecondsSinceEpoch ~/ 1000;
+    final events = await _cutSession(start, startSec + 3 * 86400);
+
+    final hr = [for (final b in events.whereType<SampleBatch>()) ...b.samples];
+    expect(hr, hasLength(2 * 1440), reason: 'two whole days banked');
+    final steps = {
+      for (final v in events.whereType<VendorScalars>())
+        for (final o in v.rows)
+          if (o.key == 'steps') o.at: o.value,
+    };
+    expect(steps[DateTime(2026, 10, 1)], 2 * 1440);
+    expect(steps[DateTime(2026, 10, 2)], 2 * 1440);
+    final notes = events.whereType<BandNote>().toList();
+    expect(notes.last.key, 'miband_since');
+    expect(notes.last.value,
+        DateTime(2026, 10, 3).millisecondsSinceEpoch ~/ 1000,
+        reason: 'the first day not read whole');
+    expect(events.whereType<OffloadCheckpoint>(), hasLength(2));
+  });
+
+  test('sessions cut after about two days each still move the cursor '
+      'forward', () async {
+    final now = DateTime(2026, 10, 9).millisecondsSinceEpoch ~/ 1000;
+    int cursor(List<BandEvent> events) =>
+        events.whereType<BandNote>().last.value as int;
+    final first = cursor(await _cutSession(DateTime(2026, 10, 1), now));
+    expect(first, DateTime(2026, 10, 3).millisecondsSinceEpoch ~/ 1000);
+    final second = cursor(await _cutSession(
+        DateTime.fromMillisecondsSinceEpoch(first * 1000), now));
+    expect(second, DateTime(2026, 10, 5).millisecondsSinceEpoch ~/ 1000);
+  });
+
+  test('a night still running when the session is cut holds the cursor at '
+      'the day it began', () async {
+    final start = DateTime(2026, 10, 1);
+    final now = DateTime(2026, 10, 9).millisecondsSinceEpoch ~/ 1000;
+    // Awake until 22:00 on day 2, then asleep through the cut.
+    final events = await _cutSession(start, now,
+        kindAt: (m) => m >= 1440 + 22 * 60 ? kHuamiKindLightSleep : 1);
+    expect(events.whereType<BandNote>().last.value,
+        DateTime(2026, 10, 2).millisecondsSinceEpoch ~/ 1000);
   });
 
   test(

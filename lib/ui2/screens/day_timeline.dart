@@ -28,6 +28,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../ble/adapters/signals.dart' show InputSignal;
+import '../../compute/inputs/canonical.dart' show timelineObservations;
+import '../../compute/inputs/measurement_inputs.dart'
+    show bmiScalesOf, nearWeight;
+import '../../compute/profile.dart' show bmiOf;
 import '../../data/day_label.dart' show localDayEndSec;
 import '../../data/db.dart';
 import '../../data/journal_fields.dart';
@@ -40,6 +44,7 @@ import '../../state/locale_controller.dart';
 import '../activity/catalogue.dart' show activityByName;
 import '../profile/devices.dart'
     show DeviceFilter, DeviceOption, signalCandidates;
+import '../profile/wearable_numbers.dart' show deviceScoreLabel, observationTitle;
 import '../ui2.dart';
 import 'home_screen.dart' show clockOfTs, repoOf;
 import 'metric_detail.dart' show dayNavRow, detailScaffold, pickDay;
@@ -588,7 +593,15 @@ class TimelineData {
     // WHAT OTHER SOURCES SAY about this day (M6). Gated on isNotEmpty being
     // the ONLY behaviour change: zero rows today, on every install, so the
     // list below is empty and this section renders nothing.
-    final observations = await repo.getDayObservations(day);
+    final observations =
+        await timelineObservations(await repo.getDayObservations(day),
+            date: day);
+    // A weighing's BMI is ours, off its weight and the profile's height:
+    // only a scale whose flag is on crosses over (rule R6).
+    final bmiScales = await bmiScalesOf(observations);
+    final profile = bmiScales.isNotEmpty ? await repo.getProfile() : null;
+    final heightCm = profile?['height_cm'] as num?;
+    final weightKg = profile?['weight_kg'] as num?;
 
     return TimelineData(
       day: day,
@@ -621,18 +634,49 @@ class TimelineData {
         // `observation.value` is nullable and an import preserves that, so the
         // value clause is dropped rather than interpolated — a null renders as
         // the literal "null", which reads as a measurement.
-        for (final r in observations)
+        // A device's daily mean is stored unrounded: one decimal at most
+        // here. A snake_case name reads as words ('spo2_avg' is 'Spo2 avg'),
+        // still the device's own name, never one of ours.
+        for (final r in observations) ...[
           DayNote(
-            (r['vendor_key'] as String?) ?? (r['key'] as String?) ?? '',
+            measurementTitle(
+                l, (r['vendor_key'] as String?) ?? (r['key'] as String?) ?? ''),
             r['value'] == null
                 ? '${r['attribution']}'
-                : '${r['value']}${(r['unit'] as String?)?.isNotEmpty == true ? ' ${r['unit']}' : ''} · ${r['attribution']}',
+                : '${observationValue(r['value'] as num)}${(r['unit'] as String?)?.isNotEmpty == true ? ' ${r['unit']}' : ''} · ${r['attribution']}',
             LucideIcons.tag,
           ),
+          if (bmiOf(
+                  r['key'] == 'weight' &&
+                          bmiScales.contains(r['device_id']) &&
+                          r['value'] is num &&
+                          nearWeight(r['value'] as num, weightKg)
+                      ? r['value'] as num?
+                      : null,
+                  heightCm)
+              case final bmi?)
+            DayNote(measurementTitle(l, 'bmi'),
+                '${bmi.toStringAsFixed(1)} kg/m² · ${r['attribution']}',
+                LucideIcons.tag),
+        ],
       ],
     );
   }
 }
+
+/// An observation's title: a health measurement's own key (ours, or the
+/// scale's impedance) worded; any other name as [observationTitle] reads it.
+String measurementTitle(AppLocalizations? l, String name) => switch ((l, name)) {
+  (final l?, 'weight') => l.journalComposeWeightLabel,
+  (final l?, 'body_temp') => l.phoneImportBodyTemp,
+  (final l?, 'impedance') => deviceScoreLabel(l, name),
+  (_, 'bmi') => 'BMI',
+  _ => observationTitle(name),
+};
+
+/// A stored observation's value: whole, or to one decimal.
+String observationValue(num v) =>
+    v == v.roundToDouble() ? '${v.round()}' : v.toStringAsFixed(1);
 
 class DayTimelineScreen extends StatefulWidget {
   const DayTimelineScreen({super.key, this.day, this.data});

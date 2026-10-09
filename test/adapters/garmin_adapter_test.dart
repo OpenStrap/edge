@@ -166,7 +166,15 @@ void main() {
   );
 
   test('declares hrSparse and the registry mirrors it', () {
-    expect(adapter.signals.keys, [InputSignal.hrSparse]);
+    expect(adapter.signals.keys, [
+      InputSignal.hrSparse,
+      InputSignal.steps,
+      InputSignal.deviceStages,
+      InputSignal.deviceHrv,
+      InputSignal.deviceResp,
+      InputSignal.deviceSpo2,
+      InputSignal.deviceStress,
+    ]);
     expect(kAdapterSignals['garmin'], adapter.signals);
   });
 

@@ -3,10 +3,10 @@
 //
 // NOTHING HERE HAS MET HARDWARE. Nobody on this project owns a ring (owner
 // ruling R6), so not one byte of this path has been exercised against one. The
-// registry entry stays EXPERIMENTAL, and `UltrahumanAdapter.signals` declares
-// only sparse HR (`hrSparse`, 5 min), none of which becomes a derived number:
-// its rows carry `source = 'ultrahuman'`, `kDerivableSources` does not name
-// it, and every derive/export read filters `source IS NULL`.
+// registry entry stays EXPERIMENTAL. Its rows carry `source = 'ultrahuman'`
+// and `kDerivableSources` does not name it, so they never join a band's day.
+// A day the band never saw derives off them only while the ring is the
+// active wearable and its flag is on (`compute/inputs/canonical.dart`).
 //
 // SIMPLER THAN OURA'S HOST, and for two real reasons rather than one:
 //
@@ -227,6 +227,9 @@ class UltrahumanLink {
         deviceId: deviceId,
         onLog: (m) => debugPrint('[ultrahuman] $m'),
         onNote: _handleNote,
+        // The cursor passes days whose values only just went out: it must
+        // not move unless they landed.
+        notesAfterVendorWrites: true,
         buildArchive: _buildArchiveRow,
         nowSeconds: _now,
       );
@@ -297,6 +300,7 @@ class UltrahumanLink {
       deviceId: deviceId,
       onLog: (m) => debugPrint('[ultrahuman] $m'),
       onNote: _handleNote,
+      notesAfterVendorWrites: true,
       buildArchive: _buildArchiveRow,
       nowSeconds: nowSeconds,
     );

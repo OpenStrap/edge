@@ -60,6 +60,74 @@ void main() {
     expect(await LocalDb.getCursorInt('pebble_steps_hw:$_deviceId'), ts);
   });
 
+  test('a failed step write withholds the ACK and the high-water mark',
+      () async {
+    List<int> u16(int v) => [v & 0xff, v >> 8];
+    List<int> u32(int v) =>
+        [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, v >> 24];
+    final ts = DateTime(2026, 10, 4, 8).millisecondsSinceEpoch ~/ 1000;
+    final open = [1, 5, ...List.filled(16, 0), ...u32(1), ...u32(81), 0,
+        ...u16(9 + 13)];
+    final data = [2, 5, ...u32(0), ...u32(0), ...u16(7), ...u32(ts), 0, 13, 1,
+        25, 0, ...u16(100), 5, 0, 0, 0, 0, 0, 0, 0, 61];
+    // The step row cannot land.
+    await (await LocalDb.instance).execute('DROP TABLE observation');
+    final link = await PebbleLink.instance.ingestForTest(
+      _deviceId,
+      [
+        ...pebblePpogattPackets(pebbleFrame(kPebbleEndpointDatalog, open), 0),
+        ...pebblePpogattPackets(pebbleFrame(kPebbleEndpointDatalog, data), 3),
+      ],
+      nowSeconds: () => ts + 3600,
+    );
+    final frames = PebbleFrameReassembler();
+    final sent = [
+      for (final (u, w) in link.writes)
+        if (u == kPebblePpogattWriteUuid && w.isNotEmpty && (w[0] & 7) == 0)
+          ...frames.add(w.sublist(1)),
+    ];
+    // The open is ACKed; the data message, whose steps did not bank, is not,
+    // so the watch keeps it.
+    expect(sent.where((f) => f.$2[0] == 0x85).length, 1);
+    expect(await LocalDb.getCursorInt('pebble_steps_hw:$_deviceId'), isNull);
+  });
+
+  test('a step write that fails part-way through a session is not counted '
+      'twice when the watch re-sends', () async {
+    List<int> u16(int v) => [v & 0xff, v >> 8];
+    List<int> u32(int v) =>
+        [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, v >> 24];
+    final t0 = DateTime(2026, 10, 4, 8).millisecondsSinceEpoch ~/ 1000;
+    final open = [1, 5, ...List.filled(16, 0), ...u32(1), ...u32(81), 0,
+        ...u16(9 + 13)];
+    List<int> minute(int ts, int steps) => [2, 5, ...u32(0), ...u32(0),
+        ...u16(7), ...u32(ts), 0, 13, 1, steps, 0, ...u16(100), 5, 0, 0, 0, 0,
+        0, 0, 0, 61];
+    List<List<int>> session(List<List<int>> messages) {
+      final out = <List<int>>[];
+      for (final m in [open, ...messages]) {
+        out.addAll(pebblePpogattPackets(
+            pebbleFrame(kPebbleEndpointDatalog, m), out.length));
+      }
+      return out;
+    }
+    int now() => t0 + 3600;
+    await PebbleLink.instance.ingestForTest(_deviceId, session([minute(t0, 25)]),
+        nowSeconds: now);
+    final db = await LocalDb.instance;
+    // A (day total 125) cannot land; B (130) could.
+    await db.execute("CREATE TRIGGER fail_a BEFORE INSERT ON observation "
+        "WHEN NEW.value = 125 BEGIN SELECT RAISE(ABORT, 'disk'); END");
+    final resend = [minute(t0 + 60, 100), minute(t0 + 120, 5)];
+    await PebbleLink.instance.ingestForTest(_deviceId, session(resend),
+        nowSeconds: now);
+    await db.execute('DROP TRIGGER fail_a');
+    await PebbleLink.instance.ingestForTest(_deviceId, session(resend),
+        nowSeconds: now);
+    final steps = await (await LocalDb.instance).query('observation');
+    expect(steps.single['value'], 130.0);
+  });
+
   test('nothing paired means nothing to sync', () async {
     expect(await PebbleLink.pairedWatchRow(), isNull);
     expect(await PebbleLink.instance.sync(), isFalse);

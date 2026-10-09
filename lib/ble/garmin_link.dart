@@ -2,9 +2,10 @@
 // the link for one bounded session, bank what comes back, disconnect.
 //
 // NOTHING HERE HAS MET HARDWARE (ASSUMPTIONS R6). `GarminAdapter.signals`
-// declares `hrSparse` (monitoring HR, about once a minute) and `garmin` is
-// absent from `kDerivableSources` — every row this file writes carries a
-// non-null `source`, and none of it feeds a derived number.
+// declares `hrSparse` (monitoring HR, about once a minute). `garmin` is
+// absent from `kDerivableSources`, so none of these rows reaches the band's
+// substrate; they feed a derived number only through the active-wearable
+// path (`compute/inputs/canonical.dart`), while the watch's flag is on.
 //
 // THE SESSION: the adapter reads the watch's file directory, downloads every
 // health FIT file (monitoring, sleep, HRV status) it has not read yet, and
@@ -163,6 +164,7 @@ class GarminLink {
               deviceId,
               GarminAdapter(
                 readFiles: await LocalDb.getCursor(_cursorItem(deviceId)) ?? '',
+                priorSteps: await _priorSteps(deviceId),
                 mlChars: ml,
                 maxWrite: device.mtuNow - 3,
               ));
@@ -200,11 +202,22 @@ class GarminLink {
     }
   }
 
+  /// The step totals stored for this watch, one row per local day.
+  Future<Map<DateTime, int>> _priorSteps(String deviceId) async => {
+        for (final MapEntry(:key, :value)
+            in (await LocalDb.deviceObservationValues(deviceId, 'steps'))
+                .entries)
+          DateTime.fromMillisecondsSinceEpoch(key): value.toInt(),
+      };
+
   BandHost _makeHost(String deviceId, GarminAdapter adapter) => BandHost(
         adapter: adapter,
         deviceId: deviceId,
         onLog: (m) => debugPrint('[garmin] $m'),
         onNote: _handleNote,
+        // The read-file list must not outrun the file's own numbers: a
+        // failed vendor write leaves the file unread, so it is read again.
+        notesAfterVendorWrites: true,
         buildArchive: _buildArchiveRow,
         // The read-file list is folded into the SAME commit transaction as
         // the samples decoded from those files, so a file can never be
@@ -255,6 +268,7 @@ class GarminLink {
           registerTimeout: const Duration(milliseconds: 200),
           notReadyDelay: const Duration(milliseconds: 10),
           readFiles: await LocalDb.getCursor(_cursorItem(deviceId)) ?? '',
+          priorSteps: await _priorSteps(deviceId),
         ));
     _host = host;
     var finished = false;

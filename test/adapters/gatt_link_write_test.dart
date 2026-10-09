@@ -141,6 +141,33 @@ void main() {
     expect(reached, isFalse);
   });
 
+  test("a Mi scale's history write that would delete its records is refused, "
+      'before the radio; request, send and stop go through', () async {
+    for (final e in [kMiScaleComposition, kMiScale2]) {
+      final link = GattBandLink(entry: e, services: const [], onLog: (_) {});
+      final reached = <List<int>>[];
+      link.debugWriteHook = (v) async {
+        reached.add(v);
+        return true;
+      };
+      expect(await link.write(kMiScaleHistoryChar, [0x04, 1, 0, 0, 0]), isFalse,
+          reason: e.id);
+      expect(await link.write(kMiScaleHistoryChar, <int>[]), isFalse);
+      // _find resolves by a case-insensitive 32-bit prefix: so does the block.
+      for (final alias in [
+        kMiScaleHistoryChar.toUpperCase(),
+        '00002a2f-0000-1000-8000-00805f9b34fb',
+      ]) {
+        expect(await link.write(alias, [0x04, 1, 0, 0, 0]), isFalse,
+            reason: alias);
+      }
+      for (final ok in [[0x01, 1, 0, 0, 0], [0x02], [0x03]]) {
+        expect(await link.write(kMiScaleHistoryChar, ok), isTrue);
+      }
+      expect(reached, [[0x01, 1, 0, 0, 0], [0x02], [0x03]], reason: e.id);
+    }
+  });
+
   test('read() on a characteristic the peripheral does not expose returns '
       'null rather than throwing', () async {
     final link = _link();

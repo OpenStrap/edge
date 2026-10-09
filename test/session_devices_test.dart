@@ -1,6 +1,8 @@
 // The thermometer and the Mi scales: scripted devices in, observation rows
 // out, through the REAL adapters, the shared [SessionLink] host and sqlite.
 
+import 'dart:io' show pid;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/session_link.dart';
@@ -32,12 +34,17 @@ void main() {
 
   setUp(() async {
     await LocalDb.close();
-    LocalDb.dbName = 'session_devices_test.db';
+    // Per process: two runs of this file at once must not share one file.
+    LocalDb.dbName = 'session_devices_test_$pid.db';
     final dir = await databaseFactory.getDatabasesPath();
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
-  tearDown(() async => LocalDb.close());
+  tearDown(() async {
+    await LocalDb.close();
+    await databaseFactory.deleteDatabase(
+        p.join(await databaseFactory.getDatabasesPath(), LocalDb.dbName));
+  });
 
   test('thermometer: sets the clock, saves plausible readings as body_temp',
       () async {

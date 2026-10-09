@@ -168,4 +168,107 @@ void main() {
     expect(rows.where((r) => r.vendorKey == 'impedance').map((r) => r.value),
         [480, 490]);
   });
+
+  test('a scale that never goes quiet still yields its weighing inside the '
+      'session budget', () async {
+    final at = DateTime.utc(2026, 10, 4, 7, 59);
+    final link = ReplayBandLink();
+    // Notifies every 20 ms, far inside the 50 ms quiet: without a budget the
+    // live phase never ends, and the host's window cancels it unyielded.
+    final pump = Timer.periodic(const Duration(milliseconds: 20),
+        (_) => link.feed(kMiScaleWeightChar, _rec(0x20, 14400, at),
+            atSec: _nowSec));
+    addTearDown(pump.cancel);
+    final rows = <Observation>[];
+    final adapter = MiScaleAdapter(
+      kMiScale2,
+      nowSeconds: () => _nowSec,
+      firstWait: const Duration(milliseconds: 100),
+      quiet: const Duration(milliseconds: 50),
+      replyTimeout: const Duration(milliseconds: 100),
+      historyQuiet: const Duration(milliseconds: 100),
+      budget: const Duration(milliseconds: 400),
+    );
+    await adapter.run(link).forEach((e) {
+      if (e is VendorScalars) rows.addAll(e.rows);
+    }).timeout(const Duration(seconds: 3));
+    expect(rows.map((r) => (r.key, r.value)), [('weight', 72.0)]);
+  });
+
+  test("history stamped under another app's local clock is read as local; "
+      'under ours, as UTC', () async {
+    // Meaningful in a zone off UTC (the freeze runs include Asia/Kolkata and
+    // America/New_York); in UTC both readings are the same instant.
+    final localNow = DateTime.fromMillisecondsSinceEpoch(_nowSec * 1000);
+    List<(String, List<int>)> history(String u, List<int> v) =>
+        switch ((u == kMiScaleHistoryChar, v.first)) {
+          (true, 0x01) => [(kMiScaleHistoryChar, [0x01, 1, 0])],
+          (true, 0x02) => [
+              (kMiScaleHistoryChar,
+                  _rec(0xa2, 14200, DateTime.utc(2026, 10, 3, 7))),
+              (kMiScaleHistoryChar, [0x03]),
+            ],
+          _ => const [],
+        };
+    for (final (clock, want) in [
+      (localNow, DateTime(2026, 10, 3, 7)),
+      (DateTime.utc(2026, 10, 4, 8), DateTime.utc(2026, 10, 3, 7)),
+    ]) {
+      final (rows, _) = await _drive(kMiScale2,
+          reads: {kCurrentTimeChar: _dt(clock)}, reply: history);
+      expect(rows.single.at.millisecondsSinceEpoch,
+          want.millisecondsSinceEpoch, reason: '$clock');
+    }
+  });
+
+  test('a local clock set before a daylight-saving change (an hour off local '
+      'time) stays local: its history is read as local, the clock rewritten '
+      'local', () async {
+    // Meaningful in a zone off UTC, like the test above.
+    final localNow = DateTime.fromMillisecondsSinceEpoch(_nowSec * 1000);
+    final setUnderDst = localNow.add(const Duration(hours: 1));
+    List<(String, List<int>)> history(String u, List<int> v) =>
+        switch ((u == kMiScaleHistoryChar, v.first)) {
+          (true, 0x01) => [(kMiScaleHistoryChar, [0x01, 1, 0])],
+          (true, 0x02) => [
+              (kMiScaleHistoryChar,
+                  _rec(0xa2, 14200, DateTime.utc(2026, 10, 3, 7))),
+              (kMiScaleHistoryChar, [0x03]),
+            ],
+          _ => const [],
+        };
+    for (final clock in [setUnderDst, localNow.add(const Duration(hours: -1))]) {
+      final (rows, link) = await _drive(kMiScale2,
+          reads: {kCurrentTimeChar: _dt(clock)}, reply: history);
+      expect(rows.single.at.millisecondsSinceEpoch,
+          DateTime(2026, 10, 3, 7).millisecondsSinceEpoch, reason: '$clock');
+      expect(link.writes.lastWhere((w) => w.$1 == kCurrentTimeChar).$2,
+          miScaleClockValue(localNow), reason: '$clock');
+    }
+  });
+
+  test('the history is never deleted, so it is re-sent: session 2 reads the '
+      'clock session 1 wrote and places the same record at the same instant',
+      () async {
+    // Meaningful off UTC, like the test above.
+    List<(String, List<int>)> history(String u, List<int> v) =>
+        switch ((u == kMiScaleHistoryChar, v.first)) {
+          (true, 0x01) => [(kMiScaleHistoryChar, [0x01, 1, 0])],
+          (true, 0x02) => [
+              (kMiScaleHistoryChar,
+                  _rec(0xa2, 14200, DateTime.utc(2026, 10, 3, 7))),
+              (kMiScaleHistoryChar, [0x03]),
+            ],
+          _ => const [],
+        };
+    var clock = _dt(DateTime.fromMillisecondsSinceEpoch(_nowSec * 1000));
+    final stamps = <int>{};
+    for (var session = 1; session <= 3; session++) {
+      final (rows, link) = await _drive(kMiScale2,
+          reads: {kCurrentTimeChar: clock}, reply: history);
+      stamps.add(rows.single.at.millisecondsSinceEpoch);
+      clock = link.writes.lastWhere((w) => w.$1 == kCurrentTimeChar).$2;
+    }
+    expect(stamps, {DateTime(2026, 10, 3, 7).millisecondsSinceEpoch});
+  });
 }

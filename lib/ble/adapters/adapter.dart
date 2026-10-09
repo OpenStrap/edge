@@ -156,6 +156,19 @@ class NeutralSample {
   /// baseline, and never sharing a key with a number we compute ourselves.
   final Map<String, Object?> vendor;
 
+  /// When each of [rrMs]' beats ENDED, epoch ms, parallel to it; null when
+  /// not kept. Set by the host for an arrival-anchored strap, off the beat
+  /// chain itself ([BandHost]), so a beat keeps its own time instead of the
+  /// second its notification arrived in.
+  final List<int>? beatTsMs;
+
+  /// Milliseconds that passed before [rrMs]' first beat with no interval
+  /// banked for them (records the sensor flagged or dropped), 0 when none.
+  /// The host's beat chain advances over it on an arrival-anchored strap, so
+  /// the beat after a hole is not stamped early and the hole is not read as
+  /// contiguous beats.
+  final int gapMs;
+
   const NeutralSample({
     required this.anchor,
     required this.tsEpoch,
@@ -163,6 +176,8 @@ class NeutralSample {
     this.rrMs = const <int>[],
     this.skinTempC,
     this.vendor = const <String, Object?>{},
+    this.beatTsMs,
+    this.gapMs = 0,
   });
 }
 
@@ -251,7 +266,13 @@ class BandNote extends BandEvent {
 /// attributed to the vendor, never an input to one of our derivations and
 /// never in a baseline.
 class VendorScalars extends BandEvent {
-  const VendorScalars(this.rows);
+  const VendorScalars(this.rows, {this.cursors = const {}});
+
+  /// `sync_cursor` rows (stored as `name:deviceId`) written in the SAME
+  /// transaction as [rows], for an adapter whose carried-forward state must
+  /// never land without the rows it describes (a Pebble's step high-water
+  /// mark). Skipped once an earlier vendor write of the session failed.
+  final Map<String, String> cursors;
 
   /// `data/observation.dart`'s type. `key` for a comparable quantity,
   /// `vendorKey` for a proprietary composite — the split is the rule that
@@ -263,11 +284,15 @@ class VendorScalars extends BandEvent {
 /// `vendor_sleep_epoch`, not `observation`, and read only by the main-sleep
 /// window's `vendor_staged` rung after a plausibility gate.
 class VendorHypnogram extends BandEvent {
-  const VendorHypnogram(this.source, this.epochs);
+  const VendorHypnogram(this.source, this.epochs, {this.wholeNights = false});
 
   /// Lowercase vendor id, e.g. 'oura'.
   final String source;
   final List<VendorEpoch> epochs;
+
+  /// Each night in [epochs] is the band's whole night, never a piece of one:
+  /// a stored night it overlaps is dropped entire, not just where they overlap.
+  final bool wholeNights;
 }
 
 /// One band, driven.

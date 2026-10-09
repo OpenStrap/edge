@@ -10,18 +10,22 @@
 // caller.
 //
 // WHAT IT IS NOT.
-//  * NOT a background source. Armed by a workout, disarmed when the workout
-//    ends — the same rule GPS follows, for the same reason: a second GATT link
-//    held open all day is a battery cost and a scan/connect fight with the
-//    band's own link.
+//  * NOT a background source. Armed by a workout, disarmed a few minutes
+//    after the workout ends (the recovery tail, `kStrapTailSec`) — the same
+//    rule GPS follows, for the same reason: a second GATT link held open all
+//    day is a battery cost and a scan/connect fight with the band's own link.
 //  * NOT better than the band overnight. A chest strap is better at exercise
 //    HR and beat timing; that is the whole of the claim.
-//  * NOT baseline input, and not yet input to anything. Its rows land in
-//    `decoded_onehz` / `decoded_rr` — the real substrate, not a side table —
-//    stamped `source = 'ble_hrs'`, and every derive/export read filters
-//    `source IS NULL`. Resting HR from a chest strap and from wrist PPG differ
-//    systematically, and merging them quietly is how a step change lands in
-//    every long-horizon number with no visible cause.
+//  * NOT baseline input. Its rows land in `decoded_onehz` / `decoded_rr` —
+//    the real substrate, not a side table — stamped `source = 'ble_hrs'`, and
+//    every band derive/export read filters `source IS NULL`. Resting HR from a
+//    chest strap and from wrist PPG differ systematically, and merging them
+//    quietly is how a step change lands in every long-horizon number with no
+//    visible cause. With its flag on (developer setting, off by default) it
+//    is input in one place: the session override, a session window it
+//    recorded (`sessionWindowRows` in db.dart; `withStrapSessions` on a
+//    wearable's day, for session strain, zones and heart-rate recovery, plus
+//    its beats).
 //  * REACHABLE NOW, and it was not. [scanFor] finds a sensor and
 //    [pairNotifySensor] writes the `device` row [HrsLink.arm] reads, so
 //    arming stops being a no-op the moment a user picks one.
@@ -35,11 +39,13 @@
 // clock. The durations are exact and land in `decoded_rr.rr_ms`; the only time
 // we can attach is the arrival of the notification, which BLE delivery jitter
 // and stack batching move by tens of milliseconds. That anchor goes in
-// `rr_ts_ms` (the whole-second column, which is what it is) and `beat_ts_ms` —
-// the column that means "where the beat actually WAS" — stays NULL, because we
-// do not know. `TimeAnchor.arrival` on the registry entry is the machine-
-// readable form of that sentence: RMSSD and pNN50 are correct on it,
-// Lomb-Scargle / `cvhr_per_hour` / `spanSec` must refuse on it.
+// `rr_ts_ms` (the whole-second column, which is what it is). `beat_ts_ms` is
+// an estimate, not a clock: `BandHost` chains each beat's end one interval
+// after the last, re-anchored on the arrival second (`beatEndTimesMs`), so it
+// is right to within about half a second. `TimeAnchor.arrival` on the
+// registry entry is the machine-readable form of that sentence: RMSSD and
+// pNN50 are correct on it, Lomb-Scargle / `cvhr_per_hour` / `spanSec` must
+// refuse on it.
 
 import 'dart:async';
 import 'dart:io' show Platform;
@@ -51,6 +57,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart'
     show polarPmdSupportsPpi;
 
+import '../compute/inputs/canonical.dart' show wearableEnabled;
 import '../data/db.dart';
 import '../sync/paired_device.dart' show cleanDeviceLabel;
 import 'accessory_setup.dart';
@@ -146,6 +153,10 @@ class HrsLink {
   /// — [disarm] drops the host first — so a consumer that must name the device
   /// it is ending has to remember it.
   String? get deviceId => _host?.deviceId;
+
+  /// Bank what the armed sensor has sent so far and stay armed (a workout's
+  /// stop, with the recovery tail still to record). No-op when not armed.
+  Future<void> flush() async => _host?.flush();
 
   /// The `device` row for the paired heart-rate sensor, or null.
   ///
@@ -812,7 +823,8 @@ class HrsLink {
       // OS-level bonding, triggered by a write here rather than by an
       // app-layer key — see `BandEntry.bondTriggerCharacteristic`.
       final bondChar = entry.bondTriggerCharacteristic;
-      if (bondChar != null && !await link.write(bondChar, const [0x01])) {
+      if (bondChar != null &&
+          !await link.write(bondChar, kPebblePairingTriggerValue)) {
         link.close();
         return 'That device did not accept Bluetooth pairing. Nothing was '
             'saved.';
@@ -1028,6 +1040,9 @@ class HrsLink {
 
   Future<bool> _arm() async {
     final disarmsAtStart = _disarms;
+    // Rule R6: a sensor whose flag is off is never armed, so nothing it
+    // reads reaches a live trace, a workout's score or the day.
+    if (!await wearableEnabled(kBleHrsAdapter.id)) return false;
     final row = await pairedSensorRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;

@@ -28,6 +28,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' show polarPmdStopPpi;
 
+import '../compute/inputs/canonical.dart' show wearableEnabled;
 import '../data/db.dart';
 import 'adapters/_registry.dart' show kPolarPmdControlChar;
 import 'adapters/gatt_link.dart';
@@ -58,6 +59,10 @@ class PolarPmdLink {
 
   /// The armed sensor's `device_id`, or null when nothing is armed.
   String? get deviceId => _host?.deviceId;
+
+  /// Bank what the armed sensor has sent so far and stay armed (a workout's
+  /// stop, with the recovery tail still to record). No-op when not armed.
+  Future<void> flush() async => _host?.flush();
 
   /// The `device` row for the paired sensor, or null.
   static Future<Map<String, Object?>?> pairedSensorRow() async {
@@ -102,6 +107,9 @@ class PolarPmdLink {
 
   Future<bool> _arm() async {
     final disarmsAtStart = _disarms;
+    // Rule R6: a sensor whose flag is off is never armed, so nothing it
+    // reads reaches a live trace, a workout's score or the day.
+    if (!await wearableEnabled(kPolarPmdAdapter.id)) return false;
     final row = await pairedSensorRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;

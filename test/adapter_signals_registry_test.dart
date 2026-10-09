@@ -63,8 +63,9 @@ void main() {
   test('declaredSignals reads the registry, and is empty for an unknown id',
       () {
     expect(declaredSignals('gen4'), kWhoopGen4Signals.keys.toSet());
-    expect(declaredSignals('oura'), isEmpty);
-    expect(declaredSignals('pebble'), {InputSignal.hrSparse});
+    expect(declaredSignals('oura'), kOuraSignals.keys.toSet());
+    expect(declaredSignals('pebble'),
+        {InputSignal.hrSparse, InputSignal.steps, InputSignal.deviceStages});
     expect(declaredSignals('casio'), isEmpty,
         reason: 'a family this build removed reads as unknown');
     expect(declaredSignals('nothing-we-speak'), isEmpty);

@@ -51,6 +51,8 @@ import '../activity/day_strain.dart' show DayStrainDetail;
 import '../profile/alarm.dart' show AlarmArmState, alarmArmOf, alarmDoor;
 import '../profile/devices.dart' show formatDayTime;
 import '../profile/profile.dart';
+import '../profile/wearable_numbers.dart'
+    show WearableCells, kHomeWearableRows;
 import '../ui2.dart';
 import 'ai_briefing.dart' show AiBriefingScreen;
 import 'coach.dart';
@@ -1788,6 +1790,10 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         const SizedBox(height: S.x3),
       ],
       ...dayNavRow(_day ?? d.dayId, _days, _goDay),
+      // The active wearable's day, cell by cell. Nothing on a WHOOP-only
+      // install, nor when the screen is handed its data.
+      if (widget.data == null)
+        WearableCells(kHomeWearableRows, date: isToday ? null : _day),
 
       if (bare)
         // A live workout holds derivation, so a bare day with a session open
@@ -2115,7 +2121,11 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
               ? (l?.homeStrainTargetMet ?? 'Strain target met')
               : (l?.homeAimForStrain(aim.toStringAsFixed(1)) ??
                   'Aim for ${aim.toStringAsFixed(1)} strain'),
-          l?.homeTraining ?? 'Training',
+          // Built on a wearable's estimated TRIMP: say so.
+          [
+            l?.homeTraining ?? 'Training',
+            if (target['estimated'] == true) l?.wearableEstimated ?? 'Estimated',
+          ].join(' · '),
           met
               ? (l?.actionDone ?? 'Done')
               : '${(target['low'] as num?)?.toStringAsFixed(1) ?? ''}–'

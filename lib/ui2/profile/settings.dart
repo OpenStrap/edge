@@ -41,6 +41,7 @@ import 'data.dart';
 import 'gallery.dart';
 import 'gestures.dart';
 import 'profile.dart';
+import 'wearable_numbers.dart' show WearableDisplay, wearableSettingsGroup;
 
 /// Unwind the profile stack back to the gate.
 ///
@@ -86,6 +87,10 @@ class _MoreSettingsState extends State<MoreSettings> {
     super.initState();
     _readVersion();
     _readIcon();
+    // The developer wearable toggles list the paired devices; best-effort.
+    if (_dev) {
+      WearableDisplay.instance.loadDevices().catchError((Object _) {});
+    }
   }
 
   Future<void> _readIcon() async {
@@ -138,6 +143,7 @@ class _MoreSettingsState extends State<MoreSettings> {
 
   void _setDev(bool on) {
     Prefs.setBool(Prefs.devMode, on);
+    if (on) WearableDisplay.instance.loadDevices().catchError((Object _) {});
     setState(() {
       _dev = on;
       _taps = 0;
@@ -707,6 +713,9 @@ class MoreSettingsView extends StatelessWidget {
                       value: cycleTracking ? on : off,
                       onTap: onToggleCycleTracking),
                 ]),
+                // How a non-WHOOP wearable's numbers are drawn. Developer
+                // only while every wearable is (rule R6).
+                if (devMode) wearableSettingsGroup(c),
                 settingsGroup(c, l?.settingsGroupYourData ?? 'Your data', [
                   SetRow(LucideIcons.download, C.green,
                       l?.settingsExportBackupImportRowTitle ??
@@ -1354,7 +1363,7 @@ class EditProfile extends StatelessWidget {
         final changes = healthProfileChanges(app.user, snap);
         final merged = mergeHealthProfile(app.user, snap);
         // Nothing to write is not a write of the same thing: `updateProfile`
-        // notifies every listener and re-scores the day.
+        // persists the profile and notifies every listener.
         if (changes.isEmpty) {
           return (
             l?.settingsImportNoChange(snap.found.join(', ')) ??

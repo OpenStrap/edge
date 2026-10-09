@@ -2,7 +2,10 @@
 // Mi Smart Scale 2.
 //
 // THE SESSION, the same on both scales: subscribe, switch a scale reporting
-// mode 3 to user mode, set the clock in UTC, read back the stored history
+// mode 3 to user mode, set the clock in UTC (a clock found on local time
+// means the stored history was stamped local too, so it is kept local and
+// every stamp read as local: one record reads the same every session, as
+// the history is never deleted and is re-sent each time), read back the stored history
 // (ask how many records, have them sent only when there are some, and always
 // end with the stop command), then collect live readings until the scale
 // goes quiet. Live readings count only once STABILISED (the protocol decoder
@@ -17,7 +20,8 @@
 // history and re-sends it next time; observations are upserted by timestamp.
 //
 // WHAT IT IS NOT: a signal or a body-composition calculation. Weight and
-// impedance are shown attributed; nothing derives from them.
+// impedance are shown attributed; with the scale's flag on, a weighing near
+// the profile's weight becomes it (`measurement_inputs.dart`).
 //
 // EXPERIMENTAL (ASSUMPTIONS R6): nobody on this project owns one.
 
@@ -52,6 +56,13 @@ class MiScaleAdapter extends BandAdapter {
   /// no end marker.
   final Duration historyQuiet;
 
+  /// The history and live collection waits end by this long after the
+  /// session starts (the reads and writes keep their own link timeouts), so
+  /// the rows are yielded inside the host's session window
+  /// (`SessionLink.window`, 60 s): a generator cancelled at that window
+  /// before its yield delivers nothing, and the whole weighing is lost.
+  final Duration budget;
+
   MiScaleAdapter(
     this.entry, {
     int Function()? nowSeconds,
@@ -60,6 +71,7 @@ class MiScaleAdapter extends BandAdapter {
     this.quiet = const Duration(seconds: 5),
     this.replyTimeout = const Duration(seconds: 5),
     this.historyQuiet = const Duration(seconds: 10),
+    this.budget = const Duration(seconds: 40),
   }) : nowSeconds = nowSeconds ??
             (() => DateTime.now().millisecondsSinceEpoch ~/ 1000);
 
@@ -70,6 +82,7 @@ class MiScaleAdapter extends BandAdapter {
 
   @override
   Stream<BandEvent> run(BandLink link) async* {
+    final clock = Stopwatch()..start();
     // (arrival second, bytes, came from the history characteristic)
     final got = <(int, Uint8List, bool)>[];
     // Single-subscription, so live frames that land during the history
@@ -97,10 +110,12 @@ class MiScaleAdapter extends BandAdapter {
         }
       }),
     ];
+    var utc = true;
     try {
       await _setUserMode(link);
+      utc = !await _clockWasLocal(link);
       final now =
-          DateTime.fromMillisecondsSinceEpoch(nowSeconds() * 1000, isUtc: true);
+          DateTime.fromMillisecondsSinceEpoch(nowSeconds() * 1000, isUtc: utc);
       await link.write(kCurrentTimeChar, miScaleClockValue(now));
       if (await link.write(kMiScaleHistoryChar, miScaleHistoryRequest(userId))) {
         final n =
@@ -108,12 +123,14 @@ class MiScaleAdapter extends BandAdapter {
         if (n != null &&
             n > 0 &&
             await link.write(kMiScaleHistoryChar, kMiScaleHistorySend)) {
-          await collectUntilQuiet(records.stream, historyQuiet, historyQuiet);
+          await collectUntilQuiet(records.stream, historyQuiet, historyQuiet,
+              clock: clock, until: budget);
         }
         // Every history session ends with the stop, whatever happened.
         await link.write(kMiScaleHistoryChar, kMiScaleHistoryStop);
       }
-      await collectUntilQuiet(arrived.stream, firstWait, quiet);
+      await collectUntilQuiet(arrived.stream, firstWait, quiet,
+          clock: clock, until: budget);
     } finally {
       for (final s in subs) {
         await s.cancel();
@@ -143,8 +160,8 @@ class MiScaleAdapter extends BandAdapter {
         // A stored record with no plausible stamp cannot be placed in time;
         // stamped at arrival it would be banked again every session.
         final at = history
-            ? wallClockValid(r.at, nowSec, utc: true)
-            : wallClockOr(r.at, atSec, nowSec, utc: true);
+            ? wallClockValid(r.at, nowSec, utc: utc)
+            : wallClockOr(r.at, atSec, nowSec, utc: utc);
         if (at == null) continue;
         final key = at.millisecondsSinceEpoch;
         weights.putIfAbsent(key, () => (at, r.kg));
@@ -159,6 +176,35 @@ class MiScaleAdapter extends BandAdapter {
       ],
     ];
     if (rows.isNotEmpty) yield VendorScalars(rows);
+  }
+
+  /// Whether the scale's clock, read before this session sets it, runs on
+  /// the phone's local time rather than UTC: another app that set it local
+  /// stamped the stored history local too, and those stamps are read back
+  /// as local. Neither or both near (a UTC zone): UTC. A local clock set
+  /// before a daylight-saving change reads an hour off local time and is
+  /// still local: read as UTC, every stored record would come back shifted
+  /// (a second row beside the one banked before), and the clock rewritten
+  /// as UTC would keep it so. A local stamp reads back under its own date's
+  /// offset, so a record from either side of the change lands right.
+  // ponytail: one reading for the whole history; records stamped under both
+  // clocks (another app switched it back and forth) keep the newer clock's
+  // reading. Our own write never mixes them: it keeps the clock it found.
+  // A clock set in another zone (a trip) reads as UTC, as before; telling it
+  // apart needs the zone it was set in, which the scale does not keep.
+  Future<bool> _clockWasLocal(BandLink link) async {
+    final b = await link.read(kCurrentTimeChar);
+    final w = b == null ? null : gattDateTime(b, 0);
+    if (w == null) return false;
+    final at = DateTime.utc(w.year, w.month, w.day, w.hour, w.minute, w.second)
+            .millisecondsSinceEpoch ~/
+        1000;
+    final now = nowSeconds();
+    final local = now +
+        DateTime.fromMillisecondsSinceEpoch(now * 1000).timeZoneOffset.inSeconds;
+    const near = 15 * 60;
+    return (at - now).abs() > near &&
+        [-3600, 0, 3600].any((dst) => (at - local - dst).abs() <= near);
   }
 
   /// A scale reporting mode 3 is switched to user mode; the composition

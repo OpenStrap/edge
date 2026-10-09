@@ -107,4 +107,12 @@ class Prefs {
   /// reasonable "stay in this effort band" target with no session history to
   /// personalise it from.
   static const String zoneAlertTargetZone = 'workout.zone_alert_target_zone';
+
+  /// How a non-WHOOP wearable's numbers are drawn: one number per metric
+  /// (default) or ours beside the device's own. A UX choice, not a fact.
+  static const String wearableSideBySide = 'ui.wearable_side_by_side';
+
+  /// Whether values we estimate where the wearable gives nothing are shown.
+  /// On by default; each carries an "Estimated" label either way.
+  static const String wearableShowEstimates = 'ui.wearable_show_estimates';
 }

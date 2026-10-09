@@ -101,13 +101,22 @@ class ThermometerAdapter extends BandAdapter {
 }
 
 /// Waits for the first event up to [first], then until [quiet] passes with
-/// no new event. Shared by the short-session devices.
+/// no new event, and never past [until] (a device that keeps notifying would
+/// otherwise hold the session open forever). Shared by the short-session
+/// devices.
 Future<void> collectUntilQuiet(
-    Stream<void> events, Duration first, Duration quiet) async {
+    Stream<void> events, Duration first, Duration quiet,
+    {Stopwatch? clock, Duration? until}) async {
   final it = StreamIterator(events);
+  Duration capped(Duration d) {
+    if (clock == null || until == null) return d;
+    final left = until - clock.elapsed;
+    return left < d ? (left.isNegative ? Duration.zero : left) : d;
+  }
+
   try {
     var wait = first;
-    while (await it.moveNext().timeout(wait, onTimeout: () => false)) {
+    while (await it.moveNext().timeout(capped(wait), onTimeout: () => false)) {
       wait = quiet;
     }
   } finally {

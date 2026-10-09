@@ -76,3 +76,13 @@ jobs:
       # tests SKIP here and run locally.
       - name: Test
         run: flutter test --concurrency=1 --reporter=expanded
+
+      # The WHOOP freeze goldens are per timezone (day labels are local), and
+      # the run above is UTC, so it only enforces the *_utc files and the other
+      # two skip. Re-run that one file under each committed offset. The Mi
+      # scale clock test reads the process zone and is a no-op under UTC, so it
+      # rides along.
+      - name: Zone-dependent tests (+05:30, -04:00)
+        run: |
+          TZ=Asia/Kolkata flutter test --concurrency=1 test/whoop_freeze_golden_test.dart test/adapters/miscale_test.dart
+          TZ=America/New_York flutter test --concurrency=1 test/whoop_freeze_golden_test.dart test/adapters/miscale_test.dart

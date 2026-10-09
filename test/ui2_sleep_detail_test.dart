@@ -165,6 +165,21 @@ void main() {
       expect(find.textContaining('Shares of'), findsNothing);
     });
 
+    testWidgets("a device-staged night shows the device's own minutes, no "
+        'range', (t) async {
+      final n = {
+        ...staged(conf: 0.95),
+        'sleep_source': 'vendor_staged',
+        'rem_min': null,
+      };
+      await _pump(t,
+          SleepData(day: '2026-05-20', night: n, tstHistory: _flat(20, 420)));
+      // Twice: the Stages row and the Deep comparison, both the count.
+      expect(find.text('1h 20m'), findsNWidgets(2));
+      expect(find.text('4h 10m'), findsOneWidget);
+      expect(find.textContaining('Each stage is a range'), findsNothing);
+    });
+
     testWidgets('a better-seen night gets a narrower range', (t) async {
       await _pump(
           t,
@@ -479,5 +494,22 @@ void main() {
       await _pump(t, SleepData(day: '2026-05-20', night: _night()));
       expect(find.text('OpenStrap'), findsNothing);
     });
+  });
+
+  testWidgets("a band that folds REM into light: its light and deep show, "
+      "and no REM row of 0", (t) async {
+    final n = _night()..['rem_min'] = null;
+    n['hypnogram'] = [
+      for (final p in n['hypnogram'] as List)
+        if ((p as Map)['stage'] != 'rem') p,
+    ];
+    await _pump(t, SleepData(day: '2026-05-20', night: _night()));
+    final light = find.text('Light').evaluate().length;
+    final deep = find.text('Deep').evaluate().length;
+    await t.pumpWidget(const SizedBox());
+    await _pump(t, SleepData(day: '2026-05-20', night: n));
+    expect(find.text('Light').evaluate().length, light);
+    expect(find.text('Deep').evaluate().length, deep);
+    expect(find.text('REM'), findsNothing);
   });
 }

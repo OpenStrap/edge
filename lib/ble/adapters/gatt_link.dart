@@ -274,10 +274,20 @@ class GattBandLink implements BandLink {
     // command byte is frame[0] on its write characteristic: reboot and
     // factory reset are refused here the same way.
     if (entry.id == kColmi.id &&
-        characteristicUuid == kColmiWriteChar &&
+        gattUuidMatches(characteristicUuid, Guid(kColmiWriteChar)) &&
         colmiIsDestructive(value)) {
       log('REFUSED dangerous Colmi command 0x${value[0].toRadixString(16)} '
           'at BandLink');
+      return Future.value(false);
+    }
+    // A Mi scale's history takes only request, send and stop: anything else
+    // (its `04` acknowledgement DELETES the stored records) is refused.
+    // Matched as [_find] resolves it, so no other spelling of the uuid
+    // (case, SIG-base form) reaches the characteristic around the check.
+    if ((entry.id == kMiScaleComposition.id || entry.id == kMiScale2.id) &&
+        gattUuidMatches(characteristicUuid, Guid(kMiScaleHistoryChar)) &&
+        (value.isEmpty || value[0] < 0x01 || value[0] > 0x03)) {
+      log('REFUSED: a Mi scale history write other than request, send, stop.');
       return Future.value(false);
     }
     // A Coros link is read-only. Its vendor channel takes unauthenticated

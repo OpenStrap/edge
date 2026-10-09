@@ -5,10 +5,11 @@
 //
 // NOTHING HERE HAS MET HARDWARE. Nobody on this project owns one (owner
 // ruling R6), so not one byte of this path has been exercised against a real
-// unit. The registry entry stays EXPERIMENTAL and `kDerivableSources` does
-// not name it: every row it banks carries a non-null `source`, and every
-// derive/export read filters `source IS NULL`. That is correct behaviour for
-// an uncalibrated decoder, not a limitation to route around.
+// unit. The registry entry stays EXPERIMENTAL and what it banks reaches a
+// metric only behind the default-off `wearable_enabled:miband234` flag, and
+// only while it is the active wearable (`compute/inputs/canonical.dart`).
+// That is correct behaviour for an uncalibrated decoder, not a limitation to
+// route around.
 //
 // THE PAIRING PRECONDITION IS THE OURA RING'S, RESTATED. The band holds
 // exactly one 16-byte key and will only accept a new one while it holds
@@ -292,6 +293,9 @@ class MiBand234Link {
         deviceId: deviceId,
         onLog: (m) => debugPrint('[miband234] $m'),
         buildArchive: _buildArchiveRow,
+        // The cursor moves past days only once their steps and nights are
+        // banked: a failed vendor write holds it where it was.
+        notesAfterVendorWrites: true,
         onNote: (key, value) {
           if (key == 'miband_since' && value is int) _pendingSince = value;
         },
@@ -574,9 +578,9 @@ Future<String?> pairMiBand234(BluetoothDevice device) async {
             remoteId: device.remoteId.str,
             label: cleanDeviceLabel(device.platformName) ?? kMiBand234.label,
             // `tier` is left unset on purpose — it means MEASUREMENT QUALITY,
-            // and this band's sparse HR is unverified and outside derivation
-            // (`kDerivableSources` does not name it), so there is no quality
-            // to rank. NULL is a refusal, not a default.
+            // and this band's sparse HR is unverified (it derives only behind
+            // the default-off `wearable_enabled:miband234` flag), so there is
+            // no quality to rank. NULL is a refusal, not a default.
           );
           paired = true;
           return null;

@@ -47,12 +47,23 @@ class BleHrsAdapter extends BandAdapter {
     // No handshake. Nothing to authenticate, no clock to set, no INIT — the
     // whole session is one subscription, which is what makes this the honest
     // floor for "how little can an adapter be".
+    // Time covered by refused notifications' beats since the last banked
+    // interval: the next banked beat carries it as its gap, so the host's
+    // beat chain does not close over the hole (same as `polar_pmd.dart`).
+    var gapMs = 0;
     await for (final (atSec, value) in link.notify(kHeartRateMeasurementUuid)) {
       final s = parseHeartRateMeasurement(value);
       if (s == null) continue;
       // The sensor's own "no skin contact" is a REFUSAL, not a low reading: a
       // chest strap off the chest reports confident nonsense. Drop the sample.
-      if (s.contact == false) continue;
+      if (s.contact == false) {
+        for (final rr in s.rrMs) {
+          gapMs += rr;
+        }
+        continue;
+      }
+      final gap = s.rrMs.isEmpty ? 0 : gapMs;
+      if (s.rrMs.isNotEmpty) gapMs = 0;
       yield SampleBatch(
         [
           NeutralSample(
@@ -66,6 +77,7 @@ class BleHrsAdapter extends BandAdapter {
             tsEpoch: atSec,
             hr: s.hr,
             rrMs: s.rrMs,
+            gapMs: gap,
             vendor: s.contact == null ? const {} : {'contact': s.contact},
           ),
         ],

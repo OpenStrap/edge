@@ -61,6 +61,59 @@ void main() {
     expect(ouraStage4(-1), isNull);
   });
 
+  group('efficiency and awakenings off device stages', () {
+    // 23:00-07:00 with two wakes inside it: 10 min (one sustained
+    // awakening) and 3 min (under the 5-minute bar, so none).
+    VendorNight withWakes(String source) {
+      final on = _at(26, 23), off = _at(27, 7);
+      String stage(int t) => (t >= _at(27, 2) && t < _at(27, 2, 10)) ||
+              (t >= _at(27, 4) && t < _at(27, 4, 3))
+          ? 'wake'
+          : 'light';
+      return VendorNight(
+        deviceId: 'watch',
+        source: source,
+        decodedAtSec: off + 600,
+        epochs: [
+          for (var t = on; t < off; t += 60) VendorEpoch(t, t + 60, stage(t)),
+        ],
+      );
+    }
+
+    test('a device that reports wake: waso, awakenings, efficiency', () {
+      final seg = vendorOnlySegmentation(withWakes('garmin'));
+      expect(seg.inBedSec, 8 * 3600);
+      expect(seg.wakeSec, 13 * 60);
+      expect(seg.wasoSec, 13 * 60);
+      expect(seg.sustainedAwakenings, 1);
+      expect(seg.tstSec, 8 * 3600 - 13 * 60);
+      expect(seg.efficiencyPct, closeTo(100 * (480 - 13) / 480, 1e-9));
+    });
+
+    test('a device that reports no wake: no efficiency, waso or awakenings',
+        () {
+      // The same night from a watch whose stages are only light and deep:
+      // its wake epochs never arrive, so it reads as all sleep.
+      final n = withWakes('pebble');
+      final seg = vendorOnlySegmentation(VendorNight(
+        deviceId: n.deviceId,
+        source: n.source,
+        decodedAtSec: n.decodedAtSec,
+        epochs: [
+          for (final e in n.epochs)
+            VendorEpoch(e.startSec, e.endSec,
+                e.stage == 'wake' ? 'light' : e.stage),
+        ],
+      ));
+      expect(seg.tstSec, 8 * 3600);
+      expect(seg.efficiencyPct, isNull, reason: 'would be 100 by construction');
+      expect(seg.wasoSec, isNull);
+      expect(seg.wakeSec, isNull);
+      expect(seg.sustainedAwakenings, isNull);
+      expect(seg.lightSec, 8 * 3600, reason: 'the stages still pass through');
+    });
+  });
+
   group('plausibility gate', () {
     final on = _at(26, 23, 10), off = _at(27, 6, 50);
     final oursReal = (onsetSec: _at(26, 23), offsetSec: _at(27, 7));

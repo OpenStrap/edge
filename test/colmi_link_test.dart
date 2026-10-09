@@ -103,7 +103,14 @@ void main() {
     final db = await LocalDb.instance;
     final obs = await db.query('observation', orderBy: 'vendor_key');
     expect(obs.map((o) => (o['vendor_key'], o['value'])),
-        [('sleep_deep_min', 180.0), ('sleep_light_min', 240.0)]);
+        [
+          ('sleep_deep_min', 180.0),
+          ('sleep_light_min', 240.0),
+          // A stage the night has none of is written as 0, so a re-report
+          // overwrites an earlier report's minutes for it.
+          ('sleep_rem_min', 0.0),
+          ('sleep_wake_min', 0.0),
+        ]);
     for (final o in obs) {
       expect(o['source_kind'], 'vendor');
       expect(o['attribution'], 'Colmi');

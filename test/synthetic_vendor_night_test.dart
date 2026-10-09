@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/colmi_link.dart';
 import 'package:openstrap_edge/compute/derivation_engine.dart';
+import 'package:openstrap_edge/compute/inputs/canonical.dart';
 import 'package:openstrap_edge/compute/profile.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:path/path.dart' as p;
@@ -48,6 +49,15 @@ void main() {
     );
     expect(await LocalDb.lastDecodedRecTs(), isNull,
         reason: 'no primary band rows at all');
+    // Flag off (rule R6): the ring's night stages nothing.
+    await DerivationEngine().runDays(_profile, {_dayId}, force: true);
+    final off = await LocalDb.dayResult(_dayId);
+    expect(
+        off == null
+            ? null
+            : (jsonDecode(off['payload_json'] as String) as Map)['sleep_source'],
+        isNot('vendor_staged'));
+    await LocalDb.setCursor(wearableEnabledCursor('colmi'), '1');
 
     final done =
         await DerivationEngine().runDays(_profile, {_dayId}, force: true);

@@ -774,7 +774,7 @@
   },
   "devicesCouldNotReachCorosWatch": "Could not reach it. It has to be nearby, and not connected to another app.",
   "@devicesCouldNotReachCorosWatch": {
-    "description": "Snackbar: sync failed, for a paired Coros watch."
+    "description": "Snackbar: sync failed, for a paired Coros or Pebble watch (device-neutral text)."
   },
   "devicesSyncingTheSensor": "Syncing the sensor…",
   "@devicesSyncingTheSensor": {
@@ -872,13 +872,13 @@
   "@devicesWhatItDoes": {
     "description": "Row title."
   },
-  "devicesWhatItDoesUnranked": "Everything it sends is stored and attributed to it. Nothing in the app is calculated from it yet.",
-  "@devicesWhatItDoesUnranked": {
-    "description": "Row sub: unranked sensor."
+  "devicesWhatItDoesStored": "Everything it sends is stored and attributed to it. Numbers worked out from it are experimental, and off until it has been checked against the hardware.",
+  "@devicesWhatItDoesStored": {
+    "description": "Row sub: a paired device with no beat-timing tier (wearable, scale, plain sensor)."
   },
-  "devicesWhatItDoesRanked": "Beat timing is stored and attributed to it during a workout. Nothing in the app is calculated from it yet.",
-  "@devicesWhatItDoesRanked": {
-    "description": "Row sub: ranked sensor."
+  "devicesWhatItDoesBeats": "Beat timing is stored and attributed to it. It records while a workout runs, and a few minutes after it ends. Scoring a workout from it is experimental, and off until checked against the hardware.",
+  "@devicesWhatItDoesBeats": {
+    "description": "Row sub: a workout sensor ranked for beat timing."
   },
   "devicesLastData": "Last data",
   "@devicesLastData": {
@@ -960,9 +960,21 @@
   "@pairSensorPairAnother": {
     "description": "Section header: has a paired sensor."
   },
-  "pairSensorExplainer": "A sensor is used only while a workout is running, and only for heart rate and beat timing. It does not replace your band, it is never used overnight, and nothing it records feeds a score yet — its readings are stored and shown, and that is all.",
-  "@pairSensorExplainer": {
-    "description": "Explanatory body."
+  "pairSensorExplainerWorkout": "A sensor gives heart rate and beat timing for workouts. It does not replace your band. It records while a workout runs, and a few minutes after it ends. It is experimental, and off until checked against the hardware: until then it records nothing and no number uses it.",
+  "@pairSensorExplainerWorkout": {
+    "description": "Explanatory body before pairing a workout sensor (chest strap, arm band)."
+  },
+  "pairSensorExplainerCoros": "A sports watch. When it syncs, it reads battery and a few seconds of live heart rate. No workout uses it, and recorded activities stay on the watch. Its readings are stored and shown; no number of ours is worked out from them.",
+  "@pairSensorExplainerCoros": {
+    "description": "Explanatory body before pairing a Coros watch (synced in short windows, never armed by a workout)."
+  },
+  "pairSensorExplainerWearable": "A wearable's own records are stored and attributed to it, and its own values are always labelled as its. Working out our numbers from it (sleep, resting heart rate, strain) is experimental, and off until it has been checked against the hardware.",
+  "@pairSensorExplainerWearable": {
+    "description": "Explanatory body before pairing a watch, ring or band that is not the primary band."
+  },
+  "pairSensorExplainerMeasurement": "A measurement device's readings are stored and attributed to it. Using them in your profile is experimental, and off until it has been checked against the hardware.",
+  "@pairSensorExplainerMeasurement": {
+    "description": "Explanatory body before pairing a scale or thermometer."
   },
   "pairSensorSearchWouldHideSheet": "Searching would hide the system pairing sheet",
   "@pairSensorSearchWouldHideSheet": {
@@ -975,6 +987,14 @@
   "pairSensorKeyBody": "If you have the key this device already uses, paste it here and it pairs without a factory reset — nothing is written to the device. Several keys, one per line, are tried in turn until one is accepted, which is handy when you have a few and do not know which belongs to this device. Leave it empty to pair the usual way.",
   "@pairSensorKeyBody": {
     "description": "Explainer under the existing-key section title."
+  },
+  "pairSensorKeyReplacesTitle": "Pairing replaces the Oura app's key",
+  "@pairSensorKeyReplacesTitle": {
+    "description": "Warning title on the ring pairing screen, shown before the user pairs."
+  },
+  "pairSensorKeyReplacesBody": "The ring holds one key. Pairing without a key from the Oura app gives the ring a new key of its own, and the Oura app then stops working with this ring until the ring is reset and set up there again.",
+  "@pairSensorKeyReplacesBody": {
+    "description": "Warning body: pairing installs a new key that replaces the key the ring's own app uses."
   },
   "pairSensorKeyHint": "32 hex digits or base64 — one key per line",
   "@pairSensorKeyHint": {
@@ -1044,13 +1064,21 @@
   "@devicePickerBlurbCoros": {
     "description": "Category row subtitle for a Coros sports watch."
   },
-  "devicePickerBlurbMiband234": "A Mi Band 2 or 3. Syncs its stored heart rate, steps and sleep. If the band buzzes while pairing, tap it to confirm. Mi Band 4 needs the vendor's pairing and is not supported.",
+  "devicePickerBlurbMiband234": "A Mi Band 2 or 3. Unpair it from Mi Fit or Zepp first (or factory-reset it): it only takes a new key while it holds none. Syncs its stored heart rate, steps and sleep. If the band buzzes while pairing, tap it to confirm. Mi Band 4 needs the vendor's pairing and is not supported.",
   "@devicePickerBlurbMiband234": {
     "description": "Category row subtitle for a Mi Band 2/3."
+  },
+  "devicePickerBlurbUltrahuman": "Reads the ring directly — no account, no key exchange.",
+  "@devicePickerBlurbUltrahuman": {
+    "description": "Category row subtitle for an Ultrahuman smart ring."
   },
   "devicePickerBlurbColmi": "A Colmi ring. Syncs heart rate, sleep stages, steps, SpO2, HRV and stress; values the ring computes itself are labelled as Colmi's. Experimental.",
   "@devicePickerBlurbColmi": {
     "description": "Category row subtitle for a Colmi smart ring."
+  },
+  "devicePickerBlurbPebble": "Pebble 2 or Pebble 2 SE only. Syncs steps and sleep, and heart rate on a Pebble 2 (the SE has no heart-rate sensor).",
+  "@devicePickerBlurbPebble": {
+    "description": "Category row subtitle for a Pebble 2 / 2 SE watch."
   },
   "devicePickerCannotPairFromHere": "That device cannot be paired from this screen.",
   "@devicePickerCannotPairFromHere": {
@@ -1092,6 +1120,18 @@
   "@pairSensorUsedDuringWorkouts": {
     "description": "Row sub: paired sensor."
   },
+  "pairSensorStoredOnSync": "Records stored when it syncs",
+  "@pairSensorStoredOnSync": {
+    "description": "Row sub: paired wearable, whose records are stored when it syncs; no workout uses it."
+  },
+  "pairSensorStoredOnReading": "Readings stored as it takes them",
+  "@pairSensorStoredOnReading": {
+    "description": "Row sub: paired measurement device (a scale, a thermometer); no workout uses it."
+  },
+  "pairSensorSyncedInWindows": "Synced in short windows",
+  "@pairSensorSyncedInWindows": {
+    "description": "Row sub: paired Coros watch, which syncs in short windows and is never used by a workout."
+  },
   "pairSensorForgetThisSensor": "Forget this sensor",
   "@pairSensorForgetThisSensor": {
     "description": "Row title: danger action."
@@ -1103,6 +1143,10 @@
   "pairSensorPairing": "Pairing…",
   "@pairSensorPairing": {
     "description": "Row sub: pairing in progress."
+  },
+  "pairSensorPairingMiband234": "Pairing… If the band buzzes, tap it to confirm.",
+  "@pairSensorPairingMiband234": {
+    "description": "Row sub: a Mi Band 2/3 pairing, waiting for a tap on the band."
   },
   "pairSensorScanDidNotRun": "The scan did not run: {error}",
   "@pairSensorScanDidNotRun": {
@@ -8412,7 +8456,7 @@
   "@sleepDetailWindowFallback": {
     "description": "Label when the sleep window was inferred from heart rate as a fallback."
   },
-  "sleepDetailStagedByRing": "Staged by your ring",
+  "sleepDetailStagedByRing": "Staged by your device",
   "@sleepDetailStagedByRing": {
     "description": "Chip on a night whose window and stages came from the user's ring rather than our own detection."
   },
@@ -12209,6 +12253,78 @@
   "@missingSignalVendorScalars": {
     "description": "Sub-label on a device that cannot serve a metric because it publishes no pre-computed numbers of its own (only raw sensor signals). Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
   },
+  "missingSignalSteps": "no step count",
+  "@missingSignalSteps": {
+    "description": "Sub-label on a device that cannot serve a metric because it does not report its own step count. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalSkinTempC": "no skin temperature",
+  "@missingSignalSkinTempC": {
+    "description": "Sub-label on a device that cannot serve a metric because it does not report a skin temperature in degrees. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalActivityLevel": "no activity record",
+  "@missingSignalActivityLevel": {
+    "description": "Sub-label on a device that cannot serve a metric because it does not report its own activity value per record. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalDeviceHrv": "no HRV of its own",
+  "@missingSignalDeviceHrv": {
+    "description": "Sub-label on a device that cannot serve a metric because it does not report its own HRV figure. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalDeviceStages": "no sleep stages of its own",
+  "@missingSignalDeviceStages": {
+    "description": "Sub-label on a device that cannot serve a metric because it does not report its own sleep stages. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalDeviceResp": "no breathing rate of its own",
+  "@missingSignalDeviceResp": {
+    "description": "Sub-label on a device that cannot serve a metric because it does not report its own breathing rate. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalDeviceStress": "no stress of its own",
+  "@missingSignalDeviceStress": {
+    "description": "Sub-label on a device that cannot serve a metric because it does not report its own stress figure. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "missingSignalDeviceSpo2": "no SpO2 of its own",
+  "@missingSignalDeviceSpo2": {
+    "description": "Sub-label on a device that cannot serve a metric because it does not report its own SpO2 figure. Names the physical absence, not the metric. Lower case: it is appended after the device name and a middle dot."
+  },
+  "wearableFlagRowSub": "Experimental. On uses this device's data for your numbers",
+  "@wearableFlagRowSub": {
+    "description": "Developer settings: sub-label under a paired wearable or workout sensor's name. Turning it on lets its data feed the app's numbers (experimental until checked on real hardware)."
+  },
+  "wearableFlagActive": "Active",
+  "@wearableFlagActive": {
+    "description": "Developer settings: value shown for the wearable that is on and is the one whose data fills the days the main band did not record."
+  },
+  "signalSteps": "Steps",
+  "@signalSteps": {
+    "description": "Human name for an input signal: step counts the device made itself. Used as a section heading and screen-reader label."
+  },
+  "signalSkinTempC": "Skin temperature (°C)",
+  "@signalSkinTempC": {
+    "description": "Human name for an input signal: skin temperature in absolute degrees Celsius. Used as a section heading and screen-reader label."
+  },
+  "signalActivityLevel": "Activity",
+  "@signalActivityLevel": {
+    "description": "Human name for an input signal: the device's own activity value per record. Used as a section heading and screen-reader label."
+  },
+  "signalDeviceHrv": "The device’s own HRV",
+  "@signalDeviceHrv": {
+    "description": "Human name for an input signal: the device's own HRV figure. Used as a section heading and screen-reader label."
+  },
+  "signalDeviceStages": "The device’s own sleep stages",
+  "@signalDeviceStages": {
+    "description": "Human name for an input signal: the device's own sleep stages. Used as a section heading and screen-reader label."
+  },
+  "signalDeviceResp": "The device’s own breathing rate",
+  "@signalDeviceResp": {
+    "description": "Human name for an input signal: the device's own breathing rate. Used as a section heading and screen-reader label."
+  },
+  "signalDeviceStress": "The device’s own stress",
+  "@signalDeviceStress": {
+    "description": "Human name for an input signal: the device's own stress figure. Used as a section heading and screen-reader label."
+  },
+  "signalDeviceSpo2": "The device’s own SpO2",
+  "@signalDeviceSpo2": {
+    "description": "Human name for an input signal: the device's own SpO2 figure. Used as a section heading and screen-reader label."
+  },
   "missingSignalUnknown": "cannot supply this",
   "@missingSignalUnknown": {
     "description": "Fallback sub-label on a device that cannot serve a metric when no specific missing sensor can be named. Lower case: it is appended after the device name and a middle dot."
@@ -12626,5 +12742,394 @@
   "tabWellness": "Wellness",
   "@tabHome": {
     "description": "Bottom tab bar labels (tabHome..tabWellness). Keep short; the five must read as different words."
+  },
+  "wearableSettingsGroup": "Wearable numbers",
+  "@wearableSettingsGroup": {
+    "description": "Wearable numbers (wearable*): how a non-WHOOP wearable's metrics are presented, the one-line reasons a metric is not available, and what a wearable unlocks before pairing."
+  },
+  "wearablePresentationRowTitle": "Show",
+  "wearablePresentationRowSub": "One number per metric, or ours beside your wearable's own",
+  "wearablePresentationOneNumber": "One number",
+  "wearablePresentationSideBySide": "Side by side",
+  "wearableEstimatesRowTitle": "Estimates",
+  "wearableEstimatesRowSub": "Values we estimate where your wearable gives nothing",
+  "wearableOurs": "Ours",
+  "wearableEstimated": "Estimated",
+  "wearableNotAvailable": "Not available",
+  "wearableMethodHr1min": "1-min heart rate",
+  "wearableMethodHr5min": "5-min heart rate",
+  "wearableMethodDeviceStages": "its sleep stages",
+  "wearableMethodSkinTemp": "skin temperature",
+  "wearableMethodRest": "rest in 5-min heart rate",
+  "wearableMethodRhrOnly": "resting heart rate only",
+  "wearableMethodZoneMinutes": "heart-rate zone minutes",
+  "wearableMethodActivity": "5-min step counts",
+  "wearableMethodPartialComposite": "resting heart rate and skin temperature only (partial)",
+  "wearableProvisional": "Provisional",
+  "wearableMethodStrap": "a strap, every second",
+  "wearableMethodStrapBeats": "a strap's beat-to-beat intervals",
+  "wearableMethodRhrStrapComposite": "resting heart rate and a strap's beat-to-beat intervals",
+  "wearableMethodRingBeats": "its own beat-to-beat intervals",
+  "wearableUnlocksTitle": "What this wearable unlocks",
+  "wearableUnlocksOurs": "Measured by us",
+  "wearableUnlocksDevice": "Its own values, labelled as its",
+  "wearableUnlocksEstimated": "Estimated, labelled",
+  "wearableUnlocksStrap": "Measured by us with a strap session",
+  "wearableUnlocksNone": "Not available",
+  "wearableDayTitle": "Today's numbers",
+  "wearableDayRowSub": "What we measure from it, beside its own values",
+  "wearableNotActiveTitle": "Not your active wearable",
+  "wearableNotActiveWhy": "Numbers come from one wearable at a time, and this one is not on yet",
+  "wearableUseThis": "Use this wearable (developer)",
+  "wearableNoDayTitle": "Nothing for today yet",
+  "wearableNoDayWhy": "No day has been worked out from this wearable yet",
+  "wearableBandDayTitle": "Your band has today",
+  "wearableBandDayWhy": "Your band recorded today, so today's numbers come from it, not from this wearable",
+  "wearableWhyEstimateHidden": "Only an estimate exists, and estimates are hidden in Settings",
+  "wearableWhyNoNight": "No night stored for this day",
+  "wearableWhyNeedsThreeNights": "Needs three nights",
+  "wearableWhyNoNightHr": "No heart rate during the night",
+  "wearableWhySkinTempNotDecoded": "Skin temperature is not decoded yet",
+  "wearableWhyNeedsBeats": "Needs beat-to-beat intervals",
+  "wearableWhyNoWakeHr": "No waking heart rate",
+  "wearableWhyNoWakeHrOrProfile": "No waking heart rate, or no profile",
+  "wearableWhyNeedsStrap": "Needs a strap session",
+  "wearableWhyNeedsHistory": "Needs a night of history",
+  "wearableWhyNeedsThreeDaysHr": "Needs three days of heart rate",
+  "wearableWhyNeedsRhrBaseline": "Needs a resting-HR baseline",
+  "wearableWhyNoHrDip": "No sustained dip in the night's heart rate",
+  "wearableWhyNoNightForNaps": "No night to measure daytime rest against",
+  "wearableWhyNeedsThreeNightsTemp": "Needs three nights of skin temperature",
+  "wearableWhyTooSparseForWorkouts": "One heart rate every 5 minutes cannot place a workout",
+  "wearableRowSleepWindow": "Night length",
+  "wearableRowEfficiency": "Sleep efficiency",
+  "wearableRowSleepStages": "Deep sleep",
+  "wearableRowNaps": "Naps",
+  "wearableRowSleepDebt": "Sleep debt",
+  "wearableRowRestingHr": "Resting heart rate",
+  "wearableRowNadir": "Lowest night heart rate",
+  "wearableRowHrv": "HRV",
+  "wearableRowRespiratoryRate": "Respiratory rate",
+  "wearableRowSpo2": "Blood oxygen",
+  "wearableRowStress": "Stress",
+  "wearableRowSkinTemp": "Skin temperature",
+  "wearableRowReadiness": "Readiness",
+  "wearableRowIrregularRhythm": "Irregular rhythm",
+  "wearableRowSteps": "Steps",
+  "wearableRowStrain": "Strain",
+  "wearableRowCalories": "Calories",
+  "wearableRowMovement": "Movement",
+  "wearableRowAutoWorkouts": "Workouts found",
+  "wearableRowHrr": "Heart-rate recovery",
+  "wearableRowBaselines": "Resting HR baseline",
+  "wearableRowSkinTempBaseline": "Skin temperature baseline",
+  "wearableRowCircadian": "Body-clock peak",
+  "wearableRowStrapWorkouts": "Workouts with a strap",
+  "wearableUnitBpm": "bpm",
+  "wearableUnitMs": "ms",
+  "wearableUnitPct": "%",
+  "wearableUnitKcal": "kcal",
+  "wearableUnitBrMin": "br/min",
+  "wearableUnitHours": "h",
+  "wearableUnitSd": "SD",
+  "wearableUnitCelsius": "°C",
+  "wearableUnitMin": "min",
+  "wearableSourceOurs": "From your {device} · {method}",
+  "@wearableSourceOurs": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      },
+      "method": {
+        "type": "String",
+        "example": "1-min heart rate"
+      }
+    }
+  },
+  "wearableSourceOursPlain": "From your {device}",
+  "@wearableSourceOursPlain": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableSourceStrap": "From {method}",
+  "@wearableSourceStrap": {
+    "description": "Source line under a value a workout strap measured, not the wearable; method names the strap (e.g. a strap's beat-to-beat intervals)",
+    "placeholders": {
+      "method": {
+        "type": "String",
+        "example": "a strap's beat-to-beat intervals"
+      }
+    }
+  },
+  "wearableSourceDevice": "Your {device}'s own value",
+  "@wearableSourceDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableSourceEstimated": "Estimated from your {device} · {method}",
+  "@wearableSourceEstimated": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      },
+      "method": {
+        "type": "String",
+        "example": "1-min heart rate"
+      }
+    }
+  },
+  "wearableSourceEstimatedPlain": "Estimated from your {device}",
+  "@wearableSourceEstimatedPlain": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableDetailDeviceSays": "Your {device} says",
+  "@wearableDetailDeviceSays": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableDetailNoDeviceValue": "Your {device} gives no value of its own for this",
+  "@wearableDetailNoDeviceValue": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableBand": "On synthetic test days this method is off by about {band} on average from the same number computed from second-by-second heart rate. Single days can be further off.",
+  "@wearableBand": {
+    "description": "Confidence line under a wearable value: the method's measured mean absolute error against 1 Hz data, from a synthetic validation run. An average, not a per-day bound.",
+    "placeholders": {
+      "band": {
+        "type": "String",
+        "example": "1 bpm"
+      }
+    }
+  },
+  "wearableBandTruth": "On synthetic test nights this window's length is about {band} off, on average, from the time in bed the nights were built with. Single nights can be further off.",
+  "@wearableBandTruth": {
+    "description": "Confidence line under a wearable's sleep window: the method's measured mean absolute error of the window's length against the time in bed the synthetic validation nights were built with (a length, not where the edges fall). An average, not a per-night bound.",
+    "placeholders": {
+      "band": {
+        "type": "String",
+        "example": "30 min"
+      }
+    }
+  },
+  "wearableBandPartial": "On synthetic test days this resting-heart-rate-only score is off by about {band} on average from the same partial score computed from second-by-second heart rate. It is not compared with the full readiness score.",
+  "@wearableBandPartial": {
+    "description": "Confidence line under the partial (resting-HR-only) readiness value: its measured mean absolute error against the same partial score from 1 Hz data, from a synthetic validation run.",
+    "placeholders": {
+      "band": {
+        "type": "String",
+        "example": "3"
+      }
+    }
+  },
+  "wearableScoresTitle": "Your {device}'s own scores",
+  "@wearableScoresTitle": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNoNightReading": "No night reading from your {device}",
+  "@wearableWhyNoNightReading": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Ultrahuman ring"
+      }
+    }
+  },
+  "wearableWhyNoStagedNight": "Your {device} staged no night",
+  "@wearableWhyNoStagedNight": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNoMovementData": "Needs movement data your {device} does not give",
+  "@wearableWhyNoMovementData": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNoDeviceHrv": "Needs beat-to-beat intervals; your {device} gave no HRV",
+  "@wearableWhyNoDeviceHrv": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNoDeviceResp": "Your {device} gave no respiration",
+  "@wearableWhyNoDeviceResp": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNoDeviceSpo2": "Your {device} gave no blood oxygen",
+  "@wearableWhyNoDeviceSpo2": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNoDeviceStress": "Your {device} gave no stress",
+  "@wearableWhyNoDeviceStress": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyReadinessRhrOnly": "Needs two of HRV, resting HR, respiration and skin temperature measured by us; your {device} gives us resting HR only",
+  "@wearableWhyReadinessRhrOnly": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNoDeviceSteps": "Your {device} gave no step count",
+  "@wearableWhyNoDeviceSteps": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNoWake": "Your {device} reports no wake, and we place none off one-a-minute heart rate yet",
+  "@wearableWhyNoWake": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNeverBeats": "Needs beat-to-beat intervals; your {device} gives none",
+  "@wearableWhyNeverBeats": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNeverResp": "Your {device} gives no respiration",
+  "@wearableWhyNeverResp": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNeverSpo2": "Your {device} gives no blood oxygen",
+  "@wearableWhyNeverSpo2": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNeverStress": "Your {device} gives no stress",
+  "@wearableWhyNeverStress": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNeverSkinTemp": "Your {device} gives no skin temperature",
+  "@wearableWhyNeverSkinTemp": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNoMovementRecord": "Your {device} keeps no movement record we decode",
+  "@wearableWhyNoMovementRecord": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableScoreSleep": "Sleep score",
+  "@wearableScoreSleep": {
+    "description": "A device's own score, named on its page (wearableScore*). Never one of ours."
+  },
+  "wearableScoreReadiness": "Readiness score",
+  "wearableScoreBodyBattery": "Body battery",
+  "wearableScoreImpedance": "Body impedance",
+  "wearableWhyNoDeviceNap": "Your {device} recorded no nap",
+  "@wearableWhyNoDeviceNap": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Garmin watch"
+      }
+    }
+  },
+  "wearableWhyNotDecoded": "Your {device} records what this needs; we do not decode it yet",
+  "@wearableWhyNotDecoded": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Oura Ring"
+      }
+    }
+  },
+  "wearableWhyBeatsNotSeparated": "Not worked out from your {device}'s beats; a strap's beats can't be told apart from them overnight",
+  "@wearableWhyBeatsNotSeparated": {
+    "placeholders": {
+      "device": {
+        "type": "String",
+        "example": "Oura Ring"
+      }
+    }
   }
 }

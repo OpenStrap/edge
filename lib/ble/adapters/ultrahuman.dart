@@ -4,10 +4,12 @@
 //
 // WHAT BECOMES WHAT (the honesty contract):
 //  * HR (one reading per record) -> [NeutralSample]s, signal `hrSparse`.
-//    Still outside derivation (`kDerivableSources`) until the decode has met
-//    a physical ring (ASSUMPTIONS R6).
+//    Never part of a band's day (`kDerivableSources`); a day the band never
+//    saw derives off it only while the ring is the active wearable and its
+//    flag is on (`compute/inputs/canonical.dart`).
 //  * Steps -> a daily `steps` observation (a comparable quantity).
-//  * HRV (RMSSD), SpO2, skin temperature -> daily-mean VENDOR observations,
+//  * HRV (RMSSD), SpO2, skin temperature -> calendar-day-mean VENDOR
+//    observations (the column serves these over the night instead),
 //    attributed to Ultrahuman: the ring computes them with methods nobody
 //    outside the vendor can describe. A record whose quality byte says the
 //    ring was off the finger, charging or not reading contributes steps only.
@@ -18,7 +20,9 @@
 // saw, not the next unread index. The next session re-reads that day from its
 // start (cheap: one day of records, and re-banking is idempotent —
 // `raw_archive` is keyed on the bytes and `decoded_onehz` on the second), so
-// every day a session reports on is complete from its first record.
+// every day a session reports on is complete from its first record. The
+// days before the latest go out with each confirmed batch, ahead of the
+// bookmark that passes them, so a session cut short keeps them.
 //
 // FETCH-BY-INDEX, LIKE OURA'S FETCH-BY-CURSOR BUT SIMPLER. `0x04` asks for
 // recordings starting at a record index, and nothing in this protocol deletes
@@ -66,6 +70,11 @@ const int kUltrahumanFirstIndex = 1;
 /// cadence is the ring's nominal record interval.
 const Map<InputSignal, Duration> kUltrahumanSignals = {
   InputSignal.hrSparse: Duration(minutes: 5),
+  InputSignal.steps: Duration(days: 1),
+  InputSignal.skinTempC: Duration(minutes: 5),
+  InputSignal.activityLevel: Duration(minutes: 5),
+  InputSignal.deviceHrv: Duration(days: 1),
+  InputSignal.deviceSpo2: Duration(days: 1),
 };
 
 /// One session. Not const: it holds the cursor to resume from, which belongs
@@ -219,6 +228,11 @@ class UltrahumanAdapter extends BandAdapter {
             return;
           }
           cursor = newCursor;
+          // The days before the latest one are never read again once the
+          // bookmark below passes them: their values go out now, ahead of
+          // it, or a session cut short after this batch loses them for good.
+          final complete = days.takeCompleted();
+          if (complete.isNotEmpty) yield VendorScalars(complete);
           // Day-anchored: resume from the first record of the latest day seen.
           yield BandNote('ultrahuman_cursor', days.latestDayStart ?? cursor);
         }
@@ -323,7 +337,15 @@ class _Days {
   final _spo2 = <DateTime, List<num>>{};
   final _temp = <DateTime, List<num>>{};
   DateTime? _lastDay;
-  int? latestDayStart;
+
+  /// The first record (in arrival order) with any of its three clocks on
+  /// each day.
+  final _firstIndex = <DateTime, int>{};
+
+  /// The bookmark: the first record with any clock on the latest day seen,
+  /// so a resumed session re-reads every step, skin and HR stamp of that day
+  /// and never files it short.
+  int? get latestDayStart => _lastDay == null ? null : _firstIndex[_lastDay];
 
   bool _ok(int ts) => ts >= _floorSec && ts <= nowSec + 3600;
 
@@ -334,19 +356,26 @@ class _Days {
 
   /// Accumulates [r]; returns its HR sample, if any.
   NeutralSample? add(UltrahumanRecord r) {
-    if (_ok(r.tsA)) {
-      final day = _day(r.tsA);
-      if (day != _lastDay) {
-        _lastDay = day;
-        latestDayStart = r.index;
-      }
+    final clocks = [
+      for (final ts in [r.tsA, r.tsB, r.tsC])
+        if (_ok(ts)) _day(ts),
+    ];
+    for (final d in clocks) {
+      _firstIndex.putIfAbsent(d, () => r.index);
     }
-    if (_ok(r.tsC) && r.steps > 0) {
+    // A session resumes at the first record touching the bookmark day, whose
+    // other clocks may still read the day before: the latest of them is the
+    // first day this session owns.
+    if (_firstDay == null && clocks.isNotEmpty) {
+      _firstDay = clocks.reduce((a, b) => a.isAfter(b) ? a : b);
+    }
+    if (_ok(r.tsA)) _lastDay = _day(r.tsA);
+    if (_ok(r.tsC) && r.steps > 0 && _open(_day(r.tsC))) {
       final d = _day(r.tsC);
       _steps[d] = (_steps[d] ?? 0) + r.steps;
     }
     if (!ultrahumanHrQualityValid(r.hrQuality)) return null;
-    if (_ok(r.tsA)) {
+    if (_ok(r.tsA) && _open(_day(r.tsA))) {
       final d = _day(r.tsA);
       if (r.hrv > 0) (_hrv[d] ??= []).add(r.hrv);
       if (r.spo2 > 0 && r.spo2 <= 100) (_spo2[d] ??= []).add(r.spo2);
@@ -354,7 +383,11 @@ class _Days {
     // The skin-facing sensor only; bytes 16-19 are the ambient one. A zero
     // temperature quality means the ring itself does not trust the reading.
     final t = r.skinTempC;
-    if (r.tempQuality > 0 && _ok(r.tsB) && t >= 20 && t <= 45) {
+    if (r.tempQuality > 0 &&
+        _ok(r.tsB) &&
+        t >= 20 &&
+        t <= 45 &&
+        _open(_day(r.tsB))) {
       (_temp[_day(r.tsB)] ??= []).add(t);
     }
     if (!_ok(r.tsA) || r.hr < 25 || r.hr > 230) return null;
@@ -376,6 +409,39 @@ class _Days {
         unit: unit,
         attribution: kUltrahumanAttribution,
       );
+
+  /// Days already handed out by [takeCompleted]: a stray later record for
+  /// one must not file a partial mean over the full one.
+  final _taken = <DateTime>{};
+
+  /// The latest day on this session's first record's clocks. A session
+  /// resumes at the first record touching a day, so a stamp before that day
+  /// (the record's three clocks can differ) belongs to a day the previous
+  /// session already filed in full: filing it again would replace that total
+  /// with a part of it.
+  DateTime? _firstDay;
+
+  bool _open(DateTime d) =>
+      !_taken.contains(d) && (_firstDay == null || !d.isBefore(_firstDay!));
+
+  /// The observations of every day before the latest seen, removed from
+  /// what [observations] returns: complete, since records arrive in order.
+  List<Observation> takeCompleted() {
+    final last = _lastDay;
+    if (last == null) return const [];
+    final before = {
+      for (final m in [_steps, _hrv, _spo2, _temp]) ...m.keys,
+    }.where((d) => d.isBefore(last)).toSet();
+    final out = [
+      for (final o in observations())
+        if (before.contains(o.at)) o,
+    ];
+    for (final m in [_steps, _hrv, _spo2, _temp]) {
+      m.removeWhere((d, _) => before.contains(d));
+    }
+    _taken.addAll(before);
+    return out;
+  }
 
   List<Observation> observations() => [
         for (final MapEntry(:key, :value) in _steps.entries)

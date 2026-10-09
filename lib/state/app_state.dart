@@ -30,7 +30,7 @@ import '../ai/nightly_sweep.dart';
 import '../coach/coach_config.dart';
 import '../models/app_status.dart';
 import '../ble/accessory_setup.dart';
-import '../ble/adapters/_registry.dart' show kWhoopGen4;
+import '../ble/adapters/_registry.dart' show kBleHrs, kPolarPmd, kWhoopGen4;
 import '../ble/adapters/host.dart' show BandHost;
 import '../ble/adapters/whoop_gen4.dart' show WhoopFramedAdapter;
 import '../ble/android_background.dart';
@@ -42,12 +42,25 @@ import '../ble/live_step_runs.dart';
 import '../ble/ble_state.dart'
     show AlarmConfirmation, AlarmEffect, LiveStreamOwners, SyncActivityWindow;
 import '../ble/ios_ble_restore.dart';
+import '../ble/session_link.dart' show SessionLink;
 import '../cloud/companion_client.dart';
 import '../compute/derivation_engine.dart';
 import '../compute/derive_scheduler.dart';
+import '../compute/inputs/canonical.dart'
+    show
+        flagOnOrPrimary,
+        kStrapTailSec,
+        onWearableDaysChanged,
+        refreshSessionSensorSources;
 import '../compute/manual_session.dart'
     show strainFromPerMinuteHr, supersededSuggestionIds;
 import '../compute/hr_max.dart';
+import '../compute/inputs/measurement_inputs.dart'
+    show
+        kWeighedAtMs,
+        newestWeighing,
+        profileWithWeighing,
+        profileWithoutStaleWeighing;
 import '../compute/profile.dart';
 import '../data/day_label.dart';
 import '../data/journal_fields.dart'
@@ -421,6 +434,11 @@ class AppState extends ChangeNotifier {
   List<Map<String, Object?>> _sensors = const [];
   List<Map<String, Object?>> get sensors => _sensors;
 
+  /// Paired sensors behind a flag that is off (rule R6): listed, never
+  /// ranked for a signal.
+  Set<String> _flagOffSensorIds = const {};
+  Set<String> get flagOffSensorIds => _flagOffSensorIds;
+
   StreamSubscription<String>? _deviceRowSub;
 
   /// Re-read the sensor rows. Call after pairing or forgetting one; also runs
@@ -433,6 +451,9 @@ class AppState extends ChangeNotifier {
       for (final r in rows)
         if (r['id'] != LocalDb.kPrimaryDeviceId) r,
     ];
+    final ids = [for (final r in _sensors) r['id'] as String];
+    final kept = (await flagOnOrPrimary(ids)).toSet();
+    _flagOffSensorIds = {...ids}.difference(kept);
     // Same reason `_sensors` does not poll: a `signal_priority` row changes
     // only when the user changes it.
     _hrPriority =
@@ -1015,6 +1036,37 @@ class AppState extends ChangeNotifier {
         termsVersion: termsVersion,
       ),
     );
+  }
+
+  /// Adopts the newest weighing a paired scale banked as the profile's weight
+  /// when it is newer than the last one adopted ([profileWithWeighing]) and
+  /// near the current weight (another person's is not ours), then re-derives
+  /// the open days from the weighing's day on: calories, BMR and the strain
+  /// anchors read the weight at derive time.
+  ///
+  /// First, a weighing adopted from a scale whose flag is now off is undone
+  /// (rule R6, [profileWithoutStaleWeighing]): the weight goes back to the
+  /// one it replaced.
+  Future<void> adoptWeighing() async {
+    final staleAtMs = (user?[kWeighedAtMs] as num?)?.toInt();
+    final reverted = await profileWithoutStaleWeighing(user);
+    if (reverted != null) await updateProfile(reverted);
+    final w = await newestWeighing(near: user?['weight_kg'] as num?);
+    final next = w == null ? null : profileWithWeighing(user, w);
+    if (next != null) await updateProfile(next);
+    final fromMs = [
+      if (reverted != null && staleAtMs != null) staleAtMs,
+      if (next != null) w!.atMs,
+    ];
+    if (fromMs.isEmpty) return;
+    final from = dayLabelOf(
+        DateTime.fromMillisecondsSinceEpoch(fromMs.reduce(math.min)));
+    await rederiveDays({
+      for (final r in await LocalDb.recentDayResultsMeta(14))
+        if (r['finalized'] != 1 &&
+            (r['day_id'] as String).compareTo(from) >= 0)
+          r['day_id'] as String,
+    });
   }
 
   /// Merge + persist local profile fields. Returns the updated map. Replaces the
@@ -1613,6 +1665,7 @@ class AppState extends ChangeNotifier {
     _breathingRecomputeTimer = null;
     _workoutTimer?.cancel();
     _workoutTimer = null;
+    if (strapTailRunning) unawaited(_disarmSensors());
     // The sensor's notifier OUTLIVES this object (HrsLink is a singleton), so
     // a listener left on it is a leak that calls into a disposed
     // ChangeNotifier on the next beat.
@@ -2204,6 +2257,25 @@ class AppState extends ChangeNotifier {
   /// Empty when idle. Updated per-day as the sweep advances.
   String reanalyzeProgress = '';
 
+  /// Force-derive [days] (a wearable was enabled, disabled or switched), then
+  /// refresh. Waits out a pass already running rather than dropping the ask.
+  Future<void> rederiveDays(Set<String> days) async {
+    if (days.isEmpty) return;
+    while (_derive.running) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    // No `await` between the check above and the call below, and runDays
+    // claims the engine before its own first `await`: nothing can start in
+    // between, so this call cannot hit runDays' "already running" return.
+    try {
+      await _derive.runDays(_profile, days, force: true);
+      await LocalDb.refreshComputeFreshness();
+      bumpInsights();
+    } catch (e) {
+      _log('[derive] wearable re-derive failed: $e');
+    }
+  }
+
   /// User-initiated "Re-analyze data": force-derive EVERY day that has raw,
   /// ignoring the derived cursor, then refresh the UI. Returns the number of days
   /// derived (for a result message). Use when screens are empty despite stored raw.
@@ -2521,6 +2593,18 @@ class AppState extends ChangeNotifier {
     await refreshSensors();
     await _loadProfile();
     await _refreshNightlyRhr();
+    // Wearable flags (rule R6): the workout sensors admitted in sessions, and
+    // a flag or active-wearable change re-derives the days it moves.
+    await refreshSessionSensorSources();
+    onWearableDaysChanged = rederiveDays;
+    // A wearable's sync queues the derive of every pending day it banked.
+    BandHost.onWearableStored = _deriveScheduler.requestHeavy;
+    // A scale's newest weighing becomes the profile's weight: after each
+    // session, and now for one a background pass took.
+    SessionLink.onSessionDone = adoptWeighing;
+    // In the background: its re-derive must not hold the shell's launch.
+    unawaited(adoptWeighing().catchError(
+        (Object e) => debugPrint('[AppState] adoptWeighing failed: $e')));
     await _deriveScheduler.init();
     // Headless wakes don't roll up; openSession picks pending reviews up.
     if (!_background) unawaited(refreshActivityReviews());
@@ -3387,6 +3471,11 @@ class AppState extends ChangeNotifier {
   /// rebasing it negative rather than dropping it.
   bool _workoutSawSamples = false;
 
+  /// The workout sensor (adapter id) whose live reading a tick of the active
+  /// workout scored, if one did. Stamped on the session at stop so rule R6
+  /// serves its score empty once that sensor's flag is off.
+  String? _workoutSensor;
+
   /// Phone-clock time of the last gait accel frame for the active workout.
   /// Unlike `_liveLastIngestMs` it survives `_resetLivePedometer()`, so a
   /// reconnect gap is still seen as a gap.
@@ -3935,34 +4024,48 @@ class AppState extends ChangeNotifier {
   /// mid-stream with no derived day in sight.
   String? get liveHrDeviceId {
     final override = _liveHrDeviceOverride;
-    if (override != null && _isStreaming(override)) return override;
+    if (override != null && _isLive(override)) return override;
     for (final id in _hrPriority) {
-      if (_isStreaming(id)) return id;
+      if (_isLive(id)) return id;
     }
     // No priority row for any streaming device: fall through to the physics
     // ladder, which is precedence rule 3 (final-plan §4.5). `rankSources`
     // already answers it and needs no table.
     for (final s in rankSources(liveSources(this))) {
       final id = s.isBand ? LocalDb.kPrimaryDeviceId : s.deviceId;
-      if (id != null && _isStreaming(id)) return id;
+      if (id != null && _isLive(id)) return id;
     }
     return null;
   }
+
+  /// Streaming, and not a workout sensor whose flag is off. Rule R6: a
+  /// flag-off strap is never the live device, so it scores nothing in a
+  /// workout (peak, zones, strain, calories all read [liveHr]).
+  bool _isLive(String id) =>
+      _isStreaming(id) &&
+      !(id == _hrsTraceId &&
+          !LocalDb.sessionSensorSources.contains(kBleHrs.id)) &&
+      !(id == _pmdTraceId &&
+          !LocalDb.sessionSensorSources.contains(kPolarPmd.id));
 
   /// TWO OR MORE DEVICES HAVE DELIVERED A LIVE READING INSIDE [liveHrMaxAge]
   /// — i.e. are streaming, not merely paired.
   ///
   /// Read off the in-memory dedupe map, which is the only place that knows.
   /// No query, and nothing persisted (invariant 1).
+  /// A flag-off strap is not counted ([_isLive]): its pill would set an
+  /// override [liveHrDeviceId] refuses, a tap that does nothing.
   bool get liveHrMultiDevice {
     if (_liveHrTraceAt.length < 2) return false;
-    final now = DateTime.now().millisecondsSinceEpoch;
     var live = 0;
-    for (final at in _liveHrTraceAt.values) {
-      if (now - at <= liveHrMaxAge.inMilliseconds && ++live >= 2) return true;
+    for (final id in _liveHrTraceAt.keys) {
+      if (_isLive(id) && ++live >= 2) return true;
     }
     return false;
   }
+
+  /// Whether the card's pill may switch to [id] ([_isLive]).
+  bool liveHrSelectable(String id) => _isLive(id);
 
   /// The user's tap on the card's pill. Session-only and deliberately NOT
   /// persisted: it is "show me the other one for a moment", not a preference.
@@ -4039,8 +4142,8 @@ class AppState extends ChangeNotifier {
   /// measuring. NOT a second persistence path — nothing here writes; the
   /// sensor's own rows are banked by `BandHost` (invariant 1 unchanged).
   ///
-  /// Oura is deliberately absent: `OuraAdapter.signals` is empty and the ring
-  /// delivers no live reading at all, so it has nothing to select between.
+  /// Oura is deliberately absent: the ring has no live link and delivers no
+  /// live reading at all, so it has nothing to select between.
   void _onHrsReading() {
     if (_disposed) return;
     final r = HrsLink.instance.reading.value;
@@ -6410,6 +6513,7 @@ class AppState extends ChangeNotifier {
     final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
     _workoutRawBase = _liveRaw;
     _workoutSawSamples = false;
+    _workoutSensor = null;
     _workoutLastGaitMs = null;
     _workoutStepsGap = false;
     _workoutMinuteSteps.clear();
@@ -6507,9 +6611,63 @@ class AppState extends ChangeNotifier {
     // GPS route: only for run/ride/walk, and only if the user grants location.
     unawaited(_maybeStartRouteTracking(id, type));
     // A paired heart-rate sensor is armed by a workout and only by a workout —
-    // the same rule GPS follows. No-op when nothing is paired.
+    // the same rule GPS follows. No-op when nothing is paired. A sensor still
+    // recording the last workout's recovery tail stays armed into this one.
+    _cancelStrapTail();
     unawaited(HrsLink.instance.arm());
     unawaited(PolarPmdLink.instance.arm());
+  }
+
+  /// Runs while the workout sensors stay armed past a workout's stop.
+  Timer? _strapTail;
+
+  /// The stopped workout whose tail [_strapTail] is recording.
+  String? _strapTailWorkoutId;
+
+  /// Whether the sensors are still recording a stopped workout's tail.
+  @visibleForTesting
+  bool get strapTailRunning => _strapTail?.isActive ?? false;
+
+  void _cancelStrapTail() {
+    _strapTail?.cancel();
+    _strapTail = null;
+  }
+
+  /// A stopped workout's sensors bank what they have now and stay armed
+  /// [kStrapTailSec] longer: heart-rate recovery is read off the minutes
+  /// after the end ([kStrapTailSec]), which a strap disarmed at the stop
+  /// never records. Then they disarm.
+  ///
+  /// Once the tail is banked the day is derived again ([onStrapTailBanked]):
+  /// the stop's own derive ran before the tail existed, so its heart-rate
+  /// recovery abstained.
+  ///
+  /// ponytail: an in-memory timer; a process killed (or an OS-suspended app)
+  /// inside the tail leaves the link to the OS teardown and the tail shorter.
+  Future<void> _startStrapTail(String? workoutId) async {
+    // AWAITED: the finish screen reads the session back next.
+    await HrsLink.instance.flush();
+    await PolarPmdLink.instance.flush();
+    _cancelStrapTail();
+    _strapTailWorkoutId = workoutId;
+    _strapTail = Timer(strapTailFor, () async {
+      await _disarmSensors();
+      if (!_disposed) onStrapTailBanked();
+    });
+  }
+
+  /// How long a stopped workout's sensors stay armed; a test shortens it.
+  @visibleForTesting
+  Duration strapTailFor = const Duration(seconds: kStrapTailSec);
+
+  /// Asks for the derive that reads a banked tail.
+  @visibleForTesting
+  late void Function() onStrapTailBanked = _deriveScheduler.requestHeavy;
+
+  Future<void> _disarmSensors() async {
+    _cancelStrapTail();
+    await HrsLink.instance.disarm();
+    await PolarPmdLink.instance.disarm();
   }
 
   /// Why route tracking is NOT running for the current route-eligible workout
@@ -6730,6 +6888,7 @@ class AppState extends ChangeNotifier {
           // calories/strain/zone-minutes already (honestly) do here.
           _workoutRawBase = _liveRaw;
           _workoutSawSamples = false;
+          _workoutSensor = null;
           _workoutLastGaitMs = null;
           // The steps before the relaunch are gone, so a count from here
           // would be only part of the session: it stays unmeasured rather
@@ -6865,10 +7024,10 @@ class AppState extends ChangeNotifier {
     // A session that never got a tracker (permission denied) still armed
     // nothing, but a session whose tracker was already cleared by another path
     // would otherwise leave the screen pinned awake until the app is killed.
-    // AWAITED, like the route tail: an unawaited disarm races the finish screen
+    // AWAITED, like the route tail: an unflushed sensor races the finish screen
     // and the last buffered batch of sensor beats never reaches the database.
-    await HrsLink.instance.disarm();
-    await PolarPmdLink.instance.disarm();
+    // The sensors stay armed for the recovery tail ([_startStrapTail]).
+    await _startStrapTail(activeWorkout?.workoutId);
     ScreenWake.releaseOwner('workout');
     _deriveScheduler.setWorkoutActive(false);
     final w = activeWorkout!;
@@ -6925,6 +7084,8 @@ class AppState extends ChangeNotifier {
     // propagates instead of being reported as a finished, saved session.
     try {
       await LocalDb.putSession(sessionRow);
+      final sensor = _workoutSensor;
+      if (sensor != null) await LocalDb.stampSessionSensor(id, sensor);
       // The session is durable — tell the screens that read sessions. Without
       // this the Workout tab, which loads once and caches, showed no trace of
       // the workout you had just finished in History, "This week", "Tracked"
@@ -6962,6 +7123,7 @@ class AppState extends ChangeNotifier {
     LiveDraft.clear();
     _workoutRawBase = null;
     _workoutSawSamples = false;
+    _workoutSensor = null;
     _workoutLastGaitMs = null;
     _workoutStepsGap = false;
     _workoutMinuteSteps.clear();
@@ -7009,8 +7171,8 @@ class AppState extends ChangeNotifier {
     }
     // AWAITED, like the route tail: an unawaited disarm races the finish screen
     // and the last buffered batch of sensor beats never reaches the database.
-    await HrsLink.instance.disarm();
-    await PolarPmdLink.instance.disarm();
+    // A discarded workout has no recovery tail to record.
+    await _disarmSensors();
     ScreenWake.releaseOwner('workout');
     _deriveScheduler.setWorkoutActive(false);
     activeWorkout = null;
@@ -7018,6 +7180,7 @@ class AppState extends ChangeNotifier {
     _nudgeLive(); // the workout's stream ownership ends with it
     _workoutRawBase = null;
     _workoutSawSamples = false;
+    _workoutSensor = null;
     _workoutLastGaitMs = null;
     _workoutStepsGap = false;
     _workoutMinuteSteps.clear();
@@ -7040,6 +7203,8 @@ class AppState extends ChangeNotifier {
   Future<void> deleteWorkout(String id) async {
     final live = activeWorkout?.workoutId == id;
     if (live) await _cancelActiveWorkoutTeardown();
+    // A deleted workout's recovery tail is recorded for nothing.
+    if (strapTailRunning && _strapTailWorkoutId == id) await _disarmSensors();
     // The live session is already gone either way: a failed delete leaves its
     // row `status='live'`, which the relaunch reconcile finalizes. The UI still
     // has to hear that nothing is live any more.
@@ -7234,6 +7399,24 @@ class AppState extends ChangeNotifier {
       // Per-zone time: one tick ≈ one second in the current zone (persisted as
       // zone_min at stop — this is what feeds the Time-in-Zones bar).
       if (hr > 0) w.zoneSeconds[_zoneFor(hr)] += 1;
+      final from = liveHrDeviceId;
+      final sensor = from == null
+          ? null
+          : from == _hrsTraceId
+              ? kBleHrs.id
+              : from == _pmdTraceId
+                  ? kPolarPmd.id
+                  : null;
+      if (sensor != null && sensor != _workoutSensor) {
+        _workoutSensor = sensor;
+        // Stamped as it latches, not only at stop: a workout resumed after a
+        // relaunch (its latch gone) or finalized by the relaunch reconcile
+        // keeps it, and rule R6 still serves its restored tally empty.
+        final id = w.workoutId;
+        if (id != null) {
+          unawaited(LocalDb.stampSessionSensor(id, sensor).catchError((_) {}));
+        }
+      }
     }
 
     // HR-zone-crossing haptic (opt-in, see [zoneAlertEnabled]). Skipped

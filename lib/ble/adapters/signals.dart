@@ -22,8 +22,9 @@
 // signal.
 library;
 
-/// The eight raw-signal input classes (I1-I8 in `ADDING_A_DEVICE.md`), plus
-/// the one non-raw class a band can offer.
+/// The eight raw-signal input classes (I1-I8 in `ADDING_A_DEVICE.md`), the
+/// canonical device-reported inputs, and the one non-raw class a band can
+/// offer.
 enum InputSignal {
   /// I1 — beat-to-beat intervals. The single most valuable thing a band can
   /// emit: nine analytics files take interval lists directly, so HRV, stress
@@ -56,6 +57,38 @@ enum InputSignal {
   /// I8 — relative skin-temperature ADC counts.
   skinTempRaw,
 
+  // ── Canonical device-reported inputs ─────────────────────────────────────
+  // What a wearable without raw channels hands us, each a physical fact about
+  // the data it stores, never a metric of ours. The declared Duration is how
+  // finely the device stores it; Duration.zero means variable-length periods
+  // (a hypnogram) or a cadence the device does not state.
+
+  /// Pedometer counts the device itself made.
+  steps,
+
+  /// Skin temperature in absolute degrees Celsius (not an ADC count; that is
+  /// [skinTempRaw]).
+  skinTempC,
+
+  /// The device's own movement/activity value per record.
+  activityLevel,
+
+  /// The device's own HRV figure (its RMSSD or equivalent). Shown as the
+  /// device's value; never an input to our HRV.
+  deviceHrv,
+
+  /// The device's own sleep stages.
+  deviceStages,
+
+  /// The device's own respiratory rate.
+  deviceResp,
+
+  /// The device's own SpO2 figure. Shown as the device's value.
+  deviceSpo2,
+
+  /// The device's own stress figure. Shown as the device's value.
+  deviceStress,
+
   /// NOT raw. Numbers the band computed itself — its RMSSD, its sleep score.
   /// These land in `observation`, are attributed to the vendor, and are never
   /// an input to one of our derivations and never enter a baseline.
@@ -67,3 +100,15 @@ enum InputSignal {
   // adapter declare a capability with nothing behind it — see
   // ADDING_A_DEVICE.md §5.
 }
+
+/// The signals a derive resolves by priority (`_resolveOwnership`), so the
+/// only ones a user can rank. Every other member is served beside ours or
+/// summed (steps), never arbitrated.
+const Set<InputSignal> kRankedSignals = {
+  InputSignal.hr1Hz,
+  InputSignal.rrIntervals,
+  InputSignal.accel1Hz,
+  InputSignal.ppgRedIr,
+  InputSignal.skinTempRaw,
+  InputSignal.hrSparse,
+};

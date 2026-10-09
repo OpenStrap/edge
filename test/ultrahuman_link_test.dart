@@ -3,6 +3,7 @@
 // sqlite. Pins where each decoded thing lands and that the day-anchored
 // bookmark keeps a day's totals whole across sessions.
 
+import 'dart:io' show pid;
 import 'dart:typed_data';
 
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -90,12 +91,18 @@ void main() {
 
   setUp(() async {
     await LocalDb.close();
-    LocalDb.dbName = 'ultrahuman_link_test.db';
+    // Per process: another run of this file (a parallel checkout or agent)
+    // must not delete this one's DB mid-test.
+    LocalDb.dbName = 'ultrahuman_link_test_$pid.db';
     final dir = await databaseFactory.getDatabasesPath();
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
   });
 
-  tearDown(() async => LocalDb.close());
+  tearDown(() async {
+    await LocalDb.close();
+    await databaseFactory.deleteDatabase(
+        p.join(await databaseFactory.getDatabasesPath(), LocalDb.dbName));
+  });
 
   final yesterday = _today.subtract(const Duration(days: 1));
   final first = [
@@ -210,8 +217,11 @@ void main() {
     test('the ring is matched by its advertised name, either prefix', () {
       final m = kUltrahuman.nameMatcher!;
       expect(m('uh_a1b2c3'), isTrue);
-      expect(m('ultrahuman up_0042'), isTrue);
+      expect(m('up_0042'), isTrue);
       expect(m('r02_1234'), isFalse);
+      // A prefix, not a substring: other devices carry these letters too.
+      expect(m('setup_12'), isFalse);
+      expect(m('backup_x'), isFalse);
     });
 
     test('a scan that includes the ring drops the OS-level service filter',

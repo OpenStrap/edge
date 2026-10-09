@@ -79,6 +79,12 @@ class Profile {
       ageYears != null && weightKg != null && sex != null;
 }
 
+/// Body mass index (kg/m²) off a weight and a height, or null without both.
+double? bmiOf(num? weightKg, num? heightCm) =>
+    weightKg == null || heightCm == null || heightCm <= 0
+        ? null
+        : weightKg / ((heightCm / 100) * (heightCm / 100));
+
 /// Normalise every sex spelling the app can persist onto the three names the
 /// analytics coefficient tables key on: 'male' | 'female' | 'nonbinary'.
 ///

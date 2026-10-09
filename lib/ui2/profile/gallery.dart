@@ -61,6 +61,7 @@ import '../screens/screens.dart';
 import '../ui2.dart';
 import 'devices.dart';
 import 'profile.dart';
+import 'wearable_numbers.dart';
 
 /// A deterministic series — a gallery cannot depend on random data.
 final _series =
@@ -1272,6 +1273,42 @@ Map<String, Widget> _stateCases() => {
           0, 7, 'Nights with a full sleep record', C.domHealth),
       'consistency_full': const Consistency(
           7, 7, 'Nights with a full sleep record', C.domHealth),
+      // A non-WHOOP wearable's cells: each presentation, an estimate, an
+      // estimate hidden, and an unavailable row with its reason.
+      'wearable_one_number': const WearableCell('resting_hr',
+          {'class': 'ours', 'value': 52, 'method': 'hr_1min',
+              'device_value': 54},
+          device: 'Garmin watch'),
+      'wearable_side_by_side': const WearableCell('resting_hr',
+          {'class': 'ours', 'value': 52, 'method': 'hr_1min',
+              'device_value': 54},
+          device: 'Garmin watch', sideBySide: true),
+      'wearable_estimated': const WearableCell('strain',
+          {'class': 'estimated', 'value': 9.4, 'method': 'hr_5min'},
+          device: 'Ultrahuman Ring Air'),
+      'wearable_estimate_hidden': const WearableCell('strain',
+          {'class': 'estimated', 'value': 9.4, 'method': 'hr_5min'},
+          device: 'Ultrahuman Ring Air', showEstimates: false),
+      'wearable_unavailable': const WearableCell('readiness',
+          {'class': 'unavailable', 'reason': 'readinessRhrOnly'},
+          device: 'Garmin watch'),
+      'wearable_detail': const WearableDetail(row: 'resting_hr',
+          cell: {'class': 'ours', 'value': 52, 'method': 'hr_1min',
+              'device_value': 54},
+          device: 'Garmin watch'),
+      'wearable_unlocks': const WearableUnlocks('ultrahuman'),
+      // Home's card off the active wearable: a row of each class.
+      'wearable_cells_card': const WearableCellsCard(
+          device: 'Garmin watch',
+          rows: kHomeWearableRows,
+          cells: {
+            'readiness': {'class': 'estimated', 'value': 61,
+                'method': 'rhr_only_partial'},
+            'resting_hr': {'class': 'ours', 'value': 52, 'method': 'hr_1min',
+                'device_value': 54},
+            'steps': {'class': 'device', 'value': 8412, 'method': 'device'},
+            'strain': {'class': 'unavailable', 'reason': 'noWakeHr'},
+          }),
       // Every accent, so a palette change is one picture rather than a hunt.
       'pill_every_colour': const Wrap(spacing: S.x2, runSpacing: S.x2, children: [
         Pill('Measured', C.green),

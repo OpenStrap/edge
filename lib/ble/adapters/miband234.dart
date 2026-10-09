@@ -3,9 +3,9 @@
 // through the vendor's own pairing.
 //
 // NOTHING HERE HAS MET HARDWARE (ASSUMPTIONS R6). [signals] is
-// [kMiBand234Signals] (one sparse HR reading per stored minute), but
-// `kDerivableSources` does not name this band, so nothing it supplies
-// becomes a metric until the owner has held one.
+// [kMiBand234Signals]; its metrics (`compute/inputs/miband_inputs.dart`)
+// sit behind the default-off `wearable_enabled:miband234` flag, so nothing
+// it supplies becomes a metric for a user until the owner has held one.
 //
 // THE SESSION:
 //   1. AUTH — a locally-generated AES-128 key, not a vendor one. The band
@@ -17,10 +17,10 @@
 //   2. CLOCK — set from the phone (`huamiTimeValue`).
 //   3. HISTORY — the stored minute records, in paged rounds from the
 //      `miband_since` cursor (`huami_legacy.dart` has the wire format). Each
-//      round yields its HR samples, then a `miband_since` [BandNote], then an
-//      [OffloadCheckpoint]; the host commits the round's rows and the cursor
-//      in one transaction. Steps become daily observations and sleep the
-//      band's own hypnogram. The band's drop-acknowledgement is never sent,
+//      round, a day at a time, yields its HR samples, the daily steps and
+//      closed nights so far (the band's own hypnogram), a `miband_since`
+//      [BandNote], then an [OffloadCheckpoint]; the host commits the rows and
+//      the cursor together. The band's drop-acknowledgement is never sent,
 //      so its flash is left alone.
 //   4. OPTIONAL CHANNELS — battery, live steps and the standard heart-rate
 //      characteristic, each archived verbatim and undecoded until the link
@@ -90,10 +90,13 @@ const int kMiBand234ArchiveSteps = 0xf1;
 const int kMiBand234ArchiveHr = 0xf2;
 const int kMiBand234ArchiveActivity = 0xf3;
 
-/// The signals this band supplies: one HR reading per stored minute.
-/// Mirrored in `kAdapterSignals`.
+/// The signals this band supplies: one HR reading per stored minute, its
+/// daily step total and its own per-minute sleep kind. Mirrored in
+/// `kAdapterSignals`.
 const Map<InputSignal, Duration> kMiBand234Signals = {
   InputSignal.hrSparse: Duration(minutes: 1),
+  InputSignal.steps: Duration(days: 1),
+  InputSignal.deviceStages: Duration(minutes: 1),
 };
 
 /// Shown next to every value this band computed itself.
@@ -320,7 +323,14 @@ extension on MiBand234Adapter {
         // The header counts 4-byte minute samples, not bytes.
         final want = start.count * 4;
         final buf = HuamiActivityBuffer();
-        final raw = <Uint8List>[];
+        var raw = <Uint8List>[];
+        final previousKind = minutes.isEmpty ? 1 : minutes.last.kind;
+        // How many of this round's minutes are already banked.
+        var banked = 0;
+        List<HuamiMinute> decoded() => buf
+            .minutes(start.startSec, previousKind: previousKind)
+            .take(start.count)
+            .toList();
         // Ends with all the announced samples, or shortly after the band's
         // done notification: packets on the data characteristic can still be
         // in flight behind it.
@@ -338,6 +348,19 @@ extension on MiBand234Adapter {
           }
           buf.add(p);
           raw.add(Uint8List.fromList([kMiBand234ArchiveActivity, ...p]));
+          // A first sync answers one fetch with up to a week in one round:
+          // bank it a day at a time, so a session the sync window (or a
+          // drop) cuts mid-round still keeps, and resumes after, what came.
+          if (buf.ok && buf.bytes.length ~/ 4 - banked >= _kBankEveryMinutes) {
+            final got = decoded();
+            minutes.addAll(got.skip(banked));
+            for (final e in _bank(got.skip(banked), raw, minutes, sessionSince,
+                nowSec)) {
+              yield e;
+            }
+            banked = got.length;
+            raw = [];
+          }
         }
         if (!done) {
           await inbox.firstWhere(
@@ -349,43 +372,21 @@ extension on MiBand234Adapter {
           yield SampleBatch(const [], raw: raw);
           break;
         }
-        final got = buf
-            .minutes(start.startSec,
-                previousKind: minutes.isEmpty ? 1 : minutes.last.kind)
-            .take(start.count)
-            .toList();
+        final got = decoded();
         if (got.isEmpty) break;
-        minutes.addAll(got);
-        yield SampleBatch([
-          for (final m in got)
-            if (m.hr != null && m.hr! >= 25 && m.hr! <= 230 && m.tsSec <= nowSec)
-              NeutralSample(
-                  anchor: TimeAnchor.measured, tsEpoch: m.tsSec, hr: m.hr),
-        ], raw: raw);
+        if (got.length > banked) {
+          minutes.addAll(got.skip(banked));
+          for (final e
+              in _bank(got.skip(banked), raw, minutes, sessionSince, nowSec)) {
+            yield e;
+          }
+        } else if (raw.isNotEmpty) {
+          yield SampleBatch(const [], raw: raw);
+        }
         // The header's time plus the minutes received: count minutes when
         // the round arrived whole.
         since = got.last.tsSec + 60;
-        // Saved with every committed round, so a session cut short resumes
-        // instead of restarting. From the start of the day BEFORE the last
-        // minute seen: the next session then covers that day and last night
-        // from their beginnings (re-banking is idempotent). Yielded BEFORE
-        // the checkpoint, so the commit it triggers carries this round's rows
-        // and this cursor together.
-        final last = local(got.last.tsSec);
-        final resume = DateTime(last.year, last.month, last.day - 1);
-        yield BandNote('miband_since',
-            math.max(sessionSince, resume.millisecondsSinceEpoch ~/ 1000));
-        yield OffloadCheckpoint(() async => true);
       }
-      if (minutes.isEmpty) return;
-
-      final epochs = <VendorEpoch>[];
-      final rows = <Observation>[
-        ..._dailySteps(minutes, sessionSince),
-        ..._nights(minutes, sessionSince, epochs),
-      ];
-      if (epochs.isNotEmpty) yield VendorHypnogram('miband', epochs);
-      if (rows.isNotEmpty) yield VendorScalars(rows);
     } finally {
       for (final s in subs) {
         await s.cancel();
@@ -393,6 +394,44 @@ extension on MiBand234Adapter {
     }
   }
 }
+
+/// Bank [got] (new minutes, in order) as one committed step: their HR and
+/// [raw] packets, the daily steps and closed nights over every minute this
+/// session has read ([all], which ends with [got]), the resume cursor, then a
+/// checkpoint. Steps and nights are re-banked whole each time (same rows,
+/// same instants, so idempotent): banked only once the session ended, a cut
+/// session would move the cursor past days whose steps and sleep never
+/// landed. The link holds the cursor behind these vendor writes.
+Iterable<BandEvent> _bank(Iterable<HuamiMinute> got, List<Uint8List> raw,
+    List<HuamiMinute> all, int sessionSince, int nowSec) sync* {
+  yield SampleBatch([
+    for (final m in got)
+      if (m.hr != null && m.hr! >= 25 && m.hr! <= 230 && m.tsSec <= nowSec)
+        NeutralSample(anchor: TimeAnchor.measured, tsEpoch: m.tsSec, hr: m.hr),
+  ], raw: raw);
+  final epochs = <VendorEpoch>[];
+  final (nights, openSec) = _nights(all, sessionSince, epochs);
+  final rows = <Observation>[..._dailySteps(all, sessionSince), ...nights];
+  if (epochs.isNotEmpty) yield VendorHypnogram(kMiBand234.id, epochs);
+  if (rows.isNotEmpty) yield VendorScalars(rows);
+  // From the start of the first day not read whole (the next one when the
+  // last minute seen is 23:59), or of the day holding the awake minute before
+  // a night still running: the next session reads both from their beginnings
+  // and moves forward even when each session only gets through a day or two.
+  DateTime day(int sec) {
+    final t = DateTime.fromMillisecondsSinceEpoch(sec * 1000);
+    return DateTime(t.year, t.month, t.day);
+  }
+  var resume = day(all.last.tsSec + 60).millisecondsSinceEpoch ~/ 1000;
+  if (openSec != null) {
+    resume = math.min(resume, day(openSec - 60).millisecondsSinceEpoch ~/ 1000);
+  }
+  yield BandNote('miband_since', math.max(sessionSince, resume));
+  yield OffloadCheckpoint(() async => true);
+}
+
+/// Minutes a history round banks at a time (one day).
+const int _kBankEveryMinutes = 1440;
 
 /// How long data packets may trail the band's done notification.
 const Duration _kAfterDoneGrace = Duration(milliseconds: 500);
@@ -422,10 +461,17 @@ List<Observation> _dailySteps(List<HuamiMinute> minutes, int sessionSince) {
 
 /// The band's sleep blocks as hypnogram epochs plus per-night stage minutes.
 /// A block is a run of sleep minutes; up to 15 non-sleep minutes inside one
-/// count as wake. Only blocks this session read from their start are used.
-List<Observation> _nights(
+/// count as wake. Only blocks this session read whole are used: from an awake
+/// minute before their start (one already asleep at the session's first
+/// minute began before it) to more than 15 awake minutes after their end.
+/// A night still running at a sync is left for the next one, which re-reads
+/// it from its start: its stage minutes are stamped at the block's end, so a
+/// partial copy would sit beside the full one and both would count. Returns
+/// the rows and the start of such a running night, if any.
+(List<Observation>, int?) _nights(
     List<HuamiMinute> minutes, int sessionSince, List<VendorEpoch> epochs) {
   final rows = <Observation>[];
+  int? openSec;
   var i = 0;
   while (i < minutes.length) {
     if (!minutes[i].asleep) {
@@ -439,8 +485,12 @@ List<Observation> _nights(
       if (minutes[j].asleep) lastSleep = j;
     }
     final block = minutes.sublist(i, lastSleep + 1);
+    final whole = i > 0 && j + 1 < minutes.length;
+    if (i > 0 && j + 1 >= minutes.length) openSec = block.first.tsSec;
     i = lastSleep + 1;
-    if (block.length < 30 || block.first.tsSec < sessionSince) continue;
+    if (!whole || block.length < 30 || block.first.tsSec < sessionSince) {
+      continue;
+    }
     final perStage = <String, int>{};
     for (final m in block) {
       final stage = m.kind == kHuamiKindDeepSleep
@@ -471,7 +521,7 @@ List<Observation> _nights(
       ));
     }
   }
-  return rows;
+  return (rows, openSec);
 }
 
 /// Notifications buffered so a reply landing before anyone is waiting is not

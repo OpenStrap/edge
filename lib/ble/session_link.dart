@@ -66,19 +66,39 @@ class SessionLink {
   }
 
   /// Forget a paired device: stop any live session, drop its `device` row.
+  /// A forgotten scale holds its weighing no more, so the profile weight it
+  /// handed over goes back (rule R6) through the same hook.
   Future<bool> forget(String id) async {
     if (id == LocalDb.kPrimaryDeviceId) return false;
     await stop();
     await LocalDb.deleteDevice(id);
+    if (entry.category == DeviceCategory.healthMeasurement) {
+      await onSessionDone?.call();
+    }
     return true;
   }
 
+  /// Run after a health-measurement device's session that connected (the app
+  /// adopts a new weighing into the profile). Null in tests and headless runs.
+  static Future<void> Function()? onSessionDone;
+
   /// One session with the paired device. False when nothing is paired, the
   /// connect failed, or a session is already running.
-  Future<bool> sync() {
-    if (_busy) return Future.value(false);
+  Future<bool> sync() async {
+    if (_busy) return false;
     _busy = true;
-    return _sync().whenComplete(() => _busy = false);
+    try {
+      final ok = await _sync();
+      // A profile-side failure must not fail the device's session, and its
+      // re-derive does not hold the session open.
+      if (ok && entry.category == DeviceCategory.healthMeasurement) {
+        unawaited(Future(() => onSessionDone?.call()).catchError(
+            (Object e) => debugPrint('$_tag session-done hook failed: $e')));
+      }
+      return ok;
+    } finally {
+      _busy = false;
+    }
   }
 
   Future<bool> _sync() async {

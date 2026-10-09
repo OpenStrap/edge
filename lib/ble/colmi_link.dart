@@ -10,8 +10,10 @@
 // `run()`, commit, disconnect.
 //
 // EXPERIMENTAL (ASSUMPTIONS R6). Decoded HR lands in `decoded_onehz` with
-// `source = 'colmi'`, which `kDerivableSources` keeps out of derivation; the
-// ring's own sleep stages and daily scalars land in their vendor tables.
+// `source = 'colmi'`. `kDerivableSources` keeps it off the primary band's
+// read path; it derives only as the active wearable with its R6 flag on
+// (`compute/inputs/colmi_inputs.dart`). The ring's own sleep stages and
+// daily scalars land in their vendor tables.
 
 import 'dart:async';
 
@@ -67,6 +69,12 @@ class ColmiLink {
   String? _deviceId;
   bool _busy = false;
 
+  /// The session's clock, read once (Unix seconds): the moment the ring's
+  /// "N days ago" is counted from. Stamped on every big-data reply as
+  /// `rec_ts`, so a sync that runs past midnight still resolves each reply
+  /// to the day the adapter resolved it to.
+  int? _anchorSec;
+
   /// Connect to the paired ring, walk its rolling history window, disconnect.
   ///
   /// Returns false when nothing is paired or the connect failed. SERIALISED:
@@ -111,8 +119,10 @@ class ColmiLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
+          final anchor = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+          _anchorSec = anchor;
           final host = BandHost(
-            adapter: kColmiAdapter,
+            adapter: ColmiAdapter(nowSeconds: () => anchor),
             deviceId: deviceId,
             onLog: (m) => debugPrint('[colmi] $m'),
             onNote: _handleNote,
@@ -158,9 +168,11 @@ class ColmiLink {
   }
 
   /// Bank one reply verbatim (owner rulings R1-R3): a 16-byte Service A
-  /// frame or a reassembled Service B big-data reply. `counter` and `recTs`
-  /// stay NULL — this protocol has no flash-record counter, and the time a
-  /// slot belongs to is derived from its position, not carried per frame.
+  /// frame or a reassembled Service B big-data reply. `counter` stays NULL —
+  /// this protocol has no flash-record counter. The time a slot belongs to is
+  /// derived from its position, not carried per frame, so a big-data reply's
+  /// `recTs` is the session's [_anchorSec], the clock its "days ago" counts
+  /// from; a Service A frame's stays NULL.
   ArchiveRecord? _buildArchiveRow(List<int> bytes, int capturedAtMs) {
     final big = bytes.length >= 6 && bytes[0] == kColmiCmdBigData;
     if (!big && bytes.length != 16) return null;
@@ -169,7 +181,7 @@ class ColmiLink {
       counter: null,
       hex: _hex(bytes),
       packetType: bytes[0],
-      recTs: null,
+      recTs: big ? _anchorSec : null,
       capturedAt: capturedAtMs,
       // ONE REASON PER COMMAND (or big-data type), so a re-decode finds its
       // frames by name. Deliberately not in `LocalDb.redrivableArchiveReasons`
@@ -199,6 +211,7 @@ class ColmiLink {
     _deviceId = deviceId;
     final link = ReplayBandLink();
     final now = nowSeconds ?? (() => DateTime.now().millisecondsSinceEpoch ~/ 1000);
+    _anchorSec = now();
     final host = BandHost(
       adapter: ColmiAdapter(
         nowSeconds: now,

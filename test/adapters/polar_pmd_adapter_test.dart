@@ -152,6 +152,25 @@ void main() {
     expect(s.rrMs, isEmpty);
   });
 
+  test('a beat after a blocker or a dropped record carries the gap', () async {
+    final events = await replay(ppiFrame([
+      [60, 0x20, 0x03, 0x0A, 0x00, 0x00], // 800 ms
+      [60, 0x20, 0x03, 0x0A, 0x00, 0x01], // blocker, 800 ms
+      [0, 0x20, 0x03, 0x0A, 0x00, 0x00], // hr 0, 800 ms
+      [60, 0x20, 0x03, 0x0A, 0x00, 0x00], // 800 ms
+    ]));
+    final samples = [
+      for (final e in events)
+        if (e is SampleBatch) ...e.samples,
+    ];
+    expect(samples.map((s) => s.rrMs), [
+      [800],
+      <int>[],
+      [800],
+    ]);
+    expect(samples.map((s) => s.gapMs), [0, 0, 1600]);
+  });
+
   test('"contact supported, none detected" is refused; unsupported and '
       'detected are kept', () async {
     final events = await replay(ppiFrame([

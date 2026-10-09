@@ -362,6 +362,37 @@ void main() {
     }
   });
 
+  testWidgets("a ring's provisional skin deviation says so on the Vitals row",
+      (tester) async {
+    tester.view.physicalSize = const Size(390 * 3, 1400 * 3);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    Future<void> show(bool provisional) async {
+      await tester.pumpWidget(_frame(
+        HealthScreen(
+          key: ValueKey(provisional),
+          data: HealthData(daysWithData: 30, today: {
+            'skin_temp': {
+              'value': 0.4,
+              'confidence': 0.25,
+              if (provisional) 'provisional': true,
+            },
+          }),
+          vitals: const VitalsData(),
+          tab: 3,
+        ),
+        Brightness.light,
+        1,
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    await show(true);
+    expect(find.textContaining('Provisional'), findsOneWidget);
+    await show(false);
+    expect(find.textContaining('Provisional'), findsNothing);
+  });
+
   // ── MIND-01 / MIND-04 / MT-06 / MT-07 ────────────────────────────────────
   testWidgets(
     'journal findings say nothing when nothing survived, and phrase a dose and '

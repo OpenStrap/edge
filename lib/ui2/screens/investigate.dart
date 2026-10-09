@@ -1047,12 +1047,14 @@ class _InvestigateState extends State<Investigate> {
     int? min(String k) => (n[k] as num?)?.round();
     final light = min('light_min'), dp = min('deep_min'), r = min('rem_min');
     final tst = min('duration_min');
-    if (light == null || dp == null || r == null || tst == null) return const [];
+    // A night with no REM figure (a band that folds REM into light) still
+    // has its light/deep split; only the REM row is left out.
+    if (light == null || dp == null || tst == null) return const [];
     final conf = (n['stages_confidence'] as num?)?.toDouble();
     final iv = ana.stageIntervals(
       lightSec: light * 60,
       deepSec: dp * 60,
-      remSec: r * 60,
+      remSec: (r ?? 0) * 60,
       tstSec: tst * 60,
       confidence: conf ?? 0.0,
     );
@@ -1064,7 +1066,7 @@ class _InvestigateState extends State<Investigate> {
       MonoTable(l?.investigateStageMinutesAsCounted ?? 'Stage minutes, as counted', [
         (l?.investigateLight ?? 'Light', row(light, iv.light)),
         (l?.investigateDeep ?? 'Deep', row(dp, iv.deep)),
-        (l?.investigateRem ?? 'REM', row(r, iv.rem)),
+        if (r != null) (l?.investigateRem ?? 'REM', row(r, iv.rem)),
         (l?.investigateAwake ?? 'Awake',
             min('awake_min') == null ? '—' : '${min('awake_min')} min'),
         (l?.investigateTotalSleep ?? 'Total sleep', '$tst min'),

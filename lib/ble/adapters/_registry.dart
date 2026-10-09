@@ -170,8 +170,16 @@ const String kPebbleConnectivityUuid = '00000001-328e-0fbb-c642-1aa6699bdada';
 /// Write. Triggers standard OS-level BLE bonding — no app-layer key exchange.
 const String kPebblePairingTriggerUuid = '00000002-328e-0fbb-c642-1aa6699bdada';
 
+/// What [kPebblePairingTriggerUuid] is written with: bit 0 is always set, and
+/// bit 4 says the phone hosts no GATT server of its own (this app is a pure
+/// client).
+const List<int> kPebblePairingTriggerValue = [0x11];
+
 /// Notify. MTU.
 const String kPebbleMtuUuid = '00000003-328e-0fbb-c642-1aa6699bdada';
+
+/// Notify. Connection parameters. Subscribed to when present; not required.
+const String kPebbleConnParamsUuid = '00000005-328e-0fbb-c642-1aa6699bdada';
 
 /// A separate service, discovered post-connect rather than scan-filtered:
 /// PPoGATT ("Pebble Protocol over GATT"), the reliable byte-transport.
@@ -296,6 +304,11 @@ class BandWireCommands {
     required this.offloadBody,
   });
 }
+
+/// What a device is FOR, which decides where its rows may become numbers:
+/// a wearable's own days (the active one, flagged on), a workout sensor's
+/// sessions only, a health measurement's own reading only.
+enum DeviceCategory { wearable, workoutSensor, healthMeasurement }
 
 /// One band the app can discover and connect to.
 ///
@@ -422,12 +435,15 @@ class BandEntry {
   final List<int> scanCompanyIds;
   final List<String> scanServiceData;
 
-  /// Characteristic a notify-class sensor needs written to (any value, WITH
-  /// response) to move the OS into bonded state before it will do anything
-  /// else — see `kPebblePairingTriggerUuid`'s doc comment. Null for every
+  /// Characteristic a notify-class sensor needs written to (WITH response,
+  /// [kPebblePairingTriggerValue]) to move the OS into bonded state before it
+  /// will do anything else — see `kPebblePairingTriggerUuid`'s doc comment. Null for every
   /// band that either needs no bonding or bonds through `ble_engine`'s own
   /// `createBond()` path (every framed entry).
   final String? bondTriggerCharacteristic;
+
+  /// What this device is for ([DeviceCategory]). A framed band is a wearable.
+  final DeviceCategory category;
 
   /// A framed WHOOP-family band: an envelope, a command characteristic, and a
   /// flash the offload engine trims.
@@ -455,6 +471,7 @@ class BandEntry {
         scanServiceData = const <String>[],
         _service = null,
         bondTriggerCharacteristic = null,
+        category = DeviceCategory.wearable,
         timeAnchor = TimeAnchor.measured;
 
   /// A notify-only sensor: one service, one or more notify characteristics, no
@@ -470,6 +487,7 @@ class BandEntry {
     required String service,
     required List<String> characteristics,
     required this.timeAnchor,
+    required this.category,
     this.bondTriggerCharacteristic,
     this.nameMatcher,
     this.scanByName = false,
@@ -587,10 +605,14 @@ const BandEntry kWhoopGen5 = BandEntry.framed(
 /// EXPERIMENTAL and it stays that way: nobody on this project owns one yet, so
 /// not a byte of this path has met hardware (ASSUMPTIONS R6). It IS reachable
 /// now — `PairSensorScreen` writes the `device` row `HrsLink.arm` reads — but
-/// reachable is not verified, and `kDerivableSources` stays empty: a strap
-/// captures beats, and nothing derives from them until someone has held one.
+/// reachable is not verified, and `kDerivableSources` stays empty. Its
+/// developer flag (default off) lets a session it recorded override a
+/// wearable's strain, zones and heart-rate recovery, its beats with it
+/// (`withStrapSessions`); a workout arms it, so it records no night. Flag
+/// off, nothing derives from it.
 const BandEntry kBleHrs = BandEntry.notify(
   id: 'ble_hrs',
+  category: DeviceCategory.workoutSensor,
   label: 'Bluetooth heart rate sensor',
   service: kHeartRateServiceUuid,
   characteristics: <String>[kHeartRateMeasurementUuid],
@@ -610,7 +632,8 @@ const BandEntry kBleHrs = BandEntry.notify(
 /// EXPERIMENTAL and it stays that way: nobody on this project owns one, so not
 /// a byte of this path has met hardware (ASSUMPTIONS R6). It pairs, connects,
 /// and streams decoded beats; `kDerivableSources` stays empty until someone
-/// has actually held one.
+/// has actually held one. Its developer flag (default off) does what
+/// [kBleHrs]'s does.
 ///
 /// FOUND BY NAME, CHECKED BY ITS GATT. A Polar advertises its name
 /// (`Polar <model> <id>`) with 0x180D and 0xFEEE, never the PMD service, so
@@ -621,6 +644,7 @@ const BandEntry kBleHrs = BandEntry.notify(
 /// Pairing confirms the PMD characteristics and the PPI feature bit.
 const BandEntry kPolarPmd = BandEntry.notify(
   id: 'polar_pmd',
+  category: DeviceCategory.workoutSensor,
   label: 'Polar sensor',
   service: kPolarPmdService,
   characteristics: <String>[kPolarPmdControlChar, kPolarPmdDataChar],
@@ -637,8 +661,9 @@ bool _looksLikePolarPpi(String lowercaseName) =>
 /// The Oura ring, a fetch-by-cursor band with a challenge-response handshake.
 ///
 /// NOT framed, and the three fields a framed entry carries would each be wrong
-/// here: the length is a u8 that counts payload only, there is no CRC anywhere
-/// in the protocol, and there is no inner opcode byte to find. `isFramed ==
+/// here: the length is a u8 that counts payload only, there is no frame CRC
+/// (only the rare extended event carries one), and there is no inner opcode
+/// byte to find. `isFramed ==
 /// false` keeps it out of [kFramedBands], which is what keeps it out of the
 /// offload engine's scan filter and out of the band half of the iOS
 /// AccessorySetupKit plist — both of which are about the primary band that
@@ -648,12 +673,17 @@ bool _looksLikePolarPpi(String lowercaseName) =>
 /// [TimeAnchor.arrival] is the conservative half of a two-clock situation, not
 /// a claim that the ring has no clock. See `oura.dart`.
 ///
-/// EXPERIMENTAL, and it stays that way: nobody on this project owns a ring, so
-/// not a byte of this path has met hardware (ASSUMPTIONS R6). It is also not
-/// yet reachable — there is no pairing screen and nothing constructs the
-/// adapter.
+/// EXPERIMENTAL, and it stays that way until the owner confirms it on his own
+/// ring (ASSUMPTIONS R6). The path is reachable: `PairSensorScreen` pairs it
+/// from the Devices screen (`pairOuraRing`) and the device picker
+/// (`pairOuraRingWithTypedKey`), and `OuraLink.sync` constructs `OuraAdapter`
+/// from the Devices screen and headless from background sync. Parts of it have
+/// met a real ring (iOS 27 picker discovery and first connect; see
+/// [kAskSensorCompanyIds] and `_awaitAdapterOn` in `oura_link.dart`). That
+/// proves nothing about decode correctness.
 const BandEntry kOura = BandEntry.notify(
   id: 'oura',
+  category: DeviceCategory.wearable,
   label: 'Oura Ring',
   service: kOuraService,
   // Both, and the command characteristic is genuinely required: unlike a
@@ -691,8 +721,11 @@ const BandEntry kOura = BandEntry.notify(
 /// not a byte of this path has met hardware (ASSUMPTIONS R6). `signals` is
 /// `const {}`-equivalent territory for anything but the generic HR parse —
 /// `kDerivableSources` stays empty regardless, same as every other band here.
+/// No workout arms it (it syncs in short background windows), so it is no
+/// session source either, flag or not (`kWorkoutArmedSensors`).
 const BandEntry kCoros = BandEntry.notify(
   id: 'coros',
+  category: DeviceCategory.workoutSensor,
   label: 'Coros watch',
   service: kCorosService,
   characteristics: <String>[kBatteryLevelUuid],
@@ -732,10 +765,12 @@ bool _looksLikeCoros(String lowercaseName) =>
 /// EXPERIMENTAL, and it stays that way: nobody on this project owns a Garmin
 /// watch, so not a byte of this path has met hardware (ASSUMPTIONS R6).
 /// This id is absent from `kDerivableSources`: the watch's health FIT files
-/// are downloaded and decoded into sparse HR (`hrSparse`, outside
-/// derivation) and attributed vendor observations.
+/// are downloaded and decoded into sparse HR (`hrSparse`) and attributed
+/// vendor observations. Its HR reaches a derived number only as the active
+/// wearable's substrate, while its flag is on (`compute/inputs/canonical.dart`).
 const BandEntry kGarmin = BandEntry.notify(
   id: 'garmin',
+  category: DeviceCategory.wearable,
   label: 'Garmin watch',
   service: kGarminService,
   characteristics: <String>[],
@@ -762,10 +797,13 @@ const BandEntry kGarmin = BandEntry.notify(
 /// exactly the way Oura's fetch-by-cursor is (`OffloadCheckpoint`'s own
 /// "fetch-by-range" row).
 ///
-/// EXPERIMENTAL: the decoder has not met a physical ring (ASSUMPTIONS R6), so
-/// `kDerivableSources` does not name this id. Each 32-byte record is banked
-/// verbatim and decoded into sparse HR (`source = 'ultrahuman'`, outside
-/// derivation) plus daily vendor observations — see `ultrahuman.dart`.
+/// EXPERIMENTAL: the decoder has not met a physical ring (ASSUMPTIONS R6).
+/// Each 32-byte record is banked verbatim and decoded into sparse HR
+/// (`source = 'ultrahuman'`) plus daily vendor observations — see
+/// `ultrahuman.dart`. `kDerivableSources` does not name this id, so its rows
+/// never join a band's day; a day the band never saw derives off them only
+/// while the ring is the active wearable and its flag is on
+/// (`inputs/canonical.dart`).
 ///
 /// FOUND BY NAME. The ring is not required to advertise its 128-bit service,
 /// and it names itself `UH_…` (or `UP_…`), so this entry sets [scanByName]:
@@ -773,9 +811,11 @@ const BandEntry kGarmin = BandEntry.notify(
 /// the ring out. The command service is still required after connect.
 /// The iOS AccessorySetupKit picker cannot match on a name alone (it needs
 /// the service UUID beside any name substring), so there it is still found
-/// by service only.
+/// by service only: iOS 18+ may not find it at all (see [kAskPickerSensors])
+/// until a real ring's advertisement settles it.
 const BandEntry kUltrahuman = BandEntry.notify(
   id: 'ultrahuman',
+  category: DeviceCategory.wearable,
   label: 'Ultrahuman Ring Air',
   service: kUltrahumanCommandService,
   characteristics: <String>[kUltrahumanWriteChar, kUltrahumanNotifyChar],
@@ -785,7 +825,7 @@ const BandEntry kUltrahuman = BandEntry.notify(
 );
 
 bool _looksLikeUltrahuman(String lowercaseName) =>
-    lowercaseName.contains('uh_') || lowercaseName.contains('up_');
+    lowercaseName.startsWith('uh_') || lowercaseName.startsWith('up_');
 
 /// Mi Band 2 and 3 — the shared "Huami legacy" GATT protocol. The registry
 /// id stays `miband234`: it is a storage key (`device_family`), never renamed.
@@ -802,12 +842,19 @@ bool _looksLikeUltrahuman(String lowercaseName) =>
 /// this entry sets [scanByName]: its scan runs without the OS-level service
 /// filter and [nameMatcher] picks the band out. The service is still
 /// required after connect.
+/// The iOS AccessorySetupKit picker cannot match on a name alone (it needs
+/// the service UUID beside any name substring), so there it is found by
+/// service only, with its company id declared ([kAskSensorCompanyIds]). If
+/// the band does not advertise the service, iOS 18+ cannot find it at all;
+/// nobody has checked on a band.
 ///
-/// EXPERIMENTAL (ASSUMPTIONS R6): nobody on this project owns one, so
-/// `kDerivableSources` does not name it. HR lands as sparse samples outside
-/// derivation; sleep as the band's own hypnogram; steps as observations.
+/// EXPERIMENTAL (ASSUMPTIONS R6): nobody on this project owns one. HR lands
+/// as sparse samples, sleep as the band's own hypnogram, steps as
+/// observations; none of it reaches a metric unless the default-off
+/// `wearable_enabled:miband234` flag is on and it is the active wearable.
 const BandEntry kMiBand234 = BandEntry.notify(
   id: 'miband234',
+  category: DeviceCategory.wearable,
   label: 'Mi Band 2/3',
   service: kHuami234Service,
   characteristics: <String>[kHuami234AuthChar],
@@ -826,7 +873,8 @@ bool _looksLikeMiBand23(String lowercaseName) => const {
     }.contains(lowercaseName);
 
 /// Pebble 2 / Pebble 2 SE. Pure client, no envelope, no command channel —
-/// PPoGATT is banked verbatim and nothing is decoded past it. `pebble_link.dart`'s
+/// PPoGATT carries the inner protocol, whose health data logging the adapter
+/// decodes (HR, steps, the watch's sleep periods). `pebble_link.dart`'s
 /// `PebbleLink` drives [PebbleAdapter.run] on a periodic bounded window; see
 /// `pebble.dart`'s header for both that shape and why every older Pebble
 /// model is out of reach.
@@ -835,6 +883,7 @@ bool _looksLikeMiBand23(String lowercaseName) => const {
 /// not a byte of this path has met hardware (ASSUMPTIONS R6).
 const BandEntry kPebble = BandEntry.notify(
   id: 'pebble',
+  category: DeviceCategory.wearable,
   label: 'Pebble',
   service: kPebbleServiceUuid,
   characteristics: <String>[
@@ -844,9 +893,9 @@ const BandEntry kPebble = BandEntry.notify(
     kPebblePpogattReadUuid,
     kPebblePpogattWriteUuid,
   ],
-  // No clock of its own reaches this layer — every banked chunk is stamped by
-  // arrival, same as every other notify-class entry with no measured origin.
-  timeAnchor: TimeAnchor.arrival,
+  // Every HR minute carries the watch's own timestamp (its steps data log),
+  // not the time it arrived.
+  timeAnchor: TimeAnchor.measured,
   // See `kPebblePairingTriggerUuid`'s doc comment — a write here is what
   // moves the watch into bonded state, and PPoGATT never authenticates
   // without it.
@@ -884,11 +933,17 @@ const String kColmiAdvertisedHint = '0000fee7-0000-1000-8000-00805f9b34fb';
 /// Required characteristics are Service A's only; Service B's are optional
 /// (see [kColmiCommandChar]).
 ///
-/// EXPERIMENTAL: the decoders have not met a physical ring (ASSUMPTIONS R6),
-/// so `kDerivableSources` does not name this id — its HR rows are banked
-/// with `source = 'colmi'` and stay out of derivation.
+/// EXPERIMENTAL: the decoders have not met a physical ring (ASSUMPTIONS R6).
+/// `kDerivableSources` does not name this id, so its HR rows (banked with
+/// `source = 'colmi'`) stay off the primary band's read path; they derive
+/// only as the active wearable with its R6 flag on.
+///
+/// iOS 18+: its picker filters on [kColmiService], which the ring is not
+/// known to advertise (see [kAskPickerSensors]), so on iOS 18+ it may not be
+/// found at all until a real ring's advertisement settles it.
 const BandEntry kColmi = BandEntry.notify(
   id: 'colmi',
+  category: DeviceCategory.wearable,
   label: 'Colmi ring',
   service: kColmiService,
   characteristics: <String>[kColmiWriteChar, kColmiNotifyChar],
@@ -905,6 +960,7 @@ const BandEntry kColmi = BandEntry.notify(
 /// become attributed `body_temp` observations; nothing derives from them.
 const BandEntry kThermometer = BandEntry.notify(
   id: 'thermometer',
+  category: DeviceCategory.healthMeasurement,
   label: 'Bluetooth thermometer',
   service: kHtpService,
   characteristics: <String>[kHtpTemperatureMeasurement],
@@ -924,9 +980,13 @@ bool _looksLikeThermometer(String lowercaseName) =>
 /// ([BandEntry.scanServiceData]).
 ///
 /// EXPERIMENTAL (ASSUMPTIONS R6). Weight becomes a `weight` observation and
-/// impedance a vendor observation; nothing derives from either.
+/// impedance a vendor observation. With its developer flag on (default off)
+/// the newest weight within 10% of the profile's becomes it
+/// (`newestWeighing`); impedance
+/// stays a measurement only.
 const BandEntry kMiScaleComposition = BandEntry.notify(
   id: 'miscale_bc',
+  category: DeviceCategory.healthMeasurement,
   label: 'Mi Body Composition Scale',
   service: kMiScaleBodyCompositionService,
   characteristics: <String>[kMiScaleBodyCompositionChar],
@@ -943,9 +1003,12 @@ bool _looksLikeMiCompositionScale(String lowercaseName) =>
 /// Its service UUID is advertised as service data too, like
 /// [kMiScaleComposition]'s.
 ///
-/// EXPERIMENTAL (ASSUMPTIONS R6). Readings become `weight` observations.
+/// EXPERIMENTAL (ASSUMPTIONS R6). Readings become `weight` observations; with
+/// its developer flag on (default off) the newest becomes the profile's
+/// weight (`newestWeighing`).
 const BandEntry kMiScale2 = BandEntry.notify(
   id: 'miscale2',
+  category: DeviceCategory.healthMeasurement,
   label: 'Mi Smart Scale 2',
   service: kMiScaleWeightService,
   characteristics: <String>[kMiScaleWeightChar],
@@ -1009,9 +1072,13 @@ final List<BandEntry> kFramedBands =
 /// a picker filtered on them would hand back another sensor's approval. On
 /// iOS 18+ they cannot be paired yet; `PairSensorScreen` says so.
 ///
-/// [kMiBand234], [kMiScaleComposition] and [kMiScale2] are listed although
-/// they break the rule above: the band is not known to advertise FEE1, and
-/// the scales carry 181B / 181D as service DATA, not in the service list.
+/// [kMiBand234], [kColmi], [kUltrahuman], [kMiScaleComposition] and
+/// [kMiScale2] are listed although they break the rule above: the band is
+/// not known to advertise FEE1, the Colmi ring is not known to advertise its
+/// 6E40FFF0 service (it advertises its name and the shared 0xFEE7, which
+/// cannot be a filter here), the Ultrahuman ring is not known to advertise
+/// its 86F65000 command service (it is found by name off iOS), and the
+/// scales carry 181B / 181D as service DATA, not in the service list.
 /// Whether the picker matches either is untested, so on iOS 18+ they may not
 /// be found at all. They stay listed because outside this list they have no
 /// iOS 18+ path whatever, and none of their UUIDs is shared with another
@@ -1060,6 +1127,9 @@ String plistUuid(String service) {
 const Map<String, int> kAskSensorCompanyIds = <String, int>{
   'oura': 0x02B2, // Oura Health Oy
   'garmin': 0x0087, // Garmin International
+  // Unverified on a band (R6): declared because a Mi Band 2/3 advertisement
+  // is expected to carry this manufacturer data, the Oura case above.
+  'miband234': 0x0157, // Anhui Huami Information Technology
 };
 
 /// The entry speaking [wire]. Used by the engine's test seam, which is handed
@@ -1108,7 +1178,14 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.hrSparse: Duration(seconds: 1),
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
-  'oura': <InputSignal, Duration>{},
+  'oura': {
+    InputSignal.hrSparse: Duration(minutes: 5),
+    InputSignal.rrIntervals: Duration.zero,
+    InputSignal.skinTempC: Duration.zero,
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.deviceHrv: Duration(minutes: 5),
+    InputSignal.deviceSpo2: Duration(seconds: 1),
+  },
   'polar_pmd': {
     InputSignal.hrSparse: Duration(seconds: 1),
     InputSignal.rrIntervals: Duration(seconds: 1),
@@ -1117,15 +1194,55 @@ const Map<String, Map<InputSignal, Duration>> kAdapterSignals =
     InputSignal.hrSparse: Duration(seconds: 1),
     InputSignal.rrIntervals: Duration(seconds: 1),
   },
-  'ultrahuman': {InputSignal.hrSparse: Duration(minutes: 5)},
-  'miband234': {InputSignal.hrSparse: Duration(minutes: 1)},
-  'pebble': {InputSignal.hrSparse: Duration(minutes: 1)},
-  'colmi': {InputSignal.hrSparse: Duration(minutes: 5)},
+  'ultrahuman': {
+    InputSignal.hrSparse: Duration(minutes: 5),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.skinTempC: Duration(minutes: 5),
+    InputSignal.activityLevel: Duration(minutes: 5),
+    InputSignal.deviceHrv: Duration(days: 1),
+    InputSignal.deviceSpo2: Duration(days: 1),
+  },
+  'miband234': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration(minutes: 1),
+  },
+  'pebble': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration.zero,
+  },
+  'colmi': {
+    InputSignal.hrSparse: Duration(minutes: 5),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.skinTempC: Duration(minutes: 30),
+    InputSignal.deviceHrv: Duration(days: 1),
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.deviceSpo2: Duration(days: 1),
+    InputSignal.deviceStress: Duration(days: 1),
+  },
   'thermometer': <InputSignal, Duration>{},
   'miscale_bc': <InputSignal, Duration>{},
   'miscale2': <InputSignal, Duration>{},
-  'garmin': {InputSignal.hrSparse: Duration(minutes: 1)},
+  'garmin': {
+    InputSignal.hrSparse: Duration(minutes: 1),
+    InputSignal.steps: Duration(days: 1),
+    InputSignal.deviceStages: Duration.zero,
+    InputSignal.deviceHrv: Duration(days: 1),
+    InputSignal.deviceResp: Duration(days: 1),
+    InputSignal.deviceSpo2: Duration(days: 1),
+    InputSignal.deviceStress: Duration(days: 1),
+  },
 };
+
+/// [adapterId]'s [DeviceCategory], or null for an id this build has no
+/// entry for.
+DeviceCategory? categoryOf(String? adapterId) {
+  for (final e in kBandRegistry) {
+    if (e.id == adapterId) return e.category;
+  }
+  return null;
+}
 
 /// The signals one adapter declares, or empty for an id this build has no
 /// entry for — mirrors `bandLabelFor`'s null-is-honest shape

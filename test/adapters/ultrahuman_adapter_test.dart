@@ -355,6 +355,174 @@ void main() {
         [701, 1001]);
   });
 
+  test('days a batch completes go out before the cursor passes them, so a '
+      'session cut short after it keeps their values', () async {
+    // Four days at the ring's 5-minute rate: 700 records end on day 3.
+    final day0 = DateTime(2026, 9, 1);
+    final t0 = day0.millisecondsSinceEpoch ~/ 1000;
+    final (events, _) = await _drive(
+      UltrahumanAdapter(
+        replyTimeout: _kFast,
+        confirmTimeout: _kFast,
+        nowSeconds: () => t0 + 10 * 86400,
+      ),
+      (i, v) {
+        if (v.first == kUltrahumanOpGetEarliestIndex) {
+          return _index(kUltrahumanOpGetEarliestIndex, 1);
+        }
+        if (v.first == kUltrahumanOpGetLatestIndex) {
+          return _index(kUltrahumanOpGetLatestIndex, 1000);
+        }
+        if (v.first == kUltrahumanOpGetRecordings) {
+          return _frames([
+            for (var n = 1; n <= 1000; n++)
+              _record(tsA: t0 + (n - 1) * 300, index: n)
+          ], 7);
+        }
+        return const [];
+      },
+    );
+    final firstNote = events.indexWhere(
+        (e) => e is BandNote && e.key == 'ultrahuman_cursor');
+    // What a host that stopped at the first cursor note has seen.
+    final early = [
+      for (final e in events.take(firstNote).whereType<VendorScalars>())
+        ...e.rows
+    ];
+    expect({for (final o in early) o.at}, {day0, DateTime(2026, 9, 2)});
+    // Every day once across the session, never a partial second copy.
+    final all = [
+      for (final e in events.whereType<VendorScalars>()) ...e.rows
+    ];
+    expect(all.where((o) => o.key == 'steps').map((o) => o.at).toList(), [
+      day0,
+      DateTime(2026, 9, 2),
+      DateTime(2026, 9, 3),
+      DateTime(2026, 9, 4),
+    ]);
+    expect(all.firstWhere((o) => o.key == 'steps').value, 288 * 30);
+  });
+
+  test('a resumed session does not refile the day before its bookmark from a '
+      'record whose step or skin clock lands on it', () async {
+    final t = DateTime(2026, 9, 1, 23, 50).millisecondsSinceEpoch ~/ 1000;
+    // Record 4 is the first of 09-02 by its HR clock, but its step and skin
+    // clocks still read 09-01.
+    List<int> rec(int index, int tsA, {int? tsBC}) {
+      final b = ByteData.sublistView(Uint8List.fromList(
+          _record(tsA: tsA, index: index)));
+      b.setUint32(8, tsBC ?? tsA, Endian.little);
+      b.setUint32(20, tsBC ?? tsA, Endian.little);
+      return b.buffer.asUint8List();
+    }
+
+    final all = [
+      rec(1, t),
+      rec(2, t + 240),
+      rec(3, t + 480),
+      rec(4, t + 720, tsBC: t + 360),
+      rec(5, t + 1200),
+      rec(6, t + 1500),
+    ];
+    Future<List<Observation>> session(int start, int latest) async {
+      final (events, _) = await _drive(
+        _adapter(startIndex: start),
+        (i, v) {
+          if (v.first == kUltrahumanOpGetEarliestIndex) {
+            return _index(kUltrahumanOpGetEarliestIndex, 1);
+          }
+          if (v.first == kUltrahumanOpGetLatestIndex) {
+            return _index(kUltrahumanOpGetLatestIndex, latest);
+          }
+          if (v.first == kUltrahumanOpGetRecordings) {
+            return [
+              _response(kUltrahumanOpGetRecordings, kUltrahumanResultOk,
+                  [for (final r in all.sublist(start - 1, latest)) ...r]),
+            ];
+          }
+          return const [];
+        },
+      );
+      return [for (final e in events.whereType<VendorScalars>()) ...e.rows];
+    }
+
+    final sep1 = DateTime(2026, 9, 1);
+    final first = await session(1, 5);
+    expect(
+        first.singleWhere((o) => o.key == 'steps' && o.at == sep1).value, 120);
+    // The next session resumes at record 4 (the first of 09-02): 09-01 is
+    // already filed in full and must not be replaced by record 4's part.
+    final second = await session(4, 6);
+    expect(second.where((o) => o.at == sep1), isEmpty);
+    expect(
+        second
+            .singleWhere(
+                (o) => o.key == 'steps' && o.at == DateTime(2026, 9, 2))
+            .value,
+        60);
+  });
+
+  test('a resumed session re-reads a record of the day before whose step '
+      'clock lands on the bookmark day, so that day is not filed short',
+      () async {
+    final t = DateTime(2026, 9, 1, 23, 50).millisecondsSinceEpoch ~/ 1000;
+    // Record 3 is 09-01 by its HR clock, but its step clock reads 09-02.
+    List<int> rec(int index, int tsA, {int? tsC}) {
+      final b = ByteData.sublistView(Uint8List.fromList(
+          _record(tsA: tsA, index: index)));
+      b.setUint32(20, tsC ?? tsA, Endian.little);
+      return b.buffer.asUint8List();
+    }
+
+    final all = [
+      rec(1, t),
+      rec(2, t + 240),
+      rec(3, t + 480, tsC: t + 660),
+      rec(4, t + 720),
+      rec(5, t + 1200),
+      rec(6, t + 1500),
+    ];
+    Future<(List<Observation>, int)> session(int start, int latest) async {
+      final (events, _) = await _drive(
+        _adapter(startIndex: start),
+        (i, v) {
+          if (v.first == kUltrahumanOpGetEarliestIndex) {
+            return _index(kUltrahumanOpGetEarliestIndex, 1);
+          }
+          if (v.first == kUltrahumanOpGetLatestIndex) {
+            return _index(kUltrahumanOpGetLatestIndex, latest);
+          }
+          if (v.first == kUltrahumanOpGetRecordings) {
+            return [
+              _response(kUltrahumanOpGetRecordings, kUltrahumanResultOk,
+                  [for (final r in all.sublist(start - 1, latest)) ...r]),
+            ];
+          }
+          return const [];
+        },
+      );
+      return (
+        [for (final e in events.whereType<VendorScalars>()) ...e.rows],
+        events
+            .whereType<BandNote>()
+            .lastWhere((n) => n.key == 'ultrahuman_cursor')
+            .value as int,
+      );
+    }
+
+    final sep1 = DateTime(2026, 9, 1), sep2 = DateTime(2026, 9, 2);
+    final (first, bookmark) = await session(1, 5);
+    expect(
+        first.singleWhere((o) => o.key == 'steps' && o.at == sep2).value, 90);
+    // Resume where record 3's step clock first touches 09-02.
+    expect(bookmark, 3);
+    final (second, _) = await session(bookmark, 6);
+    expect(second.where((o) => o.at == sep1), isEmpty);
+    expect(
+        second.singleWhere((o) => o.key == 'steps' && o.at == sep2).value,
+        120);
+  });
+
   test('a non-ok result other than 0xff is a failure: the cursor stays and '
       'nothing is reported stranded', () async {
     final (events, link) = await _drive(_adapter(), (i, v) {
@@ -638,7 +806,14 @@ void main() {
     }
 
     test('declares hrSparse and kAdapterSignals mirrors it', () {
-      expect(_adapter().signals.keys, [InputSignal.hrSparse]);
+      expect(_adapter().signals.keys, [
+        InputSignal.hrSparse,
+        InputSignal.steps,
+        InputSignal.skinTempC,
+        InputSignal.activityLevel,
+        InputSignal.deviceHrv,
+        InputSignal.deviceSpo2,
+      ]);
       expect(kAdapterSignals['ultrahuman'], _adapter().signals);
     });
 

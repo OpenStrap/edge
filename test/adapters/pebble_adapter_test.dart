@@ -52,7 +52,7 @@ Future<(List<BandEvent>, ReplayBandLink, List<(int, List<int>)>)> drive(
   await sub.cancel();
   final sent = <(int, List<int>)>[];
   final frames = PebbleFrameReassembler();
-  for (final (_, w) in link.writes) {
+  for (final (_, w) in ppogattWrites(link)) {
     if (w.isNotEmpty && (w[0] & 7) == 0) {
       sent.addAll(frames.add(w.sublist(1)));
     }
@@ -60,16 +60,40 @@ Future<(List<BandEvent>, ReplayBandLink, List<(int, List<int>)>)> drive(
   return (events, link, sent);
 }
 
-PebbleAdapter _adapter({Map<DateTime, int> prior = const {}, int hw = 0}) =>
+Iterable<(String, List<int>)> ppogattWrites(ReplayBandLink link) =>
+    link.writes.where((w) => w.$1 == kPebblePpogattWriteUuid);
+
+PebbleAdapter _adapter({
+  Map<DateTime, int> prior = const {},
+  int hw = 0,
+  List<PebbleOverlay> overlays = const [],
+}) =>
     PebbleAdapter(
       nowSeconds: () => _sec(_day.add(const Duration(hours: 12))),
       priorSteps: prior,
       stepsHighWater: hw,
+      priorOverlays: overlays,
     );
 
+List<int> _overlay(int type, DateTime start, int minutes) =>
+    [...u16(1), ...u16(0), ...u16(type), ...u32(0), ...u32(_sec(start)),
+      ...u32(minutes * 60)];
+
+/// An overlay session (sid 6) carrying [items].
+List<List<int>> _overlays(List<List<int>> items, {List<int>? uuid}) => [
+      ...watch(kPebbleEndpointDatalog, [1, 6, ...uuid ?? List.filled(16, 0),
+          ...u32(1), ...u32(84), 0, ...u16(18)], 0),
+      ...watch(kPebbleEndpointDatalog,
+          [2, 6, ...u32(0), ...u32(0), for (final i in items) ...i], 4),
+    ];
+
 void main() {
-  test('declares hrSparse and the registry mirrors it', () {
-    expect(kPebbleAdapter.signals.keys, [InputSignal.hrSparse]);
+  test('declares hrSparse, steps and its stages; the registry mirrors it', () {
+    expect(kPebbleAdapter.signals.keys, [
+      InputSignal.hrSparse,
+      InputSignal.steps,
+      InputSignal.deviceStages,
+    ]);
     expect(kAdapterSignals['pebble'], kPebbleAdapter.signals);
   });
 
@@ -77,7 +101,7 @@ void main() {
     final (_, link, _) = await drive(_adapter(), [
       [0x18, 0, 1, 0, 9], // serial 3, half a frame
     ]);
-    expect(link.writes.first.$2, [0x19]);
+    expect(ppogattWrites(link).first.$2, [0x19]);
   });
 
   test('a reset with a body gets the three-byte reply, a bare one one byte',
@@ -85,11 +109,32 @@ void main() {
     final (_, a, _) = await drive(_adapter(), [
       [0x0A, 0x01],
     ]);
-    expect(a.writes.single.$2, [0x03, 0x19, 0x19]);
+    expect(ppogattWrites(a).single.$2, [0x03, 0x19, 0x19]);
     final (_, b, _) = await drive(_adapter(), [
       [0x0A],
     ]);
-    expect(b.writes.single.$2, [0x03]);
+    expect(ppogattWrites(b).single.$2, [0x03]);
+  });
+
+  test('the session writes the client-only pairing trigger, then subscribes '
+      'to connection parameters, connectivity and MTU before PPoGATT',
+      () async {
+    final link = ReplayBandLink();
+    final sub = _adapter().run(link).listen((_) {});
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(link.writes.first.$1, kPebblePairingTriggerUuid);
+    expect(link.writes.first.$2, [0x11]);
+    for (final u in [
+      kPebbleConnParamsUuid,
+      kPebbleConnectivityUuid,
+      kPebbleMtuUuid,
+      kPebblePpogattReadUuid,
+    ]) {
+      expect(link.isListening(u), isTrue, reason: u);
+    }
+    await link.close();
+    await sub.cancel();
+    expect(link.isListening(kPebbleMtuUuid), isFalse);
   });
 
   test('the version request is answered, then time and session report',
@@ -130,8 +175,9 @@ void main() {
       pebbleDatalogAck(5), // open
       pebbleDatalogAck(5), // data, sent by the checkpoint's confirm
     ]);
-    expect(events.whereType<BandNote>().last.value,
-        _sec(_day.add(const Duration(hours: 8, minutes: 2))));
+    // The high-water mark rides the same write as the step rows.
+    expect(events.whereType<VendorScalars>().single.cursors,
+        {'pebble_steps_hw': '${_sec(_day.add(const Duration(hours: 8, minutes: 2)))}'});
   });
 
   test('step totals carry forward and an already-counted minute is not '
@@ -162,23 +208,139 @@ void main() {
     expect(events.whereType<OffloadCheckpoint>(), isEmpty);
   });
 
-  test('sleep overlays become per-night stage minutes', () async {
-    final open = [1, 6, ...List.filled(16, 0), ...u32(1), ...u32(84), 0,
-        ...u16(18)];
-    List<int> overlay(int type, DateTime start, int minutes) =>
-        [...u16(1), ...u16(0), ...u16(type), ...u32(0), ...u32(_sec(start)),
-          ...u32(minutes * 60)];
-    final night = DateTime(2026, 10, 3, 23, 10);
-    final (events, _, _) = await drive(_adapter(), [
+  test('a NACKed message advances nothing: its re-send counts in full',
+      () async {
+    final at = _day.add(const Duration(hours: 8));
+    final open = [1, 5, ...List.filled(16, 0), ...u32(1), ...u32(81), 0,
+        ...u16(9 + 13 * 3)];
+    final bad = [...u16(99), ...List.filled(9 + 13 * 3 - 2, 0)];
+    final (events, _, sent) = await drive(_adapter(), [
       ...watch(kPebbleEndpointDatalog, open, 0),
-      ...watch(kPebbleEndpointDatalog, [2, 6, ...u32(0), ...u32(0),
-        ...overlay(kPebbleOverlaySleep, night, 460),
-        ...overlay(kPebbleOverlayDeepSleep, night.add(const Duration(minutes: 30)), 90),
-      ], 4),
+      // A readable item, then one this build cannot read: NACKed whole.
+      ...watch(kPebbleEndpointDatalog,
+          [2, 5, ...u32(0), ...u32(0), ...stepsItem(at, 3), ...bad], 3),
+      // The watch re-sends the readable part.
+      ...watch(kPebbleEndpointDatalog,
+          [2, 5, ...u32(0), ...u32(0), ...stepsItem(at, 3)], 9),
     ]);
+    expect(sent[1].$2, pebbleDatalogNack(5));
+    final rows = [for (final v in events.whereType<VendorScalars>()) ...v.rows];
+    expect(rows.single.value, 30, reason: 'the minutes were not counted yet');
+  });
+
+  test('a watch app logging under a health tag is banked raw and ACKed, '
+      'never read as health', () async {
+    final open = [1, 5, ...List.filled(15, 0), 0x42, ...u32(1), ...u32(81), 0,
+        ...u16(9 + 13 * 3)];
+    final data = [2, 5, ...u32(0), ...u32(0),
+        ...stepsItem(_day.add(const Duration(hours: 8)), 3)];
+    final (events, _, sent) = await drive(_adapter(), [
+      ...watch(kPebbleEndpointDatalog, open, 0),
+      ...watch(kPebbleEndpointDatalog, data, 3),
+    ]);
+    expect([for (final b in events.whereType<SampleBatch>()) ...b.samples],
+        isEmpty);
+    expect(events.whereType<VendorScalars>(), isEmpty);
+    expect(events.whereType<SampleBatch>().where((b) => b.raw != null),
+        isNotEmpty);
+    expect(sent.last.$2, pebbleDatalogAck(5));
+  });
+
+  test('a deep period arriving a session after its night still splits it',
+      () async {
+    final night = DateTime(2026, 10, 3, 23, 10);
+    final (first, _, _) = await drive(
+        _adapter(), _overlays([_overlay(kPebbleOverlaySleep, night, 460)]));
+    final carried = decodePebbleOverlays(
+        first.whereType<VendorScalars>().last.cursors['pebble_overlays']);
+    expect(carried.map((o) => (o.type, o.startSec)),
+        [(kPebbleOverlaySleep, _sec(night))]);
+    final (second, _, _) = await drive(
+        _adapter(overlays: carried),
+        _overlays([_overlay(kPebbleOverlayDeepSleep,
+            night.add(const Duration(minutes: 30)), 90)]));
+    final rows = [for (final v in second.whereType<VendorScalars>()) ...v.rows];
+    expect({for (final r in rows) r.vendorKey: r.value},
+        {'sleep_deep_min': 90, 'sleep_light_min': 370, 'sleep_in_bed_min': 460});
+    expect(second.whereType<VendorHypnogram>().last.epochs.map((e) => e.stage),
+        ['light', 'deep', 'light']);
+  });
+
+  test('a carried night keeps its deep periods, so a later session '
+      're-emits it whole', () async {
+    final a = DateTime(2026, 10, 1, 23);
+    final (first, _, _) = await drive(_adapter(), _overlays([
+      _overlay(kPebbleOverlaySleep, a, 480),
+      _overlay(kPebbleOverlayDeepSleep, a.add(const Duration(minutes: 90)), 60),
+      _overlay(kPebbleOverlaySleep, DateTime(2026, 10, 3, 22, 30), 480),
+    ]));
+    final carried = decodePebbleOverlays(
+        first.whereType<VendorScalars>().last.cursors['pebble_overlays']);
+    final (second, _, _) = await drive(_adapter(overlays: carried),
+        _overlays([_overlay(kPebbleOverlayNap, DateTime(2026, 10, 4, 10), 20)]));
+    final wake = a.add(const Duration(minutes: 480));
+    final rows = [
+      for (final v in second.whereType<VendorScalars>())
+        for (final r in v.rows)
+          if (r.at == wake) r,
+    ];
+    expect({for (final r in rows) r.vendorKey: r.value},
+        {'sleep_deep_min': 60, 'sleep_light_min': 420, 'sleep_in_bed_min': 480});
+  });
+
+  test('a far-future overlay does not prune the carried nights', () async {
+    final night = DateTime(2026, 10, 3, 23, 10);
+    final (events, _, _) = await drive(_adapter(), _overlays([
+      _overlay(kPebbleOverlaySleep, night, 460),
+      _overlay(kPebbleOverlaySleep, DateTime(2030, 1, 1), 60),
+    ]));
+    final carried = decodePebbleOverlays(
+        events.whereType<VendorScalars>().last.cursors['pebble_overlays']);
+    expect(carried.map((o) => (o.type, o.startSec)),
+        [(kPebbleOverlaySleep, _sec(night))]);
+  });
+
+  test('a re-sent deep period is not counted twice', () async {
+    final night = DateTime(2026, 10, 3, 23, 10);
+    final deep = PebbleOverlay(kPebbleOverlayDeepSleep,
+        _sec(night.add(const Duration(minutes: 30))), 90 * 60);
+    final (events, _, _) = await drive(
+        _adapter(overlays: [
+          PebbleOverlay(kPebbleOverlaySleep, _sec(night), 460 * 60),
+          deep,
+        ]),
+        _overlays([_overlay(kPebbleOverlayDeepSleep,
+            night.add(const Duration(minutes: 30)), 90)]));
+    final rows = [for (final v in events.whereType<VendorScalars>()) ...v.rows];
+    expect({for (final r in rows) r.vendorKey: r.value}['sleep_deep_min'], 90);
+  });
+
+  test('naps, walks and runs are banked as the watch reported them', () async {
+    final noon = DateTime(2026, 10, 3, 13);
+    final (events, _, _) = await drive(_adapter(), _overlays([
+      _overlay(kPebbleOverlayNap, noon, 40),
+      _overlay(kPebbleOverlayDeepNap, noon.add(const Duration(minutes: 10)), 15),
+      _overlay(kPebbleOverlayWalk, noon.add(const Duration(hours: 2)), 25),
+      _overlay(kPebbleOverlayRun, noon.add(const Duration(hours: 4)), 30),
+    ]));
+    final rows = [for (final v in events.whereType<VendorScalars>()) ...v.rows];
+    expect({for (final r in rows) r.vendorKey: r.value},
+        {'nap_min': 40, 'nap_deep_min': 15, 'walk_min': 25, 'run_min': 30});
+    expect(rows.firstWhere((r) => r.vendorKey == 'nap_min').at,
+        noon.add(const Duration(minutes: 40)));
+    expect(events.whereType<VendorHypnogram>(), isEmpty,
+        reason: 'naps never join the night');
+  });
+
+  test('sleep overlays become per-night stage minutes', () async {
+    final night = DateTime(2026, 10, 3, 23, 10);
+    final (events, _, _) = await drive(_adapter(), _overlays([
+      _overlay(kPebbleOverlaySleep, night, 460),
+      _overlay(kPebbleOverlayDeepSleep, night.add(const Duration(minutes: 30)), 90),
+    ]));
     final rows = [for (final v in events.whereType<VendorScalars>()) ...v.rows];
     final last = {for (final r in rows) r.vendorKey: r.value};
-    expect(last, {'sleep_deep_min': 90, 'sleep_light_min': 370});
+    expect(last, {'sleep_deep_min': 90, 'sleep_light_min': 370, 'sleep_in_bed_min': 460});
     final h = events.whereType<VendorHypnogram>().last;
     expect(h.epochs.map((e) => (e.stage, (e.endSec - e.startSec) ~/ 60)),
         [('light', 30), ('deep', 90), ('light', 340)]);
