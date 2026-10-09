@@ -1,3 +1,4 @@
+import 'coach_text.dart';
 // COACH — the door onto the agentic AI that was already built.
 //
 // `lib/coach` has had a working tool-calling loop for months: read-only SQL over
@@ -17,6 +18,7 @@
 //      painters); everything else is grammar.dart. The one thing that is not is
 //      the markdown body, because there is no house widget for prose.
 
+import '../../l10n/display_text.dart';
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -246,13 +248,16 @@ class _CoachScreenState extends State<CoachScreen> {
       context: context,
       builder: (d) => AlertDialog(
         backgroundColor: p.card,
-        title: Text(req.title, style: F.head.copyWith(color: p.ink)),
+        title: Text(
+          uiText(context, req.title),
+          style: F.head.copyWith(color: p.ink),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              req.summary,
+              coachActionSummary(context, req),
               style: F.body.copyWith(color: p.ink2, height: 1.4),
             ),
             const SizedBox(height: S.x3),
@@ -446,7 +451,10 @@ class _CoachScreenState extends State<CoachScreen> {
                     const SizedBox(width: S.x3),
                     Expanded(
                       child: Text(
-                        _status ?? '',
+                        coachPresentationText(
+                          AppLocalizations.of(context),
+                          _status ?? '',
+                        ),
                         style: F.cap.copyWith(color: p.ink3),
                       ),
                     ),
@@ -722,7 +730,7 @@ class _Bubble extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: S.x4),
           child: StatusCard(
             AppLocalizations.of(c)?.coachErrorTitle ?? 'That did not go through',
-            item.text ?? '',
+            coachPresentationText(AppLocalizations.of(c), item.text ?? ''),
             icon: LucideIcons.triangleAlert,
           ),
         );
@@ -824,6 +832,7 @@ class _CoachSetupState extends State<CoachSetup> {
   late final TextEditingController _key;
   late final TextEditingController _search;
   late final TextEditingController _timeout;
+  late CoachApi _api;
   String _model = '';
   List<String> _models = const [];
   bool _loading = false;
@@ -854,6 +863,7 @@ class _CoachSetupState extends State<CoachSetup> {
     _key = TextEditingController(text: cfg.apiKey ?? '');
     _search = TextEditingController();
     _timeout = TextEditingController(text: cfg.timeoutSeconds.toString());
+    _api = cfg.api;
     _model = cfg.model;
     _keyOrigin = coachEndpointOrigin(cfg.baseUrl);
     // The base URL decides which preset is lit and whether a key is needed, and
@@ -883,6 +893,7 @@ class _CoachSetupState extends State<CoachSetup> {
     final origin = coachEndpointOrigin(_base.text);
     if (origin != _keyOrigin) {
       _keyOrigin = origin;
+      _api = CoachApi.defaultFor(_base.text);
       _pendingKeyDelete = true;
       if (_key.text.isNotEmpty) _key.clear();
       _msg = 'The API key was cleared because the endpoint changed.';
@@ -954,6 +965,7 @@ class _CoachSetupState extends State<CoachSetup> {
           pendingKeyDelete: _pendingKeyDelete,
         ),
         model: chosen,
+        api: _api,
         timeoutSeconds: timeoutSeconds,
       );
     } catch (e) {
@@ -1014,6 +1026,7 @@ class _CoachSetupState extends State<CoachSetup> {
                                 // discard that explanation.
                                 _msg = null;
                                 _base.text = preset.baseUrl;
+                                _api = CoachApi.defaultFor(preset.baseUrl);
                                 _models = const [];
                                 _model = '';
                               }),
@@ -1062,6 +1075,54 @@ class _CoachSetupState extends State<CoachSetup> {
                     hint: 'http://localhost:11434/v1',
                   ),
                   const SizedBox(height: S.x4),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(l?.coachApiFormatLabel ?? 'API',
+                          style: F.over.copyWith(color: p.ink3)),
+                      const SizedBox(height: S.x2),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: S.x3),
+                        decoration: BoxDecoration(
+                          color: p.card,
+                          borderRadius: R.rMd,
+                          border: Border.all(color: p.line),
+                        ),
+                        child: Semantics(
+                          label: l?.coachApiFormatLabel ?? 'API',
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<CoachApi>(
+                              value: _api,
+                              isExpanded: true,
+                              dropdownColor: p.card,
+                              style: F.body.copyWith(color: p.ink),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: CoachApi.responses,
+                                  child: Text('Responses'),
+                                ),
+                                DropdownMenuItem(
+                                  value: CoachApi.chatCompletions,
+                                  child: Text('Chat Completions'),
+                                ),
+                              ],
+                              onChanged: (api) {
+                                if (api != null) setState(() => _api = api);
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: S.x2),
+                      Text(
+                        l?.coachApiFormatHelp ??
+                            'Choose the API your endpoint supports. Responses '
+                                'supports OpenAI reasoning with tools.',
+                        style: F.cap.copyWith(color: p.ink3, height: 1.5),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: S.x4),
                   OsTextField(
                     controller: _key,
                     label: _isLocal
@@ -1072,9 +1133,10 @@ class _CoachSetupState extends State<CoachSetup> {
                   const SizedBox(height: S.x3),
                   // The one sentence that decides whether a cloud key is a
                   // reasonable choice. It is here, next to the field, and not
-                  // in a settings page nobody opens.
+                  // in a settings page nobody opens. Private hosts only: a
+                  // 100.64.0.0/10 address needs no key but may not be yours.
                   Text(
-                    _isLocal
+                    isPrivateCoachHost(_base.text.trim())
                         ? (l?.coachLocalDataNote ??
                             'Your questions and the rows the coach reads stay on '
                                 'your own machine.')
@@ -1094,7 +1156,7 @@ class _CoachSetupState extends State<CoachSetup> {
                   ),
                   if (_msg != null) ...[
                     const SizedBox(height: S.x3),
-                    Text(_msg!, style: F.cap.copyWith(color: p.ink3)),
+                    Text(coachPresentationText(l, _msg!), style: F.cap.copyWith(color: p.ink3)),
                   ],
                   const SizedBox(height: S.x4),
                   OsTextField(
@@ -1147,15 +1209,16 @@ class _CoachSetupState extends State<CoachSetup> {
                     const SizedBox(height: S.x4),
                     OsTextField(
                       controller: _timeout,
-                      label: 'Request timeout (seconds)',
+                      label: uiText(c, 'Request timeout (seconds)'),
                       hint: '300',
                       keyboard: TextInputType.number,
                     ),
                     const SizedBox(height: S.x3),
                     Text(
-                      'A local model can take a while to load before its first '
-                      'reply. Default is 5 minutes (300s). Cloud providers use '
-                      'a fixed 2-minute timeout and are not affected by this.',
+                      uiText(
+                        c,
+                        'A local model can take a while to load before its first reply. Default is 5 minutes (300s). Cloud providers use a fixed 2-minute timeout and are not affected by this.',
+                      ),
                       style: F.cap.copyWith(color: p.ink3, height: 1.5),
                     ),
                   ],

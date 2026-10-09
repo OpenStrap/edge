@@ -42,6 +42,51 @@ const int kKeepAliveIntervalSeconds =
 // Until both exist, do not point a slower source at this drain.
 const int kBackfillIdleTimeoutSeconds = 60; // strap went silent mid-offload
 
+/// Seconds from a SEND_HISTORICAL_DATA write that SUCCEEDED to the band's first
+/// answer for that task (HISTORY_START or HISTORY_COMPLETE; on gen4 any history
+/// frame). Past it the task is ended with one abort. [kBackfillIdleTimeoutSeconds]
+/// only covers a transfer that went silent; this covers one that never started.
+///
+/// ASSUMES: a band that accepted the request answers within a couple of
+/// seconds — an already-caught-up band logs its `[SYNC] META sub=` HISTORY_COMPLETE
+/// about a second after `refresh(...) — sending SEND_HISTORICAL_DATA`. The window
+/// is several times that because the clock starts when the write future
+/// resolves, the answer is processed behind the serialized offload queue, gen4's
+/// latency is unmeasured, and the costs are lopsided: a false expiry costs an
+/// abort, a 3 s settle and one retry; a slow one costs a few seconds of latency.
+/// FALSIFIED BY: a firmware that legitimately pauses before its first marker
+/// (flash maintenance, a long page scan).
+/// WHEN WRONG: each request is aborted and retried once; the band keeps its
+/// checkpoint, so the cost is latency, never data.
+/// HOW TO CHECK: `[SYNC] no answer to SEND_HISTORICAL_DATA` followed by a
+/// `META sub=1` for the retry within a few seconds.
+const int kHistoryFirstStartTimeoutSeconds = 10;
+
+/// Same-session retries after a first-START timeout. Reset by a real START.
+const int kHistoryNoStartRetriesPerSession = 1;
+
+/// Seconds without a history marker from another client's transfer (one this
+/// engine did not request) after which that transfer is considered over.
+///
+/// ASSUMES: the band re-offers an unanswered HISTORY_END every ~2.5 s, so a
+/// transfer that is still alive produces a marker well inside this window.
+/// FALSIFIED BY: a transfer that pauses longer than this between markers.
+/// WHEN WRONG: edge starts its own request into the other client's session —
+/// the competing-transfer case this window exists to avoid; still no data is
+/// lost, because edge never answers the other client's bursts.
+/// HOW TO CHECK: a `refresh(...) — sending SEND_HISTORICAL_DATA` line shortly
+/// after a `transfer this app did not request` line with markers continuing.
+const int kForeignHistoryQuietSeconds = 10;
+
+/// Seconds another client's transfer may go without PROGRESS (a HISTORY_START
+/// or a history record) before it is considered abandoned, however often its
+/// HISTORY_END is re-offered. Same bound as our own idle watchdog
+/// ([kBackfillIdleTimeoutSeconds]): a band re-offering an END nobody answers
+/// (the other client was killed mid-transfer) would otherwise keep the
+/// window open — every claim deferred, maintenance paused — for the life of
+/// the link.
+const int kForeignHistoryStallSeconds = 60;
+
 /// Silence past which an ACTIVE session tears itself down (`_keepAliveFire`).
 ///
 /// ASSUMES: a healthy link always produces inbound traffic inside two minutes.

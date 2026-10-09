@@ -99,6 +99,12 @@ abstract class BandLink {
 
   /// One line into the engine log the user can already see and export.
   void log(String message);
+
+  /// End every live `notify()` stream and refuse every write from here on.
+  /// Idempotent; the host's teardown calls it beside cancelling its `run()`
+  /// subscription, so a write an adapter queued before teardown cannot land
+  /// on a LATER connection to the same peripheral.
+  Future<void> close();
 }
 
 /// One sample, in the vocabulary of the substrate rather than of any band.
@@ -179,9 +185,10 @@ class SampleBatch extends BandEvent {
   final List<NeutralSample> samples;
 
   /// The verbatim frames these samples were decoded from, for `raw_archive` —
-  /// the never-pruned store of bytes we could not decode or do not yet
-  /// understand. Null when the band has no envelope worth keeping (a `0x2A37`
-  /// notification IS the sample; archiving it stores the same numbers twice).
+  /// the kept store (except the thinning in `LocalDb.thinRawArchiveBefore`) of
+  /// bytes we could not decode or do not yet understand. Null when the band has
+  /// no envelope worth keeping (a `0x2A37` notification IS the sample;
+  /// archiving it stores the same numbers twice).
   final List<Uint8List>? raw;
 
   /// TRUE = this batch is a live stream, and NOTHING here may be persisted.
@@ -334,12 +341,69 @@ class ReplayBandLink implements BandLink {
   /// pending when a session's own teardown starts).
   Duration writeDelay = Duration.zero;
 
+  /// Synchronous hook fired at the TOP of every [write], before the reply —
+  /// the deterministic way for a lifecycle test to observe the session is
+  /// still driving the link at a chosen point, without sleeps.
+  void Function(String characteristicUuid, List<int> value)? onWrite;
+
+  /// Whether [close] has run — the observable stand-in for "the teardown
+  /// started", since a real link's `close()` is what ends its notify streams.
+  bool closed = false;
+
+  /// Set by the FIRST line of [close], before any channel work: the write
+  /// refusal is IMMEDIATE and synchronous, a separate thing from the awaited,
+  /// asynchronous stream shutdown below. A write an adapter queued before
+  /// teardown meets a refusal that is already in force — not one that takes
+  /// effect "once the closes finish".
+  bool writesRefused = false;
+
+  /// While set, every [write] PARKS at this completer before doing anything
+  /// else. The deterministic way to hold a session open at a CONCRETE step —
+  /// a completer the test completes, not a timeout racing execution speed.
+  /// Test-only.
+  Completer<void>? writeGate;
+
+  final Completer<void> _gateEntered = Completer<void>();
+  /// Completes on [close] — the same trick `GattBandLink` uses with its
+  /// `_closedSignal`: a write parked at [writeDelay]'s `Future.delayed` is
+  /// RACED against this signal, so `close()` interrupts the delay wait
+  /// instead of leaving the write parked there past the harness deadline
+  /// (`BandHost.stop`'s `cancel()` would otherwise wait for it).
+  final Completer<void> _closedSignal = Completer<void>();
+
+  /// Completes the first time a [write] parks at [writeGate] — proof the
+  /// session actually reached the held step, so a watchdog verdict never
+  /// depends on how fast the machine got there. Test-only.
+  Future<void> get gateEntered => _gateEntered.future;
+
   /// Single-subscription on purpose: it BUFFERS, so a fixture may be fed
   /// before the adapter has got around to subscribing and nothing is dropped.
   /// A second `notify()` of the same characteristic throws, which is correct —
   /// an adapter subscribing twice to one characteristic is a bug.
   StreamController<(int, List<int>)> _channel(String uuid) =>
       _channels.putIfAbsent(uuid, StreamController<(int, List<int>)>.new);
+
+  /// Test-only: while set, [close] PARKS here — after the refusal flags and
+  /// gate releases are already in force, but BEFORE the channel closes. The
+  /// deterministic way to hold `OuraLink.stop()` pending at exactly the
+  /// `await closing` step it must not skip: the test completes this
+  /// completer when it chooses to let the teardown finish.
+  Completer<void>? closeGate;
+
+  /// Completes the first time [close] is ENTERED — the deterministic hook a
+  /// lifecycle test awaits instead of polling event-loop turns for
+  /// `closeCount` to grow. Completes BEFORE the [closeGate] wait, so a test
+  /// can prove ordering ("the close entered, the teardown is inside it")
+  /// with an await, not a spin.
+  final Completer<void> _closeEntered = Completer<void>();
+  Future<void> get closeEntered => _closeEntered.future;
+
+  /// How many times [close] has been ENTERED. The observable that separates a
+  /// teardown-driven close from the harness's fallback close: a replay
+  /// session whose production teardown really owns the link closes it once
+  /// itself and the harness's unconditional fallback close makes two —
+  /// without the teardown registration the fallback is the ONLY close.
+  int closeCount = 0;
 
   @override
   Stream<(int, List<int>)> notify(String characteristicUuid) =>
@@ -363,8 +427,36 @@ class ReplayBandLink implements BandLink {
 
   @override
   Future<bool> write(String characteristicUuid, List<int> value) async {
+    // THE `close()` CONTRACT, actually honoured, and checked at EVERY await
+    // boundary of this method — a closed link must not even WAIT at a gate:
+    // a close that happens while a write is parked must be honoured when the
+    // write wakes up, and a write that starts after close is refused before
+    // anything else. The verdict is the same `GattBandLink` gives, so an
+    // adapter bug that writes past its teardown fails its test here instead
+    // of only on a radio.
+    if (writesRefused) return false;
+    final gate = writeGate;
+    if (gate != null) {
+      if (!_gateEntered.isCompleted) _gateEntered.complete();
+      await gate.future; // may hang forever — that is the point
+      // closed WHILE parked at the gate: the refusal came into force under
+      // the in-flight write — refuse instead of recording.
+      if (writesRefused) return false;
+    }
+    onWrite?.call(characteristicUuid, value);
     writes.add((characteristicUuid, value));
-    if (writeDelay > Duration.zero) await Future<void>.delayed(writeDelay);
+    if (writeDelay > Duration.zero) {
+      // The delay is RACED against the close signal: close must release
+      // EVERY await boundary of this link, this one included — a write
+      // parked here wakes on close (and then meets the `writesRefused`
+      // check below), never after the full delay.
+      await Future.any<void>([
+        Future<void>.delayed(writeDelay),
+        _closedSignal.future,
+      ]);
+    }
+    // closed while parked at the delay: same rule, second await boundary.
+    if (writesRefused) return false;
     return writeSucceeds;
   }
 
@@ -390,11 +482,38 @@ class ReplayBandLink implements BandLink {
   /// to appear — so there was no real bug this gate was fixing; whatever
   /// narrow race it was reasoning about did not hold up against the real
   /// fixture. Keep this plain.
+  /// Test-only: make [close] fail with a [StateError] AFTER it has done its
+  /// real work (flags set, gates released, channels closed) — the close-failure
+  /// path of `OuraLink.stop`, on a link whose shutdown genuinely happened.
+  bool closeThrows = false;
+
+  @override
   Future<void> close() async {
+    closeCount++;
+    if (!_closeEntered.isCompleted) _closeEntered.complete();
+    closed = true;
+    writesRefused = true; // the write refusal is IMMEDIATE, not after the closes
+    // Release a write parked at [writeDelay]'s delay wait, same as the gate
+    // below: close must leave NO await boundary of this link that can hang a
+    // caller forever.
+    if (!_closedSignal.isCompleted) _closedSignal.complete();
+    // Release a write parked at [writeGate]: close must leave NO await
+    // boundary of this link that can hang a caller forever — a parked
+    // write wakes up, sees the refusal above, and returns false, so a
+    // session (and the host `cancel()` waiting for it to unwind) always
+    // has a way to end. The channel closes below do the same for every
+    // parked notification reader.
+    final g = writeGate;
+    if (g != null && !g.isCompleted) g.complete();
+    final cg = closeGate;
+    if (cg != null) await cg.future;
     for (final c in _channels.values) {
       await c.close();
     }
     _channels.clear();
+    if (closeThrows) {
+      throw StateError('replay link close failure (test seam)');
+    }
   }
 
   /// End one channel while the others stay open — for an adapter test that

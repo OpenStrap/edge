@@ -1,3 +1,4 @@
+import '../../l10n/display_text.dart';
 // Logging an eating occasion.
 //
 // The primary unit is the OCCASION, not the food. The big button at the top
@@ -736,6 +737,14 @@ class FoodRow extends StatelessWidget {
   Widget build(BuildContext c) {
     final p = P.of(c);
     final l = AppLocalizations.of(c);
+    final stacked = bigText(c);
+    final badge = Pill(
+              entry.source == FoodSource.barcode
+                  ? (l?.logFoodPillOpenFoodFacts ?? 'Open Food Facts')
+                  : (l?.logFoodPillYours ?? 'Yours'),
+      C.n400,
+      wrap: stacked,
+    );
     return Pressable(
       onTap: onTap,
       semanticLabel: '${entry.label}. ${_detail(c, entry)}',
@@ -759,6 +768,7 @@ class FoodRow extends StatelessWidget {
                     _detail(c, entry),
                     style: F.over.copyWith(color: p.ink3),
                   ),
+                  if (stacked) ...[const SizedBox(height: S.x1), badge],
                 ],
               ),
             ),
@@ -766,13 +776,7 @@ class FoodRow extends StatelessWidget {
             // and a crowd-sourced record is not one. A barcode row says so by
             // name, which is also the ODbL credit at the point of display;
             // everything else here is the user's own.
-            const SizedBox(width: S.x2),
-            Pill(
-              entry.source == FoodSource.barcode
-                  ? (l?.logFoodPillOpenFoodFacts ?? 'Open Food Facts')
-                  : (l?.logFoodPillYours ?? 'Yours'),
-              C.n400,
-            ),
+            if (!stacked) ...[const SizedBox(width: S.x2), badge],
             if (trailing != null) ...[
               const SizedBox(width: S.x2),
               Icon(trailing, size: 20, color: p.on(C.domFood)),
@@ -790,10 +794,22 @@ class FoodRow extends StatelessWidget {
       return AppLocalizations.of(c)?.logFoodBareOccasion ??
           'LOGGED · ENERGY NOT RECORDED';
     }
-    final parts = <String>['${e.kcal!.round()} kcal'];
-    if (e.proteinG != null) parts.add('${e.proteinG!.round()}P');
-    if (e.carbsG != null) parts.add('${e.carbsG!.round()}C');
-    if (e.fatG != null) parts.add('${e.fatG!.round()}F');
+    final parts = <String>['${e.kcal!.round()} ${uiText(c, 'kcal')}'];
+    if (e.proteinG != null) {
+      parts.add(
+        '${e.proteinG!.round()}${AppLocalizations.of(c)?.supplementProteinShort ?? 'P'}',
+      );
+    }
+    if (e.carbsG != null) {
+      parts.add(
+        '${e.carbsG!.round()}${AppLocalizations.of(c)?.supplementCarbsShort ?? 'C'}',
+      );
+    }
+    if (e.fatG != null) {
+      parts.add(
+        '${e.fatG!.round()}${AppLocalizations.of(c)?.supplementFatShort ?? 'F'}',
+      );
+    }
     return parts.join(' · ');
   }
 }
@@ -811,8 +827,8 @@ class _NumberRow extends StatelessWidget {
         Expanded(
           child: OsTextField(
             controller: fields[i].$3,
-            label: '${fields[i].$1} (${fields[i].$2})',
-            hint: hint,
+            label: '${fields[i].$1} (${uiText(c, fields[i].$2)})',
+            hint: uiText(c, hint),
             keyboard: const TextInputType.numberWithOptions(decimal: true),
           ),
         ),

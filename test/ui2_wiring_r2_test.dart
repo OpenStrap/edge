@@ -417,9 +417,11 @@ void main() {
   // amber has no notification, so before this the earliest signal the app
   // produces could only be found by opening Health and scrolling to it.
   group('illness watch on Home', () {
-    Widget frame(HomeData d) => MaterialApp(
+    Widget frame(HomeData d, {DateTime? now}) => MaterialApp(
         theme: buildTheme(Brightness.light),
-        home: Scaffold(body: HomeScreen(data: d, hour: 9)));
+        home: Scaffold(
+            body: HomeScreen(
+                data: d, hour: 9, now: now ?? DateTime(2026, 5, 20, 9))));
 
     const base = HomeData(dayId: '2026-05-20');
 
@@ -429,16 +431,19 @@ void main() {
       expect(find.textContaining('outside your normal range'), findsOneWidget);
     });
 
-    testWidgets('red shows, and says it is a run rather than one night',
+    testWidgets('red shows, and claims no streak it cannot back',
         (t) async {
       await t.pumpWidget(frame(base.copyOrIllness('red', '2026-05-20', 3.1)));
-      expect(find.textContaining('Several nights in a row'), findsOneWidget);
+      expect(find.textContaining('add up to a raised resting heart rate'), findsOneWidget);
+      // Accumulated evidence, not a streak: one high night can turn it red.
+      expect(find.textContaining('in a row'), findsNothing);
+      expect(find.textContaining('running above'), findsNothing);
     });
 
     testWidgets('green is SILENT, not a card saying you are fine', (t) async {
       await t.pumpWidget(frame(base.copyOrIllness('green', '2026-05-20', 0.2)));
       expect(find.textContaining('normal range'), findsNothing);
-      expect(find.textContaining('Several nights'), findsNothing);
+      expect(find.textContaining('add up to a raised'), findsNothing);
     });
 
     testWidgets('no state at all is silent too — the CUSUM wants 7 nights',
@@ -459,9 +464,100 @@ void main() {
 
     testWidgets('an older night is named rather than called last night',
         (t) async {
-      await t.pumpWidget(frame(base.copyOrIllness('amber', '2026-05-16', 2.2)));
-      expect(find.textContaining('16 May'), findsOneWidget);
+      await t.pumpWidget(frame(base.copyOrIllness('amber', '2026-05-19', 2.2)));
+      expect(find.textContaining('19 May'), findsOneWidget);
       expect(find.textContaining('Last night'), findsNothing);
+    });
+
+    // The watch publishes the newest SETTLED night, which after a few days off
+    // the wrist is days old — and the red title carries no date, so it would
+    // read as current. Older verdicts live in Observations, not on Home.
+    testWidgets('a verdict older than yesterday stays off Home', (t) async {
+      await t.pumpWidget(frame(base.copyOrIllness('red', '2026-05-16', 3.1)));
+      expect(find.textContaining('add up to a raised'), findsNothing);
+      expect(find.textContaining('normal range'), findsNothing);
+    });
+
+    testWidgets('an undated verdict renders nothing', (t) async {
+      await t.pumpWidget(frame(base.copyOrIllness('red', null, 3.1)));
+      expect(find.textContaining('add up to a raised'), findsNothing);
+    });
+
+    // A screen that stays mounted across midnight with no new sync keeps the
+    // payload it loaded; the verdict ages by the CLOCK, not by the payload.
+    testWidgets('the card expires when the calendar moves on', (t) async {
+      final d = base.copyOrIllness('red', '2026-05-19', 3.1);
+      await t.pumpWidget(frame(d, now: DateTime(2026, 5, 20, 9)));
+      expect(find.textContaining('add up to a raised'), findsOneWidget);
+      await t.pumpWidget(frame(d, now: DateTime(2026, 5, 21, 9)));
+      expect(find.textContaining('add up to a raised'), findsNothing);
+    });
+
+    testWidgets("yesterday's night is not called last night on a new day",
+        (t) async {
+      // Loaded on the 20th about the 20th's night; it is now the 21st.
+      await t.pumpWidget(frame(base.copyOrIllness('amber', '2026-05-20', 2.4),
+          now: DateTime(2026, 5, 21, 9)));
+      expect(find.textContaining('20 May sat outside'), findsOneWidget);
+      expect(find.textContaining('Last night'), findsNothing);
+    });
+  });
+
+  // Health's copy of the watch takes the same freshness rule as Home and the
+  // push, judged against the day the payload was built for.
+  group('illness watch on Health', () {
+    Future<void> pump(WidgetTester t, String? illnessDay,
+        {DateTime? now, String state = 'red'}) async {
+      t.view.physicalSize = const Size(390 * 3, 2400 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Scaffold(
+          body: HealthScreen(
+            now: now ?? DateTime(2026, 5, 20, 9),
+            data: HealthData(today: {
+              'status': {'today_day': '2026-05-20'},
+              'illness': {'state': state, 'date': illnessDay, 'z': 3.1},
+            }),
+          ),
+        ),
+      ));
+      await t.pumpAndSettle();
+    }
+
+    testWidgets('a red night yesterday shows', (t) async {
+      await pump(t, '2026-05-19');
+      expect(find.textContaining('add up to a raised resting heart rate'), findsOneWidget);
+      expect(find.textContaining('in a row'), findsNothing);
+      expect(find.textContaining('running above'), findsNothing);
+    });
+
+    testWidgets('a red night four days back does not', (t) async {
+      await pump(t, '2026-05-16');
+      expect(find.textContaining('add up to a raised resting heart rate'), findsNothing);
+    });
+
+    testWidgets('an undated verdict renders nothing', (t) async {
+      await pump(t, null);
+      expect(find.textContaining('add up to a raised resting heart rate'), findsNothing);
+    });
+
+    testWidgets('the card expires when the calendar moves on', (t) async {
+      // Same cached payload (built for the 20th), but it is now the 21st.
+      await pump(t, '2026-05-19', now: DateTime(2026, 5, 21, 9));
+      expect(find.textContaining('add up to a raised resting heart rate'), findsNothing);
+    });
+
+    // "Last night" and the gate read the same clock: an amber verdict about
+    // the clock's own day is last night, one about the day before is named.
+    testWidgets('amber names the night by the same clock the gate uses',
+        (t) async {
+      await pump(t, '2026-05-20', state: 'amber');
+      expect(find.textContaining('Last night sat outside'), findsOneWidget);
+      await pump(t, '2026-05-20', state: 'amber', now: DateTime(2026, 5, 21, 9));
+      expect(find.textContaining('Last night sat outside'), findsNothing);
+      expect(find.textContaining('20 May sat outside'), findsOneWidget);
     });
   });
 
@@ -771,6 +867,71 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('Nerd stats'), findsOneWidget);
       expect(find.text('Investigate'), findsNothing);
+    });
+  });
+
+  // ── the whole-night RMSSD row never borrows the nightly headline ──
+  //
+  // The "Time domain" table is the whole-night `hrv_time` envelope. When that
+  // RMSSD was refused, the row used to fall back to `d.hrv['rmssd']`, the
+  // sleep-session mean of 5-min windows: a different statistic under the
+  // whole-night label. The headline now has its own, labelled row.
+  group('Time-domain RMSSD rows', () {
+    testWidgets('a refused whole-night RMSSD drops its row; nightly has its own',
+        (t) async {
+      t.view.physicalSize = const Size(390 * 3, 3000 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Investigate('hrv',
+            data: InvestigateData(day: _day(0), hrv: {
+              'rmssd': 61.0,
+              'rmssd_sleep_session': {'value': 61.0, 'confidence': 0.82},
+              'hrv_time': {
+                'value': {'sdnn_ms': 70.0, 'n_beats': 20000},
+                'confidence': 0.3,
+                'tier': 'HIGH',
+              },
+            })),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('SDNN'), findsOneWidget, reason: 'the table rendered');
+      expect(find.text('RMSSD'), findsNothing,
+          reason: 'whole-night RMSSD is absent, so its row is dropped');
+      expect(find.text('RMSSD, nightly (mean of 5-min windows)'),
+          findsOneWidget);
+      expect(find.text('61.0 ms'), findsOneWidget);
+    });
+
+    testWidgets('a legacy fallback RMSSD is not labelled the 5-min-window mean',
+        (t) async {
+      // A bundle derived before `rmssd` became one estimator: the stored value
+      // is the NREM median, beside an absent session envelope.
+      t.view.physicalSize = const Size(390 * 3, 3000 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Investigate('hrv',
+            data: InvestigateData(day: _day(0), hrv: {
+              'rmssd': 48.3,
+              'rmssd_sleep_session': {
+                'value': '—',
+                'confidence': 0,
+                'note': 'no valid 5-min windows for sleep-session RMSSD',
+              },
+              'hrv_time': {
+                'value': {'sdnn_ms': 70.0, 'n_beats': 25000},
+                'confidence': 0.62,
+                'tier': 'HIGH',
+              },
+            })),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('RMSSD, nightly (mean of 5-min windows)'), findsNothing);
+      expect(find.text('RMSSD, nightly (earlier estimate)'), findsOneWidget);
+      expect(find.text('48.3 ms'), findsOneWidget);
     });
   });
 

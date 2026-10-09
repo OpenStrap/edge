@@ -462,10 +462,7 @@ class CoachActions {
     final name = str(a['name']);
     if (name.isEmpty) throw CoachActionError('A medication needs a name.');
     final minute = minuteOfDay(a['time']);
-    final days = <int>{
-      for (final d in (a['weekdays'] as List? ?? const []))
-        if (num_(d) != null) num_(d)!.round(),
-    }..removeWhere((d) => d < 1 || d > 7);
+    final days = medicationWeekdays(a['weekdays'] as List?);
     final dose = num_(a['dose_value']);
     var key = MedDb.keyFor(name);
     // ADD, not replace. `putDef` writes the whole row, so building a fresh
@@ -483,10 +480,7 @@ class CoachActions {
             d.label.trim().toLowerCase() == name.trim().toLowerCase())
         .firstOrNull;
     key = existing?.key ?? key;
-    final slot = MedSchedule(
-      minute,
-      days.isEmpty ? const [1, 2, 3, 4, 5, 6, 7] : (days.toList()..sort()),
-    );
+    final slot = MedSchedule(minute, days);
     // Same time of day twice is one entry, with the newer day-set winning —
     // that is how a person edits which days a dose falls on.
     final schedule = [
@@ -514,8 +508,20 @@ class CoachActions {
     return jsonEncode({
       'saved': true,
       'name': name,
-      'weekdays': days.isEmpty ? [1, 2, 3, 4, 5, 6, 7] : (days.toList()..sort()),
+      'weekdays': days,
     });
+  }
+
+  /// The weekday set [addMedication] saves for [raw] (`DateTime.weekday`,
+  /// 1 = Monday): rounded, out-of-range dropped, deduplicated, sorted — and
+  /// every day when nothing valid is left. Confirmations describe THIS, so
+  /// the user approves the schedule that is actually written.
+  static List<int> medicationWeekdays(List? raw) {
+    final days = <int>{
+      for (final d in raw ?? const [])
+        if (num_(d) != null) num_(d)!.round(),
+    }..removeWhere((d) => d < 1 || d > 7);
+    return days.isEmpty ? const [1, 2, 3, 4, 5, 6, 7] : (days.toList()..sort());
   }
 
   /// Record what happened to one scheduled dose.

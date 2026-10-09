@@ -18,6 +18,10 @@
 // come from elsewhere (`workout_route`, `strength_set`) or not at all, and the
 // screen has to be honest about it without falling apart.
 
+import '../../l10n/display_text.dart';
+import '../../state/locale_controller.dart';
+import 'package:intl/intl.dart';
+import '../../l10n/date_text.dart';
 import 'dart:convert' show utf8;
 import 'dart:typed_data' show Uint8List;
 
@@ -487,23 +491,9 @@ String hms(Duration d) => clock(d.inSeconds);
 
 /// 1 234 → "1,234". Thousands separators, because six-thousand-eight-hundred
 /// and forty-two kilos should not read as a phone number.
-String grouped(num v) {
-  final s = v.round().abs().toString();
-  final b = StringBuffer(v < 0 ? '-' : '');
-  for (var i = 0; i < s.length; i++) {
-    if (i > 0 && (s.length - i) % 3 == 0) b.write(',');
-    b.write(s[i]);
-  }
-  return b.toString();
-}
-
-String _shortDate(DateTime t) {
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  return '${months[t.month - 1]} ${t.day}, ${t.year} at ${formatClockOf(t)}';
-}
+String grouped(num v) => NumberFormat.decimalPattern(
+  LocaleController.displayLanguageCode,
+).format(v.round());
 
 // ── THE SUPPORTING STATS ───────────────────────────────────────────────────
 
@@ -647,13 +637,15 @@ class SessionStats extends StatelessWidget {
     for (final s in sessionStats(r, unitsOf(c))) {
       if (rows.isNotEmpty) rows.add(Divider(color: p.line, height: S.x5));
       final (value, unit) = splitStatUnit(s.$2);
-      rows.add(PosterStatRow(
-        icon: statIcon(s.$1),
-        label: s.$1,
-        value: value,
-        unit: unit,
-        accent: accent,
-      ));
+      rows.add(
+        PosterStatRow(
+          icon: statIcon(s.$1),
+          label: uiText(c, s.$1),
+          value: value,
+          unit: unit == null ? null : uiText(c, unit),
+          accent: accent,
+        ),
+      );
     }
     return Surface(child: Column(children: rows));
   }
@@ -986,16 +978,18 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     return Scaffold(
       backgroundColor: p.bg,
       body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: S.x4),
-            child: NavBar(
-              a.name,
-              sub: _shortDate(r.start).toUpperCase(),
-              // Each icon is a Pressable with S.tap's own 44 pt minimum hit
-              // box (grammar.dart's accessibility floor, not optional) —
-              // S.tap * n alone is short of that plus the gaps between them,
-              // which is exactly the RenderFlex overflow this avoids.
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: NavBar(
+                a.displayName(c),
+                sub: '${displayDate(c, r.start)} · ${formatClockOf(r.start)}'
+                    .toUpperCase(),
+                // Each icon is a Pressable with S.tap's own 44 pt minimum hit
+                // box (grammar.dart's accessibility floor, not optional) —
+                // S.tap * n alone is short of that plus the gaps between them,
+                // which is exactly the RenderFlex overflow this avoids.
               trailingWidth: iconCount == 1
                   ? S.tap
                   : S.tap * iconCount + S.x3 * (iconCount - 1),
@@ -1009,21 +1003,24 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                   ),
                   const SizedBox(width: S.x3),
                 ],
-                Pressable(
-                  semanticLabel: l?.activitySummaryShareThis(
-                          a.name.toLowerCase()) ??
-                      'Share this ${a.name.toLowerCase()}',
+                    Pressable(
+                      semanticLabel:
+                          l?.activitySummaryShareThis(
+                            a.displayName(context).toLowerCase(),
+                          ) ??
+                          'Share this ${a.name.toLowerCase()}',
                   onTap: () => Navigator.of(c).push(MaterialPageRoute(
                       builder: (_) => ShareSheet(r))),
-                  child: Icon(LucideIcons.share2, size: 19, color: p.ink2),
+                      child: Icon(LucideIcons.share2, size: 19, color: p.ink2),
+                    ),
+                  ],
                 ),
-              ]),
+              ),
             ),
-          ),
-          // A dedicated, plainly-labeled button rather than a bare icon in the
-          // nav bar — this is the one export action worth naming outright.
-          // Text only: no Strava logo/imagery, per the no-brand-assets policy
-          // (the brand name as plain text is fine, brand marks are not).
+            // A dedicated, plainly-labeled button rather than a bare icon in the
+            // nav bar — this is the one export action worth naming outright.
+            // Text only: no Strava logo/imagery, per the no-brand-assets policy
+            // (the brand name as plain text is fine, brand marks are not).
           if (canExportGpx)
             Padding(
               padding: const EdgeInsets.fromLTRB(S.x4, S.x2, S.x4, 0),
@@ -1069,9 +1066,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                 'Splits' => _splits(c, p),
                 _ => _graphs(c, p),
               },
+              ),
             ),
-          ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -1234,8 +1232,8 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               arch == Arch.journey && r.gainM != null
                   ? (l?.activitySummaryClimbed(r.gainM!.round()) ??
                       '+${r.gainM!.round()} m climbed')
-                  : a.name
-            ),
+                    : a.displayName(context),
+              ),
       Arch.strength => r.strength.volumeKg == null
           ? (
               '${r.strength.setCount}',
@@ -1423,12 +1421,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                           : (l?.activitySummaryPosesCount(r.poses.length) ??
                               '${r.poses.length} poses'),
                       style: F.head.copyWith(color: p.ink)),
-                  Text(
-                      r.breathsPerMin == null
-                          ? a.name
-                          : '${r.breathsPerMin!.toStringAsFixed(1)} breaths/min',
-                      style: F.over.copyWith(color: p.on(C.teal))),
-                ]),
+                Text(
+                  r.breathsPerMin == null
+                      ? a.displayName(context)
+                      : '${r.breathsPerMin!.toStringAsFixed(1)} breaths/min',
+                  style: F.over.copyWith(color: p.on(C.teal)),
+                ),
+              ],
+            ),
           ),
         ];
 
@@ -1579,8 +1579,10 @@ class _ActivitySummaryState extends State<ActivitySummary> {
       return [
         StatusCard(
           have == 0
-              ? (l?.activitySummaryNoPulseTitle(a.name.toLowerCase()) ??
-                  'No pulse reading for this ${a.name.toLowerCase()}')
+              ? (l?.activitySummaryNoPulseTitle(
+                      a.displayName(context).toLowerCase(),
+                    ) ??
+                    'No pulse reading for this ${a.name.toLowerCase()}')
               : (l?.activitySummaryOneMinutePulse ??
                   'One minute of pulse, and no more'),
           _thermalWhy!,
@@ -1624,14 +1626,16 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         // see it, so there is no connection to check and no button that
         // helps.
         : thermal
-            ? StatusCard(
-                l?.activitySummaryNoPulseTitle(a.name.toLowerCase()) ??
-                    'No pulse reading for this ${a.name.toLowerCase()}',
-                _thermalWhy!,
-                icon: _thermalIcon,
-              )
-            : StatusCard(
-                l?.activitySummaryNoHrTitle ?? 'No heart rate for this session',
+        ? StatusCard(
+            l?.activitySummaryNoPulseTitle(
+                  a.displayName(context).toLowerCase(),
+                ) ??
+                'No pulse reading for this ${a.name.toLowerCase()}',
+            _thermalWhy!,
+            icon: _thermalIcon,
+          )
+        : StatusCard(
+            l?.activitySummaryNoHrTitle ?? 'No heart rate for this session',
                 l?.activitySummaryNoHrBody ??
                     'The band reported nothing while this was running.',
                 fix: l?.activitySummaryCheckBandConnection ??
@@ -1751,10 +1755,11 @@ class _ActivitySummaryState extends State<ActivitySummary> {
                           ]),
                         ]),
                   ),
-                  const SizedBox(width: S.x2),
-                  // The row rule: the name gives way, the measurement keeps
-                  // its natural width and sits flush at the card edge.
-                  Text('${_kg(top.loadKg!)} × ${top.reps}',
+                    const SizedBox(width: S.x2),
+                    // The row rule: the name gives way, the measurement keeps
+                    // its natural width and sits flush at the card edge.
+                    Text(
+                      '${_kg(c, top.loadKg!)} × ${top.reps}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: F.n17.copyWith(color: p.ink)),
@@ -1838,12 +1843,14 @@ class _ActivitySummaryState extends State<ActivitySummary> {
 
   /// [v] is always in kg (storage unit); [_u] converts + rounds for display
   /// the same way its edit-field does.
-  String _kg(double v) {
+  String _kg(BuildContext c, double v) {
     final u = _u;
     if (u == null) {
-      return v == v.roundToDouble() ? '${v.round()} kg' : '${v.toStringAsFixed(1)} kg';
+      return v == v.roundToDouble()
+          ? '${v.round()} ${uiText(c, 'kg')}'
+          : '${v.toStringAsFixed(1)} ${uiText(c, 'kg')}';
     }
-    return '${u.weightField(v)} ${u.weightUnit}';
+    return '${u.weightField(v)} ${uiText(c, u.weightUnit)}';
   }
 
   // ─────────────────── SPLITS ───────────────────
@@ -2121,20 +2128,24 @@ class _ActivitySummaryState extends State<ActivitySummary> {
               s.loadKg == null
                   ? (l?.activitySummaryBodyweightReps(s.reps) ??
                       '${s.reps} reps · bodyweight')
-                  : '${_kg(s.loadKg!)} × ${s.reps}',
-              style: F.body.copyWith(color: p.ink)),
-        ),
+                  : '${_kg(context, s.loadKg!)} × ${s.reps}',
+              style: F.body.copyWith(color: p.ink),
+            ),
+          ),
         if (s.rpe != null)
           Text(l?.activitySummaryRpeValue(s.rpe!) ?? 'RPE ${s.rpe}',
               style: F.cap.copyWith(color: p.ink3)),
-        if (s.volume != null) ...[
-          const SizedBox(width: S.x3),
-          Text('${grouped(_u?.weightValue(s.volume!) ?? s.volume!)} '
-                  '${_u?.weightUnit ?? 'kg'}',
+          if (s.volume != null) ...[
+            const SizedBox(width: S.x3),
+            Text(
+              '${grouped(_u?.weightValue(s.volume!) ?? s.volume!)} '
+              '${uiText(context, _u?.weightUnit ?? 'kg')}',
               style: F.cap
-                  .copyWith(color: p.ink2, fontWeight: FontWeight.w600)),
+                  .copyWith(color: p.ink2, fontWeight: FontWeight.w600),
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 
@@ -2162,7 +2173,9 @@ class _ActivitySummaryState extends State<ActivitySummary> {
         // reason, and "check band connection" is not it.
         else if (thermal)
           StatusCard(
-            l?.activitySummaryNothingToPlot(a.name.toLowerCase()) ??
+            l?.activitySummaryNothingToPlot(
+                  a.displayName(context).toLowerCase(),
+                ) ??
                 'Nothing to plot for this ${a.name.toLowerCase()}',
             _thermalWhy!,
             icon: _thermalIcon,

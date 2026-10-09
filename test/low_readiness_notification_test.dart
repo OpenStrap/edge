@@ -1,7 +1,8 @@
-// "Low readiness today" thresholds the readiness the user sees (metric_series
-// 'readiness', the composite), not the deprecated glass-box score in the
-// cross-day bundle. The two are different models and can sit on opposite sides
-// of kLowReadiness on the same morning.
+// "Low readiness" thresholds the readiness the user sees (metric_series
+// 'readiness', the composite, or the morning pin for its day), not the
+// deprecated glass-box score in the cross-day bundle. The two are different
+// models and can sit on opposite sides of kLowReadiness (the ring's "Rest
+// today" band) on the same morning.
 
 import 'dart:convert';
 
@@ -59,6 +60,13 @@ void main() {
       }),
     );
     await LocalDb.putMetricSeriesValue(today, 'readiness', readiness);
+    // The day itself exists: a pin is only read for a day that has a result.
+    await LocalDb.putDayResult(
+      dayId: today,
+      algoVersion: kAlgoVersion,
+      payloadJson: '{}',
+      windowJson: '{}',
+    );
   }
 
   // A pin only counts for the night it was taken on, so the pin tests give
@@ -88,10 +96,10 @@ void main() {
   });
 
   test('the morning pin wins over a drifted series value', () async {
-    // Pin 36 (ring shows 36, not low); a later re-derive drifted the series
-    // to 31. Must not buzz.
-    await seed(glassBox: 70, readiness: 31);
-    await pinOnTodaysNight(36);
+    // Pin 30 (ring shows 30, "Take it easy"); a later re-derive drifted the
+    // series to 24. Must not buzz.
+    await seed(glassBox: 70, readiness: 24);
+    await pinOnTodaysNight(30);
     await DerivationEngine().runNotificationsForTest();
     expect(shown, isEmpty);
   });
@@ -99,7 +107,7 @@ void main() {
   test('a low pin buzzes even after the series drifted above the line',
       () async {
     await seed(glassBox: 70, readiness: 40);
-    await pinOnTodaysNight(30);
+    await pinOnTodaysNight(22);
     await DerivationEngine().runNotificationsForTest();
     expect(shown, hasLength(1));
   });

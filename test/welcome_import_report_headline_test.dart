@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/ui2/onboarding/welcome.dart';
 
 Future<void> _pump(WidgetTester tester, ImportOutcome o) => tester.pumpWidget(
@@ -43,5 +44,63 @@ void main() {
     expect(find.textContaining('3 workout'), findsOneWidget);
     expect(find.textContaining('1 lab result'), findsOneWidget);
     expect(find.textContaining('1 journal day replaced'), findsOneWidget);
+  });
+
+  testWidgets('archive buckets a backup could not merge are reported, not '
+      'dropped silently', (tester) async {
+    await _pump(
+      tester,
+      const ImportOutcome(
+          source: 'OpenStrap backup', days: 4, archiveBucketsSkipped: 2),
+    );
+    expect(find.textContaining('Part of that file could not be used'),
+        findsOneWidget);
+    expect(find.textContaining('2 days of stored raw sensor history'),
+        findsOneWidget);
+    expect(find.text('Update the app'), findsOneWidget);
+  });
+
+  testWidgets('a re-import that lands nothing still reports the archive '
+      'buckets it could not merge', (tester) async {
+    // Every backed-up day already finalized here: 0 days imported.
+    await _pump(
+      tester,
+      const ImportOutcome(source: 'OpenStrap backup', archiveBucketsSkipped: 1),
+    );
+    expect(find.textContaining('Nothing was imported'), findsOneWidget);
+    expect(find.textContaining('1 day of stored raw sensor history'),
+        findsOneWidget);
+    expect(find.text('Update the app'), findsOneWidget);
+    // Nothing else landed, so nothing may claim it did.
+    expect(find.textContaining('Everything else'), findsNothing);
+  });
+
+  test('the skipped-archive line never claims the rest imported, and every '
+      'language has the archive strings', () {
+    final en = lookupAppLocalizations(const Locale('en'));
+    for (final n in [1, 2]) {
+      expect(en.welcomeArchiveSkipped(n), isNot(contains('Everything else')));
+    }
+    for (final code in ['de', 'es', 'fr', 'hi', 'zh']) {
+      final l = lookupAppLocalizations(Locale(code));
+      expect(l.actionUpdateApp, isNot(en.actionUpdateApp), reason: code);
+      expect(l.welcomeArchiveSkipped(2), isNot(en.welcomeArchiveSkipped(2)),
+          reason: code);
+      expect(l.welcomeArchiveSkipped(2), contains('2'), reason: code);
+      expect(l.welcomeArchiveRestored(3), isNot(en.welcomeArchiveRestored(3)),
+          reason: code);
+      expect(l.welcomeArchiveRestored(3), contains('3'), reason: code);
+    }
+  });
+
+  testWidgets('a restore that only adds raw history is not "nothing imported"',
+      (tester) async {
+    await _pump(
+      tester,
+      const ImportOutcome(source: 'OpenStrap backup', archiveBucketsRestored: 3),
+    );
+    expect(find.textContaining('Nothing was imported'), findsNothing);
+    expect(find.textContaining('restored or extended for 3 days'),
+        findsOneWidget);
   });
 }

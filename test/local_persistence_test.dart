@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/models.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 
 void main() {
   // Route sqflite through the FFI factory so LocalDb.instance opens a real
@@ -363,7 +364,8 @@ void main() {
     () async {
       const eventHex = '3000070000105e5f';
       await LocalDb.insertEvent(7, 1600000000, eventHex,
-          deviceId: LocalDb.kPrimaryDeviceId);
+          deviceId: LocalDb.kPrimaryDeviceId,
+          profile: proto.BandProfile.gen4);
       await LocalDb.insertBandBatterySample(
         ts: 1600000100,
         deviceId: LocalDb.kPrimaryDeviceId,

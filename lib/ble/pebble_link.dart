@@ -217,6 +217,11 @@ class PebbleLink {
     for (final value in arrivals) {
       link.feed(kPebblePpogattReadUuid, value, atSec: 1_800_000_000);
     }
+    // Let the adapter answer what was fed BEFORE closing: a closed link
+    // refuses writes, and an unacknowledged packet is (rightly) not banked.
+    for (var i = 0; i < 20; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
     await link.close();
     await done;
     await host.stop();

@@ -1,3 +1,4 @@
+import '../../l10n/date_text.dart';
 // NERD STATS — density 3 of 3. (File and classes keep the old `Investigate`
 // name on purpose: renaming them churns every import, the gallery keys and
 // twelve golden files for zero user benefit. The user-facing string is the
@@ -20,6 +21,7 @@
 // "locked" — Beats, Vitals, Sleep, Readiness and every metric drill-down each
 // carry a plain row down to it.
 
+import '../../l10n/display_text.dart';
 import 'dart:convert' show jsonDecode;
 import 'dart:math' show sqrt;
 
@@ -276,28 +278,34 @@ class _InvestigateState extends State<Investigate> {
     final d = _d ?? const InvestigateData();
     final hrvish = widget.metricKey == 'hrv';
 
-    return detailScaffold(c, spec.title,
-        sub: l?.investigateNerdStatsLabel ?? 'NERD STATS', [
-      ...dayNavRow(_day ?? d.day, d.days, _goDay),
-      if (_loading) ...[
+    return detailScaffold(
+      c,
+      uiText(context, spec.title),
+      sub: l?.investigateNerdStatsLabel ?? 'NERD STATS',
+      [
+        ...dayNavRow(_day ?? d.day, d.days, _goDay),
+        if (_loading) ...[
         const SizedBox(height: S.x8),
         const Center(child: CircularProgressIndicator()),
       ] else ...[
-        if (hrvish) ..._hrvPanels(c, d) else ..._genericPanels(c, spec, d),
-        if (widget.metricKey == 'resp_rate') ..._restingBreathPanels(d),
-        if (widget.metricKey == 'resp_rate') ..._cvhrPanels(d),
-        if (widget.metricKey == 'sleep') ..._stagePanels(d),
-        if (widget.metricKey == 'steps') ..._stepSourcePanels(d),
-        const SizedBox(height: S.x3),
-        MonoTable(l?.investigateProvenanceLabel ?? 'Provenance', [
-          (l?.investigateDayLabel ?? 'Day', d.day ?? '—'),
+          if (hrvish) ..._hrvPanels(c, d) else ..._genericPanels(c, spec, d),
+          if (widget.metricKey == 'resp_rate') ..._restingBreathPanels(d),
+          if (widget.metricKey == 'resp_rate') ..._cvhrPanels(d),
+          if (widget.metricKey == 'sleep') ..._stagePanels(d),
+          if (widget.metricKey == 'steps') ..._stepSourcePanels(d),
+          const SizedBox(height: S.x3),
+          MonoTable(l?.investigateProvenanceLabel ?? 'Provenance', [
+            (
+              l?.investigateDayLabel ?? 'Day',
+              d.day == null ? '—' : displayDay(d.day, l),
+            ),
           (l?.investigateCoverageLabel ?? 'Coverage',
               d.coveragePct == null ? '—' : '${d.coveragePct} %'),
           if (d.windowStart != null)
             (l?.investigateSleepWindowLabel ?? 'Sleep window',
                 '${clockOfTs(d.windowStart)} – ${clockOfTs(d.windowEnd)}'),
-          // Asserted as "wrist optical · this device" for every day, including
-          // days that were read out of somebody else's export.
+            // Asserted as "wrist optical · this device" for every day, including
+            // days that were read out of somebody else's export.
           (l?.investigateSourceLabel ?? 'Source',
               d.importedFrom == null
                   ? (l?.investigateSourceOnDevice ??
@@ -322,10 +330,11 @@ class _InvestigateState extends State<Investigate> {
             () => go(c, DayTimelineScreen(day: d.day)),
           ),
         ],
-        const SizedBox(height: S.x5),
-        _method(c, spec),
+          const SizedBox(height: S.x5),
+          _method(c, spec),
+        ],
       ],
-    ]);
+    );
   }
 
   // ── STEPS: which sensor counted which part of the day ──
@@ -396,7 +405,23 @@ class _InvestigateState extends State<Investigate> {
 
     return [
       MonoTable(l?.investigateTimeDomain ?? 'Time domain', [
-        (l?.investigateRmssd ?? 'RMSSD', ms(time['rmssd_ms'] ?? d.hrv['rmssd'])),
+        // Whole-night RMSSD, from the same `hrv_time` envelope as the rest of
+        // this table. Absent (refused) drops the row; it never borrows the
+        // nightly headline, which is a different statistic.
+        (l?.investigateRmssd ?? 'RMSSD', ms(time['rmssd_ms'])),
+        // The nightly headline, labelled by the estimator that produced it:
+        // the session mean when its envelope holds a value. A bundle derived
+        // before `rmssd` became that single estimator stores an earlier
+        // fallback (NREM median or whole-night) beside an absent envelope, and
+        // must not be passed off as the 5-min-window mean.
+        (
+          rmssdFromSessionEstimator(d.hrv['rmssd_sleep_session'])
+              ? (l?.investigateRmssdNightly ??
+                  'RMSSD, nightly (mean of 5-min windows)')
+              : (l?.investigateRmssdStored ??
+                  'RMSSD, nightly (earlier estimate)'),
+          ms(d.hrv['rmssd'])
+        ),
         (l?.investigateSdnn ?? 'SDNN', ms(time['sdnn_ms'] ?? d.hrv['sdnn'])),
         (l?.investigateSdann ?? 'SDANN', ms(time['sdann_ms'])),
         (l?.investigateSdnnIndex ?? 'SDNN index', ms(time['sdnn_index_ms'])),
@@ -1047,7 +1072,9 @@ class _InvestigateState extends State<Investigate> {
     int? min(String k) => (n[k] as num?)?.round();
     final light = min('light_min'), dp = min('deep_min'), r = min('rem_min');
     final tst = min('duration_min');
-    if (light == null || dp == null || r == null || tst == null) return const [];
+    if (light == null || dp == null || r == null || tst == null) {
+      return const [];
+    }
     final conf = (n['stages_confidence'] as num?)?.toDouble();
     final iv = ana.stageIntervals(
       lightSec: light * 60,
@@ -1086,8 +1113,9 @@ class _InvestigateState extends State<Investigate> {
       return [
         StatusCard(
             l?.investigateNothingComputedForKey ?? 'Nothing computed for this key',
-            spec.suppress!,
-            icon: spec.icon),
+          uiText(c, spec.suppress!),
+          icon: spec.icon,
+        ),
       ];
     }
     final s = d.series;
@@ -1095,8 +1123,10 @@ class _InvestigateState extends State<Investigate> {
       return [
         StatusCard(
           l?.investigateNoStoredSeries ?? 'No stored series',
-          l?.investigateNothingStoredYet(spec.title.toLowerCase()) ??
-              'Nothing stored for ${spec.title.toLowerCase()} yet.',
+          l?.investigateNothingStoredYet(
+                uiText(context, spec.title).toLowerCase(),
+              ) ??
+              'Nothing stored for ${uiText(context, spec.title).toLowerCase()} yet.',
           icon: spec.icon,
         ),
       ];
@@ -1123,8 +1153,12 @@ class _InvestigateState extends State<Investigate> {
         (l?.investigateSd ?? 'SD', n(sd)),
         (l?.investigateMin ?? 'Min', n(sorted.first)),
         (l?.investigateMax ?? 'Max', n(sorted.last)),
-        (l?.investigateUnit ?? 'Unit',
-            spec.unit.isEmpty ? (l?.investigateUnitless ?? 'unitless') : spec.unit),
+        (
+          l?.investigateUnit ?? 'Unit',
+          spec.unit.isEmpty
+              ? (l?.investigateUnitless ?? 'unitless')
+              : uiText(c, spec.unit),
+        ),
         (l?.investigateStorage ?? 'Storage',
             l?.investigateOneValuePerDerivedDay ?? 'one value per derived day'),
       ]),
@@ -1143,14 +1177,18 @@ class _InvestigateState extends State<Investigate> {
         Text(
             spec.method.isEmpty
                 ? (l?.investigateNotDocumented ?? 'Not documented.')
-                : spec.method,
-            style: F.cap.copyWith(color: p.ink2, height: 1.6)),
-        if (spec.citation.isNotEmpty) ...[
-          const SizedBox(height: S.x3),
-          Text(spec.citation,
-              style: F.over.copyWith(color: p.ink3, fontFamily: 'Menlo')),
+                : uiText(c, spec.method),
+            style: F.cap.copyWith(color: p.ink2, height: 1.6),
+          ),
+          if (spec.citation.isNotEmpty) ...[
+            const SizedBox(height: S.x3),
+            Text(
+              uiText(c, spec.citation),
+              style: F.over.copyWith(color: p.ink3, fontFamily: 'Menlo'),
+            ),
+          ],
         ],
-      ]),
+      ),
     );
   }
 }

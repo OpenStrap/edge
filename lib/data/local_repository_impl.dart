@@ -19,10 +19,12 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import '../compute/derivation_engine.dart';
+import '../compute/findings.dart' show servedReadiness;
 import '../compute/hr_max.dart';
 import '../compute/manual_session.dart';
 import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
 import '../compute/profile.dart';
+import '../compute/quiet_level.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart' as proto;
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
@@ -373,9 +375,6 @@ class LocalRepositoryImpl extends LocalRepository {
         : (_sub(sleepBundle, 'clinical') ?? const <String, dynamic>{});
     final cd = await _crossDay();
 
-    final hrvTime = clinical['hrv_time'] is Map
-        ? (clinical['hrv_time'] as Map).cast<String, dynamic>()
-        : null;
     final rhrEnv = clinical['resting_hr'] is Map
         ? (clinical['resting_hr'] as Map).cast<String, dynamic>()
         : null;
@@ -530,7 +529,7 @@ class LocalRepositoryImpl extends LocalRepository {
             'baseline': (await _seriesMean('rmssd',
                     before: (sleepBundle?['date'] as String?) ?? todayDay))
                 ?.round(),
-            'confidence': (hrvTime?['confidence'] as num?) ?? 0.5,
+            'confidence': hrvConfidenceForToday(clinical),
           };
 
     return {
@@ -889,6 +888,10 @@ class LocalRepositoryImpl extends LocalRepository {
       'sdnn': _scalar(b, 'sdnn'),
       'ln_rmssd': _scalar(b, 'ln_rmssd'),
       'baseline': await _seriesMean('rmssd', before: served),
+      // Which estimator `rmssd` came from: the sleep-session mean when this
+      // envelope holds a value; on a bundle derived before `rmssd` became that
+      // single estimator, an earlier fallback stands beside an absent one.
+      'rmssd_sleep_session': _sub(b, 'clinical.rmssd_sleep_session'),
       'hrv_time': _sub(b, 'clinical.hrv_time'),
       'hrv_freq': _sub(b, 'clinical.hrv_freq'),
       'prsa_dc': _sub(b, 'clinical.prsa_dc'),
@@ -2019,16 +2022,30 @@ class LocalRepositoryImpl extends LocalRepository {
     };
     final distinctDevices = {for (final ids in coverageDevices.values) ...ids};
 
-    final oldestDaySec =
-        rows.isEmpty ? _nowSec() : _dateToEpoch(rows.first['date'] as String);
+    // The pinned day gets its point even with no stored value: `metricSeries`
+    // drops null rows, and a partial derive can pin the headline without
+    // writing the day's readiness (or a later derive can write it as null).
+    // The ring and the push show the pin; the chart, and the Observations log
+    // built from it, must have the same number to show.
+    final stored = {for (final r in rows) r['date'] as String: r['value']};
+    final pinDayValue = pin == null ? null : (day: pin.day, value: pin.value);
+    final dates = [
+      ...stored.keys,
+      if (pin != null && !stored.containsKey(pin.day)) pin.day,
+    ]..sort();
+    final oldestDaySec = dates.isEmpty ? _nowSec() : _dateToEpoch(dates.first);
 
     return {
       'points': [
-        for (final r in rows)
-          if (r['date'] != heldDay || r['date'] == pin?.day)
+        for (final d in dates)
+          if (d != heldDay || d == pin?.day)
             {
-              't': _dateToEpoch(r['date'] as String),
-              'v': r['date'] == pin?.day ? pin!.value : r['value'],
+              't': _dateToEpoch(d),
+              // One value rule with the low-readiness push and log.
+              'v': key == 'readiness'
+                  ? servedReadiness(d,
+                      pin: pinDayValue, stored: (stored[d] as num?)?.toDouble())
+                  : stored[d],
             },
       ],
       // L4 — THE DENOMINATOR. Worn minutes for the same days, so a long trend
@@ -2917,6 +2934,8 @@ class LocalRepositoryImpl extends LocalRepository {
     // row, every import, every raw replay) — is a refusal, not gen4 by default.
     final deviceFamily = (existing?['device_family'] as String?) ??
         await _windowDeviceFamily(startTs, endTs);
+    final quiet = await personalQuietLevelBefore(
+        dayLabelOf(DateTime.fromMillisecondsSinceEpoch(startTs * 1000)));
 
     final stats = computeManualSessionStats(
       hrTs: hrTs,
@@ -2929,6 +2948,10 @@ class LocalRepositoryImpl extends LocalRepository {
       // calorie anchor; the two are named separately because they can now be
       // different ceilings.
       zoneSet: _zoneSetFor(deviceFamily, await _zoneAnchors()),
+      // The quiet level of the session's OWN local day (its start), so the
+      // bout is priced on the baseline that day's strain was.
+      quietHrr: quiet.value?.hrr,
+      quietSettled: quiet.value?.settled ?? true,
     );
 
     final row = buildManualSessionRow(
@@ -3037,6 +3060,9 @@ class LocalRepositoryImpl extends LocalRepository {
           _profileMaxHr(row['device_family'] as String?)?.toDouble();
       final restingHrForSession =
           await _recentRestingHr() ?? profile.restingHrManual?.toDouble();
+      // Same rule as the save path: the session's own local day's level.
+      final quiet = await personalQuietLevelBefore(
+          dayLabelOf(DateTime.fromMillisecondsSinceEpoch(startTs * 1000)));
       final stats = computeManualSessionStats(
         hrTs: [for (final e in hrRows) (e['rec_ts'] as num).toInt()],
         hrBpm: hrBpm,
@@ -3045,6 +3071,8 @@ class LocalRepositoryImpl extends LocalRepository {
         restingHr: restingHrForSession,
         zoneSet: _zoneSetFor(
             row['device_family'] as String?, await _zoneAnchors()),
+        quietHrr: quiet.value?.hrr,
+        quietSettled: quiet.value?.settled ?? true,
       );
       // The peak is smoothed inside `computeManualSessionStats` now — one
       // definition for the manual save, this re-score and the workout list
@@ -4481,6 +4509,30 @@ Map<String, dynamic>? coachToday(Map<String, dynamic>? crossDay) {
       'rationale': (v['rationale'] ?? '').toString(),
     },
   };
+}
+
+/// The confidence of the /today HRV block: the sleep-session headline's own,
+/// because that is the estimate whose value the block shows — not the
+/// whole-night `hrv_time` envelope's, a different estimator. Pure + public so
+/// the Today seam is unit-testable.
+///
+/// LEGACY BUNDLES. A day_result derived before `rmssd` became that single
+/// estimator can hold a FALLBACK `rmssd` (the NREM median or the whole-night
+/// value) beside an absent session envelope (`value: '—'`, confidence 0). The
+/// session's confidence does not describe that number, and 0 would make every
+/// consumer that honours confidence (Health's HRV row: `Metric.isEmpty`) blank
+/// a value the widget, the trends and the baselines still show. Such a bundle
+/// keeps the confidence it was always served with, `hrv_time`'s. A bundle
+/// derived since never reaches that branch: its `rmssd` is null whenever the
+/// session is absent, so no HRV block is built at all.
+num hrvConfidenceForToday(Map<String, dynamic> clinical) {
+  final session = clinical['rmssd_sleep_session'];
+  final whole = clinical['hrv_time'];
+  final wholeConf = whole is Map ? whole['confidence'] as num? : null;
+  if (rmssdFromSessionEstimator(session)) {
+    return ((session as Map)['confidence'] as num?) ?? wholeConf ?? 0.5;
+  }
+  return wholeConf ?? 0.5;
 }
 
 /// The /today `stress` block from a day bundle — the pipeline's Baevsky block,

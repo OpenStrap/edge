@@ -3,7 +3,8 @@
 // Four independent detectors fire on the cross-day rollup: the illness CUSUM,
 // the multivariate overnight anomaly, the skin-temperature flag and a
 // change-point search on resting heart rate. A fifth, the irregular-rhythm
-// screen, comes off `metric_series`, and a sixth is simply a low readiness.
+// screen, comes off `metric_series`, and a sixth is the ring's lowest band
+// ("Rest today"), on the same composite the ring shows.
 //
 // Exactly one of them — illness — ever reached a screen. The rest existed only
 // as a push notification: one buzz, and if you dismissed it, gone. The
@@ -31,9 +32,19 @@
 import 'package:flutter/foundation.dart';
 import 'package:openstrap_analytics/onehz.dart' as ana;
 
-/// Below this, readiness is a finding. Shared so the notification and the log
-/// cannot disagree about which mornings were low.
-const double kLowReadiness = 34;
+import '../data/day_label.dart' show dayLabelBefore;
+
+/// The headline composite's band cut-offs — its OWN quantiles (see the long
+/// note on `readinessBand`): p=.05 → 26, p=.20 → 37, p=.75 → 61. The ring,
+/// the widget, the briefing, the push and the log all band through these.
+const double kReadinessRestBelow = 26; // "Rest today"
+const double kReadinessEasyBelow = 37; // "Take it easy"
+const double kReadinessGoodFrom = 61; // "Good to go"
+
+/// Below this, readiness is a finding: the ring's lowest band, "Rest today"
+/// (~5 % of nights by construction). Shared so the ring, the notification and
+/// the log cannot disagree about which mornings were low.
+const double kLowReadiness = kReadinessRestBelow;
 
 enum FindingKind {
   illness,
@@ -46,7 +57,7 @@ enum FindingKind {
 
 @immutable
 class Finding {
-  const Finding(this.kind, this.date, {this.risen});
+  const Finding(this.kind, this.date, {this.risen, this.score});
 
   final FindingKind kind;
 
@@ -57,6 +68,9 @@ class Finding {
 
   /// Direction, for [FindingKind.rhrShift] only.
   final bool? risen;
+
+  /// The readiness the ring showed, for [FindingKind.lowReadiness] only.
+  final int? score;
 
   /// DETECTION-class, the ones the design sanctions interrupting for. It picks
   /// the notification's dedupe key and marks the entry in the log; it never
@@ -71,17 +85,22 @@ class Finding {
       };
 
   String get title => switch (kind) {
-        FindingKind.illness => 'Possible illness onset',
+        FindingKind.illness => 'Resting heart rate has been raised',
         FindingKind.anomaly => 'Unusual overnight physiology',
         FindingKind.tempElevated => 'Skin temperature elevated',
         FindingKind.irregularRhythm => 'Irregular heart rhythm — screen',
-        FindingKind.lowReadiness => 'Low readiness today',
+        FindingKind.lowReadiness => 'Low readiness',
         FindingKind.rhrShift => 'Your resting heart-rate trend shifted',
       };
 
   String get detail => switch (kind) {
+        // A red state is ACCUMULATED evidence: one very high night followed
+        // by an ordinary one is enough, so nothing here may claim a streak.
         FindingKind.illness =>
-          'Elevated resting HR + suppressed HRV over recent nights.',
+          'Your recent overnight resting heart rates add up to a rise above '
+              'your own baseline: one very high night can do it, or a few '
+              'slightly raised ones. This watches one signal only. It names a '
+              'pattern, not a cause.',
         FindingKind.anomaly =>
           'Your nightly signals deviate from your personal baseline.',
         FindingKind.tempElevated =>
@@ -90,7 +109,9 @@ class Finding {
           'Your beat-to-beat pattern looked irregular today. This is a '
               'screen, not a diagnosis — see a clinician if you have symptoms.',
         FindingKind.lowReadiness =>
-          'Your recovery markers are below your usual range — ease off.',
+          '${score == null ? 'Readiness was in its lowest band.' : 'Readiness scored $score, its lowest band.'} '
+              'Taken together, that night\'s signals sat well on the '
+              'unfavourable side of your own baseline.',
         FindingKind.rhrShift =>
           'Your resting HR has ${risen == false ? 'fallen' : 'risen'} '
               'noticeably versus your recent baseline.',
@@ -101,11 +122,31 @@ class Finding {
       other is Finding &&
       other.kind == kind &&
       other.date == date &&
-      other.risen == risen;
+      other.risen == risen &&
+      other.score == score;
 
   @override
-  int get hashCode => Object.hash(kind, date, risen);
+  int get hashCode => Object.hash(kind, date, risen, score);
 }
+
+/// The readiness the ring and the `recovery` chart show for [date]: the
+/// frozen morning headline when it is pinned to [date], else the stored
+/// per-day composite. NEVER the glass-box score (a deprecated, differently
+/// spread model). Null ⇒ not scored ⇒ no finding.
+double? servedReadiness(
+  String date, {
+  ({String day, int value})? pin,
+  double? stored,
+}) =>
+    (pin != null && pin.day == date) ? pin.value.toDouble() : stored;
+
+/// A low-readiness finding for [date] iff the ring would say "Rest today".
+/// Same comparison `readinessBand` makes (raw value vs the cut-off), same
+/// rounding the ring prints.
+Finding? lowReadinessFinding(String date, double? readiness) =>
+    (readiness != null && readiness < kLowReadiness)
+        ? Finding(FindingKind.lowReadiness, date, score: readiness.round())
+        : null;
 
 /// Every finding the rollup holds, newest day first, and within a day in the
 /// order the detectors are listed above.
@@ -123,7 +164,9 @@ class Finding {
 /// UNSETTLED DAYS ARE SKIPPED, for the same reason the notification stands down
 /// on them: a night that is only half drained reads several bpm high, and a
 /// log that shows a finding in the morning and drops it by lunchtime is worse
-/// than one that waits for the day to settle.
+/// than one that waits for the day to settle. Today settles once its overnight
+/// is complete (the drained edge an hour past wake), so it appears here the
+/// same morning, not two days later.
 List<Finding> findingsHistory(
   Map<String, dynamic> cd, {
   Map<String, double> readiness = const {},
@@ -172,13 +215,185 @@ List<Finding> findingsHistory(
     if (irregularDays.contains(date)) {
       out.add(Finding(FindingKind.irregularRhythm, date));
     }
-    final ready = readiness[date];
-    if (ready != null && ready < kLowReadiness) {
-      out.add(Finding(FindingKind.lowReadiness, date));
-    }
+    final low = lowReadinessFinding(date, readiness[date]);
+    if (low != null) out.add(low);
     if (shifts.containsKey(date)) {
       out.add(Finding(FindingKind.rhrShift, date, risen: shifts[date]));
     }
   }
   return out;
+}
+
+/// The day the rollup's newest row is about, and whether it is still settling.
+typedef ExceptionAnchor = ({String date, bool unsettled});
+
+ExceptionAnchor? exceptionAnchor(Map<String, dynamic> cd) {
+  final recent = cd['recent'];
+  if (recent is! List || recent.isEmpty) return null;
+  final last = recent.last;
+  if (last is! Map || last['date'] is! String) return null;
+  return (date: last['date'] as String, unsettled: last['unsettled'] == true);
+}
+
+/// The overnight-detector findings (illness, anomaly, temperature), each read
+/// from its family's newest SETTLED entry and dated with THAT entry's date.
+List<Finding> crossDayAlertFindings(Map<String, dynamic> cd) {
+  Map? entry(String k) => cd[k] is Map ? cd[k] as Map : null;
+  String? dateOf(Map? e) => e?['date'] is String ? e!['date'] as String : null;
+  final ill = entry('illness'), an = entry('anomaly'), tmp = entry('temp_illness');
+  return [
+    if (ill?['state'] == 'red' && dateOf(ill) != null)
+      Finding(FindingKind.illness, dateOf(ill)!),
+    if (an?['flagged'] == true && dateOf(an) != null)
+      Finding(FindingKind.anomaly, dateOf(an)!),
+    if (tmp?['flag'] == 'elevated' && dateOf(tmp) != null)
+      Finding(FindingKind.tempElevated, dateOf(tmp)!),
+  ];
+}
+
+/// History does not interrupt: a finding may buzz only about today or
+/// yesterday, by CALENDAR (DST-safe), judged on the finding's OWN date.
+bool isRecentFindingDate(String date, {required String today}) =>
+    date == today || date == dayLabelBefore(today, 1);
+
+/// One aggregated health-exception notification, all about [date].
+@immutable
+class ExceptionNotice {
+  const ExceptionNotice(this.date, this.findings);
+
+  final String date;
+  final List<Finding> findings;
+
+  bool get medical => findings.any((f) => f.medical);
+
+  /// Same key grammar as before ('$date:exception' / '$date:exception:medical'),
+  /// keyed on the day the findings are ABOUT — so a night fires at most once.
+  String get dedupeKey =>
+      medical ? '$date:exception:medical' : '$date:exception';
+
+  String get title => findings.length == 1
+      ? findings.first.title
+      : '${findings.length} things to look at';
+
+  String get body => findings.length == 1
+      ? findings.first.detail
+      : findings.map((f) => '• ${f.title} — ${f.detail}').join('\n');
+}
+
+/// Group the due findings by the day they are about, newest day first; drop
+/// anything not about today/yesterday. Within a day, detector order is kept.
+///
+/// Per day rather than one notice per pass: the dedupe key must be the night
+/// the finding is about, or the same night evaluated under two different
+/// anchors (after midnight, then again the next day) could buzz twice.
+List<ExceptionNotice> dueExceptionNotices(
+  Iterable<Finding> findings, {
+  required String today,
+}) {
+  final byDate = <String, List<Finding>>{};
+  for (final f in findings) {
+    if (!isRecentFindingDate(f.date, today: today)) continue;
+    (byDate[f.date] ??= <Finding>[]).add(f);
+  }
+  final dates = byDate.keys.toList()..sort((a, b) => b.compareTo(a));
+  return [for (final d in dates) ExceptionNotice(d, byDate[d]!)];
+}
+
+/// Every health-exception notice one notification pass should present: the
+/// whole decision `DerivationEngine._runNotifications` makes, minus the I/O.
+/// The engine reads the three inputs below and emits what this returns.
+///
+/// [irregularFlag] and [storedReadiness] are the `metric_series` values for
+/// the ANCHOR day (the rollup's newest row, [exceptionAnchor]); [pin] is the
+/// frozen morning headline, whatever day it is pinned to.
+///
+/// ANCHORED TO THE DAY THIS IS RUNNING ON ([today]), not to the newest
+/// DERIVED day. Every date in here is a day the rollup happened to see, which
+/// is not today whenever the newest data is old: import a back-catalogue
+/// (finalizeImport runs the pass straight after) or bump kAlgoVersion after a
+/// week off the wrist, and a critical, quiet-hours-overriding health alert
+/// would go out about nights from last November — in the present tense.
+/// Yesterday still counts: before today's overnight settles (and just after
+/// midnight) the newest settled night IS yesterday's, and that finding is
+/// current. Anything older is history, and history does not interrupt. The
+/// gate is by CALENDAR label ([isRecentFindingDate]), so a DST transition
+/// cannot gate out a current night.
+///
+/// ONE exception per day, not one per finding. These signals are correlated
+/// by construction — an illness flag, an overnight anomaly and an elevated
+/// skin temperature are usually the same morning saying the same thing — so
+/// a day's findings are presented once, aggregated ([dueExceptionNotices]).
+///
+/// The three overnight detectors are dated by THEIR OWN entry — the newest
+/// settled night — never by the anchor: that row is usually today's, still
+/// settling, and not the night the verdict is about.
+List<ExceptionNotice> planExceptionNotices(
+  Map<String, dynamic> cd, {
+  required String today,
+  double? irregularFlag,
+  ({String day, int value})? pin,
+  double? storedReadiness,
+}) {
+  final findings = <Finding>[...crossDayAlertFindings(cd)];
+  final anchor = exceptionAnchor(cd);
+  if (anchor != null && isRecentFindingDate(anchor.date, today: today)) {
+    final date = anchor.date;
+    // 24/7 irregular-rhythm SCREEN (not a diagnosis). Not a night's verdict,
+    // so it does not wait for the night to settle: a day with no detected
+    // sleep never settles, and waiting would lose the screen entirely.
+    if (irregularFlag == 1.0) {
+      findings.add(Finding(FindingKind.irregularRhythm, date));
+    }
+    // LOW READINESS — the ring's number, judged the way the log judges it.
+    // Only on a SETTLED anchor row: before the overnight is complete the live
+    // composite still moves (the reason the morning headline freezes at all),
+    // and the log skips unsettled rows for the same reason. A missing
+    // composite (first 14 nights, |z| capped, no sleep) is "not scored" — no
+    // finding, and never a fallback to the glass-box (`readiness_glassbox`,
+    // still in [cd] for its breakdown), a deprecated model with a different
+    // spread.
+    if (!anchor.unsettled) {
+      final low = lowReadinessFinding(
+        date,
+        servedReadiness(date, pin: pin, stored: storedReadiness),
+      );
+      if (low != null) findings.add(low);
+    }
+
+    // "Something changed" — online CUSUM on the recent resting-HR series.
+    // Only when the shift lands on the anchor day (a fresh change, not old
+    // history we'd re-announce every pass).
+    //
+    // The dates travel with the values. `rhrSeries` is compacted — days with
+    // no nocturnal RHR are skipped, which is most days for some users — so
+    // `index == length - 1` meant "the most recent day that HAPPENED to have
+    // an rhr". With a few null days in between, a week-old shift satisfied it
+    // and went out at critical priority under today's date.
+    //
+    // `recent[].rhr` is written WITHOUT the `settled()` guard on purpose — the
+    // trend chart is right to show an unsettled day's value. A critical-
+    // priority ALERT is not: a night that is only half drained reads several
+    // bpm high, fires "your resting HR trend shifted", and then corrects an
+    // hour later with the day's dedupe key already claimed. So this consumer
+    // stands down until the day settles.
+    final recent = cd['recent'];
+    final rhrSeries = <double>[];
+    final rhrDates = <String?>[];
+    if (recent is List) {
+      for (final r in recent) {
+        if (r is Map && r['rhr'] is num) {
+          rhrSeries.add((r['rhr'] as num).toDouble());
+          rhrDates.add(r['date'] as String?);
+        }
+      }
+    }
+    if (!anchor.unsettled && rhrSeries.length >= 10) {
+      final dets = ana.cusumChangePoints(rhrSeries, h: 5.0);
+      if (dets.isNotEmpty && rhrDates[dets.last.index] == date) {
+        findings.add(
+            Finding(FindingKind.rhrShift, date, risen: dets.last.direction > 0));
+      }
+    }
+  }
+  return dueExceptionNotices(findings, today: today);
 }

@@ -15,7 +15,12 @@ import 'dart:math';
 import 'package:openstrap_protocol/openstrap_protocol.dart'
     show alarmRev1Payload;
 
-import '../sync/sync_policy.dart' show isPlausibleUnix, kMinPlausibleUnix;
+import '../sync/sync_policy.dart'
+    show
+        isPlausibleUnix,
+        kForeignHistoryQuietSeconds,
+        kForeignHistoryStallSeconds,
+        kMinPlausibleUnix;
 
 /// The explicit connection state machine. The flutter_blue_plus connection-state
 /// stream is the SOURCE OF TRUTH for connected/disconnected; this enum layers the
@@ -873,6 +878,66 @@ class FrameRoutePolicy {
       return FrameRoute.immediateAndCount;
     }
     return FrameRoute.immediate;
+  }
+}
+
+/// Whether another client's history transfer is running on this band, judged
+/// from the traffic this engine observed but did not request. Monotonic
+/// seconds in.
+///
+/// Live while that traffic was seen within [quietSeconds] AND the transfer
+/// made progress (a START or a record) within [stallSeconds] — a re-offered
+/// END alone keeps a transfer alive only until the stall bound.
+class ForeignHistoryWindow {
+  ForeignHistoryWindow({
+    this.quietSeconds = kForeignHistoryQuietSeconds,
+    this.stallSeconds = kForeignHistoryStallSeconds,
+  });
+  final int quietSeconds;
+  final int stallSeconds;
+  double? _lastSeen;
+  double? _lastProgress;
+
+  /// Foreign traffic seen at [nowMono]. [progress]: a START or a record (an
+  /// END is not). The first sighting counts as progress — we may have joined
+  /// mid-transfer.
+  void mark(double nowMono, {bool progress = false}) {
+    _lastSeen = nowMono;
+    if (progress || _lastProgress == null) _lastProgress = nowMono;
+  }
+
+  /// The foreign transfer completed (or the link that saw it is gone).
+  void ended() {
+    _lastSeen = null;
+    _lastProgress = null;
+  }
+
+  bool isLive(double nowMono) =>
+      _lastSeen != null &&
+      nowMono - _lastSeen! < quietSeconds &&
+      nowMono - _lastProgress! < stallSeconds;
+}
+
+/// Whether an inbound offload frame is the band's ANSWER to this task's
+/// SEND_HISTORICAL_DATA, i.e. whether it ends the first-START wait.
+///
+/// gen5: only HISTORY_START or HISTORY_COMPLETE. A type-47 frame or an END
+/// before the task's first START is a previous task's straggler and is dropped,
+/// so it proves nothing about this request. gen4: the marker order is not
+/// pinned, so any history marker or type-47 frame counts. Console/event chatter
+/// never does — it flows whether or not the band heard the request.
+class FirstStartWatchdogPolicy {
+  const FirstStartWatchdogPolicy._();
+
+  static bool satisfiedBy({
+    required bool isGen5,
+    required bool isStartOrComplete,
+    required bool isEnd,
+    required bool isHistoricalData,
+  }) {
+    if (isStartOrComplete) return true;
+    if (isGen5) return false;
+    return isEnd || isHistoricalData;
   }
 }
 

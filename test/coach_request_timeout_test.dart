@@ -62,7 +62,7 @@ void main() {
 
   test('a cloud endpoint ignores a short saved timeout', () async {
     final cfg = CoachConfig(); // default baseUrl is the cloud endpoint
-    await cfg.save(timeoutSeconds: 1);
+    await cfg.save(timeoutSeconds: 1, api: CoachApi.chatCompletions);
     final slowerThanSavedButUnderTwoMinutes = MockClient((_) async {
       await Future<void>.delayed(const Duration(seconds: 2));
       return http.Response(

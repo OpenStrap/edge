@@ -90,4 +90,11 @@ void main() {
     }
     expect(calendarDaysBetween(springForward, afterTransition), 8);
   });
+
+  test('dayLabelBefore walks CALENDAR days, and rejects a malformed label', () {
+    // Across the US spring-forward day (2026-03-08 is 23 h long): 48 absolute
+    // hours back from local midnight would land on 2026-03-07.
+    expect(dayLabelBefore('2026-03-10', 2), '2026-03-08');
+    expect(dayLabelBefore('bad', 1), isNull);
+  });
 }

@@ -24,8 +24,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../data/day_label.dart';
 import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
+import '../../l10n/date_text.dart';
 import '../../models/metric.dart' show whyFromNote;
-import '../screens/home_screen.dart' show repoOf, monthName;
+import '../screens/home_screen.dart' show repoOf;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
 import 'catalogue.dart' show zonesWhy;
@@ -205,8 +206,8 @@ class _DayStrainDetailState extends State<DayStrainDetail> {
     final sub = day == null
         ? ''
         : dayLabelOf(day) == todayLabel()
-            ? (l?.dayStrainToday ?? 'TODAY')
-            : '${monthName(day.month, l)} ${day.day}'.toUpperCase();
+        ? (l?.dayStrainToday ?? 'TODAY')
+        : localizedDate(day, l?.localeName ?? 'en', pattern: 'd MMMM');
 
     return detailScaffold(
       c,

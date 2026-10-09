@@ -1,7 +1,8 @@
 // Firmware-resilience: undecodable historical records must be ARCHIVED durably
-// (never pruned) in the SAME transaction as the raw records + trim cursor, so
-// they are set aside BEFORE the caller writes the batch-ACK that lets the band
-// trim its flash (safe-trim invariant). Runs the REAL LocalDb over an in-memory
+// (kept, except the thinning in `LocalDb.thinRawArchiveBefore`) in the SAME
+// transaction as the decoded rows + trim cursor, so they are set aside BEFORE
+// the caller writes the batch-ACK that lets the band trim its flash (safe-trim
+// invariant). Runs the REAL LocalDb over an in-memory
 // sqlite via sqflite_common_ffi.
 
 import 'dart:io';

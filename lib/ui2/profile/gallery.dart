@@ -1193,8 +1193,8 @@ const _roughFull = RoughNight(
   ],
   knows: [
     'You trained until 9:40 PM, which often does this on its own.',
-    'The illness watch flagged this night too — a sustained rise against your '
-        'own baseline, not a diagnosis.',
+    'Your resting heart rate flagged this night too — recent nights add up '
+        'to a rise above your own baseline, not a diagnosis.',
     'You are in the luteal phase, which lifts resting heart rate and skin '
         'temperature by itself.',
     'Your skin ran warmer than your usual — a warm room does this too.',
@@ -1515,6 +1515,11 @@ Map<String, Widget> _listCases() => {
         SizedBox(height: S.x3),
         TierRow(SourceTier.beatToBeat),
       ]),
+      'workout_quick_tile': WorkoutQuickTile(
+        const Activity('Weight training', LucideIcons.dumbbell,
+            C.purple, Track.sets, 6.0),
+        () {},
+      ),
       'activity_row': Surface(
         pad: const EdgeInsets.symmetric(horizontal: S.x4),
         child: Column(children: [

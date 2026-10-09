@@ -30,6 +30,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/ble/adapters/_registry.dart';
 import 'package:openstrap_edge/ble/ble_engine.dart';
 import 'package:openstrap_edge/ble/ble_state.dart';
+import 'package:openstrap_edge/sync/background_sync.dart';
 import 'package:openstrap_protocol/openstrap_protocol.dart';
 
 int _wallNow() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -114,8 +115,12 @@ class _Rig {
 
   int bondRemovals = 0;
 
-  _Rig() {
+  /// [onCommitBatch] is the production durable-commit sink; [armDrains]
+  /// false leaves the link's drain controllers to the connect sequence
+  /// itself, exactly as on a real connect.
+  _Rig({CommitSyncBatchSink? onCommitBatch, bool armDrains = true}) {
     engine = BleEngine(
+      onCommitBatch: onCommitBatch,
       onRecord: (_, _) async {},
       onState: (s) {
         if (!_sawReady && s.connection == 'connected') {
@@ -140,6 +145,7 @@ class _Rig {
     engine.debugOnPriorityRequest = () => trace.add('link_priority');
     engine.debugInstallFakeLink(
       band: BandProfile.gen5,
+      armDrains: armDrains,
       onWrite: (frame) async {
         final inner = parseFrame(frame, profile: BandProfile.gen5)!.inner;
         commands.add((seq: inner[1], opcode: inner[2], body: inner.sublist(3)));
@@ -198,6 +204,9 @@ class _Ops implements GattBootstrapOps {
   final bool discoveryFails;
   final bool memfaultPresent;
   final Set<String> failSubscribe;
+  /// Runs right after a registration succeeds — traffic the band (or another
+  /// client's transfer) delivers the moment notifications are on.
+  final void Function(String role)? afterSubscribe;
 
   _Ops(
     this.rig, {
@@ -208,6 +217,7 @@ class _Ops implements GattBootstrapOps {
     this.discoveryFails = false,
     this.memfaultPresent = true,
     this.failSubscribe = const {},
+    this.afterSubscribe,
   });
 
   @override
@@ -249,6 +259,7 @@ class _Ops implements GattBootstrapOps {
   Future<void> subscribe(String role) async {
     rig.trace.add('sub:$role');
     if (failSubscribe.contains(role)) throw Exception('CCC write failed');
+    afterSubscribe?.call(role);
   }
 
   @override
@@ -275,6 +286,209 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(BleEngine.resetBandClaimForTest);
   tearDown(BleEngine.resetBandClaimForTest);
+
+  group('another client\'s transfer during bootstrap', () {
+    test(
+      'records delivered while notifications come up are banked tokenless, '
+      'with the production construction order', () {
+        fakeAsync((async) {
+          final commits = <(String?, int)>[];
+          final rig = _Rig(
+            armDrains: false,
+            onCommitBatch: (raws, samples, token,
+                {archives, ecgRawPackets, deviceFamily}) async {
+              commits.add((token, raws.length + (archives?.length ?? 0)));
+            },
+          )..answerAll();
+          void rx(Uint8List inner) => rig.engine
+              .debugReceiveFrame(Frame(inner, true, true), role: 'data');
+          final ops = _Ops(rig, afterSubscribe: (role) {
+            if (role != 'data') return;
+            // The other client is mid-transfer the moment we subscribe.
+            rx(Uint8List.fromList(
+                [PacketType.metadata, 0x01, SyncMeta.historyStart]));
+            final rec = Uint8List(kGen5V18InnerLen);
+            final v = ByteData.sublistView(rec);
+            rec[0] = PacketType.historicalData;
+            rec[1] = 18;
+            rec[2] = 0x80;
+            v.setUint32(3, 5100, Endian.little);
+            v.setUint32(7, _wallNow() - 3600, Endian.little);
+            rec[14] = 64;
+            v.setFloat32(33, 0.5, Endian.little);
+            v.setFloat32(45, 1.0, Endian.little);
+            rx(rec);
+            final end = Uint8List(24);
+            end[0] = PacketType.metadata;
+            end[1] = 0x02;
+            end[2] = SyncMeta.historyEnd;
+            ByteData.sublistView(end)
+              ..setUint32(3, 1786000000, Endian.little)
+              ..setUint32(9, 1, Endian.little)
+              ..setUint32(13, 0xE100, Endian.little)
+              ..setUint32(17, 0x18, Endian.little);
+            rx(end);
+          });
+          _run(rig, async, ops: ops);
+
+          expect(commits, [(null, 1)],
+              reason: 'the record is banked, and without a trim token');
+          expect(rig.count(Cmd.historicalDataResult), 0,
+              reason: 'never answered');
+          expect(rig.count(Cmd.abortHistoricalTransmits), 0);
+          expect(rig.count(Cmd.sendHistoricalData), 0,
+              reason: 'INIT does not start a competing transfer');
+        });
+      },
+    );
+  });
+
+  test('a foreign bank delayed past a change of band is stamped with the '
+      'band that sent the rows', () {
+    fakeAsync((async) {
+      final families = <String?>[];
+      final hold = Completer<void>();
+      var first = true;
+      final rig = _Rig(
+        armDrains: false,
+        onCommitBatch: (raws, samples, token,
+            {archives, ecgRawPackets, deviceFamily}) async {
+          if (first) {
+            first = false;
+            await hold.future;
+          }
+          families.add(deviceFamily);
+        },
+      )..answerAll();
+      void rx(Uint8List inner) => rig.engine
+          .debugReceiveFrame(Frame(inner, true, true), role: 'data');
+      Uint8List rec(int counter) {
+        final r = Uint8List(kGen5V18InnerLen);
+        final v = ByteData.sublistView(r);
+        r[0] = PacketType.historicalData;
+        r[1] = 18;
+        r[2] = 0x80;
+        v.setUint32(3, counter, Endian.little);
+        v.setUint32(7, _wallNow() - 3600 + counter, Endian.little);
+        r[14] = 64;
+        v.setFloat32(33, 0.5, Endian.little);
+        v.setFloat32(45, 1.0, Endian.little);
+        return r;
+      }
+      Uint8List end(int token) {
+        final e = Uint8List(24);
+        e[0] = PacketType.metadata;
+        e[1] = 0x02;
+        e[2] = SyncMeta.historyEnd;
+        ByteData.sublistView(e)
+          ..setUint32(3, 1786000000, Endian.little)
+          ..setUint32(9, 1, Endian.little)
+          ..setUint32(13, token, Endian.little)
+          ..setUint32(17, 0x18, Endian.little);
+        return e;
+      }
+      final ops = _Ops(rig, afterSubscribe: (role) {
+        if (role != 'data') return;
+        rx(Uint8List.fromList(
+            [PacketType.metadata, 0x01, SyncMeta.historyStart]));
+        rx(rec(5200));
+        rx(end(0xE200)); // its bank parks in the store
+        rx(rec(5201));
+        rx(end(0xE201)); // this one queues behind it
+      });
+      _run(rig, async, ops: ops);
+      final family = rig.engine.linkDeviceFamily;
+      expect(family, isNotNull);
+      // A different band is connected by the time the store frees up.
+      rig.engine.state.generation = 'gen4';
+      hold.complete();
+      async.elapse(const Duration(seconds: 1));
+      expect(families, hasLength(2));
+      expect(families, everyElement(family));
+    });
+  });
+
+  group('a headless connect that fails after taking in foreign records', () {
+    ({_Rig rig, _Ops ops, Completer<void> hold}) setup() {
+      final hold = Completer<void>();
+      var first = true;
+      final rig = _Rig(
+        armDrains: false,
+        onCommitBatch: (raws, samples, token,
+            {archives, ecgRawPackets, deviceFamily}) async {
+          if (first) {
+            first = false;
+            await hold.future;
+          }
+        },
+      )..answerAll();
+      void rx(Uint8List inner) => rig.engine
+          .debugReceiveFrame(Frame(inner, true, true), role: 'data');
+      final ops = _Ops(rig, failSubscribe: {'events'}, afterSubscribe: (role) {
+        if (role != 'data') return;
+        rx(Uint8List.fromList(
+            [PacketType.metadata, 0x01, SyncMeta.historyStart]));
+        final rec = Uint8List(kGen5V18InnerLen);
+        final v = ByteData.sublistView(rec);
+        rec[0] = PacketType.historicalData;
+        rec[1] = 18;
+        rec[2] = 0x80;
+        v.setUint32(3, 5300, Endian.little);
+        v.setUint32(7, _wallNow() - 3600, Endian.little);
+        rec[14] = 64;
+        v.setFloat32(33, 0.5, Endian.little);
+        v.setFloat32(45, 1.0, Endian.little);
+        rx(rec);
+        final end = Uint8List(24);
+        end[0] = PacketType.metadata;
+        end[1] = 0x02;
+        end[2] = SyncMeta.historyEnd;
+        ByteData.sublistView(end)
+          ..setUint32(3, 1786000000, Endian.little)
+          ..setUint32(9, 1, Endian.little)
+          ..setUint32(13, 0xE300, Endian.little)
+          ..setUint32(17, 0x18, Endian.little);
+        rx(end); // its bank parks in the store
+      });
+      return (rig: rig, ops: ops, hold: hold);
+    }
+
+    test('waits for their bank before giving up', () {
+      fakeAsync((async) {
+        final t = setup();
+        bool? connected;
+        connectHeadless(
+          t.rig.engine,
+          () => t.rig.engine.debugConnectGen5Official(t.ops),
+        ).then((v) => connected = v);
+        async.elapse(const Duration(seconds: 8));
+        expect(t.rig.trace, contains('sub:events'));
+        expect(connected, isNull,
+            reason: 'the failed run must not finish while those rows are in '
+                'flight');
+        t.hold.complete();
+        async.elapse(const Duration(seconds: 1));
+        expect(connected, isFalse);
+      });
+    });
+
+    test('… bounded', () {
+      fakeAsync((async) {
+        final t = setup();
+        bool? connected;
+        connectHeadless(
+          t.rig.engine,
+          () => t.rig.engine.debugConnectGen5Official(t.ops),
+          bound: const Duration(seconds: 12),
+        ).then((v) => connected = v);
+        async.elapse(const Duration(seconds: 8));
+        expect(connected, isNull);
+        async.elapse(const Duration(seconds: 13));
+        expect(connected, isFalse);
+        expect(t.rig.logged('not waiting longer'), isTrue);
+      });
+    });
+  });
 
   group('the successful sequence, in order, through READY', () {
     test(

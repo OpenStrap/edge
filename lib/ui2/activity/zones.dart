@@ -1,3 +1,5 @@
+import '../../l10n/date_text.dart';
+import '../../l10n/display_text.dart';
 // HEART-RATE ZONES — the ceiling, the two anchors, and (only sometimes) the
 // 28-day distribution. TS-03 / TS-04 / TS-05.
 //
@@ -30,7 +32,7 @@ import '../../data/local_repository.dart';
 import '../../l10n/app_localizations.dart';
 import '../../models/metric.dart' show whyFromNote;
 import '../../state/app_state.dart';
-import '../screens/home_screen.dart' show repoOf, monthName;
+import '../screens/home_screen.dart' show repoOf;
 import '../screens/journal_compose.dart' show OsTextField;
 import '../screens/metric_detail.dart' show detailScaffold;
 import '../ui2.dart';
@@ -39,7 +41,7 @@ import '../ui2.dart';
 /// we cannot format is still better than dropping the attribution.
 String _prettyDay(String iso, [AppLocalizations? l]) {
   final d = DateTime.tryParse(iso);
-  return d == null ? iso : '${d.day} ${monthName(d.month, l)}';
+  return d == null ? iso : localizedDate(d, l?.localeName ?? 'en');
 }
 
 /// One zone row as the repository serves it.
@@ -247,7 +249,9 @@ class _ZonesDetailState extends State<ZonesDetail> {
             for (var i = 0; i < 5; i++) ...[
               OsTextField(
                 controller: ctrls[i],
-                label: 'Z${i + 1} · ${names[i]} starts at',
+                label:
+                    l?.supplementZoneStartsAt(i + 1, localizedText(l, names[i])) ??
+                    'Z${i + 1} · ${names[i]} starts at',
                 hint: l?.activityZonesBpmUnit ?? 'bpm',
                 keyboard: TextInputType.number,
               ),

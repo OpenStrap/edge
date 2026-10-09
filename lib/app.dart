@@ -124,6 +124,7 @@ class _OpenStrapAppState extends State<OpenStrapApp> with WidgetsBindingObserver
   Widget build(BuildContext context) {
     final theme = context.watch<ThemeController>();
     final locale = context.watch<LocaleController>();
+    locale.useForPresentation();
     final twelveHour = !context.watch<ClockFormatController>().resolve24h(
         MediaQuery.alwaysUse24HourFormatOf(context));
     return MaterialApp(

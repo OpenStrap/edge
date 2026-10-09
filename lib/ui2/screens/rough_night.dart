@@ -39,6 +39,7 @@ import 'package:provider/provider.dart';
 
 import '../../ai/journal_ai.dart' show kJournalPresetTags;
 import '../../l10n/app_localizations.dart';
+import '../../l10n/display_text.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../data/local_repository.dart';
@@ -293,8 +294,9 @@ Future<RoughNight?> loadRoughNight(
           illnessFlagged = true;
           knows.add(
             l?.roughNightIllness ??
-                'The illness watch flagged this night too — a sustained rise '
-                    'against your own baseline, not a diagnosis.',
+                'Your resting heart rate flagged this night too — recent '
+                    'nights add up to a rise above your own baseline, not a '
+                    'diagnosis.',
           );
           break;
         }
@@ -546,15 +548,15 @@ class _RoughNightCardState extends State<RoughNightCard> {
             onTap: () => setState(
               () => _picked.contains(t) ? _picked.remove(t) : _picked.add(t),
             ),
-            child: Pill(
-              t,
-              _picked.contains(t) ? C.domMind : C.n400,
-              icon: _picked.contains(t) ? LucideIcons.check : null,
+              child: Pill(
+                journalTagText(c, t),
+                _picked.contains(t) ? C.domMind : C.n400,
+                icon: _picked.contains(t) ? LucideIcons.check : null,
+              ),
             ),
-          ),
-      ],
-    ),
-    const SizedBox(height: S.x4),
+        ],
+      ),
+      const SizedBox(height: S.x4),
     BigButton(
       _saving
           ? (l?.roughNightSaving ?? 'Saving')

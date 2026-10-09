@@ -31,6 +31,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 // key/value façade, not the app.
 import '../../gps/gps_source.dart' show GpsPermissionStatus;
 import '../../l10n/app_localizations.dart';
+import '../../l10n/display_text.dart';
 import '../../state/prefs.dart';
 import '../../state/units_controller.dart';
 import '../screens/home_screen.dart' show unitsOf;
@@ -575,12 +576,15 @@ class LiveShellState extends State<LiveShell> {
                 child:
                     Icon(LucideIcons.chevronDown, size: 24, color: p.ink3),
               ),
-              Expanded(
-                child: Column(children: [
-                  Text(a.name.toUpperCase(),
-                      style: F.over.copyWith(color: p.on(a.color)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          a.displayName(c).toUpperCase(),
+                          style: F.over.copyWith(color: p.on(a.color)),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                   if (widget.subtitle.isNotEmpty)
                     Text(widget.subtitle,
                         style: F.over.copyWith(color: p.ink3),
@@ -1428,9 +1432,9 @@ class _LiveStrengthState extends State<LiveStrength> {
           ? (l?.activityLiveSetsCountSubtitle(log.setCount) ??
               '${log.setCount} SETS')
           : (u?.isImperial == true
-              ? '${grouped(u!.weightValue(volume))} ${u.weightUnit.toUpperCase()} · '
-                  '${log.setCount} SETS'
-              : (l?.activityLiveVolumeSetsSubtitle(grouped(volume), log.setCount) ??
+                ? '${grouped(u!.weightValue(volume))} ${uiText(c, u.weightUnit)} · '
+                      '${l?.activityLiveSetsCountSubtitle(log.setCount) ?? '${log.setCount} SETS'}'
+                : (l?.activityLiveVolumeSetsSubtitle(grouped(volume), log.setCount) ??
                   '${grouped(volume)} KG · ${log.setCount} SETS')),
       private: widget.private,
       weightKg: widget.weightKg,
@@ -1511,9 +1515,14 @@ class _LiveStrengthState extends State<LiveStrength> {
                 volume == null
                     ? (l?.activityLiveBodyweightOnly ?? 'bodyweight only')
                     : (u?.isImperial == true
-                        ? '${u!.weightUnit} volume'
-                        : (l?.activityLiveKgVolumeUnit ?? 'kg volume')))),
-        Container(width: 1, height: 26, color: p.line),
+                          ? (l?.presentationVolumeUnit(
+                                  uiText(c, u!.weightUnit),
+                                ) ??
+                                '${u!.weightUnit} volume')
+                          : (l?.activityLiveKgVolumeUnit ?? 'kg volume')),
+              ),
+            ),
+            Container(width: 1, height: 26, color: p.line),
         Expanded(child: _total(p, '${log.setCount}', l?.activityLiveSetsUnit ?? 'sets')),
         Container(width: 1, height: 26, color: p.line),
         Expanded(child: _total(p, '${log.repCount}', l?.activityLiveRepsUnit ?? 'reps')),
@@ -1639,18 +1648,20 @@ class _LiveStrengthState extends State<LiveStrength> {
                             ? (l?.activityLiveRepsBodyweightRow(
                                     setsHere[i].reps) ??
                                 '${setsHere[i].reps} reps · bodyweight')
-                            : '${_fmt(setsHere[i].loadKg!, u)} '
-                                '${u?.weightUnit ?? 'kg'} × '
-                                '${setsHere[i].reps}',
-                        style: F.body.copyWith(color: p.ink)),
-                  ),
+                                : '${_fmt(setsHere[i].loadKg!, u)} '
+                                      '${uiText(c, u?.weightUnit ?? 'kg')} × '
+                                      '${setsHere[i].reps}',
+                            style: F.body.copyWith(color: p.ink),
+                          ),
+                        ),
                   if (setsHere[i].rpe != null)
                     Text('RPE ${setsHere[i].rpe}',
                         style: F.cap.copyWith(color: p.ink3)),
-                  if (setsHere[i].volume != null) ...[
-                    const SizedBox(width: S.x3),
-                    Text('${grouped(u?.weightValue(setsHere[i].volume!) ?? setsHere[i].volume!)} '
-                        '${u?.weightUnit ?? 'kg'}',
+                        if (setsHere[i].volume != null) ...[
+                          const SizedBox(width: S.x3),
+                          Text(
+                            '${grouped(u?.weightValue(setsHere[i].volume!) ?? setsHere[i].volume!)} '
+                            '${uiText(c, u?.weightUnit ?? 'kg')}',
                         style: F.cap.copyWith(
                             color: p.ink2, fontWeight: FontWeight.w600)),
                   ],
@@ -1763,10 +1774,14 @@ class _LiveStrengthState extends State<LiveStrength> {
                         ? (l?.activityLiveRepsLoggedBodyweight(
                                 logged.last.reps) ??
                             '${logged.last.reps} reps logged')
-                        : (u?.isImperial == true
-                            ? '${_fmt(logged.last.loadKg!, u)} '
-                                '${u!.weightUnit} × ${logged.last.reps} logged'
-                            : (l?.activityLiveWeightRepsLogged(
+                          : (u?.isImperial == true
+                                ? (l?.presentationWeightRepsLogged(
+                                        _fmt(logged.last.loadKg!, u),
+                                        uiText(c, u!.weightUnit),
+                                        logged.last.reps,
+                                      ) ??
+                                      '${_fmt(logged.last.loadKg!, u)} ${u!.weightUnit} × ${logged.last.reps} logged')
+                                : (l?.activityLiveWeightRepsLogged(
                                     _fmt(logged.last.loadKg!),
                                     logged.last.reps) ??
                                 '${_fmt(logged.last.loadKg!)} kg × '
@@ -1819,11 +1834,11 @@ class _LiveStrengthState extends State<LiveStrength> {
           ]),
           const SizedBox(height: S.x2),
           Text(
-              s == null
-                  ? (l?.activityLiveNoneYet ?? 'None yet')
-                  : s.loadKg == null
-                      ? (l?.activityLiveRepsOnly(s.reps) ?? '${s.reps} reps')
-                      : '${_fmt(s.loadKg!, u)} ${u?.weightUnit ?? 'kg'} × ${s.reps}',
+            s == null
+                ? (l?.activityLiveNoneYet ?? 'None yet')
+                : s.loadKg == null
+                ? (l?.activityLiveRepsOnly(s.reps) ?? '${s.reps} reps')
+                : '${_fmt(s.loadKg!, u)} ${uiText(c, u?.weightUnit ?? 'kg')} × ${s.reps}',
               style: F.cap
                   .copyWith(color: p.ink, fontWeight: FontWeight.w600)),
         ]),
@@ -1996,7 +2011,8 @@ class _LiveSwimState extends State<LiveSwim> {
                           color:
                               poolLen == len ? p.wash(C.blue) : p.card2,
                           borderRadius: R.rPill),
-                      child: Text('$len m',
+                      child: Text(
+                        '$len ${uiText(context, 'm')}',
                           style: F.cap.copyWith(
                               color: poolLen == len
                                   ? p.on(C.blue)

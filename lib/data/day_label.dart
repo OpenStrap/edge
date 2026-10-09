@@ -36,6 +36,20 @@ List<int>? _partsOf(String dayId) {
   return [y, m, d];
 }
 
+/// The `YYYY-MM-DD` label [back] CALENDAR days before [dayId], or null for a
+/// malformed label.
+///
+/// CALENDAR arithmetic, never `Duration`. `DateTime.subtract(Duration(days: n))`
+/// is ABSOLUTE: from local midnight on 2026-03-10 (US), subtracting 48 h lands
+/// at 23:00 on 2026-03-07 because 2026-03-08 was only 23 h long, so a walk
+/// back SKIPS 2026-03-08 entirely. Feeding an out-of-range day field to the
+/// local `DateTime` constructor normalises correctly.
+String? dayLabelBefore(String dayId, int back) {
+  final p = _partsOf(dayId);
+  if (p == null) return null;
+  return dayLabelOf(DateTime(p[0], p[1], p[2] - back));
+}
+
 /// Epoch SECONDS of the LOCAL midnight that STARTS day [dayId] ('YYYY-MM-DD').
 /// Returns null for a malformed label.
 int? localDayStartSec(String dayId) {

@@ -21,12 +21,16 @@
 // independent "set one alarm" affordance would just be a second source of
 // truth that the schedule engine silently overwrites on the next sync.
 
+import 'dart:async';
+
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/day_label.dart' show calendarDaysBetween;
 import '../../l10n/app_localizations.dart';
+import '../../l10n/display_text.dart';
 import '../../state/alarm_schedule.dart';
 import '../../state/app_state.dart';
 import '../../state/clock_format.dart' show formatClock;
@@ -75,20 +79,107 @@ enum AlarmArmState {
 /// event or the next connect clears it), so it says so instead of passing a
 /// spent alarm off as the next one.
 Widget alarmDoor(BuildContext c, DateTime? at, AlarmArmState state,
-    {DateTime? now}) {
-  final l = AppLocalizations.of(c);
-  final String sub;
-  if (at == null) {
-    sub = l?.alarmSetAnAlarm ?? 'Set an alarm';
-  } else {
-    final what = at.isAfter(now ?? DateTime.now())
-        ? AlarmScreenView._localizedStateLabel(c, state)
-        : (l?.alarmInThePast ??
-            'In the past — it has already fired or been missed');
-    sub = '${AlarmScreenView._dayAndTime(c, at)} · $what';
+        {DateTime? now}) =>
+    _AlarmTick.wrap(at, now, (n) {
+      final l = AppLocalizations.of(c);
+      final String sub;
+      if (at == null) {
+        sub = l?.alarmSetAnAlarm ?? 'Set an alarm';
+      } else {
+        final what = at.isAfter(n)
+            ? AlarmScreenView._localizedStateLabel(c, state)
+            : (l?.alarmInThePast ??
+                'In the past — it has already fired or been missed');
+        sub = '${AlarmScreenView._dayAndTime(c, at)} · $what';
+      }
+      return detailLinkRow(c, LucideIcons.alarmClock,
+          l?.alarmNavTitle ?? 'Alarm', sub, () => go(c, const AlarmScreen()));
+    });
+
+/// The same facts as [alarmDoor], as an "At a glance" tile: the armed time
+/// (or "Not set") and, under it, which day and what we know about it. The
+/// icon takes the state's colour, so an unconfirmed alarm is not drawn in the
+/// same calm tone as a confirmed one.
+Widget alarmGlanceCard(BuildContext c, DateTime? at, AlarmArmState state,
+        {DateTime? now}) =>
+    _AlarmTick.wrap(at, now, (n) {
+      final l = AppLocalizations.of(c);
+      return SignalCard(
+        LucideIcons.alarmClock,
+        AlarmScreenView._stateColor(state),
+        l?.alarmNavTitle ?? 'Alarm',
+        at == null
+            ? (l?.alarmStateNotSet ?? 'Not set')
+            : AlarmScreenView._hhmm(at),
+        sub: at == null
+            ? (l?.alarmSetAnAlarm ?? 'Set an alarm')
+            : at.isAfter(n)
+                ? '${AlarmScreenView._whichDay(c, at, n)} · '
+                    '${AlarmScreenView._localizedStateLabel(c, state)}'
+                : (l?.alarmGlanceInThePast ?? 'Fired or missed'),
+        onTap: () => go(c, const AlarmScreen()),
+      );
+    });
+
+/// Rebuilds [build] at the two moments its text goes stale on its own: when
+/// the armed alarm passes (upcoming → fired or missed) and at local midnight
+/// (Tomorrow → Later today). Home rebuilds only on new data or a changed
+/// alarm, so with the band out of range nothing else would — and the row
+/// went on calling an alarm that had already passed the next one.
+class _AlarmTick extends StatefulWidget {
+  final DateTime? at;
+  final Widget Function(DateTime now) build;
+
+  const _AlarmTick(this.at, this.build);
+
+  /// A pinned [now] (tests, goldens) is a frozen clock: nothing to wait for.
+  static Widget wrap(DateTime? at, DateTime? now,
+          Widget Function(DateTime now) build) =>
+      now != null ? build(now) : _AlarmTick(at, build);
+
+  @override
+  State<_AlarmTick> createState() => _AlarmTickState();
+}
+
+class _AlarmTickState extends State<_AlarmTick> {
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _schedule();
   }
-  return detailLinkRow(c, LucideIcons.alarmClock, l?.alarmNavTitle ?? 'Alarm',
-      sub, () => go(c, const AlarmScreen()));
+
+  @override
+  void didUpdateWidget(_AlarmTick old) {
+    super.didUpdateWidget(old);
+    if (old.at != widget.at) _schedule();
+  }
+
+  // Scheduled here rather than in build, so a Home rebuild on new data does
+  // not throw away and re-create the timer every time.
+  void _schedule() {
+    final now = clock.now();
+    final midnight = DateTime(now.year, now.month, now.day + 1);
+    final at = widget.at;
+    final next =
+        at != null && at.isAfter(now) && at.isBefore(midnight) ? at : midnight;
+    _t?.cancel();
+    _t = Timer(next.difference(now), () {
+      if (!mounted) return;
+      setState(() {});
+      _schedule();
+    });
+  }
+
+  @override
+  Widget build(BuildContext c) => widget.build(clock.now());
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
 }
 
 class AlarmScreen extends StatelessWidget {
@@ -297,23 +388,35 @@ class AlarmScreenView extends StatelessWidget {
     final picked = await showDialog<int>(
       context: c,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Smart wake window'),
+        title: Text(uiText(ctx, 'Smart wake window')),
         children: [0, 15, 30, 45]
-            .map((m) => SimpleDialogOption(
-                  onPressed: () => Navigator.pop(ctx, m),
-                  child: Text(m == 0 ? 'Off' : '$m min before wake time'),
-                ))
+            .map(
+              (m) => SimpleDialogOption(
+                onPressed: () => Navigator.pop(ctx, m),
+                child: Text(
+                  m == 0
+                      ? uiText(ctx, 'Off')
+                      : AppLocalizations.of(
+                              ctx,
+                            )?.supplementSmartWindowMinutes(m) ??
+                            '$m min before wake time',
+                ),
+              ),
+            )
             .toList(),
       ),
     );
     if (picked == null || !c.mounted) return;
     await _run(
-        c,
-        () => onSetSmartWindow!(day.weekday, picked),
-        picked == 0
-            ? 'Smart wake off'
-            : 'Smart wake on — the band still buzzes at the wake time '
-                'either way');
+      c,
+      () => onSetSmartWindow!(day.weekday, picked),
+      picked == 0
+          ? uiText(c, 'Smart wake off')
+          : uiText(
+              c,
+              'Smart wake on — the band still buzzes at the wake time either way',
+            ),
+    );
   }
 
   /// Run a band/schedule write and report what happened. Every one of these

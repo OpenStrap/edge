@@ -99,8 +99,12 @@ class HealthUploader {
       if (!await _onWifi()) return false;
       if (!await _charging()) return false;
 
-      // Snapshot the DB, gzip it, upload, record the timestamp.
-      final path = await LocalDb.exportCopy();
+      // Snapshot the DB, gzip it, upload, record the timestamp. WITHOUT the
+      // substrate archive: what this contributes is unchanged by it, and a
+      // year of already-compressed raw history read into memory and re-gzipped
+      // here would be both a bigger upload than anyone consented to and a
+      // memory spike on the phone.
+      final path = await LocalDb.exportCopy(includeSubstrateArchive: false);
       final file = File(path);
       try {
         final bytes = await file.readAsBytes();
