@@ -122,6 +122,44 @@ class _DataScreenState extends State<DataScreen> {
     );
   }
 
+  /// Minute-by-minute heart rate for a chosen range. The picker is bounded to
+  /// the derived days that exist, and its heading says which those are, so
+  /// "what range is there" is answered before anything is chosen.
+  Future<_Note> _exportHeartRate() async {
+    final days = await LocalDb.availableDayIds();
+    if (!mounted) return ('', false);
+    final l = AppLocalizations.of(context);
+    if (days.isEmpty) {
+      return (l?.dataNothingToExportYet ?? 'Nothing to export yet.', false);
+    }
+    DateTime parse(String d) => DateTime.parse(d);
+    final first = parse(days.last), last = parse(days.first);
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: first,
+      lastDate: last,
+      initialDateRange: DateTimeRange(
+        start: () {
+          final week = DateTime(last.year, last.month, last.day - 6);
+          return week.isBefore(first) ? first : week;
+        }(),
+        end: last,
+      ),
+      helpText: l?.dataHeartRateRangeHelp(days.last, days.first) ??
+          'Heart rate is kept from ${days.last} to ${days.first}',
+    );
+    if (range == null || !mounted) return ('', false);
+    final origin = shareOrigin(context);
+    String label(DateTime d) => d.toIso8601String().substring(0, 10);
+    final path = await exportHeartRateCsv(label(range.start), label(range.end));
+    if (path == null) {
+      return (l?.dataNothingToExportYet ?? 'Nothing to export yet.', false);
+    }
+    await Share.shareXFiles([XFile(path)],
+        subject: 'OpenStrap heart rate', sharePositionOrigin: origin);
+    return (l?.dataFilesShared(1) ?? '1 file shared.', false);
+  }
+
   Future<_Note> _exportDb() async {
     final l = AppLocalizations.of(context);
     final origin = shareOrigin(context);
@@ -296,6 +334,14 @@ class _DataScreenState extends State<DataScreen> {
                               'typed in. Each day carries where it came from and '
                               'which algorithm version scored it',
                       onTap: _busy ? null : () => _run(_exportCsv)),
+                  SetRow(LucideIcons.heartPulse, C.red,
+                      l?.dataExportHeartRate ?? 'Export heart rate, minute by minute',
+                      sub: l?.dataExportHeartRateSub ??
+                          'One CSV for the days you pick: a 1-minute average '
+                              'for every minute the band recorded. Second-by-'
+                              'second readings are kept for recent days only '
+                              'and are in the database export',
+                      onTap: _busy ? null : () => _run(_exportHeartRate)),
                   SetRow(LucideIcons.database, C.blue,
                       l?.dataExportDatabase ?? 'Export the database',
                       sub: l?.dataExportDatabaseSub ??

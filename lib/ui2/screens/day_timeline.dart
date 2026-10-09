@@ -416,7 +416,12 @@ class DayGraph {
     this.movement = const [],
     this.rest = const [],
     this.work = const [],
+    this.dayStart,
   });
+
+  /// Epoch second of slot 0 — local midnight for a whole day, the window's
+  /// first minute for a [window]. Null for a graph built without a day.
+  final int? dayStart;
 
   /// Beats per minute, one slot per minute of the day, `null` where nothing
   /// was recorded.
@@ -436,6 +441,25 @@ class DayGraph {
   int get slots => hr.length > movement.length ? hr.length : movement.length;
 
   bool get hasCurve => hr.any((v) => v != null);
+
+  /// Minutes [lo, hi) of this graph, re-based so slot 0 is minute [lo]. Spans
+  /// are clipped to the window, not dropped — a night that runs past the
+  /// window's edge was still a night inside it.
+  DayGraph window(int lo, int hi) {
+    List<double?> cut(List<double?> l) =>
+        l.sublist(lo.clamp(0, l.length), hi.clamp(0, l.length));
+    List<(int, int, Color)> clip(List<(int, int, Color)> spans) => [
+      for (final (a, b, col) in spans)
+        if (b > lo && a < hi) (a.clamp(lo, hi) - lo, b.clamp(lo, hi) - lo, col),
+    ];
+    return DayGraph(
+      hr: cut(hr),
+      movement: cut(movement),
+      rest: clip(rest),
+      work: clip(work),
+      dayStart: dayStart == null ? null : dayStart! + lo * 60,
+    );
+  }
 
   bool get isEmpty =>
       !hasCurve &&
@@ -552,7 +576,8 @@ DayGraph dayGraph(Map<String, dynamic> timeline, {List<Object?>? hrOverride}) {
       if (s is Map) ?span(s['start_ts'], s['end_ts'], C.orange),
   ];
 
-  return DayGraph(hr: hr, movement: movement, rest: rest, work: work);
+  return DayGraph(
+      hr: hr, movement: movement, rest: rest, work: work, dayStart: dayStart);
 }
 
 // ═══════════════════ the screen ═══════════════════
@@ -869,7 +894,7 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
             ),
           const SizedBox(height: S.x2),
         ],
-        ...timelineBody(c, d),
+        ...timelineBody(c, d, fineDetail: _device == null),
       ],
     ]);
   }
@@ -881,14 +906,22 @@ class _DayTimelineScreenState extends State<DayTimelineScreen> {
 /// for, and a frame with an axis and no line under it reads as a measurement
 /// of zero. A day like that is entirely carried by the list underneath, which
 /// is the right shape for it — a handful of things that happened, in order.
-Widget? dayGraphCard(BuildContext c, DayGraph g) {
-  if (!g.hasCurve) return null;
+///
+/// [zoomed] draws a window of the day: clock-time x labels, and a frame that
+/// says "no heart rate here" instead of vanishing, so the zoom control under
+/// it stays reachable. [fine] is a per-second curve over the same window,
+/// drawn instead of the per-minute one when the raw rows still exist.
+Widget? dayGraphCard(BuildContext c, DayGraph g,
+    {bool zoomed = false, List<double?>? fine, String? footnote}) {
+  if (!g.hasCurve && !zoomed) return null;
   final p = P.of(c);
   final l = AppLocalizations.of(c);
   final n = g.slots;
   double at(int m) => n <= 0 ? 0 : m / n;
-  final axis = AxisSpec.of([for (final v in g.hr) ?v], ticks: 3);
-  if (axis == null) return null;
+  final curve = fine ?? g.hr;
+  final axis = AxisSpec.of([for (final v in curve) ?v], ticks: 3);
+  if (axis == null && !zoomed) return null;
+  final start = g.dayStart;
 
   final asleep = p.on(C.blue), workout = p.on(C.orange);
   final gaps = g.unmeasured;
@@ -901,11 +934,22 @@ Widget? dayGraphCard(BuildContext c, DayGraph g) {
       // Three, and only three, because ChartFrame lays the first flush left,
       // the last flush right and the rest centred — which puts a middle label
       // exactly on the middle of the plot and a five-label row 5 % out.
-      xLabels: [
-        l?.dayTimelineMidnight ?? 'Midnight',
-        l?.dayTimelineNoon ?? 'Noon',
-        l?.dayTimelineMidnight ?? 'Midnight',
-      ],
+      xLabels: zoomed && start != null
+          ? [
+              clockOfTs(start),
+              clockOfTs(start + n * 30),
+              clockOfTs(start + n * 60),
+            ]
+          : [
+              l?.dayTimelineMidnight ?? 'Midnight',
+              l?.dayTimelineNoon ?? 'Noon',
+              l?.dayTimelineMidnight ?? 'Midnight',
+            ],
+      footnote: footnote,
+      empty: axis == null
+          ? NoData(
+              message: l?.dayTimelineZoomNoHr ?? 'No heart rate in this stretch')
+          : null,
       legend: [
         if (g.rest.isNotEmpty) (l?.dayTimelineAsleep ?? 'Asleep', asleep),
         if (g.work.isNotEmpty) (l?.dayTimelineWorkout ?? 'Workout', workout),
@@ -913,7 +957,7 @@ Widget? dayGraphCard(BuildContext c, DayGraph g) {
           (l?.dayTimelineMoving ?? 'Moving', p.on(C.domMove)),
         if (gaps.isNotEmpty) (l?.dayTimelineNotRecorded ?? 'Not recorded', p.card2),
       ],
-      series: g.hr,
+      series: curve,
       child: Stack(children: [
         Positioned.fill(
           child: CustomPaint(
@@ -937,7 +981,7 @@ Widget? dayGraphCard(BuildContext c, DayGraph g) {
               // No fill under the line: the area would swallow the bands behind
               // it, and the bands are the half of this picture the curve cannot
               // say on its own.
-              painter: LineChart(g.hr, p.on(C.red), fill: false, axis: axis),
+              painter: LineChart(curve, p.on(C.red), fill: false, axis: axis),
             ),
           ),
         ],
@@ -946,12 +990,174 @@ Widget? dayGraphCard(BuildContext c, DayGraph g) {
   );
 }
 
+/// Per-second rows longer than this are not fetched: the chart is a few
+/// hundred pixels wide, and past two hours a second-by-second line is drawn
+/// at the same density as the stored per-minute one.
+const int kFineWindowMinutes = 120;
+
+/// [rows] (`rec_ts`, `hr`) as one slot per second of [fromSec, toSec), `null`
+/// where nothing was recorded. hr 0 is "no lock", never a reading.
+List<double?> perSecondHr(
+    List<Map<String, Object?>> rows, int fromSec, int toSec) {
+  final out = List<double?>.filled(toSec > fromSec ? toSec - fromSec : 0, null);
+  for (final r in rows) {
+    final t = (r['rec_ts'] as num?)?.toInt();
+    final v = (r['hr'] as num?)?.toDouble();
+    if (t == null || v == null || v <= 0) continue;
+    final i = t - fromSec;
+    if (i >= 0 && i < out.length) out[i] = v;
+  }
+  return out;
+}
+
+/// The day chart plus a range control under it. The whole day is the stored
+/// per-minute curve, which is kept for every derived day. Zoomed to two hours
+/// or less it re-reads the band's per-second rows — those are pruned a few
+/// days behind the newest sync, so on an older day it says it is still
+/// showing minutes rather than pretending to more detail.
+class _DayGraphZoom extends StatefulWidget {
+  const _DayGraphZoom(this.graph, {super.key, this.fineDetail = true});
+
+  final DayGraph graph;
+  final bool fineDetail;
+
+  @override
+  State<_DayGraphZoom> createState() => _ZoomState();
+}
+
+class _ZoomState extends State<_DayGraphZoom> {
+  RangeValues? _range;
+  List<double?>? _fine;
+
+  /// Set once a fine read for the current range came back empty.
+  bool _fineMissing = false;
+  int _token = 0;
+
+  @override
+  void didUpdateWidget(_DayGraphZoom old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.graph, widget.graph) ||
+        old.fineDetail != widget.fineDetail) {
+      _range = null;
+      _fine = null;
+      _fineMissing = false;
+      _token++;
+    }
+  }
+
+  (int, int) _bounds() {
+    final n = widget.graph.slots;
+    final r = _range;
+    if (r == null) return (0, n);
+    return (r.start.round().clamp(0, n), r.end.round().clamp(0, n));
+  }
+
+  Future<void> _readFine() async {
+    final token = ++_token;
+    final (lo, hi) = _bounds();
+    final start = widget.graph.dayStart;
+    if (!widget.fineDetail ||
+        start == null ||
+        hi - lo > kFineWindowMinutes ||
+        hi <= lo) {
+      return;
+    }
+    final from = start + lo * 60, to = start + hi * 60;
+    List<double?>? fine;
+    try {
+      final db = await LocalDb.instance;
+      final rows = await db.rawQuery(
+        'SELECT rec_ts, hr FROM decoded_onehz '
+        'WHERE rec_ts >= ? AND rec_ts < ? AND hr > 0 AND ${derivableSourceSql()} '
+        'ORDER BY rec_ts ASC',
+        [from, to],
+      );
+      final s = perSecondHr(rows, from, to);
+      if (s.any((v) => v != null)) fine = s;
+    } catch (_) {
+      // No per-second rows is the same answer as pruned ones: minutes it is.
+    }
+    if (!mounted || token != _token) return;
+    setState(() {
+      _fine = fine;
+      _fineMissing = fine == null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final l = AppLocalizations.of(c);
+    final p = P.of(c);
+    final n = widget.graph.slots;
+    final (lo, hi) = _bounds();
+    final zoomed = lo > 0 || hi < n;
+    final g = zoomed ? widget.graph.window(lo, hi) : widget.graph;
+    final String note;
+    if (_fine != null) {
+      note = l?.dayTimelineZoomPerSecond ??
+          'Every second the band recorded. Second-by-second readings are kept '
+              'for recent days only.';
+    } else if (_fineMissing) {
+      note = l?.dayTimelineZoomPerMinuteOnly ??
+          '1-minute averages. Second-by-second readings are no longer kept '
+              'for this stretch.';
+    } else {
+      note = l?.dayTimelineZoomPerMinute ??
+          '1-minute averages. Drag the handles to zoom; two hours or less '
+              'shows every second while it is still kept.';
+    }
+    final card =
+        dayGraphCard(c, g, zoomed: zoomed, fine: _fine, footnote: note);
+    if (card == null || n < 2) return card ?? const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        card,
+        RangeSlider(
+          values: RangeValues(lo.toDouble(), hi.toDouble()),
+          min: 0,
+          max: n.toDouble(),
+          // Quarter-hour steps: fine enough to land on a workout, coarse
+          // enough that a thumb can hit a two-hour window.
+          divisions: n ~/ 15 > 0 ? n ~/ 15 : null,
+          activeColor: p.on(C.red),
+          labels: widget.graph.dayStart == null
+              ? null
+              : RangeLabels(
+                  clockOfTs(widget.graph.dayStart! + lo * 60),
+                  clockOfTs(widget.graph.dayStart! + hi * 60),
+                ),
+          semanticFormatterCallback: (v) => widget.graph.dayStart == null
+              ? '${v.round()}'
+              : clockOfTs(widget.graph.dayStart! + v.round() * 60),
+          onChanged: (r) {
+            if (r.end - r.start < 15) return;
+            _token++;
+            setState(() {
+              _range = r;
+              _fine = null;
+              _fineMissing = false;
+            });
+          },
+          onChangeEnd: (_) => _readFine(),
+        ),
+      ],
+    );
+  }
+}
+
 /// The page's body, given loaded data. Split out so the gallery can build every
 /// state of it without a repository.
-List<Widget> timelineBody(BuildContext c, TimelineData d) {
+///
+/// [fineDetail] allows the zoomed chart to read per-second rows; off while a
+/// single device is selected, because those rows are not split by device.
+List<Widget> timelineBody(BuildContext c, TimelineData d,
+    {bool fineDetail = true}) {
   final p = P.of(c);
   final l = AppLocalizations.of(c);
-  final graph = dayGraphCard(c, d.graph);
+  final graph = d.graph.hasCurve
+      ? _DayGraphZoom(d.graph, fineDetail: fineDetail, key: ValueKey(d.day))
+      : null;
   return [
     ?graph,
     if (d.moments.isEmpty && d.notes.isEmpty && graph == null)
