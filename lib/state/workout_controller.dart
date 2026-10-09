@@ -38,6 +38,7 @@ import '../ble/polar_pmd_link.dart';
 import '../compute/hr_max.dart';
 import '../compute/manual_session.dart' show strainFromPerMinuteHr;
 import '../compute/profile.dart';
+import '../compute/quiet_level.dart';
 import '../data/day_label.dart';
 import '../data/db.dart';
 import '../data/local_repository.dart';
@@ -193,6 +194,29 @@ class WorkoutController {
 
   // ── live session coach ───────────────────────────────────────────────────────
   LiveWorkoutState? activeWorkout;
+
+  /// FILL A GAP on [w] with the personal quiet-waking level for ITS OWN local
+  /// start day — the level the saved session is re-scored on, so the gauge
+  /// and the stored number agree, even for a session resumed after midnight.
+  /// Read fresh every time, never cached: a level read earlier can predate the
+  /// derive that wrote yesterday's `quiet_hrr`, or belong to another day. Same
+  /// rule as the resting HR: never move a level a running session was already
+  /// scored on. Absent below three measured days; the gauge then shows "—".
+  Future<void> fillLiveQuietLevel(LiveWorkoutState w) async {
+    if (w.quietHrr != null) return;
+    final lvl =
+        (await personalQuietLevelBefore(dayLabelOf(w.startTime))).value;
+    if (lvl == null || w.quietHrr != null || !identical(activeWorkout, w)) {
+      return;
+    }
+    w.quietHrr = lvl.hrr;
+    w.quietSettled = lvl.settled;
+    // Now, not at the next sample: a resumed session's restored series was
+    // scored before the level landed.
+    w._scoreStrain();
+    _notify();
+  }
+
   Timer? _workoutTimer;
 
   // GPS route tracking for the active run/ride/walk (on-device only). Null when
@@ -395,6 +419,9 @@ class WorkoutController {
         manualZoneLowerBpm: manualZoneBoundsFromProfile(_user()),
       ),
       restingHr: _liveRestingHr(),
+      // No quiet level yet: the refresh reads it fresh for this session's OWN
+      // start day (after a relaunch past midnight that is not today) and fills
+      // the gap within the first samples.
     );
   }
 
@@ -1376,6 +1403,16 @@ class LiveWorkoutState {
   /// fraction of a second after it started.
   double? restingHr;
 
+  /// This user's quiet-waking level the strain score is priced above
+  /// (`personalQuietLevelBefore`). Mutable for the same reason as
+  /// [restingHr]: [AppState._refreshNightlyRhr] fills it when the read lands,
+  /// and only fills a gap. Null keeps strain absent.
+  double? quietHrr;
+
+  /// Whether [quietHrr] rests on a settled week of days; only the confidence
+  /// moves with it, never the number.
+  bool quietSettled;
+
   /// Per-minute mean HR, the unit Banister TRIMP weights. Live HR arrives at
   /// 1 Hz, so it is folded into the current minute here rather than kept as
   /// thousands of raw samples.
@@ -1450,6 +1487,8 @@ class LiveWorkoutState {
     this.hrMax,
     this.zoneSet,
     this.restingHr,
+    this.quietHrr,
+    this.quietSettled = true,
   })  : _hrPeak = RollingMaxHr(age: age),
         idleWatch = WorkoutIdleWatch(startedAt: startTime);
 
@@ -1509,17 +1548,25 @@ class LiveWorkoutState {
     // ONE strain method across the app (see strainFromPerMinuteHr). Null when
     // an anchor is missing — the gauge shows "—" rather than a number built on
     // an invented HRmax or resting HR.
-    strain = strainFromPerMinuteHr(
-      perMinuteHr(),
-      profile: profile,
-      restingHr: restingHr,
-      hrMax: hrMax,
-    );
+    _scoreStrain();
 
     // Calories re-score off the same series, through the same estimator the
     // substrate re-score uses, so both live figures on the gauge mean the same
     // thing the finished session will.
     _scoreCalories();
+  }
+
+  /// Re-score [strain] from the per-minute series — see the note in
+  /// [accrueHr]. Null as well while the quiet level has not landed.
+  void _scoreStrain() {
+    strain = strainFromPerMinuteHr(
+      perMinuteHr(),
+      profile: profile,
+      restingHr: restingHr,
+      hrMax: hrMax,
+      quietHrr: quietHrr,
+      quietSettled: quietSettled,
+    );
   }
 
   /// Restore per-second tallies persisted mid-session by a PREVIOUS process,
@@ -1561,12 +1608,7 @@ class LiveWorkoutState {
       ..clear()
       ..addAll(secondsByBpm);
     maxHrSeen = maxHrSeenIn;
-    strain = strainFromPerMinuteHr(
-      perMinuteHr(),
-      profile: profile,
-      restingHr: restingHr,
-      hrMax: hrMax,
-    );
+    _scoreStrain();
     _scoreCalories();
   }
 }

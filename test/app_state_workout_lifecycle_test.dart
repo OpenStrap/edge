@@ -353,6 +353,12 @@ void main() {
         app.engine.state.generation = 'gen4';
         app.startWorkout(workoutId: 'w4-meas', type: 'strength');
         await sessionLanded('w4-meas');
+        // Strain is priced on the user's own quiet-waking level: three days
+        // on file, and the anchor refresh awaited so the live session has it.
+        for (var d = 1; d <= 3; d++) {
+          await LocalDb.putMetricSeriesValue('2020-01-0$d', 'quiet_hrr', 0.20);
+        }
+        await app.debugRefreshNightlyRhr();
         setLiveHr(app, 150);
         final tick = probe.active(kTick).single;
         for (var i = 0; i < 90; i++) {

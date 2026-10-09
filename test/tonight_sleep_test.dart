@@ -60,6 +60,11 @@ double _strain({int tonight = 0}) {
     dataNowSec: sub.tsSec.last + 1,
     restingHr: 50,
     tonightSleepOnsetSec: tonight,
+    // Strain is priced on the user's prior quiet-waking levels and abstains
+    // without them. A level below this day's waking minutes (62 bpm ≈ 0.09
+    // HRR), so they net positive and minutes asleep (≈ 0.015 HRR) would net
+    // that back down if they were still counted as waking.
+    quietHrrHistory: List<double>.filled(7, 0.05),
   );
   return (scalars['strain'] as num).toDouble();
 }

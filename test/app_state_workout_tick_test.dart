@@ -184,6 +184,12 @@ void main() {
       final probe = TimerProbe();
       await probe.run(() async {
         final (app, tick) = await started(probe, 'w4-kcal');
+        // Strain is priced on the user's own quiet-waking level: three days
+        // on file, and the anchor refresh awaited so the live session has it.
+        for (var d = 1; d <= 3; d++) {
+          await LocalDb.putMetricSeriesValue('2020-01-0$d', 'quiet_hrr', 0.20);
+        }
+        await app.debugRefreshNightlyRhr();
         final w = app.activeWorkout!;
         tick.fire();
         expect(w.caloriesOrNull, isNull);

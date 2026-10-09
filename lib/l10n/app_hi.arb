@@ -165,6 +165,19 @@
   "devicesNotConnected": "जुड़ा नहीं है",
   "devicesTierRank": "स्तर {rank}",
   "devicesTierRankLabel": "स्तर {rank} · {label}",
+  "devicesOuraKeyRefused": "रिंग ने कुंजी अस्वीकार कर दी। एक स्वीकार्य कुंजी इंस्टॉल करने के लिए इसे फिर से पेयर करें।",
+  "@devicesOuraKeyRefused": {
+    "description": "स्नैकबार: Oura सिंक विफल — रिंग ने पेयरिंग कुंजी अस्वीकार की।"
+  },
+  "devicesOuraStorageFailed": "सिंक पूरी तरह से नहीं सहेजा पा सका। कृपया फिर से सिंक करें।",
+  "@devicesOuraStorageFailed": {
+    "description": "स्नैकबार: Oura सिंक विफल — स्थायी स्टोरेज कमिट विफल।"
+  },
+  "devicesOuraProtocolTimeout": "रिंग सिंक के बीच जवाब देना बंद कर दिया। कृपया फिर से सिंक करें।",
+  "@devicesOuraProtocolTimeout": {
+    "description": "स्नैकबार: Oura सिंक विफल — प्रोटोकॉल टाइमआउट / अपूर्ण उत्तर।"
+  },
+  "devicesOuraCheckpointUnconfirmed": "सिंक पूर्ण नहीं हो पाई। कृपया फिर से सिंक करें।",
   "devicesSyncingTheRing": "रिंग सिंक हो रही है…",
   "devicesSynced": "सिंक हो गया।",
   "devicesCouldNotReachRing": "रिंग तक नहीं पहुंचा जा सका। यह पास होना चाहिए, और किसी अन्य ऐप से जुड़ा नहीं होना चाहिए।",
@@ -920,6 +933,8 @@
   "investigateStrapChipReported": "बैंड चिप द्वारा दर्ज",
   "investigateTimeDomain": "टाइम डोमेन",
   "investigateRmssd": "RMSSD",
+  "investigateRmssdNightly": "RMSSD, रात का (5-मिनट विंडो का औसत)",
+  "investigateRmssdStored": "RMSSD, रात का (पहले का अनुमान)",
   "investigateSdnn": "SDNN",
   "investigateSdann": "SDANN",
   "investigateSdnnIndex": "SDNN इंडेक्स",
@@ -1316,8 +1331,8 @@
   "healthCatMovementLoad": "गतिविधि और भार",
   "healthCatBodyWear": "शरीर और पहनावा",
   "healthBlurbRestingHr": "रात की सबसे कम स्थिर दर",
-  "healthBlurbHrv": "नींद के सबसे स्वच्छ समय-खंड पर RMSSD",
-  "healthBlurbHrvCv": "यह रात-दर-रात कितना बदलता है",
+  "healthBlurbHrv": "रात की 5-मिनट की खिड़कियों पर औसत RMSSD",
+  "healthBlurbHrvCv": "एक रात के भीतर, औसत धड़कन-अंतराल के अनुपात में SDNN",
   "healthBlurbLfHf": "धड़कन-समय की ऊर्जा विभिन्न आवृत्तियों में कहाँ है",
   "healthBlurbDip": "सोते समय आपकी हृदय गति कितनी गिरती है",
   "healthBlurbHrr": "किसी कसरत के बाद एक मिनट में यह कितनी तेज़ी से गिरती है",

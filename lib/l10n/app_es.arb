@@ -165,6 +165,19 @@
   "devicesNotConnected": "No conectado",
   "devicesTierRank": "Nivel {rank}",
   "devicesTierRankLabel": "Nivel {rank} · {label}",
+  "devicesOuraKeyRefused": "El anillo rechazó la clave. Vuelve a emparejarlo para instalar una clave que acepte.",
+  "@devicesOuraKeyRefused": {
+    "description": "Aviso: la sincronización de Oura falló — el anillo rechazó la clave de emparejamiento."
+  },
+  "devicesOuraStorageFailed": "La sincronización no se pudo guardar por completo. Vuelve a sincronizar.",
+  "@devicesOuraStorageFailed": {
+    "description": "Aviso: la sincronización de Oura falló — falló el commit de almacenamiento."
+  },
+  "devicesOuraProtocolTimeout": "El anillo dejó de responder a mitad de la sincronización. Vuelve a sincronizar.",
+  "@devicesOuraProtocolTimeout": {
+    "description": "Aviso: la sincronización de Oura falló — tiempo de espera agotado / respuesta incompleta."
+  },
+  "devicesOuraCheckpointUnconfirmed": "No se pudo completar la sincronización. Vuelve a sincronizar.",
   "devicesSyncingTheRing": "Sincronizando el anillo…",
   "devicesSynced": "Sincronizado.",
   "devicesCouldNotReachRing": "No se pudo contactar con el anillo. Debe estar cerca y no conectado a otra app.",
@@ -920,6 +933,8 @@
   "investigateStrapChipReported": "chip de la banda reportó",
   "investigateTimeDomain": "Dominio del tiempo",
   "investigateRmssd": "RMSSD",
+  "investigateRmssdNightly": "RMSSD, nocturno (media de ventanas de 5 min)",
+  "investigateRmssdStored": "RMSSD, nocturno (estimación anterior)",
   "investigateSdnn": "SDNN",
   "investigateSdann": "SDANN",
   "investigateSdnnIndex": "Índice SDNN",
@@ -1316,8 +1331,8 @@
   "healthCatMovementLoad": "Movimiento y carga",
   "healthCatBodyWear": "Cuerpo y uso",
   "healthBlurbRestingHr": "El ritmo sostenido más bajo de la noche",
-  "healthBlurbHrv": "RMSSD durante la ventana de sueño más limpia",
-  "healthBlurbHrvCv": "Cuánto varía eso de una noche a otra",
+  "healthBlurbHrv": "RMSSD medio de las ventanas de 5 minutos de la noche",
+  "healthBlurbHrvCv": "SDNN como fracción del intervalo medio entre latidos, dentro de una noche",
   "healthBlurbLfHf": "Dónde se concentra la potencia del ritmo cardíaco entre frecuencias",
   "healthBlurbDip": "Cuánto baja tu frecuencia cardíaca mientras duermes",
   "healthBlurbHrr": "Cuán rápido baja en el minuto después de un esfuerzo",

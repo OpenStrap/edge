@@ -38,6 +38,14 @@ class RepositoryException implements Exception {
   String toString() => 'Repository error $status: $body';
 }
 
+/// Whether a stored `rmssd` came from the sleep-session estimator: its
+/// envelope ([sessionEnvelope] = `clinical.rmssd_sleep_session`) holds a value.
+/// A bundle derived before `rmssd` became that single estimator can hold an
+/// earlier fallback (NREM median or whole-night) beside an absent envelope.
+/// The one rule Today's confidence and Investigate's label both read.
+bool rmssdFromSessionEstimator(Object? sessionEnvelope) =>
+    sessionEnvelope is Map && sessionEnvelope['value'] is num;
+
 /// The local data contract for every insights screen + the AI Coach.
 /// Return types mirror the cloud ApiClient exactly (defensive Map/List blobs).
 abstract class LocalRepository {

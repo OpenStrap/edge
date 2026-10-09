@@ -251,33 +251,39 @@ List<double> zoneMinutesFor(
 /// ceiling is a property of the strap that measured the window as well as the
 /// athlete's age (`estimatedMaxHr`), and this scorer is device-agnostic. Null
 /// — no age, or an uncalibrated/unstamped strap — abstains.
+///
+/// [quietHrr] is THIS user's quiet-waking level for the day the window sits in
+/// (`personalQuietLevelBefore`) — the level that day's own strain was priced
+/// on, so a bout and its day are on one baseline. Null abstains: the 0.20
+/// population reference billed being awake as load for some users and erased
+/// real workouts for others. [quietSettled] false only lowers confidence
+/// inside analytics; the value is the same.
 double? strainFromPerMinuteHr(
   List<double> perMinuteHr, {
   required Profile profile,
   required double? restingHr,
   required double? hrMax,
+  required double? quietHrr,
+  bool quietSettled = true,
 }) {
   final sex = profile.sex?.toLowerCase();
-  if (perMinuteHr.isEmpty || hrMax == null || restingHr == null || sex == null) {
+  if (perMinuteHr.isEmpty ||
+      hrMax == null ||
+      restingHr == null ||
+      sex == null ||
+      quietHrr == null) {
     return null;
   }
-  final trimp = ana.banisterTrimp(
+  // Banister TRIMP above the quiet level over the window's own minutes, with
+  // exercise minutes never offset by quiet ones — the same analytics call the
+  // day headline makes, so "workout strain" and "daily strain" are one method.
+  final score = ana.strainScoreFromSeries(
     perMinuteHr,
     restingHr: restingHr,
     maxHr: hrMax,
+    quietHrr: quietHrr,
     sex: workoutSex(sex) == 'female' ? ana.Sex.female : ana.Sex.male,
-  );
-  if (!trimp.present || trimp.value == null) return null;
-  // The window's own length is the baseline window: strain is the load earned
-  // ABOVE quiet waking, and the same sex constant has to price the baseline as
-  // priced the TRIMP or the subtraction is off by the male/female coefficient.
-  final score = ana.strainScoreMetric(
-    trimp.value,
-    wakeMinutes: perMinuteHr.length.toDouble(),
-    // Reference level, not this user's — see onehz_pipeline's
-    // `strainMetric` for why, and edge#226 for the fix.
-    quietHrr: ana.quietWakingHrr,
-    female: workoutSex(sex) == 'female',
+    quietSettled: quietSettled,
   );
   return score.present ? score.value : null;
 }
@@ -289,8 +295,8 @@ double? strainFromPerMinuteHr(
 /// [restingHr] is the nightly/user RHR; [profile] supplies age/weight/sex.
 ///
 /// Uses the SAME published methods as the day-level derivation so a manual
-/// session and the day it sits in are on one scale: `ana.banisterTrimp` ->
-/// `ana.strainScoreMetric` for strain, `ana.Calories.estimateBoutCalories`
+/// session and the day it sits in are on one scale: `ana.strainScoreFromSeries`
+/// against [quietHrr] (the session day's level) for strain, `ana.Calories.estimateBoutCalories`
 /// (Keytel 2005) for kcal. A missing anchor makes the dependent metric null.
 ///
 /// [hrMax] is THE ceiling for this window — `estimatedMaxHr(age, family)`,
@@ -308,6 +314,8 @@ ManualSessionStats computeManualSessionStats({
   required double? hrMax,
   double? restingHr,
   ana.HeartRateZoneSet? zoneSet,
+  double? quietHrr,
+  bool quietSettled = true,
 }) {
   if (hrTs.isEmpty || hrTs.length != hrBpm.length) {
     return const ManualSessionStats();
@@ -344,7 +352,11 @@ ManualSessionStats computeManualSessionStats({
   final sex = profile.sex?.toLowerCase();
 
   final strain = strainFromPerMinuteHr(perMin,
-      profile: profile, restingHr: restingHr, hrMax: hrMax);
+      profile: profile,
+      restingHr: restingHr,
+      hrMax: hrMax,
+      quietHrr: quietHrr,
+      quietSettled: quietSettled);
 
   double? calories;
   if (profile.hasCalorieAnchors &&

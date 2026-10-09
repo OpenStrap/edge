@@ -10484,6 +10484,25 @@ class LocalDb {
     return rows.isEmpty ? null : rows.first;
   }
 
+  /// Every `compute_freshness` key starting with [prefix] — for per-day
+  /// markers (`<prefix><YYYY-MM-DD>`), which are one row each so concurrent
+  /// day derives never read-modify-write a shared list.
+  static Future<Set<String>> computeFreshnessKeys(String prefix) async {
+    final db = await instance;
+    final rows = await db.query(
+      'compute_freshness',
+      columns: ['key'],
+      where: 'substr(key, 1, ?) = ?',
+      whereArgs: [prefix.length, prefix],
+    );
+    return {for (final r in rows) r['key'] as String};
+  }
+
+  static Future<void> deleteComputeFreshness(String key) async {
+    final db = await instance;
+    await db.delete('compute_freshness', where: 'key = ?', whereArgs: [key]);
+  }
+
   /// Bookkeeping key for the one-time walk in [reencodeLegacyDayResults].
   static const String kReencodeCursorKey = 'series_reencode';
 

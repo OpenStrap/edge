@@ -870,6 +870,71 @@ void main() {
     });
   });
 
+  // ── the whole-night RMSSD row never borrows the nightly headline ──
+  //
+  // The "Time domain" table is the whole-night `hrv_time` envelope. When that
+  // RMSSD was refused, the row used to fall back to `d.hrv['rmssd']`, the
+  // sleep-session mean of 5-min windows: a different statistic under the
+  // whole-night label. The headline now has its own, labelled row.
+  group('Time-domain RMSSD rows', () {
+    testWidgets('a refused whole-night RMSSD drops its row; nightly has its own',
+        (t) async {
+      t.view.physicalSize = const Size(390 * 3, 3000 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Investigate('hrv',
+            data: InvestigateData(day: _day(0), hrv: {
+              'rmssd': 61.0,
+              'rmssd_sleep_session': {'value': 61.0, 'confidence': 0.82},
+              'hrv_time': {
+                'value': {'sdnn_ms': 70.0, 'n_beats': 20000},
+                'confidence': 0.3,
+                'tier': 'HIGH',
+              },
+            })),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('SDNN'), findsOneWidget, reason: 'the table rendered');
+      expect(find.text('RMSSD'), findsNothing,
+          reason: 'whole-night RMSSD is absent, so its row is dropped');
+      expect(find.text('RMSSD, nightly (mean of 5-min windows)'),
+          findsOneWidget);
+      expect(find.text('61.0 ms'), findsOneWidget);
+    });
+
+    testWidgets('a legacy fallback RMSSD is not labelled the 5-min-window mean',
+        (t) async {
+      // A bundle derived before `rmssd` became one estimator: the stored value
+      // is the NREM median, beside an absent session envelope.
+      t.view.physicalSize = const Size(390 * 3, 3000 * 3);
+      t.view.devicePixelRatio = 3;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: buildTheme(Brightness.light),
+        home: Investigate('hrv',
+            data: InvestigateData(day: _day(0), hrv: {
+              'rmssd': 48.3,
+              'rmssd_sleep_session': {
+                'value': '—',
+                'confidence': 0,
+                'note': 'no valid 5-min windows for sleep-session RMSSD',
+              },
+              'hrv_time': {
+                'value': {'sdnn_ms': 70.0, 'n_beats': 25000},
+                'confidence': 0.62,
+                'tier': 'HIGH',
+              },
+            })),
+      ));
+      await t.pumpAndSettle();
+      expect(find.text('RMSSD, nightly (mean of 5-min windows)'), findsNothing);
+      expect(find.text('RMSSD, nightly (earlier estimate)'), findsOneWidget);
+      expect(find.text('48.3 ms'), findsOneWidget);
+    });
+  });
+
   // ── CV-10: three states, and "not screened" is not "clear" ──
   group('irregular-rhythm strip', () {
     testWidgets('counts the days it ran and refuses to reassure', (t) async {

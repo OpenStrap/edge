@@ -768,6 +768,22 @@
       }
     }
   },
+  "devicesOuraKeyRefused": "The ring rejected the key. Re-pair it to install a key it accepts.",
+  "@devicesOuraKeyRefused": {
+    "description": "Snackbar: Oura sync failed — the ring explicitly refused the pairing key."
+  },
+  "devicesOuraStorageFailed": "The sync could not be saved completely. Please try syncing again.",
+  "@devicesOuraStorageFailed": {
+    "description": "Snackbar: Oura sync failed — the durable storage commit failed."
+  },
+  "devicesOuraProtocolTimeout": "The ring stopped answering mid-sync. Please try syncing again.",
+  "@devicesOuraProtocolTimeout": {
+    "description": "Snackbar: Oura sync failed — protocol timeout / incomplete answer."
+  },
+  "devicesOuraCheckpointUnconfirmed": "The sync could not be completed. Please try syncing again.",
+  "@devicesOuraCheckpointUnconfirmed": {
+    "description": "Snackbar: Oura sync failed — a batch checkpoint was not confirmed in time."
+  },
   "devicesSyncingTheRing": "Syncing the ring…",
   "@devicesSyncingTheRing": {
     "description": "Snackbar: syncing ring."
@@ -4693,6 +4709,14 @@
   "@investigateRmssd": {
     "description": "HRV metric label: RMSSD (kept as scientific abbreviation)"
   },
+  "investigateRmssdNightly": "RMSSD, nightly (mean of 5-min windows)",
+  "@investigateRmssdNightly": {
+    "description": "HRV metric label: the nightly headline RMSSD, the mean of the RMSSDs of the sleep session's 5-minute windows (RMSSD kept as scientific abbreviation)"
+  },
+  "investigateRmssdStored": "RMSSD, nightly (earlier estimate)",
+  "@investigateRmssdStored": {
+    "description": "HRV metric label: a nightly RMSSD stored by an earlier version of the app, computed by a method other than the 5-minute-window mean (RMSSD kept as scientific abbreviation)"
+  },
   "investigateSdnn": "SDNN",
   "@investigateSdnn": {
     "description": "HRV metric label: SDNN (kept as scientific abbreviation)"
@@ -6779,13 +6803,13 @@
   "@healthBlurbRestingHr": {
     "description": "Explore catalogue one-line description for resting heart rate"
   },
-  "healthBlurbHrv": "RMSSD over the cleanest window of sleep",
+  "healthBlurbHrv": "Mean RMSSD across the night's 5-minute windows",
   "@healthBlurbHrv": {
-    "description": "Explore catalogue one-line description for HRV"
+    "description": "Explore catalogue one-line description for HRV: the nightly mean of the RMSSDs of the sleep session's 5-minute windows"
   },
-  "healthBlurbHrvCv": "How much that swings from night to night",
+  "healthBlurbHrvCv": "SDNN as a share of the average beat interval, within one night",
   "@healthBlurbHrvCv": {
-    "description": "Explore catalogue one-line description for HRV night-to-night variability"
+    "description": "Explore catalogue one-line description for HRV stability: within-night SDNN as a percentage of the mean beat interval (not a night-to-night variability)"
   },
   "healthBlurbLfHf": "Where beat-timing power sits across frequencies",
   "@healthBlurbLfHf": {

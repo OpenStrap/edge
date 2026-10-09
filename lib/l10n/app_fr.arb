@@ -165,6 +165,19 @@
   "devicesNotConnected": "Non connecté",
   "devicesTierRank": "Niveau {rank}",
   "devicesTierRankLabel": "Niveau {rank} · {label}",
+  "devicesOuraKeyRefused": "La bague a refusé la clé. Réappairez-la pour installer une clé qu'elle accepte.",
+  "@devicesOuraKeyRefused": {
+    "description": "Snackbar : échec de la synchronisation Oura — la bague a refusé la clé d'appairage."
+  },
+  "devicesOuraStorageFailed": "La synchronisation n'a pas pu être enregistrée entièrement. Resynchronisez.",
+  "@devicesOuraStorageFailed": {
+    "description": "Snackbar : échec de la synchronisation Oura — le commit de stockage a échoué."
+  },
+  "devicesOuraProtocolTimeout": "La bague a cessé de répondre en pleine synchronisation. Resynchronisez.",
+  "@devicesOuraProtocolTimeout": {
+    "description": "Snackbar : échec de la synchronisation Oura — délai dépassé / réponse incomplète."
+  },
+  "devicesOuraCheckpointUnconfirmed": "La synchronisation n'a pas pu être terminée. Resynchronisez.",
   "devicesSyncingTheRing": "Synchronisation de la bague…",
   "devicesSynced": "Synchronisé.",
   "devicesCouldNotReachRing": "Impossible de joindre la bague. Elle doit être à proximité et non connectée à une autre application.",
@@ -920,6 +933,8 @@
   "investigateStrapChipReported": "puce du bracelet a indiqué",
   "investigateTimeDomain": "Domaine temporel",
   "investigateRmssd": "RMSSD",
+  "investigateRmssdNightly": "RMSSD, nocturne (moyenne des fenêtres de 5 min)",
+  "investigateRmssdStored": "RMSSD, nocturne (estimation antérieure)",
   "investigateSdnn": "SDNN",
   "investigateSdann": "SDANN",
   "investigateSdnnIndex": "Indice SDNN",
@@ -1316,8 +1331,8 @@
   "healthCatMovementLoad": "Mouvement et charge",
   "healthCatBodyWear": "Corps et port",
   "healthBlurbRestingHr": "Le rythme soutenu le plus bas de la nuit",
-  "healthBlurbHrv": "RMSSD sur la fenêtre de sommeil la plus propre",
-  "healthBlurbHrvCv": "À quel point cela varie d'une nuit à l'autre",
+  "healthBlurbHrv": "RMSSD moyen sur les fenêtres de 5 minutes de la nuit",
+  "healthBlurbHrvCv": "SDNN en proportion de l'intervalle moyen entre battements, sur une nuit",
   "healthBlurbLfHf": "Où se situe la puissance du rythme cardiaque selon les fréquences",
   "healthBlurbDip": "De combien votre fréquence cardiaque baisse pendant votre sommeil",
   "healthBlurbHrr": "À quelle vitesse elle baisse dans la minute suivant un effort",
