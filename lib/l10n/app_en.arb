@@ -12670,5 +12670,33 @@
   "tabWellness": "Wellness",
   "@tabHome": {
     "description": "Bottom tab bar labels (tabHome..tabWellness). Keep short; the five must read as different words."
+  },
+  "homeRecoverySleeping": "Sleeping…",
+  "@homeRecoverySleeping": {
+    "description": "Recovery ring value while last night is still in progress (no confirmed wake yet)."
+  },
+  "homeRecoveryAfterWake": "Recovery is scored after you wake.",
+  "@homeRecoveryAfterWake": {
+    "description": "Why the recovery ring has no number while the night is still in progress."
+  },
+  "homeRecoveryFinishingUp": "Finishing up",
+  "@homeRecoveryFinishingUp": {
+    "description": "Caption under a greyed, provisional recovery number: wake detected, the night's data is still arriving."
+  },
+  "homeRecoveryUpdated": "Updated {time} · {from} → {to}",
+  "@homeRecoveryUpdated": {
+    "description": "Quiet note when today's recovery changed after it was first shown (re-analysis or late sync).",
+    "placeholders": {
+      "time": {"type": "String"},
+      "from": {"type": "int"},
+      "to": {"type": "int"}
+    }
+  },
+  "dataRecoveryChanged": "Recovery changed: {list}",
+  "@dataRecoveryChanged": {
+    "description": "After re-analysis, the days whose recovery changed, e.g. 'Oct 8 2 → 28, Oct 6 40 → 44'.",
+    "placeholders": {
+      "list": {"type": "String"}
+    }
   }
 }

@@ -10,6 +10,7 @@ import 'package:openstrap_edge/compute/derivation_engine.dart';
 import 'package:openstrap_edge/data/day_label.dart';
 import 'package:openstrap_edge/data/db.dart';
 import 'package:openstrap_edge/data/local_repository_impl.dart';
+import 'package:openstrap_edge/models/payloads.dart' show todayHeadlineOf;
 import 'package:openstrap_edge/state/app_state.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -39,12 +40,13 @@ void main() {
     required int edgeSec,
     String? day,
     num? rmssd,
+    num? readiness,
   }) async {
     await db.insert('day_result', {
       'day_id': day ?? todayLabel(),
       'algo_version': kAlgoVersion,
       'payload_json': jsonEncode({
-        if (rmssd != null) 'scalars': {'rmssd': rmssd},
+        'scalars': {'rmssd': ?rmssd, 'readiness': ?readiness},
         'sleep': {
           'window': {
             'value': {'offset_ms': wakeSec * 1000},
@@ -54,7 +56,7 @@ void main() {
           },
         },
       }),
-      'window_json': '{}',
+      'window_json': jsonEncode({'offset_ms': wakeSec * 1000}),
       'computed_at': 1,
       'finalized': 0,
     });
@@ -307,5 +309,44 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  group('recovery_state through getToday', () {
+    Future<Map<String, dynamic>> today() async {
+      await LocalDb.refreshComputeFreshness();
+      return LocalRepositoryImpl(getProfileMap: () => const {}).getToday();
+    }
+
+    test('edge at the window close → night in progress, no number', () async {
+      final wake = nowSec - 10 * 60;
+      await seed(wakeSec: wake, edgeSec: wake, readiness: 2);
+      final t = await today();
+      expect(t['status']['recovery_state'], 'night_in_progress');
+      expect(todayHeadlineOf(t)['recovery'], isNull);
+    });
+
+    test('wake confirmed, not settled → provisional number', () async {
+      final wake = nowSec - 50 * 60;
+      await seed(wakeSec: wake, edgeSec: wake + 40 * 60, readiness: 27.6);
+      final h = todayHeadlineOf(await today());
+      expect(h['recovery_state'], 'provisional');
+      expect(h['recovery'], 27.6);
+    });
+
+    test('final night: a legacy pin without wake yields to the live value',
+        () async {
+      final wake = nowSec - 3 * 3600;
+      await seed(wakeSec: wake, edgeSec: wake + 2 * 3600, readiness: 27.6);
+      await LocalDb.setFrozenHeadline(todayLabel(), 2);
+      final h = todayHeadlineOf(await today());
+      expect(h['recovery_state'], 'final');
+      expect(h['recovery'], 27.6);
+      // A pin taken on this night's wake is honoured.
+      await LocalDb.setFrozenHeadline(todayLabel(), 28, wakeSec: wake);
+      final h2 = todayHeadlineOf(await today());
+      expect(h2['recovery'], 28);
+      // 27.6 was shown as 28 already: same number, no "Updated" note.
+      expect(h2['recovery_update'], isNull);
+    });
   });
 }

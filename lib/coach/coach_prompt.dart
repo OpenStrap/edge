@@ -96,6 +96,8 @@ results cap at 200. If a query is rejected, read the reason and fix it.
   missing_segments) — WHOOP MG ECG readings, summary only; `category` is the
   band's. The waveform is in `get_ecg_reading(reading_id)`.
 
+TODAY's recovery, strain and sleep: call `get_today()`. It is exactly what the
+Home screen shows; v_daily's row for today can be a night that is still syncing.
 Food and medications are NOT in SQL. Use `get_nutrition(date)` and
 `get_medications()`.
 

@@ -2080,6 +2080,60 @@ bool overnightSettled({
       (nowSec != null && nowSec >= sleepOffsetSec + kOvernightGiveUpSec);
 }
 
+/// How long the band's data edge must run past a detected wake before that
+/// wake counts as CONFIRMED rather than "where the sync happened to stop".
+/// Mid-drain the stager closes the window at the newest record, so a wake
+/// sitting at the edge is no wake at all.
+// ponytail: fixed 30 min; tune against real drain timings if provisional flickers.
+const int kWakeConfirmMarginSec = 30 * 60;
+
+/// A pin is only trusted for the night whose wake is within this of its own.
+const int kPinWakeToleranceSec = 60 * 60;
+
+/// A night whose wake is before this local hour, or that slept less than
+/// [kMinPinSleepSec], is never frozen: the reported 2-instead-of-28 morning was
+/// a pin taken off the first three hours of a night still in progress.
+// ponytail: population heuristics; a night-shift sleeper never pins and reads
+// the live final value instead, which is the safe side.
+const int kMinPinWakeHour = 3;
+const int kMinPinSleepSec = 3 * 60 * 60;
+
+/// Today's recovery headline, in the one vocabulary every surface reads.
+enum RecoveryState { nightInProgress, provisional, finalReady }
+
+extension RecoveryStateWire on RecoveryState {
+  String get wire => switch (this) {
+        RecoveryState.nightInProgress => 'night_in_progress',
+        RecoveryState.provisional => 'provisional',
+        RecoveryState.finalReady => 'final',
+      };
+}
+
+/// Where today's night stands: no confirmed wake yet ([kWakeConfirmMarginSec]
+/// of edge past it) is still in progress; a confirmed wake whose window has not
+/// settled ([overnightSettled]) is provisional; settled is final.
+RecoveryState recoveryStateOf({
+  required int? wakeSec,
+  required int dataEdgeSec,
+  int? nowSec,
+}) {
+  if (overnightSettled(
+      sleepOffsetSec: wakeSec, dataEdgeSec: dataEdgeSec, nowSec: nowSec)) {
+    return RecoveryState.finalReady;
+  }
+  if (wakeSec != null && dataEdgeSec >= wakeSec + kWakeConfirmMarginSec) {
+    return RecoveryState.provisional;
+  }
+  return RecoveryState.nightInProgress;
+}
+
+/// Whether a night is a plausible MAIN night to freeze (see [kMinPinWakeHour]).
+bool pinnableNight({required int wakeSec, int? onsetSec}) {
+  final wake = DateTime.fromMillisecondsSinceEpoch(wakeSec * 1000);
+  if (wake.hour < kMinPinWakeHour) return false;
+  return onsetSec == null || wakeSec - onsetSec >= kMinPinSleepSec;
+}
+
 /// The cross-day inputs an importer fills with its vendor's own scores.
 const _crossDayVendorScoreKeys = [
   'rhr',
@@ -2112,14 +2166,19 @@ const _crossDayVendorScoreKeys = [
   required int? liveReadiness,
   required ({String day, int value, int? wakeSec})? current,
   int? wakeSec,
+  int? onsetSec,
 }) {
+  // A pin with no wake (written by an older build) cannot say which night it
+  // is, so a night that does know its wake replaces it once that night settles.
   final sameNight = current != null &&
       current.day == today &&
-      (current.wakeSec == null ||
-          wakeSec == null ||
-          (wakeSec - current.wakeSec!).abs() < _headlineFreezeMarginSec);
+      (wakeSec == null ||
+          (current.wakeSec != null &&
+              (wakeSec - current.wakeSec!).abs() < kPinWakeToleranceSec));
   if (sameNight) return current; // pinned; hold
-  if (overnightComplete && liveReadiness != null) {
+  final pinnable =
+      wakeSec == null || pinnableNight(wakeSec: wakeSec, onsetSec: onsetSec);
+  if (overnightComplete && pinnable && liveReadiness != null) {
     // first complete settle of this night → pin
     return (day: today, value: liveReadiness, wakeSec: wakeSec);
   }
@@ -5283,6 +5342,7 @@ class DerivationEngine {
       liveReadiness: readiness?.round(),
       current: current,
       wakeSec: day.sleepOffsetSec,
+      onsetSec: day.sleepOnsetSec,
     );
     if (next == null) return;
     // Already pinned to this exact value → skip the redundant write.
@@ -5872,10 +5932,9 @@ class DerivationEngine {
       // other side of the threshold. The morning pin wins for its day, same as
       // getToday and getChart: later re-derives rewrite metric_series, so the
       // live value can drift across the line while the ring still reads the pin.
-      final pin = await LocalDb.frozenHeadline();
-      final score = pin != null && pin.day == date
-          ? pin.value.toDouble()
-          : await LocalDb.metricValueOn(date, 'readiness');
+      final pin = await LocalDb.headlinePinFor(date);
+      final score = pin?.toDouble() ??
+          await LocalDb.metricValueOn(date, 'readiness');
       if (score != null && score < kLowReadiness) {
         findings.add(Finding(FindingKind.lowReadiness, date));
       }

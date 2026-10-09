@@ -140,13 +140,14 @@ class TodayData {
   /// value is settled so the hero shows its honest empty/loading state instead of
   /// a bogus figure. Null when readiness is absent OR not yet settled for today.
   int? get settledReadinessScore {
-    if (readiness.isEmpty) return null;
     // getToday always stamps `status`; when it says the overnight has NOT
     // settled (building / missing) any readiness present is a held-over prior
     // night, so withhold it. Absent status (synthetic payloads) → show.
-    final s = status;
-    if (s != null && !s.overnightReady) return null;
-    return readiness.value!.round();
+    final h = todayHeadlineOf(
+        {'daily': _daily, 'sleep': _sleep, 'status': ?_status});
+    return h['recovery_state'] == 'final'
+        ? (h['recovery'] as num?)?.round()
+        : null;
   }
 
   Metric get fitness => metricOf(_daily, 'fitness');
@@ -581,4 +582,52 @@ class ChartSeries {
   }
 
   bool get isEmpty => points.isEmpty;
+}
+
+/// TODAY'S HEADLINE — recovery, strain and sleep exactly as Home shows them,
+/// read off one `getToday()` result. Home, the widgets/Watch, the briefing and
+/// the Coach's `get_today` tool all go through this, so no two of them can
+/// report a different recovery for the same morning.
+///
+/// `recovery_state`:
+///   * `final` — today's night is complete; `recovery` is the number.
+///   * `provisional` — wake detected, the band is still draining past it;
+///     `recovery` is today's own number, shown greyed ("Finishing up").
+///   * `night_in_progress` — no confirmed wake yet; no number at all.
+///   * `none` — no night of today's has reached the app.
+/// `recovery_update` is `{from, to, at}` when the final number changed after it
+/// was first shown (re-analysis, late sync).
+Map<String, dynamic> todayHeadlineOf(Map<String, dynamic> today) {
+  final daily = today['daily'] is Map ? today['daily'] as Map : const {};
+  final sleep = today['sleep'] is Map ? today['sleep'] as Map : const {};
+  final st = today['status'] is Map ? today['status'] as Map : null;
+  num? v(Object? env) {
+    final m = Metric.parse(env);
+    return m.isEmpty ? null : m.value;
+  }
+
+  // A payload without `overnight_state` is synthetic (getToday always stamps
+  // it) and reads as final, as it always has.
+  final ns = st?['overnight_state'];
+  final state = ns == null || ns == 'ready'
+      ? 'final'
+      : switch (st?['recovery_state']) {
+          'provisional' => 'provisional',
+          'night_in_progress' => 'night_in_progress',
+          _ => 'none',
+        };
+  final ownNight = st == null || st['showing_prior_overnight'] != true;
+  final upd = daily['readiness_update'];
+  return {
+    'day': st?['today_day'],
+    'recovery_state': state,
+    'recovery': switch (state) {
+      'final' => ownNight ? v(daily['readiness']) : null,
+      'provisional' => v(daily['readiness_provisional']),
+      _ => null,
+    },
+    'strain': v(daily['strain']),
+    'sleep_min': ownNight ? v(sleep['duration_min']) : null,
+    if (state == 'final' && upd is Map) 'recovery_update': upd,
+  };
 }

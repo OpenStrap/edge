@@ -61,6 +61,19 @@ void main() {
     await LocalDb.putMetricSeriesValue(today, 'readiness', readiness);
   }
 
+  // A pin only counts for the night it was taken on, so the pin tests give
+  // today a stored sleep window and pin on its wake.
+  const wakeSec = 1700000000;
+  Future<void> pinOnTodaysNight(int value) async {
+    await LocalDb.putDayResult(
+      dayId: todayLabel(),
+      algoVersion: kAlgoVersion,
+      payloadJson: '{}',
+      windowJson: jsonEncode({'offset_ms': wakeSec * 1000}),
+    );
+    await LocalDb.setFrozenHeadline(todayLabel(), value, wakeSec: wakeSec);
+  }
+
   test('a low glass-box score under a normal ring does not buzz', () async {
     await seed(glassBox: 20, readiness: 70);
     await DerivationEngine().runNotificationsForTest();
@@ -78,7 +91,7 @@ void main() {
     // Pin 36 (ring shows 36, not low); a later re-derive drifted the series
     // to 31. Must not buzz.
     await seed(glassBox: 70, readiness: 31);
-    await LocalDb.setFrozenHeadline(todayLabel(), 36);
+    await pinOnTodaysNight(36);
     await DerivationEngine().runNotificationsForTest();
     expect(shown, isEmpty);
   });
@@ -86,7 +99,7 @@ void main() {
   test('a low pin buzzes even after the series drifted above the line',
       () async {
     await seed(glassBox: 70, readiness: 40);
-    await LocalDb.setFrozenHeadline(todayLabel(), 30);
+    await pinOnTodaysNight(30);
     await DerivationEngine().runNotificationsForTest();
     expect(shown, hasLength(1));
   });
