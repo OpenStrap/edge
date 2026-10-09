@@ -787,7 +787,7 @@ class _EcgDetailScreenState extends State<EcgDetailScreen> {
       if (!c.mounted || !coachReadyNow(c)) return;
     }
     final cfg = c.read<CoachConfig>();
-    if (!cfg.isLocalEndpoint) {
+    if (!cfg.isPrivateEndpoint) {
       final host = Uri.tryParse(cfg.apiBase)?.host ?? cfg.apiBase;
       final ok = await showDialog<bool>(
         context: c,

@@ -54,6 +54,10 @@ class _Engine implements BleEngine {
   bool probeAnswer = true;
   int? newestTs;
 
+  /// A history task the band has not ended yet.
+  @override
+  bool offloadActive = false;
+
   int count(String name) =>
       trace.where((e) => e == name || e.startsWith('$name:')).length;
 
@@ -484,6 +488,25 @@ void main() {
       expect(r.c.lastRecTs, 999900, reason: 'advanced from every session');
       expect(task.phase, 'syncing');
       expect(r.trace.last, 'sched.stored');
+    }));
+
+    test('a wait that gives up on a still-running task waits on it again',
+        _rigCase((r, timers) async {
+      r.engine.link = true;
+      var session = 0;
+      r.engine.runSyncScript
+        ..add(SyncReport(0, 0, false))
+        ..add(SyncReport(1, 1, true));
+      r.engine.onRunSync = () async {
+        session++;
+        r.engine.offloadActive = session == 1;
+      };
+      final report = await r.c.syncForShortcut(
+          ShortcutSyncTask('t', const Duration(minutes: 1)));
+      expect(r.engine.count('runSync'), 2,
+          reason: 'no batch ACKs yet must not end a task the band is running');
+      expect(report.complete, isTrue);
+      expect(r.logged('the history task is still running'), isTrue);
     }));
 
     test('the single-flight slot frees whenComplete, success or failure',

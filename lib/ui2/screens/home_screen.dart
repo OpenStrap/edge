@@ -34,6 +34,12 @@ import 'package:provider/provider.dart';
 
 import '../../ai/briefing.dart'
     show Briefing, BriefingPeriod, BriefingStore, currentBriefingPeriod, resolveBriefingToShow;
+import '../../compute/findings.dart'
+    show
+        isRecentFindingDate,
+        kReadinessEasyBelow,
+        kReadinessGoodFrom,
+        kReadinessRestBelow;
 import '../../data/day_label.dart' show todayLabel, calendarDaysBetween;
 import '../../compute/onehz_pipeline.dart'
     show readinessInputShortfallNote, readinessUnstableBaselineNote;
@@ -48,7 +54,8 @@ import '../../state/clock_format.dart' show formatClockOf;
 import '../../state/units_controller.dart';
 import '../../theme/theme_switcher.dart' show themedRoute;
 import '../activity/day_strain.dart' show DayStrainDetail;
-import '../profile/alarm.dart' show AlarmArmState, alarmArmOf, alarmDoor;
+import '../profile/alarm.dart'
+    show AlarmArmState, alarmArmOf, alarmDoor, alarmGlanceCard;
 import '../profile/devices.dart' show formatDayTime;
 import '../profile/profile.dart';
 import '../ui2.dart';
@@ -711,8 +718,10 @@ String prettyDay(String? dayId, [AppLocalizations? l]) {
 ///   score = 100 / (1 + exp(-0.65 · Φ⁻¹(p)))
 ///     p=.05 → 26   p=.20 → 37   p=.75 → 61
 ///
-/// which lands 5 % of nights on "Rest today", 15 % on "Take it easy", 55 % on
-/// "Steady" and 25 % on "Good to go". The median night is now the neutral band,
+/// (`kReadinessRestBelow` / `kReadinessEasyBelow` / `kReadinessGoodFrom` in
+/// findings.dart, shared with the push and the log), which lands 5 % of nights
+/// on "Rest today", 15 % on "Take it easy", 55 % on "Steady" and 25 % on
+/// "Good to go". The median night is now the neutral band,
 /// which is the whole point. Under the old cut-offs the same distribution read
 /// 27 / 47 / 25 / 2.
 ///
@@ -725,13 +734,13 @@ String prettyDay(String? dayId, [AppLocalizations? l]) {
   if (v == null) {
     return (label: l?.homeReadinessNotScored ?? 'Not scored', color: C.n400, tier: -1);
   }
-  if (v >= 61) {
+  if (v >= kReadinessGoodFrom) {
     return (label: l?.homeReadinessGoodToGo ?? 'Good to go', color: C.green, tier: 3);
   }
-  if (v >= 37) {
+  if (v >= kReadinessEasyBelow) {
     return (label: l?.homeReadinessSteady ?? 'Steady', color: C.green, tier: 2);
   }
-  if (v >= 26) {
+  if (v >= kReadinessRestBelow) {
     return (label: l?.homeReadinessTakeItEasy ?? 'Take it easy', color: C.orange, tier: 1);
   }
   return (label: l?.homeReadinessRestToday ?? 'Rest today', color: C.red, tier: 0);
@@ -1395,7 +1404,12 @@ class HomeScreen extends StatefulWidget {
   /// reads it off AppState via [workoutLiveOf].
   final bool? workoutLive;
 
-  const HomeScreen({super.key, this.data, this.hour, this.workoutLive});
+  /// The wall clock, injected only by tests. The illness watch ages by the
+  /// calendar, so a test of "a day later" needs to move it.
+  final DateTime? now;
+
+  const HomeScreen(
+      {super.key, this.data, this.hour, this.workoutLive, this.now});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -1707,7 +1721,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       // them — the watch comes off the CROSSDAY rollup, so it can carry a real
       // state on a morning whose own bundle has not derived yet, which is
       // exactly the morning you would most want to be told.
-      ...?_bodyWatch(c, d),
+      ...?_bodyWatch(c, d, todayLabel(widget.now)),
       // ── greeting ──
       Padding(
         padding: const EdgeInsets.only(top: S.x3, bottom: S.x5),
@@ -1862,7 +1876,8 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
         if (stale != null) ...[const SizedBox(height: S.x3), stale],
 
         // ── at a glance ──
-        Section(l?.homeAtAGlance ?? 'At a glance', _glance(c, d)),
+        Section(l?.homeAtAGlance ?? 'At a glance',
+            _glance(c, d, isToday: isToday)),
 
         // ── today's plan: only what the app can actually stand behind ──
         // Skipped on a past day — "3,000 steps left" or "aim for 11.4
@@ -1885,7 +1900,9 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       ],
 
       // ── the next alarm: a door, same as the one above ──
-      if (isToday)
+      // Only on a bare day: otherwise it is a tile in "At a glance", and the
+      // same alarm twice on one screen is one too many.
+      if (isToday && bare)
         if (alarmArmOfContext(c) case final (DateTime?, AlarmArmState) a) ...[
           const SizedBox(height: S.x3),
           alarmDoor(c, a.$1, a.$2),
@@ -1905,37 +1922,46 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   /// series, so the honest answer to "why are you telling me this" is to show
   /// it. Health keeps its own fuller card; this is not a duplicate route to the
   /// same words, it is a shorter road to the number underneath them.
-  static List<Widget>? _bodyWatch(BuildContext c, HomeData d) {
+  ///
+  /// [today] is the WALL-CLOCK day at build time, not the loaded payload's: a
+  /// payload loaded yesterday and rebuilt today with no new sync has aged a
+  /// day all the same.
+  static List<Widget>? _bodyWatch(BuildContext c, HomeData d, String today) {
     final state = d.illnessState;
     if (state == null || state == 'green') return null;
+    // The watch publishes the newest SETTLED night, which after days off the
+    // wrist is days old, and the red title carries no date. Same freshness
+    // rule as the push: older verdicts live in Observations, not on Home.
+    final day = d.illnessDay;
+    if (day == null || !isRecentFindingDate(day, today: today)) return null;
     final l = AppLocalizations.of(c);
 
-    final sameNight = d.illnessDay == null || d.illnessDay == d.dayId;
+    final sameNight = day == today;
     final z = d.illnessZ;
     final zAbs = z == null ? '' : z.abs().toStringAsFixed(1);
 
     return [
       Observation(
         state == 'red'
-            ? (l?.homeIllnessRedTitle ?? 'Several nights in a row are away from your normal')
+            ? (l?.homeIllnessRedTitle ?? 'Recent nights add up to a raised resting heart rate')
             : sameNight
                 ? (l?.homeIllnessAmberSameNight ?? 'Last night sat outside your normal range')
                 : (l?.homeIllnessAmberOtherNight(prettyDay(d.illnessDay, l)) ??
                     '${prettyDay(d.illnessDay, l)} sat outside your normal range'),
         z == null
             ? (l?.homeIllnessBodyNoZ ??
-                'Your nocturnal resting heart rate has been running above your own '
-                'baseline. This reads one signal. It names a pattern, and it does '
-                'not name a cause.')
+                'Your recent nocturnal resting heart rates add up to a rise above '
+                'your own baseline. This reads one signal. It names a pattern, and '
+                'it does not name a cause.')
             : (z >= 0
                 ? (l?.homeIllnessBodyAbove(zAbs) ??
-                    'Your nocturnal resting heart rate has been running above your own '
-                    'baseline; that night sat $zAbs standardised deviations above it. '
+                    'Your recent nocturnal resting heart rates add up to a rise above '
+                    'your own baseline; that night sat $zAbs standardised deviations above it. '
                     'This reads one signal. It names a pattern, and it does not name '
                     'a cause.')
                 : (l?.homeIllnessBodyBelow(zAbs) ??
-                    'Your nocturnal resting heart rate has been running above your own '
-                    'baseline; that night sat $zAbs standardised deviations below it. '
+                    'Your recent nocturnal resting heart rates add up to a rise above '
+                    'your own baseline; that night sat $zAbs standardised deviations below it. '
                     'This reads one signal. It names a pattern, and it does not name '
                     'a cause.')),
         advice: l?.homeIllnessAdvice ?? 'Worth noting if it continues past a couple of days.',
@@ -1951,7 +1977,7 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
   Widget _refreshable(Widget list) =>
       RefreshIndicator(onRefresh: _load, child: list);
 
-  Widget _glance(BuildContext c, HomeData d) {
+  Widget _glance(BuildContext c, HomeData d, {required bool isToday}) {
     final l = AppLocalizations.of(c);
     final cards = <Widget>[];
     final absent = <Widget>[];
@@ -2048,6 +2074,13 @@ class _HomeScreenState extends State<HomeScreen> with RevisionReload {
       // for an entirely different reason that the card never asked for.
       () => StatusCard.forMetric(l?.homeNoEnergyEstimate ?? 'No energy estimate', d.calories),
     );
+    // The next alarm is not a reading of the day, so only today carries it —
+    // "Tomorrow 07:30" under a day already over would be about a different day.
+    if (isToday) {
+      if (alarmArmOfContext(c) case final (DateTime?, AlarmArmState) a) {
+        cards.add(alarmGlanceCard(c, a.$1, a.$2));
+      }
+    }
 
     return Column(children: [
       for (var i = 0; i < cards.length; i += 2) ...[

@@ -82,6 +82,8 @@ class Prefs {
   /// Automatic local backup: the chosen cadence, and when one last ran.
   static const String backupCadence = 'backup.cadence';
   static const String backupLastRunMs = 'backup.last_run_ms';
+  static const String backupFolder = 'backup.folder';
+  static const String backupLastError = 'backup.last_error';
 
   /// Developer mode. Off unless somebody deliberately turned it on — it is a
   /// tool for us, not a feature, so it has no switch in the normal settings

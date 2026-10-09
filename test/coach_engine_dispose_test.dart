@@ -66,8 +66,10 @@ void main() {
   test('requestDispose defers closing the client until an in-flight send '
       'finishes', () async {
     final client = _TrackingClient(const Duration(milliseconds: 100));
+    final config = CoachConfig();
+    await config.save(model: 'm', api: CoachApi.chatCompletions);
     final engine = CoachEngine(
-      config: CoachConfig()..save(model: 'm'),
+      config: config,
       api: _FakeRepo(),
       client: client,
     );
@@ -113,8 +115,10 @@ void main() {
     // overlapping sends finishes, and a dispose requested in that window
     // would close the client out from under the second, still in-flight, send.
     final client = _TrackingClient(const Duration(milliseconds: 150));
+    final config = CoachConfig();
+    await config.save(model: 'm', api: CoachApi.chatCompletions);
     final engine = CoachEngine(
-      config: CoachConfig()..save(model: 'm'),
+      config: config,
       api: _FakeRepo(),
       client: client,
     );

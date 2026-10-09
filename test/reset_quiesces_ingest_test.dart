@@ -88,7 +88,7 @@ void main() {
   });
 
   test('resetAllData raises the flag and always lowers it', () {
-    final body = src.substring(src.indexOf('Future<void> resetAllData() async'));
+    final body = src.substring(src.indexOf('Future<String?> resetAllData() async'));
     final raise = body.indexOf('ResetGate.enter();');
     final wipe = body.indexOf('LocalDb.wipeAll()');
     final lower = body.indexOf('ResetGate.leave();');
@@ -102,7 +102,7 @@ void main() {
   });
 
   test('the data edge is cleared by the reset, not left in memory', () {
-    final body = src.substring(src.indexOf('Future<void> resetAllData() async'));
+    final body = src.substring(src.indexOf('Future<String?> resetAllData() async'));
     final end = body.indexOf('} finally {');
     final scope = body.substring(0, end);
     expect(scope.contains('_lastRecTs = null;'), isTrue);

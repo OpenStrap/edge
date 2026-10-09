@@ -414,7 +414,7 @@ void main() {
         'rr_ts_ms': 'not-a-number',
         'rr_ms': 600,
       });
-      // raw_archive: the never-pruned store of frames we could not decode.
+      // raw_archive: the kept store of frames we could not decode.
       // exportCopy() is a whole-db VACUUM INTO so these rows leave the device;
       // the import has to bring them back. Two rows sharing a counter with
       // DIFFERENT hex — the reboot-counter-reuse case the table is keyed on

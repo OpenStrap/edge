@@ -146,14 +146,14 @@ void main() {
 
       // 99.7% / 4375 mV, OFF the charger.
       await LocalDb.insertEvent(3, 1786502089, _mgLevel,
-          deviceId: LocalDb.kPrimaryDeviceId);
+          deviceId: LocalDb.kPrimaryDeviceId, profile: proto.BandProfile.gen5);
       await LocalDb.insertEvent(63, 1786502089, _mgExt,
-          deviceId: LocalDb.kPrimaryDeviceId);
+          deviceId: LocalDb.kPrimaryDeviceId, profile: proto.BandProfile.gen5);
       await LocalDb.insertEvent(7, 1786510000, _mgChargingOn,
-          deviceId: LocalDb.kPrimaryDeviceId);
+          deviceId: LocalDb.kPrimaryDeviceId, profile: proto.BandProfile.gen5);
       // 82.7% / 4335 mV, ON the charger — a real frame off the same strap.
       await LocalDb.insertEvent(3, 1786510510, _mgLevelCharging,
-          deviceId: LocalDb.kPrimaryDeviceId);
+          deviceId: LocalDb.kPrimaryDeviceId, profile: proto.BandProfile.gen5);
 
       final rows = await LocalDb.recentBandBatterySamples();
       expect(rows.where((r) => r['millivolts'] != null), isNotEmpty);

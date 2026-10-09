@@ -52,6 +52,7 @@ void main() {
     ]);
     // Detection, never diagnosis — the screen wording carries it.
     expect(f[3].detail, contains('not a diagnosis'));
+    expect(f[4].score, 21);
   });
 
   test('newest day first', () {
@@ -75,8 +76,13 @@ void main() {
     final days = [_day('2026-08-10')];
     expect(findingsHistory(_cd(days)), isEmpty);
     expect(findingsHistory(_cd(days), readiness: {'2026-08-10': 71}), isEmpty);
-    expect(findingsHistory(_cd(days), readiness: {'2026-08-10': 33}).single.kind,
-        FindingKind.lowReadiness);
+    // 33 is "Take it easy" on the ring, not its lowest band.
+    expect(findingsHistory(_cd(days), readiness: {'2026-08-10': 33}), isEmpty);
+    final low =
+        findingsHistory(_cd(days), readiness: {'2026-08-10': 25}).single;
+    expect(low.kind, FindingKind.lowReadiness);
+    expect(low.score, 25);
+    expect(findingsHistory(_cd(days), readiness: {'2026-08-10': 26}), isEmpty);
   });
 
   test('a resting-HR shift lands on the day it happened, with its direction',

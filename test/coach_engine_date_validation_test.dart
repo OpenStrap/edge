@@ -70,8 +70,10 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   Future<CoachEngine> run(String tool, Map<String, dynamic> args, _FakeRepo repo) async {
+    final config = CoachConfig();
+    await config.save(model: 'm', api: CoachApi.chatCompletions);
     final engine = CoachEngine(
-      config: CoachConfig()..save(model: 'm'),
+      config: config,
       api: repo,
       client: _ToolCallClient(tool, args),
     );

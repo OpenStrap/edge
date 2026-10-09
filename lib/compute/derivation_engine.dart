@@ -718,7 +718,7 @@ import 'vendor_sleep.dart';
 //   the page decoded with an EMPTY beat list, and every beat-derived figure for
 //   that stretch — RMSSD, SDNN, the HRV curve, and the readiness that leans on
 //   them — silently came back absent or computed off whatever beats survived on
-//   the other pages. Both tables are keyed by rec_ts now, so the lookup uses the
+//   the other pages. Both tables carry rec_ts (indexed), so the lookup uses the
 //   page's own rec_ts bounds and pulls exactly its beats.
 //
 //   Days already finalized at v62 hold those RR-less results permanently — they
@@ -2636,8 +2636,16 @@ class _AsyncLock {
 }
 
 class DerivationEngine {
-  DerivationEngine({this.log, this.background = false});
+  DerivationEngine({this.log, this.background = false, this.offloadActive});
   final void Function(String)? log;
+
+  /// True while a band offload is draining. The scheduler never STARTS a
+  /// derive during one, but one can start mid-pass; the raw prune checks this
+  /// before archiving each substrate bucket and stops for the pass, so a drain
+  /// commit waits behind at most one in-flight bucket (see
+  /// `SubstrateArchive.archiveAndDeleteBefore`). Null — never yield — for
+  /// headless engines, which derive after the band has disconnected.
+  final bool Function()? offloadActive;
 
   /// True when this engine was constructed inside a headless/background entry
   /// (iOS BGProcessingTask / BGAppRefreshTask, Android WorkManager, the
@@ -3810,9 +3818,10 @@ class DerivationEngine {
               ? const <Map<String, dynamic>>[]
               : combined.sublist(splitIdx);
           if (toSend.isNotEmpty) {
-            // decoded_rr shares the rec_ts key with decoded_onehz, so
-            // [rrFrom, lastSentRecTs] is a PK range read — no counter span
-            // (which broke across the strap's reboot reset).
+            // decoded_rr carries the same rec_ts as its decoded_onehz parent,
+            // so [rrFrom, lastSentRecTs] is a range read on decoded_rr's
+            // rec_ts index — no counter span (which broke across the strap's
+            // reboot reset).
             final lastSentRecTs = (toSend.last['rec_ts'] as num).toInt();
             final rawRrRows = await LocalDb.decodedRrByRecTsRange(
               fromRecTs: rrFrom,
@@ -5796,128 +5805,36 @@ class DerivationEngine {
   // ── notifications generator ─────────────────────────────────────────────────
 
   @visibleForTesting
-  Future<void> runNotificationsForTest() => _runNotifications();
+  /// [today] pins the day the pass runs on, so a test's seed and the pass
+  /// agree even across a real midnight.
+  Future<void> runNotificationsForTest({String? today}) =>
+      _runNotifications(today: today);
 
-  Future<void> _runNotifications() async {
+  Future<void> _runNotifications({String? today}) async {
     try {
       final cdRow = await LocalDb.baseline('crossday');
       final cd = _decodeBundle(cdRow?['payload_json']);
       if (cd == null) return;
-      String? date;
-      var lastUnsettled = false;
-      final recent = cd['recent'];
-      if (recent is List && recent.isNotEmpty) {
-        final last = recent.last;
-        if (last is Map) {
-          date = last['date'] as String?;
-          lastUnsettled = last['unsettled'] == true;
-        }
-      }
-      final illness = cd['illness'] is Map ? cd['illness'] as Map : null;
-      final anomaly = cd['anomaly'] is Map ? cd['anomaly'] as Map : null;
-      final temp = cd['temp_illness'] is Map ? cd['temp_illness'] as Map : null;
-      date ??=
-          (illness?['date'] ?? anomaly?['date'] ?? temp?['date']) as String?;
-      // ANCHORED TO THE DAY THIS IS RUNNING ON, not to the newest DERIVED day.
-      //
-      // Every date in here is the newest day the rollup happened to see, which
-      // is not today whenever the newest data is old: import a back-catalogue
-      // (finalizeImport runs this straight after) or bump kAlgoVersion after a
-      // week off the wrist, and a critical, quiet-hours-overriding "Possible
-      // illness onset" goes out about nights from last November — in the
-      // present tense, with the irregular-rhythm copy saying "today".
-      //
-      // Yesterday still counts: before the first sync of the day (and just
-      // after midnight) the newest derived night IS yesterday's, and that
-      // finding is current. Anything older is history, and history does not
-      // interrupt.
-      final today = LocalDb.localDayLabelNow();
-      final yesterday = dayLabelOf(
-        DateTime.now().subtract(const Duration(days: 1)),
-      );
-      if (date == null || (date != today && date != yesterday)) return;
-      // ONE exception per day, not one per finding.
-      //
-      // These six signals are correlated by construction — an illness flag, an
-      // overnight anomaly and an elevated skin temperature are usually the same
-      // morning saying the same thing — and they used to fire as six separate
-      // notifications, two of them on the recovery channel. Under the
-      // three-class rule (alarm · exception · lookback) the day's findings are
-      // collected here and presented once, aggregated, so the user gets one
-      // buzz and the whole picture instead of six buzzes and a third of it.
-      //
-      // `medical` marks the DETECTION-class findings — the ones the design
-      // sanctions interrupting for. It only affects the dedupe key (below),
-      // never the wording.
-      // The SENTENCES live in findings.dart, with the log that reads the same
-      // six. They were inline here, which is exactly how a second surface for
-      // the same detector ends up quietly differently worded.
-      final findings = <Finding>[];
-      if (illness != null && illness['state'] == 'red') {
-        findings.add(Finding(FindingKind.illness, date));
-      }
-      if (anomaly != null && anomaly['flagged'] == true) {
-        findings.add(Finding(FindingKind.anomaly, date));
-      }
-      if (temp != null && temp['flag'] == 'elevated') {
-        findings.add(Finding(FindingKind.tempElevated, date));
-      }
-      // 24/7 irregular-rhythm SCREEN (not a diagnosis).
-      final irregFlag = await LocalDb.metricValueOn(date, 'irregular_rhythm_flag');
-      if (irregFlag == 1.0) {
-        findings.add(Finding(FindingKind.irregularRhythm, date));
-      }
-      // The headline readiness the ring shows and the findings log reads, not
-      // the glass-box score, which is a different model and can land on the
-      // other side of the threshold. The morning pin wins for its day, same as
-      // getToday and getChart: later re-derives rewrite metric_series, so the
-      // live value can drift across the line while the ring still reads the pin.
+      // The whole decision is `planExceptionNotices` (findings.dart), pure
+      // and tested; this only reads its inputs and emits what it returns.
+      today ??= LocalDb.localDayLabelNow();
+      final anchor = exceptionAnchor(cd);
       final pin = await LocalDb.frozenHeadline();
-      final score = pin != null && pin.day == date
-          ? pin.value.toDouble()
-          : await LocalDb.metricValueOn(date, 'readiness');
-      if (score != null && score < kLowReadiness) {
-        findings.add(Finding(FindingKind.lowReadiness, date));
-      }
+      final notices = planExceptionNotices(
+        cd,
+        today: today,
+        irregularFlag: anchor == null
+            ? null
+            : await LocalDb.metricValueOn(anchor.date, 'irregular_rhythm_flag'),
+        pin: pin == null ? null : (day: pin.day, value: pin.value),
+        storedReadiness: anchor == null
+            ? null
+            : await LocalDb.metricValueOn(anchor.date, 'readiness'),
+      );
 
-      // "Something changed" — online CUSUM on the recent resting-HR series.
-      // Only when the shift lands on the day this notification is STAMPED with
-      // (a fresh change, not old history we'd re-announce every pass).
+      // One notice per day the findings are ABOUT. The key's date is that
+      // day, so a night fires at most once however many passes see it.
       //
-      // The dates travel with the values. `rhrSeries` is compacted — days with
-      // no nocturnal RHR are skipped, which is most days for some users — so
-      // `index == length - 1` meant "the most recent day that HAPPENED to have
-      // an rhr". With a few null days in between, a week-old shift satisfied it
-      // and went out at critical priority under today's date.
-      //
-      // `recent[].rhr` is written WITHOUT the `settled()` guard on purpose —
-      // the guard's comment names `recent` and "RHR trend" as things an
-      // unsettled day still feeds, and the trend chart is right to show it.
-      // A critical-priority ALERT is not: a night that is only half drained
-      // reads several bpm high, fires "your resting HR trend shifted", and then
-      // corrects an hour later with the day's dedupe key already claimed. So
-      // the trend keeps the raw value and this one consumer stands down until
-      // the day settles.
-      final rhrSeries = <double>[];
-      final rhrDates = <String?>[];
-      if (recent is List) {
-        for (final r in recent) {
-          if (r is Map && r['rhr'] is num) {
-            rhrSeries.add((r['rhr'] as num).toDouble());
-            rhrDates.add(r['date'] as String?);
-          }
-        }
-      }
-      if (!lastUnsettled && rhrSeries.length >= 10) {
-        final dets = ana.cusumChangePoints(rhrSeries, h: 5.0);
-        if (dets.isNotEmpty && rhrDates[dets.last.index] == date) {
-          findings.add(Finding(FindingKind.rhrShift, date,
-              risen: dets.last.direction > 0));
-        }
-      }
-
-      if (findings.isEmpty) return;
-      final one = findings.length == 1;
       // The key carries the day's HIGHEST severity class, not just the day.
       //
       // With a bare '$date:exception' the first pass of the day claimed the
@@ -5935,24 +5852,21 @@ class DerivationEngine {
       // presented medical exception burns the day's plain slot as well —
       // only on a real present, or a medical one lost to quiet hours would
       // take the plain one down with it.
-      final medical = findings.any((f) => f.medical);
-      final fired = await NotificationCenter.instance.emit(
-        NotificationEvent(
-          dedupeKey: medical ? '$date:exception:medical' : '$date:exception',
-          category: NotifCategory.health,
-          priority: NotifPriority.critical,
-          title: one
-              ? findings.first.title
-              : '${findings.length} things to look at',
-          body: one
-              ? findings.first.detail
-              : findings.map((f) => '• ${f.title} — ${f.detail}').join('\n'),
-          date: date,
-          route: '/heart',
-        ),
-      );
-      if (medical && fired) {
-        await const FiredKeyStore().recordFired('$date:exception');
+      for (final notice in notices) {
+        final fired = await NotificationCenter.instance.emit(
+          NotificationEvent(
+            dedupeKey: notice.dedupeKey,
+            category: NotifCategory.health,
+            priority: NotifPriority.critical,
+            title: notice.title,
+            body: notice.body,
+            date: notice.date,
+            route: '/heart',
+          ),
+        );
+        if (notice.medical && fired) {
+          await const FiredKeyStore().recordFired('${notice.date}:exception');
+        }
       }
     } catch (e) {
       _log('notifications FAILED/skipped: $e');
@@ -6244,9 +6158,20 @@ class DerivationEngine {
     // below an earlier cut are still gone. See [rescanDayIds]. Advanced inside
     // the delete's own transaction, so a kill can't split the two and a
     // concurrent lower-cutoff run can't write it backwards.
+    //
+    // ARCHIVED, NOT LOST: the rows go to `substrate_archive` first (see
+    // LocalDb.pruneDecodedBeforeRecTs). The cut stays a local midnight; an
+    // archive bucket it splits (buckets are UTC days) merges on the next pass.
     final deleted = await LocalDb.pruneDecodedBeforeRecTs(
       cutoffSec,
       cursorName: _prunedBeforeCursor,
+      hardFloorSec: dataNowSec - _maxRawHoldDays * 86400,
+      log: _log,
+      shouldYield: offloadActive,
+      // A background engine runs on a short, throttled budget in its own
+      // isolate, where the foreground offload flag is not visible: one bucket
+      // per pass bounds how long it can hold the write lock.
+      maxArchiveBuckets: background ? 1 : null,
     );
     if (deleted > 0) {
       _log('pruned $deleted decoded rows with rec_ts < $cutoffSec');
@@ -6262,11 +6187,12 @@ class DerivationEngine {
 
   /// Storage housekeeping that must run on EVERY derive.
   ///
-  /// Deliberately NOT inside [_pruneOldDecoded]: both of that method's call
-  /// sites sit behind `if (scope.fullHistory)`, and ordinary light/heavy
-  /// derives run with `fullHistory: false`. Putting the back-catalogue rewrite
-  /// there made it resumable but effectively unreachable — a normal install
-  /// would have converted nothing.
+  /// Deliberately NOT inside [_pruneOldDecoded]. Both of that method's call
+  /// sites used to sit behind `if (scope.fullHistory)` (they now run on every
+  /// derive, but only inside `run()`, past its early returns), and ordinary
+  /// light/heavy derives ran with `fullHistory: false`. Putting the
+  /// back-catalogue rewrite there made it resumable but effectively
+  /// unreachable — a normal install would have converted nothing.
   ///
   /// CALLED FROM THE `finally` OF EVERY ENTRY PATH, and it swallows its own
   /// errors, for two reasons that were both live:
@@ -6292,6 +6218,16 @@ class DerivationEngine {
       final reencoded = await LocalDb.reencodeLegacyDayResults();
       if (reencoded > 0) {
         _log('re-encoded $reencoded legacy day bundles');
+      }
+      // Substrate archive retention, measured against the data edge like the
+      // live prune. Off the commit path; vacuumIfBloated reclaims the pages.
+      final edge = await LocalDb.lastDecodedRecTs();
+      if (edge != null) {
+        final evicted = await LocalDb.evictSubstrateArchive(
+          await LocalDb.substrateArchivePolicy(),
+          edge,
+        );
+        if (evicted > 0) _log('evicted $evicted substrate archive buckets');
       }
     } catch (e) {
       _log('storage housekeeping skipped: $e');

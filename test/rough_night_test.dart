@@ -271,7 +271,7 @@ void main() {
         signs: 2,
         descriptor: 'a rougher night than usual for you — x',
         moved: ['your HRV ran lower'],
-        knows: ['The illness watch flagged this night too — a rise.'],
+        knows: ['Your resting heart rate flagged this night too — a rise.'],
         illnessFlagged: true,
       );
       expect(flagged.ask, isNot(contains('sick')));

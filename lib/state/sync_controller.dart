@@ -414,6 +414,16 @@ class SyncController {
           'max_sessions': maxSessions,
         },
       );
+      // The wait gave up (timeout / no progress) but the task did not end:
+      // a report only carries progress not reported yet, so nothing new in
+      // it says nothing about the drain. Wait on the same task again — only
+      // its own terminals end it, and the stop rules below judge a task that
+      // has.
+      if (!report.complete && engine.offloadActive) {
+        _log('Backfill continuation ${i + 1}/$maxSessions — the history task '
+            'is still running; waiting on it again.');
+        continue;
+      }
       if (report.batches == 0) {
         _log('Backfill stop — no batch ACKs; trim did not advance.');
         break;
