@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openstrap_edge/coach/coach_actions.dart';
 import 'package:openstrap_edge/coach/coach_engine.dart';
+import 'package:openstrap_edge/l10n/display_text.dart';
 import 'package:openstrap_edge/l10n/app_localizations.dart';
 import 'package:openstrap_edge/l10n/app_localizations_ru.dart';
 import 'package:openstrap_edge/ui2/screens/coach_text.dart';
@@ -134,4 +136,59 @@ void main() {
       expect(requests[8].args['state'], 'not_taken');
     },
   );
+
+  test('medication weekdays: what the confirmation shows is what is saved', () {
+    expect(CoachActions.medicationWeekdays([1.8]), [2]);
+    expect(CoachActions.medicationWeekdays([0]), [1, 2, 3, 4, 5, 6, 7]);
+    expect(CoachActions.medicationWeekdays(['3', 3, 2.6, 9]), [3]);
+    expect(CoachActions.medicationWeekdays(null), [1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  testWidgets('the medication confirmation describes the normalized days, '
+      'and journal preset tags are localized', (tester) async {
+    ActionRequest med(List days) => ActionRequest(
+          tool: 'add_medication',
+          title: 'Add a medication',
+          summary: '',
+          args: {'name': 'M', 'time': '08:00', 'weekdays': days},
+        );
+    final requests = [
+      med([1.8]),
+      med([0]),
+      ActionRequest(
+        tool: 'log_journal',
+        title: 'Log journal',
+        summary: 'Add journal for 2026-10-05: tags [late meal], note "".',
+        args: {
+          'tags': ['late meal'],
+        },
+      ),
+    ];
+    final rendered = <String>[];
+    late String everyDay;
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('ru'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Builder(
+          builder: (context) {
+            everyDay = uiText(context, 'every day');
+            rendered
+              ..clear()
+              ..addAll(requests.map((r) => coachActionSummary(context, r)));
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(rendered[0], contains('Вт'));
+    expect(rendered[0], isNot(contains('Пн')));
+    expect(rendered[1], contains(everyDay));
+    expect(rendered[1], isNot(contains('?')));
+    expect(rendered[2], contains('Поздний приём пищи'));
+    expect(rendered[2], isNot(contains('late meal')));
+    expect(requests[2].args['tags'], ['late meal']);
+  });
 }

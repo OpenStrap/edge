@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../../coach/coach_actions.dart';
 import '../../coach/coach_engine.dart';
 import '../../l10n/app_localizations.dart';
 import '../../l10n/display_text.dart';
@@ -29,9 +30,12 @@ String coachActionSummary(BuildContext context, ActionRequest request) {
         r'^Add journal for ([^:]+):',
       ).firstMatch(request.summary)?[1];
       if (day == null) return request.summary;
+      final tags = a['tags'];
       return l.supplementCoachJournal(
         day,
-        text(a['tags'] ?? []),
+        tags is List
+            ? '${tags.map((t) => localizedJournalTag(l, '$t')).toList()}'
+            : text(tags ?? []),
         text(a['note'] ?? ''),
       );
     case 'log_period':
@@ -77,18 +81,11 @@ String coachActionSummary(BuildContext context, ActionRequest request) {
         l.wellnessSat,
         l.wellnessSun,
       ];
-      final days = a['weekdays'];
-      final validDays = days is List
-          ? days.whereType<num>().map((d) => d.round()).where((d) => d >= 1 && d <= 7).toSet()
-          : <int>{};
-      final description = days is! List || days.isEmpty || validDays.length == 7
+      final raw = a['weekdays'];
+      final days = CoachActions.medicationWeekdays(raw is List ? raw : null);
+      final description = days.length == 7
           ? localizedText(l, 'every day')
-          : days
-                .map(
-                  (d) =>
-                      d is num && d >= 1 && d <= 7 ? names[d.toInt() - 1] : '?',
-                )
-                .join(', ');
+          : days.map((d) => names[d - 1]).join(', ');
       return l.supplementCoachMedication(
         text(a['name']),
         text(a['time']),

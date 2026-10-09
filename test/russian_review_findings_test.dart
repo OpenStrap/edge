@@ -344,7 +344,8 @@ void main() {
   final schedules = <(List<Object?>?, bool)>[
     ([1, 2, 3, 4, 5, 6, 7], true),
     ([1, 1, 1, 1, 1, 1, 1], false),
-    ([0, 8, 9, 10, 11, 12, 13], false),
+    // No valid day left: addMedication saves every day, so that is shown.
+    ([0, 8, 9, 10, 11, 12, 13], true),
     ([1.5, 2, 3, 4, 5, 6, 7], false),
     ([1, 1, 2, 3, 4, 5, 6, 7, 7], true),
     (null, true),

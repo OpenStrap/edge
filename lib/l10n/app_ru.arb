@@ -3082,8 +3082,8 @@
     }
   },
   "healthRowWearTime": "Время ношения",
-  "healthTheDay": "дня",
-  "healthCoverageOf": "{pct}% дня {day}",
+  "healthTheDay": "день",
+  "healthCoverageOf": "{pct}% за {day}",
   "@healthCoverageOf": {
     "placeholders": {
       "pct": {
@@ -4500,7 +4500,7 @@
   "activitySetupSessionRunningTitle": "Тренировка уже идёт",
   "activitySetupSessionRunningBody": "Одновременно может идти только одна.",
   "activitySetupOpenRunningSession": "Открыть текущую тренировку",
-  "activitySetupStart": "Начало",
+  "activitySetupStart": "Начать",
   "activityPickerTitle": "Выбрать активность",
   "activityPickerSearchLabel": "Поиск активностей",
   "activityPickerSearchHint": "Поиск среди {count} активностей",
@@ -5054,7 +5054,7 @@
   "activityLiveDeniedForeverBody": "Геолокация запрещена для приложения. Изменить это можно только в настройках.",
   "activityLiveDurationHeader": "ДЛИТЕЛЬНОСТЬ",
   "activityLiveEffortRpeHeader": "УСИЛИЕ (RPE)",
-  "activityLiveEndSet": "Завершить подход",
+  "activityLiveEndSet": "Завершить сет",
   "activityLiveExerciseOf": "УПРАЖНЕНИЕ {index} ИЗ {total}",
   "@activityLiveExerciseOf": {
     "placeholders": {
@@ -6827,5 +6827,11 @@
         "type": "int"
       }
     }
-  }
+  },
+  "devicesOuraKeyRefused": "Кольцо отклонило ключ. Выполните сопряжение заново, чтобы установить ключ, который оно примет.",
+  "devicesOuraStorageFailed": "Не удалось полностью сохранить синхронизацию. Попробуйте синхронизировать ещё раз.",
+  "devicesOuraProtocolTimeout": "Кольцо перестало отвечать во время синхронизации. Попробуйте синхронизировать ещё раз.",
+  "devicesOuraCheckpointUnconfirmed": "Не удалось завершить синхронизацию. Попробуйте синхронизировать ещё раз.",
+  "investigateRmssdNightly": "RMSSD, ночной (среднее по 5-минутным окнам)",
+  "investigateRmssdStored": "RMSSD, ночной (прежняя оценка)"
 }
