@@ -245,6 +245,7 @@
   "pairSensorUsedDuringWorkouts": "在锻炼期间使用",
   "pairSensorForgetThisSensor": "忘记此传感器",
   "pairSensorForgetThisSensorSub": "移除数据源。已获取的读数会保留。",
+  "iosUninstallUnpairsWarning": "在 iOS 上，删除 OpenStrap 也会解除此处配对的所有手环和传感器与手机的配对，因此其他应用（包括厂商自己的应用）也会失去它们。",
   "pairSensorPairing": "配对中…",
   "pairSensorScanDidNotRun": "扫描未运行：{error}",
   "pairSensorCouldNotPair": "无法配对该设备：{error}",

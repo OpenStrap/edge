@@ -1180,6 +1180,10 @@
   "@pairSensorForgetThisSensorSub": {
     "description": "Row sub: forget sensor."
   },
+  "iosUninstallUnpairsWarning": "On iOS, deleting OpenStrap also unpairs every band and sensor paired here from the phone, so other apps, including the maker's own, lose them too.",
+  "@iosUninstallUnpairsWarning": {
+    "description": "iOS only: AccessorySetupKit pairings are removed by iOS for all apps when OpenStrap is deleted."
+  },
   "pairSensorPairing": "Pairing…",
   "@pairSensorPairing": {
     "description": "Row sub: pairing in progress."
@@ -14534,5 +14538,19 @@
         "type": "int"
       }
     }
-  }
+  },
+  "dayTimelineZoomNoHr": "No heart rate in this stretch",
+  "@dayTimelineZoomNoHr": {"description": "Shown in place of the zoomed day chart when the chosen window has no heart rate."},
+  "dayTimelineZoomPerMinute": "1-minute averages. Drag the handles to zoom; two hours or less shows every second while it is still kept.",
+  "@dayTimelineZoomPerMinute": {"description": "Footnote under the day heart-rate chart at per-minute resolution."},
+  "dayTimelineZoomPerMinuteOnly": "1-minute averages. Second-by-second readings are no longer kept for this stretch.",
+  "@dayTimelineZoomPerMinuteOnly": {"description": "Footnote when zoomed in but the per-second rows have been pruned."},
+  "dayTimelineZoomPerSecond": "Every second the band recorded. Second-by-second readings are kept for recent days only.",
+  "@dayTimelineZoomPerSecond": {"description": "Footnote when the zoomed day chart shows per-second readings."},
+  "dataExportHeartRate": "Export heart rate, minute by minute",
+  "@dataExportHeartRate": {"description": "Data screen row: export per-minute heart rate as CSV."},
+  "dataExportHeartRateSub": "One CSV for the days you pick: a 1-minute average for every minute the band recorded. Second-by-second readings are kept for recent days only and are in the database export",
+  "@dataExportHeartRateSub": {"description": "Subtitle for the per-minute heart rate CSV export row."},
+  "dataHeartRateRangeHelp": "Heart rate is kept from {first} to {last}",
+  "@dataHeartRateRangeHelp": {"description": "Date range picker heading for the heart rate export, naming the available range.", "placeholders": {"first": {"type": "String"}, "last": {"type": "String"}}}
 }

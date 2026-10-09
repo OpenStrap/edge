@@ -245,6 +245,7 @@
   "pairSensorUsedDuringWorkouts": "वर्कआउट के दौरान उपयोग होता है",
   "pairSensorForgetThisSensor": "इस सेंसर को भूल जाएं",
   "pairSensorForgetThisSensorSub": "स्रोत हटाता है। पहले से ली गई रीडिंग बनी रहती हैं।",
+  "iosUninstallUnpairsWarning": "iOS पर OpenStrap हटाने से यहाँ पेयर किए गए हर बैंड और सेंसर की फ़ोन से पेयरिंग भी हट जाती है, इसलिए निर्माता के अपने ऐप सहित दूसरे ऐप भी उन्हें खो देते हैं।",
   "pairSensorPairing": "पेयर हो रहा है…",
   "pairSensorScanDidNotRun": "स्कैन नहीं चला: {error}",
   "pairSensorCouldNotPair": "उस डिवाइस को पेयर नहीं किया जा सका: {error}",

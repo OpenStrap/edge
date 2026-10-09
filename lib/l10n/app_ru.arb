@@ -402,6 +402,7 @@
   "pairSensorUsedDuringWorkouts": "Используется во время тренировок",
   "pairSensorForgetThisSensor": "Удалить этот датчик",
   "pairSensorForgetThisSensorSub": "Удаляет источник. Уже записанные данные сохраняются.",
+  "iosUninstallUnpairsWarning": "На iOS удаление OpenStrap также снимает с телефона сопряжение всех браслетов и датчиков, сопряжённых здесь, поэтому другие приложения, включая приложение производителя, тоже их теряют.",
   "pairSensorPairing": "Сопряжение…",
   "pairSensorScanDidNotRun": "Не удалось выполнить поиск: {error}",
   "@pairSensorScanDidNotRun": {
@@ -6836,5 +6837,13 @@
   "devicesOuraCheckpointUnconfirmed": "Не удалось завершить синхронизацию. Попробуйте синхронизировать ещё раз.",
   "investigateRmssdNightly": "RMSSD, ночной (среднее по 5-минутным окнам)",
   "investigateRmssdStored": "RMSSD, ночной (прежняя оценка)",
-  "devicesOuraWriteRefused": "Не удалось отправить команду кольцу. Попробуйте синхронизировать ещё раз."
+  "devicesOuraWriteRefused": "Не удалось отправить команду кольцу. Попробуйте синхронизировать ещё раз.",
+  "dayTimelineZoomNoHr": "На этом отрезке нет данных о пульсе",
+  "dayTimelineZoomPerMinute": "Средние за минуту. Потяните ползунки, чтобы приблизить; при окне до двух часов показывается каждая секунда, пока она хранится.",
+  "dayTimelineZoomPerMinuteOnly": "Средние за минуту. Посекундные данные для этого отрезка уже не хранятся.",
+  "dayTimelineZoomPerSecond": "Каждая секунда, записанная браслетом. Посекундные данные хранятся только за последние дни.",
+  "dataExportHeartRate": "Экспортировать пульс по минутам",
+  "dataExportHeartRateSub": "Один CSV за выбранные дни: средний пульс за каждую минуту, записанную браслетом. Посекундные данные хранятся только за последние дни и входят в экспорт базы данных",
+  "dataHeartRateRangeHelp": "Пульс хранится с {first} по {last}",
+  "@dataHeartRateRangeHelp": {"placeholders": {"first": {"type": "String"}, "last": {"type": "String"}}}
 }
