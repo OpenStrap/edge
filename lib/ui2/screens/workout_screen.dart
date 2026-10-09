@@ -2009,9 +2009,11 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
           if (r is! Map) continue;
           final ts = (r['start_ts'] as num?)?.toInt();
           if (ts == null) continue;
+          // An unknown type keeps its own name: a scored import is saved
+          // under the store's sport (`surfing`), which the catalogue may lack.
           final a = activityByName(r['type'] as String?) ??
-              const Activity('Workout', LucideIcons.activity, C.purple,
-                  Track.duration, 5.0);
+              Activity(importedWorkoutTitle(r['type']), LucideIcons.activity,
+                  C.purple, Track.duration, 5.0);
           past.add(_PastWorkout(
             (r['id'] as String?) ?? '',
             a,
@@ -2060,9 +2062,12 @@ Future<_WorkoutData> _loadWorkoutData(AppState app) async {
           // type. The NAME always comes from the store — `activityByName`
           // resolves the ~40 types this app can start, and the fallback would
           // print "Workout" over a surf.
+          // Named after the store's type, not "Workout": scoring this row
+          // saves `activity.typeKey`, and a generic fallback would replace
+          // the import's sport with `workout`.
           activityByName(title) ??
-              const Activity('Workout', LucideIcons.activity, C.purple,
-                  Track.duration, 5.0),
+              Activity(title, LucideIcons.activity, C.purple, Track.duration,
+                  5.0),
           at,
           Motion.tick * (endTs - ts),
           // No strain, ever. It is not omitted pending a better idea — there

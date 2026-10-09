@@ -38,6 +38,7 @@ import '../../models/activity_suggestion.dart';
 import 'detected_activities.dart';
 import '../../data/db.dart';
 import '../../data/journal_fields.dart' show formatMinuteOfDay;
+import '../../data/local_repository.dart';
 import '../../health/health_export.dart';
 import '../../health/health_workout_import.dart' show rememberDeletedUuid;
 import '../../l10n/app_localizations.dart';
@@ -294,10 +295,16 @@ class _LogWorkoutState extends State<LogWorkout> {
           : await repo.setWorkoutWindow(widget.sessionId!,
               startTs: _startSec, endTs: _endSec);
       if (widget.importedUuid case final uuid?) {
-        // The original already sits in the health store; exporting ours too
-        // would put the same workout there twice.
-        await rememberDeletedUuid(uuid);
-        await LocalDb.supersedeImportedWorkout(uuid, r['workout_id'] as String);
+        if (!await replaceImportWithScored(repo, uuid, r)) {
+          if (!mounted) return;
+          setState(() {
+            _saving = false;
+            _wrote = l?.logWorkoutImportedHrGone ??
+                'Heart rate for this workout is no longer stored, so the band '
+                    'cannot score it.';
+          });
+          return;
+        }
       } else {
         // Both branches: a new session and a RETIMED one both change what the
         // health store should hold for that window (#130).
@@ -537,6 +544,26 @@ AppState? appOf(BuildContext c) {
   } catch (_) {
     return null;
   }
+}
+
+/// Settle a scoring save against the import it was opened from (#325).
+///
+/// Only a SCORED session supersedes the import. The heart-rate check runs
+/// before the form opens, so a retimed window (or samples pruned meanwhile)
+/// can still save unscored; that copy carries less than the import, so it is
+/// removed and the import kept. False when that happened.
+Future<bool> replaceImportWithScored(
+    LocalRepository repo, String uuid, Map<String, dynamic> saved) async {
+  final id = saved['workout_id'] as String;
+  if (saved['unscored'] == true) {
+    await repo.deleteWorkout(id);
+    return false;
+  }
+  // The original already sits in the health store; exporting ours too would
+  // put the same workout there twice.
+  await rememberDeletedUuid(uuid);
+  await LocalDb.supersedeImportedWorkout(uuid, id);
+  return true;
 }
 
 /// Tapping an imported workout (#325): score its window from the band's own

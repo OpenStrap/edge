@@ -6,10 +6,19 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/db.dart';
+import 'package:openstrap_edge/data/local_repository.dart';
 import 'package:openstrap_edge/ui2/activity/catalogue.dart';
 import 'package:openstrap_edge/ui2/screens/log_workout.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+class _Repo implements LocalRepository {
+  final deleted = <String>[];
+  @override
+  Future<void> deleteWorkout(String id) async => deleted.add(id);
+  @override
+  dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
+}
 
 final _start = DateTime(2026, 8, 1, 9);
 final _end = DateTime(2026, 8, 1, 10, 36);
@@ -112,6 +121,27 @@ void main() {
 
       final route = await db.query('workout_route');
       expect(route.single['lat'], 1);
+    });
+
+    test('an unscored save keeps the import and drops its own copy',
+        () async {
+      await LocalDb.putImportedWorkouts([
+        {
+          'uuid': 'hevy-1',
+          'start_ts': 100,
+          'end_ts': 200,
+          'kind': 'SURFING',
+          'source': 'Hevy',
+        },
+      ]);
+      final repo = _Repo();
+
+      final replaced = await replaceImportWithScored(
+          repo, 'hevy-1', {'workout_id': 'manual-100', 'unscored': true});
+
+      expect(replaced, isFalse);
+      expect(repo.deleted, ['manual-100']);
+      expect((await LocalDb.importedWorkouts()).single['uuid'], 'hevy-1');
     });
   });
 }
