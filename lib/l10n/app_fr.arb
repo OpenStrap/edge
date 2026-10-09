@@ -245,6 +245,7 @@
   "pairSensorUsedDuringWorkouts": "Utilisé pendant les entraînements",
   "pairSensorForgetThisSensor": "Oublier ce capteur",
   "pairSensorForgetThisSensorSub": "Supprime la source. Les relevés déjà effectués restent.",
+  "iosUninstallUnpairsWarning": "Sur iOS, supprimer OpenStrap désappaire aussi du téléphone chaque bracelet et capteur appairé ici, si bien que les autres apps, y compris celle du fabricant, les perdent aussi.",
   "pairSensorPairing": "Jumelage…",
   "pairSensorScanDidNotRun": "La recherche ne s’est pas exécutée : {error}",
   "pairSensorCouldNotPair": "Impossible de jumeler cet appareil : {error}",
