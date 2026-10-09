@@ -138,6 +138,23 @@ class _Rig {
   /// before the caller's continuation resumes.
   bool dropLinkAfterDrainRequest = false;
 
+  /// When set, the band answers SEND_HISTORICAL_DATA with a HISTORY_START
+  /// delivered before the write future resolves (the answer beats the
+  /// caller's continuation).
+  bool startOnDrainRequest = false;
+
+  /// Called when GET_CLOCK is written — i.e. while a claim is still inside
+  /// its pre-request waits, before SEND_HISTORICAL_DATA goes out.
+  void Function()? onClockRequest;
+
+  /// Called for every outgoing command, with its opcode.
+  void Function(int opcode)? onWriteOpcode;
+
+  /// When set, the next write of [holdOpcode] parks on this future (and the
+  /// write chain behind it with it).
+  int? holdOpcode;
+  Completer<bool>? holdWrite;
+
   /// When set, the NEXT commit parks on this future (then completes normally,
   /// or throws if [failHeldCommit] is set — the shape of a transaction that
   /// fails after parking for seconds).
@@ -181,6 +198,8 @@ class _Rig {
           final body0 = body.isEmpty ? -1 : body[0];
           writes.add(_Cmd(opcode, body0, body));
           events.add('write:$opcode:$body0');
+          onWriteOpcode?.call(opcode);
+          if (opcode == Cmd.getClock) onClockRequest?.call();
           if (opcode == Cmd.getClock && answerClock) {
             final seq = p.inner[1];
             scheduleMicrotask(() => engine.debugAbsorbDecoded(
@@ -192,8 +211,16 @@ class _Rig {
                   }),
                 ));
           }
+          final hw = holdWrite;
+          if (hw != null && opcode == holdOpcode) {
+            holdWrite = null;
+            return hw.future;
+          }
           if (opcode == Cmd.abortHistoricalTransmits && holdAbort != null) {
             return holdAbort!.future;
+          }
+          if (opcode == Cmd.sendHistoricalData && startOnDrainRequest) {
+            scheduleMicrotask(() => rx(_historyStart()));
           }
           if (opcode == Cmd.sendHistoricalData && dropLinkAfterDrainRequest) {
             dropLinkAfterDrainRequest = false;
@@ -1074,6 +1101,576 @@ void main() {
       // And the ACK echoes the token verbatim.
       expect(r.successResults.single.body.take(9).toList(),
           [0x01, ..._tokenBytes(0xB100)]);
+    });
+  });
+
+  group('T12 — the waiter only waits; an unanswered request is ended', () {
+    test(
+        'a runSync waiter timing out mid-burst leaves the task claimed and '
+        'the same task is not re-claimed', () async {
+      final r = _Rig();
+      expect(await r.engine.debugStartHistoricalRefresh(), isTrue);
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1200));
+      await pumpEventQueue();
+      var c = 1201;
+      final feeder = Timer.periodic(const Duration(milliseconds: 400),
+          (_) => r.rx(_gen5V18Inner(ts: ts + (c - 1200), counter: c++)));
+      final report =
+          await r.engine.runSync(timeout: const Duration(seconds: 2));
+      feeder.cancel();
+      expect(report.complete, isFalse);
+      expect(r.engine.offloadActive, isTrue,
+          reason: 'a waiter that stops waiting must leave the transfer '
+              'claimed — only the task\'s own terminals release it');
+
+      // The burst is still ours: a second trigger is refused…
+      expect(await r.engine.debugStartHistoricalRefresh(), isFalse);
+      expect(r.drainRequests, hasLength(1),
+          reason: 'no second opcode 22 on top of a running transfer');
+
+      // …and the burst finishes normally, committed before it is ACKed.
+      r.rx(_historyEnd(expected: c - 1200, token: 0xC100));
+      await pumpEventQueue();
+      expect(r.successResults, hasLength(1));
+      expect(r.successResults.single.body.take(9).toList(),
+          [0x01, ..._tokenBytes(0xC100)]);
+      final commitAt = r.events.indexWhere(
+          (e) => e.startsWith('commit:') && !e.endsWith(':null'));
+      final ackAt = r.events
+          .indexWhere((e) => e == 'write:${Cmd.historicalDataResult}:1');
+      expect(commitAt, isNonNegative);
+      expect(ackAt, greaterThan(commitAt),
+          reason: 'commit-before-ACK holds across the waiter timeout');
+    });
+
+    test('reports hand over every record and ACK exactly once — before, '
+        'during and between waits', () async {
+      final r = _Rig();
+      expect(await r.engine.debugStartHistoricalRefresh(), isTrue);
+      var c = 1250;
+      var fed = 0;
+      void rec() {
+        r.rx(_gen5V18Inner(ts: ts + (c - 1250), counter: c++));
+        fed++;
+      }
+
+      // Before anyone waits: a whole ACKed burst.
+      r.rx(_historyStart());
+      rec();
+      rec();
+      r.rx(_historyEnd(expected: 2, token: 0xC500));
+      await pumpEventQueue();
+      expect(r.successResults, hasLength(1));
+      var feeder = Timer.periodic(const Duration(milliseconds: 300), (_) => rec());
+      final first = await r.engine.runSync(timeout: const Duration(seconds: 2));
+      feeder.cancel();
+      await pumpEventQueue();
+      // Between the waits: another ACKed burst.
+      r.rx(_historyStart());
+      rec();
+      r.rx(_historyEnd(expected: 1, token: 0xC501));
+      await pumpEventQueue();
+      expect(r.successResults, hasLength(2));
+      feeder = Timer.periodic(const Duration(milliseconds: 300), (_) => rec());
+      final second =
+          await r.engine.runSync(timeout: const Duration(seconds: 2));
+      feeder.cancel();
+      expect(first.batches, 1,
+          reason: 'the ACK that landed before the first wait is progress');
+      expect(second.batches, 1, reason: 'the ACK between the waits too');
+      expect(first.records + second.records, fed,
+          reason: 'every record exactly once across the two reports');
+    });
+
+    test('runSync no longer throws when the ledger write fails', () async {
+      final r = _Rig();
+      // No catchError: the ledger write is diagnostics only and must not
+      // escape the wait (it throws in the test host — no database).
+      final report =
+          await r.engine.runSync(timeout: const Duration(seconds: 1));
+      expect(report.complete, isFalse);
+    });
+
+    test(
+        'an unanswered SEND_HISTORICAL_DATA is aborted once after the '
+        'window, retried once, then left alone', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(Duration.zero);
+        expect(r.drainRequests, hasLength(1));
+
+        async.elapse(const Duration(seconds: 9));
+        expect(r.aborts, isEmpty, reason: 'still inside the window');
+        expect(r.engine.offloadActive, isTrue);
+
+        async.elapse(const Duration(seconds: 2));
+        expect(r.aborts, hasLength(1),
+            reason: 'the request is ended with exactly one abort');
+        expect(r.engine.offloadActive, isFalse);
+        expect(r.engine.offloadSnapshot['last_hps_reason'], 'no_history_start');
+        expect(r.engine.offloadSnapshot['first_start_timeouts'], 1);
+
+        // One retry after the settle (+ the real-clock 0x16 floor).
+        async.elapse(const Duration(seconds: 10));
+        expect(r.drainRequests, hasLength(2));
+        expect(r.rangePolls, hasLength(1));
+
+        // The retry goes unanswered too: one more abort…
+        async.elapse(const Duration(seconds: 12));
+        expect(r.aborts, hasLength(2));
+
+        // …and no further retry this session.
+        async.elapse(const Duration(seconds: 30));
+        expect(r.drainRequests, hasLength(2));
+        expect(r.aborts, hasLength(2));
+        expect(r.engine.offloadActive, isFalse);
+        expect(r.successResults, isEmpty);
+        expect(r.failureResults, isEmpty);
+      });
+    });
+
+    test('a START inside the window cancels it', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(const Duration(seconds: 3));
+        r.rx(_historyStart());
+        async.elapse(const Duration(seconds: 30));
+        expect(r.aborts, isEmpty,
+            reason: 'only the 60 s idle watchdog may end it from here');
+        expect(
+            r.engine.offloadSnapshot['first_start_watchdog_armed'], isFalse);
+        expect(r.engine.offloadActive, isTrue);
+      });
+    });
+
+    test('an answer that beats the write\'s return still counts', () {
+      fakeAsync((async) {
+        final r = _Rig()..startOnDrainRequest = true;
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(const Duration(seconds: 30));
+        expect(r.drainRequests, hasLength(1));
+        expect(r.aborts, isEmpty);
+        expect(
+            r.engine.offloadSnapshot['first_start_watchdog_armed'], isFalse);
+      });
+    });
+
+    test('a HISTORY_COMPLETE with no burst satisfies the watchdog', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(Duration.zero);
+        r.rx(_historyComplete());
+        async.elapse(const Duration(seconds: 30));
+        expect(r.aborts, isEmpty);
+        expect(r.engine.offloadActive, isFalse,
+            reason: 'an empty band ends the task through COMPLETE');
+      });
+    });
+
+    test('gen5 straggler data does not satisfy it', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(Duration.zero);
+        r.rx(_gen5V18Inner(ts: ts, counter: 1250)); // pre-START, dropped
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1));
+      });
+    });
+
+    test('gen4: a data frame satisfies it', () {
+      fakeAsync((async) {
+        final r = _Rig(band: BandProfile.gen4);
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(Duration.zero);
+        r.rx(_gen4V24Inner(ts: ts, counter: 1260));
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, isEmpty);
+      });
+    });
+
+    test('a straggler during the claim\'s own waits is not the answer',
+        () {
+      fakeAsync((async) {
+        final r = _Rig(band: BandProfile.gen4);
+        // gen4 accepts any history traffic as the answer — but only to a
+        // request that is actually going out. This record lands while the
+        // claim is still reading the clock.
+        r.onClockRequest = () => r.rx(_gen4V24Inner(ts: ts, counter: 1270));
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(Duration.zero);
+        expect(r.drainRequests, hasLength(1));
+        expect(
+            r.engine.offloadSnapshot['first_start_watchdog_armed'], isTrue);
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1),
+            reason: 'the band never answered the request itself');
+      });
+    });
+
+    for (final band in [BandProfile.gen4, BandProfile.gen5]) {
+      test('INIT: traffic during its earlier packets is not the answer '
+          '(${band == BandProfile.gen5 ? 'gen5' : 'gen4'})', () {
+        fakeAsync((async) {
+          final r = _Rig(band: band);
+          var injected = false;
+          r.onWriteOpcode = (op) {
+            if (injected || op == Cmd.sendHistoricalData) return;
+            injected = true;
+            // A straggler from before this connect's request.
+            r.rx(band == BandProfile.gen5
+                ? _historyStart()
+                : _gen4V24Inner(ts: ts, counter: 1280));
+          };
+          r.engine.debugStartInitDrain();
+          async.elapse(const Duration(seconds: 1));
+          expect(injected, isTrue);
+          expect(r.drainRequests, hasLength(1));
+          expect(r.engine.offloadSnapshot['first_start_watchdog_armed'],
+              isTrue,
+              reason: 'nothing that arrived before the opcode-22 write '
+                  'answers it');
+          async.elapse(const Duration(seconds: 11));
+          expect(r.aborts, hasLength(1));
+        });
+      });
+    }
+
+    test('an auto-continue whose waits receive traffic still times out '
+        'unanswered', () {
+      fakeAsync((async) {
+        final r = _Rig(band: BandProfile.gen4);
+        var clocks = 0;
+        r.onClockRequest = () {
+          // The second GET_CLOCK is the auto-continue's: the COMPLETE handler
+          // holds the queue while it runs, and this record queues behind it.
+          if (++clocks == 2) r.rx(_gen4V24Inner(ts: ts + 5, counter: 1291));
+        };
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(Duration.zero);
+        r.rx(_historyStart());
+        r.rx(_gen4V24Inner(ts: ts, counter: 1290));
+        r.rx(_historyEnd(expected: 1, token: 0xC290));
+        r.rx(_historyComplete());
+        // (+ the 5 s 0x16 floor, which runs on the real clock)
+        async.elapse(const Duration(seconds: 6));
+        expect(clocks, 2);
+        expect(r.drainRequests, hasLength(2), reason: 'auto-continued');
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1),
+            reason: 'the record arrived before the request went out, so it '
+                'cannot be the band answering it');
+      });
+    });
+
+    test('a late START during the retry\'s own waits does not refill the '
+        'budget', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        var clocks = 0;
+        r.onClockRequest = () {
+          if (++clocks == 2) r.rx(_historyStart()); // the retry's GET_CLOCK
+        };
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1));
+        async.elapse(const Duration(seconds: 10));
+        expect(clocks, 2);
+        expect(r.drainRequests, hasLength(2), reason: 'the one retry');
+        async.elapse(const Duration(seconds: 60));
+        expect(r.aborts, hasLength(2));
+        expect(r.drainRequests, hasLength(2),
+            reason: 'no third request: that START answered nothing');
+      });
+    });
+
+    test('a late COMPLETE during the auto-continue\'s waits does not finish '
+        'the replacement task', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        var clocks = 0;
+        r.onClockRequest = () {
+          // The previous task's COMPLETE, re-offered while the auto-continue
+          // has claimed but not yet sent its request.
+          if (++clocks == 2) r.rx(_historyComplete());
+        };
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(Duration.zero);
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1330));
+        r.rx(_historyEnd(expected: 1, token: 0xC330));
+        r.rx(_historyComplete());
+        async.elapse(const Duration(seconds: 6)); // (+ the real-clock floor)
+        expect(clocks, 2);
+        expect(r.drainRequests, hasLength(2), reason: 'auto-continued');
+        expect(r.engine.offloadActive, isTrue,
+            reason: 'the replacement task is still waiting on its answer');
+        expect(r.logs.any((l) => l.contains('leftover of the previous task')),
+            isTrue);
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1),
+            reason: 'its own watchdog ends it, not the leftover COMPLETE');
+      });
+    });
+
+    test('a request queued behind another write is not answerable until its '
+        'bytes go out', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.holdOpcode = Cmd.getBatteryLevel;
+        r.holdWrite = Completer<bool>();
+        final held = r.holdWrite!;
+        r.onClockRequest = () {
+          // Something else takes the write chain just before our request.
+          r.engine.debugWriteRaw(buildCommand(
+              99, Cmd.getBatteryLevel, const [], BandProfile.gen5));
+        };
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(Duration.zero);
+        expect(r.drainRequests, isEmpty, reason: 'queued behind the held write');
+        r.rx(_historyStart()); // a straggler while our request is still queued
+        async.elapse(Duration.zero);
+        held.complete(true);
+        async.elapse(Duration.zero);
+        expect(r.drainRequests, hasLength(1));
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1),
+            reason: 'nothing that arrived before the bytes went out answers');
+        expect(r.engine.offloadSnapshot['no_start_retries'], 1,
+            reason: 'and nothing refilled the budget');
+      });
+    });
+
+    test('a refresh request whose task ends while it is queued is withheld',
+        () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.holdOpcode = Cmd.getBatteryLevel;
+        r.holdWrite = Completer<bool>();
+        final held = r.holdWrite!;
+        r.onClockRequest = () => r.engine.debugWriteRaw(
+            buildCommand(99, Cmd.getBatteryLevel, const [], BandProfile.gen5));
+        bool? sent;
+        r.engine.debugStartHistoricalRefresh().then((v) => sent = v);
+        async.elapse(Duration.zero);
+        expect(r.drainRequests, isEmpty, reason: 'queued behind the held write');
+        // The task ends while its opcode 22 still sits in the write chain.
+        r.engine.endHistoryTask(reason: 'test');
+        async.elapse(Duration.zero);
+        held.complete(true);
+        async.elapse(const Duration(seconds: 1));
+        expect(r.drainRequests, isEmpty,
+            reason: 'no drain request for a task that already ended');
+        expect(r.aborts, hasLength(1));
+        expect(sent, isFalse);
+        expect(r.engine.offloadActive, isFalse);
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1), reason: 'no watchdog for it either');
+      });
+    });
+
+    test('an INIT request whose task ends while it is queued is withheld', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.holdOpcode = Cmd.getBatteryLevel;
+        r.holdWrite = Completer<bool>();
+        final held = r.holdWrite!;
+        bool? ready;
+        r.engine.debugStartInitDrain().then((v) => ready = v);
+        async.elapse(Duration.zero);
+        expect(r.rangePolls, hasLength(1));
+        // Something takes the write chain inside INIT's 120 ms gap, so the
+        // opcode 22 queues behind it — then the task ends.
+        r.engine.debugWriteRaw(
+            buildCommand(99, Cmd.getBatteryLevel, const [], BandProfile.gen5));
+        async.elapse(const Duration(milliseconds: 150));
+        r.engine.endHistoryTask(reason: 'test');
+        async.elapse(Duration.zero);
+        held.complete(true);
+        async.elapse(const Duration(seconds: 1));
+        expect(r.drainRequests, isEmpty);
+        expect(r.aborts, hasLength(1));
+        expect(ready, isTrue, reason: 'the link itself is up');
+        expect(r.engine.offloadActive, isFalse);
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1));
+      });
+    });
+
+    for (final init in [false, true]) {
+      test('${init ? 'INIT' : 'refresh'}: a request whose write failed is '
+          'answered by nothing', () {
+        fakeAsync((async) {
+          final r = _Rig();
+          r.holdOpcode = Cmd.sendHistoricalData;
+          r.holdWrite = Completer<bool>();
+          final held = r.holdWrite!;
+          bool? result;
+          (init
+                  ? r.engine.debugStartInitDrain()
+                  : r.engine.debugStartHistoricalRefresh())
+              .then((v) => result = v);
+          async.elapse(const Duration(seconds: 1));
+          held.complete(false); // the transport refused the bytes
+          async.elapse(Duration.zero);
+          expect(result, init ? isTrue : isFalse);
+          expect(r.engine.offloadActive, isFalse);
+          // A straggler COMPLETE from before: it answers no request of ours.
+          r.rx(_historyComplete());
+          async.elapse(Duration.zero);
+          expect(r.engine.offloadSnapshot['history_completions'], 0);
+          expect(r.logs.where((l) => l.contains('leftover of the previous')),
+              hasLength(1));
+        });
+      });
+    }
+
+    test('INIT arms it too', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        bool? ready;
+        r.engine.debugStartInitDrain().then((v) => ready = v);
+        async.elapse(const Duration(seconds: 1));
+        expect(ready, isTrue);
+        expect(r.drainRequests, hasLength(1));
+        expect(r.aborts, isEmpty);
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1));
+        expect(r.engine.offloadActive, isFalse);
+      });
+    });
+
+    test('a START landing just after each deadline does not refill the '
+        'retry budget', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1));
+        r.rx(_historyStart()); // late: the task already ended
+        async.elapse(const Duration(seconds: 10));
+        expect(r.drainRequests, hasLength(2), reason: 'the one retry');
+        async.elapse(const Duration(seconds: 12));
+        expect(r.aborts, hasLength(2));
+        r.rx(_historyStart()); // late again
+        async.elapse(const Duration(seconds: 60));
+        expect(r.drainRequests, hasLength(2),
+            reason: 'at most one first-START retry per session — an '
+                'ended task\'s START answers nothing');
+        expect(r.engine.offloadSnapshot['no_start_retries'], 1);
+      });
+    });
+
+    test('gen4: data before an accepted START still refills the budget', () {
+      fakeAsync((async) {
+        final r = _Rig(band: BandProfile.gen4);
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1));
+        async.elapse(const Duration(seconds: 10));
+        expect(r.drainRequests, hasLength(2));
+        expect(r.engine.offloadSnapshot['no_start_retries'], 1);
+
+        // The retry is answered — gen4 data first (that alone disarms the
+        // watchdog), then the burst's START.
+        r.rx(_gen4V24Inner(ts: ts, counter: 1600));
+        r.rx(_historyStart());
+        async.elapse(Duration.zero);
+        expect(r.engine.offloadSnapshot['no_start_retries'], 0,
+            reason: 'an accepted START refills the budget');
+      });
+    });
+
+    test('gen4: history arriving off the data characteristic disarms the '
+        'watchdog too', () {
+      fakeAsync((async) {
+        final r = _Rig(band: BandProfile.gen4);
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(Duration.zero);
+        expect(r.engine.offloadSnapshot['first_start_watchdog_armed'], isTrue);
+        // Reassembled on `events`: the immediate path, not the queue.
+        r.rx(_gen4V24Inner(ts: ts, counter: 1610), role: 'events');
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, isEmpty);
+        expect(
+            r.engine.offloadSnapshot['first_start_watchdog_armed'], isFalse);
+      });
+    });
+
+    test('auto-continue refused before claiming releases the claim',
+        () async {
+      final r = _Rig();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1300));
+      r.rx(_historyEnd(expected: 1, token: 0xC300));
+      await pumpEventQueue();
+      expect(r.successResults, hasLength(1));
+      final requestsBefore = r.drainRequests.length;
+
+      // The ECG owner holds the transport WITHOUT cancelling history, so the
+      // auto-continue at COMPLETE is refused before it claims anything.
+      final lease = r.engine.ecgAcquire()!;
+      r.rx(_historyComplete());
+      await pumpEventQueue();
+      expect(r.logs.any((l) => l.contains('[SYNC] auto-continue')), isTrue,
+          reason: 'the post-offload policy decided to continue');
+      expect(r.logs.any((l) => l.contains('refused — the ECG owner')), isTrue);
+      expect(r.drainRequests, hasLength(requestsBefore),
+          reason: 'the auto-continue was refused by the ECG lease');
+      expect(r.engine.offloadActive, isFalse,
+          reason: 'no task owns the offload — the claim must not be orphaned');
+      r.engine.ecgRelease(lease);
+    });
+
+    test('an auto-continued request is covered by the first-START watchdog',
+        () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1310));
+        r.rx(_historyEnd(expected: 1, token: 0xC310));
+        r.rx(_historyComplete());
+        async.elapse(const Duration(seconds: 1));
+        expect(r.logs.any((l) => l.contains('[SYNC] auto-continue')), isTrue);
+        expect(r.drainRequests, hasLength(1),
+            reason: 'the auto-continue asked for more');
+        expect(
+            r.engine.offloadSnapshot['first_start_watchdog_armed'], isTrue);
+
+        // The band never answers it: one abort, one retry, then left alone.
+        async.elapse(const Duration(seconds: 10));
+        expect(r.aborts, hasLength(1));
+        expect(r.engine.offloadSnapshot['last_hps_reason'], 'no_history_start');
+        async.elapse(const Duration(seconds: 10));
+        expect(r.drainRequests, hasLength(2));
+        async.elapse(const Duration(seconds: 60));
+        expect(r.aborts, hasLength(2));
+        expect(r.drainRequests, hasLength(2));
+        expect(r.successResults, hasLength(1));
+      });
+    });
+
+    test('an auto-continued request the band answers keeps its retry budget',
+        () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1320));
+        r.rx(_historyEnd(expected: 1, token: 0xC320));
+        r.rx(_historyComplete());
+        async.elapse(const Duration(seconds: 1));
+        expect(r.drainRequests, hasLength(1));
+        r.rx(_historyStart()); // the band answers the auto-continue
+        async.elapse(const Duration(seconds: 30));
+        expect(r.aborts, isEmpty);
+        expect(
+            r.engine.offloadSnapshot['first_start_watchdog_armed'], isFalse);
+        expect(r.engine.offloadSnapshot['no_start_retries'], 0);
+      });
     });
   });
 }

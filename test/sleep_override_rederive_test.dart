@@ -112,6 +112,14 @@ void main() {
   });
 
   test('correcting the pinned day releases the morning pin', () async {
+    // A pin is only ever set after its day's result is written, and a pin
+    // whose day has no result is not read.
+    await LocalDb.putDayResult(
+      dayId: '2026-09-30',
+      algoVersion: kAlgoVersion,
+      payloadJson: '{}',
+      windowJson: '{}',
+    );
     await LocalDb.setFrozenHeadline('2026-09-30', 45);
     await LocalDb.putSleepOverride(
       dayId: '2026-09-29',

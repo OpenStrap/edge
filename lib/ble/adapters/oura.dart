@@ -422,8 +422,8 @@ class OuraAdapter extends BandAdapter {
       // bytes past it (see its doc). Re-encoding here would bank this file's
       // idea of the frame instead of what a future decoder for the
       // still-undecoded event types actually needs, and the trailing bytes are
-      // unrecoverable once dropped — `raw_archive` is never pruned but it
-      // cannot un-truncate what was never written.
+      // unrecoverable once dropped — `raw_archive` keeps what it is given but
+      // it cannot un-truncate what was never written.
       raw.add(rawBytes);
       if (e.tsDs > maxDs) maxDs = e.tsDs;
     }

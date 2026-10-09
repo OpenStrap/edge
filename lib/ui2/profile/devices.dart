@@ -819,6 +819,10 @@ class HealthSource {
   final bool syncing;
   final double? batteryPct;
   final bool charging;
+
+  /// The battery pack's own charge, while one sits on the band. Null when
+  /// there is no pack, or no live link to say so.
+  final double? batteryPackPct;
   final DateTime? lastData;
 
   /// True for the PRIMARY band — the only source the offload engine drives,
@@ -862,6 +866,7 @@ class HealthSource {
     this.syncing = false,
     this.batteryPct,
     this.charging = false,
+    this.batteryPackPct,
     this.lastData,
     this.isBand = false,
     this.deviceId,
@@ -974,6 +979,7 @@ List<HealthSource> liveSources(AppState app,
           syncing: app.syncingNow,
           batteryPct: app.device.batteryPct,
           charging: app.device.charging ?? false,
+          batteryPackPct: app.device.batteryPackPct,
           lastData: app.lastRecordAt,
           isBand: true,
           // The stored generation when no link has come up this launch, so a
@@ -2849,6 +2855,15 @@ class DeviceDetailView extends StatelessWidget {
                                 ].join(' · '),
                           chevron: false),
                       Divider(color: p.line, height: 1),
+                      if (s.batteryPackPct case final pack?) ...[
+                        SetRow(LucideIcons.batteryCharging, C.green,
+                            l?.devicesBatteryPack ?? 'Battery pack',
+                            value: '${pack.round()}%',
+                            sub: l?.devicesBatteryPackSub ??
+                                'Reported by the band about every 10 minutes',
+                            chevron: false),
+                        Divider(color: p.line, height: 1),
+                      ],
                       // Live, not a stored reading: present only while the
                       // band is actually streaming, and gone the moment it
                       // stops.

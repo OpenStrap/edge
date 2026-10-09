@@ -13,6 +13,7 @@ import 'package:openstrap_edge/sync/headless_gate.dart';
 import 'package:openstrap_edge/sync/ios_shortcut_sync.dart';
 import 'package:openstrap_edge/sync/paired_device.dart';
 import 'package:openstrap_edge/sync/reset_gate.dart';
+import 'package:openstrap_protocol/openstrap_protocol.dart' show BandProfile;
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -144,14 +145,15 @@ void main() {
     final engine = createHeadlessSyncEngine(
       paired: PairedDevice('test', 'serial'),
     );
-    final onEvent = engine.onEvent! as Future<void> Function(int, int, String);
-    await onEvent(56, 1, '');
+    final onEvent = engine.onEvent!
+        as Future<void> Function(int, int, String, BandProfile);
+    await onEvent(56, 1, '', BandProfile.gen4);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getBool('alarm_epoch_confirmed'), isTrue);
     await prefs.setBool('alarm_epoch_confirmed', false);
     addTearDown(ResetGate.resetForTest);
     ResetGate.enter();
-    await onEvent(56, 2, '');
+    await onEvent(56, 2, '', BandProfile.gen4);
     expect(prefs.getBool('alarm_epoch_confirmed'), isFalse);
   });
 

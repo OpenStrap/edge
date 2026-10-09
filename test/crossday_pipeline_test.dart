@@ -355,7 +355,9 @@ void main() {
     test('does not drive the illness/anomaly alert', () {
       // A sustained spike on the final days trips the flag when settled...
       final settled = _synthDays(30, rhrSpikeLast: true);
-      expect(buildCrossDayBundle(settled, const {})['illness'], isNotNull);
+      final settledBundle = buildCrossDayBundle(settled, const {});
+      expect(settledBundle['illness'], isNotNull);
+      expect((settledBundle['illness'] as Map)['state'], 'red');
 
       // ...and the SAME spike on a still-syncing today must not, because its
       // inputs are withheld from the CUSUMs.
@@ -366,6 +368,52 @@ void main() {
       final last = (bundle['recent'] as List).last as Map;
       expect(last['illness'], isFalse);
       expect(last['anomaly'], isFalse);
+    });
+
+    test('the published alert entry is the newest SETTLED night, with its own date',
+        () {
+      final days = _synthDays(30, rhrSpikeLast: true); // 2024-01-01 .. 2024-01-30
+      days.last['unsettled'] = true; // today still settling
+      final b = buildCrossDayBundle(days, const {});
+      final illness = b['illness'] as Map;
+      expect(illness['date'], '2024-01-29');
+      expect(illness['state'], 'red');
+      expect((b['anomaly'] as Map)['date'], '2024-01-29');
+      expect((b['temp_illness'] as Map)['date'], '2024-01-29');
+    });
+
+    // A settled day with no overnight inputs (a day worn only in daytime) is
+    // a night the detectors could not score: they hold it green by
+    // construction. Publishing it would hide a red run that is still open.
+    test('a settled night with no overnight inputs does not hide the newest '
+        'scored one', () {
+      final days = _synthDays(30, rhrSpikeLast: true); // .. 2024-01-30, red
+      days.add({
+        'date': '2024-01-31',
+        'rhr': null,
+        'rmssd': null,
+        'readiness': null,
+        'resp_rate': null,
+        'skin_temp_z': null,
+      });
+      final b = buildCrossDayBundle(days, const {});
+      final illness = b['illness'] as Map;
+      expect(illness['date'], '2024-01-30');
+      expect(illness['state'], 'red');
+      expect((b['anomaly'] as Map)['date'], '2024-01-30');
+      expect((b['temp_illness'] as Map)['date'], '2024-01-30');
+    });
+
+    test('an all-unsettled series publishes no alert entry, not a green one',
+        () {
+      final days = _synthDays(3);
+      for (final d in days) {
+        d['unsettled'] = true;
+      }
+      final b = buildCrossDayBundle(days, const {});
+      expect(b['illness'], isNull);
+      expect(b['anomaly'], isNull);
+      expect(b['temp_illness'], isNull);
     });
 
     test('an all-settled series is unaffected by the flag plumbing', () {

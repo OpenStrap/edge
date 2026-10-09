@@ -155,6 +155,7 @@ void main() {
     for (final t in const [
       'workout_route',
       'raw_archive',
+      'substrate_archive',
       'notif_fired',
       'sleep_override',
       'sleep_session_candidates',

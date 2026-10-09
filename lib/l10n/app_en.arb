@@ -40,6 +40,10 @@
   "@actionSettings": {
     "description": "Settings icon semantic label."
   },
+  "actionUpdateApp": "Update the app",
+  "@actionUpdateApp": {
+    "description": "Fix action: the file needs a newer version of the app."
+  },
   "actionTryAnotherFile": "Try another file",
   "@actionTryAnotherFile": {
     "description": "Fix action: try another file."
@@ -304,6 +308,10 @@
   "alarmInThePast": "In the past — it has already fired or been missed",
   "@alarmInThePast": {
     "description": "Which-day label: in the past."
+  },
+  "alarmGlanceInThePast": "Fired or missed",
+  "@alarmGlanceInThePast": {
+    "description": "Short form of alarmInThePast for the Home 'At a glance' alarm tile, which is half the screen wide."
   },
   "alarmLaterToday": "Later today",
   "@alarmLaterToday": {
@@ -939,6 +947,14 @@
   "devicesBatteryNotReported": "Not reported since the last connection",
   "@devicesBatteryNotReported": {
     "description": "Row sub: battery unknown."
+  },
+  "devicesBatteryPack": "Battery pack",
+  "@devicesBatteryPack": {
+    "description": "Row title: the charge left in the external battery pack sitting on the band."
+  },
+  "devicesBatteryPackSub": "Reported by the band about every 10 minutes",
+  "@devicesBatteryPackSub": {
+    "description": "Row sub under the battery-pack charge: where the number comes from and how often it updates."
   },
   "devicesCharging": "Charging",
   "@devicesCharging": {
@@ -1610,6 +1626,24 @@
   "welcomeStrandedDays": "{n, plural, one{1 day arrived out of order and was only used as context for the day that followed.} other{{n} days arrived out of order and were only used as context for the day that followed.}}",
   "@welcomeStrandedDays": {
     "description": "N stranded days.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "welcomeArchiveSkipped": "{n, plural, one{1 day of stored raw sensor history could not be merged, because this version cannot read its format. Update the app and import the backup again to bring it in.} other{{n} days of stored raw sensor history could not be merged, because this version cannot read their format. Update the app and import the backup again to bring them in.}}",
+  "@welcomeArchiveSkipped": {
+    "description": "Backup import: N days of archived raw sensor history were in a storage format this version cannot read (in the backup or on the phone) and were not merged.",
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "welcomeArchiveRestored": "{n, plural, one{Raw sensor history restored or extended for 1 day} other{Raw sensor history restored or extended for {n} days}}",
+  "@welcomeArchiveRestored": {
+    "description": "Backup import: N days of archived raw sensor history were restored. Short; shown as a headline or a secondary line.",
     "placeholders": {
       "n": {
         "type": "int"
@@ -2367,9 +2401,9 @@
       }
     }
   },
-  "roughNightIllness": "The illness watch flagged this night too — a sustained rise against your own baseline, not a diagnosis.",
+  "roughNightIllness": "Your resting heart rate flagged this night too — recent nights add up to a rise above your own baseline, not a diagnosis.",
   "@roughNightIllness": {
-    "description": "Rough Night card: stated fact when the illness watch also flagged the same night."
+    "description": "Rough Night card: stated fact when the resting-heart-rate watch also flagged the same night (an accumulated rise, never an illness claim)."
   },
   "roughNightLuteal": "You are in the luteal phase, which lifts resting heart rate and skin temperature by itself.",
   "@roughNightLuteal": {
@@ -4326,6 +4360,14 @@
   "nutritionRemoveWater": "Remove water",
   "@nutritionRemoveWater": {
     "description": "Nutrition Today tab: semantic label on the water minus-step button"
+  },
+  "coachApiFormatHelp": "Choose the API your endpoint supports. Responses supports OpenAI reasoning with tools.",
+  "@coachApiFormatHelp": {
+    "description": "Coach AI settings: helper text under the provider API format dropdown (Responses / Chat Completions are API names, keep untranslated)"
+  },
+  "coachApiFormatLabel": "API",
+  "@coachApiFormatLabel": {
+    "description": "Coach AI settings: label for the provider API format dropdown"
   },
   "coachApiKeyLabel": "API key",
   "@coachApiKeyLabel": {
@@ -6439,7 +6481,7 @@
   "@healthWhyNoReadingLastNight": {
     "description": "Why-absent reason: no respiratory reading from last night"
   },
-  "healthIllnessRedTitle": "Several nights in a row are away from your normal",
+  "healthIllnessRedTitle": "Recent nights add up to a raised resting heart rate",
   "@healthIllnessRedTitle": {
     "description": "Illness observation card title, red/severe state"
   },
@@ -6456,11 +6498,11 @@
       }
     }
   },
-  "healthIllnessBodyNoZ": "Your nocturnal resting heart rate has been running above your own baseline. This watches one signal only. It names a pattern, not a cause.",
+  "healthIllnessBodyNoZ": "Your recent nocturnal resting heart rates add up to a rise above your own baseline. This watches one signal only. It names a pattern, not a cause.",
   "@healthIllnessBodyNoZ": {
     "description": "Illness observation card body when no z-score is available"
   },
-  "healthIllnessBodyWithZ": "Your nocturnal resting heart rate has been running above your own baseline; that night sat {z} standard deviations {direction} it. This watches one signal only. It names a pattern, not a cause.",
+  "healthIllnessBodyWithZ": "Your recent nocturnal resting heart rates add up to a rise above your own baseline; that night sat {z} standard deviations {direction} it. This watches one signal only. It names a pattern, not a cause.",
   "@healthIllnessBodyWithZ": {
     "description": "Illness observation card body including the standard-deviation figure and direction",
     "placeholders": {
@@ -7510,9 +7552,9 @@
   "@homeBriefingSubtitleEmpty": {
     "description": "Link row subtitle under the briefing title when nothing has been generated for today yet."
   },
-  "homeIllnessRedTitle": "Several nights in a row are away from your normal",
+  "homeIllnessRedTitle": "Recent nights add up to a raised resting heart rate",
   "@homeIllnessRedTitle": {
-    "description": "Illness watch headline when several nights in a row are away from baseline (red state)."
+    "description": "Illness watch headline in the red state: accumulated evidence of a raised resting heart rate, which one very high night can produce. Must not claim consecutive nights."
   },
   "homeIllnessAmberSameNight": "Last night sat outside your normal range",
   "@homeIllnessAmberSameNight": {
@@ -7528,11 +7570,11 @@
       }
     }
   },
-  "homeIllnessBodyNoZ": "Your nocturnal resting heart rate has been running above your own baseline. This reads one signal. It names a pattern, and it does not name a cause.",
+  "homeIllnessBodyNoZ": "Your recent nocturnal resting heart rates add up to a rise above your own baseline. This reads one signal. It names a pattern, and it does not name a cause.",
   "@homeIllnessBodyNoZ": {
     "description": "Illness watch body text when no standardised-deviation figure is available."
   },
-  "homeIllnessBodyAbove": "Your nocturnal resting heart rate has been running above your own baseline; that night sat {z} standardised deviations above it. This reads one signal. It names a pattern, and it does not name a cause.",
+  "homeIllnessBodyAbove": "Your recent nocturnal resting heart rates add up to a rise above your own baseline; that night sat {z} standardised deviations above it. This reads one signal. It names a pattern, and it does not name a cause.",
   "@homeIllnessBodyAbove": {
     "description": "Illness watch body text when the flagged night's heart rate sat above baseline, with the deviation amount.",
     "placeholders": {
@@ -7542,7 +7584,7 @@
       }
     }
   },
-  "homeIllnessBodyBelow": "Your nocturnal resting heart rate has been running above your own baseline; that night sat {z} standardised deviations below it. This reads one signal. It names a pattern, and it does not name a cause.",
+  "homeIllnessBodyBelow": "Your recent nocturnal resting heart rates add up to a rise above your own baseline; that night sat {z} standardised deviations below it. This reads one signal. It names a pattern, and it does not name a cause.",
   "@homeIllnessBodyBelow": {
     "description": "Illness watch body text when the flagged night's heart rate sat below baseline, with the deviation amount.",
     "placeholders": {
@@ -11304,7 +11346,11 @@
   "@settingsResetTitle": {
     "description": "Confirmation dialog title for resetting all app data"
   },
-  "settingsResetBody": "This deletes, permanently and with no copy anywhere else:\n\n· every measured day, sleep, workout and route\n· every lab result, meal, medication dose, habit, breathing session and logged set\n· your journal, cycle log and rolling baselines\n· your profile, every preference and any stored AI key\n· the home-screen widget and every scheduled reminder\n\nThe band is unpaired, and it cannot re-send history it has already handed over. Export from Your data first if you want a copy.",
+  "settingsResetBackupWarning": "App data deleted. Backup cleanup was incomplete. Some files or folder access may remain.",
+  "@settingsResetBackupWarning": {
+    "description": "Warning after reset when backup files or folder access could not be removed"
+  },
+  "settingsResetBody": "This permanently deletes this app's data on this device:\n\n· every measured day, sleep, workout and route\n· every lab result, meal, medication dose, habit, breathing session and logged set\n· your journal, cycle log and rolling baselines\n· your profile, every preference and any stored AI key\n· the home-screen widget and every scheduled reminder\n\nExported copies and backups in previous or unavailable folders may remain. Delete those separately.\n\nThe band is unpaired, and it cannot re-send history it has already handed over. Export from Your data first if you want a copy.",
   "@settingsResetBody": {
     "description": "Confirmation dialog body listing exactly what a full reset deletes"
   },
@@ -14403,5 +14449,54 @@
   "activityZonesNameEasy": "Easy",
   "activityZonesNameAerobic": "Aerobic",
   "activityZonesNameThreshold": "Threshold",
-  "activityZonesNameMaxEffort": "Max effort"
+  "activityZonesNameMaxEffort": "Max effort",
+  "dataBackupFolder": "Backup folder",
+  "dataBackupFolderDefault": "App folder (default)",
+  "dataBackupFolderSub": "Choose where new backups are saved. Existing backups stay where they are",
+  "dataBackupFolderUseDefault": "Use default folder",
+  "dataBackupFolderSaved": "Backup folder saved.",
+  "dataBackupFolderRetry": "Retry with Back up now, or choose another folder",
+  "@dataBackupFolder": {
+    "description": "Android automatic backup folder setting."
+  },
+  "@dataBackupFolderDefault": {
+    "description": "Android automatic backup folder setting."
+  },
+  "@dataBackupFolderSub": {
+    "description": "Android automatic backup folder setting."
+  },
+  "@dataBackupFolderUseDefault": {
+    "description": "Android automatic backup folder setting."
+  },
+  "@dataBackupFolderSaved": {
+    "description": "Android automatic backup folder setting."
+  },
+  "@dataBackupFolderRetry": {
+    "description": "Android automatic backup folder setting."
+  },
+  "findingIllnessTitle": "Resting heart rate has been raised",
+  "@findingIllnessTitle": {
+    "description": "Findings log / health-exception copy (lib/compute/findings.dart)."
+  },
+  "findingIllnessDetail": "Your recent overnight resting heart rates add up to a rise above your own baseline: one very high night can do it, or a few slightly raised ones. This watches one signal only. It names a pattern, not a cause.",
+  "@findingIllnessDetail": {
+    "description": "Findings log / health-exception copy (lib/compute/findings.dart)."
+  },
+  "findingLowReadinessTitle": "Low readiness",
+  "@findingLowReadinessTitle": {
+    "description": "Findings log / health-exception copy (lib/compute/findings.dart)."
+  },
+  "findingLowReadinessDetail": "Readiness was in its lowest band. Taken together, that night's signals sat well on the unfavourable side of your own baseline.",
+  "@findingLowReadinessDetail": {
+    "description": "Findings log / health-exception copy (lib/compute/findings.dart)."
+  },
+  "findingLowReadinessScoredDetail": "Readiness scored {score}, its lowest band. Taken together, that night's signals sat well on the unfavourable side of your own baseline.",
+  "@findingLowReadinessScoredDetail": {
+    "description": "Findings log / health-exception copy (lib/compute/findings.dart).",
+    "placeholders": {
+      "score": {
+        "type": "int"
+      }
+    }
+  }
 }

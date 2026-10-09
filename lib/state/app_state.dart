@@ -54,11 +54,12 @@ import '../data/journal_fields.dart'
     show JournalMetricValue, kJournalFieldsByKey;
 import '../data/med_store.dart' show MedDb, MedDef;
 import '../data/auto_backup.dart'
-    show BackupCadence, BackupOutcome, runBackup;
+    show BackupCadence, BackupOutcome, BackupFolder, AndroidBackupStorage, runBackup;
 import '../stress/breath_phases.dart';
 // `runBackupIfDue` is also the name of the AppState method below, so the pure
 // scheduler is imported under an alias rather than shadowed by it.
-import '../data/auto_backup.dart' as backup show runBackupIfDue;
+import '../data/auto_backup.dart' as backup
+    show runBackupIfDue, selectedBackupFolder, saveBackupFolder, deleteAutomaticBackups;
 import 'alarm_schedule.dart';
 import 'smart_wake.dart';
 import 'prefs.dart';
@@ -274,8 +275,11 @@ class AppState extends ChangeNotifier {
   // timeout, so seeding the scheduler alone left a headless first sweep running
   // the foreground budget. Late-initialized, so this reads the value both
   // constructors have already set by the time anything touches `_derive`.
-  late final DerivationEngine _derive =
-      DerivationEngine(log: _log, background: _background);
+  late final DerivationEngine _derive = DerivationEngine(
+    log: _log,
+    background: _background,
+    offloadActive: () => _deriveScheduler.offloadActive,
+  );
   late final DeriveScheduler _deriveScheduler = DeriveScheduler(
     run: ({required DeriveJobKind kind}) =>
         _afterDrain(heavy: kind == DeriveJobKind.heavy),
@@ -606,13 +610,31 @@ class AppState extends ChangeNotifier {
   /// reporting only the row count would claim a success the user does not have.
   String? importRollupError;
 
+  /// Days of stored raw history (substrate archive buckets) the last backup
+  /// import could NOT merge, because they are in a format this build does
+  /// not read. Reported in the import report, never dropped silently.
+  int lastImportArchiveSkipped = 0;
+
+  /// Days of stored raw history the last backup import added or filled in.
+  int lastImportArchiveRestored = 0;
+
   Future<int> importEdgeBackup(String path) async {
     importRollupError = null;
+    lastImportArchiveSkipped = 0;
+    lastImportArchiveRestored = 0;
     // Gzipped auto-backups (`.db.gz`) are inflated INSIDE importFromDbFile —
     // do not add it back here. Its inflate checks the gzip trailer, so a
     // truncated backup fails loudly; `gzip.decoder` returns partial output
     // without raising and would restore short while reporting success.
     final counts = await LocalDb.importFromDbFile(path);
+    lastImportArchiveSkipped = counts['_substrate_archive_skipped'] ?? 0;
+    lastImportArchiveRestored = counts['substrate_archive'] ?? 0;
+    if (lastImportArchiveSkipped > 0) {
+      _log(
+        'import: $lastImportArchiveSkipped raw-history archive buckets are in '
+        'a format this build cannot read; not imported',
+      );
+    }
     // Imported rows include derived day_result/metric_series → refresh rollups.
     try {
       await refreshActivityReviews();
@@ -1029,6 +1051,19 @@ class AppState extends ChangeNotifier {
   BackupCadence get backupCadence =>
       BackupCadence.fromName(Prefs.getString(Prefs.backupCadence, ''));
 
+  BackupFolder? get backupFolder => backup.selectedBackupFolder;
+
+  String? get lastBackupError {
+    final error = Prefs.getString(Prefs.backupLastError, '');
+    return error.isEmpty ? null : error;
+  }
+
+  Future<void> setBackupFolder(BackupFolder? folder) async {
+    await backup.saveBackupFolder(folder);
+    Prefs.setString(Prefs.backupLastError, '');
+    notifyListeners();
+  }
+
   DateTime? get lastBackupAt {
     final ms = Prefs.getInt(Prefs.backupLastRunMs, 0);
     return ms == 0 ? null : DateTime.fromMillisecondsSinceEpoch(ms);
@@ -1052,9 +1087,17 @@ class AppState extends ChangeNotifier {
   /// caller can say so — a backup that silently did not happen is the failure
   /// this feature exists to prevent.
   Future<BackupOutcome> runBackupNow() async {
+    if (ResetGate.active) return const BackupOutcome(skipped: true);
     final outcome = await runBackup();
+    _recordBackupOutcome(outcome);
     if (outcome.succeeded) _markBackupRun(DateTime.now());
     return outcome;
+  }
+
+  void _recordBackupOutcome(BackupOutcome outcome) {
+    if (outcome.skipped) return;
+    Prefs.setString(Prefs.backupLastError, outcome.error ?? '');
+    notifyListeners();
   }
 
   /// Foreground hook. Silent unless it actually writes something.
@@ -1081,10 +1124,11 @@ class AppState extends ChangeNotifier {
       // running export would otherwise act on the setting as it was when it
       // queued, and someone who switched backup off in the meantime would
       // still get a copy of their health data written after disabling it.
-      cadence: () => backupCadence,
+      cadence: () => ResetGate.active ? BackupCadence.off : backupCadence,
       lastRun: () => lastBackupAt,
       markRun: (when) async => _markBackupRun(when),
     );
+    _recordBackupOutcome(outcome);
     if (outcome.error != null) _log('Backup failed: ${outcome.error}');
   }
 
@@ -1120,11 +1164,15 @@ class AppState extends ChangeNotifier {
   ///   2. The database, then the preferences, then the keychain — the reads
   ///      that could re-create state are all downstream of the writes.
   ///   3. [signOut] last, because it flips the route and the UI unwinds.
-  Future<void> resetAllData() async {
+  /// Returns a cleanup error if backup copies or folder access remain.
+  Future<String?> resetAllData() async {
     // 0 · nothing further ENTERS the database either. The band is still
     //     connected and still draining — see [_resetting].
     ResetGate.enter();
     try {
+      // Wait for a running backup and remove copies while the selected folder
+      // grant is still known. Queued scheduled writes see Off inside the lock.
+      Prefs.setString(Prefs.backupCadence, BackupCadence.off.name);
       // 1 · nothing further leaves this phone, starting now.
       telemetryConsent = false;
       healthShareConsent = false;
@@ -1132,6 +1180,17 @@ class AppState extends ChangeNotifier {
       TelemetryService.instance.applyConsent(false);
       HealthUploader.instance.deviceId = null; // maybeUpload bails without one
       deviceId = '';
+
+      String? backupCleanupError;
+      try {
+        await backup.deleteAutomaticBackups();
+      } catch (e) {
+        // An unavailable backup folder must not prevent deleting app data.
+        backupCleanupError = e.toString();
+        _log('[reset] backup cleanup failed: $e');
+      }
+      // Cleanup waits for in-flight folder saves, including on failure.
+      final folderToRelease = backupFolder;
 
       // 2 · every row in every table (see LocalDb.wipeAll for why it is not a
       // hand-written table list, and for the sync_cursor decision).
@@ -1153,9 +1212,24 @@ class AppState extends ChangeNotifier {
       // user through a "delete everything".
       try {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.clear();
+        final cleared = await prefs.clear();
+        if (!cleared) {
+          throw const FileSystemException('Preferences were not cleared');
+        }
+        if (Platform.isAndroid && folderToRelease != null) {
+          try {
+            await AndroidBackupStorage.release(folderToRelease);
+          } catch (e) {
+            backupCleanupError ??= e.toString();
+            _log('[reset] backup folder access release failed: $e');
+          }
+        }
       } catch (e) {
         _log('[reset] prefs clear failed: $e');
+        // The saved folder and its grant both survive; say so.
+        if (Platform.isAndroid && folderToRelease != null) {
+          backupCleanupError ??= e.toString();
+        }
       }
       appStatus = null;
       _savedAlarm = null;
@@ -1179,6 +1253,7 @@ class AppState extends ChangeNotifier {
 
       // signOut() unpairs, so by the time it returns nothing is delivering.
       await signOut();
+      return backupCleanupError;
     } finally {
       // Never leave ingest refused if the reset threw part-way: a half-reset
       // install that silently drops every record is worse than the race.
@@ -1364,8 +1439,8 @@ class AppState extends ChangeNotifier {
       // BleEngine's EventSink typedef has no device field, so the id names
       // itself at this construction closure rather than widening the
       // engine's callback shape for a value it does not have.
-      onEvent: (id, ts, hex) =>
-          _onLiveEvent(id, ts, hex, LocalDb.kPrimaryDeviceId),
+      onEvent: (id, ts, hex, profile) =>
+          _onLiveEvent(id, ts, hex, profile, LocalDb.kPrimaryDeviceId),
       onEcgEvent: (e) => _ecgTransport?.onEngineEvent(e),
       onReadyEcgRecovery: _recoverEcgGuardOnReady,
       // Gated for the same reason as [_onRecord] — this one is wired straight
@@ -1513,8 +1588,8 @@ class AppState extends ChangeNotifier {
           onState: (s) => _onEngineState(LocalDb.kPrimaryDeviceId, s),
           log: _log,
           // M2: same marker as the constructor above.
-          onEvent: (id, ts, hex) =>
-              _onLiveEvent(id, ts, hex, LocalDb.kPrimaryDeviceId),
+          onEvent: (id, ts, hex, profile) =>
+              _onLiveEvent(id, ts, hex, profile, LocalDb.kPrimaryDeviceId),
           liveOwners: _liveOwners,
         );
     // Same wiring as the real constructor, and for the same reason it is safe
@@ -2442,9 +2517,15 @@ class AppState extends ChangeNotifier {
   // Live (foreground / kept-alive) event path: persist every event, then let the
   // gesture dispatcher act on it. Headless drain (background_sync) persists only —
   // it must never replay an old tap as a live action.
-  void _onLiveEvent(int id, int ts, String hex, String deviceId) {
+  void _onLiveEvent(
+    int id,
+    int ts,
+    String hex,
+    proto.BandProfile profile,
+    String deviceId,
+  ) {
     if (_resetting) return; // see [_resetting]
-    LocalDb.insertEvent(id, ts, hex, deviceId: deviceId);
+    LocalDb.insertEvent(id, ts, hex, deviceId: deviceId, profile: profile);
     // M3: gesture dispatch and the alarm handler stay unscoped — neither is
     // device-scoped in M3's scope, and a double-tap on either band should
     // still log water.
@@ -4464,6 +4545,16 @@ class AppState extends ChangeNotifier {
           'max_sessions': maxSessions,
         },
       );
+      // The wait gave up (timeout / no progress) but the task did not end:
+      // a report only carries progress not reported yet, so nothing new in
+      // it says nothing about the drain. Wait on the same task again — only
+      // its own terminals end it, and the stop rules below judge a task that
+      // has.
+      if (!report.complete && engine.offloadActive) {
+        _log('Backfill continuation ${i + 1}/$maxSessions — the history task '
+            'is still running; waiting on it again.');
+        continue;
+      }
       if (report.batches == 0) {
         _log('Backfill stop — no batch ACKs; trim did not advance.');
         break;

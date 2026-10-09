@@ -16,19 +16,6 @@ library;
 
 import '../data/day_label.dart';
 
-/// The `YYYY-MM-DD` label [back] calendar days before [dayId].
-///
-/// CALENDAR arithmetic, never `Duration`. `DateTime.subtract(Duration(days: n))`
-/// is ABSOLUTE: from local midnight on 2026-03-10 (US), subtracting 24 h lands
-/// at 23:00 on 2026-03-07 because 2026-03-08 was only 23 h long — so the walk
-/// SKIPS 2026-03-08 entirely and the caller mis-counts the gap. Feeding an
-/// out-of-range day field to the `DateTime` constructor normalises correctly.
-String? dayLabelBefore(String dayId, int back) {
-  final d = DateTime.tryParse(dayId);
-  if (d == null) return null;
-  return dayLabelOf(DateTime(d.year, d.month, d.day - back));
-}
-
 /// Consecutive days immediately before [dayId] with no entry in [have].
 ///
 /// A missing `dyn_p90` daily summary means the band produced no usable motion
@@ -68,9 +55,9 @@ int daysSinceFrozen({required String frozenOn, required String dayId}) {
   final to = DateTime.tryParse(dayId);
   if (from == null || to == null) return 0;
   // UTC, not `.difference()` on the parsed (local) DateTimes directly: the
-  // same spring-forward trap `dayLabelBefore` above is built to avoid. A span
-  // crossing the one short day loses an hour of wall-clock duration, so
-  // `.inDays` floors a real 10-day gap to 9.
+  // same spring-forward trap `dayLabelBefore` (day_label.dart) is built to
+  // avoid. A span crossing the one short day loses an hour of wall-clock
+  // duration, so `.inDays` floors a real 10-day gap to 9.
   final fromUtc = DateTime.utc(from.year, from.month, from.day);
   final toUtc = DateTime.utc(to.year, to.month, to.day);
   final diff = toUtc.difference(fromUtc).inDays;

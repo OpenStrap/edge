@@ -3,7 +3,8 @@
 /// One decoded 1 Hz record (type-24 / R10): timestamp + counter + HR, plus the
 /// sensor fields (RR beats, accel, SpO₂ raw, skin-temp raw) decoded ON-DEVICE
 /// via proto.parseR24 — the app is local-first and owns the full sensor decode
-/// (see LocalDb._queueDecodedOneHz); raw hex is kept as the replay ledger.
+/// (see LocalDb._queueDecodedOneHz). No raw-record replay ledger is kept;
+/// only undecodable records reach `raw_archive`.
 class Sample {
   final int tsEpoch;
   final int counter;
@@ -287,9 +288,10 @@ class RawRecord {
 /// unknown/unsupported record version that also failed the physiological
 /// fallback). Rather than silently dropping it — which would lose a future
 /// firmware's records forever while the UI still showed a clean sync — we
-/// archive the raw bytes durably (never pruned) so they can be re-decoded once
-/// the format is understood. Archived as part of the SAME durable commit that
-/// runs BEFORE the HISTORY_END ACK, so the safe-trim invariant holds.
+/// archive the raw bytes durably (kept, except the thinning in
+/// `LocalDb.thinRawArchiveBefore`) so they can be re-decoded once the format is
+/// understood. Archived as part of the SAME durable commit that runs BEFORE the
+/// HISTORY_END ACK, so the safe-trim invariant holds.
 /// [ArchiveRecord.reason] for a record the plausibility gate refused.
 ///
 /// Load-bearing, not a label: three separate decisions branch on it — whether
@@ -362,6 +364,13 @@ class DeviceState {
   /// the UI should show it, while anything that treats the transition as a live
   /// event (notifications) has to check the age first.
   int? chargingTs;
+
+  /// The external battery pack's OWN charge (gen5), from the strap's
+  /// BATTERY_PACK_INFO(109) event — sent on attach and about every ten minutes
+  /// while the pack sits on the band. Null when no pack is known to be
+  /// attached: set by a live 109, cleared by BATTERY_PACK_REMOVED(22) and
+  /// whenever the link leaves `listening`.
+  double? batteryPackPct;
 
   bool? wristOn;
   int? liveHr; // latest live HR from the foreground stream
@@ -440,6 +449,7 @@ class DeviceState {
     batteryPct = null;
     charging = null;
     chargingTs = null;
+    batteryPackPct = null;
     wristOn = null;
     liveHr = null;
     liveHrAt = null;

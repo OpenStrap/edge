@@ -844,4 +844,63 @@ void main() {
       await Future.wait(futures);
     });
   });
+
+  group('FirstStartWatchdogPolicy', () {
+    test('gen5 START and COMPLETE satisfy; END and data do not', () {
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: true,
+            isStartOrComplete: true,
+            isEnd: false,
+            isHistoricalData: false),
+        isTrue,
+      );
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: true,
+            isStartOrComplete: false,
+            isEnd: true,
+            isHistoricalData: false),
+        isFalse,
+        reason: 'a pre-START END is the previous task\'s straggler',
+      );
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: true,
+            isStartOrComplete: false,
+            isEnd: false,
+            isHistoricalData: true),
+        isFalse,
+        reason: 'pre-START data is dropped, so it proves nothing',
+      );
+    });
+
+    test('gen4 accepts any history traffic', () {
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: false,
+            isStartOrComplete: false,
+            isEnd: true,
+            isHistoricalData: false),
+        isTrue,
+      );
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: false,
+            isStartOrComplete: false,
+            isEnd: false,
+            isHistoricalData: true),
+        isTrue,
+      );
+      expect(
+        FirstStartWatchdogPolicy.satisfiedBy(
+            isGen5: false,
+            isStartOrComplete: false,
+            isEnd: false,
+            isHistoricalData: false),
+        isFalse,
+        reason: 'console/event chatter is not an answer',
+      );
+    });
+  });
 }

@@ -34,7 +34,19 @@ String localizedJournalTag(AppLocalizations? l, String tag) {
 
 String localizedText(AppLocalizations? l, String text) {
   if (l == null || l.localeName == 'en') return text;
+  final lowScore = RegExp(
+    r"^Readiness scored (\d+), its lowest band\. Taken together, that night's signals sat well on the unfavourable side of your own baseline\.$",
+  ).firstMatch(text);
+  if (lowScore != null) {
+    return l.findingLowReadinessScoredDetail(int.parse(lowScore[1]!));
+  }
   return switch (text) {
+    "Resting heart rate has been raised" => l.findingIllnessTitle,
+    "Your recent overnight resting heart rates add up to a rise above your own baseline: one very high night can do it, or a few slightly raised ones. This watches one signal only. It names a pattern, not a cause." =>
+      l.findingIllnessDetail,
+    "Low readiness" => l.findingLowReadinessTitle,
+    "Readiness was in its lowest band. Taken together, that night's signals sat well on the unfavourable side of your own baseline." =>
+      l.findingLowReadinessDetail,
     "Warm-up" => l.activityZonesNameWarmUp,
     "Easy" => l.activityZonesNameEasy,
     "Aerobic" => l.activityZonesNameAerobic,

@@ -269,6 +269,9 @@ void main() {
         expect(localizedText(l, finding.detail), isNot(finding.detail));
       }
     }
+    final scored = Finding(FindingKind.lowReadiness, '2026-10-05', score: 21);
+    expect(localizedText(l, scored.detail), contains('21'));
+    expect(localizedText(l, scored.detail), isNot(scored.detail));
     final rhythm = Finding(FindingKind.irregularRhythm, '2026-10-05');
     expect(localizedText(l, rhythm.detail), contains('не диагноз'));
     expect(localizedText(l, rhythm.detail), contains('врач'));

@@ -5,13 +5,9 @@
 // most people do not have. Discussion #214 asked for exactly this: years of
 // health data living in one place on one phone.
 //
-// WHERE IT WRITES, and why not a folder you pick. Somewhere the user can
-// actually reach — see [backupDirectory], which is per-platform for exactly
-// that reason. Anything that syncs a folder (iCloud Drive, Synology Drive,
-// Nextcloud) can be pointed at it. A user-chosen folder would need a persisted
-// SAF tree URI or a security-scoped bookmark, both of which silently expire,
-// and a backup that quietly stopped working is worse than one that lives
-// somewhere slightly less convenient.
+// Android can use a user-chosen document tree with a persisted access grant.
+// Without one, keep the original app-specific folder. iOS keeps its Documents
+// folder. Lost access is a reported failure, never a silent switch of location.
 //
 // WHEN IT RUNS. On foreground, when due. There is no background scheduler that
 // works on both platforms — Workmanager is Android-only here and iOS's
@@ -19,12 +15,66 @@
 // app is honest about that. The alternative is a schedule that claims "daily"
 // and delivers whenever the OS feels like it.
 
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../state/prefs.dart';
+import '../sync/reset_gate.dart';
+import 'backup_storage.dart';
 import 'db.dart';
+
+export 'backup_storage.dart' show BackupFolder, AndroidBackupStorage;
+
+/// One JSON value keeps the folder label and grant from drifting apart.
+BackupFolder? get selectedBackupFolder {
+  final saved = Prefs.getString(Prefs.backupFolder, '');
+  if (saved.isEmpty) return null;
+  try {
+    return BackupFolder.fromJson(jsonDecode(saved) as Map<String, dynamic>);
+  } catch (_) {
+    // Preserve the fact that a folder was selected. Falling back would write
+    // somewhere the user did not choose and hide the broken configuration.
+    return const BackupFolder(uri: '', name: '');
+  }
+}
+
+/// Wait for any in-flight write before changing or releasing its destination.
+Future<void> saveBackupFolder(BackupFolder? folder) => _serialize(() async {
+  if (ResetGate.active) {
+    throw const FileSystemException('Data reset is in progress');
+  }
+  await Prefs.ensureLoaded();
+  if (!Prefs.loaded) {
+    throw const FileSystemException('Could not load backup settings');
+  }
+  final old = selectedBackupFolder;
+  final prefs = await SharedPreferences.getInstance();
+  final saved = folder == null ? '' : jsonEncode(folder.toJson());
+  final previous = Prefs.getString(Prefs.backupFolder, '');
+  try {
+    if (!await prefs.setString(Prefs.backupFolder, saved)) {
+      throw const FileSystemException('Could not save the backup folder');
+    }
+  } catch (_) {
+    // SharedPreferences updates its cache before acknowledging the disk write.
+    try {
+      await prefs.setString(Prefs.backupFolder, previous);
+    } catch (_) {}
+    rethrow;
+  }
+  if (old != null && old.uri != folder?.uri && Platform.isAndroid) {
+    try {
+      await AndroidBackupStorage.release(old);
+    } catch (_) {
+      // The new setting is saved; a stale grant must not undo that decision.
+    }
+  }
+});
 
 /// How often a backup is taken. Off is the default: this writes an unencrypted
 /// copy of everything the app knows about you into a folder other apps can
@@ -108,7 +158,7 @@ String backupFileName(DateTime when) {
 ///     would become invisible to [sortBackupsNewestFirst], never be counted
 ///     toward retention and never be pruned — five stale full-size copies
 ///     leaked permanently, which is the opposite of what this change is for.
-///   • a `-N` collision suffix — [_uniqueDestination] emits these when two runs
+///   • a `-N` collision suffix — [_uniqueName] emits these when two runs
 ///     land in the same second, and the pattern never matched them, so they
 ///     leaked for the same reason.
 final _backupNamePattern = RegExp(r'^openstrap-\d{8}-\d{6}(-\d+)?\.db(\.gz)?$');
@@ -159,7 +209,7 @@ Future<void> pruneStagingFiles(Directory dir) async {
 /// (0x2E): `…-000000-2.db.gz` compares LESS than `…-000000.db.gz`, so the
 /// second backup of that second was ranked as the older one and retention
 /// would evict it first. A higher index is always the later write —
-/// [_uniqueDestination] only reaches `-2` because `-1`'s name was taken.
+/// [_uniqueName] only reaches `-2` because the unsuffixed name was taken.
 (String, int) _backupSortKey(String basename) {
   final m = _backupNamePattern.firstMatch(basename);
   if (m == null) return ('', 0);
@@ -174,18 +224,22 @@ List<File> sortBackupsNewestFirst(Iterable<FileSystemEntity> entries) {
       .whereType<File>()
       .where((f) => _backupNamePattern.hasMatch(p.basename(f.path)))
       .toList();
-  files.sort((a, b) {
-    final ka = _backupSortKey(p.basename(a.path));
-    final kb = _backupSortKey(p.basename(b.path));
-    final byStamp = kb.$1.compareTo(ka.$1);
-    if (byStamp != 0) return byStamp;
-    final byCollision = kb.$2.compareTo(ka.$2);
-    if (byCollision != 0) return byCollision;
-    // Same second, same index — an upgraded install can hold both the old
-    // `.db` and the new `.db.gz`. Any stable order will do; pick one.
-    return p.basename(b.path).compareTo(p.basename(a.path));
-  });
+  files.sort(
+    (a, b) => _compareBackupNames(p.basename(a.path), p.basename(b.path)),
+  );
   return files;
+}
+
+int _compareBackupNames(String a, String b) {
+  final ka = _backupSortKey(a);
+  final kb = _backupSortKey(b);
+  final byStamp = kb.$1.compareTo(ka.$1);
+  if (byStamp != 0) return byStamp;
+  final byCollision = kb.$2.compareTo(ka.$2);
+  if (byCollision != 0) return byCollision;
+  // Same second, same index — an upgraded install can hold both the old
+  // `.db` and the new `.db.gz`. Any stable order will do; pick one.
+  return b.compareTo(a);
 }
 
 /// What a backup attempt did.
@@ -215,7 +269,8 @@ class BackupOutcome {
 ///   resolves to `/data/user/0/<pkg>/app_flutter` there, which no file manager
 ///   and no sync app can reach, so backups would have been written somewhere
 ///   the user could never get at them. External storage needs no permission on
-///   modern Android and is browsable.
+///   modern Android, but other apps cannot normally browse Android/data.
+///   User-selected Android folders go through [AndroidBackupStorage] instead.
 ///
 /// Falls back to the documents directory if external storage is unavailable
 /// (no shared volume) — a backup somewhere awkward beats no backup.
@@ -252,59 +307,66 @@ Future<T> _serialize<T>(Future<T> Function() body) {
   return result;
 }
 
+Future<BackupStorage> _storage() async {
+  if (Platform.isAndroid) {
+    await Prefs.ensureLoaded();
+    if (!Prefs.loaded) {
+      throw const FileSystemException('Could not load backup settings');
+    }
+  }
+  final folder = selectedBackupFolder;
+  if (Platform.isAndroid && folder != null) return AndroidBackupStorage(folder);
+  return LocalBackupStorage(await backupDirectory());
+}
+
 /// Take a backup now, regardless of schedule, and prune old ones.
 ///
 /// Serialized against every other backup path.
 Future<BackupOutcome> runBackup({
   DateTime? now,
   Future<String> Function()? exportSnapshot,
-}) => _serialize(() => _runBackup(now: now, exportSnapshot: exportSnapshot));
+  BackupStorage? storage,
+}) => _serialize(
+  () => _runBackup(now: now, exportSnapshot: exportSnapshot, storage: storage),
+);
 
 Future<BackupOutcome> _runBackup({
   DateTime? now,
   // Test seam. A failing export is otherwise unreachable from a test, which
   // left the queue-recovery case unverifiable.
   Future<String> Function()? exportSnapshot,
+  BackupStorage? storage,
 }) async {
+  if (ResetGate.active) return const BackupOutcome(skipped: true);
   final when = now ?? DateTime.now();
   try {
-    final dir = await backupDirectory();
+    final destination = storage ?? await _storage();
     // `exportCopy` is VACUUM INTO — a transactionally consistent snapshot,
     // not a file copy of a database that may be mid-write.
     // Destination FIRST. Exporting before checking meant a failure here left a
     // full copy of the database sitting in temp, once per attempt.
-    final dest = _uniqueDestination(dir, when);
-    if (dest == null) {
+    final name = _uniqueName(await destination.list(), when);
+    if (name == null) {
       return const BackupOutcome(
         error: 'no free backup filename for this second',
       );
     }
-    final snapshot = await (exportSnapshot ?? LocalDb.exportCopy)();
+    // WITHOUT the substrate archive: five rotating copies of an already
+    // deflated year of history is the one thing gzip cannot help with. The
+    // manual "Export the database" keeps it.
+    final snapshot = await (exportSnapshot ??
+        () => LocalDb.exportCopy(includeSubstrateArchive: false))();
     final tmp = File(snapshot);
-    // STAGE, then publish by rename. Compressing straight into `dest` meant the
-    // final backup name existed while it was still being written: kill the
-    // process mid-stream and a truncated file is left behind carrying a name
-    // `_backupNamePattern` matches, so retention counts it as one of the five
-    // and evicts a good backup to make room. `catch` cannot help — the process
-    // is gone. The staging name is deliberately one retention does NOT match,
-    // and rename is atomic within the directory, so `dest.path` only ever
-    // exists as a complete file.
-    final staging = File('${dest.path}$kBackupStagingSuffix');
+    // Publish only after compression and the destination stream have closed.
+    // A provider that cannot rename safely fails without running retention.
+    BackupFile? staging;
+    late BackupFile published;
     try {
-      // STREAMED, not read-then-compress: the snapshot is the whole database
-      // and buffering it twice in memory to save disk would trade one resource
-      // problem for a worse one on the devices that have the most data.
-      //
-      // This also replaces the old rename/copy fallback — that existed because
-      // temp and external storage are different filesystems on Android, where
-      // rename fails outright. Staging lives in the destination directory, so
-      // the publish step is a same-filesystem rename.
-      final sink = staging.openWrite();
-      await tmp.openRead().transform(gzip.encoder).pipe(sink);
-      await staging.rename(dest.path);
+      staging = await destination.write(tmp, '$name$kBackupStagingSuffix');
+      published = await destination.rename(staging, name);
     } catch (_) {
       try {
-        if (await staging.exists()) await staging.delete();
+        if (staging != null) await destination.delete(staging);
       } catch (_) {}
       rethrow;
     } finally {
@@ -316,11 +378,17 @@ Future<BackupOutcome> _runBackup({
     // Sweep any staging files a previous run was killed midway through. They
     // are invisible to retention by design, so nothing else would ever remove
     // them.
-    await pruneStagingFiles(dir);
-    await pruneBackups(dir, keep: kBackupsKept);
-    return BackupOutcome(path: dest.path);
+    await _pruneStorage(destination, keep: kBackupsKept);
+    // A document URI means nothing to a person; show the folder they chose.
+    return BackupOutcome(
+      path: destination is AndroidBackupStorage
+          ? '${destination.folder.name}/${published.name}'
+          : published.path,
+    );
   } catch (e) {
-    return BackupOutcome(error: e.toString());
+    return BackupOutcome(
+      error: e is PlatformException ? (e.message ?? e.code) : e.toString(),
+    );
   }
 }
 
@@ -336,7 +404,7 @@ Future<void> pruneBackups(Directory dir, {required int keep}) async {
   }
 }
 
-/// A FREE filename in [dir] for a backup taken at [when], or null when the
+/// A free filename among [entries] for a backup taken at [when], or null when the
 /// bounded search found none.
 ///
 /// Seconds make a collision rare, not impossible — two manual runs inside one
@@ -344,17 +412,72 @@ Future<void> pruneBackups(Directory dir, {required int keep}) async {
 /// first. Null rather than the last candidate: returning an occupied path
 /// would hand back a real snapshot for the next backup to overwrite, which is
 /// the exact data loss this function exists to prevent.
-File? _uniqueDestination(Directory dir, DateTime when) {
+String? _uniqueName(List<BackupFile> entries, DateTime when) {
   final base = backupFileName(when);
   final stem = base.substring(0, base.length - kBackupExtension.length);
+  final occupied = entries.map((f) => f.name).toSet();
   for (var i = 1; i < 100; i++) {
-    final candidate = File(
-      p.join(dir.path, i == 1 ? base : '$stem-$i$kBackupExtension'),
-    );
-    if (!candidate.existsSync()) return candidate;
+    final candidate = i == 1 ? base : '$stem-$i$kBackupExtension';
+    if (!occupied.contains(candidate) &&
+        !occupied.contains('$candidate$kBackupStagingSuffix')) {
+      return candidate;
+    }
   }
   return null;
 }
+
+Future<void> _pruneStorage(BackupStorage storage, {required int keep}) async {
+  try {
+    final entries = await storage.list();
+    final backups =
+        entries.where((f) => _backupNamePattern.hasMatch(f.name)).toList()
+          ..sort((a, b) => _compareBackupNames(a.name, b.name));
+    for (final file in backups.skip(keep)) {
+      await storage.delete(file);
+    }
+    for (final file in entries.where((f) => _isOurStagingFile(f.name))) {
+      await storage.delete(file);
+    }
+  } catch (_) {
+    // A completed backup stays successful if housekeeping fails.
+  }
+}
+
+/// Called before reset clears preferences, so the selected URI is still known.
+/// Serialized with writes; deletes only our exact backup and staging names.
+Future<void> deleteAutomaticBackups() => _serialize(() async {
+  await Prefs.ensureLoaded();
+  Object? firstError = Prefs.loaded
+      ? null
+      : const FileSystemException('Could not load backup settings');
+  final destinations = <BackupStorage>[];
+  try {
+    destinations.add(LocalBackupStorage(await backupDirectory()));
+  } catch (e) {
+    firstError ??= e;
+  }
+  final folder = selectedBackupFolder;
+  if (Platform.isAndroid && folder != null) {
+    destinations.add(AndroidBackupStorage(folder));
+  }
+  for (final storage in destinations) {
+    try {
+      for (final file in await storage.list()) {
+        if (_backupNamePattern.hasMatch(file.name) ||
+            _isOurStagingFile(file.name)) {
+          try {
+            await storage.delete(file);
+          } catch (e) {
+            firstError ??= e;
+          }
+        }
+      }
+    } catch (e) {
+      firstError ??= e;
+    }
+  }
+  if (firstError != null) throw firstError;
+});
 
 /// Run a backup if [cadence] says one is due.
 ///
@@ -374,6 +497,7 @@ Future<BackupOutcome> runBackupIfDue({
   required Future<void> Function(DateTime) markRun,
   DateTime? now,
   Future<String> Function()? exportSnapshot,
+  BackupStorage? storage,
 }) => _serialize(() async {
   final when = now ?? DateTime.now();
   // Cadence is read here too, for the same reason as the timestamp: a call
@@ -384,7 +508,11 @@ Future<BackupOutcome> runBackupIfDue({
   if (!backupIsDue(cadence: cadence(), lastRun: lastRun(), now: when)) {
     return const BackupOutcome(skipped: true);
   }
-  final outcome = await _runBackup(now: when, exportSnapshot: exportSnapshot);
+  final outcome = await _runBackup(
+    now: when,
+    exportSnapshot: exportSnapshot,
+    storage: storage,
+  );
   if (outcome.succeeded) await markRun(when);
   return outcome;
 });

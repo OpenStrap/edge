@@ -179,9 +179,10 @@ class SampleBatch extends BandEvent {
   final List<NeutralSample> samples;
 
   /// The verbatim frames these samples were decoded from, for `raw_archive` —
-  /// the never-pruned store of bytes we could not decode or do not yet
-  /// understand. Null when the band has no envelope worth keeping (a `0x2A37`
-  /// notification IS the sample; archiving it stores the same numbers twice).
+  /// the kept store (except the thinning in `LocalDb.thinRawArchiveBefore`) of
+  /// bytes we could not decode or do not yet understand. Null when the band has
+  /// no envelope worth keeping (a `0x2A37` notification IS the sample;
+  /// archiving it stores the same numbers twice).
   final List<Uint8List>? raw;
 
   /// TRUE = this batch is a live stream, and NOTHING here may be persisted.

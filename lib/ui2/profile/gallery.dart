@@ -1193,8 +1193,8 @@ const _roughFull = RoughNight(
   ],
   knows: [
     'You trained until 9:40 PM, which often does this on its own.',
-    'The illness watch flagged this night too — a sustained rise against your '
-        'own baseline, not a diagnosis.',
+    'Your resting heart rate flagged this night too — recent nights add up '
+        'to a rise above your own baseline, not a diagnosis.',
     'You are in the luteal phase, which lifts resting heart rate and skin '
         'temperature by itself.',
     'Your skin ran warmer than your usual — a warm room does this too.',

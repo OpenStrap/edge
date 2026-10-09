@@ -19,6 +19,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 
 import '../compute/derivation_engine.dart';
+import '../compute/findings.dart' show servedReadiness;
 import '../compute/hr_max.dart';
 import '../compute/manual_session.dart';
 import '../compute/onehz_pipeline.dart' show kUnknownAbsenceNote, needInputNote;
@@ -1997,16 +1998,30 @@ class LocalRepositoryImpl extends LocalRepository {
     };
     final distinctDevices = {for (final ids in coverageDevices.values) ...ids};
 
-    final oldestDaySec =
-        rows.isEmpty ? _nowSec() : _dateToEpoch(rows.first['date'] as String);
+    // The pinned day gets its point even with no stored value: `metricSeries`
+    // drops null rows, and a partial derive can pin the headline without
+    // writing the day's readiness (or a later derive can write it as null).
+    // The ring and the push show the pin; the chart, and the Observations log
+    // built from it, must have the same number to show.
+    final stored = {for (final r in rows) r['date'] as String: r['value']};
+    final pinDayValue = pin == null ? null : (day: pin.day, value: pin.value);
+    final dates = [
+      ...stored.keys,
+      if (pin != null && !stored.containsKey(pin.day)) pin.day,
+    ]..sort();
+    final oldestDaySec = dates.isEmpty ? _nowSec() : _dateToEpoch(dates.first);
 
     return {
       'points': [
-        for (final r in rows)
-          if (r['date'] != heldDay || r['date'] == pin?.day)
+        for (final d in dates)
+          if (d != heldDay || d == pin?.day)
             {
-              't': _dateToEpoch(r['date'] as String),
-              'v': r['date'] == pin?.day ? pin!.value : r['value'],
+              't': _dateToEpoch(d),
+              // One value rule with the low-readiness push and log.
+              'v': key == 'readiness'
+                  ? servedReadiness(d,
+                      pin: pinDayValue, stored: (stored[d] as num?)?.toDouble())
+                  : stored[d],
             },
       ],
       // L4 — THE DENOMINATOR. Worn minutes for the same days, so a long trend

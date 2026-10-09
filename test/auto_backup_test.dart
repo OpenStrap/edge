@@ -6,6 +6,7 @@
 // — getting it backwards would delete exactly the backups worth having.
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openstrap_edge/data/auto_backup.dart';
@@ -496,7 +497,6 @@ void main() {
       final when = DateTime(2026, 8, 9, 19, 0, 0);
       final dest = File(p.join(dir.path, backupFileName(when)));
       final staging = File('${dest.path}$kBackupStagingSuffix');
-      staging.writeAsStringSync('a previous attempt got this far');
 
       final unreadable = Directory(p.join(tmp.path, 'not-a-snapshot'))
         ..createSync();
@@ -633,6 +633,57 @@ void main() {
       );
       await File(snapshot).delete();
       await db.delete('day_result', where: 'day_id = ?', whereArgs: [dayId]);
+    });
+
+    test('automatic backups leave the substrate archive out; a manual '
+        'export keeps it', () async {
+      final db = await LocalDb.instance;
+      await db.insert('substrate_archive', {
+        'device_id': '',
+        'utc_day': 21990,
+        'codec': 1,
+        'from_ts': 21990 * 86400,
+        'to_ts': 21990 * 86400 + 1,
+        'onehz_rows': 2,
+        'rr_rows': 0,
+        'raw_bytes': 10,
+        'fingerprint': 0,
+        'blob': Uint8List.fromList(List.filled(64, 7)),
+        'created_at': 1,
+        'updated_at': 1,
+      });
+      Future<int> archiveRows(String path) async {
+        final copy = await databaseFactory.openDatabase(path);
+        try {
+          final r = await copy.rawQuery(
+            'SELECT COUNT(*) AS n FROM substrate_archive',
+          );
+          return r.first['n'] as int;
+        } finally {
+          await copy.close();
+        }
+      }
+
+      final manual = await LocalDb.exportCopy();
+      final outcome = await runBackup(now: DateTime(2026, 8, 9, 15, 30, 0));
+      final inflated = File(p.join(tmp.path, 'inflated_backup_probe.db'));
+      try {
+        expect(outcome.succeeded, isTrue, reason: outcome.error);
+        await inflated.writeAsBytes(
+          gzip.decode(await File(outcome.path!).readAsBytes()),
+        );
+        expect(await archiveRows(manual), 1);
+        expect(await archiveRows(inflated.path), 0);
+        // The live database is never touched by the backup's purge.
+        expect(
+          await db.query('substrate_archive', where: 'utc_day = 21990'),
+          hasLength(1),
+        );
+      } finally {
+        await db.delete('substrate_archive', where: 'utc_day = 21990');
+        await File(manual).delete();
+        if (await inflated.exists()) await inflated.delete();
+      }
     });
 
     test('a snapshot is never left behind in temp', () async {

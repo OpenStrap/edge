@@ -876,6 +876,29 @@ class FrameRoutePolicy {
   }
 }
 
+/// Whether an inbound offload frame is the band's ANSWER to this task's
+/// SEND_HISTORICAL_DATA, i.e. whether it ends the first-START wait.
+///
+/// gen5: only HISTORY_START or HISTORY_COMPLETE. A type-47 frame or an END
+/// before the task's first START is a previous task's straggler and is dropped,
+/// so it proves nothing about this request. gen4: the marker order is not
+/// pinned, so any history marker or type-47 frame counts. Console/event chatter
+/// never does — it flows whether or not the band heard the request.
+class FirstStartWatchdogPolicy {
+  const FirstStartWatchdogPolicy._();
+
+  static bool satisfiedBy({
+    required bool isGen5,
+    required bool isStartOrComplete,
+    required bool isEnd,
+    required bool isHistoricalData,
+  }) {
+    if (isStartOrComplete) return true;
+    if (isGen5) return false;
+    return isEnd || isHistoricalData;
+  }
+}
+
 /// Tracks ACK-write failures per historical-batch token ACROSS RECONNECTS —
 /// a chunk whose ACK keeps failing for the SAME token (the "Groundhog Day"
 /// re-flood signature: the band never trims, so it re-sends the identical

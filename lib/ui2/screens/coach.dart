@@ -832,6 +832,7 @@ class _CoachSetupState extends State<CoachSetup> {
   late final TextEditingController _key;
   late final TextEditingController _search;
   late final TextEditingController _timeout;
+  late CoachApi _api;
   String _model = '';
   List<String> _models = const [];
   bool _loading = false;
@@ -862,6 +863,7 @@ class _CoachSetupState extends State<CoachSetup> {
     _key = TextEditingController(text: cfg.apiKey ?? '');
     _search = TextEditingController();
     _timeout = TextEditingController(text: cfg.timeoutSeconds.toString());
+    _api = cfg.api;
     _model = cfg.model;
     _keyOrigin = coachEndpointOrigin(cfg.baseUrl);
     // The base URL decides which preset is lit and whether a key is needed, and
@@ -891,6 +893,7 @@ class _CoachSetupState extends State<CoachSetup> {
     final origin = coachEndpointOrigin(_base.text);
     if (origin != _keyOrigin) {
       _keyOrigin = origin;
+      _api = CoachApi.defaultFor(_base.text);
       _pendingKeyDelete = true;
       if (_key.text.isNotEmpty) _key.clear();
       _msg = 'The API key was cleared because the endpoint changed.';
@@ -962,6 +965,7 @@ class _CoachSetupState extends State<CoachSetup> {
           pendingKeyDelete: _pendingKeyDelete,
         ),
         model: chosen,
+        api: _api,
         timeoutSeconds: timeoutSeconds,
       );
     } catch (e) {
@@ -1022,6 +1026,7 @@ class _CoachSetupState extends State<CoachSetup> {
                                 // discard that explanation.
                                 _msg = null;
                                 _base.text = preset.baseUrl;
+                                _api = CoachApi.defaultFor(preset.baseUrl);
                                 _models = const [];
                                 _model = '';
                               }),
@@ -1070,6 +1075,54 @@ class _CoachSetupState extends State<CoachSetup> {
                     hint: 'http://localhost:11434/v1',
                   ),
                   const SizedBox(height: S.x4),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(l?.coachApiFormatLabel ?? 'API',
+                          style: F.over.copyWith(color: p.ink3)),
+                      const SizedBox(height: S.x2),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: S.x3),
+                        decoration: BoxDecoration(
+                          color: p.card,
+                          borderRadius: R.rMd,
+                          border: Border.all(color: p.line),
+                        ),
+                        child: Semantics(
+                          label: l?.coachApiFormatLabel ?? 'API',
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<CoachApi>(
+                              value: _api,
+                              isExpanded: true,
+                              dropdownColor: p.card,
+                              style: F.body.copyWith(color: p.ink),
+                              items: const [
+                                DropdownMenuItem(
+                                  value: CoachApi.responses,
+                                  child: Text('Responses'),
+                                ),
+                                DropdownMenuItem(
+                                  value: CoachApi.chatCompletions,
+                                  child: Text('Chat Completions'),
+                                ),
+                              ],
+                              onChanged: (api) {
+                                if (api != null) setState(() => _api = api);
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: S.x2),
+                      Text(
+                        l?.coachApiFormatHelp ??
+                            'Choose the API your endpoint supports. Responses '
+                                'supports OpenAI reasoning with tools.',
+                        style: F.cap.copyWith(color: p.ink3, height: 1.5),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: S.x4),
                   OsTextField(
                     controller: _key,
                     label: _isLocal
@@ -1080,9 +1133,10 @@ class _CoachSetupState extends State<CoachSetup> {
                   const SizedBox(height: S.x3),
                   // The one sentence that decides whether a cloud key is a
                   // reasonable choice. It is here, next to the field, and not
-                  // in a settings page nobody opens.
+                  // in a settings page nobody opens. Private hosts only: a
+                  // 100.64.0.0/10 address needs no key but may not be yours.
                   Text(
-                    _isLocal
+                    isPrivateCoachHost(_base.text.trim())
                         ? (l?.coachLocalDataNote ??
                             'Your questions and the rows the coach reads stay on '
                                 'your own machine.')

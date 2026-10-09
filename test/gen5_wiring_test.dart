@@ -1562,11 +1562,8 @@ void _burstOrdering() {
       // waiter could still resolve — but it also recorded a SUCCESS terminal
       // for a task that ended in an abort. The waiter now resolves at the
       // abort boundary (DrainController.onTaskTerminal), promptly and as
-      // INCOMPLETE. (runSync's own ledger write throws in the test host —
-      // the report is published to the snapshot before it.)
-      await b.engine
-          .runSync(timeout: const Duration(seconds: 30))
-          .catchError((_) => SyncReport(0, 0, false));
+      // INCOMPLETE.
+      await b.engine.runSync(timeout: const Duration(seconds: 30));
       expect(
         b.logs.any((l) => l.contains('await stop=taskTerminal')),
         isTrue,
