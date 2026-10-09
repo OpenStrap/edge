@@ -9,6 +9,8 @@
 //    when the band ts is plausible; a bogus RTC falls through to the debounce alone.)
 //  • Debounce — the band can emit the event more than once per physical tap.
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import 'device_action.dart';
 import 'gesture_settings.dart';
 import '../platform/device_actions.dart';
@@ -36,6 +38,10 @@ class GestureDispatcher {
   static const int _plausibleAgeCapSec = 86400; // ignore the recency check if ts looks bogus
   static const int _debounceMs = 2000;
 
+  /// The wall clock the recency window and the debounce read. Tests only.
+  @visibleForTesting
+  static DateTime Function() now = DateTime.now;
+
   int _lastFiredMs = 0;
 
   /// Feed every live event here (id, band timestamp seconds, raw hex). Cheap to call
@@ -45,7 +51,7 @@ class GestureDispatcher {
     final action = settings.doubleTap;
     if (action == DeviceAction.none) return;
 
-    final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final nowSec = now().millisecondsSinceEpoch ~/ 1000;
     final age = nowSec - tsEpoch;
     // Stale only when the ts is plausibly a real (recent-ish but past) historical
     // record. A wildly-off ts from an unset RTC is treated as "can't tell" → allow,
@@ -55,7 +61,7 @@ class GestureDispatcher {
       return;
     }
 
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final nowMs = now().millisecondsSinceEpoch;
     if (nowMs - _lastFiredMs < _debounceMs) return;
     _lastFiredMs = nowMs;
 
