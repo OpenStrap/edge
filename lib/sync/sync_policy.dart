@@ -65,6 +65,28 @@ const int kHistoryFirstStartTimeoutSeconds = 10;
 /// Same-session retries after a first-START timeout. Reset by a real START.
 const int kHistoryNoStartRetriesPerSession = 1;
 
+/// Seconds without a history marker from another client's transfer (one this
+/// engine did not request) after which that transfer is considered over.
+///
+/// ASSUMES: the band re-offers an unanswered HISTORY_END every ~2.5 s, so a
+/// transfer that is still alive produces a marker well inside this window.
+/// FALSIFIED BY: a transfer that pauses longer than this between markers.
+/// WHEN WRONG: edge starts its own request into the other client's session —
+/// the competing-transfer case this window exists to avoid; still no data is
+/// lost, because edge never answers the other client's bursts.
+/// HOW TO CHECK: a `refresh(...) — sending SEND_HISTORICAL_DATA` line shortly
+/// after a `transfer this app did not request` line with markers continuing.
+const int kForeignHistoryQuietSeconds = 10;
+
+/// Seconds another client's transfer may go without PROGRESS (a HISTORY_START
+/// or a history record) before it is considered abandoned, however often its
+/// HISTORY_END is re-offered. Same bound as our own idle watchdog
+/// ([kBackfillIdleTimeoutSeconds]): a band re-offering an END nobody answers
+/// (the other client was killed mid-transfer) would otherwise keep the
+/// window open — every claim deferred, maintenance paused — for the life of
+/// the link.
+const int kForeignHistoryStallSeconds = 60;
+
 /// Silence past which an ACTIVE session tears itself down (`_keepAliveFire`).
 ///
 /// ASSUMES: a healthy link always produces inbound traffic inside two minutes.

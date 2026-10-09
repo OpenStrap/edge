@@ -326,8 +326,11 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
 
     // connect() subscribes → SET_CLOCK → INIT, so the historical offload is already
     // streaming when this returns. We then await it reaching HISTORY_COMPLETE.
-    final connected = await engine.connectToRemoteId(paired.remoteId,
-        generationHint: paired.generation);
+    final connected = await connectHeadless(
+      engine,
+      () => engine.connectToRemoteId(paired.remoteId,
+          generationHint: paired.generation),
+    );
     if (!connected) {
       debugPrint(
         '[bgsync] strap not reachable this cycle — will catch up next time.',
@@ -347,7 +350,7 @@ Future<bool> runHeadlessSync({BandLease? lease}) async {
       await engine.runSync();
       await finishHeadlessDrain(engine);
     } finally {
-      await engine.disconnect();
+      await disconnectHeadless(engine);
     }
     // Within the SAME background wake slot: capture raw AND derive the fresh
     // window (bounded LIGHT pass — newest affected day only — so we stay inside
@@ -645,6 +648,42 @@ Future<void> finishHeadlessDrain(
   }
   await engine.endHistoryForLink(reason: 'headless_config_writes');
   await rearm(engine);
+}
+
+/// Connect a headless engine. A connect that FAILS can still have taken in
+/// another client's records before the step that failed (setup subscribes
+/// to notifications first), and the failed link's final bank of them runs
+/// detached — so before the run gives up, wait for it exactly as
+/// [disconnectHeadless] does. [connect] is the connect attempt itself.
+Future<bool> connectHeadless(
+  BleEngine engine,
+  Future<bool> Function() connect, {
+  Duration bound = const Duration(seconds: 12),
+}) async {
+  var connected = false;
+  try {
+    connected = await connect();
+    return connected;
+  } finally {
+    if (!connected) await engine.settleShutdownBanks(bound: bound);
+  }
+}
+
+/// Close a headless link and wait — bounded — for the rows another client's
+/// transfer left on it to be stored: disconnect does not wait for that final
+/// bank (a reconnect must not), but a headless run is done when it returns
+/// and its process may be suspended right after, before rows that are not
+/// durable yet could be. Used by every headless entry point (the
+/// background sync and the Shortcut sync).
+Future<void> disconnectHeadless(
+  BleEngine engine, {
+  Duration bound = const Duration(seconds: 12),
+}) async {
+  try {
+    await engine.disconnect();
+  } finally {
+    await engine.settleShutdownBanks(bound: bound);
+  }
 }
 
 /// [allowPermissionPrompt] defaults to `false` because this function's

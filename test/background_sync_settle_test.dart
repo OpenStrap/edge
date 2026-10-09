@@ -239,4 +239,42 @@ void main() {
     expect(await engine.debugStartHistoricalRefresh(), isTrue);
     expect(opcodes, contains(Cmd.sendHistoricalData));
   });
+
+  group('headless shutdown waits for the closed link\'s foreign bank', () {
+    test('completion stays pending until the bank settles', () async {
+      install(holdCommits: true);
+      // Another client's burst; its bank parks in the store.
+      rx(_historyStart());
+      rx(_gen5V18Inner(ts: _wallNow() - 3600, counter: 4400));
+      rx(_historyEnd(expected: 1, token: 0x4400));
+      await pumpEventQueue();
+      expect(heldCommits, hasLength(1));
+      var done = false;
+      disconnectHeadless(engine).then((_) => done = true);
+      await pumpEventQueue();
+      expect(done, isFalse,
+          reason: 'the run must not finish while those rows are in flight');
+      releaseCommit();
+      await pumpEventQueue();
+      expect(done, isTrue);
+    });
+
+    test('… and gives up at the bound if the store never answers', () {
+      fakeAsync((async) {
+        install(holdCommits: true);
+        rx(_historyStart());
+        rx(_gen5V18Inner(ts: _wallNow() - 3600, counter: 4410));
+        rx(_historyEnd(expected: 1, token: 0x4410));
+        async.elapse(Duration.zero);
+        var done = false;
+        disconnectHeadless(engine, bound: const Duration(seconds: 12))
+            .then((_) => done = true);
+        async.elapse(const Duration(seconds: 11));
+        expect(done, isFalse);
+        async.elapse(const Duration(seconds: 2));
+        expect(done, isTrue);
+        expect(logs.any((l) => l.contains('not waiting longer')), isTrue);
+      });
+    });
+  });
 }

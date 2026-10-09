@@ -1346,6 +1346,10 @@ class _Burst {
   void rx(Uint8List inner, {String role = 'data'}) =>
       engine.debugReceiveFrame(Frame(inner, true, true), role: role);
 
+  /// Claim a history task as INIT/refresh do, minus the writes. Only traffic
+  /// for a task this engine requested is answered.
+  void claim() => engine.debugClaimHistoryTask();
+
   /// Opcodes of every command written to the link so far.
   List<int> get opcodes => frames
       .map((f) => parseFrame(f, profile: BandProfile.gen5))
@@ -1374,6 +1378,7 @@ void _burstOrdering() {
       'HISTORY_END are counted — the gate passes',
       () async {
         final b = _Burst();
+        b.claim();
         b.rx(_historyStart());
         for (var i = 0; i < 12; i++) {
           b.rx(_gen5V18Inner(ts: ts + i, counter: 1000 + i));
@@ -1402,6 +1407,7 @@ void _burstOrdering() {
         // permanently short by exactly those four frames: the 16/12 signature
         // from the field log.
         final b = _Burst();
+        b.claim();
         b.rx(_historyStart());
         for (var i = 0; i < 2; i++) {
           b.rx(_gen5V18Inner(ts: ts + i, counter: 2000 + i));
@@ -1432,6 +1438,7 @@ void _burstOrdering() {
     test('a straggler arriving after the result does not contaminate the NEXT '
         'burst', () async {
       final b = _Burst();
+      b.claim();
       b.rx(_historyStart());
       b.rx(_gen5V18Inner(ts: ts, counter: 3000));
       b.rx(_historyEnd(expected: 1, token: 0x8601));
@@ -1455,6 +1462,7 @@ void _burstOrdering() {
         'a type-47 frame we cannot decode still counts — deep buffers and '
         'unknown revisions are burst members', () async {
       final b = _Burst();
+      b.claim();
       b.rx(_historyStart());
       b.rx(_gen5V18Inner(ts: ts, counter: 4000));
       // A gen5 deep buffer (v22 research telemetry: identified, archived, not
@@ -1481,6 +1489,7 @@ void _burstOrdering() {
     /// re-offers the terminal roughly every 2.5 s WITHOUT resending frames,
     /// so the attempt count accumulates on one HISTORY_START.
     Future<void> stuckAfterFifteen(_Burst b) async {
+      b.claim();
       b.rx(_historyStart());
       b.rx(_gen5V18Inner(ts: ts, counter: 4001));
       for (var i = 1; i <= kBurstValidationAttemptLimit; i++) {
@@ -1540,6 +1549,7 @@ void _burstOrdering() {
       // A reconnect is the remedy: the latch is session-scoped, so the next
       // connection drains normally from the band\'s own checkpoint.
       b.connect();
+      b.claim();
       expect(b.engine.historyStuckThisSession, isFalse);
       final shortBefore = b.shortLines.length;
       b.rx(_historyStart());
@@ -1591,6 +1601,7 @@ void _burstOrdering() {
     test('a replacement HISTORY_START keeps the task\'s failure counter',
         () async {
       final b = _Burst();
+      b.claim();
       // Burst A fails three times (slack stays 0 through attempt 3).
       b.rx(_historyStart());
       b.rx(_gen5V18Inner(ts: ts, counter: 4100));
@@ -1620,6 +1631,7 @@ void _burstOrdering() {
     test('chatter after HISTORY_END cannot push a short burst over the line',
         () async {
       final b = _Burst();
+      b.claim();
       b.rx(_historyStart());
       b.rx(_gen5V18Inner(ts: ts, counter: 4200));
       b.rx(_historyEnd(expected: 3, token: 0x8630));
@@ -1641,6 +1653,7 @@ void _burstOrdering() {
     test('console chatter does not keep a stalled offload alive', () {
       fakeAsync((async) {
         final b = _Burst();
+        b.claim();
         b.rx(_historyStart());
         b.rx(_gen5V18Inner(ts: _wallNow() - 3600, counter: 4300));
         async.flushMicrotasks();
@@ -1678,6 +1691,7 @@ void _burstOrdering() {
         },
         band: BandProfile.gen4,
       );
+      engine.debugClaimHistoryTask();
       engine.debugReceiveFrame(Frame(_historyStart(), true, true),
           role: 'data');
       engine.debugReceiveFrame(

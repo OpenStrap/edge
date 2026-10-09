@@ -50,6 +50,17 @@ Uint8List _historyEnd({required int expected, required int token}) {
   return inner;
 }
 
+/// Raw notification bytes of an intact gen5 frame whose revision this build
+/// does not speak (header byte 1 = 0x02, header CRC recomputed).
+Uint8List _rev2Chunk(Uint8List inner) {
+  final f = buildFrame(inner, profile: BandProfile.gen5);
+  f[1] = 0x02;
+  final c = crc16Modbus(f.sublist(0, 6));
+  f[6] = c & 0xFF;
+  f[7] = (c >> 8) & 0xFF;
+  return f;
+}
+
 /// The verbatim 8 bytes a success result for [token] must echo.
 List<int> _tokenBytes(int token) {
   final b = Uint8List(8);
@@ -161,6 +172,9 @@ class _Rig {
   Completer<void>? holdCommit;
   bool failHeldCommit = false;
 
+  /// The next N commits throw (the store rolled back).
+  int failCommits = 0;
+
   late final BleEngine engine;
 
   _Rig({this.band = BandProfile.gen5}) {
@@ -185,6 +199,10 @@ class _Rig {
               failHeldCommit = false;
               throw StateError('held commit rolled back');
             }
+          }
+          if (failCommits > 0) {
+            failCommits--;
+            throw StateError('commit rolled back');
           }
           events.add('commit:$token');
           committedTokens.add(token);
@@ -237,6 +255,11 @@ class _Rig {
   void rx(Uint8List inner, {String role = 'data'}) =>
       engine.debugReceiveFrame(Frame(inner, true, true), role: role);
 
+  /// Claim a history task exactly as INIT/refresh do, minus the writes — the
+  /// state a link is in right after its own opcode 22 went out. Only traffic
+  /// for a task this engine requested is ever answered.
+  void claim() => engine.debugClaimHistoryTask();
+
   List<_Cmd> get failureResults => writes
       .where((c) => c.opcode == Cmd.historicalDataResult && c.body0 == 0x00)
       .toList();
@@ -252,6 +275,14 @@ class _Rig {
 
   List<String> get shortLines =>
       logs.where((l) => l.contains('Burst packet-count SHORT')).toList();
+}
+
+/// Resolve [f] under fakeAsync (the value it completed with, or null).
+T? await_<T>(Future<T> f, FakeAsync async) {
+  T? v;
+  f.then((x) => v = x);
+  async.elapse(Duration.zero);
+  return v;
 }
 
 void main() {
@@ -508,6 +539,7 @@ void main() {
         'three failures in task A do not grant task B\'s first burst the '
         'two-packet slack', () async {
       final r = _Rig();
+      r.claim();
       // Task A: one short burst, judged three times via marker-only
       // re-offers — the counter climbs to 3 (slack would be 2 from here).
       r.rx(_historyStart());
@@ -546,6 +578,7 @@ void main() {
     test('a replacement HISTORY_START keeps the counter and resets the tally',
         () async {
       final r = _Rig();
+      r.claim();
       r.rx(_historyStart());
       r.rx(_gen5V18Inner(ts: ts, counter: 200));
       r.rx(_gen5V18Inner(ts: ts + 1, counter: 201));
@@ -573,6 +606,7 @@ void main() {
 
     test('a successful validation resets the counter mid-task', () async {
       final r = _Rig();
+      r.claim();
       r.rx(_historyStart());
       r.rx(_gen5V18Inner(ts: ts, counter: 300));
       r.rx(_historyEnd(expected: 3, token: 0x9300));
@@ -603,6 +637,7 @@ void main() {
     test('attempts 1–14 send the negative result; attempt 15 sends exactly '
         'one abort and no fifteenth result', () async {
       final r = _Rig();
+      r.claim();
       r.rx(_historyStart());
       r.rx(_gen5V18Inner(ts: ts, counter: 400));
       for (var i = 1; i <= kBurstValidationAttemptLimit; i++) {
@@ -629,6 +664,7 @@ void main() {
         'rows stay committed without the token, one abort goes out, no '
         'success ACK ever, and a later task starts cleanly', () async {
       final r = _Rig()..failFailureResults = true;
+      r.claim();
       r.rx(_historyStart());
       r.rx(_gen5V18Inner(ts: ts, counter: 500));
       r.rx(_historyEnd(expected: 3, token: 0x9500));
@@ -687,6 +723,7 @@ void main() {
         'durable commit first, bounded retries, then one abort — and no '
         'reconnect, no acked bookkeeping', () async {
       final r = _Rig()..failSuccessResults = true;
+      r.claim();
       r.rx(_historyStart());
       r.rx(_gen5V18Inner(ts: ts, counter: 600));
       r.rx(_historyEnd(expected: 1, token: 0x9600));
@@ -724,6 +761,7 @@ void main() {
         'manual, strap and repeated triggers all wait for the abort; at most '
         'one serialized next task follows', () async {
       final r = _Rig()..failFailureResults = true;
+      r.claim();
       r.holdAbort = Completer<bool>();
 
       // Terminal with the abort write parked open.
@@ -770,6 +808,7 @@ void main() {
         void pump() => async.elapse(Duration.zero);
 
         final r = _Rig();
+        r.claim();
         r.holdCommit = Completer<void>();
         r.failHeldCommit = true;
         final held = r.holdCommit!;
@@ -843,6 +882,7 @@ void main() {
       fakeAsync((async) {
         void pump() => async.elapse(Duration.zero);
         final r = _Rig();
+        r.claim();
         r.holdCommit = Completer<void>();
         final held = r.holdCommit!;
 
@@ -928,6 +968,7 @@ void main() {
         'aborts session B', () {
       fakeAsync((async) {
         final r = _Rig()..failSuccessResults = true;
+        r.claim();
         r.rx(_historyStart());
         r.rx(_gen5V18Inner(ts: ts, counter: 900));
         r.rx(_historyEnd(expected: 1, token: 0x9900));
@@ -955,6 +996,7 @@ void main() {
     test('an old task\'s abort unwinding after session replacement does not '
         'release offload state it no longer owns', () async {
       final r = _Rig()..failFailureResults = true;
+      r.claim();
       r.holdAbort = Completer<bool>();
 
       // Terminal on session A with the abort write parked open.
@@ -965,9 +1007,10 @@ void main() {
       expect(r.aborts, hasLength(1), reason: 'abort issued and parked');
 
       // The link is replaced while that write is in flight, and the
-      // replacement session's own drain traffic raises the offload state
-      // (in production, INIT pre-arms it the same way).
+      // replacement session claims its own task and its drain traffic raises
+      // the offload state (the claim stands in for that session's INIT).
       r.connect();
+      r.claim();
       r.rx(_gen5V18Inner(ts: ts + 1, counter: 951));
       await pumpEventQueue();
       expect(r.engine.offloadActive, isTrue);
@@ -990,6 +1033,7 @@ void main() {
       fakeAsync((async) {
         void pump() => async.elapse(Duration.zero);
         final r = _Rig();
+        r.claim();
         r.holdCommit = Completer<void>();
         final held = r.holdCommit!;
 
@@ -1057,6 +1101,7 @@ void main() {
     test('a short gen4 burst is still ACKed with the verbatim token and '
         'never accumulates failures', () async {
       final r = _Rig(band: BandProfile.gen4);
+      r.claim();
       for (var i = 0; i < 4; i++) {
         r.rx(_historyStart());
         r.rx(_gen4V24Inner(ts: ts + i, counter: 1000 + i));
@@ -1084,6 +1129,7 @@ void main() {
   group('T11 — commit-before-ACK ordering', () {
     test('the durable commit with the trim token precedes the ACK write', () async {
       final r = _Rig();
+      r.claim();
       r.rx(_historyStart());
       r.rx(_gen5V18Inner(ts: ts, counter: 1100));
       r.rx(_historyEnd(expected: 1, token: 0xB100));
@@ -1299,21 +1345,26 @@ void main() {
         final r = _Rig(band: BandProfile.gen4);
         // gen4 accepts any history traffic as the answer — but only to a
         // request that is actually going out. This record lands while the
-        // claim is still reading the clock.
+        // claim is still reading the clock: it cannot be an answer, and with
+        // no task of ours just ended it reads as another client's transfer,
+        // so the request is not sent into it.
         r.onClockRequest = () => r.rx(_gen4V24Inner(ts: ts, counter: 1270));
-        r.engine.debugStartHistoricalRefresh();
-        async.elapse(Duration.zero);
-        expect(r.drainRequests, hasLength(1));
+        bool? sent;
+        r.engine.debugStartHistoricalRefresh().then((v) => sent = v);
+        async.elapse(const Duration(seconds: 1));
+        expect(sent, isFalse);
+        expect(r.drainRequests, isEmpty);
         expect(
-            r.engine.offloadSnapshot['first_start_watchdog_armed'], isTrue);
+            r.engine.offloadSnapshot['first_start_watchdog_armed'], isFalse);
         async.elapse(const Duration(seconds: 11));
-        expect(r.aborts, hasLength(1),
-            reason: 'the band never answered the request itself');
+        expect(r.aborts, isEmpty);
+        expect(r.engine.offloadActive, isFalse);
       });
     });
 
     for (final band in [BandProfile.gen4, BandProfile.gen5]) {
-      test('INIT: traffic during its earlier packets is not the answer '
+      test('INIT: a transfer starting during its earlier packets is not '
+          'answered, and the drain request is withheld '
           '(${band == BandProfile.gen5 ? 'gen5' : 'gen4'})', () {
         fakeAsync((async) {
           final r = _Rig(band: band);
@@ -1321,21 +1372,36 @@ void main() {
           r.onWriteOpcode = (op) {
             if (injected || op == Cmd.sendHistoricalData) return;
             injected = true;
-            // A straggler from before this connect's request.
+            // Another client's burst, before our opcode 22 has gone out.
+            r.rx(_historyStart());
             r.rx(band == BandProfile.gen5
-                ? _historyStart()
+                ? _gen5V18Inner(ts: ts, counter: 1280)
                 : _gen4V24Inner(ts: ts, counter: 1280));
+            r.rx(_historyEnd(expected: 1, token: 0xC280));
           };
-          r.engine.debugStartInitDrain();
-          async.elapse(const Duration(seconds: 1));
+          bool? ready;
+          r.engine.debugStartInitDrain().then((v) => ready = v);
+          async.elapse(const Duration(seconds: 2));
           expect(injected, isTrue);
+          expect(ready, isTrue);
+          expect(r.drainRequests, isEmpty,
+              reason: 'no request into a transfer that just started');
+          expect(r.successResults, isEmpty, reason: 'its END is not ours');
+          expect(r.failureResults, isEmpty);
+          expect(r.logs.any((l) => l.contains('another client started '
+              'transferring history during INIT')), isTrue);
+          expect(r.engine.offloadActive, isFalse);
+          async.elapse(const Duration(seconds: 7));
+          expect(r.aborts, isEmpty);
+          expect(r.drainRequests, isEmpty);
+          // Once that transfer has gone quiet the deferred drain is
+          // re-requested rather than left for the 15-min periodic timer.
+          async.elapse(const Duration(seconds: 4));
           expect(r.drainRequests, hasLength(1));
-          expect(r.engine.offloadSnapshot['first_start_watchdog_armed'],
-              isTrue,
-              reason: 'nothing that arrived before the opcode-22 write '
-                  'answers it');
-          async.elapse(const Duration(seconds: 11));
-          expect(r.aborts, hasLength(1));
+          async.elapse(const Duration(seconds: 60));
+          expect(r.aborts, hasLength(r.drainRequests.length),
+              reason: 'every abort ends a request that went out, none the '
+                  'deferred claim');
         });
       });
     }
@@ -1380,11 +1446,19 @@ void main() {
         expect(r.aborts, hasLength(1));
         async.elapse(const Duration(seconds: 10));
         expect(clocks, 2);
-        expect(r.drainRequests, hasLength(2), reason: 'the one retry');
+        // Before our request went out, that START is indistinguishable from
+        // another client starting: the retry stands down rather than send
+        // into it, and the START refilled nothing.
+        expect(r.drainRequests, hasLength(1));
+        expect(r.engine.offloadSnapshot['no_start_retries'], 1);
+        // ...but it is not stranded: once the window closes it re-requests.
+        async.elapse(const Duration(seconds: 21));
+        expect(r.drainRequests, hasLength(2));
+        // Unanswered again: its own watchdog ends it, and the spent retry
+        // budget stops the chain there.
         async.elapse(const Duration(seconds: 60));
+        expect(r.drainRequests, hasLength(2));
         expect(r.aborts, hasLength(2));
-        expect(r.drainRequests, hasLength(2),
-            reason: 'no third request: that START answered nothing');
       });
     });
 
@@ -1409,8 +1483,8 @@ void main() {
         expect(r.drainRequests, hasLength(2), reason: 'auto-continued');
         expect(r.engine.offloadActive, isTrue,
             reason: 'the replacement task is still waiting on its answer');
-        expect(r.logs.any((l) => l.contains('leftover of the previous task')),
-            isTrue);
+        // Before our request went out it was not ours: only observed.
+        expect(r.engine.offloadSnapshot['foreign_markers_seen'], 1);
         async.elapse(const Duration(seconds: 11));
         expect(r.aborts, hasLength(1),
             reason: 'its own watchdog ends it, not the leftover COMPLETE');
@@ -1418,7 +1492,7 @@ void main() {
     });
 
     test('a request queued behind another write is not answerable until its '
-        'bytes go out', () {
+        'bytes go out — and is withheld if a transfer starts meanwhile', () {
       fakeAsync((async) {
         final r = _Rig();
         r.holdOpcode = Cmd.getBatteryLevel;
@@ -1429,19 +1503,26 @@ void main() {
           r.engine.debugWriteRaw(buildCommand(
               99, Cmd.getBatteryLevel, const [], BandProfile.gen5));
         };
-        r.engine.debugStartHistoricalRefresh();
+        bool? sent;
+        r.engine.debugStartHistoricalRefresh().then((v) => sent = v);
         async.elapse(Duration.zero);
         expect(r.drainRequests, isEmpty, reason: 'queued behind the held write');
-        r.rx(_historyStart()); // a straggler while our request is still queued
+        // A START while our request is still queued: not ours (nothing is
+        // until the bytes go out) — another client starting.
+        r.rx(_historyStart());
         async.elapse(Duration.zero);
         held.complete(true);
-        async.elapse(Duration.zero);
-        expect(r.drainRequests, hasLength(1));
+        async.elapse(const Duration(seconds: 1));
+        expect(sent, isFalse);
+        expect(r.drainRequests, isEmpty,
+            reason: 'checked again at the moment the bytes would go out');
+        expect(r.logs.any((l) => l.contains('while this request was queued')),
+            isTrue);
+        expect(r.engine.offloadActive, isFalse);
         async.elapse(const Duration(seconds: 11));
-        expect(r.aborts, hasLength(1),
-            reason: 'nothing that arrived before the bytes went out answers');
-        expect(r.engine.offloadSnapshot['no_start_retries'], 1,
-            reason: 'and nothing refilled the budget');
+        expect(r.drainRequests, hasLength(1), reason: 're-requested once quiet');
+        async.elapse(const Duration(seconds: 60));
+        expect(r.aborts, hasLength(r.drainRequests.length));
       });
     });
 
@@ -1523,8 +1604,6 @@ void main() {
           r.rx(_historyComplete());
           async.elapse(Duration.zero);
           expect(r.engine.offloadSnapshot['history_completions'], 0);
-          expect(r.logs.where((l) => l.contains('leftover of the previous')),
-              hasLength(1));
         });
       });
     }
@@ -1551,16 +1630,29 @@ void main() {
         r.engine.debugStartHistoricalRefresh();
         async.elapse(const Duration(seconds: 11));
         expect(r.aborts, hasLength(1));
-        r.rx(_historyStart()); // late: the task already ended
-        async.elapse(const Duration(seconds: 10));
-        expect(r.drainRequests, hasLength(2), reason: 'the one retry');
-        async.elapse(const Duration(seconds: 12));
+        // Late: the task already ended. Indistinguishable from another
+        // client starting a transfer, so the pending retry stands down.
+        r.rx(_historyStart());
+        async.elapse(const Duration(seconds: 11));
+        expect(r.drainRequests, hasLength(1));
+        expect(r.logs.any((l) => l.contains('another client is transferring')),
+            isTrue);
+
+        // A later request of ours goes unanswered too (it first waits out
+        // the 5 s 0x16 floor, which runs on the real clock).
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(const Duration(seconds: 17));
+        expect(r.drainRequests, hasLength(2));
         expect(r.aborts, hasLength(2));
+        final timeouts = r.logs
+            .where((l) => l.contains('no answer to SEND_HISTORICAL_DATA'))
+            .toList();
+        expect(timeouts, hasLength(2));
+        expect(timeouts.last, contains('no further retry this session'),
+            reason: 'the ended task\'s late START refilled nothing');
         r.rx(_historyStart()); // late again
         async.elapse(const Duration(seconds: 60));
-        expect(r.drainRequests, hasLength(2),
-            reason: 'at most one first-START retry per session — an '
-                'ended task\'s START answers nothing');
+        expect(r.drainRequests, hasLength(2));
         expect(r.engine.offloadSnapshot['no_start_retries'], 1);
       });
     });
@@ -1604,6 +1696,7 @@ void main() {
     test('auto-continue refused before claiming releases the claim',
         () async {
       final r = _Rig();
+      r.claim();
       r.rx(_historyStart());
       r.rx(_gen5V18Inner(ts: ts, counter: 1300));
       r.rx(_historyEnd(expected: 1, token: 0xC300));
@@ -1629,7 +1722,7 @@ void main() {
     test('an auto-continued request is covered by the first-START watchdog',
         () {
       fakeAsync((async) {
-        final r = _Rig();
+        final r = _Rig()..claim();
         r.rx(_historyStart());
         r.rx(_gen5V18Inner(ts: ts, counter: 1310));
         r.rx(_historyEnd(expected: 1, token: 0xC310));
@@ -1657,7 +1750,7 @@ void main() {
     test('an auto-continued request the band answers keeps its retry budget',
         () {
       fakeAsync((async) {
-        final r = _Rig();
+        final r = _Rig()..claim();
         r.rx(_historyStart());
         r.rx(_gen5V18Inner(ts: ts, counter: 1320));
         r.rx(_historyEnd(expected: 1, token: 0xC320));
@@ -1672,5 +1765,1021 @@ void main() {
         expect(r.engine.offloadSnapshot['no_start_retries'], 0);
       });
     });
+  });
+
+  group('T13 — transfers this app did not request', () {
+    String hex(List<int> b) =>
+        b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+
+    test('an unsolicited gen5 transfer is never answered', () async {
+      final r = _Rig(); // connected, NO task claimed
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1400));
+      r.rx(_gen5V18Inner(ts: ts + 1, counter: 1401));
+      r.rx(_historyEnd(expected: 2, token: 0xD100));
+      r.rx(_historyComplete());
+      await pumpEventQueue();
+      expect(r.writes, isEmpty,
+          reason: 'no result, abort, request or clock write into a '
+              'transfer another client owns');
+      expect(r.engine.offloadActive, isFalse);
+      expect(r.committedTokens, everyElement(isNull),
+          reason: 'banked without a trim token — our cursor never moves');
+      expect(r.committedRows.fold<int>(0, (a, b) => a + b), 2,
+          reason: 'every record we saw is kept');
+    });
+
+    test('a short unsolicited burst gets no failure result', () async {
+      final r = _Rig();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1410));
+      r.rx(_historyEnd(expected: 5, token: 0xD200));
+      await pumpEventQueue();
+      expect(r.writes, isEmpty);
+      expect(r.shortLines, isEmpty);
+      expect(r.committedTokens, everyElement(isNull));
+      expect(r.committedRows.fold<int>(0, (a, b) => a + b), 1);
+    });
+
+    test('unsolicited traffic arms no watchdog', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1420));
+        async.elapse(const Duration(seconds: 200));
+        expect(r.aborts, isEmpty);
+        expect(r.drainRequests, isEmpty);
+        expect(r.rangePolls, isEmpty);
+        expect(r.writes, isEmpty);
+      });
+    });
+
+    test('an unsolicited COMPLETE runs no post-offload policy', () async {
+      final r = _Rig();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1430));
+      r.rx(_historyEnd(expected: 1, token: 0xD400));
+      r.rx(_historyComplete());
+      await pumpEventQueue();
+      expect(r.logs.where((l) => l.contains('auto-continue')), isEmpty);
+      expect(r.rangePolls, isEmpty);
+      expect(r.engine.offloadSnapshot['last_hps_terminal'], isNull);
+      expect(r.writes, isEmpty);
+    });
+
+    test('gen4: an unsolicited transfer is not ACKed', () async {
+      final r = _Rig(band: BandProfile.gen4);
+      r.rx(_historyStart());
+      r.rx(_gen4V24Inner(ts: ts, counter: 1440));
+      r.rx(_historyEnd(expected: 1, token: 0xD500));
+      await pumpEventQueue();
+      expect(r.successResults, isEmpty);
+      expect(r.writes, isEmpty);
+      expect(r.committedTokens, [null]);
+      expect(r.committedRows, [1]);
+    });
+
+    test('a claim during a live foreign transfer is deferred, then allowed',
+        () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.rx(_historyStart());
+        async.elapse(const Duration(seconds: 1));
+        bool? first;
+        r.engine.debugStartHistoricalRefresh().then((v) => first = v);
+        async.elapse(Duration.zero);
+        expect(first, isFalse);
+        expect(r.drainRequests, isEmpty);
+        expect(
+            r.logs.any((l) => l.contains('another client is transferring')),
+            isTrue);
+
+        // No caller has to come back: the deferred claim re-requests by
+        // itself once the transfer has been quiet for the window.
+        async.elapse(const Duration(seconds: 8));
+        expect(r.drainRequests, isEmpty);
+        async.elapse(const Duration(seconds: 3));
+        expect(r.drainRequests, hasLength(1));
+        expect(r.engine.offloadActive, isTrue);
+      });
+    });
+
+    test('a deferred claim re-requests soon after the foreign COMPLETE', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.rx(_historyStart());
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(Duration.zero);
+        expect(r.drainRequests, isEmpty);
+        r.rx(_historyComplete());
+        async.elapse(const Duration(seconds: 4));
+        expect(r.drainRequests, hasLength(1),
+            reason: 'after the settle, not the full quiet window');
+      });
+    });
+
+    test('a deferred claim keeps waiting while the foreign transfer streams, '
+        'without spinning', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.rx(_historyStart());
+        r.engine.debugStartHistoricalRefresh();
+        var c = 1800;
+        final stream = Timer.periodic(const Duration(seconds: 2),
+            (_) => r.rx(_gen5V18Inner(ts: ts, counter: c++)));
+        async.elapse(const Duration(seconds: 45));
+        expect(r.drainRequests, isEmpty);
+        expect(async.pendingTimers.length, lessThan(10));
+        stream.cancel();
+        async.elapse(const Duration(seconds: 21));
+        expect(r.drainRequests, hasLength(1));
+      });
+    });
+
+    test('a foreign COMPLETE closes the window immediately', () async {
+      final r = _Rig();
+      r.rx(_historyStart());
+      r.rx(_historyEnd(expected: 0, token: 0xD700));
+      r.rx(_historyComplete());
+      await pumpEventQueue();
+      expect(await r.engine.debugStartHistoricalRefresh(), isTrue);
+      expect(r.drainRequests, hasLength(1));
+    });
+
+    test('ownership ends at our COMPLETE', () async {
+      final r = _Rig()..claim();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1480));
+      r.rx(_historyEnd(expected: 1, token: 0xD800));
+      await pumpEventQueue();
+      expect(r.successResults, hasLength(1));
+      r.rx(_historyComplete());
+      await pumpEventQueue();
+      // The band re-offers an END after our task is over: not ours to answer.
+      r.rx(_historyEnd(expected: 1, token: 0xD800));
+      await pumpEventQueue();
+      expect(r.successResults, hasLength(1));
+      expect(r.failureResults, isEmpty);
+      // …and our own re-offer never defers our next request: the
+      // auto-continue the COMPLETE decided on went out (after its range
+      // poll's 120 ms gap).
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(r.engine.offloadSnapshot['foreign_history_live'], isFalse);
+      expect(r.drainRequests, hasLength(1));
+      expect(r.engine.offloadSnapshot['history_task_owned'], isTrue);
+    });
+
+    test('another client starting while our COMPLETE banks its tail is '
+        'seen on arrival', () {
+      fakeAsync((async) {
+        final r = _Rig()..claim();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1900));
+        r.rx(_historyEnd(expected: 1, token: 0xDD00));
+        async.elapse(Duration.zero);
+        expect(r.successResults, hasLength(1));
+        // A tail record, then our COMPLETE — whose tail commit parks.
+        r.rx(_gen5V18Inner(ts: ts + 1, counter: 1901));
+        async.elapse(Duration.zero);
+        r.holdCommit = Completer<void>();
+        final held = r.holdCommit!;
+        r.rx(_historyComplete());
+        async.elapse(Duration.zero);
+        // Another client's START lands behind it, and a refresh races the
+        // drainer for the moment the handler finishes.
+        r.rx(_historyStart());
+        bool? claimed;
+        r.engine.debugStartHistoricalRefresh().then((v) => claimed = v);
+        async.elapse(Duration.zero);
+        held.complete();
+        async.elapse(const Duration(milliseconds: 500));
+        expect(claimed, isFalse,
+            reason: 'the START arrived after our COMPLETE — it is not ours, '
+                'whatever ownership said while the tail was banking');
+        expect(r.engine.offloadSnapshot['foreign_history_live'], isTrue);
+        expect(r.engine.offloadActive, isFalse);
+
+        // The queue is drained; a later trigger is still refused.
+        expect(await_(r.engine.debugStartHistoricalRefresh(), async), isFalse);
+        expect(r.drainRequests, isEmpty, reason: 'no competing 0x16');
+        expect(r.successResults, hasLength(1));
+      });
+    });
+
+    test('foreign rows never ride into our first token commit', () async {
+      final r = _Rig()
+        ..claim()
+        ..failFailureResults = true;
+      // Our task ends by abort; records still in flight arrive after it.
+      // They are not ours any more, but they do not look like another
+      // client starting either, so the next claim goes ahead at once.
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1488));
+      r.rx(_historyEnd(expected: 3, token: 0xD880));
+      await pumpEventQueue();
+      expect(r.aborts, hasLength(1));
+      r.rx(_gen5V18Inner(ts: ts + 1, counter: 1490));
+      r.rx(_gen5V18Inner(ts: ts + 2, counter: 1491));
+      await pumpEventQueue();
+      expect(r.engine.offloadSnapshot['foreign_history_live'], isFalse);
+      final eventsBefore = r.events.length;
+      expect(await r.engine.debugStartHistoricalRefresh(), isTrue);
+      final claimEvents = r.events.sublist(eventsBefore);
+      expect(claimEvents.first, 'commit:null',
+          reason: 'the foreign buffer is banked before our task is claimed');
+      expect(r.committedRows.last, 2);
+      expect(
+          claimEvents.indexWhere((e) =>
+              e.startsWith('write:${Cmd.getClock}:') ||
+              e.startsWith('write:${Cmd.sendHistoricalData}:')),
+          greaterThan(0));
+
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts + 3, counter: 1492));
+      r.rx(_historyEnd(expected: 1, token: 0xD900));
+      await pumpEventQueue();
+      expect(r.committedTokens.last, hex(_tokenBytes(0xD900)));
+      expect(r.committedRows.last, 1,
+          reason: 'our token commit carries only our burst');
+      expect(r.successResults, hasLength(1));
+    });
+
+    test('foreign rows banked by the quiet flush, then our own task', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1495));
+        r.rx(_gen5V18Inner(ts: ts + 1, counter: 1496));
+        async.elapse(const Duration(seconds: 1));
+        bool? first;
+        r.engine.debugStartHistoricalRefresh().then((v) => first = v);
+        async.elapse(Duration.zero);
+        expect(first, isFalse);
+
+        async.elapse(const Duration(seconds: 11));
+        expect(r.committedTokens, [null]);
+        expect(r.committedRows, [2],
+            reason: 'the 5 s quiet flush banked the foreign rows tokenless');
+
+        // The deferred claim re-requested on its own once the window closed.
+        expect(r.drainRequests, hasLength(1));
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts + 2, counter: 1497));
+        r.rx(_historyEnd(expected: 1, token: 0xD990));
+        async.elapse(Duration.zero);
+        expect(r.committedTokens.last, hex(_tokenBytes(0xD990)));
+        expect(r.committedRows.last, 1);
+        expect(r.successResults, hasLength(1));
+      });
+    });
+
+    test('a foreign record landing while a claim waits out an abort is '
+        'banked tokenless and never rides into our token commit', () {
+      fakeAsync((async) {
+        final r = _Rig()
+          ..claim()
+          ..failFailureResults = true;
+        r.holdAbort = Completer<bool>();
+        // Our task ends with its abort write parked open.
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1520));
+        r.rx(_historyEnd(expected: 3, token: 0xDB00));
+        async.elapse(Duration.zero);
+        expect(r.aborts, hasLength(1));
+        expect(r.committedTokens, [null]);
+
+        // A new claim waits on the lifecycle barrier…
+        bool? claimed;
+        r.engine.debugStartHistoricalRefresh().then((v) => claimed = v);
+        async.elapse(Duration.zero);
+        expect(claimed, isNull);
+        // …and a record of a transfer we did not request lands meanwhile.
+        r.rx(_gen5V18Inner(ts: ts + 10, counter: 1530));
+        async.elapse(Duration.zero);
+
+        r.holdAbort!.complete(true);
+        r.holdAbort = null;
+        async.elapse(const Duration(milliseconds: 500));
+        expect(claimed, isTrue);
+        expect(r.engine.debugDrain!.bufferedRecords, 0,
+            reason: 'the foreign record is not in our drain');
+
+        // The quiet flush banks it on its own, tokenless.
+        async.elapse(const Duration(seconds: 6));
+        expect(r.committedTokens, [null, null]);
+        expect(r.committedRows.last, 1);
+
+        // Our burst: its token commit carries exactly our one record.
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts + 20, counter: 1540));
+        r.rx(_historyEnd(expected: 1, token: 0xDB10));
+        async.elapse(Duration.zero);
+        expect(r.committedTokens.last, hex(_tokenBytes(0xDB10)));
+        expect(r.committedRows.last, 1);
+        expect(r.successResults, hasLength(1),
+            reason: 'one ACK — for our burst only, after its commit');
+        final commitAt = r.events.indexOf('commit:${hex(_tokenBytes(0xDB10))}');
+        final ackAt =
+            r.events.indexOf('write:${Cmd.historicalDataResult}:1');
+        expect(ackAt, greaterThan(commitAt));
+      });
+    });
+
+    test('an auto-continue defers to another client\'s live transfer and '
+        'releases the claim', () {
+      fakeAsync((async) {
+        final r = _Rig()..claim();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1950));
+        r.rx(_historyEnd(expected: 1, token: 0xDE00));
+        async.elapse(Duration.zero);
+        expect(r.successResults, hasLength(1));
+        // Another client starts just as our COMPLETE arrives.
+        r.rx(_historyComplete());
+        r.rx(_historyStart());
+        async.elapse(const Duration(seconds: 2));
+        expect(r.logs.any((l) => l.contains('[SYNC] auto-continue')), isTrue);
+        expect(r.logs.any((l) => l.contains('another client is transferring')),
+            isTrue);
+        expect(r.drainRequests, isEmpty,
+            reason: 'the auto-continue must not compete with that transfer');
+        expect(r.engine.offloadActive, isFalse,
+            reason: 'refused before claiming: the claim is released');
+        expect(r.engine.offloadSnapshot['history_task_owned'], isFalse);
+      });
+    });
+
+    test('our own auto-continued task is ours: its START and END are '
+        'answered, the window stays closed', () {
+      fakeAsync((async) {
+        final r = _Rig()..claim();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1960));
+        r.rx(_historyEnd(expected: 1, token: 0xDF00));
+        r.rx(_historyComplete());
+        async.elapse(const Duration(seconds: 1));
+        expect(r.drainRequests, hasLength(1), reason: 'auto-continued');
+        expect(r.engine.offloadSnapshot['history_task_owned'], isTrue);
+
+        // The band answers the auto-continue with a fresh burst.
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts + 1, counter: 1961));
+        r.rx(_historyEnd(expected: 1, token: 0xDF10));
+        async.elapse(Duration.zero);
+        expect(r.successResults, hasLength(2),
+            reason: 'the auto-continued burst is ACKed as ours');
+        expect(r.successResults.last.body.take(9).toList(),
+            [0x01, ..._tokenBytes(0xDF10)]);
+        expect(r.engine.offloadSnapshot['foreign_history_live'], isFalse);
+        expect(r.engine.offloadSnapshot['foreign_records_banked'], 0);
+        expect(r.engine.offloadSnapshot['first_start_watchdog_armed'], isFalse);
+      });
+    });
+
+    test('a foreign START queued behind a held COMPLETE still defers a '
+        'claim', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        // Another client's transfer: one burst, then its COMPLETE, whose
+        // tokenless bank parks mid-commit.
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1700));
+        r.rx(_historyEnd(expected: 1, token: 0xDC00));
+        async.elapse(Duration.zero);
+        r.rx(_gen5V18Inner(ts: ts + 1, counter: 1701));
+        r.holdCommit = Completer<void>();
+        final held = r.holdCommit!;
+        r.rx(_historyComplete());
+        async.elapse(Duration.zero);
+        // …and it starts its next transfer while that commit is parked.
+        r.rx(_historyStart());
+
+        bool? claimed;
+        r.engine.debugStartHistoricalRefresh().then((v) => claimed = v);
+        async.elapse(Duration.zero);
+        held.complete();
+        async.elapse(const Duration(milliseconds: 500));
+        expect(claimed, isFalse,
+            reason: 'the queued START was seen on arrival — no competing '
+                'transfer may start, whatever the drainer has reached');
+        expect(r.drainRequests, isEmpty);
+        expect(r.writes.where((w) => w.opcode != Cmd.getClock), isEmpty);
+      });
+    });
+
+    test('another client starting between our abort and our retry defers '
+        'the retry', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.engine.debugStartHistoricalRefresh();
+        async.elapse(const Duration(seconds: 11));
+        expect(r.aborts, hasLength(1), reason: 'our request went unanswered');
+        // Our task's terminal latch is set; another client's START arrives
+        // inside the 3 s retry settle.
+        r.rx(_historyStart());
+        async.elapse(const Duration(milliseconds: 10));
+        expect(r.engine.offloadSnapshot['foreign_history_live'], isTrue,
+            reason: 'recorded for deferral and maintenance pausing even '
+                'though the latch keeps the marker inert');
+        async.elapse(const Duration(seconds: 6));
+        expect(r.drainRequests, hasLength(1),
+            reason: 'the retry must not compete with that transfer');
+        expect(r.aborts, hasLength(1));
+        expect(r.logs.any((l) => l.contains('another client is transferring')),
+            isTrue);
+      });
+    });
+
+    test('INIT re-checks the foreign window after its waits', () {
+      fakeAsync((async) {
+        final r = _Rig()
+          ..claim()
+          ..failFailureResults = true;
+        r.holdAbort = Completer<bool>();
+        // Our task ends with its abort parked: INIT has to wait it out.
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1800));
+        r.rx(_historyEnd(expected: 3, token: 0xE800));
+        async.elapse(Duration.zero);
+        expect(r.aborts, hasLength(1));
+        bool? ready;
+        r.engine.debugStartInitDrain().then((v) => ready = v);
+        async.elapse(Duration.zero);
+        expect(ready, isNull);
+        // The other client's START lands while INIT waits.
+        r.rx(_historyStart());
+        async.elapse(Duration.zero);
+        r.holdAbort!.complete(true);
+        r.holdAbort = null;
+        async.elapse(const Duration(seconds: 2));
+        expect(ready, isTrue);
+        expect(r.drainRequests, isEmpty,
+            reason: 'INIT must not ask for history into a live foreign '
+                'transfer it learned about during its own waits');
+        expect(r.logs.any((l) => l.contains('INIT drain DEFERRED — another')),
+            isTrue);
+        expect(r.engine.offloadActive, isFalse);
+      });
+    });
+
+    test('joining another client\'s burst mid-way (records, no marker yet) '
+        'defers a claim; gen4 END is not answered', () async {
+      final r = _Rig(band: BandProfile.gen4);
+      r.rx(_gen4V24Inner(ts: ts, counter: 1700));
+      r.rx(_gen4V24Inner(ts: ts + 1, counter: 1701));
+      await pumpEventQueue();
+      expect(r.engine.offloadSnapshot['foreign_history_live'], isTrue);
+      expect(await r.engine.debugStartHistoricalRefresh(), isFalse,
+          reason: 'claiming now would make its END look like ours');
+      r.rx(_historyEnd(expected: 2, token: 0xD710));
+      await pumpEventQueue();
+      expect(r.writes, isEmpty);
+      expect(r.committedTokens, everyElement(isNull));
+      expect(r.committedRows.fold<int>(0, (a, b) => a + b), 2);
+    });
+
+    test('an abandoned foreign transfer stops deferring after the stall '
+        'bound, however often its END is re-offered', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1710));
+        // Nobody answers it: the band re-offers the END every 2.5 s.
+        final reoffer = Timer.periodic(const Duration(milliseconds: 2500),
+            (_) => r.rx(_historyEnd(expected: 1, token: 0xD720)));
+        async.elapse(const Duration(seconds: 30));
+        expect(await_(r.engine.debugStartHistoricalRefresh(), async), isFalse);
+        expect(r.drainRequests, isEmpty);
+        async.elapse(const Duration(seconds: 31));
+        expect(r.engine.offloadSnapshot['foreign_history_live'], isFalse);
+        async.elapse(const Duration(seconds: 10));
+        reoffer.cancel();
+        expect(r.drainRequests, hasLength(1),
+            reason: 'the deferred claim re-requests once the stall bound '
+                'closes the window');
+        expect(r.writes.where((w) => w.opcode == Cmd.historicalDataResult),
+            isEmpty);
+      });
+    });
+
+    test('a link closing mid-transfer banks the foreign buffer', () async {
+      final r = _Rig();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1720));
+      r.rx(_gen5V18Inner(ts: ts + 1, counter: 1721));
+      await pumpEventQueue();
+      expect(r.committedRows, isEmpty, reason: 'still buffered');
+      await r.engine.disconnect();
+      await pumpEventQueue();
+      expect(r.committedTokens, [null]);
+      expect(r.committedRows, [2],
+          reason: 'the other client trims these; dropping them loses them');
+    });
+
+    test('a latched link still banks another client\'s burst at its END', () {
+      fakeAsync((async) {
+        final r = _Rig()
+          ..claim()
+          ..failFailureResults = true;
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1730));
+        r.rx(_historyEnd(expected: 3, token: 0xD730));
+        async.elapse(Duration.zero);
+        expect(r.aborts, hasLength(1));
+        final commits = r.committedTokens.length;
+        // Another client's burst while our task's latch is set.
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts + 10, counter: 1740));
+        r.rx(_historyEnd(expected: 1, token: 0xD740));
+        async.elapse(const Duration(seconds: 1));
+        expect(r.committedTokens.length, commits + 1,
+            reason: 'banked at the burst boundary, not 5 s later');
+        expect(r.committedTokens.last, isNull);
+      });
+    });
+
+    test('a continuous foreign stream is banked within 5 s, not when it '
+        'stops', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        var c = 1750;
+        final stream = Timer.periodic(const Duration(seconds: 1),
+            (_) => r.rx(_gen5V18Inner(ts: ts + (c - 1750), counter: c++)));
+        async.elapse(const Duration(seconds: 7));
+        expect(r.engine.offloadSnapshot['foreign_records_banked'],
+            greaterThan(0));
+        stream.cancel();
+      });
+    });
+
+    test('a transfer that starts while our request is still being prepared '
+        'is not ours, and our request is not sent into it', () async {
+      final r = _Rig(band: BandProfile.gen4);
+      // Another client's whole burst lands during our claim's clock read —
+      // before our SEND_HISTORICAL_DATA has gone out.
+      r.onClockRequest = () {
+        r.rx(_historyStart());
+        r.rx(_gen4V24Inner(ts: ts, counter: 1760));
+        r.rx(_historyEnd(expected: 1, token: 0xD760));
+      };
+      expect(await r.engine.debugStartHistoricalRefresh(), isFalse);
+      await pumpEventQueue();
+      expect(r.drainRequests, isEmpty);
+      expect(r.successResults, isEmpty,
+          reason: 'its END must not be validated and ACKed as ours');
+      expect(r.committedTokens, everyElement(isNull));
+      expect(r.committedRows.fold<int>(0, (a, b) => a + b), 1);
+      expect(r.logs.any((l) => l.contains('while this request was being '
+          'prepared')), isTrue);
+      expect(r.engine.offloadActive, isFalse);
+    });
+
+    test('a stray COMPLETE before our request goes out does not end our task',
+        () async {
+      final r = _Rig();
+      r.onClockRequest = () => r.rx(_historyComplete());
+      expect(await r.engine.debugStartHistoricalRefresh(), isTrue);
+      await pumpEventQueue();
+      expect(r.drainRequests, hasLength(1));
+      expect(r.engine.offloadSnapshot['history_task_owned'], isTrue,
+          reason: 'the COMPLETE could not be an answer to a request not yet '
+              'sent');
+      expect(r.engine.offloadSnapshot['last_hps_terminal'], isNull);
+    });
+
+    test('a link closing banks another client\'s records still queued',
+        () async {
+      final r = _Rig();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1770));
+      await pumpEventQueue();
+      final held = r.holdCommit = Completer<void>();
+      r.rx(_historyEnd(expected: 1, token: 0xD770)); // its bank parks
+      await pumpEventQueue();
+      r.rx(_gen5V18Inner(ts: ts + 1, counter: 1771)); // queued behind it
+      r.rx(_gen5V18Inner(ts: ts + 2, counter: 1772));
+      // The final bank waits out the parked one, detached from the teardown.
+      final closing = r.engine.disconnect();
+      await pumpEventQueue();
+      held.complete();
+      await closing;
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(r.committedTokens, everyElement(isNull));
+      expect(r.committedRows.fold<int>(0, (a, b) => a + b), 3);
+    });
+
+    test('a deferred request leaves no watchdog behind (no abort a minute '
+        'later)', () {
+      fakeAsync((async) {
+        final r = _Rig(band: BandProfile.gen4);
+        var injected = false;
+        r.onWriteOpcode = (op) {
+          if (injected || op != Cmd.getDataRange) return;
+          injected = true;
+          // Another client's burst while the claim waits out its range poll —
+          // the drainer handles it while the claim is still live.
+          r.rx(_historyStart());
+          r.rx(_gen4V24Inner(ts: ts, counter: 1765));
+        };
+        bool? sent;
+        r.engine
+            .debugStartHistoricalRefresh(refreshRange: true)
+            .then((v) => sent = v);
+        async.elapse(const Duration(seconds: 1));
+        expect(injected, isTrue);
+        expect(sent, isFalse);
+        async.elapse(const Duration(seconds: 9));
+        expect(r.aborts, isEmpty,
+            reason: 'nothing of ours was ever requested');
+        expect(r.drainRequests, isEmpty);
+        async.elapse(const Duration(seconds: 61));
+        expect(r.drainRequests, isNotEmpty, reason: 're-requested once quiet');
+        expect(r.aborts, hasLength(r.drainRequests.length),
+            reason: 'every abort ends a request that went out');
+      });
+    });
+
+    test('a link closing banks foreign records the drainer was holding',
+        () async {
+      final r = _Rig();
+      final held = r.holdCommit = Completer<void>();
+      // One extracted batch: the END's bank parks; the records behind it are
+      // in the drainer's hand, not in the queue.
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1780));
+      r.rx(_historyEnd(expected: 1, token: 0xD780));
+      r.rx(_gen5V18Inner(ts: ts + 1, counter: 1781));
+      r.rx(_gen5V18Inner(ts: ts + 2, counter: 1782));
+      await pumpEventQueue();
+      final closing = r.engine.disconnect();
+      await pumpEventQueue();
+      held.complete();
+      await closing;
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(r.committedTokens, everyElement(isNull));
+      expect(r.committedRows.fold<int>(0, (a, b) => a + b), 3);
+    });
+
+    test('a new foreign START ends our own tail: its later records re-open '
+        'the window after a pause', () {
+      fakeAsync((async) {
+        final r = _Rig()
+          ..claim()
+          ..failFailureResults = true;
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1790));
+        r.rx(_historyEnd(expected: 3, token: 0xD790));
+        async.elapse(Duration.zero);
+        expect(r.aborts, hasLength(1), reason: 'our task ended');
+        r.rx(_historyStart()); // another client's transfer
+        async.elapse(const Duration(seconds: 11)); // it pauses
+        expect(r.engine.offloadSnapshot['foreign_history_live'], isFalse);
+        r.rx(_gen5V18Inner(ts: ts + 20, counter: 1795)); // and resumes
+        async.elapse(Duration.zero);
+        expect(r.engine.offloadSnapshot['foreign_history_live'], isTrue);
+        expect(await_(r.engine.debugStartHistoricalRefresh(), async), isFalse);
+      });
+    });
+
+    test('a final bank that fails as the link closes is counted, and its '
+        'rows are retained nowhere — not even after a reconnect', () async {
+      final r = _Rig()..failCommits = 2;
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1800));
+      r.rx(_historyEnd(expected: 1, token: 0xD800)); // bank #1 fails
+      await pumpEventQueue();
+      await r.engine.disconnect(); // the final bank fails too
+      await pumpEventQueue();
+      expect(r.committedRows, isEmpty);
+      expect(r.engine.offloadSnapshot['foreign_rows_lost_at_shutdown'], 1);
+      // A new link's banks never bring the old link's rows back (a reset in
+      // between must stay a reset).
+      r.connect();
+      r.rx(_historyStart());
+      r.rx(_historyEnd(expected: 0, token: 0xD801));
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(r.committedRows, isEmpty);
+    });
+
+    test('a reconnect while a foreign bank is still running leaves the new '
+        'link intact', () async {
+      final r = _Rig();
+      final held = r.holdCommit = Completer<void>();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1805));
+      r.rx(_historyEnd(expected: 1, token: 0xD805)); // its bank parks
+      await pumpEventQueue();
+      final closing = r.engine.disconnect();
+      await closing; // the teardown does not wait on the parked bank
+      r.connect(); // the next link is up before that bank finishes
+      held.complete();
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(await r.engine.debugStartHistoricalRefresh(), isTrue,
+          reason: 'nothing of the old teardown resumed onto the new link');
+      expect(r.drainRequests, hasLength(1));
+      expect(r.committedRows.fold<int>(0, (a, b) => a + b), 1);
+    });
+
+    test('a record that arrives once shutdown has begun is either in the '
+        'final bank or dropped — never left half-routed', () async {
+      final r = _Rig();
+      r.rx(_historyStart());
+      r.rx(_gen5V18Inner(ts: ts, counter: 1810));
+      await pumpEventQueue();
+      final closing = r.engine.disconnect();
+      r.rx(_gen5V18Inner(ts: ts + 1, counter: 1811)); // races the teardown
+      await closing;
+      r.rx(_gen5V18Inner(ts: ts + 2, counter: 1812)); // after: no link
+      r.engine.debugReceiveChunk(
+          _rev2Chunk(_gen5V18Inner(ts: ts + 3, counter: 1813)));
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      final banked = r.committedRows.fold<int>(0, (a, b) => a + b);
+      expect(banked, anyOf(1, 2));
+      expect(r.engine.offloadSnapshot['foreign_records_banked'], banked);
+      expect(r.engine.offloadSnapshot['queued_frames'], 0);
+      // Nothing of it surfaces later on a new link.
+      r.connect();
+      r.rx(_historyStart());
+      r.rx(_historyEnd(expected: 0, token: 0xD811));
+      await pumpEventQueue();
+      expect(r.committedRows.fold<int>(0, (a, b) => a + b), banked);
+    });
+
+    test('the banked count is the rows actually committed, whatever flushes '
+        'overlap', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        final held = r.holdCommit = Completer<void>();
+        r.rx(_historyStart());
+        for (var i = 0; i < 256; i++) {
+          r.rx(_gen5V18Inner(ts: ts + i, counter: 2000 + i)); // size bank, parks
+        }
+        async.elapse(Duration.zero);
+        for (var i = 0; i < 3; i++) {
+          r.rx(_gen5V18Inner(ts: ts + 300 + i, counter: 2300 + i));
+        }
+        r.rx(_historyEnd(expected: 259, token: 0xE000)); // marker bank queues
+        async.elapse(const Duration(seconds: 6)); // timer bank queues too
+        held.complete();
+        async.elapse(const Duration(seconds: 1));
+        final delivered = r.committedRows.fold<int>(0, (a, b) => a + b);
+        expect(delivered, 259);
+        expect(r.engine.offloadSnapshot['foreign_records_banked'], delivered,
+            reason: 'three flushes saw the same 3 rows buffered; only one '
+                'commit stored them');
+      });
+    });
+
+    test('frames of an unknown revision in another client\'s transfer are '
+        'archived and banked like its records (quiet bank)', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.rx(_historyStart()); // another client's transfer is live
+        async.elapse(Duration.zero);
+        r.engine.debugReceiveChunk(
+            _rev2Chunk(_gen5V18Inner(ts: ts, counter: 1810)));
+        async.elapse(const Duration(seconds: 6));
+        expect(r.engine.offloadSnapshot['frame_rev_rejects_total'], 1);
+        expect(r.committedTokens, [null]);
+        expect(r.committedRows, [1], reason: 'the archive, banked tokenless');
+        expect(r.writes, isEmpty);
+      });
+    });
+
+    test('... and at the size threshold', () {
+      fakeAsync((async) {
+        final r = _Rig();
+        r.rx(_historyStart());
+        async.elapse(Duration.zero);
+        for (var i = 0; i < 256; i++) {
+          r.engine.debugReceiveChunk(
+              _rev2Chunk(_gen5V18Inner(ts: ts + i, counter: 1820 + i)));
+        }
+        async.elapse(const Duration(milliseconds: 10));
+        expect(r.engine.offloadSnapshot['foreign_records_banked'], 256,
+            reason: 'banked on size, not after the quiet timer');
+      });
+    });
+
+    test('records after our own abort are banked, not answered', () {
+      fakeAsync((async) {
+        final r = _Rig()
+          ..claim()
+          ..failFailureResults = true;
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 1500));
+        r.rx(_historyEnd(expected: 3, token: 0xDA00));
+        async.elapse(Duration.zero);
+        expect(r.aborts, hasLength(1));
+        expect(r.committedTokens, [null]);
+        expect(r.committedRows, [1]);
+        final writesAtAbort = r.writes.length;
+
+        r.rx(_gen5V18Inner(ts: ts + 5, counter: 1505));
+        async.elapse(const Duration(seconds: 6));
+        expect(r.committedTokens, [null, null]);
+        expect(r.committedRows.last, 1);
+        expect(r.writes.length, writesAtAbort,
+            reason: 'nothing is written for a straggler of an ended task');
+      });
+    });
+  });
+
+  group('T14 — one arrival classifier for every ingest path', () {
+    String hex(List<int> b) =>
+        b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+
+    test('records on cmd_from/events while our COMPLETE banks its tail are '
+        'banked tokenless, never into our drain', () {
+      fakeAsync((async) {
+        final r = _Rig()..claim();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 2000));
+        r.rx(_historyEnd(expected: 1, token: 0xE000));
+        async.elapse(Duration.zero);
+        r.rx(_gen5V18Inner(ts: ts + 1, counter: 2001)); // our tail
+        async.elapse(Duration.zero);
+        r.holdCommit = Completer<void>();
+        final held = r.holdCommit!;
+        r.rx(_historyComplete());
+        async.elapse(Duration.zero);
+        // Another client's records, reassembled off the data characteristic.
+        r.rx(_gen5V18Inner(ts: ts + 10, counter: 2010), role: 'cmd_from');
+        r.rx(_gen5V18Inner(ts: ts + 11, counter: 2011), role: 'events');
+        async.elapse(Duration.zero);
+        expect(r.engine.debugDrain!.bufferedRecords, 0,
+            reason: 'never into the drain our next token commit reads');
+        held.complete();
+        async.elapse(const Duration(seconds: 6));
+        expect(r.engine.offloadSnapshot['foreign_records_banked'], 2);
+
+        // Our next task: its token commit carries only its own record.
+        r.claim();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts + 20, counter: 2020));
+        r.rx(_historyEnd(expected: 1, token: 0xE010));
+        async.elapse(Duration.zero);
+        expect(r.committedTokens.last, hex(_tokenBytes(0xE010)));
+        expect(r.committedRows.last, 1);
+        expect(r.committedTokens.where((t) => t == null).length, 2,
+            reason: 'our tail + the two foreign rows, both tokenless');
+      });
+    });
+
+    test('a completed task does not survive a reconnect: a foreign END '
+        'before INIT opens the window and INIT skips its drain', () {
+      fakeAsync((async) {
+        final r = _Rig()..claim();
+        r.rx(_historyStart());
+        r.rx(_gen5V18Inner(ts: ts, counter: 2100));
+        r.rx(_historyEnd(expected: 1, token: 0xE100));
+        r.rx(_historyComplete());
+        async.elapse(Duration.zero);
+        expect(r.successResults, hasLength(1));
+
+        // New link, mid-way through another client's transfer: its START
+        // came before we subscribed, its END is the first thing we see.
+        r.connect();
+        r.rx(_historyEnd(expected: 3, token: 0xE1F0));
+        async.elapse(Duration.zero);
+        expect(r.engine.offloadSnapshot['foreign_history_live'], isTrue);
+        final before = r.drainRequests.length;
+        bool? ready;
+        r.engine.debugStartInitDrain().then((v) => ready = v);
+        async.elapse(const Duration(seconds: 2));
+        expect(ready, isTrue);
+        expect(r.drainRequests.length, before,
+            reason: 'no competing 0x16 into that transfer');
+        expect(r.logs.any((l) => l.contains('INIT drain DEFERRED — another')),
+            isTrue);
+      });
+    });
+
+    // role × state × marker. Every cell asserts the classification through
+    // what it may and may not cause: an owned frame is answered/buffered as
+    // ours; a foreign one writes nothing, is banked tokenless (records) and
+    // moves the deferral window per the self-deferral rule.
+    const roles = ['data', 'cmd_from', 'events'];
+    const states = ['no task', 'owned mid-burst', 'our COMPLETE held',
+        'task aborted', 'after reconnect'];
+    const kinds = ['START', 'record', 'END', 'COMPLETE'];
+
+    for (final state in states) {
+      for (final kind in kinds) {
+        for (final role in roles) {
+          test('$state × $kind via $role', () {
+            fakeAsync((async) {
+              void pump() => async.elapse(Duration.zero);
+              final r = _Rig();
+              Completer<void>? held;
+              switch (state) {
+                case 'owned mid-burst':
+                  r.claim();
+                  r.rx(_historyStart());
+                  r.rx(_gen5V18Inner(ts: ts, counter: 3000));
+                case 'our COMPLETE held':
+                  r.claim();
+                  r.rx(_historyStart());
+                  r.rx(_gen5V18Inner(ts: ts, counter: 3000));
+                  r.rx(_historyEnd(expected: 1, token: 0xF000));
+                  pump();
+                  r.rx(_gen5V18Inner(ts: ts + 1, counter: 3001));
+                  pump();
+                  held = r.holdCommit = Completer<void>();
+                  r.rx(_historyComplete());
+                case 'task aborted':
+                  r
+                    ..claim()
+                    ..failFailureResults = true;
+                  r.rx(_historyStart());
+                  r.rx(_gen5V18Inner(ts: ts, counter: 3000));
+                  r.rx(_historyEnd(expected: 3, token: 0xF000));
+                  pump();
+                  expect(r.aborts, hasLength(1));
+                case 'after reconnect':
+                  r.claim();
+                  r.rx(_historyStart());
+                  r.rx(_gen5V18Inner(ts: ts, counter: 3000));
+                  r.rx(_historyEnd(expected: 1, token: 0xF000));
+                  r.rx(_historyComplete());
+                  // Let the auto-continue the COMPLETE decided on settle on
+                  // the old link before it goes away.
+                  async.elapse(const Duration(seconds: 1));
+                  r.connect();
+              }
+              pump();
+              final owned = state == 'owned mid-burst';
+              final writesBefore = r.writes.length;
+              final bufferedBefore = r.engine.debugDrain!.bufferedRecords;
+
+              final inner = switch (kind) {
+                'START' => _historyStart(),
+                'record' => _gen5V18Inner(ts: ts + 50, counter: 3050),
+                'END' => _historyEnd(expected: 1, token: 0xF0E0),
+                _ => _historyComplete(),
+              };
+              r.rx(inner, role: role);
+              pump();
+              held?.complete();
+              async.elapse(const Duration(seconds: 6));
+
+              final snap = r.engine.offloadSnapshot;
+              final newWrites = r.writes.sublist(writesBefore);
+              if (owned) {
+                switch (kind) {
+                  case 'START': // a replacement START: still our task
+                    expect(snap['history_task_owned'], isTrue);
+                  case 'record':
+                    expect(r.engine.debugDrain!.bufferedRecords,
+                        bufferedBefore + 1);
+                  case 'END':
+                    expect(newWrites.single.opcode, Cmd.historicalDataResult);
+                    expect(newWrites.single.body0, 0x01);
+                  case 'COMPLETE':
+                    expect(snap['history_task_owned'], isFalse);
+                }
+                expect(snap['foreign_records_banked'], 0);
+                expect(snap['foreign_history_live'], isFalse);
+                return;
+              }
+              // Foreign: never answered (no result, no abort), nothing into
+              // our drain. Our own COMPLETE's auto-continue may still go out
+              // — unless the frame opened the foreign window.
+              expect(
+                  newWrites.where((w) =>
+                      w.opcode == Cmd.historicalDataResult ||
+                      w.opcode == Cmd.abortHistoricalTransmits),
+                  isEmpty,
+                  reason: 'never answered');
+              if (kind == 'START') {
+                expect(newWrites.where((w) => w.opcode == Cmd.sendHistoricalData),
+                    isEmpty,
+                    reason: 'no request competes with a transfer that just '
+                        'started');
+              }
+              final ourTail =
+                  state == 'our COMPLETE held' || state == 'task aborted';
+              switch (kind) {
+                case 'START':
+                  expect(snap['foreign_history_live'], isTrue);
+                case 'record':
+                  expect(snap['foreign_records_banked'], 1);
+                  expect(r.engine.debugDrain!.bufferedRecords, 0);
+                case 'END':
+                  // Our own re-offered END never self-defers.
+                  expect(snap['foreign_history_live'], !ourTail);
+                case 'COMPLETE':
+                  expect(snap['foreign_history_live'], isFalse);
+              }
+            });
+          });
+        }
+      }
+    }
   });
 }

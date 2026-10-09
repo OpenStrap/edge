@@ -277,7 +277,7 @@ class IosShortcutSync {
         if (task.stopped) return task.expired;
         final backlogRemains = await _backlogRemains(engine);
         if (report.complete && !backlogRemains) {
-          await engine.disconnect();
+          await disconnectHeadless(engine, bound: _shutdownBankBound(task));
           task.onStop = null;
           return await _derive(task);
         }
@@ -294,11 +294,19 @@ class IosShortcutSync {
     } finally {
       task.onStop = null;
       try {
-        await engine.disconnect();
+        await disconnectHeadless(engine, bound: _shutdownBankBound(task));
       } finally {
         await radio.cancel();
       }
     }
+  }
+
+  /// The wait for the closed link's final foreign bank: never past the
+  /// Shortcut's own deadline.
+  static Duration _shutdownBankBound(ShortcutSyncTask task) {
+    const cap = Duration(seconds: 12);
+    final left = task.remaining;
+    return left < cap ? left : cap;
   }
 
   static Future<ShortcutSyncResult> _derive(ShortcutSyncTask task) async {
