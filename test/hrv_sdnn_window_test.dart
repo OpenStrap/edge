@@ -36,7 +36,7 @@ void main() {
 
   test('Apple export writes sdnn_window, never the whole-night sdnn', () {
     final b = <String, dynamic>{
-      'scalars': {'sdnn': 197.0, 'sdnn_window': 52.4, 'rmssd': 96.0},
+      'scalars': <String, Object?>{'sdnn': 197.0, 'sdnn_window': 52.4, 'rmssd': 96.0},
       'clinical': {
         'hrv_time': {
           'value': {'sdnn_ms': 197.0, 'sdnn_index_ms': 55.0},
@@ -45,6 +45,9 @@ void main() {
     };
     expect(healthHrvExportValue(b, apple: true), 52.4);
     expect(healthHrvExportValue(b, apple: false), 96.0);
+    // A refused sdnn_window stays absent, no fallback to the index.
+    (b['scalars'] as Map)['sdnn_window'] = null;
+    expect(healthHrvExportValue(b, apple: true), isNull);
     // A bundle derived before sdnn_window: its stored SDNN index.
     (b['scalars'] as Map).remove('sdnn_window');
     expect(healthHrvExportValue(b, apple: true), 55.0);
