@@ -165,11 +165,35 @@ DateTime healthNightlyScalarTime({
   return dayStart.add(const Duration(hours: 12));
 }
 
+/// The nightly HRV sample for the platform store: Health Connect's RMSSD is
+/// the headline `rmssd`; HealthKit's SDNN is the short-window SDNN
+/// (`sdnn_window`, mean of 5-min-window SDNNs). Never the whole-night `sdnn`:
+/// hours of HR drift roughly double it against what Apple Health and other
+/// apps write as HRV SDNN (#315). A bundle derived before `sdnn_window`
+/// existed (no `sdnn_window` key) falls back to its stored SDNN index, the
+/// same statistic without the per-window beat floor.
+@visibleForTesting
+num? healthHrvExportValue(Map<String, dynamic> b, {required bool apple}) {
+  final scalars = b['scalars'] is Map ? b['scalars'] as Map : const {};
+  num? sc(String k) => scalars[k] is num ? scalars[k] as num : null;
+  if (!apple) return sc('rmssd');
+  // A bundle that carries the key is authoritative even when null: that
+  // null is the deriver's refusal, never a cue to fall back.
+  if (scalars.containsKey('sdnn_window')) return sc('sdnn_window');
+  final clinical = b['clinical'];
+  final time = clinical is Map ? clinical['hrv_time'] : null;
+  final value = time is Map ? time['value'] : null;
+  final index = value is Map ? value['sdnn_index_ms'] : null;
+  return index is num ? index : null;
+}
+
 /// Cursor for the one-shot Apple Health sleep rewrite. Bump when the writer
 /// changes enough that nights already sitting in HealthKit should be replaced
 /// (plugin Core/in-bed misses, leftover 11pm fragments). Does not bump
-/// `kAlgoVersion` — derived metrics are unchanged.
-const kHealthSleepExportEpoch = 'apple-native-1';
+/// `kAlgoVersion` — derived metrics are unchanged. `apple-native-2` (#315):
+/// replay so every night's HRV SDNN already in HealthKit is replaced by the
+/// short-window value ([healthHrvExportValue]).
+const kHealthSleepExportEpoch = 'apple-native-2';
 const kHealthSleepExportEpochCursor = 'health_sleep_export_epoch';
 
 Future<void> ensureHealthSleepExportEpoch({
@@ -513,8 +537,6 @@ class HealthExporter {
       ? HealthDataType.HEART_RATE_VARIABILITY_SDNN
       : HealthDataType.HEART_RATE_VARIABILITY_RMSSD;
 
-  /// The metric scalar feeding the HRV type (sdnn on iOS, rmssd on Android).
-  String get _hrvScalarKey => isApple ? 'sdnn' : 'rmssd';
 
   List<HealthDataType> get _types => [
     HealthDataType.RESTING_HEART_RATE,
@@ -1290,7 +1312,12 @@ class HealthExporter {
       HealthDataUnit.BEATS_PER_MINUTE,
       mid,
     );
-    await writeAt(_hrvType, sc(_hrvScalarKey), HealthDataUnit.MILLISECOND, mid);
+    await writeAt(
+      _hrvType,
+      healthHrvExportValue(b, apple: isApple),
+      HealthDataUnit.MILLISECOND,
+      mid,
+    );
     await writeAt(
       HealthDataType.RESPIRATORY_RATE,
       sc('resp_rate'),
