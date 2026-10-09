@@ -901,7 +901,14 @@ void main() {
         'resting_hr': 55,
       };
 
+      // A settled week of quiet-waking levels. Live strain is priced on the
+      // user's own level, which the reconcile's anchor refresh fills in after
+      // the restore — awaited here, so the restored series is re-scored on it.
+      for (var d = 1; d <= 7; d++) {
+        await LocalDb.putMetricSeriesValue('2020-01-0$d', 'quiet_hrr', 0.20);
+      }
       await app.debugReconcileOrphanedLiveWorkout();
+      await app.debugRefreshNightlyRhr();
 
       final w = app.activeWorkout;
       expect(w?.workoutId, id);
@@ -987,6 +994,73 @@ void main() {
           reason: 'a paused draft left behind would freeze the next session');
       await app.stopWorkout();
       expect(await LocalDb.session(id), isNull);
+    });
+  });
+
+  // ── the live gauge prices a session on ITS OWN day's quiet level ─────────
+  group('live quiet level is read for the session\'s own day', () {
+    // Seven prior days at 0.20: every day after 2020-01-07 has a settled
+    // level; 2020-01-03 has only two days behind it.
+    Future<void> seedLevels() async {
+      for (var d = 1; d <= 7; d++) {
+        await LocalDb.putMetricSeriesValue('2020-01-0$d', 'quiet_hrr', 0.20);
+      }
+    }
+
+    test('a new session is filled with a level read fresh for its day',
+        () async {
+      await seedLevels();
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      app.startWorkout(workoutId: 'fresh-level', type: 'run');
+      final w = app.activeWorkout!;
+      expect(w.quietHrr, isNull,
+          reason: 'nothing cached — the refresh reads it for this day');
+      await app.debugRefreshNightlyRhr();
+      expect(w.quietHrr, 0.20);
+      await app.stopWorkout();
+    });
+
+    test('a level a running session was scored on never moves', () async {
+      await seedLevels();
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      app.startWorkout(workoutId: 'pinned-level', type: 'run');
+      final w = app.activeWorkout!..quietHrr = 0.33;
+      await app.debugRefreshNightlyRhr();
+      expect(w.quietHrr, closeTo(0.33, 1e-12));
+      await app.stopWorkout();
+    });
+
+    test('a resumed session is priced on its START day, not today', () async {
+      await seedLevels();
+      final app = AppState.forTesting();
+      addTearDown(app.dispose);
+      // Started on a day with only two prior levels: its own day abstains,
+      // even though today has a settled level cached.
+      final early = LiveWorkoutState(
+        startTime: DateTime(2020, 1, 3, 23, 50),
+        targetKcal: 300,
+        workoutId: 'resumed-early',
+        type: 'run',
+      );
+      app.activeWorkout = early;
+      await app.debugRefreshNightlyRhr();
+      expect(early.quietHrr, isNull);
+
+      // Started on a day with five prior levels: present, but calibrating —
+      // not today's settled week.
+      final later = LiveWorkoutState(
+        startTime: DateTime(2020, 1, 6, 23, 50),
+        targetKcal: 300,
+        workoutId: 'resumed-later',
+        type: 'run',
+      );
+      app.activeWorkout = later;
+      await app.debugRefreshNightlyRhr();
+      expect(later.quietHrr, 0.20);
+      expect(later.quietSettled, isFalse);
+      app.activeWorkout = null;
     });
   });
 }

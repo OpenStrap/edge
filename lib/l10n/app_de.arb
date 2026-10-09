@@ -171,6 +171,19 @@
   "devicesNotConnected": "Nicht verbunden",
   "devicesTierRank": "Stufe {rank}",
   "devicesTierRankLabel": "Stufe {rank} · {label}",
+  "devicesOuraKeyRefused": "Der Ring hat den Schlüssel abgelehnt. Kopple ihn neu, um einen akzeptierten Schlüssel zu installieren.",
+  "@devicesOuraKeyRefused": {
+    "description": "Snackbar: Oura-Sync fehlgeschlagen — der Ring hat den Kopplungsschlüssel ausdrücklich abgelehnt."
+  },
+  "devicesOuraStorageFailed": "Die Synchronisation konnte nicht vollständig gespeichert werden. Bitte synchronisiere erneut.",
+  "@devicesOuraStorageFailed": {
+    "description": "Snackbar: Oura-Sync fehlgeschlagen — der dauerhafte Speicher-Commit ist fehlgeschlagen."
+  },
+  "devicesOuraProtocolTimeout": "Der Ring hat mitten im Sync aufgehört zu antworten. Bitte synchronisiere erneut.",
+  "@devicesOuraProtocolTimeout": {
+    "description": "Snackbar: Oura-Sync fehlgeschlagen — Protokoll-Timeout / unvollständige Antwort."
+  },
+  "devicesOuraCheckpointUnconfirmed": "Die Synchronisation konnte nicht abgeschlossen werden. Bitte synchronisiere erneut.",
   "devicesSyncingTheRing": "Ring wird synchronisiert…",
   "devicesSynced": "Synchronisiert.",
   "devicesCouldNotReachRing": "Der Ring konnte nicht erreicht werden. Er muss in der Nähe sein und darf nicht mit einer anderen App verbunden sein.",
@@ -958,6 +971,8 @@
   "investigateStrapCounterFactor": "integrierter Zähler · Smartphone-Faktor",
   "investigateTimeDomain": "Zeitbereich",
   "investigateRmssd": "RMSSD",
+  "investigateRmssdNightly": "RMSSD, nächtlich (Mittel der 5-Min.-Fenster)",
+  "investigateRmssdStored": "RMSSD, nächtlich (frühere Schätzung)",
   "investigateSdnn": "SDNN",
   "investigateSdann": "SDANN",
   "investigateSdnnIndex": "SDNN-Index",
@@ -1360,8 +1375,8 @@
   "healthCatMovementLoad": "Bewegung & Belastung",
   "healthCatBodyWear": "Körper & Tragezeit",
   "healthBlurbRestingHr": "Der niedrigste anhaltende Puls der Nacht",
-  "healthBlurbHrv": "RMSSD im saubersten Schlafabschnitt",
-  "healthBlurbHrvCv": "Wie stark das von Nacht zu Nacht schwankt",
+  "healthBlurbHrv": "Mittlerer RMSSD über die 5-Minuten-Fenster der Nacht",
+  "healthBlurbHrvCv": "SDNN als Anteil des mittleren Schlagintervalls, innerhalb einer Nacht",
   "healthBlurbLfHf": "Wie sich die Herzschlag-Variabilität auf die Frequenzbereiche verteilt",
   "healthBlurbDip": "Wie stark deine Herzfrequenz im Schlaf sinkt",
   "healthBlurbHrr": "Wie schnell sie in der Minute nach einer Belastung sinkt",

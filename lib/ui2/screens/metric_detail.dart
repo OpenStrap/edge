@@ -124,11 +124,15 @@ const _specs = <String, MetricSpec>{
     unit: 'ms',
     color: C.green,
     icon: LucideIcons.activity,
-    method: 'RMSSD over the longest artefact-free window during sleep. Beat '
-        'timing is recovered from the band\'s 1 Hz records and corrected by '
-        'the Lipponen–Tarvainen method before any statistic is taken. '
+    method: 'The mean of RMSSD across every 5-minute window of the detected '
+        'sleep session that holds at least 20 clean successive differences. '
+        'Beats outside 300–2000 ms, and beats more than 20% from their local '
+        'median, are dropped first. On a night whose beat timing looks noisy, '
+        'only windows that pass the jitter check on their own, or that sit on '
+        'a steady breathing line, count; a window, or a night, whose beats '
+        'add up to more time than passed is left out. '
         'Pulse-derived, so this is PRV: real and trendable, but not ECG HRV.',
-    citation: 'Task Force 1996 · Lipponen & Tarvainen 2019',
+    citation: 'Task Force 1996 · 20% local-median ectopic filter, after Malik',
     requires: {InputSignal.rrIntervals},
   ),
   'readiness': MetricSpec(
@@ -159,9 +163,13 @@ const _specs = <String, MetricSpec>{
     icon: LucideIcons.wind,
     higherBetter: false,
     method: 'Breathing rate recovered from respiratory sinus arrhythmia — the '
-        'periodic modulation breathing imposes on beat timing — over a grid of '
-        'candidate rates.',
-    citation: 'Pimentel 2017',
+        'periodic modulation breathing imposes on beat timing. The spectral '
+        'peak is found in overlapping five-minute stretches of clean beats '
+        '(Lomb–Scargle on native beat times) and the night\'s rate is their '
+        'median, reported only when most stretches agree. At a sleeping heart '
+        'rate near or below 48 bpm the beats are too slow to resolve normal '
+        'breathing, and the rate is withheld.',
+    citation: 'Welch 1967 · Lomb–Scargle (Press & Rybicki 1989)',
     requires: {InputSignal.rrIntervals},
   ),
   'sleep': MetricSpec(
@@ -310,8 +318,12 @@ const _specs = <String, MetricSpec>{
     color: C.green,
     icon: LucideIcons.activity,
     higherBetter: false,
-    method: 'Night-to-night coefficient of variation of RMSSD.',
-    citation: 'Within-user dispersion',
+    method: 'Within one night: the standard deviation of the night\'s beat '
+        'intervals after artifact correction (SDNN) as a percentage of their '
+        'mean. The chart shows how that per-night figure moves across nights; '
+        'it is not a night-to-night coefficient of variation.',
+    citation: 'SDNN (Task Force 1996) over Lipponen & Tarvainen 2019 corrected '
+        'beats, normalised by mean NN',
     requires: {InputSignal.rrIntervals},
   ),
   'brv': MetricSpec(

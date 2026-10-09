@@ -43,6 +43,7 @@ void main() {
           profile: _profile,
           hrMax: 187.0,
           restingHr: 55,
+          quietHrr: 0.20,
         );
 
     test('starts absent, not zero', () {
@@ -94,6 +95,31 @@ void main() {
       }
       // No fabricated 30 y / 60 bpm stand-ins — the gauge shows "—".
       expect(w.strain, isNull);
+    });
+
+    test('abstains until a quiet level lands, then fills the gap', () {
+      final w = LiveWorkoutState(
+        startTime: DateTime(2026, 1, 1, 9),
+        targetKcal: 300,
+        type: 'run',
+        age: 30,
+        profile: _profile,
+        hrMax: 187.0,
+        restingHr: 55,
+      );
+      for (var i = 0; i < 120; i++) {
+        w.elapsed = Duration(seconds: i);
+        w.accrueHr(150);
+      }
+      // No level read yet — never the 0.20 population reference.
+      expect(w.strain, isNull);
+      // `_refreshNightlyRhr` fills the gap when the read lands; the next
+      // sample re-scores through it.
+      w.quietHrr = 0.20;
+      w.elapsed = const Duration(seconds: 120);
+      w.accrueHr(150);
+      expect(w.strain, isNotNull);
+      expect(w.strain, greaterThan(0));
     });
 
     test('off-skin zeros neither pollute a minute nor reset the score', () {

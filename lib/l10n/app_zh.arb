@@ -165,6 +165,19 @@
   "devicesNotConnected": "未连接",
   "devicesTierRank": "第 {rank} 级",
   "devicesTierRankLabel": "第 {rank} 级 · {label}",
+  "devicesOuraKeyRefused": "戒指拒绝了密钥。请重新配对以安装其接受的密钥。",
+  "@devicesOuraKeyRefused": {
+    "description": "快讯条：Oura 同步失败 — 戒指拒绝了配对密钥。"
+  },
+  "devicesOuraStorageFailed": "同步无法完整保存。请重新同步。",
+  "@devicesOuraStorageFailed": {
+    "description": "快讯条：Oura 同步失败 — 持久存储提交失败。"
+  },
+  "devicesOuraProtocolTimeout": "戒指在同步中途停止响应。请重新同步。",
+  "@devicesOuraProtocolTimeout": {
+    "description": "快讯条：Oura 同步失败 — 协议超时 / 回应不完整。"
+  },
+  "devicesOuraCheckpointUnconfirmed": "同步无法完成。请重新同步。",
   "devicesSyncingTheRing": "正在同步戒指…",
   "devicesSynced": "已同步。",
   "devicesCouldNotReachRing": "无法连接到戒指。它必须在附近，且未连接到其他应用。",
@@ -920,6 +933,8 @@
   "investigateStrapChipReported": "腕带芯片上报值",
   "investigateTimeDomain": "时域指标",
   "investigateRmssd": "RMSSD",
+  "investigateRmssdNightly": "RMSSD，夜间（5 分钟窗口的均值）",
+  "investigateRmssdStored": "RMSSD，夜间（早期估算）",
   "investigateSdnn": "SDNN",
   "investigateSdann": "SDANN",
   "investigateSdnnIndex": "SDNN 指数",
@@ -1316,8 +1331,8 @@
   "healthCatMovementLoad": "运动与负荷",
   "healthCatBodyWear": "身体与佩戴",
   "healthBlurbRestingHr": "整夜持续保持的最低心率",
-  "healthBlurbHrv": "取睡眠中信号最干净时段的 RMSSD",
-  "healthBlurbHrvCv": "该数值在各夜之间的波动幅度",
+  "healthBlurbHrv": "整晚各 5 分钟窗口 RMSSD 的平均值",
+  "healthBlurbHrvCv": "单晚内 SDNN 占平均心跳间期的比例",
   "healthBlurbLfHf": "心跳间期功率在各频段的分布",
   "healthBlurbDip": "睡眠期间心率下降的幅度",
   "healthBlurbHrr": "运动结束后一分钟内心率下降的速度",

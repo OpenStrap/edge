@@ -79,6 +79,12 @@ void main() {
     LocalDb.dbName = 'openstrap_manual_workout_test.db';
     final dir = await databaseFactory.getDatabasesPath();
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
+    // A settled week of quiet-waking levels before every window below: a
+    // session is priced on the quiet level of the day it sits in, and strain
+    // abstains without one.
+    for (var d = 1; d <= 7; d++) {
+      await LocalDb.putMetricSeriesValue('2023-01-0$d', 'quiet_hrr', 0.20);
+    }
   });
 
   tearDownAll(() async {

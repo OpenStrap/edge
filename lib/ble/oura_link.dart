@@ -81,6 +81,39 @@ String _keyItem(String deviceId) => 'oura_pairing_key:$deviceId';
 
 /// `sync_cursor` names. Both are per-device: two rings are not a thing anyone
 /// asked for, but a second one must not silently inherit the first's bookmark.
+/// Why an Oura sync session ended the way it did — the minimal internal
+/// result representation behind the unchanged `Future<bool> sync()`. Set
+/// only from the adapter's OWN notes (never guessed from silence), cleared at
+/// every session start, read by the UI to pick the honest sentence.
+enum OuraSyncCategory {
+  /// No session has run (or none of the below applied).
+  none,
+
+  /// The drain reached its honest end (`oura_drain_ok`).
+  drained,
+
+  /// The ring EXPLICITLY refused the key (its own refusal frame).
+  authRefused,
+
+  /// The link refused a command write (subscription/transport-level).
+  writeRefused,
+
+  /// Connected and authenticated, but a batch never ended inside the reply
+  /// window — protocol timeout / incomplete answer.
+  protocolTimeout,
+
+  /// The durable commit or its confirm did not land — an OBSERVED
+  /// persistence failure (the commit threw or was refused).
+  storageFailed,
+
+  /// The checkpoint was not confirmed — the commit's own outcome is not
+  /// named by the note that sets this; only the confirm is known to have
+  /// not completed. Kept apart from [storageFailed]: the remedy sentence
+  /// must be honest about the uncertainty instead of claiming the data
+  /// was never saved (or that it was).
+  checkpointUnconfirmed,
+}
+
 String _cursorItem(String deviceId) => 'oura_cursor_ds:$deviceId';
 String _anchorItem(String deviceId) => 'oura_anchor:$deviceId';
 
@@ -321,10 +354,10 @@ class OuraLink {
 
   BluetoothDevice? _device;
 
-  /// Kept only so teardown can [GattBandLink.close] it — that is what stops a
+  /// Kept only so teardown can [BandLink.close] it — that is what stops a
   /// write the adapter queued before teardown from landing on a LATER
   /// connection to the same ring.
-  GattBandLink? _link;
+  BandLink? _link;
 
   /// The session driving [OuraAdapter] over [_link] — see `adapters/host.dart`.
   BandHost? _host;
@@ -359,8 +392,17 @@ class OuraLink {
 
   void _writeCursor(int ds) {
     _cursorWrites =
-        _cursorWrites.then((_) => _persistCursor(ds)).catchError((_) {});
+        _cursorWrites.then((_) => _persistCursor(ds)).catchError((Object e) {
+      // Kept off the error path so later writes still run, but NOT silent:
+      // a bookmark that never persisted means the checkpoint chain broke,
+      // and `_runSession` must not report that session as synced.
+      _cursorWriteFailed = true;
+      debugPrint('[oura] cursor write failed: $e');
+    });
   }
+
+  /// A cursor write of the CURRENT session failed. Reset per session.
+  bool _cursorWriteFailed = false;
 
   /// Drop the bookmark and the stored time anchor, through the same queue.
   ///
@@ -381,6 +423,26 @@ class OuraLink {
     });
   }
 
+  /// Whether the last session's drain reached the ring's honest end (empty
+  /// up-to-date answer, or `bytesLeft` drained to zero). A session that ends on
+  /// a refused write, a timeout, an authentication failure or a host commit
+  /// failure is a session that connected and synced nothing — reported as
+  /// itself, not as "Synced.".
+  bool _drainOk = false;
+
+  /// Why the LAST session ended the way it did — session-scoped, set by the
+  /// adapter's own notes, read by the UI between syncs. Never sticky across
+  /// sessions: `_runSession` clears it at the start of every session.
+  OuraSyncCategory _category = OuraSyncCategory.none;
+
+  /// Test-only fault seams, NEVER set in production: [commitFaultForTest]
+  /// wraps the durable batch commit at its real site inside `BandHost`;
+  /// [cursorFaultForTest] makes the cursor persistence throw. Both are
+  /// reset by every test's teardown (the tests set them to null in a
+  /// `finally`), so no test can influence the next one.
+  Future<void> Function(Future<void> Function() commit)? _commitFaultForTest;
+  Future<void> Function(String item, String value)? _cursorFaultForTest;
+
   bool _busy = false;
 
   /// Connect to the paired ring, drain its history to the end, disconnect.
@@ -395,6 +457,13 @@ class OuraLink {
   }
 
   Future<bool> _sync() async {
+    // THE CATEGORY DESCRIBES THIS CALL, not the previous one: cleared before
+    // the FIRST return, so every early exit below (nothing paired, primary
+    // id, unreadable key, adapter off, connect/discovery failure) reports
+    // `none` — never a stale category from an earlier attempt. A BUSY
+    // second call never reaches here (see `sync()`), so it cannot clobber
+    // the running session's category either.
+    _category = OuraSyncCategory.none;
     final row = await pairedRingRow();
     if (row == null) return false;
     final deviceId = row['id'] as String?;
@@ -437,6 +506,22 @@ class OuraLink {
           _device = device;
           await _awaitAdapterOn();
           await device.connect(timeout: const Duration(seconds: 20));
+          // NO EXPLICIT MTU REQUEST, deliberately. `flutter_blue_plus` 1.36.8
+          // ASKS for MTU 512 right after `connect()` on Android (its
+          // `connect` defaults `mtu: 512`); iOS negotiates its own.
+          //
+          // A REQUEST IS NOT A NEGOTIATED VALUE. What the ring and the phone
+          // actually settle on is not known here, and nothing below depends
+          // on it. Whether this ring ever sends a frame too large for a
+          // default-MTU notification is an unverified hardware question —
+          // the wire format allows up to 257 bytes, but that a frame CAN be
+          // that large does not mean the ring SENDS one, and no fix may be
+          // built on that assumption without a capture. A second explicit
+          // `requestMtu` here is the one change that could make things
+          // worse: on Android 14+ later requests on the same ACL are
+          // ignored, and on older Android it could only LOWER a value the
+          // library already asked for. Read the negotiated MTU from a
+          // hardware log before drawing any conclusion from frame sizes.
           final services = await device.discoverServices();
           final link = GattBandLink(
             entry: kOura,
@@ -452,21 +537,37 @@ class OuraLink {
                 '${missing.map((u) => u.substring(0, 8)).join(", ")}.');
             return false;
           }
-          final host = _makeHost(
-            deviceId,
-            OuraAdapter(
-              key: key,
-              startCursorDs: cursor,
-              anchor: _parseAnchor(_anchor),
-              nowSeconds: _now,
-            ),
-          );
-          _host = host;
-          await host.run(link);
-          return true;
+          // `return await`, NOT a bare `return future`. The claim that a
+          // bare `return future` in an async function is always equivalent
+          // to `return await` is NOT sound as specified: Dart SDK issue
+          // #44395 and language issue #870 document a specification/
+          // implementation divergence around exactly this try/finally
+          // interaction, and behavior around `finally`-vs-await ordering
+          // for a bare returned future has been implementation-defined
+          // territory rather than guaranteed semantics. The safe, explicit
+          // form is `return await` — the finally provably runs AFTER the
+          // session completes. The teardown itself lives in
+          // [_runSessionAndTeardown] so the exact production order is
+          // testable without a radio.
+          return await _runSessionAndTeardown(link, deviceId,
+              key: key, cursor: cursor);
         } finally {
-          // Drop the link and DISCONNECT before the slot is released.
-          await stop();
+          // Drop the link and DISCONNECT before the slot is released. Also
+          // covers the EARLY returns above (adapter off, no characteristics),
+          // which do not go through [_runSessionAndTeardown]; for the
+          // session path this is a second, idempotent stop. A failure of
+          // THIS stop must never MASK an exception the session already
+          // raised (a throwing finally replaces the in-flight error in
+          // Dart) — so it is logged, not propagated. The FIRST stop, the
+          // one on the session path, already applied the same priority
+          // rule in [_runSessionAndTeardown] and propagates its own
+          // teardown failure when the session SUCCEEDED.
+          try {
+            await stop();
+          } catch (e) {
+            debugPrint('[oura] teardown failed: $e — the session\'s own '
+                'verdict is the one reported.');
+          }
         }
       });
     } catch (e) {
@@ -475,16 +576,201 @@ class OuraLink {
     }
   }
 
+  /// THE POST-DISCOVERY DRAIN — the exact code `sync()` runs once a live
+  /// link exists, and the only place the session's result is decided.
+  ///
+  /// SUCCESS IS `oura_drain_ok`, the adapter's own statement that the drain
+  /// reached its honest end, and that note is emitted only AFTER the last
+  /// batch's `OffloadCheckpoint` was confirmed — which the host does only
+  /// after its durable commit landed (`BandHost._commitThenConfirm`). So a
+  /// storage failure, an unconfirmed batch, an authentication refusal, a
+  /// refused write or a silent ring all end the session WITHOUT the note and
+  /// report `false`; an honestly empty, up-to-date ring ends WITH it and
+  /// reports `true` without inventing a single measurement. A BLE link alone
+  /// is not a successful sync — that distinction is this method's whole job.
+  ///
+  /// Shared with the test replay path ([ingestForTest],
+  /// [syncResultForTest]) so the result a test drives IS the result `sync()`
+  /// returns, not a parallel construction of it.
+  Future<bool> _runSession(
+    BandLink link,
+    String deviceId, {
+    required List<int> key,
+    required int cursor,
+    Duration? replyTimeout,
+    Duration? confirmTimeout,
+  }) async {
+    _drainOk = false;
+    _cursorWriteFailed = false;
+    // A NEW SESSION STARTS CLEAN: the category describes THIS session only.
+    // A previous failure must not colour the next attempt's report.
+    _category = OuraSyncCategory.none;
+    final host = _makeHost(
+      deviceId,
+      OuraAdapter(
+        key: key,
+        startCursorDs: cursor,
+        anchor: _parseAnchor(_anchor),
+        nowSeconds: _now,
+        replyTimeout: replyTimeout ?? const Duration(seconds: 5),
+        confirmTimeout: confirmTimeout ?? const Duration(seconds: 30),
+      ),
+    );
+    _host = host;
+    await host.run(link);
+    // The bookmark writes the drain queued must have landed before the
+    // drain counts as done: a cursor that never persisted is a broken
+    // checkpoint chain, not a sync.
+    await _cursorWrites;
+    if (_cursorWriteFailed) {
+      _drainOk = false;
+      _category = OuraSyncCategory.storageFailed;
+    }
+    if (!_drainOk) {
+      debugPrint('[oura] session ended before the drain reached its '
+          'end — reporting the sync as unsuccessful.');
+    }
+    return _drainOk;
+  }
+
+  /// THE PRODUCTION OUTER ORDER, extracted so a test can drive it: the
+  /// session first, `stop()` in a `finally` after it ends — and `return await`
+  /// inside the `try`, because a bare `return _runSession(...)` runs the
+  /// `finally` before the returned future completes, i.e. teardown while the
+  /// drain is still open. `sync()` calls this; the lifecycle test drives the
+  /// same method through the replay seam, not a copy of it.
+  Future<bool> _runSessionAndTeardown(
+    BandLink link,
+    String deviceId, {
+    required List<int> key,
+    required int cursor,
+    Duration? replyTimeout,
+    Duration? confirmTimeout,
+  }) async {
+    var sessionThrew = false;
+    try {
+      return await _runSession(link, deviceId,
+          key: key,
+          cursor: cursor,
+          replyTimeout: replyTimeout,
+          confirmTimeout: confirmTimeout);
+    } catch (_) {
+      sessionThrew = true;
+      rethrow;
+    } finally {
+      // ERROR PRIORITY, spelled out for all three cases:
+      //  - session returned (true OR false — both are VERDICTS, not errors)
+      //    and the teardown failed: the teardown failure propagates with
+      //    its own stacktrace — a `false` session does not license a lost
+      //    cleanup;
+      //  - session THREW and the teardown failed too: the session's
+      //    ORIGINAL error (already in flight, with its stacktrace) is the
+      //    one that propagates — a throwing `finally` would REPLACE it in
+      //    Dart, so the teardown failure is logged beside it instead and
+      //    is never silent.
+      try {
+        await stop();
+      } catch (e, s) {
+        if (sessionThrew) {
+          debugPrint('[oura] teardown failed as well: $e — the session\'s '
+              'own error is the one reported.');
+        } else {
+          Error.throwWithStackTrace(e, s);
+        }
+      }
+    }
+  }
+
   /// Drop the link, flush what the session can still stamp, disconnect.
-  /// Safe to call when nothing is connected.
-  Future<void> stop() async {
+  /// Safe to call when nothing is connected. NO EPOCH GUARD is needed: the
+  /// production path serializes sessions on `[_busy]`, and the replay
+  /// harness never surfaces its verdict while the session body is still
+  /// live — `close()` releases every await boundary the fixture owns
+  /// (write gate, buffered channels), so the session ALWAYS unwinds and
+  /// its own `finally { stop() }` runs BEFORE the harness's `done` future
+  /// completes. A caller that awaited the session result can therefore
+  /// never observe a teardown racing a follow-up session.
+  Future<void> stop() {
+    // RE-ENTRANT BY SHARING THE ONE CLEANUP: a second caller must not run a
+    // second cleanup over the same (already nulled) fields, and an empty
+    // `_link`/`_host` is not proof the FIRST cleanup finished — only that
+    // it started. Every caller awaits the SAME future, so the second call
+    // neither duplicates the teardown nor returns before it is done.
+    final running = _stopping;
+    if (running != null) return running;
+    final done = _doStop();
+    _stopping = done;
+    // Clear the guard when the cleanup settles, so a LATER stop (a next
+    // session's teardown) is not swallowed by the previous session's run.
+    done.whenComplete(() {
+      if (identical(_stopping, done)) _stopping = null;
+    }).catchError((Object e, StackTrace st) {
+      // The DERIVED future's error, not the original's: `whenComplete`
+      // returns a NEW future that replays the cleanup's result, and nobody
+      // awaits that one — an erroring cleanup would surface as an unhandled
+      // async error here. Swallowing it on the DERIVED future changes
+      // nothing for real awaiters: they hold `done` and still see the
+      // error, its stacktrace intact.
+      debugPrint('[oura] teardown finished with an error: $e');
+    });
+    return done;
+  }
+
+  /// The one actual teardown. Owned by [stop] above.
+  Future<void>? _stopping;
+
+  Future<void> _doStop() async {
     // Before the host's run subscription is cancelled: an adapter's `finally`
     // can still write on the way out, and that write must not reach the radio.
-    _link?.close();
+    // The link and host are captured LOCALLY before the first await: the
+    // fields are cleared immediately, so a late caller cannot hand the SAME
+    // resources to a second cleanup. The close future is STARTED here (the
+    // write refusal must be in force at once) but NOT awaited yet: the replay
+    // link's channel closes can wait on a consumer that only ends when the
+    // host stops, so awaiting close before `host.stop()` could deadlock
+    // before the cleanup it is part of. Its error is recorded and, AFTER the
+    // host shutdown and the remaining steps, the close future is AWAITED —
+    // by then every consumer the close could be waiting on has ended, so the
+    // wait is bounded by the close's own work. Only then is the cleanup
+    // complete, and only then do the captured failures surface, with their
+    // original stacktraces, in a fixed priority (close first, host second —
+    // the session's own error keeps priority in the CALLERS, via
+    // `_runSessionAndTeardown`'s `sessionThrew` and `_sync`'s finally).
+    final link = _link;
     _link = null;
-    await _host?.stop();
+    Future<void>? closing;
+    Object? closeError;
+    StackTrace? closeStack;
+    if (link != null) {
+      closing = Future<void>.sync(() => link.close()).catchError(
+          (Object e, StackTrace s) {
+        closeError = e;
+        closeStack = s;
+      });
+    }
+    final host = _host;
     _host = null;
-    await _cursorWrites;
+    Object? hostError;
+    StackTrace? hostStack;
+    if (host != null) {
+      // A host teardown failure must not SKIP the cursor flush and the
+      // disconnect still pending below. It is recorded and surfaces after
+      // the cleanup, under the close error if both failed.
+      try {
+        await host.stop();
+      } catch (e, s) {
+        hostError = e;
+        hostStack = s;
+      }
+    }
+    Object? cursorError;
+    StackTrace? cursorStack;
+    try {
+      await _cursorWrites;
+    } catch (e, s) {
+      cursorError = e;
+      cursorStack = s;
+    }
     _anchor = null;
     _deviceId = null;
     final d = _device;
@@ -492,7 +778,32 @@ class OuraLink {
     if (d != null) {
       try {
         await d.disconnect();
-      } catch (_) {/* already gone */}
+      } catch (e) {
+        // Observed, not blanket-swallowed: a disconnect that fails AFTER a
+        // successful close/host teardown is "already gone"; one that fails
+        // after an erroring close is a second, independent failure worth a
+        // log line. It never masks the prioritised errors above - it is
+        // datasparsely logged beside them.
+        debugPrint('[oura] disconnect during teardown failed: $e');
+      }
+    }
+    // The host consumers are gone: the close wait can no longer deadlock on
+    // one. Await the STARTED close so a failure that lands only now is still
+    // captured — without this await, a close that fails after the checks
+    // below would drop its error silently and stop() would report a cleanup
+    // that is still running as complete.
+    if (closing != null) await closing;
+    // The cleanup has now fully run. Surface the captured failures with
+    // their ORIGINAL stacktraces — none may be silent, and none may have
+    // prevented any part of the teardown from happening.
+    if (closeError != null) {
+      Error.throwWithStackTrace(closeError!, closeStack!);
+    }
+    if (hostError != null) {
+      Error.throwWithStackTrace(hostError, hostStack!);
+    }
+    if (cursorError != null) {
+      Error.throwWithStackTrace(cursorError, cursorStack!);
     }
   }
 
@@ -505,6 +816,7 @@ class OuraLink {
         onNote: _handleNote,
         admitSample: _isPlausibleSecond,
         buildArchive: _buildArchiveRow,
+        faultCommitForTest: _commitFaultForTest,
         // The anchor is folded into the SAME commit transaction as the rows it
         // stamped — see `_makeHost`'s own caller and [BandHost]'s doc on
         // `extraCursors` — so an origin can never survive a commit its own
@@ -538,6 +850,34 @@ class OuraLink {
             'dropping it so the next sync re-reads from the beginning.');
         final deviceId = _deviceId;
         if (deviceId != null) _resetCursor(deviceId);
+      case 'oura_drain_ok':
+        // The adapter's own statement that the drain reached the ring's end.
+        _drainOk = true;
+        _category = OuraSyncCategory.drained;
+      case 'oura_auth_refused':
+        // The ring's OWN explicit key rejection. NOT emitted for silence.
+        _category = OuraSyncCategory.authRefused;
+      case 'oura_write_refused':
+        // The link refused a command write: subscription/transport-level.
+        _category = OuraSyncCategory.writeRefused;
+      case 'oura_no_batch_summary':
+        // Connected and authenticated, but the batch never ended inside the
+        // reply window — a protocol timeout, not an unreachable ring.
+        _category = OuraSyncCategory.protocolTimeout;
+      case 'host_commit_failed':
+        // The host observed a failed durable batch commit — the most
+        // specific persistence signal. Recorded ahead of the adapter's
+        // generic unconfirmed-note below, which arrives later and must not
+        // overwrite it.
+        _category = OuraSyncCategory.storageFailed;
+      case 'oura_batch_unconfirmed':
+        // Only the CONFIRM is known to have failed here — the commit's own
+        // outcome is not named by this note, so the category must not claim
+        // one: `checkpointUnconfirmed`, not `storageFailed`. A commit failure
+        // the host already reported stays the more specific truth.
+        if (_category != OuraSyncCategory.storageFailed) {
+          _category = OuraSyncCategory.checkpointUnconfirmed;
+        }
       case 'battery':
         if (value is int) _batteryPct = value;
       case 'battery_mv':
@@ -598,6 +938,11 @@ class OuraLink {
   Future<void> _persistCursor(int ds, [String? forDevice]) async {
     final deviceId = forDevice ?? _deviceId;
     if (deviceId == null) return;
+    final fault = _cursorFaultForTest;
+    if (fault != null) {
+      await fault(_cursorItem(deviceId), '$ds');
+      return;
+    }
     // NOT MONOTONIC, and it must not be. 0 arrives here when the ring reports
     // data remaining and answers this bookmark with nothing — a bookmark past
     // the end, which only ever gets there by going BACKWARDS. A guard that
@@ -674,33 +1019,103 @@ class OuraLink {
     int Function()? nowSeconds,
     Duration timeouts = const Duration(seconds: 30),
   }) async {
+    await _replaySession(
+      deviceId,
+      key,
+      reply,
+      nowSeconds: nowSeconds,
+      timeouts: timeouts,
+    );
+    return _lastLink!;
+  }
+
+  /// The same replay as [ingestForTest], but returning the SESSION RESULT —
+  /// the same bool `_runSession` (and therefore `sync()`) computes — instead
+  /// of the link. The regression tests for "connected ≠ synced" assert on
+  /// THIS, not on a field, so the result path a test drives is the result
+  /// path production runs.
+  @visibleForTesting
+  Future<bool> syncResultForTest(
+    String deviceId,
+    List<int> key,
+    List<List<int>> Function(int writeIndex, List<int> value) reply, {
+    int Function()? nowSeconds,
+    Duration timeouts = const Duration(seconds: 30),
+    bool writeSucceeds = true,
+    Duration harnessTimeout = const Duration(seconds: 30),
+    void Function(ReplayBandLink link)? onLink,
+  }) async =>
+      await _replaySession(
+        deviceId,
+        key,
+        reply,
+        nowSeconds: nowSeconds,
+        timeouts: timeouts,
+        writeSucceeds: writeSucceeds,
+        harnessTimeout: harnessTimeout,
+        onLink: onLink,
+      );
+
+  /// One scripted ring session through the REAL result path: `_runSession`,
+  /// the same method `sync()` calls once a live link exists. The reply script
+  /// and the replay link are test-only; every line that decides whether this
+  /// session was a successful sync is production code.
+  Future<bool> _replaySession(
+    String deviceId,
+    List<int> key,
+    List<List<int>> Function(int writeIndex, List<int> value) reply, {
+    int Function()? nowSeconds,
+    required Duration timeouts,
+    bool writeSucceeds = true,
+    Duration harnessTimeout = const Duration(seconds: 30),
+    void Function(ReplayBandLink link)? onLink,
+  }) async {
+    // LINK and the [onLink] hook are set up SYNCHRONOUSLY, before the
+    // first await: a test's `onLink` (installing a write gate, capturing the
+    // link) must not race the session's first write or the test's own first
+    // read of the captured link.
+    final link = ReplayBandLink()..writeSucceeds = writeSucceeds;
+    _lastLink = link;
+    onLink?.call(link);
+    // REGISTERED AS THE SESSION'S LINK, exactly as `_sync` does after
+    // discovery and `startSessionForTest` does before its session: without
+    // this, the session's own teardown (`stop()` → `_link?.close()`) has
+    // NOTHING to close and the harness's fallback close below would do the
+    // production teardown's job — masking, in every `syncResultForTest` /
+    // `ingestForTest` test, the exact code path a real sync runs. Exclusivity
+    // is the replay path's own: it is test-only, awaited to completion by
+    // its caller before anything else can start a session, so no second
+    // owner can appear between this assignment and the teardown.
+    _link = link;
     _now = nowSeconds ?? _now;
     _deviceId = deviceId;
     await _loadAnchor(deviceId);
     final cursor = await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;
-    final link = ReplayBandLink();
-    final host = _makeHost(
-      deviceId,
-      OuraAdapter(
-        key: key,
-        startCursorDs: cursor,
-        anchor: _parseAnchor(_anchor),
-        nowSeconds: _now,
-        replyTimeout: timeouts,
-        confirmTimeout: timeouts,
-      ),
-    );
-    _host = host;
-    // `host.run` does not resolve until the session ends, but this loop has
-    // to react to each write WHILE the session is still open — so track
-    // completion alongside it rather than awaiting it here.
     var finished = false;
-    final done = host.run(link).whenComplete(() => finished = true);
+    // THE REAL RESULT PATH, including the production outer order:
+    // `_runSessionAndTeardown` is the session-then-stop pairing `sync()`
+    // runs, so a replayed session also proves teardown happens after the
+    // drain, never during it. The loop below only scripts what the ring
+    // would answer.
+    final done = _runSessionAndTeardown(
+      link,
+      deviceId,
+      key: key,
+      cursor: cursor,
+      replyTimeout: timeouts,
+      confirmTimeout: timeouts,
+    ).whenComplete(() => finished = true);
     var served = 0;
-    // Bounded by wall time, not a spin count: a real sqflite commit between
-    // batches can outlast any fixed number of zero-length yields.
+    // ONE deadline, started ONCE and shared by every stage below: the
+    // serving loop, the link close and the session wait all draw on the
+    // SAME remaining budget. The bound is the HARNESS patience, not the
+    // protocol timeouts: a session still running when the budget expires
+    // is wedged from the harness's point of view, and the watchdog turns
+    // that into a test failure — it can never become a normal `false`,
+    // whichever stage expired first.
     final clock = Stopwatch()..start();
-    while (!finished && clock.elapsed < timeouts) {
+    Duration left() => harnessTimeout - clock.elapsed;
+    while (!finished && left() > Duration.zero) {
       await Future<void>.delayed(const Duration(milliseconds: 1));
       while (served < link.writes.length) {
         for (final f in reply(served, link.writes[served].$2)) {
@@ -709,16 +1124,157 @@ class OuraLink {
         served++;
       }
     }
-    await link.close();
-    // Same real-commit hazard as `timeouts` above (`BandHost.stop`'s own
-    // final flush is the same sqflite write), so the same generous bound.
-    await done.timeout(const Duration(seconds: 30), onTimeout: () {});
-    await host.stop();
-    await _cursorWrites;
-    _host = null;
-    _anchor = null;
-    _deviceId = null;
-    return link;
+    final servingExpired = !finished;
+    // The wedged session's link: closed UNCONDITIONALLY on the shared
+    // budget — close() releases every await boundary this fixture owns
+    // (the write gate, the buffered channels), so the parked session can
+    // ALWAYS unwind: `_authenticate` returns false behind the closed
+    // channels and `run()` ends. Without this, `BandHost.stop`'s
+    // `cancel()` would wait forever on a generator parked on a dead
+    // link — the cleanup hang the review called out.
+    try {
+      await link.close().timeout(left() > Duration.zero ? left() : Duration.zero,
+          onTimeout: () {});
+    } catch (_) {
+      // A fixture whose close throws still leaves `closed`/`writesRefused`
+      // set synchronously at its top — the refusal is already in force.
+    }
+    // TWO DIFFERENT TIMEOUTS, deliberately not collapsed:
+    //  - the SESSION's own protocol timeouts (replyTimeout/confirmTimeout)
+    //    produce a regular `false` — a reachable, tested behaviour;
+    //  - THIS watchdog is the HARNESS giving up on a wedged session. A
+    //    negative test expecting `false` must NOT be able to pass because
+    //    the harness hung: the watchdog therefore THROWS a visible test
+    //    failure instead of returning `false` and greenwashing a hang.
+    Object? harnessFailure;
+    StackTrace? harnessFailureTrace;
+    bool result = false;
+    try {
+      result = await done.timeout(left() > Duration.zero ? left() : Duration.zero,
+          onTimeout: () {
+        // Record, do not resolve: a `false` HERE would hand a negative
+        // test the very `false` it expects and let a hang pass as a
+        // verdict. The flag is `servingExpired || deadline spent` below.
+        return false;
+      });
+    } catch (e, s) {
+      // The session's OWN exception survives WITH its cause and stacktrace —
+      // the watchdog wraps, it does not swallow.
+      harnessFailure = e;
+      harnessFailureTrace = s;
+    }
+    // CLEANUP RUNS ON EVERY PATH — including the harness timeout. It
+    // reuses the production teardown: when the wedged session is still
+    // the current one, `stop()` does the full cleanup (host stopped,
+    // cursor writes flushed, fields cleared) exactly as a normal path
+    // would. The close above already released every await boundary the
+    // session can be parked on, so `stop()` cannot hang on it; only
+    // AFTER cleanup does the watchdog's failure surface, so a wedged
+    // session can never leave a half-torn OuraLink behind either.
+    await stop();
+    // THE HARNESS VERDICT: if the shared deadline expired with the session
+    // unfinished — whether the serving loop, the close, or the session
+    // wait drew the last of the budget — that is a wedged session and a
+    // TEST FAILURE, never a normal `false`. An expired deadline cannot be
+    // turned into a clean verdict by the session aborting (and returning
+    // false) only AFTER the deadline.
+    if (servingExpired || clock.elapsed >= harnessTimeout) {
+      if (harnessFailure != null) {
+        // The session threw on its own (close released it into an error,
+        // or it failed for its own reasons): its ORIGINAL error and
+        // stacktrace are the verdict, not a timeout label.
+        Error.throwWithStackTrace(harnessFailure, harnessFailureTrace!);
+      }
+      throw StateError(
+          'Oura replay session did not finish within $harnessTimeout — the '
+          'harness cannot tell a wedged session from a slow one, so this is '
+          'a test failure, not a sync result.');
+    }
+    if (harnessFailure != null) {
+      // The session threw on its own WELL WITHIN the budget: its error
+      // with its original stacktrace is the verdict.
+      Error.throwWithStackTrace(harnessFailure, harnessFailureTrace!);
+    }
+    return result;
+  }
+
+  /// The replay link of the last [ingestForTest] or [syncResultForTest]
+  /// session, so a test can assert on BOTH the session result and the
+  /// writes the adapter actually put on the wire.
+  ReplayBandLink? _lastLink;
+
+  /// Why the last session ended the way it did. Read by the UI after
+  /// `sync()` returns; session-scoped (cleared at every session start), so
+  /// it can never describe an earlier attempt. NOT test-only: the devices
+  /// screen reads it to pick the honest failure sentence.
+  OuraSyncCategory get lastSyncCategory => _category;
+
+  /// Test-only drive of the PRODUCTION note handler — the one place the
+  /// category decisions live. For regression tests of note priority only;
+  /// never a way for production code to set categories.
+  @visibleForTesting
+  void handleSyncNoteForTest(String key) => _handleNote(key, null);
+
+  /// Test-only fault injection at the REAL durable-commit site. Set it,
+  /// run `syncResultForTest`, clear it in a `finally`.
+  @visibleForTesting
+  set commitFaultForTest(
+          Future<void> Function(Future<void> Function() commit)? fault) =>
+      _commitFaultForTest = fault;
+
+  /// Test-only fault injection at the REAL cursor persistence site.
+  @visibleForTesting
+  set cursorFaultForTest(
+          Future<void> Function(String item, String value)? fault) =>
+      _cursorFaultForTest = fault;
+
+  /// The live session's host, so a test can prove the harness cleared it
+  /// before its verdict surfaced (identity, not just non-null).
+  @visibleForTesting
+  BandHost? get hostForTest => _host;
+
+  @visibleForTesting
+  ReplayBandLink? get lastReplayLink => _lastLink;
+
+  /// A MANUAL-DRIVE session for the lifecycle tests: starts the production
+  /// session-plus-teardown pairing ([_runSessionAndTeardown], the same
+  /// method `sync()` runs) over a replay link and returns IMMEDIATELY, with
+  /// the live link and the pending result future. The test drives the ring
+  /// itself — [onWrite] fires synchronously at the top of every write, before
+  /// the write resolves, so the test can feed replies and observe ordering
+  /// against [ReplayBandLink.closed] with completers, not sleeps.
+  ///
+  /// The session's own teardown runs INSIDE the returned future's chain, so
+  /// awaiting the result future and then checking the link is already the
+  /// production cleanup order.
+  @visibleForTesting
+  Future<(Future<bool> result, ReplayBandLink link)> startSessionForTest(
+    String deviceId,
+    List<int> key, {
+    int Function()? nowSeconds,
+    void Function(String uuid, List<int> value)? onWrite,
+    void Function(ReplayBandLink link)? onLink,
+  }) async {
+    // Set up SYNCHRONOUSLY before the first await — see `_replaySession`.
+    final link = ReplayBandLink()..onWrite = onWrite;
+    onLink?.call(link);
+    _now = nowSeconds ?? _now;
+    _deviceId = deviceId;
+    _drainOk = false;
+    await _loadAnchor(deviceId);
+    final cursor = await LocalDb.getCursorInt(_cursorItem(deviceId)) ?? 0;
+    // Set as `_link`, exactly as `_sync` does after discovery, so the
+    // teardown's `_link?.close()` runs the same code path production runs.
+    _link = link;
+    final result = _runSessionAndTeardown(
+      link,
+      deviceId,
+      key: key,
+      cursor: cursor,
+      replyTimeout: const Duration(seconds: 30),
+      confirmTimeout: const Duration(seconds: 30),
+    );
+    return (result, link);
   }
 }
 

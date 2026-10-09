@@ -22,6 +22,8 @@ Future<List<BandEvent>> replay(ReplayBandLink link, List<List<int>> arrivals) as
   for (final value in arrivals) {
     link.feed(kPebblePpogattReadUuid, value, atSec: 1_800_000_000);
   }
+  // Answer before closing: a closed link refuses the ACK write.
+  await pumpEventQueue();
   await link.close();
   await done.future;
   await sub.cancel();

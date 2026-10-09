@@ -91,7 +91,8 @@ import '../../ble/id115_link.dart' show Id115Link;
 import '../../ble/jyou_link.dart' show JyouLink;
 import '../../ble/makibeshr3_link.dart' show MakibesHr3Link;
 import '../../ble/miband_link.dart' show MiBand234Link, pairMiBand234;
-import '../../ble/oura_link.dart' show OuraLink, pairOuraRing;
+import '../../ble/oura_link.dart'
+    show OuraLink, OuraSyncCategory, pairOuraRing;
 import '../../ble/pebble_link.dart' show PebbleLink;
 import '../../ble/polar_pmd_link.dart' show PolarPmdLink;
 import '../../ble/ring11m_link.dart' show Ring11mLink;
@@ -2043,13 +2044,42 @@ Future<void> _syncRing(BuildContext c, String? family) async {
     _ => await OuraLink.instance.sync(),
   };
   if (!c.mounted) return;
-  messenger?.showSnackBar(SnackBar(
-    content: Text(ok
-        ? (l?.devicesSynced ?? 'Synced.')
-        : (l?.devicesCouldNotReachRing ??
-            'Could not reach the ring. It has to be nearby, and not connected '
-                'to another app.')),
-  ));
+  // OURA ONLY: the other ring families have no category seam, and their
+  // `false` keeps its existing generic sentence. Oura's `false` names its
+  // OWN category — the adapter reported WHY the session ended, and the
+  // honest sentence differs per cause: a refused key is not an unreachable
+  // ring, a storage failure is not a pairing problem, and a protocol
+  // timeout must never recommend a reset.
+  final ouraCategory =
+      (family == null || family == 'oura') ? OuraLink.instance.lastSyncCategory : null;
+  final message = ok
+      ? (l?.devicesSynced ?? 'Synced.')
+      : switch (ouraCategory) {
+          OuraSyncCategory.authRefused =>
+            (l?.devicesOuraKeyRefused ??
+                'The ring rejected the key. Re-pair it to install a key it '
+                    'accepts.'),
+          OuraSyncCategory.storageFailed =>
+            (l?.devicesOuraStorageFailed ??
+                'The sync could not be saved completely. Please try '
+                    'syncing again.'),
+          OuraSyncCategory.checkpointUnconfirmed =>
+            (l?.devicesOuraCheckpointUnconfirmed ??
+                'The sync could not be completed. Please try syncing '
+                    'again.'),
+          OuraSyncCategory.protocolTimeout =>
+            (l?.devicesOuraProtocolTimeout ??
+                'The ring stopped answering mid-sync. Please try syncing '
+                    'again.'),
+          OuraSyncCategory.writeRefused =>
+            (l?.devicesCouldNotReachRing ??
+                'Could not reach the ring. It has to be nearby, and not '
+                    'connected to another app.'),
+          _ => (l?.devicesCouldNotReachRing ??
+              'Could not reach the ring. It has to be nearby, and not '
+                  'connected to another app.'),
+        };
+  messenger?.showSnackBar(SnackBar(content: Text(message)));
 }
 
 /// Hold a session with the paired watch, now, because the user asked. There

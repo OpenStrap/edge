@@ -13,10 +13,11 @@
 // logs "no substrate (raw pruned) — kept" and keeps the old row — so a
 // kAlgoVersion bump alone can only ever fix the last few days.
 //
-// It does not need raw. Strain is a pure function of (TRIMP, wake minutes,
-// sex); `metric_series` stores `trimp` and the stored bundle carries
-// `series.strain_curve`, which is ONE POINT PER WAKE MINUTE — literally the
-// series the pipeline handed the scorer.
+// It does not need raw. The lump-form strain is a pure function of (TRIMP,
+// wake minutes, sex, the user's quiet-waking level); `metric_series` stores
+// `trimp` and `quiet_hrr`, and the stored bundle carries `series.strain_curve`,
+// which is ONE POINT PER WAKE MINUTE — literally the series the pipeline
+// handed the scorer.
 //
 // THE WAKE WINDOW IS READ, NOT RECONSTRUCTED. This used to derive it as
 // `worn_min − tst_min`, which is a different quantity in both directions: the
@@ -35,6 +36,7 @@ import 'package:openstrap_analytics/onehz.dart' as ana;
 import '../data/day_label.dart';
 import '../data/db.dart';
 import 'derivation_engine.dart' show kAlgoVersion, rawRetentionDays;
+import 'quiet_level.dart';
 
 /// `compute_freshness` key marking the rescale as already applied. Bumped with
 /// the algo version so a future rescale is a new one-shot rather than a no-op.
@@ -62,22 +64,32 @@ class StrainBackfillResult {
 /// Rebuild one day's headline strain from its stored TRIMP and the wake window
 /// the pipeline actually priced it over ([wakeMinutes] = `strain_curve.length`).
 ///
-/// Returns null when the day cannot be rescaled — no TRIMP to rescale from, or
-/// no wake window to price the baseline over. A day that cannot be rescaled is
-/// LEFT ALONE: an un-rescalable day must not silently become 0, which is a
-/// number, not an absence.
+/// Returns null when the day cannot be rescaled — no TRIMP to rescale from, no
+/// wake window to price the baseline over, or no [quietHrr] (this user's
+/// quiet-waking level) to price it at. A day that cannot be rescaled is LEFT
+/// ALONE: an un-rescalable day must not silently become 0, which is a number,
+/// not an absence.
+///
+/// THE LUMP FORM, deliberately. Everywhere else strain is scored from the
+/// per-minute series with exercise minutes protected
+/// (`ana.strainScoreFromSeries`); these days have only their TRIMP and the
+/// wake-minute count left, so the stored-TRIMP form is the only one possible.
 double? rescaledStrain({
   required double? trimp,
   required double? wakeMinutes,
   required bool female,
+  required double? quietHrr,
 }) {
-  if (trimp == null || wakeMinutes == null || wakeMinutes <= 0) return null;
+  if (trimp == null ||
+      wakeMinutes == null ||
+      wakeMinutes <= 0 ||
+      quietHrr == null) {
+    return null;
+  }
   return ana.strainScore(
     trimp,
     wakeMinutes: wakeMinutes,
-    // Reference level, not this user's — see onehz_pipeline's
-    // `strainMetric` for why, and edge#226 for the fix.
-    quietHrr: ana.quietWakingHrr,
+    quietHrr: quietHrr,
     female: female,
   );
 }
@@ -101,6 +113,16 @@ Future<StrainBackfillResult> backfillStrainScale({
     await _markDone();
     return none;
   }
+
+  // This user's quiet level, resolved once. Without one there is nothing
+  // honest to rescale against, so return WITHOUT marking done: the one-shot
+  // runs again once three days of `quiet_hrr` exist. ONE level for every
+  // rescaled day, deliberately: these days predate any per-day level, so a
+  // trailing median per day would mostly be a median of nothing. A live
+  // derive prices each day on its own prior days; the difference is small.
+  final quiet = await personalQuietLevelBefore(LocalDb.localDayLabelNow());
+  final quietHrr = quiet.value?.hrr;
+  if (quietHrr == null) return none;
 
   final trimpBy = await _byDate('trimp');
 
@@ -177,6 +199,7 @@ Future<StrainBackfillResult> backfillStrainScale({
         series is Map ? series['strain_curve'] : null,
       )?.toDouble(),
       female: female,
+      quietHrr: quietHrr,
     );
     if (next == null) {
       skipped++;

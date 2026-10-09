@@ -137,7 +137,8 @@ class GattBandLink implements BandLink {
   /// Refuse every write from here on, and end every live `notify()` stream.
   /// Idempotent; call it from the host's teardown, beside cancelling the
   /// `run()` subscription.
-  void close() {
+  @override
+  Future<void> close() async {
     _closed = true;
     if (!_closedSignal.isCompleted) _closedSignal.complete();
   }

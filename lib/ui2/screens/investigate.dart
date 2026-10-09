@@ -405,7 +405,23 @@ class _InvestigateState extends State<Investigate> {
 
     return [
       MonoTable(l?.investigateTimeDomain ?? 'Time domain', [
-        (l?.investigateRmssd ?? 'RMSSD', ms(time['rmssd_ms'] ?? d.hrv['rmssd'])),
+        // Whole-night RMSSD, from the same `hrv_time` envelope as the rest of
+        // this table. Absent (refused) drops the row; it never borrows the
+        // nightly headline, which is a different statistic.
+        (l?.investigateRmssd ?? 'RMSSD', ms(time['rmssd_ms'])),
+        // The nightly headline, labelled by the estimator that produced it:
+        // the session mean when its envelope holds a value. A bundle derived
+        // before `rmssd` became that single estimator stores an earlier
+        // fallback (NREM median or whole-night) beside an absent envelope, and
+        // must not be passed off as the 5-min-window mean.
+        (
+          rmssdFromSessionEstimator(d.hrv['rmssd_sleep_session'])
+              ? (l?.investigateRmssdNightly ??
+                  'RMSSD, nightly (mean of 5-min windows)')
+              : (l?.investigateRmssdStored ??
+                  'RMSSD, nightly (earlier estimate)'),
+          ms(d.hrv['rmssd'])
+        ),
         (l?.investigateSdnn ?? 'SDNN', ms(time['sdnn_ms'] ?? d.hrv['sdnn'])),
         (l?.investigateSdann ?? 'SDANN', ms(time['sdann_ms'])),
         (l?.investigateSdnnIndex ?? 'SDNN index', ms(time['sdnn_index_ms'])),

@@ -269,6 +269,12 @@ void main() {
     });
 
     test('a real profile still produces strain and calories', () async {
+      // Strain is priced on the user's own prior quiet-waking levels and
+      // abstains below three of them — a settled week, so only the profile
+      // decides here.
+      for (var d = 1; d <= 7; d++) {
+        await LocalDb.putMetricSeriesValue('2026-04-0$d', 'quiet_hrr', 0.20);
+      }
       final got = await deriveWith(
         const Profile(
           ageYears: 34,
