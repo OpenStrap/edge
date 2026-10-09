@@ -2623,5 +2623,16 @@
   "pairSensorExplainerWearable": "Les enregistrements propres d'un objet connecté sont stockés et lui sont attribués, et ses propres valeurs sont toujours indiquées comme les siennes. Calculer nos chiffres à partir de lui (sommeil, fréquence cardiaque au repos, effort) est expérimental et désactivé tant que cela n'a pas été vérifié sur le matériel.",
   "pairSensorExplainerWorkout": "Un capteur fournit la fréquence cardiaque et le rythme des battements pendant les entraînements. Il ne remplace pas votre bracelet. Il enregistre pendant un entraînement et quelques minutes après la fin. Il est expérimental et désactivé tant qu'il n'a pas été vérifié sur le matériel : d'ici là, il n'enregistre rien et aucun chiffre ne l'utilise.",
   "pairSensorExplainerCoros": "Une montre de sport. À chaque synchronisation, elle lit la batterie et quelques secondes de fréquence cardiaque en direct. Aucun entraînement ne l'utilise, et les activités enregistrées restent sur la montre. Ses mesures sont enregistrées et affichées ; aucun de nos chiffres n'en est calculé.",
-  "pairSensorExplainerMeasurement": "Les mesures d'un appareil de mesure sont stockées et lui sont attribuées. Les utiliser dans votre profil est expérimental et désactivé tant que cela n'a pas été vérifié sur le matériel."
+  "pairSensorExplainerMeasurement": "Les mesures d'un appareil de mesure sont stockées et lui sont attribuées. Les utiliser dans votre profil est expérimental et désactivé tant que cela n'a pas été vérifié sur le matériel.",
+  "iosUninstallUnpairsWarning": "Sur iOS, supprimer OpenStrap désappaire aussi du téléphone chaque bracelet et capteur appairé ici, si bien que les autres apps, y compris celle du fabricant, les perdent aussi.",
+  "logFoodEditTitle": "Modifier cette entrée",
+  "logFoodDateLabel": "Date",
+  "logFoodTimeLabel": "Heure",
+  "logFoodSearchLabel": "Rechercher vos aliments",
+  "logFoodSearchHint": "Tout ce que vous avez noté",
+  "logFoodSearchNoMatch": "Rien de ce que vous avez noté ne correspond.",
+  "logFoodRemoveEntry": "Supprimer cette entrée",
+  "nutritionProteinToday": "Protéines aujourd’hui",
+  "nutritionProteinToGo": "Encore {grams} g",
+  "nutritionTargetReached": "Objectif atteint"
 }

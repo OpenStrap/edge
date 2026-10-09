@@ -18,6 +18,7 @@
 // The scan itself is not here and cannot be: `flutter_blue_plus` has no
 // simulator path, so a scan test would only prove the fake.
 
+import 'package:flutter/foundation.dart' show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart' show BluetoothDevice;
 import 'package:flutter_test/flutter_test.dart';
@@ -205,6 +206,22 @@ void main() {
       expect(find.text('Your WHOOP is not paired yet.'), findsOneWidget);
       expect(find.text('Search anyway'), findsOneWidget);
     });
+
+    // #538: iOS removes AccessorySetupKit pairings for every app when
+    // OpenStrap is deleted. Say so before pairing, and only on iOS.
+    for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+      testWidgets('the uninstall-unpairs warning on ${platform.name}',
+          (t) async {
+        debugDefaultTargetPlatformOverride = platform;
+        await _pump(t,
+            const PairSensorView(entryLabel: 'Bluetooth heart rate sensor'));
+        expect(
+          find.textContaining('deleting OpenStrap also unpairs'),
+          platform == TargetPlatform.iOS ? findsOneWidget : findsNothing,
+        );
+        debugDefaultTargetPlatformOverride = null;
+      });
+    }
 
     // Order is the scan's (strongest signal first) and is applied in
     // `HrsLink._ranked`, which cannot be reached without a radio — the view

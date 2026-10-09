@@ -1,9 +1,18 @@
 // Presentation-only vocabulary. Never pass user-entered text or storage keys.
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/widgets.dart';
 import 'app_localizations.dart';
 
 String uiText(BuildContext context, String text) =>
     localizedText(AppLocalizations.of(context), text);
+
+/// iOS deletes AccessorySetupKit pairings, bond included and for every app,
+/// when OpenStrap is uninstalled, and there is no hook to stop it (#538).
+/// Appended to pairing and unpair/reset copy so nobody learns it afterwards.
+String withIosUninstallWarning(BuildContext context, String body) =>
+    defaultTargetPlatform == TargetPlatform.iOS
+        ? '$body\n\n${AppLocalizations.of(context)?.iosUninstallUnpairsWarning ?? "On iOS, deleting OpenStrap also unpairs every band and sensor paired here from the phone, so other apps, including the maker's own, lose them too."}'
+        : body;
 
 String journalTagText(BuildContext context, String tag) =>
     localizedJournalTag(AppLocalizations.of(context), tag);

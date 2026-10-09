@@ -474,6 +474,17 @@ class NutritionDb {
     );
   }
 
+  /// Rewrite an existing entry in place: same id, same `created_at`, so it
+  /// keeps its place in [recent] and a CSV export still shows when it was
+  /// first logged. Totals and averages are rolled up from the table on every
+  /// read, so an edit lands exactly as a delete-then-add would. Same
+  /// [FoodEntry.sanitised] guard as [put].
+  static Future<void> update(Database db, FoodEntry e) async {
+    final row = e.sanitised.toRow(DateTime.now().millisecondsSinceEpoch)
+      ..remove('created_at');
+    await db.update('food_entry', row, where: 'id = ?', whereArgs: [e.id]);
+  }
+
   static Future<void> delete(Database db, String id) =>
       db.delete('food_entry', where: 'id = ?', whereArgs: [id]);
 
@@ -510,12 +521,26 @@ class NutritionDb {
   /// The last distinct things eaten, newest first. This is what makes a repeat
   /// entry a two-second job, and it is why there is no need for a "favourites"
   /// concept on top.
-  static Future<List<FoodEntry>> recent(Database db, {int limit = 12}) async {
+  ///
+  /// [query] narrows it to labels containing that text, over the WHOLE
+  /// history rather than the last few — the search on the log sheet.
+  static Future<List<FoodEntry>> recent(
+    Database db, {
+    int limit = 12,
+    String query = '',
+  }) async {
+    final q = query.trim();
     final rows = await db.rawQuery(
       'SELECT * FROM food_entry WHERE id IN '
       '(SELECT MAX(id) FROM food_entry GROUP BY label) '
+      "${q.isEmpty ? '' : r"AND label LIKE ? ESCAPE '\' "}"
       'ORDER BY created_at DESC LIMIT ?',
-      [limit],
+      [
+        // `%` and `_` are literal text in a food name, not wildcards.
+        if (q.isNotEmpty)
+          '%${q.replaceAllMapped(RegExp(r'[\\%_]'), (m) => '\\${m[0]}')}%',
+        limit,
+      ],
     );
     return [for (final r in rows) FoodEntry.fromRow(r)];
   }

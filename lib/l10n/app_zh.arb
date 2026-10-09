@@ -2623,5 +2623,16 @@
   "pairSensorExplainerWearable": "可穿戴设备自己的记录会被保存并归属于它，它自己的数值始终标明为它的。用它计算我们的数据（睡眠、静息心率、负荷）属于实验功能，在经过硬件验证之前保持关闭。",
   "pairSensorExplainerWorkout": "传感器在训练时提供心率和心跳间隔。它不会取代你的手环。它在训练进行时记录，并在结束后再记录几分钟。它属于实验功能，在经过硬件验证之前保持关闭：在此之前它不记录任何内容，也没有任何数值使用它。",
   "pairSensorExplainerCoros": "一款运动手表。同步时会读取电量和几秒钟的实时心率。任何训练都不会使用它，记录的活动保留在手表上。它的读数会被保存和显示；我们的任何数值都不会由它们计算得出。",
-  "pairSensorExplainerMeasurement": "测量设备的读数会被保存并归属于它。在你的个人资料中使用这些读数属于实验功能，在经过硬件验证之前保持关闭。"
+  "pairSensorExplainerMeasurement": "测量设备的读数会被保存并归属于它。在你的个人资料中使用这些读数属于实验功能，在经过硬件验证之前保持关闭。",
+  "iosUninstallUnpairsWarning": "在 iOS 上，删除 OpenStrap 也会解除此处配对的所有手环和传感器与手机的配对，因此其他应用（包括厂商自己的应用）也会失去它们。",
+  "logFoodEditTitle": "编辑这条记录",
+  "logFoodDateLabel": "日期",
+  "logFoodTimeLabel": "时间",
+  "logFoodSearchLabel": "搜索你的食物",
+  "logFoodSearchHint": "你记录过的任何食物",
+  "logFoodSearchNoMatch": "你的记录里没有匹配的内容。",
+  "logFoodRemoveEntry": "删除这条记录",
+  "nutritionProteinToday": "今日蛋白质",
+  "nutritionProteinToGo": "还差 {grams} 克",
+  "nutritionTargetReached": "已达目标"
 }

@@ -411,6 +411,8 @@ class PairSensorView extends StatelessWidget {
                     // numbers (behind its flag, R6), a strap only a workout,
                     // and a Coros watch neither (no workout arms it).
                     child: Text(
+                      withIosUninstallWarning(
+                          c,
                       switch (categoryOf(adapterId)) {
                         _ when adapterId == kCoros.id =>
                           l?.pairSensorExplainerCoros ??
@@ -442,7 +444,7 @@ class PairSensorView extends StatelessWidget {
                                 'stored and shown. Scoring a workout from them '
                                 'is experimental, and off until checked against '
                                 'the hardware.',
-                      },
+                      }),
                       style: F.cap.copyWith(color: p.ink3, height: 1.5),
                     ),
                   ),

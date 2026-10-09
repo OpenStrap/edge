@@ -2652,5 +2652,16 @@
   "pairSensorExplainerWearable": "Los registros propios de un wearable se guardan y se le atribuyen, y sus propios valores siempre se marcan como suyos. Calcular nuestras cifras a partir de él (sueño, frecuencia cardiaca en reposo, esfuerzo) es experimental y está desactivado hasta comprobarlo con el hardware.",
   "pairSensorExplainerWorkout": "Un sensor da frecuencia cardiaca y tiempos entre latidos para los entrenamientos. No sustituye a tu banda. Registra mientras dura un entrenamiento y unos minutos después de terminar. Es experimental y está desactivado hasta comprobarlo con el hardware: hasta entonces no registra nada y ningún número lo usa.",
   "pairSensorExplainerCoros": "Un reloj deportivo. Al sincronizar, lee la batería y unos segundos de frecuencia cardiaca en directo. Ningún entrenamiento lo usa, y las actividades grabadas se quedan en el reloj. Sus lecturas se guardan y se muestran; ninguno de nuestros números se calcula a partir de ellas.",
-  "pairSensorExplainerMeasurement": "Las lecturas de un dispositivo de medición se guardan y se le atribuyen. Usarlas en tu perfil es experimental y está desactivado hasta comprobarlo con el hardware."
+  "pairSensorExplainerMeasurement": "Las lecturas de un dispositivo de medición se guardan y se le atribuyen. Usarlas en tu perfil es experimental y está desactivado hasta comprobarlo con el hardware.",
+  "iosUninstallUnpairsWarning": "En iOS, eliminar OpenStrap también desvincula del teléfono todas las pulseras y sensores emparejados aquí, así que otras apps, incluida la del fabricante, también los pierden.",
+  "logFoodEditTitle": "Editar esta entrada",
+  "logFoodDateLabel": "Fecha",
+  "logFoodTimeLabel": "Hora",
+  "logFoodSearchLabel": "Busca tus alimentos",
+  "logFoodSearchHint": "Cualquier cosa que hayas registrado",
+  "logFoodSearchNoMatch": "Nada de lo que has registrado coincide.",
+  "logFoodRemoveEntry": "Eliminar esta entrada",
+  "nutritionProteinToday": "Proteína de hoy",
+  "nutritionProteinToGo": "Faltan {grams} g",
+  "nutritionTargetReached": "Objetivo alcanzado"
 }

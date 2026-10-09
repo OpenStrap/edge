@@ -1668,6 +1668,14 @@ Map<String, dynamic> deriveDayBundle(Map<String, dynamic> inputJson) {
           ? null
           : _round(skinTempSettledFrac, 4),
       'sdnn': hrvT.present ? hrvT.value!.sdnn : null,
+      // #315 — short-window SDNN (mean of 5-min-window SDNNs over the sleep
+      // NN). The whole-night `sdnn` above folds hours of HR drift into the
+      // spread (~2x on a real night), which is not what Apple Health's HRV
+      // SDNN means; this is what the iOS export writes. Absent with the
+      // headline RMSSD's own refusal of an over-counted stream.
+      'sdnn_window': rrCov?.overCounted == true
+          ? null
+          : sleepSdnnIndex(nn, nnTimes),
       // CV-03 — deceleration capacity (ms). Personal trend only: PRSA anchors on
       // decelerations and pulse-arrival jitter attenuates DC by an amount that
       // varies with signal quality night to night, so a rising line can be a
@@ -1970,6 +1978,31 @@ double? _mean(List<double> xs) {
     s += x;
   }
   return s / xs.length;
+}
+
+/// SDNN index over the night: the arithmetic mean of the SDNNs of consecutive
+/// 5-minute windows of cleaned NN (Task Force of the ESC/NASPE 1996, "SDNN
+/// index"). Windows are counted from the first beat, as `hrvTime` segments
+/// them, but a window joins the mean only with at least [minBeats] beats, the
+/// same floor the nightly RMSSD puts on its windows, so a few beats across a
+/// dropout edge never weigh as much as a full window. Null when no window
+/// qualifies.
+double? sleepSdnnIndex(
+  List<double> nnMs,
+  List<double> nnTimesMs, {
+  int minBeats = kMinDiffsPerRmssdWindow + 1,
+}) {
+  if (nnMs.isEmpty || nnMs.length != nnTimesMs.length) return null;
+  final windows = <int, List<double>>{};
+  final t0 = nnTimesMs.first;
+  for (var i = 0; i < nnMs.length; i++) {
+    (windows[((nnTimesMs[i] - t0) / 300000).floor()] ??= []).add(nnMs[i]);
+  }
+  final sds = [
+    for (final w in windows.values)
+      if (w.length >= minBeats) _stddev(w)!,
+  ];
+  return _mean(sds);
 }
 
 double? _stddev(List<double> xs) {

@@ -2748,5 +2748,16 @@
   "pairSensorExplainerWearable": "Die eigenen Aufzeichnungen eines Wearables werden gespeichert und ihm zugeordnet, und seine eigenen Werte sind immer als seine gekennzeichnet. Unsere Werte daraus zu berechnen (Schlaf, Ruhepuls, Belastung) ist experimentell und bleibt aus, bis es mit der Hardware geprüft wurde.",
   "pairSensorExplainerWorkout": "Ein Sensor liefert Herzfrequenz und Schlagzeiten für Trainings. Er ersetzt dein Band nicht. Er zeichnet auf, während ein Training läuft, und noch ein paar Minuten danach. Er ist experimentell und bleibt aus, bis er mit der Hardware geprüft wurde: Bis dahin zeichnet er nichts auf, und keine Zahl nutzt ihn.",
   "pairSensorExplainerCoros": "Eine Sportuhr. Beim Synchronisieren liest sie den Akkustand und ein paar Sekunden Live-Herzfrequenz. Kein Training nutzt sie, und aufgezeichnete Aktivitäten bleiben auf der Uhr. Ihre Werte werden gespeichert und angezeigt; keine unserer Zahlen wird daraus berechnet.",
-  "pairSensorExplainerMeasurement": "Die Messwerte eines Messgeräts werden gespeichert und ihm zugeordnet. Sie in deinem Profil zu verwenden ist experimentell und bleibt aus, bis es mit der Hardware geprüft wurde."
+  "pairSensorExplainerMeasurement": "Die Messwerte eines Messgeräts werden gespeichert und ihm zugeordnet. Sie in deinem Profil zu verwenden ist experimentell und bleibt aus, bis es mit der Hardware geprüft wurde.",
+  "iosUninstallUnpairsWarning": "Unter iOS hebt das Löschen von OpenStrap auch die Kopplung aller hier gekoppelten Bänder und Sensoren mit dem Telefon auf, sodass auch andere Apps, einschließlich der App des Herstellers, sie verlieren.",
+  "logFoodEditTitle": "Eintrag bearbeiten",
+  "logFoodDateLabel": "Datum",
+  "logFoodTimeLabel": "Uhrzeit",
+  "logFoodSearchLabel": "Deine Lebensmittel durchsuchen",
+  "logFoodSearchHint": "Alles, was du erfasst hast",
+  "logFoodSearchNoMatch": "Nichts, was du erfasst hast, passt dazu.",
+  "logFoodRemoveEntry": "Eintrag entfernen",
+  "nutritionProteinToday": "Protein heute",
+  "nutritionProteinToGo": "Noch {grams} g",
+  "nutritionTargetReached": "Ziel erreicht"
 }

@@ -1793,8 +1793,9 @@ import 'vendor_sleep.dart';
 // 107 → 108: a ring's own hypnogram stages the main sleep (`vendor_staged`, above auto, below the user's override) when it passes the plausibility gate. Edge-only.
 // 108 → 109: analytics main @ 27b0ba4, #87: at low resting hr a breathing line that stays steady in Hz across the night lets rmssd publish (floor confidence) where the jitter gate refused it.
 // 109 → 110: analytics main @ b7d5819, #78 #88-#91. Sleep detection no longer bridges unobserved recording gaps; bridges capped at 90 min. rmssd is one nightly estimator, the mean of the sleep session's 5-min windows, absent when the RR stream banks more beat-time than elapsed or no window has 20 clean differences; the RSA respiratory rate survives sensor gaps; strain (and the new trimp_net) is priced against the user's own quiet-waking level (quiet_hrr, median of 28 prior days, abstains under 3). Days derived before 110 keep their stored values.
+// 110 → 111 (#315): new scalar `sdnn_window`, the mean of 5-min-window SDNNs over the sleep NN (windows under 21 beats left out); the Apple Health HRV SDNN sample now carries it instead of the drift-inflated whole-night `sdnn`, which is unchanged. Edge-only.
 // (no bump) The multi-device wearable paths (`compute/inputs/`, the partial readiness composite, wearable worn-minutes and skin-temp cadence, ring nights) only run for a wearable whose developer flag is on and which is the active wearable; flags default off and a flag-off device contributes nothing. WHOOP output is unchanged, pinned by test/whoop_freeze_golden_test.dart against goldens generated from main.
-const int kAlgoVersion = 110;
+const int kAlgoVersion = 111;
 /// The sibling SHAs this version was derived against, asserted against
 /// pubspec.yaml in test/db_serve_version_and_reads_test.dart.
 ///
@@ -1977,7 +1978,7 @@ const int kAlgoVersion = 110;
 // REPIN @ c0effea: analytics main, #79 + #86 (rmssd gate), for v105.
 // REPIN: feat/multidevice-analytics head (ring settle band), WHOOP output
 // unchanged; re-point at the analytics main merge commit.
-const String kAnalyticsPin = '9e0f3d919ca3f581f97792d0ba0db975cefc4dff';
+const String kAnalyticsPin = 'f16906cbae73b767a746f36846b0aea5e30967c9';
 // Repinned to analytics main's tip, which carries BOTH PR #72 (hrv_freq
 // Welch gap guard) and PR #73 (overreachingConjunction rhr quantum guard) —
 // the two independent kAlgoVersion bumps above (93 and 94). Verified both
@@ -2017,7 +2018,7 @@ const String kAnalyticsPin = '9e0f3d919ca3f581f97792d0ba0db975cefc4dff';
 // REPIN: protocol main @ ecb512b (#72-#77).
 // REPIN: feat/multidevice-verified-decoders head; re-point at the protocol
 // main merge commit.
-const String kProtocolPin = 'bc1603e22d4d2c587dbd6c2df26f71a0ddced920';
+const String kProtocolPin = 'e26e59d1173701821885fae9999304db7452be2f';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

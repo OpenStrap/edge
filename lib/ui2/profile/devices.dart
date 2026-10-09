@@ -2056,10 +2056,10 @@ Future<void> _confirmForgetSensor(BuildContext c, HealthSource s) async {
         l?.devicesForgetSensor(s.displayName(c)) ?? 'Forget ${s.name}?',
       ),
       content: Text(
-        l?.devicesForgetSensorBody ??
+        withIosUninstallWarning(c, l?.devicesForgetSensorBody ??
             'It stops being used during workouts and has to be paired again. '
                 'Everything already banked on this phone is kept — this removes the '
-                'source, not the data.',
+                'source, not the data.'),
       ),
       actions: [
         TextButton(
@@ -2165,10 +2165,10 @@ Future<void> _confirmForget(BuildContext c, AppState app, String name) async {
     builder: (d) => AlertDialog(
       title: Text(l?.devicesForgetBand(name) ?? 'Forget $name?'),
       content: Text(
-        l?.devicesForgetBandBody ??
+        withIosUninstallWarning(c, l?.devicesForgetBandBody ??
             'The band stops syncing and has to be paired again to measure '
                 'anything. Everything already banked on this phone is kept — this '
-                'removes the source, not the data.',
+                'removes the source, not the data.'),
       ),
       actions: [
         TextButton(
