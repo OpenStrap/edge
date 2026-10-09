@@ -34,6 +34,7 @@ import '../compute/derivation_engine.dart'
         kAlgoVersion,
         kOvernightGiveUpSec,
         kPinWakeToleranceSec,
+        pinnableNight,
         overnightSettled,
         recoveryStateOf,
         RecoveryStateWire;
@@ -3792,15 +3793,19 @@ class LocalDb {
     final pin = await frozenHeadline();
     final pinWake = pin?.wakeSec;
     if (pin == null || pin.day != day || pinWake == null) return null;
-    int? wake;
+    int? wake, onset;
     try {
       final raw = jsonDecode(await sleepWindowJsonFor(day) ?? '{}');
       // Bare SleepWindow JSON today; older rows wrap it in a `value` envelope.
       final w = raw is Map && raw['value'] is Map ? raw['value'] : raw;
       final ms = w is Map ? w['offset_ms'] : null;
+      final on = w is Map ? w['onset_ms'] : null;
       wake = ms is num ? ms ~/ 1000 : null;
+      onset = on is num ? on ~/ 1000 : null;
     } catch (_) {/* malformed window → no wake → no pin */}
-    if (wake == null || (wake - pinWake).abs() >= kPinWakeToleranceSec) {
+    if (wake == null ||
+        (wake - pinWake).abs() >= kPinWakeToleranceSec ||
+        !pinnableNight(wakeSec: wake, onsetSec: onset)) {
       return null;
     }
     return pin.value;

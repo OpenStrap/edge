@@ -115,6 +115,18 @@ void main() {
       );
       expect(pin?.value, 28);
     });
+
+    test('a same-wake pin is not held once the night is too short', () {
+      final pin = nextFrozenHeadline(
+        today: day,
+        overnightComplete: true,
+        liveReadiness: 28,
+        current: (day: day, value: 2, wakeSec: wake),
+        wakeSec: wake,
+        onsetSec: wake - 3600, // re-derived down to an hour
+      );
+      expect(pin, isNull);
+    });
   });
 
   group('read side', () {
@@ -150,6 +162,20 @@ void main() {
       await LocalDb.setFrozenHeadline(day, 28, wakeSec: wake + 600);
       expect(await LocalDb.headlinePinFor(day), 28);
       expect(await LocalDb.headlinePinFor('2026-10-07'), isNull);
+    });
+
+    test('a pin is not served for a night too short to pin', () async {
+      await LocalDb.putDayResult(
+        dayId: day,
+        algoVersion: kAlgoVersion,
+        payloadJson: jsonEncode({'scalars': {'readiness': 27.6}}),
+        windowJson: jsonEncode({
+          'onset_ms': (wake - 3600) * 1000,
+          'offset_ms': wake * 1000,
+        }),
+      );
+      await LocalDb.setFrozenHeadline(day, 28, wakeSec: wake);
+      expect(await LocalDb.headlinePinFor(day), isNull);
     });
 
     test('a manual re-analyse releases today\'s pin so the re-derive re-pins',

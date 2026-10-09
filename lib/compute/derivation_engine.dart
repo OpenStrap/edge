@@ -2181,9 +2181,11 @@ const _crossDayVendorScoreKeys = [
       (wakeSec == null ||
           (current.wakeSec != null &&
               (wakeSec - current.wakeSec!).abs() < kPinWakeToleranceSec));
-  if (sameNight) return current; // pinned; hold
   final pinnable =
       wakeSec == null || pinnableNight(wakeSec: wakeSec, onsetSec: onsetSec);
+  // A re-derive can shrink the same night below a main night (onset moved);
+  // its old pin no longer describes a pinnable night, so it is not held.
+  if (sameNight) return pinnable ? current : null; // pinned; hold
   if (overnightComplete && pinnable && liveReadiness != null) {
     // first complete settle of this night → pin
     return (day: today, value: liveReadiness, wakeSec: wakeSec);
