@@ -6851,5 +6851,13 @@
       }
     }
   },
-  "nutritionTargetReached": "Цель достигнута"
+  "nutritionTargetReached": "Цель достигнута",
+  "dayTimelineZoomNoHr": "На этом отрезке нет данных о пульсе",
+  "dayTimelineZoomPerMinute": "Средние за минуту. Потяните ползунки, чтобы приблизить; при окне до двух часов показывается каждая секунда, пока она хранится.",
+  "dayTimelineZoomPerMinuteOnly": "Средние за минуту. Посекундные данные для этого отрезка уже не хранятся.",
+  "dayTimelineZoomPerSecond": "Каждая секунда, записанная браслетом. Посекундные данные хранятся только за последние дни.",
+  "dataExportHeartRate": "Экспортировать пульс по минутам",
+  "dataExportHeartRateSub": "Один CSV за выбранные дни: средний пульс за каждую минуту, записанную браслетом. Посекундные данные хранятся только за последние дни и входят в экспорт базы данных",
+  "dataHeartRateRangeHelp": "Пульс хранится с {first} по {last}",
+  "@dataHeartRateRangeHelp": {"placeholders": {"first": {"type": "String"}, "last": {"type": "String"}}}
 }
