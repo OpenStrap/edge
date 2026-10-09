@@ -6834,5 +6834,22 @@
   "devicesOuraCheckpointUnconfirmed": "Не удалось завершить синхронизацию. Попробуйте синхронизировать ещё раз.",
   "investigateRmssdNightly": "RMSSD, ночной (среднее по 5-минутным окнам)",
   "investigateRmssdStored": "RMSSD, ночной (прежняя оценка)",
-  "devicesOuraWriteRefused": "Не удалось отправить команду кольцу. Попробуйте синхронизировать ещё раз."
+  "devicesOuraWriteRefused": "Не удалось отправить команду кольцу. Попробуйте синхронизировать ещё раз.",
+  "logFoodEditTitle": "Изменить запись",
+  "logFoodDateLabel": "Дата",
+  "logFoodTimeLabel": "Время",
+  "logFoodSearchLabel": "Поиск по вашей еде",
+  "logFoodSearchHint": "Всё, что вы записывали",
+  "logFoodSearchNoMatch": "Среди ваших записей ничего не нашлось.",
+  "logFoodRemoveEntry": "Удалить запись",
+  "nutritionProteinToday": "Белок сегодня",
+  "nutritionProteinToGo": "Осталось {grams} г",
+  "@nutritionProteinToGo": {
+    "placeholders": {
+      "grams": {
+        "type": "int"
+      }
+    }
+  },
+  "nutritionTargetReached": "Цель достигнута"
 }

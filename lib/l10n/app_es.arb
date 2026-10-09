@@ -2517,5 +2517,15 @@
   "dataBackupFolderSub": "Elige dónde guardar las nuevas copias. Las copias existentes permanecen donde están",
   "dataBackupFolderUseDefault": "Usar carpeta predeterminada",
   "dataBackupFolderSaved": "Carpeta de copias guardada.",
-  "dataBackupFolderRetry": "Reintenta con Crear copia ahora o elige otra carpeta"
+  "dataBackupFolderRetry": "Reintenta con Crear copia ahora o elige otra carpeta",
+  "logFoodEditTitle": "Editar esta entrada",
+  "logFoodDateLabel": "Fecha",
+  "logFoodTimeLabel": "Hora",
+  "logFoodSearchLabel": "Busca tus alimentos",
+  "logFoodSearchHint": "Cualquier cosa que hayas registrado",
+  "logFoodSearchNoMatch": "Nada de lo que has registrado coincide.",
+  "logFoodRemoveEntry": "Eliminar esta entrada",
+  "nutritionProteinToday": "Proteína de hoy",
+  "nutritionProteinToGo": "Faltan {grams} g",
+  "nutritionTargetReached": "Objetivo alcanzado"
 }

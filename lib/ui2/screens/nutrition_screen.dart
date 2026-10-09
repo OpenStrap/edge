@@ -181,20 +181,42 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
     }
   }
 
-  /// Removing a log is destructive and there is no undo, so the entry is named
-  /// back before it goes.
-  Future<void> _confirmDelete(FoodEntry e) async {
-    final l = AppLocalizations.of(context);
-    final ok = await confirmRemove(
-      context,
-      title: l?.nutritionRemoveTitle(e.label) ?? 'Remove ${e.label}?',
-      body: l?.nutritionRemoveBody ??
-          'It leaves the day and every average that counted it. There is no '
-              'undo.',
+  /// Edit an entry — amount, meal, time — or remove it from the same sheet.
+  Future<void> _editFood(FoodEntry e) async {
+    final ok = await LogFoodSheet.show(context, entry: e);
+    if (ok == true) await _load();
+  }
+
+  /// Today's protein against the typed target. The Goals tab compares the
+  /// seven-day mean; this is the number to act on before the day ends. A
+  /// floor says "at least", and no figure at all is said, never drawn as 0 g.
+  Widget? _proteinToday(BuildContext c, NutritionDay? day) {
+    final target = _target('protein_target');
+    if (target == null || target <= 0 || day == null || !day.logged) {
+      return null;
+    }
+    final l = AppLocalizations.of(c);
+    final label = l?.nutritionProteinToday ?? 'Protein today';
+    final goal = '${target.round()} g';
+    final v = day.protein.value;
+    if (v == null) {
+      return GoalTrajectory(label, l?.nutritionNotRecorded ?? 'Not recorded',
+          goal, l?.nutritionAddNumbersFix ?? 'Add the numbers to an occasion',
+          0, C.red, rateDown: false);
+    }
+    final left = (target - v).round();
+    return GoalTrajectory(
+      label,
+      '${day.protein.isFloor ? (l?.nutritionAtLeastPrefix ?? 'at least ') : ''}'
+          '${v.round()} g',
+      goal,
+      left > 0
+          ? (l?.nutritionProteinToGo(left) ?? '$left g to go')
+          : (l?.nutritionTargetReached ?? 'Target reached'),
+      (v / target).clamp(0, 1).toDouble(),
+      C.red,
+      rateDown: false,
     );
-    if (!ok) return;
-    await NutritionDb.delete(await LocalDb.instance, e.id);
-    await _load();
   }
 
   @override
@@ -244,6 +266,10 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
           )
         else
           DayEnergyCard(day: day, burned: _burned),
+        if (_proteinToday(c, day) case final protein?) ...[
+          const SizedBox(height: S.x4),
+          protein,
+        ],
         Section(
           l?.nutritionOccasionsSection ?? 'Occasions',
           Surface(
@@ -257,16 +283,16 @@ class _NutritionScreenState extends State<NutritionScreen> with RevisionReload {
                     onTap: () => _logFood(meal: m),
                   ),
                   // The individual entries, indented under the occasion they
-                  // belong to, each one removable. A mistyped 2,000 kcal used
-                  // to be permanent and it silently poisoned every seven-day
-                  // mean it fell into.
+                  // belong to, each one editable and removable. A mistyped
+                  // 2,000 kcal used to be permanent and it silently poisoned
+                  // every seven-day mean it fell into.
                   for (final e in day?.mealEntries(m) ?? const <FoodEntry>[])
                     Padding(
                       padding: const EdgeInsets.only(left: S.x8),
                       child: FoodRow(
                         entry: e,
-                        trailing: LucideIcons.trash2,
-                        onTap: () => _confirmDelete(e),
+                        trailing: LucideIcons.pencil,
+                        onTap: () => _editFood(e),
                       ),
                     ),
                 ],

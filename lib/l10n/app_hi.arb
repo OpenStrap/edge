@@ -2488,5 +2488,15 @@
   "dataBackupFolderSub": "चुनें कि नए बैकअप कहाँ सहेजे जाएँ। पुराने बैकअप अपनी जगह पर रहेंगे",
   "dataBackupFolderUseDefault": "डिफ़ॉल्ट फ़ोल्डर इस्तेमाल करें",
   "dataBackupFolderSaved": "बैकअप फ़ोल्डर सहेजा गया।",
-  "dataBackupFolderRetry": "अभी बैकअप लें से फिर कोशिश करें या दूसरा फ़ोल्डर चुनें"
+  "dataBackupFolderRetry": "अभी बैकअप लें से फिर कोशिश करें या दूसरा फ़ोल्डर चुनें",
+  "logFoodEditTitle": "यह एंट्री बदलें",
+  "logFoodDateLabel": "तारीख",
+  "logFoodTimeLabel": "समय",
+  "logFoodSearchLabel": "अपने खाने खोजें",
+  "logFoodSearchHint": "जो कुछ भी आपने दर्ज किया है",
+  "logFoodSearchNoMatch": "आपकी दर्ज की गई चीज़ों में कुछ नहीं मिला।",
+  "logFoodRemoveEntry": "यह एंट्री हटाएँ",
+  "nutritionProteinToday": "आज का प्रोटीन",
+  "nutritionProteinToGo": "{grams} g बाकी",
+  "nutritionTargetReached": "लक्ष्य पूरा"
 }

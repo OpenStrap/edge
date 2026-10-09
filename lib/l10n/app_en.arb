@@ -14526,5 +14526,50 @@
         "type": "int"
       }
     }
+  },
+  "logFoodEditTitle": "Edit this entry",
+  "@logFoodEditTitle": {
+    "description": "Log food sheet: title when editing an existing entry"
+  },
+  "logFoodDateLabel": "Date",
+  "@logFoodDateLabel": {
+    "description": "Log food sheet: row label for the day the food was eaten"
+  },
+  "logFoodTimeLabel": "Time",
+  "@logFoodTimeLabel": {
+    "description": "Log food sheet: row label for the time the food was eaten"
+  },
+  "logFoodSearchLabel": "Search your foods",
+  "@logFoodSearchLabel": {
+    "description": "Log food sheet: label of the search field over past foods"
+  },
+  "logFoodSearchHint": "Anything you have logged",
+  "@logFoodSearchHint": {
+    "description": "Log food sheet: hint in the search field over past foods"
+  },
+  "logFoodSearchNoMatch": "Nothing you have logged matches that.",
+  "@logFoodSearchNoMatch": {
+    "description": "Log food sheet: shown when the search over past foods finds nothing"
+  },
+  "logFoodRemoveEntry": "Remove this entry",
+  "@logFoodRemoveEntry": {
+    "description": "Log food sheet: button that removes the entry being edited"
+  },
+  "nutritionProteinToday": "Protein today",
+  "@nutritionProteinToday": {
+    "description": "Nutrition Today tab: label of the protein-versus-target card"
+  },
+  "nutritionProteinToGo": "{grams} g to go",
+  "@nutritionProteinToGo": {
+    "description": "Nutrition Today tab: grams of protein still needed to reach the target",
+    "placeholders": {
+      "grams": {
+        "type": "int"
+      }
+    }
+  },
+  "nutritionTargetReached": "Target reached",
+  "@nutritionTargetReached": {
+    "description": "Nutrition Today tab: protein target met or exceeded"
   }
 }

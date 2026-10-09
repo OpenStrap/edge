@@ -31,25 +31,33 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/db.dart';
 import '../../data/day_label.dart';
+import '../../data/journal_fields.dart' show formatMinuteOfDay;
 import '../../data/nutrition_store.dart';
 import '../../data/off_lookup.dart';
 import '../../l10n/app_localizations.dart';
 import '../profile/profile.dart' show SetRow;
 import '../ui2.dart';
 import 'journal_compose.dart' show OsTextField;
+import 'log_workout.dart' show dayLabel;
 import 'scan_barcode.dart';
 
 class LogFoodSheet extends StatefulWidget {
-  const LogFoodSheet({super.key, this.date, this.meal = 'snack'});
+  const LogFoodSheet({super.key, this.date, this.meal = 'snack', this.entry});
 
   final String? date;
   final String meal;
 
-  /// Show as a bottom sheet. Resolves true when something was logged.
+  /// An existing entry to EDIT instead of logging a new one. Same id on save,
+  /// and the sheet can remove it.
+  final FoodEntry? entry;
+
+  /// Show as a bottom sheet. Resolves true when something was logged, edited
+  /// or removed.
   static Future<bool?> show(
     BuildContext c, {
     String? date,
     String meal = 'snack',
+    FoodEntry? entry,
   }) => showModalBottomSheet<bool>(
     context: c,
     isScrollControlled: true,
@@ -58,7 +66,7 @@ class LogFoodSheet extends StatefulWidget {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl)),
     ),
-    builder: (_) => LogFoodSheet(date: date, meal: meal),
+    builder: (_) => LogFoodSheet(date: date, meal: meal, entry: entry),
   );
 
   @override
@@ -66,8 +74,24 @@ class LogFoodSheet extends StatefulWidget {
 }
 
 class _LogFoodSheetState extends State<LogFoodSheet> {
-  late final String _date = widget.date ?? todayLabel();
-  late String _meal = widget.meal;
+  FoodEntry? get _editing => widget.entry;
+  late String _date = _editing?.date ?? widget.date ?? todayLabel();
+  late String _meal = _editing?.meal ?? widget.meal;
+
+  /// When it was eaten, on [_date]. Defaults to now so the one-tap path is
+  /// unchanged; picking one is how a meal gets logged after the fact. Null
+  /// only for an edited entry that never had a time — it stays unrecorded
+  /// rather than gaining one nobody chose.
+  late TimeOfDay? _time = switch (widget.entry) {
+    null => TimeOfDay.now(),
+    FoodEntry(atTs: final ts?) =>
+      TimeOfDay.fromDateTime(DateTime.fromMillisecondsSinceEpoch(ts * 1000)),
+    _ => null,
+  };
+
+  /// Search over everything ever logged, not just the last five.
+  final _query = TextEditingController();
+  bool _hasHistory = false;
 
   final _label = TextEditingController();
   final _kcal = TextEditingController();
@@ -82,7 +106,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
   final _portion = TextEditingController();
 
   List<FoodEntry> _recent = const [];
-  bool _detail = false;
+  late bool _detail = _editing != null;
 
   /// The last scan's product, when it produced one. Holds the per-100 g
   /// figures the portion field rescales from, and its barcode becomes the
@@ -97,14 +121,42 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
   @override
   void initState() {
     super.initState();
-    _loadRecent();
+    final e = _editing;
+    if (e == null) {
+      _loadRecent();
+      _query.addListener(_loadRecent);
+    } else {
+      _label.text = e.label;
+      _kcal.text = _plain(e.kcal);
+      _protein.text = _plain(e.proteinG);
+      _carbs.text = _plain(e.carbsG);
+      _fat.text = _plain(e.fatG);
+      _fibre.text = _plain(e.fibreG);
+      _loadScanned(e);
+    }
     _portion.addListener(_rescale);
+  }
+
+  /// A scanned entry reopens with its product attached, so changing the
+  /// portion rescales the numbers the same way it did when it was logged.
+  /// The portion is set BEFORE the product, so the listener does not
+  /// overwrite numbers the user may have typed over since.
+  Future<void> _loadScanned(FoodEntry e) async {
+    final key = e.foodKey;
+    if (e.source != FoodSource.barcode || key == null) return;
+    final row = await NutritionDb.foodDef(await LocalDb.instance, key);
+    if (row == null || row['source'] != 'barcode' || !mounted) return;
+    setState(() {
+      _portion.text = _plain(e.quantity);
+      _scanned = OffProduct.fromDefRow(row);
+    });
   }
 
   @override
   void dispose() {
     _portion.removeListener(_rescale);
     for (final t in [
+      _query,
       _label,
       _kcal,
       _protein,
@@ -119,15 +171,70 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
   }
 
   Future<void> _loadRecent() async {
+    final q = _query.text.trim();
     final db = await LocalDb.instance;
-    final r = await NutritionDb.recent(db);
-    if (mounted) setState(() => _recent = r);
+    final r = await NutritionDb.recent(db, limit: q.isEmpty ? 5 : 25, query: q);
+    // A slower answer to an older query must not replace a newer one.
+    if (!mounted || q != _query.text.trim()) return;
+    setState(() {
+      _recent = r;
+      if (r.isNotEmpty) _hasHistory = true;
+    });
   }
 
   Future<void> _write(FoodEntry e) async {
     final db = await LocalDb.instance;
-    await NutritionDb.put(db, e);
+    if (_editing != null) {
+      await NutritionDb.update(db, e);
+    } else {
+      await NutritionDb.put(db, e);
+    }
     if (mounted) Navigator.of(context).pop(true);
+  }
+
+  /// Removing is destructive and there is no undo, so the entry is named back
+  /// before it goes.
+  Future<void> _remove(FoodEntry e) async {
+    final l = AppLocalizations.of(context);
+    final ok = await confirmRemove(
+      context,
+      title: l?.nutritionRemoveTitle(e.label) ?? 'Remove ${e.label}?',
+      body: l?.nutritionRemoveBody ??
+          'It leaves the day and every average that counted it. There is no '
+              'undo.',
+    );
+    if (!ok) return;
+    await NutritionDb.delete(await LocalDb.instance, e.id);
+    if (mounted) Navigator.of(context).pop(true);
+  }
+
+  /// Epoch seconds for [_time] on [_date], or null when no time is set.
+  int? get _atTs {
+    final t = _time;
+    final d = DateTime.tryParse(_date);
+    if (t == null || d == null) return null;
+    return DateTime(d.year, d.month, d.day, t.hour, t.minute)
+            .millisecondsSinceEpoch ~/
+        1000;
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.tryParse(_date) ?? now,
+      firstDate: DateTime(2000),
+      lastDate: now,
+    );
+    if (picked != null && mounted) setState(() => _date = dayLabelOf(picked));
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _time ?? TimeOfDay.now(),
+    );
+    if (picked != null && mounted) setState(() => _time = picked);
   }
 
   FoodEntry _base({
@@ -138,7 +245,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
     date: _date,
     meal: _meal,
     label: label,
-    atTs: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    atTs: _atTs,
     source: source,
   );
 
@@ -330,7 +437,10 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
             Row(
               children: [
                 Expanded(
-                  child: Text(l?.logFoodTitle ?? 'Log an eating occasion',
+                  child: Text(
+                      _editing != null
+                          ? (l?.logFoodEditTitle ?? 'Edit this entry')
+                          : (l?.logFoodTitle ?? 'Log an eating occasion'),
                       style: F.t2.copyWith(color: p.ink)),
                 ),
                 Pressable(
@@ -369,6 +479,26 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                 ],
               ],
             ),
+            const SizedBox(height: S.x3),
+            Surface(
+              pad: const EdgeInsets.symmetric(horizontal: S.x4),
+              child: Column(
+                children: [
+                  SetRow(LucideIcons.calendar, C.domFood,
+                      l?.logFoodDateLabel ?? 'Date',
+                      value: dayLabel(DateTime.tryParse(_date) ?? DateTime.now(),
+                          l: l),
+                      onTap: _pickDate),
+                  SetRow(LucideIcons.clock, C.domFood,
+                      l?.logFoodTimeLabel ?? 'Time',
+                      value: _time == null
+                          ? (l?.nutritionNotRecorded ?? 'Not recorded')
+                          : formatMinuteOfDay(_time!.hour * 60 + _time!.minute),
+                      onTap: _pickTime),
+                ],
+              ),
+            ),
+            if (_editing == null) ...[
             const SizedBox(height: S.x5),
             BigButton(
               l?.logFoodIAte(_mealLabel(c, _meal)) ??
@@ -377,14 +507,30 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
               color: C.domFood,
               onTap: () => _write(_base(label: _mealLabel(c, _meal))),
             ),
-            if (_recent.isNotEmpty)
+            if (_hasHistory)
               Section(
                 l?.logFoodAgain ?? 'Again',
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    OsTextField(
+                      controller: _query,
+                      label: l?.logFoodSearchLabel ?? 'Search your foods',
+                      hint: l?.logFoodSearchHint ?? 'Anything you have logged',
+                    ),
+                    const SizedBox(height: S.x3),
+                    if (_recent.isEmpty)
+                      Text(
+                        l?.logFoodSearchNoMatch ??
+                            'Nothing you have logged matches that.',
+                        style: F.cap.copyWith(color: p.ink3),
+                      )
+                    else
                 Surface(
                   pad: const EdgeInsets.symmetric(horizontal: S.x4),
                   child: Column(
                     children: [
-                      for (final r in _recent.take(5))
+                      for (final r in _recent)
                         FoodRow(
                           entry: r,
                           trailing: LucideIcons.circlePlus,
@@ -394,8 +540,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                               date: _date,
                               meal: _meal,
                               label: r.label,
-                              atTs:
-                                  DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                              atTs: _atTs,
                               foodKey: r.foodKey,
                               quantity: r.quantity,
                               unit: r.unit,
@@ -411,6 +556,8 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                         ),
                     ],
                   ),
+                ),
+                  ],
                 ),
               ),
             const SizedBox(height: S.x5),
@@ -433,7 +580,9 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                 ],
               ),
             ),
+            ],
             if (_detail) ...[
+              if (_editing == null) ...[
               const SizedBox(height: S.x3),
               Surface(
                 pad: const EdgeInsets.symmetric(horizontal: S.x4),
@@ -450,6 +599,7 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                   onTap: _looking ? null : _scan,
                 ),
               ),
+              ],
               if (_looking) ...[
                 const SizedBox(height: S.x3),
                 StatusCard(
@@ -540,9 +690,13 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                   }
                   final b = _base(label: label);
                   final scan = _scanned;
+                  // An edit keeps its id and everything this form does not
+                  // show — the nutrients only the coach writes, the note —
+                  // rather than dropping them as a side effect.
+                  final o = _editing;
                   _write(
                     FoodEntry(
-                      id: b.id,
+                      id: o?.id ?? b.id,
                       date: b.date,
                       meal: b.meal,
                       label: label,
@@ -550,8 +704,15 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                       // The barcode, so a repeat of this food is a local
                       // read — and so the row can say where its numbers came
                       // from. NOT `verified`: see FoodSource.barcode.
-                      foodKey: scan?.barcode,
-                      quantity: scan == null ? null : _num(_portion),
+                      foodKey: scan?.barcode ?? o?.foodKey,
+                      quantity: scan == null ? o?.quantity : _num(_portion),
+                      unit: scan == null ? (o?.unit ?? 'g') : 'g',
+                      sugarG: o?.sugarG,
+                      satFatG: o?.satFatG,
+                      sodiumMg: o?.sodiumMg,
+                      ironMg: o?.ironMg,
+                      calciumMg: o?.calciumMg,
+                      note: o?.note ?? '',
                       source: scan == null
                           ? FoodSource.manual
                           : FoodSource.barcode,
@@ -565,6 +726,16 @@ class _LogFoodSheetState extends State<LogFoodSheet> {
                   );
                 },
               ),
+              if (_editing != null) ...[
+                const SizedBox(height: S.x3),
+                BigButton(
+                  l?.logFoodRemoveEntry ?? 'Remove this entry',
+                  icon: LucideIcons.trash2,
+                  color: C.red,
+                  soft: true,
+                  onTap: () => _remove(_editing!),
+                ),
+              ],
             ],
           ],
         ),
