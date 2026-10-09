@@ -793,7 +793,8 @@ class CoachEngine {
       _runTool(name, args, onItem: (_) {}, confirm: (_) async => false);
 
   /// Today's readiness under the headline rule, for run_sql's views: the
-  /// final number or nothing. Null (views untouched) if today can't be read.
+  /// final number or nothing. If today can't be read, today's readiness is
+  /// masked rather than left as whatever a mid-sync derive stored.
   Future<({String day, num? readiness})?> _todayReadiness() async {
     try {
       final h = todayHeadlineOf(await api.getToday());
@@ -802,7 +803,7 @@ class CoachEngine {
         readiness: h['recovery_state'] == 'final' ? h['recovery'] as num? : null,
       );
     } catch (_) {
-      return null;
+      return (day: todayLabel(), readiness: null);
     }
   }
 

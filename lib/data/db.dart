@@ -3666,8 +3666,8 @@ class LocalDb {
   }
 
   /// Read a sync-cursor value (null if unset).
-  static Future<String?> getCursor(String name) async {
-    final db = await instance;
+  static Future<String?> getCursor(String name, {DatabaseExecutor? txn}) async {
+    final db = txn ?? await instance;
     final rows = await db.query(
       'sync_cursor',
       columns: ['value'],
@@ -3794,7 +3794,9 @@ class LocalDb {
     if (pin == null || pin.day != day || pinWake == null) return null;
     int? wake;
     try {
-      final w = jsonDecode(await sleepWindowJsonFor(day) ?? '{}');
+      final raw = jsonDecode(await sleepWindowJsonFor(day) ?? '{}');
+      // Bare SleepWindow JSON today; older rows wrap it in a `value` envelope.
+      final w = raw is Map && raw['value'] is Map ? raw['value'] : raw;
       final ms = w is Map ? w['offset_ms'] : null;
       wake = ms is num ? ms ~/ 1000 : null;
     } catch (_) {/* malformed window → no wake → no pin */}
@@ -3813,10 +3815,14 @@ class LocalDb {
   /// day's latest change `{from, to, at}` (at = epoch ms) or null if the number
   /// has not changed since it was first shown.
   static Future<Map<String, int>?> noteHeadlineShown(
-      String day, int value) async {
+          String day, int value) async =>
+      // One transaction: overlapping getToday calls must not write back a
+      // stale read and walk the "from" side of the note backwards.
+      (await instance).transaction((txn) async {
     Map? cur;
     try {
-      final d = jsonDecode(await getCursor(kHeadlineShownCursor) ?? 'null');
+      final d = jsonDecode(
+          await getCursor(kHeadlineShownCursor, txn: txn) ?? 'null');
       if (d is Map && d['day'] == day && d['value'] is num) cur = d;
     } catch (_) {/* malformed → start over */}
     if (cur != null && (cur['value'] as num).round() == value) {
@@ -3834,11 +3840,12 @@ class LocalDb {
         if (cur != null) 'prev': (cur['value'] as num).round(),
         if (cur != null) 'at': now,
       }),
+      txn: txn,
     );
     return cur == null
         ? null
         : {'from': (cur['value'] as num).round(), 'to': value, 'at': now};
-  }
+  });
 
   /// Pin [value] as the frozen readiness headline for [day] (overwrites any
   /// prior pin — first-complete-settle-per-day is enforced by the caller).
@@ -10849,7 +10856,7 @@ class LocalDb {
           wakeSec: wakeSec,
           dataEdgeSec: bandEdgeSec,
           nowSec: nowSec,
-        ).wire;
+        )?.wire;
       }
       if (dayId == today &&
           !overnightSettled(

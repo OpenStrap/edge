@@ -137,8 +137,10 @@ void main() {
     test(
         'a later sleep block becomes the night after a long mid-night wake → '
         're-pins on that night, not the first block', () {
-      // 22:30–01:45 settles at 02:45 (edge a margin past wake) and pins 70.
-      const firstWake = 1000000;
+      // A first block waking 04:00 settles and pins 70. Local wall-clock
+      // times: a pin needs a wake at or after kMinPinWakeHour LOCAL, so a raw
+      // epoch passes or fails depending on the machine's zone.
+      final firstWake = DateTime(2026, 10, 8, 4).millisecondsSinceEpoch ~/ 1000;
       var frozen = nextFrozenHeadline(
         today: d1,
         overnightComplete: true,
@@ -148,9 +150,9 @@ void main() {
       );
       expect(frozen!.value, 70);
 
-      // Asleep again 03:00–07:00 (75 min gap, not bridged): the new block is
+      // Asleep again until 09:15 (a long gap, not bridged): the new block is
       // in progress, not settled → the old pin holds for now.
-      const realWake = firstWake + (5 * 3600 + 15 * 60);
+      final realWake = firstWake + (5 * 3600 + 15 * 60);
       frozen = nextFrozenHeadline(
         today: d1,
         overnightComplete: false,

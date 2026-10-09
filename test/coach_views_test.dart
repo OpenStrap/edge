@@ -102,5 +102,11 @@ void main() {
     expect((await rows(metric, done))['2026-10-08'], 28);
     // No headline read: the stored views as before.
     expect((await rows(daily, null))['2026-10-08'], 2.0);
+    // A pinned day with no stored readiness row still reads as the headline.
+    const pinnedOnly = (day: '2026-10-09', readiness: 31);
+    expect((await rows(daily, pinnedOnly))['2026-10-09'], 31);
+    expect((await rows(metric, pinnedOnly))['2026-10-09'], 31);
+    const noPin = (day: '2026-10-09', readiness: null);
+    expect((await rows(metric, noPin)).containsKey('2026-10-09'), isFalse);
   });
 }

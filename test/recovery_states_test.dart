@@ -31,8 +31,10 @@ void main() {
       // Mid-drain at 04:04 the stager closes the window at the newest record.
       expect(recoveryStateOf(wakeSec: at0404, dataEdgeSec: at0404),
           RecoveryState.nightInProgress);
-      expect(recoveryStateOf(wakeSec: null, dataEdgeSec: at0404),
-          RecoveryState.nightInProgress);
+    });
+
+    test('no window yet claims no state (could be an unworn night)', () {
+      expect(recoveryStateOf(wakeSec: null, dataEdgeSec: at0404), isNull);
     });
 
     test('wake confirmed but not settled → provisional', () {

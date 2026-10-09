@@ -2112,10 +2112,12 @@ extension RecoveryStateWire on RecoveryState {
       };
 }
 
-/// Where today's night stands: no confirmed wake yet ([kWakeConfirmMarginSec]
-/// of edge past it) is still in progress; a confirmed wake whose window has not
-/// settled ([overnightSettled]) is provisional; settled is final.
-RecoveryState recoveryStateOf({
+/// Where today's night stands: a wake the edge has not yet run
+/// [kWakeConfirmMarginSec] past is still in progress; a confirmed wake whose
+/// window has not settled ([overnightSettled]) is provisional; settled is
+/// final. No window at all and not settled is null: nothing says the user is
+/// asleep (an unworn night reads the same until noon), so no state is claimed.
+RecoveryState? recoveryStateOf({
   required int? wakeSec,
   required int dataEdgeSec,
   int? nowSec,
@@ -2124,10 +2126,10 @@ RecoveryState recoveryStateOf({
       sleepOffsetSec: wakeSec, dataEdgeSec: dataEdgeSec, nowSec: nowSec)) {
     return RecoveryState.finalReady;
   }
-  if (wakeSec != null && dataEdgeSec >= wakeSec + kWakeConfirmMarginSec) {
-    return RecoveryState.provisional;
-  }
-  return RecoveryState.nightInProgress;
+  if (wakeSec == null) return null;
+  return dataEdgeSec >= wakeSec + kWakeConfirmMarginSec
+      ? RecoveryState.provisional
+      : RecoveryState.nightInProgress;
 }
 
 /// Whether a night is a plausible MAIN night to freeze (see [kMinPinWakeHour]).

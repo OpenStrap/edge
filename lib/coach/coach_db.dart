@@ -492,17 +492,32 @@ class CoachDb {
     if (today == null) return;
     final day = today.day.replaceAll("'", "''");
     final v = today.readiness?.toString() ?? 'NULL';
-    final cols = [
+    final names = [
       for (final r in await db.rawQuery('PRAGMA main.table_info(v_daily)'))
-        r['name'] == 'readiness'
+        '${r['name']}',
+    ];
+    final cols = [
+      for (final n in names)
+        n == 'readiness'
             ? "CASE WHEN date = '$day' THEN $v ELSE readiness END AS readiness"
-            : '"${r['name']}"',
+            : '"$n"',
+    ];
+    // A pinned headline whose day has no stored readiness (the live composite
+    // abstained on a later derive) still has to read the same as Home.
+    final added = [
+      for (final n in names)
+        n == 'date' ? "'$day'" : (n == 'readiness' ? v : 'NULL'),
     ];
     await db.execute(
-        'CREATE TEMP VIEW v_daily AS SELECT ${cols.join(', ')} FROM main.v_daily');
+        'CREATE TEMP VIEW v_daily AS SELECT ${cols.join(', ')} FROM main.v_daily '
+        "UNION ALL SELECT ${added.join(', ')} WHERE $v IS NOT NULL AND NOT "
+        "EXISTS (SELECT 1 FROM main.v_daily WHERE date = '$day')");
     await db.execute('CREATE TEMP VIEW v_metric AS SELECT date, key, '
         "CASE WHEN date = '$day' AND key = 'readiness' THEN $v ELSE value END "
-        'AS value FROM main.v_metric');
+        'AS value FROM main.v_metric '
+        "UNION ALL SELECT '$day', 'readiness', $v WHERE $v IS NOT NULL AND NOT "
+        "EXISTS (SELECT 1 FROM main.v_metric WHERE date = '$day' "
+        "AND key = 'readiness')");
   }
 
   /// Run an LLM SELECT and return compact JSON for the tool result. On a guard
