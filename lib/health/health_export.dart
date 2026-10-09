@@ -5,7 +5,17 @@
 // pipeline measures or derives for real — sleep stages, resting HR, HRV
 // (SDNN on iOS / RMSSD on Android), respiratory rate, active energy, workouts.
 // NOT the proprietary scores (recovery/strain/readiness) or relative-only signals
-// (SpO₂ / skin-temp) — no native type, would be fabricated.
+// (SpO₂, and skin temperature from a WHOOP 4) — no native type, would be fabricated.
+//
+// Skin temperature is exported for WHOOP 5 nights ONLY. That band reports °C,
+// so the night's mean is a real temperature; a WHOOP 4 reports a raw ADC count
+// with no calibration to °C, and converting it would invent the number. Gated
+// on the day's `metric_series_version.device_family`, never on the value.
+// Written as BODY_TEMPERATURE (Health Connect BodyTemperatureRecord, HealthKit
+// bodyTemperature): the `health` plugin exposes no skin-temperature record, and
+// HealthKit's sleeping-wrist-temperature type is written by Apple only. It is a
+// skin reading (~33-35 °C), not core temperature, and the importer skips our
+// own samples so it never comes back as a thermometer's.
 //
 // Continuous + idempotent: a day is exported AS SOON AS it's derived (no waiting
 // for finalization). Because a recent day can re-derive, every export DELETES our
@@ -93,6 +103,24 @@ List<HealthDataType> healthDeleteTypes({required bool isApplePlatform}) {
   return isApplePlatform
       ? types
       : types.where((type) => type != HealthDataType.HEART_RATE).toList();
+}
+
+/// Band families whose `skin_temp_adc` scalar is centi-°C rather than a raw
+/// ADC count (see derive_prepare.dart `_skinTempFor`).
+const Set<String> kCelsiusSkinTempFamilies = {'gen5'};
+
+/// The night's mean skin temperature in °C to export, or null.
+///
+/// Null for any family not in [kCelsiusSkinTempFamilies] (a WHOOP 4's raw
+/// count is never a temperature), for an absent mean, and for a value outside
+/// the plausible skin range — dropped, not clamped.
+@visibleForTesting
+double? healthSkinTempCelsius(num? skinTempMean, String? deviceFamily) {
+  if (skinTempMean == null || !kCelsiusSkinTempFamilies.contains(deviceFamily)) {
+    return null;
+  }
+  final c = skinTempMean / 100;
+  return c >= 25 && c <= 42 ? double.parse(c.toStringAsFixed(2)) : null;
 }
 
 /// The kcal a workout sample carries, or null when it carries none.
@@ -534,6 +562,8 @@ class HealthExporter {
     for (final t in _sleepHealthTypes)
       if (t != _foreignSleepEnvelope(isApple)) t,
     HealthDataType.WORKOUT,
+    // WHOOP 5 nightly skin temperature; see the header and [_exportSkinTemp].
+    HealthDataType.BODY_TEMPERATURE,
   ];
 
   /// The types the per-day delete-then-write pass touches.
@@ -1100,6 +1130,53 @@ class HealthExporter {
 
   /// Write one day's metrics. DELETES our prior samples for the day window first
   /// (so a re-derive overwrites instead of duplicating). Best-effort; never throws.
+  /// The night's skin temperature, WHOOP 5 days only. Same shape as the
+  /// other nightly scalars — clear our own samples for the day, then one
+  /// sample at the sleep midpoint, re-written while the day can re-derive.
+  ///
+  /// OUTSIDE the day's success accounting, on purpose: everyone who granted
+  /// access before this type existed has no BODY_TEMPERATURE grant, and a
+  /// failed write here would otherwise hold the export cursor on every WHOOP 5
+  /// day until they re-granted. A missed temperature is retried on the next
+  /// pass while the day is in the recent tail; it never blocks sleep or HR.
+  Future<void> _exportSkinTemp(
+    String date,
+    num? mean,
+    DateTime at,
+    DateTime dayStart,
+    DateTime dayEnd,
+  ) async {
+    String? family;
+    try {
+      family = await LocalDb.dayDeviceFamily(date);
+    } catch (e) {
+      debugPrint('[health] skin temp family $date: $e');
+      return;
+    }
+    // A WHOOP 4 day is never touched, not even by the delete: there is
+    // nothing of ours to clear and no grant to ask for.
+    if (!kCelsiusSkinTempFamilies.contains(family)) return;
+    if (!await _deleteOwnSamples(
+        HealthDataType.BODY_TEMPERATURE, dayStart, dayEnd)) {
+      debugPrint('[health] delete BODY_TEMPERATURE did not clear $date');
+      return;
+    }
+    final c = healthSkinTempCelsius(mean, family);
+    if (c == null) return;
+    try {
+      final wrote = await _health.writeHealthData(
+        value: c,
+        type: HealthDataType.BODY_TEMPERATURE,
+        startTime: at,
+        endTime: at,
+        unit: HealthDataUnit.DEGREE_CELSIUS,
+      );
+      if (!wrote) debugPrint('[health] write BODY_TEMPERATURE returned false');
+    } catch (e) {
+      debugPrint('[health] write BODY_TEMPERATURE: $e');
+    }
+  }
+
   Future<bool> _exportDay(
     String date,
     Map<String, dynamic> b, {
@@ -1297,6 +1374,8 @@ class HealthExporter {
       HealthDataUnit.RESPIRATIONS_PER_MINUTE,
       mid,
     );
+
+    await _exportSkinTemp(date, sc('skin_temp_adc'), mid, dayStart, dayEnd);
 
     final bucketBounds = healthEnergyBucketBounds(
       dayStart,

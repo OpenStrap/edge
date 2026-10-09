@@ -11285,7 +11285,7 @@
       }
     }
   },
-  "settingsHealthSyncReady": "Writes each day’s sleep, resting heart rate, HRV, respiratory rate, energy and workouts to {store} once it is final",
+  "settingsHealthSyncReady": "Writes each day’s sleep, resting heart rate, HRV, respiratory rate, energy, workouts and (WHOOP 5 only) skin temperature to {store} once it is final",
   "@settingsHealthSyncReady": {
     "description": "Health-sync subtitle when the write is active and ready",
     "placeholders": {

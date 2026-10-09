@@ -9179,6 +9179,18 @@ class LocalDb {
   ///  * A single-family user gets the EMPTY SET, because nothing differs from
   ///    the newest stamp. So this changes no number until a strap actually
   ///    changes generation.
+  /// The band family whose units [date]'s band-derived scalars are in, or
+  /// null when unknown, mixed, or not band-derived (an import).
+  static Future<String?> dayDeviceFamily(String date) async {
+    final db = await instance;
+    final rows = await db.rawQuery(
+      "SELECT device_family FROM metric_series_version "
+      "WHERE date = ? AND source = 'band'",
+      [date],
+    );
+    return rows.isEmpty ? null : rows.first['device_family'] as String?;
+  }
+
   static Future<Set<String>> foreignFamilyDates() async {
     final db = await instance;
     final rows = await db.rawQuery(

@@ -350,7 +350,7 @@ String healthSyncSub(
   return switch (state) {
     HealthLinkState.ready => l?.settingsHealthSyncReady(store) ??
         'Writes each day’s sleep, resting heart rate, '
-            'HRV, respiratory rate, energy and workouts to $store once it is final',
+            'HRV, respiratory rate, energy, workouts and (WHOOP 5 only) skin temperature to $store once it is final',
     HealthLinkState.needsPermission =>
       l?.settingsHealthSyncNeedsPermission(store) ??
           '$store has not granted write access. Tap to open it',

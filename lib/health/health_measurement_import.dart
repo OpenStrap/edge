@@ -25,8 +25,10 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:health/health.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../data/db.dart';
+import 'health_rhr_seed.dart' show isOwnHealthSample;
 
 /// Stable `imported_measurement.kind` keys. Written to the database, so they
 /// are contract: rename one and every stored row orphans.
@@ -56,8 +58,16 @@ const Map<String, (double, double)> kImportedBounds = {
 
 /// Turn raw health-store points into `imported_measurement` rows, dropping
 /// anything unusable. Pure, so the filtering is testable without a store.
+///
+/// [ownId] is this app's package / bundle id. Our own samples are skipped:
+/// the nightly WHOOP 5 skin temperature is written as BODY_TEMPERATURE (see
+/// health_export.dart), and reading it back here would file our own wrist
+/// reading as a thermometer's.
 @visibleForTesting
-List<Map<String, Object?>> rowsFrom(List<HealthDataPoint> points) {
+List<Map<String, Object?>> rowsFrom(
+  List<HealthDataPoint> points, {
+  String ownId = '',
+}) {
   final out = <Map<String, Object?>>[];
   final seen = <String>{};
   // Health Connect reports both halves of one blood-pressure reading under the
@@ -70,6 +80,7 @@ List<Map<String, Object?>> rowsFrom(List<HealthDataPoint> points) {
   for (final p in points) {
     final kind = kImportedKinds[p.type];
     if (kind == null) continue;
+    if (isOwnHealthSample(p.sourceId, p.sourceName, ownId)) continue;
     final v = p.value;
     if (v is! NumericHealthValue) continue;
     final value = v.numericValue.toDouble();
@@ -113,7 +124,8 @@ class ImportedMeasurementImporter {
     HealthDataType.BODY_TEMPERATURE,
   ];
 
-  /// READ only. This app writes none of these and never will.
+  /// READ only. The one overlap is BODY_TEMPERATURE, which the health export
+  /// writes for WHOOP 5 nights; [rowsFrom] skips our own samples.
   Future<bool> requestPermission() async {
     try {
       await _health.configure();
@@ -146,7 +158,10 @@ class ImportedMeasurementImporter {
         startTime: start,
         endTime: end,
       );
-      return LocalDb.putImportedMeasurements(rowsFrom(points));
+      // Without our own id we cannot tell our skin temperature from a
+      // thermometer's, so nothing is stored rather than something mislabelled.
+      final ownId = (await PackageInfo.fromPlatform()).packageName;
+      return LocalDb.putImportedMeasurements(rowsFrom(points, ownId: ownId));
     } catch (e) {
       debugPrint('[imported_measurement] read: $e');
       return 0;

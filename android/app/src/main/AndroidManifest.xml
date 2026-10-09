@@ -92,6 +92,9 @@
     <uses-permission android:name="android.permission.health.WRITE_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
     <uses-permission android:name="android.permission.health.WRITE_EXERCISE" />
+    <!-- WHOOP 5 nightly skin temperature (°C from the band). Never written for
+         a WHOOP 4, whose reading is a raw count. See health_export.dart. -->
+    <uses-permission android:name="android.permission.health.WRITE_BODY_TEMPERATURE" />
     <!-- Importing workouts: the plugin reads each session's distance and
          total calories with it, and a missing read fails the whole read. -->
     <uses-permission android:name="android.permission.health.READ_DISTANCE" />
@@ -103,12 +106,14 @@
          than failing, so an omission here looks exactly like an empty store. -->
     <uses-permission android:name="android.permission.health.READ_WEIGHT" />
     <uses-permission android:name="android.permission.health.READ_HEIGHT" />
-    <!-- READ only, and there will never be a WRITE counterpart. These come
+    <!-- READ only. These come
          from devices CLEARED to take them — a blood-pressure cuff, a CGM, a
          thermometer — and the whole value is that OpenStrap did not measure
          them. They are shown with the source app's name attached, they are
          never blended into anything of ours, and nothing derived takes one as
-         an input. See lib/health/health_measurement_import.dart. -->
+         an input. See lib/health/health_measurement_import.dart. The one
+         WRITE overlap is BODY_TEMPERATURE (above), and the importer skips our
+         own samples. -->
     <uses-permission android:name="android.permission.health.READ_BLOOD_PRESSURE" />
     <uses-permission android:name="android.permission.health.READ_BLOOD_GLUCOSE" />
     <uses-permission android:name="android.permission.health.READ_BODY_TEMPERATURE" />
