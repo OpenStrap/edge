@@ -157,13 +157,14 @@ void main() {
   });
 
   test(
-      'a notification bundling two frames banks both records, and the '
-      'raw_archive row keeps the notification byte-exact, once',
+      'trailing bytes after a valid frame are not a second frame, and the '
+      'raw_archive row keeps them byte-exact',
       () async {
-    // The ring bundles history events back to back in one notification
-    // (protocol `parseOuraFrames`). Checked on the actual `raw_archive` and
-    // `decoded_onehz` rows: two temperature seconds, and one archive row
-    // holding the whole notification as delivered.
+    // One notification carries exactly one frame; the ring may append bytes
+    // past the declared length. Here the trailing bytes look like a whole
+    // second temperature frame. Checked on the actual `raw_archive` and
+    // `decoded_onehz` rows: one temperature second, not two, and one archive
+    // row holding the whole notification as delivered.
     const syncUnix = 1782043215;
     final anchor = _event(kOuraEvtTimeSync, 1000, _syncBody(syncUnix));
     final temp = _event(kOuraEvtTempPeriod, 1100, _hex(_temp3436));
@@ -172,8 +173,8 @@ void main() {
     final r = await _run([
       [anchor, withTrailing, _summary(2, 0)]
     ]);
-    expect(r.onehz, hasLength(2),
-        reason: 'the bundled second frame is its own record');
+    expect(r.onehz, hasLength(1),
+        reason: 'the trailing bytes are not read as a second record');
     expect(r.archive, hasLength(2));
     final hexes = r.archive.map((a) => a['hex']).toSet();
     expect(hexes, {_hexOf(anchor), _hexOf(withTrailing)},
@@ -487,31 +488,6 @@ void main() {
       nowSeconds: () => _nowSec,
     );
     expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), 5000);
-  });
-
-  test('a rebooted ring whose tail ends below the bookmark moves it down to '
-      'that tail', () async {
-    await LocalDb.setCursor('oura_cursor_ds:$_deviceId', '5000');
-    await OuraLink.instance.ingestForTest(
-      _deviceId,
-      _key,
-      (i, v) {
-        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
-        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
-        if (v.first == 0x10) {
-          return [
-            _event(kOuraEvtTimeSync, 4000, _syncBody(1782043215)),
-            _event(kOuraEvtTempPeriod, 4100, _hex(_temp3436)),
-            _summary(2, 0),
-          ];
-        }
-        return const <List<int>>[];
-      },
-      nowSeconds: () => _nowSec,
-    );
-    expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), 4101);
-    expect(await LocalDb.getCursor('oura_anchor:$_deviceId'),
-        '4000,1782043215');
   });
 
   test('a ring start that restarted the counter clears the stored origin',
@@ -902,15 +878,14 @@ void main() {
   });
 
   test(
-      'RE-DRAIN G: after a ring counter reset the new boot\'s records bank '
-      'once and the bookmark moves down to them',
+      'RE-DRAIN G: a ring counter reset strands the bookmark — the '
+      're-read starts from zero',
       () async {
     // Scenario G: the ring reboots, its decisecond counter restarts near
-    // zero, and the stored bookmark points past everything it holds. A batch
-    // that delivers the new boot's records is read in delivery order: they
-    // are stamped by the new boot's own time_sync and the bookmark moves down
-    // to the last one delivered. A re-read of the same tail is idempotent by
-    // the (device_id, ts_ms) key, so nothing duplicates.
+    // zero, and the stored bookmark points past everything it holds. The
+    // stranded-cursor reset drops the bookmark so the NEXT sync re-reads
+    // from the beginning — the re-read is idempotent by the (device_id,
+    // ts_ms) key, so nothing duplicates.
     const syncUnix = 1782043215;
     await LocalDb.setCursor('oura_cursor_ds:$_deviceId', '5000');
     await LocalDb.setCursor('oura_anchor:$_deviceId', '4000,${syncUnix - 100}');
@@ -922,11 +897,13 @@ void main() {
         _summary(2, 0),
       ],
     ]);
-    expect(first.onehz, hasLength(1),
-        reason: 'the new boot\'s record is stamped by its own time_sync');
-    expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), 201,
-        reason: 'the bookmark follows delivery order, down past the reboot');
-    // THE RE-READ: the same tail again.
+    // The bookmark was stranded and reset — nothing was decoded under it.
+    expect(first.onehz, isEmpty,
+        reason: 'the stranded bookmark keeps everything below it out');
+    expect(await LocalDb.getCursorInt('oura_cursor_ds:$_deviceId'), 0,
+        reason: 'the stranded reset dropped the bookmark for the re-read');
+    // THE RE-READ: same records, now from cursor 0, stamped by the stored
+    // anchor the reset invalidated and the session re-measured.
     final second = await _run([
       [
         _event(kOuraEvtTimeSync, 100, _syncBody(syncUnix)),

@@ -548,37 +548,6 @@ void main() {
     );
   });
 
-  test('a tail that ends below the cursor moves the cursor down to it, not '
-      'to a stranded reset', () async {
-    // After a reboot the counter restarts below the bookmark. The cursor
-    // follows the LAST delivered event, so it lands on the new boot's stamps
-    // and the drain carries on from there.
-    final (events, _) = await _drive(_adapter(startCursorDs: 5000), (i, v) {
-      if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
-      if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
-      if (v.first == 0x10) {
-        return [
-          _event(kOuraEvtTimeSync, 4000, _syncBody(1782043215)),
-          _event(kOuraEvtTempPeriod, 4100, _hex('6c0d')),
-          _summary(2, 0),
-        ];
-      }
-      return const [];
-    });
-    expect(
-      events.whereType<BandNote>().any((n) => n.key == 'oura_cursor_stranded'),
-      isFalse,
-    );
-    expect(
-        events
-            .whereType<BandNote>()
-            .where((n) => n.key == 'oura_cursor_ds')
-            .map((n) => n.value),
-        [4101]);
-    expect(events.whereType<SampleBatch>().single.samples.single.tsEpoch,
-        1782043215 + 10);
-  });
-
   test('an old boot record in the replayed tail is not a new reboot', () async {
     // A boot record below the cursor was already read by an earlier sync;
     // only `bytesLeft > 0` means stranded.
@@ -766,7 +735,7 @@ void main() {
       () async {
     // There is no continuation buffer (see the split-frame test): a
     // notification whose one frame declares more bytes than were delivered
-    // is banked verbatim but not decoded, and the next notification is
+    // is dropped (not archived, not decoded), and the next notification is
     // parsed from byte zero.
     const syncUnix = 1782043215;
     final anchor = _event(kOuraEvtTimeSync, 1000, _syncBody(syncUnix));
@@ -781,8 +750,8 @@ void main() {
     final batch = events.whereType<SampleBatch>().single;
     expect(batch.samples, hasLength(1),
         reason: 'the frame after the cut banks — the cut desyncs nothing');
-    expect(batch.raw, hasLength(3),
-        reason: 'the cut notification is banked as delivered, not decoded');
+    expect(batch.raw, hasLength(2),
+        reason: 'the cut frame is neither archived nor decoded');
     expect(
       events.whereType<BandNote>().where((n) => n.key == 'oura_drain_ok'),
       hasLength(1));
@@ -1150,33 +1119,6 @@ void main() {
     );
   });
 
-  test('a notification carrying several frames yields every event, archived '
-      'once', () async {
-    final (events, _) = await _drive(
-      OuraAdapter(
-        key: _kKey,
-        anchor: (1000, 1782043215),
-        confirmTimeout: _kFast,
-        replyTimeout: _kFast,
-      ),
-      (i, v) {
-        if (v.first == 0x2f && v[2] == 0x2b) return [_nonceReply];
-        if (v.first == 0x2f && v[2] == 0x2d) return [_authOk];
-        if (v.first != 0x10) return const [];
-        return [
-          [
-            ..._event(kOuraEvtTempPeriod, 1100, _hex('6c0d')),
-            ..._event(kOuraEvtTempPeriod, 1200, _hex('6c0d')),
-            ..._summary(2, 0),
-          ],
-        ];
-      },
-    );
-    final batch = events.whereType<SampleBatch>().single;
-    expect(batch.samples.map((s) => s.tsEpoch),
-        [1782043215 + 10, 1782043215 + 20]);
-    expect(batch.raw, hasLength(1));
-  });
 
   // ── The ring's own sleep staging, banked as vendor scalars ──────────────
 

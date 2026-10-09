@@ -249,27 +249,21 @@ class OuraAdapter extends BandAdapter {
     final inbox = _Inbox();
     final sub = link.notify(kOuraNotifyChar).listen(
           (rec) {
-            // One notification can carry several frames back to back. The
-            // notification bytes AS DELIVERED ride on its first event-range
-            // frame only, so `raw_archive` gets one row per notification (its
-            // copy, not the parser's) and never the same bytes twice.
-            var rawGiven = false;
-            final frames = parseOuraFrames(rec.$2);
-            for (final f in frames) {
-              final carries = !rawGiven && f.tag >= kOuraFirstEventTag;
-              if (carries) rawGiven = true;
-              inbox.add(rec.$1, f, carries ? Uint8List.fromList(rec.$2) : null);
-            }
-            // A notification with no trusted frame (an event declaring more
-            // than 18 bytes) is decoded as nothing but still BANKED: an empty
-            // frame under its first byte carries the bytes to `raw_archive`
-            // and decodes to no event.
-            if (frames.isEmpty &&
-                rec.$2.isNotEmpty &&
-                rec.$2.first >= kOuraFirstEventTag) {
-              inbox.add(rec.$1, OuraFrame(rec.$2.first, Uint8List(0)),
-                  Uint8List.fromList(rec.$2));
-            }
+            // ONE notification carries exactly ONE frame (`parseOuraFrame`'s
+            // contract). The ring may append bytes past the declared length;
+            // the parser ignores them, and so does this callback: they are
+            // never read as a second frame. A notification that cannot be a
+            // frame (too short, or a length running past the end) is dropped,
+            // not decoded, so no samples are invented. Bundled delivery
+            // (protocol `parseOuraFrames`) is unverified on hardware and is
+            // deliberately not used here: a wrong walk corrupts silently,
+            // a dropped tail shows on the first real capture.
+            //
+            // The archived raw bytes are the WHOLE notification as the radio
+            // delivered it, trailing bytes included, so a future decoder can
+            // still see them.
+            final f = parseOuraFrame(rec.$2);
+            if (f != null) inbox.add(rec.$1, f, Uint8List.fromList(rec.$2));
           },
           onDone: inbox.close,
           onError: (Object _) => inbox.close(),
@@ -344,6 +338,23 @@ class OuraAdapter extends BandAdapter {
           return;
         }
         final s = got.summary;
+
+        // EVERY EVENT BELOW THE BOOKMARK, and the newest short of the one
+        // just before it: the ring rebooted (its decisecond counter is an
+        // uptime) and the bookmark points past all it holds. An up-to-date
+        // ring replays up to exactly cursor - 1, which is not this. Nothing
+        // is decoded; the host drops the bookmark and the next sync re-reads
+        // from zero, which is idempotent.
+        if (got.events.isNotEmpty &&
+            got.events.every((e) => e.tsDs < cursor) &&
+            got.events.map((e) => e.tsDs).reduce((a, b) => a > b ? a : b) + 1 <
+                cursor) {
+          link.log('oura: the ring replayed ${got.events.length} event(s) '
+              'below the cursor and stops short of it; the bookmark is '
+              'stranded.');
+          yield const BandNote('oura_cursor_stranded');
+          return;
+        }
 
         // A full batch may have been cut inside its last decisecond, which the
         // next batch re-reads (see the cursor advance below).

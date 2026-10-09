@@ -2018,7 +2018,7 @@ const String kAnalyticsPin = 'f16906cbae73b767a746f36846b0aea5e30967c9';
 // REPIN: protocol main @ ecb512b (#72-#77).
 // REPIN: feat/multidevice-verified-decoders head; re-point at the protocol
 // main merge commit.
-const String kProtocolPin = 'e26e59d1173701821885fae9999304db7452be2f';
+const String kProtocolPin = 'a00a70297502eaa0d7e8c9cabdbc3feb45dbe507';
 
 // Fold idempotency, the minimum-nights warm-up, and legacy-payload handling
 // all live in SleepProfilePolicy (pure, unit-tested) — see

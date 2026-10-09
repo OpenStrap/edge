@@ -262,7 +262,7 @@ dependencies:
       # REPIN: protocol feat/multidevice-verified-decoders head (multi-device
       # decoders; WHOOP decode untouched, pinned by whoop_freeze_golden_test).
       # Re-point at the merge commit once it lands on protocol main.
-      ref: e26e59d1173701821885fae9999304db7452be2f
+      ref: a00a70297502eaa0d7e8c9cabdbc3feb45dbe507
   openstrap_analytics:
     git:
       url: https://github.com/OpenStrap/analytics.git

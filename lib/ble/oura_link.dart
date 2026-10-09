@@ -930,11 +930,8 @@ class OuraLink {
   /// banked now so a decoder written once their layout is known can be run
   /// over them.
   ArchiveRecord? _buildArchiveRow(List<int> bytes, int capturedAtMs) {
-    // One row per notification, tagged by its first frame. Walked rather than
-    // read as one frame: an extended event's byte 1 is a CRC, not a length.
-    // A notification with no trusted frame is still banked, under its first
-    // byte: nothing decodes it, and that is no reason to lose it.
-    final tag = parseOuraFrames(bytes).firstOrNull?.tag ?? bytes.firstOrNull;
+    // One row per notification, tagged by its one frame (`parseOuraFrame`).
+    final tag = parseOuraFrame(bytes)?.tag;
     if (tag == null) return null;
     return ArchiveRecord(
       hex: _hex(bytes),
@@ -1517,7 +1514,8 @@ Future<OuraPairAttempt> ouraPairHandshake(
   // three replies, once, during pairing.
   final inbox = <OuraFrame>[];
   final sub = link.notify(kOuraNotifyChar).listen((rec) {
-    inbox.addAll(parseOuraFrames(rec.$2));
+    final f = parseOuraFrame(rec.$2);
+    if (f != null) inbox.add(f);
   });
   var read = 0;
   Future<OuraFrame?> waitFor(bool Function(OuraFrame) matches) async {
