@@ -2895,11 +2895,12 @@ class LocalDb {
   ) async {
     final db = await instance;
     await db.transaction((txn) async {
-      await txn.update('workout_route', {'session_id': sessionId},
-          where: 'session_id = ?',
-          whereArgs: [uuid],
-          // A session that already has its own route keeps it.
-          conflictAlgorithm: ConflictAlgorithm.ignore);
+      // A session that already has its own route keeps it whole: moving only
+      // the non-colliding points would splice two routes into one.
+      await txn.rawUpdate(
+          'UPDATE workout_route SET session_id = ? WHERE session_id = ? '
+          'AND NOT EXISTS (SELECT 1 FROM workout_route WHERE session_id = ?)',
+          [sessionId, uuid, sessionId]);
       await txn.delete('workout_route',
           where: 'session_id = ?', whereArgs: [uuid]);
       await txn.delete('imported_workout',

@@ -94,5 +94,24 @@ void main() {
       final route = await db.query('workout_route');
       expect(route.single['session_id'], 'manual-100');
     });
+
+    test('a session with its own route keeps it whole', () async {
+      final db = await LocalDb.instance;
+      Map<String, Object> pt(String id, int seq, double lat) => {
+            'session_id': id,
+            'seq': seq,
+            'ts_ms': 100000 + seq,
+            'lat': lat,
+            'lng': -0.1,
+          };
+      await db.insert('workout_route', pt('manual-100', 0, 1));
+      await db.insert('workout_route', pt('hevy-1', 0, 2));
+      await db.insert('workout_route', pt('hevy-1', 1, 2));
+
+      await LocalDb.supersedeImportedWorkout('hevy-1', 'manual-100');
+
+      final route = await db.query('workout_route');
+      expect(route.single['lat'], 1);
+    });
   });
 }

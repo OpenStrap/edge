@@ -243,7 +243,14 @@ Future<Set<String>> deletedUuids() async {
   return {...(prefs.getStringList(_kTombstonesPref) ?? const [])};
 }
 
-Future<void> rememberDeletedUuid(String uuid) async {
+// Serialized: each write replaces the whole list, so two overlapping calls
+// would each drop the other's uuid.
+Future<void> _tombstoneWrites = Future.value();
+
+Future<void> rememberDeletedUuid(String uuid) => _tombstoneWrites =
+    _tombstoneWrites.catchError((_) {}).then((_) => _remember(uuid));
+
+Future<void> _remember(String uuid) async {
   final prefs = await SharedPreferences.getInstance();
   final set = await deletedUuids();
   if (set.contains(uuid)) return;
@@ -366,6 +373,13 @@ class HealthWorkoutImporter {
     await LocalDb.putImportedWorkouts([for (final r in alive) r.toRow()]);
     final withRoutes = await _importRoutes(start, end,
         skip: {...tombstones, ...ownUuids}, prompt: prompt);
+    // Re-read: a workout scored or deleted while this pass was in flight, or
+    // one an interrupted pass tombstoned without removing, must not stay
+    // listed (or keep a route) beside the session that replaced it.
+    final dead = await deletedUuids();
+    for (final r in rows) {
+      if (dead.contains(r.uuid)) await LocalDb.deleteImportedWorkout(r.uuid);
+    }
     return WorkoutImportResult(
       workouts: alive.length,
       withRoutes: withRoutes,
