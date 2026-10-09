@@ -16,12 +16,14 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../ui2/activity/catalogue.dart' show exerciseByKey;
 import 'db.dart';
+import 'series_codec.dart';
 
 /// One exportable table: a filename stem, a header, and the query behind it.
 class CsvExportSet {
@@ -405,14 +407,7 @@ Future<CsvExportResult> exportCsvFiles(
   DateTime? now,
 }) async {
   final db = await LocalDb.instance;
-  final root = await getTemporaryDirectory();
-  final parent = Directory(p.join(root.path, _csvDirName));
-  await parent.create(recursive: true);
-
-  final stamp = (now ?? DateTime.now()).millisecondsSinceEpoch;
-  final dir = Directory(p.join(parent.path, '$stamp'));
-  await dir.create(recursive: true);
-  await _pruneOldRuns(parent, keep: _csvRunsKept);
+  final (dir, stamp) = await _newRunDir(now);
   final paths = <String>[];
   final failed = <String>[];
 
@@ -444,6 +439,92 @@ Future<CsvExportResult> exportCsvFiles(
     }
   }
   return CsvExportResult(paths: paths, failed: failed);
+}
+
+Future<(Directory, int)> _newRunDir(DateTime? now) async {
+  final root = await getTemporaryDirectory();
+  final parent = Directory(p.join(root.path, _csvDirName));
+  await parent.create(recursive: true);
+  final stamp = (now ?? DateTime.now()).millisecondsSinceEpoch;
+  final dir = Directory(p.join(parent.path, '$stamp'));
+  await dir.create(recursive: true);
+  await _pruneOldRuns(parent, keep: _csvRunsKept);
+  return (dir, stamp);
+}
+
+const kHeartRateCsvColumns = ['timestamp', 'local_time', 'bpm', 'source'];
+
+/// One CSV row per minute of a day's stored heart-rate curve.
+///
+/// The curve is the per-minute MEAN of the band's 1 Hz readings, written when
+/// the day is derived and kept for as long as the day is — unlike the 1 Hz
+/// rows themselves, which are pruned a few days behind the newest sync. So
+/// this is every minute the app still knows, at the resolution it still has.
+/// [source] is the day's provenance stamp, empty when unknown (never guessed).
+List<Map<String, Object?>> heartRateMinuteRows(
+    List<Object?> curve, String? source) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  return [
+    for (final e in curve)
+      if (e is Map && e['t'] is num && e['v'] is num && (e['v'] as num) > 0)
+        () {
+          final t = (e['t'] as num).toInt();
+          final d = DateTime.fromMillisecondsSinceEpoch(t * 1000);
+          return <String, Object?>{
+            'timestamp': t,
+            'local_time': '${d.year}-${two(d.month)}-${two(d.day)} '
+                '${two(d.hour)}:${two(d.minute)}',
+            'bpm': e['v'],
+            'source': source,
+          };
+        }(),
+  ];
+}
+
+/// Write minute-by-minute heart rate for derived days [from]..[to]
+/// (inclusive, `yyyy-MM-dd`) to one CSV. Null when there was nothing in the
+/// range — no header-only file, same rule as [exportCsvFiles].
+Future<String?> exportHeartRateCsv(String from, String to,
+    {DateTime? now}) async {
+  final db = await LocalDb.instance;
+  final days = [
+    for (final d in await LocalDb.availableDayIds())
+      if (d.compareTo(from) >= 0 && d.compareTo(to) <= 0) d,
+  ]..sort();
+  // Provenance is keyed by the version that wrote it: a day's stamp counts
+  // only against the day_result of that same version, so a re-derive landing
+  // between these reads leaves the source empty (unknown), never another
+  // version's.
+  final source = {
+    for (final r in await db.rawQuery(
+        'SELECT date, algo_version, source FROM metric_series_version '
+        'WHERE date >= ? AND date <= ?',
+        [from, to]))
+      (r['date'] as String, (r['algo_version'] as num?)?.toInt()):
+          r['source'] as String?,
+  };
+  final rows = <Map<String, Object?>>[];
+  for (final day in days) {
+    final res = await LocalDb.dayResult(day);
+    final b = SeriesCodec.decodePayloadJson(res?['payload_json']);
+    final curve = (b?['series'] as Map?)?['hr_curve'];
+    final v = (res?['algo_version'] as num?)?.toInt();
+    if (curve is List) rows.addAll(heartRateMinuteRows(curve, source[(day, v)]));
+  }
+  if (rows.isEmpty) return null;
+  // A long range is hundreds of thousands of rows: render off the UI isolate.
+  final csv =
+      await Isolate.run(() => renderCsv(kHeartRateCsvColumns, rows));
+  final (dir, stamp) = await _newRunDir(now);
+  final file =
+      File(p.join(dir.path, 'openstrap_heart_rate_${from}_${to}_$stamp.csv'));
+  await file.writeAsBytes([
+    0xEF,
+    0xBB,
+    0xBF,
+    ...utf8.encode(csv),
+  ]);
+  return file.path;
 }
 
 /// Delete all but the [keep] newest run directories under [parent].
