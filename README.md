@@ -47,7 +47,8 @@ it can trail TestFlight by a version or two.
 
 **F-Droid:** not listed yet. A build recipe that swaps out the Google-backed pieces
 (Firebase, ML Kit barcode scanning, Play Services location) is drafted in
-[`docs/fdroid/`](docs/fdroid/), but it hasn't been submitted.
+[`docs/fdroid/`](docs/fdroid/). An inclusion request was opened and closed without
+being merged.
 
 ---
 
